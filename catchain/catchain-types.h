@@ -1,0 +1,47 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2017-2019 Telegram Systems LLP
+*/
+#pragma once
+
+#include "td/utils/int_types.h"
+#include "adnl/adnl-node-id.hpp"
+
+namespace ton {
+
+namespace catchain {
+
+using CatChainBlockHash = td::Bits256;
+using CatChainBlockPayloadHash = td::Bits256;
+using CatChainBlockHeight = td::uint32;
+using CatChainSessionId = td::Bits256;
+
+struct CatChainNode {
+  adnl::AdnlNodeIdShort adnl_id;
+  PublicKey pub_key;
+};
+
+struct CatChainOptions {
+  td::Clocks::Duration idle_timeout = 16.0;
+  td::uint32 max_deps = 4;
+
+  bool debug_disable_db = false;
+};
+
+}  // namespace catchain
+
+}  // namespace ton

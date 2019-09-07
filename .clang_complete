@@ -1,0 +1,12 @@
+-xc++
+-std=c++14
+-iquote .
+-iquote tdtl/
+-iquote tl/
+-iquote tl/generate/
+-iquote tdactor/
+-iquote tdnet/
+-iquote tdutils/
+-iquote ../ton-build/tdutils/
+-iquote crypto/
+-I/opt/local/include/

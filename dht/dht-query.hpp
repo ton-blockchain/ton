@@ -1,0 +1,177 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2017-2019 Telegram Systems LLP
+*/
+#pragma once
+
+#include <set>
+#include <map>
+
+#include "td/utils/int_types.h"
+#include "td/actor/actor.h"
+
+#include "adnl/adnl.h"
+#include "td/actor/PromiseFuture.h"
+
+#include "auto/tl/ton_api.hpp"
+
+#include "dht.hpp"
+
+namespace ton {
+
+namespace dht {
+
+class DhtMember;
+
+class DhtQuery : public td::actor::Actor {
+ protected:
+  DhtKeyId key_;
+  DhtNode self_;
+
+ public:
+  DhtQuery(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k,
+           td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl)
+      : key_(key), self_(std::move(self)), print_id_(print_id), src_(src), k_(k), a_(a), node_(node), adnl_(adnl) {
+    add_nodes(std::move(list));
+  }
+  DhtMember::PrintId print_id() const {
+    return print_id_;
+  }
+  void send_queries();
+  void add_nodes(DhtNodesList list);
+  void finish_query() {
+    active_queries_--;
+    CHECK(active_queries_ <= k_);
+    send_queries();
+  }
+  DhtKeyId get_key() const {
+    return key_;
+  }
+  adnl::AdnlNodeIdShort get_src() const {
+    return src_;
+  }
+  td::uint32 get_k() const {
+    return k_;
+  }
+  void start_up() override {
+    send_queries();
+  }
+  virtual void send_one_query(adnl::AdnlNodeIdShort id) = 0;
+  virtual void finish(DhtNodesList list) = 0;
+  virtual std::string get_name() const = 0;
+
+ private:
+  DhtMember::PrintId print_id_;
+  adnl::AdnlNodeIdShort src_;
+  std::map<DhtKeyId, DhtNode> list_;
+  std::set<DhtKeyId> pending_ids_;
+  td::uint32 k_;
+  td::uint32 a_;
+  td::actor::ActorId<DhtMember> node_;
+  td::uint32 active_queries_ = 0;
+
+ protected:
+  td::actor::ActorId<adnl::Adnl> adnl_;
+};
+
+class DhtQueryFindNodes : public DhtQuery {
+ private:
+  td::Promise<DhtNodesList> promise_;
+
+ public:
+  DhtQueryFindNodes(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
+                    td::uint32 k, td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node,
+                    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<DhtNodesList> promise)
+      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), node, adnl), promise_(std::move(promise)) {
+  }
+  void send_one_query(adnl::AdnlNodeIdShort id) override;
+  void on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst);
+  void finish(DhtNodesList list) override;
+  std::string get_name() const override {
+    return "find nodes";
+  }
+};
+
+class DhtQueryFindValue : public DhtQuery {
+ private:
+  td::Promise<DhtValue> promise_;
+
+ public:
+  DhtQueryFindValue(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
+                    td::uint32 k, td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node,
+                    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<DhtValue> promise)
+      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), node, adnl), promise_(std::move(promise)) {
+  }
+  void send_one_query(adnl::AdnlNodeIdShort id) override;
+  void on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst);
+  void finish(DhtNodesList list) override;
+  std::string get_name() const override {
+    return "find value";
+  }
+};
+
+class DhtQueryStore : public td::actor::Actor {
+ private:
+  DhtMember::PrintId print_id_;
+  td::uint32 k_;
+  td::uint32 a_;
+  td::Promise<td::Unit> promise_;
+  td::actor::ActorId<DhtMember> node_;
+  td::actor::ActorId<adnl::Adnl> adnl_;
+  adnl::AdnlNodeIdShort src_;
+  DhtValue value_;
+  td::uint32 success_ = 0;
+  td::uint32 fail_ = 0;
+  td::uint32 remaining_;
+  DhtNodesList list_;
+  DhtNode self_;
+
+ public:
+  DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
+                td::uint32 k, td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node,
+                td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::Unit> promise);
+  void send_stores(td::Result<DhtNodesList> res);
+  void store_ready(td::Result<td::BufferSlice> res);
+  void start_up() override;
+  DhtMember::PrintId print_id() const {
+    return print_id_;
+  }
+};
+
+inline td::StringBuilder &operator<<(td::StringBuilder &sb, const DhtQuery &dht) {
+  sb << dht.print_id();
+  return sb;
+}
+
+inline td::StringBuilder &operator<<(td::StringBuilder &sb, const DhtQuery *dht) {
+  sb << dht->print_id();
+  return sb;
+}
+
+inline td::StringBuilder &operator<<(td::StringBuilder &sb, const DhtQueryStore &dht) {
+  sb << dht.print_id();
+  return sb;
+}
+
+inline td::StringBuilder &operator<<(td::StringBuilder &sb, const DhtQueryStore *dht) {
+  sb << dht->print_id();
+  return sb;
+}
+
+}  // namespace dht
+
+}  // namespace ton

@@ -1,0 +1,12 @@
+[submodule "third-party/rocksdb"]
+	path = third-party/rocksdb
+	url = https://github.com/facebook/rocksdb.git
+[submodule "third-party/crc32c"]
+	path = third-party/crc32c
+	url = https://github.com/google/crc32c
+[submodule "third-party/abseil-cpp"]
+	path = third-party/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
+[submodule "third-party/libraptorq"]
+	path = third-party/libraptorq
+	url = https://github.com/ton-blockchain/libRaptorQ

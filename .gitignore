@@ -1,0 +1,13 @@
+__pycache__
+parser.out
+parsetab.py
+parsetab.pyc
+tdutils/generate/auto/
+tl/generate/auto/
+compile_commands.json
+crypto/block/block-auto.cpp
+crypto/block/block-auto.h
+crypto/smartcont/*-code.fif
+test/regression-tests.cache/
+*.swp
+**/*build*/
