@@ -869,12 +869,12 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (!(unpack_msg_state() && account.check_split_depth(new_split_depth))) {
       LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad split_depth; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
-      return false;
+      return true;
     }
     if (acc_status == Account::acc_uninit && !check_in_msg_state_hash()) {
       LOG(DEBUG) << "in_msg_state hash mismatch, cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
-      return false;
+      return true;
     }
   } else if (acc_status != Account::acc_active) {
     // no state, cannot perform transactions
