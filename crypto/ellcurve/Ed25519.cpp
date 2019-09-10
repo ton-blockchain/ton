@@ -123,7 +123,12 @@ bool PublicKey::check_message_signature(const unsigned char signature[sign_bytes
   if (!pR1.export_point(pR1_bytes)) {
     return false;
   }
-  return !std::memcmp(pR1_bytes, signature, 32);
+    
+  //return !std::memcmp(pR1_bytes, signature, 32); //its not time constant, do not use it
+  int compareresult = 0;
+  for (int i = 0; i < 32; i++)
+		compareresult |= pR1_bytes[i] ^ signature[i];
+  return !(1 & ((compareresult - 1) >> 8)) - 1;
 }
 
 // ---------------------
