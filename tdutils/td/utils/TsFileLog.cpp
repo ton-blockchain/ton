@@ -50,7 +50,7 @@ class TsFileLog : public LogInterface {
  private:
   struct Info {
     FileLog log;
-    bool is_inited;
+    std::atomic<bool> is_inited{false};
     int id;
   };
   static constexpr int MAX_THREAD_ID = 128;
@@ -59,7 +59,7 @@ class TsFileLog : public LogInterface {
 
   LogInterface *get_current_logger() {
     auto *info = get_current_info();
-    if (!info->is_inited) {
+    if (!info->is_inited.load(std::memory_order_relaxed)) {
       CHECK(init_info(info).is_ok());
     }
     return &info->log;
@@ -79,7 +79,15 @@ class TsFileLog : public LogInterface {
     if (info->id == 0) {
       return path_;
     }
-    return PSTRING() << path_ << "." << info->id;
+    return PSTRING() << path_ << ".thread" << info->id << ".log";
+  }
+
+  void rotate() override {
+    for (auto &info : logs_) {
+      if (info.is_inited.load(std::memory_order_consume)) {
+        info.log.rotate();
+      }
+    }
   }
 };
 }  // namespace detail

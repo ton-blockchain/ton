@@ -3782,11 +3782,9 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
         return reject_query("unpack ext_message_deq OutMsg record for already processed EnqueuedMsg with key "s +
                             key.to_hex(352) + " of old outbound queue contains a different MsgEnvelope");
       }
-    } else if (out_entry.not_null()) {
-      return reject_query(
-          "have an OutMsg entry for exporting (or even dequeuing) already processed EnqueuedMsg with key "s +
-          key.to_hex(352) + " of neighbor " + nb.blk_.to_str());
     }
+    // NB. we might have a non-trivial dequeueing out_entry with this message hash, but another envelope (for transit messages)
+    // (so we cannot assert that out_entry is null)
     if (claimed_proc_lt_ && (claimed_proc_lt_ < lt || (claimed_proc_lt_ == lt && claimed_proc_hash_ < enq.hash_))) {
       LOG(FATAL) << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
                  << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()

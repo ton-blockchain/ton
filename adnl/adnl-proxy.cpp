@@ -157,6 +157,11 @@ void Receiver::receive_to_client(td::BufferSlice data) {
 
 }  // namespace ton
 
+std::atomic<bool> rotate_logs_flags{false};
+void force_rotate_logs(int sig) {
+  rotate_logs_flags.store(true);
+}
+
 int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
@@ -190,23 +195,20 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
-    td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
-      close(0);
-      setsid();
+    close(0);
+    setsid();
 #endif
-    }).ensure();
+    td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
     return td::Status::OK();
   });
-#if TD_DARWIN || TD_LINUX
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     auto F = std::make_unique<td::FileLog>();
-    TRY_STATUS(F->init(fname.str()));
+    TRY_STATUS(F->init(fname.str(), std::numeric_limits<td::uint64>::max(), true));
     logger_ = std::move(F);
     td::log_interface = logger_.get();
     return td::Status::OK();
   });
-#endif
   td::uint32 threads = 7;
   p.add_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
     td::int32 v;
@@ -261,5 +263,10 @@ int main(int argc, char *argv[]) {
   }
 
   while (scheduler.run(1)) {
+    if (rotate_logs_flags.exchange(false)) {
+      if (td::log_interface) {
+        td::log_interface->rotate();
+      }
+    }
   }
 }

@@ -15,23 +15,28 @@ def? $2 { @' $2 } { "new-wallet" } cond constant file-base
 ."Creating new wallet in workchain " wc . cr
 
 // Create new simple wallet
-<{  SETCP0 DUP IFNOTRET INC 32 THROWIF  // return if recv_internal, fail unless recv_external
-    512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
-    c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
-    s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
-    EQUAL 33 THROWIFNOT   // ( seqno mismatch? )
-    s2 PUSH HASHSU        // sign cs cnt pubk hash
-    s0 s4 s4 XC2PU        // pubk cs cnt hash sign pubk
-    CHKSIGNU              // pubk cs cnt ?
-    34 THROWIFNOT         // signature mismatch
-    ACCEPT
-    SWAP 32 LDU NIP 
-    DUP SREFS IF:<{
-      8 LDU LDREF         // pubk cnt mode msg cs
-      s0 s2 XCHG SENDRAWMSG  // pubk cnt cs ; ( message sent )
-    }>
-    ENDS
-    INC NEWC 32 STU 256 STU ENDC c4 POPCTR
+<{ SETCP0 DUP IFNOTRET // return if recv_internal
+   DUP 85143 INT EQUAL IFJMP:<{ // "seqno" get-method
+     DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
+   }>
+   INC 32 THROWIF  // fail unless recv_external
+   512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
+   c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
+   s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
+   EQUAL 33 THROWIFNOT   // ( seqno mismatch? )
+   s2 PUSH HASHSU        // sign cs cnt pubk hash
+   s0 s4 s4 XC2PU        // pubk cs cnt hash sign pubk
+   CHKSIGNU              // pubk cs cnt ?
+   34 THROWIFNOT         // signature mismatch
+   ACCEPT
+   SWAP 32 LDU NIP 
+   DUP SREFS IF:<{
+     // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
+     8 LDU LDREF         // pubk cnt mode msg cs
+     s0 s2 XCHG SENDRAWMSG  // pubk cnt cs ; ( message sent )
+   }>
+   ENDS
+   INC NEWC 32 STU 256 STU ENDC c4 POPCTR
 }>c // >libref
 // code
 <b 0 32 u, 

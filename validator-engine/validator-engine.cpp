@@ -2602,6 +2602,11 @@ std::atomic<bool> need_stats_flag{false};
 void need_stats(int sig) {
   need_stats_flag.store(true);
 }
+std::atomic<bool> rotate_logs_flags{false};
+void force_rotate_logs(int sig) {
+  rotate_logs_flags.store(true);
+}
+
 void dump_memory_stats() {
   if (!is_memprof_on()) {
     return;
@@ -2685,21 +2690,18 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
-    td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
-      close(0);
-      setsid();
+    close(0);
+    setsid();
 #endif
-    }).ensure();
+    td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
     return td::Status::OK();
   });
-#if TD_DARWIN || TD_LINUX
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
     return td::Status::OK();
   });
-#endif
   p.add_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600", [&](td::Slice fname) {
     auto v = td::to_double(fname);
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
@@ -2754,6 +2756,11 @@ int main(int argc, char *argv[]) {
   while (scheduler.run(1)) {
     if (need_stats_flag.exchange(false)) {
       dump_stats();
+    }
+    if (rotate_logs_flags.exchange(false)) {
+      if (td::log_interface) {
+        td::log_interface->rotate();
+      }
     }
   }
 

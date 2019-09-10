@@ -480,7 +480,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
   }
   BlockHandleImpl(td::BufferSlice data);
   ~BlockHandleImpl() {
-    CHECK(!need_flush());
+    LOG_CHECK(!need_flush()) << "flags=" << flags_;
     get_thread_safe_counter().add(-1);
   }
 

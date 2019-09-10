@@ -56,7 +56,7 @@ td::Ref<vm::Cell> TestWallet::make_a_gift_message(const td::Ed25519::PrivateKey&
 td::Ref<vm::Cell> TestWallet::get_init_code() {
   static auto res = [] {
     auto serialized_code = td::base64_decode(
-                               "te6ccgEEAQEAAAAARAAAhP8AIN2k8mCBAgDXGCDXCx/tRNDTH9P/"
+                               "te6ccgEEAQEAAAAAUwAAov8AIN0gggFMl7qXMO1E0NcLH+Ck8mCBAgDXGCDXCx/tRNDTH9P/"
                                "0VESuvKhIvkBVBBE+RDyovgAAdMfMSDXSpbTB9QC+wDe0aTIyx/L/8ntVA==")
                                .move_as_ok();
     return vm::std_boc_deserialize(serialized_code).move_as_ok();

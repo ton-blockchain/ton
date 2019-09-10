@@ -131,14 +131,17 @@ td::Result<block::StdAddress> parse_account_addr(std::map<std::string, std::stri
     return td::Status::Error(ton::ErrorCode::error, "no account id");
   }
   std::string acc_string = it->second;
-  block::StdAddress a{acc_string};
-  if (a.is_valid()) {
+  block::StdAddress a;
+  if (a.parse_addr(td::Slice(acc_string))) {
     return a;
   }
   ton::WorkchainId workchain_id;
   it = opts.find("accountworkchain");
   if (it == opts.end()) {
-    return td::Status::Error(ton::ErrorCode::error, "no account workchain id");
+    it = opts.find("workchain");
+    if (it == opts.end()) {
+      return td::Status::Error(ton::ErrorCode::error, "no account workchain id");
+    }
   }
   try {
     workchain_id = std::stoi(it->second);

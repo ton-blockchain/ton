@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
   {
     sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(global_config_str, "."))).ensure();
   }
-  dump_transaction_history(client, get_test_giver_address(client));
+  //dump_transaction_history(client, get_test_giver_address(client));
   auto wallet_a = create_wallet(client);
   auto wallet_b = create_empty_wallet(client);
   transfer_grams(client, wallet_a.address, wallet_b.address, 3000000000, wallet_a.key.get_input_key());

@@ -64,7 +64,11 @@ std::string load_source(std::string name) {
 
 td::Ref<vm::Cell> get_test_wallet_source() {
   std::string code = R"ABCD(
-SETCP0 DUP IFNOTRET INC 32 THROWIF  // return if recv_internal, fail unless recv_external
+SETCP0 DUP IFNOTRET // return if recv_internal
+DUP 85143 INT EQUAL IFJMP:<{ // "seqno" get-method
+  DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
+}>
+INC 32 THROWIF  // fail unless recv_external
 512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
 c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
 s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
@@ -76,6 +80,7 @@ CHKSIGNU              // pubk cs cnt ?
 ACCEPT
 SWAP 32 LDU NIP
 DUP SREFS IF:<{
+  // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
   8 LDU LDREF         // pubk cnt mode msg cs
   s0 s2 XCHG SENDRAWMSG  // pubk cnt cs ; ( message sent )
 }>
@@ -86,6 +91,7 @@ INC NEWC 32 STU 256 STU ENDC c4 POPCTR
 }
 
 TEST(Tonlib, TestWallet) {
+  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_test_wallet_source()).move_as_ok());
   CHECK(get_test_wallet_source()->get_hash() == TestWallet::get_init_code()->get_hash());
   auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet.fif"), {"aba", "0"}).move_as_ok();
 
