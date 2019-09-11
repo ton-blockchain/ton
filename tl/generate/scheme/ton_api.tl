@@ -498,6 +498,14 @@ engine.adnlProxy.config ports:(vector engine.adnlProxy.port) = engine.adnlProxy.
 
 ---types---
 
+adnl.pong value:long = adnl.Pong;
+
+---functions---
+
+adnl.ping value:long = adnl.Pong;
+
+---types---
+
 engine.validator.keyHash key_hash:int256 = engine.validator.KeyHash;
 engine.validator.signature signature:bytes = engine.validator.Signature;
 
@@ -512,6 +520,9 @@ engine.validator.success = engine.validator.Success;
 engine.validator.jsonConfig data:string = engine.validator.JsonConfig;
 
 engine.validator.electionBid election_date:int perm_key:int256 adnl_addr:int256 to_send_payload:bytes = engine.validator.ElectionBid; 
+
+engine.validator.dhtServerStatus id:int256 status:int = engine.validator.DhtServerStatus;
+engine.validator.dhtServersStatus servers:(vector engine.validator.dhtServerStatus) = engine.validator.DhtServersStatus;
 
 ---functions---
 
@@ -549,5 +560,7 @@ engine.validator.getConfig = engine.validator.JsonConfig;
 engine.validator.setVerbosity verbosity:int = engine.validator.Success; 
 
 engine.validator.createElectionBid election_date:int election_addr:string wallet:string = engine.validator.ElectionBid;
+
+engine.validator.checkDhtServers id:int256 = engine.validator.DhtServersStatus;
 
 engine.validator.controlQuery data:bytes = Object;

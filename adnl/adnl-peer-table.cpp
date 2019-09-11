@@ -283,11 +283,19 @@ void AdnlPeerTableImpl::start_up() {
 
 void AdnlPeerTableImpl::write_new_addr_list_to_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, AdnlDbItem node,
                                                   td::Promise<td::Unit> promise) {
+  if (db_.empty()) {
+    promise.set_value(td::Unit());
+    return;
+  }
   td::actor::send_closure(db_, &AdnlDb::update, local_id, peer_id, std::move(node), std::move(promise));
 }
 
 void AdnlPeerTableImpl::get_addr_list_from_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id,
                                               td::Promise<AdnlDbItem> promise) {
+  if (db_.empty()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "db not inited"));
+    return;
+  }
   td::actor::send_closure(db_, &AdnlDb::get, local_id, peer_id, std::move(promise));
 }
 
@@ -295,7 +303,9 @@ AdnlPeerTableImpl::AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<key
   keyring_ = keyring;
   static_nodes_manager_ = AdnlStaticNodesManager::create();
 
-  db_ = AdnlDb::create(db_root + "/adnl");
+  if (!db_root.empty()) {
+    db_ = AdnlDb::create(db_root + "/adnl");
+  }
 }
 
 void AdnlPeerTableImpl::deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {

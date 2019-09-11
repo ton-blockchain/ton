@@ -821,3 +821,24 @@ class CreateElectionBidQuery : public Query {
   std::string fname_;
 };
 
+class CheckDhtServersQuery : public Query {
+ public:
+  CheckDhtServersQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "checkdht";
+  }
+  static std::string get_help() {
+    return "checkdht <adnlid>\tchecks, which root DHT servers are accessible from this ADNL addr";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash id_;
+};

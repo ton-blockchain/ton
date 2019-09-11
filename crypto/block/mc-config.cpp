@@ -67,7 +67,7 @@ td::Result<std::unique_ptr<Config>> Config::extract_from_key_block(Ref<vm::Cell>
         tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block && mc_extra.config.not_null())) {
     return td::Status::Error(-400, "cannot unpack extra header of key block to extract configuration");
   }
-  return block::Config::unpack_config(std::move(mc_extra.config));
+  return block::Config::unpack_config(std::move(mc_extra.config), mode);
 }
 
 td::Result<std::unique_ptr<Config>> Config::extract_from_state(Ref<vm::Cell> mc_state_root, int mode) {
@@ -1482,6 +1482,7 @@ std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull 
 std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                                ton::CatchainSeqno cc_seqno) const {
   if (!cur_validators_) {
+    LOG(DEBUG) << "failed to compute validator set: cur_validators_ is empty";
     return {};
   } else {
     return compute_validator_set(shard, *cur_validators_, time, cc_seqno);

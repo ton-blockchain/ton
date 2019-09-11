@@ -31,7 +31,8 @@ class ValidateBroadcast : public td::actor::Actor {
   BlockHandle last_masterchain_block_handle_;
   td::Ref<MasterchainState> last_masterchain_state_;
   BlockHandle last_known_masterchain_block_handle_;
-  td::Ref<Proof> last_known_masterchain_block_proof_;
+
+  ProofLink::BasicHeaderInfo header_info_;
 
   td::actor::ActorId<ValidatorManager> manager_;
   td::Timestamp timeout_;
@@ -44,6 +45,10 @@ class ValidateBroadcast : public td::actor::Actor {
   BlockHandle handle_;
 
   td::PerfWarningTimer perf_timer_{"validatebroadcast", 0.1};
+
+  bool exact_key_block_handle_;
+  td::Ref<ProofLink> key_proof_link_;
+  td::Ref<MasterchainState> zero_state_;
 
  public:
   ValidateBroadcast(BlockBroadcast broadcast, BlockHandle last_masterchain_block_handle,
@@ -59,6 +64,11 @@ class ValidateBroadcast : public td::actor::Actor {
   }
 
   void start_up() override;
+  void got_key_block_id(BlockIdExt block_id);
+  void got_key_block_handle(BlockHandle block_handle);
+  void got_key_block_proof_link(td::Ref<ProofLink> proof_link);
+  void got_zero_state(td::Ref<MasterchainState> state);
+  void check_signatures_common(td::Ref<ConfigHolder> conf);
   void checked_signatures();
   void got_block_handle(BlockHandle handle);
   void written_block_data();

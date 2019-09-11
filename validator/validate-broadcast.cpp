@@ -69,33 +69,150 @@ void ValidateBroadcast::start_up() {
     return;
   }
 
-  auto val_set = last_masterchain_state_->get_validator_set(broadcast_.block_id.shard_full());
-  if (val_set.not_null() && val_set->get_catchain_seqno() == broadcast_.catchain_seqno &&
-      val_set->get_validator_set_hash() == broadcast_.validator_set_hash) {
-    auto S = val_set->check_signatures(broadcast_.block_id.root_hash, broadcast_.block_id.file_hash, sig_set_);
-    if (S.is_ok()) {
-      checked_signatures();
+  if (broadcast_.block_id.is_masterchain()) {
+    auto R = create_proof(broadcast_.block_id, broadcast_.proof.clone());
+    if (R.is_error()) {
+      abort_query(R.move_as_error_prefix("bad proof: "));
+      return;
+    }
+    proof_ = R.move_as_ok();
+    auto hR = proof_->get_basic_header_info();
+    if (hR.is_error()) {
+      abort_query(hR.move_as_error_prefix("bad proof: "));
+      return;
+    }
+    header_info_ = hR.move_as_ok();
+  } else {
+    auto R = create_proof_link(broadcast_.block_id, broadcast_.proof.clone());
+    if (R.is_error()) {
+      abort_query(R.move_as_error_prefix("bad proof link: "));
+      return;
+    }
+    proof_link_ = R.move_as_ok();
+    auto hR = proof_link_->get_basic_header_info();
+    if (hR.is_error()) {
+      abort_query(hR.move_as_error_prefix("bad proof link: "));
+      return;
+    }
+    header_info_ = hR.move_as_ok();
+  }
+
+  BlockSeqno key_block_seqno = header_info_.prev_key_mc_seqno;
+  exact_key_block_handle_ = key_block_seqno <= last_known_masterchain_block_handle_->id().seqno();
+  if (key_block_seqno < last_known_masterchain_block_handle_->id().seqno()) {
+    if (key_block_seqno < last_masterchain_state_->get_seqno()) {
+      BlockIdExt block_id;
+      if (!last_masterchain_state_->get_old_mc_block_id(key_block_seqno, block_id)) {
+        abort_query(td::Status::Error(ErrorCode::error, "too old reference key block"));
+        return;
+      }
+      got_key_block_id(block_id);
+    } else if (key_block_seqno == last_masterchain_state_->get_seqno()) {
+      got_key_block_handle(last_masterchain_block_handle_);
+    } else {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockIdExt> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
+                                  R.move_as_error_prefix("cannot find reference key block id: "));
+        } else {
+          td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_id, R.move_as_ok());
+        }
+      });
+      td::actor::send_closure(manager_, &ValidatorManager::get_block_by_seqno_from_db,
+                              AccountIdPrefixFull{masterchainId, 0}, key_block_seqno, std::move(P));
+    }
+  } else {
+    got_key_block_handle(last_known_masterchain_block_handle_);
+  }
+}
+
+void ValidateBroadcast::got_key_block_id(BlockIdExt block_id) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
+                              R.move_as_error_prefix("cannot find reference key block handle: "));
+    } else {
+      td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_handle, R.move_as_ok());
+    }
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, block_id, false, std::move(P));
+}
+
+void ValidateBroadcast::got_key_block_handle(BlockHandle handle) {
+  if (handle->id().seqno() == 0) {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
+                                R.move_as_error_prefix("failed to get zero state: "));
+      } else {
+        td::actor::send_closure(SelfId, &ValidateBroadcast::got_zero_state, td::Ref<MasterchainState>{R.move_as_ok()});
+      }
+    });
+    td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle, std::move(P));
+  } else {
+    if (!handle->inited_proof() && !handle->inited_proof_link()) {
+      abort_query(td::Status::Error(ErrorCode::notready, "reference key block proof not received"));
+      return;
+    }
+    if (!handle->is_key_block()) {
+      abort_query(td::Status::Error(ErrorCode::protoviolation, "reference key block is not key"));
+      return;
+    }
+
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ProofLink>> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
+                                R.move_as_error_prefix("cannot get reference key block proof: "));
+      } else {
+        td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_proof_link, R.move_as_ok());
+      }
+    });
+    td::actor::send_closure(manager_, &ValidatorManager::get_block_proof_link_from_db, handle, std::move(P));
+  }
+}
+
+void ValidateBroadcast::got_key_block_proof_link(td::Ref<ProofLink> key_proof_link) {
+  key_proof_link_ = key_proof_link;
+  auto confR = key_proof_link->get_key_block_config();
+  if (confR.is_error()) {
+    abort_query(confR.move_as_error_prefix("failed to extract config from key proof: "));
+    return;
+  }
+  check_signatures_common(confR.move_as_ok());
+}
+
+void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
+  zero_state_ = state;
+  auto confR = state->get_key_block_config();
+  if (confR.is_error()) {
+    abort_query(confR.move_as_error_prefix("failed to extract config from zero state: "));
+    return;
+  }
+  check_signatures_common(confR.move_as_ok());
+}
+
+void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
+  auto val_set = conf->get_validator_set(broadcast_.block_id.shard_full(), header_info_.utime, header_info_.cc_seqno);
+  if (val_set.is_null()) {
+    abort_query(td::Status::Error(ErrorCode::notready, "failed to compute validator set"));
+    return;
+  }
+
+  if (val_set->get_validator_set_hash() != header_info_.validator_set_hash) {
+    if (!exact_key_block_handle_) {
+      abort_query(td::Status::Error(ErrorCode::notready, "too new block, don't know recent enough key block"));
       return;
     } else {
-      abort_query(S.move_as_error_prefix("failed signature check: "));
+      abort_query(td::Status::Error(ErrorCode::notready, "bad validator set hash"));
       return;
     }
   }
-
-  val_set = last_masterchain_state_->get_next_validator_set(broadcast_.block_id.shard_full());
-  if (val_set.not_null() && val_set->get_catchain_seqno() == broadcast_.catchain_seqno &&
-      val_set->get_validator_set_hash() == broadcast_.validator_set_hash) {
-    auto S = val_set->check_signatures(broadcast_.block_id.root_hash, broadcast_.block_id.file_hash, sig_set_);
-    if (S.is_ok()) {
-      checked_signatures();
-      return;
-    } else {
-      abort_query(S.move_as_error_prefix("failed signature check: "));
-      return;
-    }
+  auto S = val_set->check_signatures(broadcast_.block_id.root_hash, broadcast_.block_id.file_hash, sig_set_);
+  if (S.is_ok()) {
+    checked_signatures();
+  } else {
+    abort_query(S.move_as_error_prefix("failed signature check: "));
   }
-
-  abort_query(td::Status::Error(ErrorCode::protoviolation, "bad signature set"));
 }
 
 void ValidateBroadcast::checked_signatures() {
@@ -142,13 +259,7 @@ void ValidateBroadcast::written_block_data() {
       checked_proof();
       return;
     }
-    auto proofR = create_proof(broadcast_.block_id, broadcast_.proof.clone());
-    if (proofR.is_error()) {
-      abort_query(proofR.move_as_error_prefix("bad proof: "));
-      return;
-    }
-    proof_ = proofR.move_as_ok();
-    if (handle_->id().id.seqno == last_masterchain_block_handle_->id().id.seqno + 1) {
+    if (exact_key_block_handle_) {
       auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
         if (R.is_error()) {
           td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query, R.move_as_error_prefix("db error: "));
@@ -156,7 +267,12 @@ void ValidateBroadcast::written_block_data() {
           td::actor::send_closure(SelfId, &ValidateBroadcast::checked_proof);
         }
       });
-      run_check_proof_query(broadcast_.block_id, proof_, manager_, timeout_, std::move(P));
+      if (!key_proof_link_.is_null()) {
+        run_check_proof_query(broadcast_.block_id, proof_, manager_, timeout_, std::move(P), key_proof_link_);
+      } else {
+        CHECK(!zero_state_.not_null());
+        run_check_proof_query(broadcast_.block_id, proof_, manager_, timeout_, std::move(P), zero_state_);
+      }
     } else {
       checked_proof();
     }
@@ -165,12 +281,6 @@ void ValidateBroadcast::written_block_data() {
       checked_proof();
       return;
     }
-    auto proofR = create_proof_link(broadcast_.block_id, broadcast_.proof.clone());
-    if (proofR.is_error()) {
-      abort_query(proofR.move_as_error());
-      return;
-    }
-    proof_link_ = proofR.move_as_ok();
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query, R.move_as_error_prefix("db error: "));
@@ -183,7 +293,10 @@ void ValidateBroadcast::written_block_data() {
 }
 
 void ValidateBroadcast::checked_proof() {
-  if (handle_->inited_proof()) {
+  if (handle_->inited_proof() && handle_->is_key_block()) {
+    td::actor::send_closure(manager_, &ValidatorManager::update_last_known_key_block, handle_, false);
+  }
+  if (handle_->inited_proof() && handle_->id().seqno() - last_masterchain_block_handle_->id().seqno() <= 16) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query, R.move_as_error());

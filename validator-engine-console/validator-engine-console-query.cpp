@@ -655,3 +655,23 @@ td::Status CreateElectionBidQuery::receive(td::BufferSlice data) {
   TRY_STATUS(td::write_file(fname_, f->to_send_payload_.as_slice()));
   return td::Status::OK();
 }
+
+td::Status CheckDhtServersQuery::run() {
+  TRY_RESULT_ASSIGN(id_, tokenizer_.get_token<ton::PublicKeyHash>());
+  return td::Status::OK();
+}
+
+td::Status CheckDhtServersQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_checkDhtServers>(id_.tl());
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status CheckDhtServersQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_dhtServersStatus>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  for (auto &s : f->servers_) {
+    td::TerminalIO::out() << "id=" << s->id_ << " status=" << (s->status_ ? "SUCCESS" : "FAIL") << "\n";
+  }
+  return td::Status::OK();
+}

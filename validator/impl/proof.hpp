@@ -22,31 +22,11 @@
 #include "block/block-db.h"
 #include "block/mc-config.h"
 #include "vm/db/StaticBagOfCellsDb.h"
+#include "config.hpp"
 
 namespace ton {
 namespace validator {
 using td::Ref;
-
-class ConfigHolderQ : public ConfigHolder {
-  std::shared_ptr<block::Config> config_;
-  std::shared_ptr<vm::StaticBagOfCellsDb> boc_;
-
- public:
-  ConfigHolderQ() = default;
-  ConfigHolderQ(std::shared_ptr<block::Config> config, std::shared_ptr<vm::StaticBagOfCellsDb> boc)
-      : config_(std::move(config)), boc_(std::move(boc)) {
-  }
-  ConfigHolderQ(std::shared_ptr<block::Config> config) : config_(std::move(config)) {
-  }
-  const block::Config *get_config() const {
-    return config_.get();
-  }
-  ConfigHolderQ *make_copy() const override {
-    return new ConfigHolderQ(*this);
-  }
-  // if necessary, add more public methods providing interface to config_->...()
-  td::Ref<ValidatorSet> get_total_validator_set(int next) const override;  // next = -1 -> prev, next = 0 -> cur
-};
 
 class ProofLinkQ : virtual public ProofLink {
  protected:
@@ -67,6 +47,7 @@ class ProofLinkQ : virtual public ProofLink {
   }
   td::Result<BlockSeqno> prev_key_mc_seqno() const override;
   td::Result<td::Ref<ConfigHolder>> get_key_block_config() const override;
+  td::Result<BasicHeaderInfo> get_basic_header_info() const override;
 
  protected:
   td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> get_virtual_root(

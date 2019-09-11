@@ -130,6 +130,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<AddNetworkAddressQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddNetworkProxyAddressQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateElectionBidQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<CheckDhtServersQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

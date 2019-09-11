@@ -50,6 +50,8 @@
 
 #include "memprof/memprof.h"
 
+#include "dht/dht.hpp"
+
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
@@ -747,6 +749,65 @@ class ValidatorElectionBidCreator : public td::actor::Actor {
 
   td::BufferSlice signature_;
   td::BufferSlice result_;
+};
+
+class CheckDhtServerStatusQuery : public td::actor::Actor {
+ public:
+  void start_up() override {
+    auto &n = dht_config_->nodes();
+
+    result_.resize(n.size(), false);
+
+    pending_ = n.size();
+    for (td::uint32 i = 0; i < n.size(); i++) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), idx = i](td::Result<td::BufferSlice> R) {
+        td::actor::send_closure(SelfId, &CheckDhtServerStatusQuery::got_result, idx, R.is_ok());
+      });
+
+      auto &E = n.list().at(i);
+
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_peer, local_id_, E.adnl_id(), E.addr_list());
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::send_query, local_id_, E.adnl_id().compute_short_id(), "ping",
+                              std::move(P), td::Timestamp::in(1.0),
+                              ton::create_serialize_tl_object<ton::ton_api::dht_getSignedAddressList>());
+    }
+  }
+
+  void got_result(td::uint32 idx, bool result) {
+    result_[idx] = result;
+    CHECK(pending_ > 0);
+    if (!--pending_) {
+      finish_query();
+    }
+  }
+
+  void finish_query() {
+    std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_dhtServerStatus>> vec;
+    auto &n = dht_config_->nodes();
+    for (td::uint32 i = 0; i < n.size(); i++) {
+      auto &E = n.list().at(i);
+      vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_dhtServerStatus>(
+          E.adnl_id().compute_short_id().bits256_value(), result_[i] ? 1 : 0));
+    }
+    promise_.set_value(
+        ton::create_serialize_tl_object<ton::ton_api::engine_validator_dhtServersStatus>(std::move(vec)));
+    stop();
+  }
+
+  CheckDhtServerStatusQuery(std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config, ton::adnl::AdnlNodeIdShort local_id,
+                            td::actor::ActorId<ton::adnl::Adnl> adnl, td::Promise<td::BufferSlice> promise)
+      : dht_config_(std::move(dht_config)), local_id_(local_id), adnl_(adnl), promise_(std::move(promise)) {
+  }
+
+ private:
+  std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
+
+  std::vector<bool> result_;
+  td::uint32 pending_;
+
+  ton::adnl::AdnlNodeIdShort local_id_;
+  td::actor::ActorId<ton::adnl::Adnl> adnl_;
+  td::Promise<td::BufferSlice> promise_;
 };
 
 void ValidatorEngine::set_local_config(std::string str) {
@@ -2532,6 +2593,31 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createEle
   td::actor::create_actor<ValidatorElectionBidCreator>("bidcreate", query.election_date_, query.election_addr_,
                                                        query.wallet_, fift_dir_, actor_id(this), keyring_.get(),
                                                        std::move(promise))
+      .release();
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_checkDhtServers &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+  if (!dht_config_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no dht config")));
+    return;
+  }
+
+  if (config_.adnl_ids.count(ton::PublicKeyHash{query.id_}) == 0) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no dht config")));
+    return;
+  }
+
+  td::actor::create_actor<CheckDhtServerStatusQuery>("pinger", dht_config_, ton::adnl::AdnlNodeIdShort{query.id_},
+                                                     adnl_.get(), std::move(promise))
       .release();
 }
 

@@ -87,6 +87,11 @@ target_include_directories(adnl-proxy PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_S
 target_link_libraries(adnl-proxy PUBLIC tdactor ton_crypto tl_api tdnet common
   tl-utils)
 
+add_executable(adnl-pong adnl-pong.cpp)
+target_include_directories(adnl-pong PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+target_link_libraries(adnl-pong PUBLIC tdactor ton_crypto tl_api tdnet common
+  tl-utils adnl dht)
+
 add_library(adnltest STATIC ${ADNL_TEST_SOURCE})
 target_include_directories(adnltest PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(adnltest PUBLIC adnl )

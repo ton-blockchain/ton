@@ -1908,12 +1908,14 @@ void ValidatorManagerImpl::send_peek_key_block_request() {
 }
 
 void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  std::vector<std::pair<std::string, std::string>> vec;
+  vec.emplace_back("unixtime", td::to_string(static_cast<UnixTime>(td::Clocks::system())));
   if (!last_masterchain_block_handle_) {
-    promise.set_value(std::vector<std::pair<std::string, std::string>>());
+    promise.set_value(std::move(vec));
     return;
   }
-  std::vector<std::pair<std::string, std::string>> vec;
   vec.emplace_back("masterchainblock", last_masterchain_block_id_.to_str());
+  vec.emplace_back("masterchainblocktime", td::to_string(last_masterchain_block_handle_->unix_time()));
   vec.emplace_back("gcmasterchainblock", gc_masterchain_handle_->id().to_str());
   vec.emplace_back("keymasterchainblock", last_key_block_handle_->id().to_str());
   vec.emplace_back("knownkeymasterchainblock", last_known_key_block_handle_->id().to_str());

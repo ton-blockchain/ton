@@ -665,9 +665,7 @@ bool ValidateQuery::try_unpack_mc_state() {
     }
     config_ = res.move_as_ok();
     CHECK(config_);
-    if (mc_seqno_) {
-      config_->set_block_id_ext(mc_blkid_);
-    }
+    config_->set_block_id_ext(mc_blkid_);
     old_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
     if (!is_masterchain()) {
       new_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -683,6 +681,11 @@ bool ValidateQuery::try_unpack_mc_state() {
       prev_key_block_seqno_ = prev_key_block_.seqno();
     } else {
       prev_key_block_seqno_ = 0;
+    }
+    if (prev_key_seqno_ != prev_key_block_seqno_) {
+      return reject_query(PSTRING() << "previous key block seqno value in candidate block header is " << prev_key_seqno_
+                                    << " while the correct value corresponding to reference masterchain state "
+                                    << mc_blkid_.to_str() << " is " << prev_key_block_seqno_);
     }
     auto limits = config_->get_block_limits(is_masterchain());
     if (limits.is_error()) {
@@ -5002,7 +5005,7 @@ bool ValidateQuery::check_mc_state_extra() {
   } else if (!new_extra.r1.last_key_block->prefetch_ulong(1)) {
     return reject_query("last_key_block:(Maybe ExtBlkRef) changed in the new state, but it became a nothing$0");
   } else {
-    auto& cs = new_extra.r1.last_key_block.write();
+    vm::CellSlice cs = *new_extra.r1.last_key_block;
     BlockIdExt blkid;
     LogicalTime lt;
     CHECK(cs.fetch_ulong(1) == 1 && block::tlb::t_ExtBlkRef.unpack(cs, blkid, &lt));
@@ -5016,6 +5019,20 @@ bool ValidateQuery::check_mc_state_extra() {
       return reject_query("last_key_block has been updated to the previous block "s + blkid.to_str() +
                           ", but it is not a key block");
     }
+  }
+  if (new_extra.r1.last_key_block->prefetch_ulong(1)) {
+    auto& cs = new_extra.r1.last_key_block.write();
+    BlockIdExt blkid;
+    LogicalTime lt;
+    CHECK(cs.fetch_ulong(1) == 1 && block::tlb::t_ExtBlkRef.unpack(cs, blkid, &lt));
+    if (blkid != prev_key_block_) {
+      return reject_query("new masterchain state declares previous key block to be "s + blkid.to_str() +
+                          " but the value computed from previous masterchain state is " + prev_key_block_.to_str());
+    }
+  } else if (prev_key_block_seqno_ > 0) {
+    return reject_query(PSTRING() << "new masterchain state declares no previous key block, but the block header "
+                                     "announces previous key block seqno "
+                                  << prev_key_block_seqno_);
   }
   // global_balance:CurrencyCollection
   block::CurrencyCollection global_balance, old_global_balance;
