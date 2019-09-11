@@ -1,4 +1,4 @@
-#!/usr/bin/fift -s
+#!/usr/bin/env fift -s
 "TonUtil.fif" include
 
 { ."usage: " @' $0 type ." <filename-base> <seqno> [<savefile>]" cr
