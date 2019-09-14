@@ -40,8 +40,10 @@ using td::Ref;
 class TestNode : public td::actor::Actor {
  private:
   std::string global_config_ = "ton-global.config";
-  static constexpr int min_ls_version = 0x101;         // server version >= 1.1
-  static constexpr long long min_ls_capabilities = 1;  // at least +1 = build proof chains
+  enum {
+    min_ls_version = 0x101,
+    min_ls_capabilities = 1
+  };  // server version >= 1.1, capabilities at least +1 = build proof chains
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
 

@@ -57,7 +57,7 @@ void LiteQuery::run_query(td::BufferSlice data, td::actor::ActorId<ValidatorMana
 LiteQuery::LiteQuery(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                      td::Promise<td::BufferSlice> promise)
     : query_(std::move(data)), manager_(std::move(manager)), promise_(std::move(promise)) {
-  timeout_ = td::Timestamp::in(default_timeout_seconds);
+  timeout_ = td::Timestamp::in(default_timeout_msec * 0.001);
 }
 
 void LiteQuery::abort_query(td::Status reason) {

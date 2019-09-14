@@ -57,9 +57,8 @@ class LiteQuery : public td::actor::Actor {
   std::unique_ptr<block::BlockProofChain> chain_;
 
  public:
-  static constexpr double default_timeout_seconds = 4.5;
-  static constexpr int ls_version = 0x101;         // 1.1
-  static constexpr long long ls_capabilities = 1;  // +1 = build block proof chains
+  enum { default_timeout_msec = 4500 };              // 4.5 seconds
+  enum { ls_version = 0x101, ls_capabilities = 1 };  // version 1.1; +1 = build block proof chains
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::Promise<td::BufferSlice> promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
