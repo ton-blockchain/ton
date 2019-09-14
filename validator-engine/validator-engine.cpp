@@ -968,6 +968,15 @@ td::Status ValidatorEngine::load_global_config() {
   if (sync_ttl_ != 0) {
     validator_options_.write().set_sync_blocks_before(sync_ttl_);
   }
+  if (archive_ttl_ != 0) {
+    validator_options_.write().set_archive_ttl(archive_ttl_);
+  }
+  if (key_proof_ttl_ != 0) {
+    validator_options_.write().set_key_proof_ttl(key_proof_ttl_);
+  }
+  if (db_depth_ <= 32) {
+    validator_options_.write().set_filedb_depth(db_depth_);
+  }
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -2775,6 +2784,15 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_fift_dir, fname); });
     return td::Status::OK();
   });
+  p.add_option('F', "filedb-depth",
+               "depth of autodirs for blocks, proofs, etc. Default value is 2. You need to clear the "
+               "database, if you need to change this option",
+               [&](td::Slice fname) {
+                 acts.push_back([&x, fname = fname.str()]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_db_depth, td::to_integer<td::uint32>(fname));
+                 });
+                 return td::Status::OK();
+               });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
     close(0);
@@ -2797,6 +2815,18 @@ int main(int argc, char *argv[]) {
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_block_ttl, v); });
+                 return td::Status::OK();
+               });
+  p.add_option('A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=365*86400",
+               [&](td::Slice fname) {
+                 auto v = td::to_double(fname);
+                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_ttl, v); });
+                 return td::Status::OK();
+               });
+  p.add_option('K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
+               [&](td::Slice fname) {
+                 auto v = td::to_double(fname);
+                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_key_proof_ttl, v); });
                  return td::Status::OK();
                });
   p.add_option('S', "sync-before", "in initial sync download all blocks for last given seconds default=3600",

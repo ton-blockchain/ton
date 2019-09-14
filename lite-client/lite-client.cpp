@@ -30,13 +30,14 @@
 #include "adnl/adnl-ext-client.h"
 #include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "auto/tl/lite_api.h"
+#include "auto/tl/lite_api.hpp"
 #include "td/utils/OptionsParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/stacktrace.h"
 #include "td/utils/port/StdStreams.h"
@@ -63,6 +64,7 @@
 #include <iostream>
 #include <sstream>
 
+using namespace std::literals::string_literals;
 using td::Ref;
 
 int verbosity;
@@ -113,6 +115,14 @@ void TestNode::run() {
     remote_addr_.init_host_port(td::IPAddress::ipv4_to_str(cli->ip_), cli->port_).ensure();
     remote_public_key_ = ton::PublicKey{cli->id_};
     td::TerminalIO::out() << "using liteserver " << idx << " with addr " << remote_addr_ << "\n";
+    if (gc.validator_ && gc.validator_->zero_state_) {
+      zstate_id_.workchain = gc.validator_->zero_state_->workchain_;
+      if (zstate_id_.workchain != ton::workchainInvalid) {
+        zstate_id_.root_hash = gc.validator_->zero_state_->root_hash_;
+        zstate_id_.file_hash = gc.validator_->zero_state_->file_hash_;
+        td::TerminalIO::out() << "zerostate set to " << zstate_id_.to_str() << "\n";
+      }
+    }
   }
 
   client_ =
@@ -138,7 +148,7 @@ bool TestNode::envelope_send_query(td::BufferSlice query, td::Promise<td::Buffer
     return false;
   }
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+      [ SelfId = actor_id(this), promise = std::move(promise) ](td::Result<td::BufferSlice> R) mutable {
         if (R.is_error()) {
           auto err = R.move_as_error();
           LOG(ERROR) << "failed query: " << err;
@@ -208,7 +218,7 @@ bool TestNode::complete_blkid(ton::BlockId partial_blkid, ton::BlockIdExt& compl
 
 bool TestNode::get_server_time() {
   auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getTime>(), true);
-  return envelope_send_query(std::move(b), [&, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+  return envelope_send_query(std::move(b), [&, Self = actor_id(this) ](td::Result<td::BufferSlice> res)->void {
     if (res.is_error()) {
       LOG(ERROR) << "cannot get server time";
       return;
@@ -227,10 +237,10 @@ bool TestNode::get_server_time() {
 
 bool TestNode::get_server_version() {
   auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getVersion>(), true);
-  return envelope_send_query(std::move(b), [&, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+  return envelope_send_query(std::move(b), [&, Self = actor_id(this) ](td::Result<td::BufferSlice> res)->void {
+    server_ok_ = false;
     if (res.is_error()) {
       LOG(ERROR) << "cannot get server version and time (server too old?)";
-      return;
     } else {
       auto F = ton::fetch_tl_object<ton::lite_api::liteServer_version>(res.move_as_ok(), true);
       if (F.is_error()) {
@@ -244,14 +254,19 @@ bool TestNode::get_server_version() {
         LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
         LOG(WARNING) << "server version is " << (server_version_ >> 8) << "." << (server_version_ & 0xff)
                      << ", capabilities " << server_capabilities_;
+        server_ok_ = (server_version_ >= min_ls_version) && !(~server_capabilities_ & min_ls_capabilities);
       }
+    }
+    if (!server_ok_) {
+      LOG(ERROR) << "server version is too old (at least " << (min_ls_version >> 8) << "." << (min_ls_version & 0xff)
+                 << " with capabilities " << min_ls_capabilities << " required), some queries are unavailable";
     }
   });
 }
 
 bool TestNode::get_server_mc_block_id() {
   auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
-  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res)->void {
     if (res.is_error()) {
       LOG(ERROR) << "cannot get masterchain info from server";
       return;
@@ -275,13 +290,13 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
     zstate_id_ = zstateid;
     LOG(INFO) << "zerostate id set to " << zstate_id_.to_str();
   } else if (zstate_id_ != zstateid) {
-    LOG(ERROR) << "fatal: masterchain zero state id suddenly changed: expected " << zstate_id_.to_str() << ", found "
+    LOG(FATAL) << "fatal: masterchain zero state id suddenly changed: expected " << zstate_id_.to_str() << ", found "
                << zstateid.to_str();
-    stop();
+    _exit(3);
     return;
   }
   register_blkid(blkid);
-  //register_blkid(zstateid);
+  register_blkid(ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, zstateid.root_hash, zstateid.file_hash});
   if (!mc_last_id_.is_valid()) {
     mc_last_id_ = blkid;
     request_block(blkid);
@@ -289,12 +304,13 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   } else if (mc_last_id_.id.seqno < blkid.id.seqno) {
     mc_last_id_ = blkid;
   }
+  show_new_blkids();
 }
 
 bool TestNode::request_block(ton::BlockIdExt blkid) {
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getBlock>(ton::create_tl_lite_block_id(blkid)), true);
-  return envelope_send_query(std::move(b), [Self = actor_id(this), blkid](td::Result<td::BufferSlice> res) -> void {
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), blkid ](td::Result<td::BufferSlice> res)->void {
     if (res.is_error()) {
       LOG(ERROR) << "cannot obtain block " << blkid.to_str() << " from server";
       return;
@@ -319,7 +335,7 @@ bool TestNode::request_block(ton::BlockIdExt blkid) {
 bool TestNode::request_state(ton::BlockIdExt blkid) {
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getState>(ton::create_tl_lite_block_id(blkid)), true);
-  return envelope_send_query(std::move(b), [Self = actor_id(this), blkid](td::Result<td::BufferSlice> res) -> void {
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), blkid ](td::Result<td::BufferSlice> res)->void {
     if (res.is_error()) {
       LOG(ERROR) << "cannot obtain state " << blkid.to_str() << " from server";
       return;
@@ -753,6 +769,9 @@ bool TestNode::show_help(std::string command) {
          "ones\n"
          "listblocktrans[rev] <block-id-ext> <count> [<start-account-id> <start-trans-lt>]\tLists block transactions, "
          "starting immediately after or before the specified one\n"
+         "blkproofchain[step] <from-block-id-ext> [<to-block-id-ext>]\tDownloads and checks proof of validity of the "
+         "second "
+         "indicated block (or the last known masterchain block) starting from given block\n"
          "byseqno <workchain> <shard-prefix> <seqno>\tLooks up a block by workchain, shard and seqno, and shows its "
          "header\n"
          "bylt <workchain> <shard-prefix> <lt>\tLooks up a block by workchain, shard and logical time, and shows its "
@@ -834,6 +853,10 @@ bool TestNode::do_parse_line() {
     return parse_block_id_ext(blkid) && parse_uint32(count) &&
            (seekeoln() || (parse_hash(hash) && parse_lt(lt) && (mode |= 128) && seekeoln())) &&
            get_block_transactions(blkid, mode, count, hash, lt);
+  } else if (word == "blkproofchain" || word == "blkproofchainstep") {
+    ton::BlockIdExt blkid2{};
+    return parse_block_id_ext(blkid) && (seekeoln() || parse_block_id_ext(blkid2)) && seekeoln() &&
+           get_block_proof(blkid, blkid2, blkid2.is_valid() + (word == "blkproofchain") * 0x1000);
   } else if (word == "byseqno") {
     return parse_shard_id(shard) && parse_uint32(seqno) && seekeoln() && lookup_block(shard, 1, seqno);
   } else if (word == "byutime") {
@@ -912,21 +935,21 @@ bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress 
                                     true);
   LOG(INFO) << "requesting account state for " << workchain << ":" << addr.to_hex() << " with respect to "
             << ref_blkid.to_str() << " with savefile `" << filename << "` and mode " << mode;
-  return envelope_send_query(
-      std::move(b), [Self = actor_id(this), workchain, addr, ref_blkid, filename, mode](td::Result<td::BufferSlice> R) {
-        if (R.is_error()) {
-          return;
-        }
-        auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
-        if (F.is_error()) {
-          LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
-        } else {
-          auto f = F.move_as_ok();
-          td::actor::send_closure_later(Self, &TestNode::got_account_state, ref_blkid, ton::create_block_id(f->id_),
-                                        ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
-                                        std::move(f->proof_), std::move(f->state_), workchain, addr, filename, mode);
-        }
-      });
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), workchain, addr, ref_blkid, filename,
+                                             mode ](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
+    } else {
+      auto f = F.move_as_ok();
+      td::actor::send_closure_later(Self, &TestNode::got_account_state, ref_blkid, ton::create_block_id(f->id_),
+                                    ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
+                                    std::move(f->proof_), std::move(f->state_), workchain, addr, filename, mode);
+    }
+  });
 }
 
 bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
@@ -951,22 +974,23 @@ bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress a
                                     true);
   LOG(INFO) << "requesting account state for " << workchain << ":" << addr.to_hex() << " with respect to "
             << ref_blkid.to_str() << " to run method " << method_name << " with " << params.size() << " parameters";
-  return envelope_send_query(std::move(b), [Self = actor_id(this), workchain, addr, ref_blkid, method_name,
-                                            params = std::move(params)](td::Result<td::BufferSlice> R) mutable {
-    if (R.is_error()) {
-      return;
-    }
-    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
-    if (F.is_error()) {
-      LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
-    } else {
-      auto f = F.move_as_ok();
-      td::actor::send_closure_later(Self, &TestNode::run_smc_method, ref_blkid, ton::create_block_id(f->id_),
-                                    ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
-                                    std::move(f->proof_), std::move(f->state_), workchain, addr, method_name,
-                                    std::move(params));
-    }
-  });
+  return envelope_send_query(
+      std::move(b), [ Self = actor_id(this), workchain, addr, ref_blkid, method_name,
+                      params = std::move(params) ](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          return;
+        }
+        auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
+        if (F.is_error()) {
+          LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
+        } else {
+          auto f = F.move_as_ok();
+          td::actor::send_closure_later(Self, &TestNode::run_smc_method, ref_blkid, ton::create_block_id(f->id_),
+                                        ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
+                                        std::move(f->proof_), std::move(f->state_), workchain, addr, method_name,
+                                        std::move(params));
+        }
+      });
 }
 
 bool TestNode::get_one_transaction(ton::BlockIdExt blkid, ton::WorkchainId workchain, ton::StdSmcAddress addr,
@@ -987,7 +1011,7 @@ bool TestNode::get_one_transaction(ton::BlockIdExt blkid, ton::WorkchainId workc
   LOG(INFO) << "requesting transaction " << lt << " of " << workchain << ":" << addr.to_hex() << " from block "
             << blkid.to_str();
   return envelope_send_query(
-      std::move(b), [Self = actor_id(this), workchain, addr, lt, blkid, dump](td::Result<td::BufferSlice> R) -> void {
+      std::move(b), [ Self = actor_id(this), workchain, addr, lt, blkid, dump ](td::Result<td::BufferSlice> R)->void {
         if (R.is_error()) {
           return;
         }
@@ -1013,7 +1037,7 @@ bool TestNode::get_last_transactions(ton::WorkchainId workchain, ton::StdSmcAddr
   LOG(INFO) << "requesting " << count << " last transactions from " << lt << ":" << hash.to_hex() << " of " << workchain
             << ":" << addr.to_hex();
   return envelope_send_query(
-      std::move(b), [Self = actor_id(this), workchain, addr, lt, hash, count, dump](td::Result<td::BufferSlice> R) {
+      std::move(b), [ Self = actor_id(this), workchain, addr, lt, hash, count, dump ](td::Result<td::BufferSlice> R) {
         if (R.is_error()) {
           return;
         }
@@ -1456,7 +1480,7 @@ bool TestNode::get_block_transactions(ton::BlockIdExt blkid, int mode, unsigned 
                                     true);
   LOG(INFO) << "requesting " << count << " transactions from block " << blkid.to_str() << " starting from account "
             << acc_addr.to_hex() << " lt " << lt;
-  return envelope_send_query(std::move(b), [Self = actor_id(this), mode](td::Result<td::BufferSlice> R) {
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), mode ](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       return;
     }
@@ -1504,7 +1528,7 @@ bool TestNode::get_all_shards(bool use_last, ton::BlockIdExt blkid) {
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(blkid)), true);
   LOG(INFO) << "requesting recent shard configuration";
-  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> R) -> void {
+  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> R)->void {
     if (R.is_error()) {
       return;
     }
@@ -1585,8 +1609,8 @@ bool TestNode::get_config_params(ton::BlockIdExt blkid, int mode, std::string fi
                                           true);
   LOG(INFO) << "requesting " << params.size() << " configuration parameters with respect to masterchain block "
             << blkid.to_str();
-  return envelope_send_query(std::move(b), [Self = actor_id(this), mode, filename,
-                                            params = std::move(params)](td::Result<td::BufferSlice> R) mutable {
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), mode, filename,
+                                             params = std::move(params) ](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
       return;
     }
@@ -1683,7 +1707,7 @@ bool TestNode::get_block(ton::BlockIdExt blkid, bool dump) {
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getBlock>(ton::create_tl_lite_block_id(blkid)), true);
   return envelope_send_query(
-      std::move(b), [Self = actor_id(this), blkid, dump](td::Result<td::BufferSlice> res) -> void {
+      std::move(b), [ Self = actor_id(this), blkid, dump ](td::Result<td::BufferSlice> res)->void {
         if (res.is_error()) {
           LOG(ERROR) << "cannot obtain block " << blkid.to_str()
                      << " from server : " << res.move_as_error().to_string();
@@ -1712,7 +1736,7 @@ bool TestNode::get_state(ton::BlockIdExt blkid, bool dump) {
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getState>(ton::create_tl_lite_block_id(blkid)), true);
   return envelope_send_query(
-      std::move(b), [Self = actor_id(this), blkid, dump](td::Result<td::BufferSlice> res) -> void {
+      std::move(b), [ Self = actor_id(this), blkid, dump ](td::Result<td::BufferSlice> res)->void {
         if (res.is_error()) {
           LOG(ERROR) << "cannot obtain state " << blkid.to_str()
                      << " from server : " << res.move_as_error().to_string();
@@ -1852,7 +1876,7 @@ bool TestNode::get_block_header(ton::BlockIdExt blkid, int mode) {
   LOG(INFO) << "got block header request for " << blkid.to_str() << " with mode " << mode;
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getBlockHeader>(ton::create_tl_lite_block_id(blkid), mode), true);
-  return envelope_send_query(std::move(b), [Self = actor_id(this), blkid](td::Result<td::BufferSlice> res) -> void {
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), blkid ](td::Result<td::BufferSlice> res)->void {
     if (res.is_error()) {
       LOG(ERROR) << "cannot obtain block header for " << blkid.to_str()
                  << " from server : " << res.move_as_error().to_string();
@@ -1883,7 +1907,7 @@ bool TestNode::lookup_block(ton::ShardIdFull shard, int mode, td::uint64 arg) {
                                         mode, ton::create_tl_lite_block_id_simple(id), arg, (td::uint32)arg),
                                     true);
   return envelope_send_query(
-      std::move(b), [Self = actor_id(this), id, mode, arg](td::Result<td::BufferSlice> res) -> void {
+      std::move(b), [ Self = actor_id(this), id, mode, arg ](td::Result<td::BufferSlice> res)->void {
         if (res.is_error()) {
           LOG(ERROR) << "cannot look up block header for " << id.to_str() << " with mode " << mode << " and argument "
                      << arg << " from server : " << res.move_as_error().to_string();
@@ -1901,7 +1925,6 @@ bool TestNode::lookup_block(ton::ShardIdFull shard, int mode, td::uint64 arg) {
           }
         }
       });
-  return false;
 }
 
 bool TestNode::show_block_header(ton::BlockIdExt blkid, Ref<vm::Cell> root, int mode) {
@@ -1979,6 +2002,135 @@ void TestNode::got_block_header(ton::BlockIdExt blkid, td::BufferSlice data, int
   show_new_blkids();
 }
 
+bool TestNode::get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode) {
+  if (!(mode & 1)) {
+    to.invalidate_clear();
+  }
+  if (!(mode & 0x2000)) {
+    LOG(INFO) << "got block proof request from " << from.to_str() << " to "
+            << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode;
+  } else {
+    LOG(DEBUG) << "got block proof request from " << from.to_str() << " to "
+            << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode;
+  }
+  if (!from.is_masterchain_ext()) {
+    LOG(ERROR) << "source block " << from.to_str() << " is not a valid masterchain block id";
+    return false;
+  }
+  if ((mode & 1) && !to.is_masterchain_ext()) {
+    LOG(ERROR) << "destination block " << to.to_str() << " is not a valid masterchain block id";
+    return false;
+  }
+  auto b =
+      ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getBlockProof>(
+                                   mode & 0xfff, ton::create_tl_lite_block_id(from), ton::create_tl_lite_block_id(to)),
+                               true);
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), from, to, mode ](td::Result<td::BufferSlice> res) {
+    if (res.is_error()) {
+      LOG(ERROR) << "cannot obtain block proof for " << ((mode & 1) ? to.to_str() : "last masterchain block")
+                 << " starting from " << from.to_str() << " from server : " << res.move_as_error().to_string();
+    } else {
+      td::actor::send_closure_later(Self, &TestNode::got_block_proof, from, to, mode, res.move_as_ok());
+    }
+  });
+}
+
+td::Result<std::unique_ptr<block::BlockProofChain>> TestNode::deserialize_proof_chain(td::BufferSlice pchain) {
+  TRY_RESULT(f, ton::fetch_tl_object<ton::lite_api::liteServer_partialBlockProof>(std::move(pchain), true));
+  // deserialize proof chain
+  auto chain = std::make_unique<block::BlockProofChain>(ton::create_block_id(f->from_), ton::create_block_id(f->to_));
+  chain->complete = f->complete_;
+  for (auto& s : f->steps_) {
+    bool ok = false;
+    td::BufferSlice dest_proof, proof, state_proof;
+    ton::lite_api::downcast_call(
+        *s,
+        td::overloaded(
+            [&](ton::lite_api::liteServer_blockLinkBack& s) {
+              auto& link = chain->new_link(ton::create_block_id(s.from_), ton::create_block_id(s.to_), s.to_key_block_);
+              link.is_fwd = false;
+              // dest_proof:bytes state_proof:bytes proof:bytes
+              dest_proof = std::move(s.dest_proof_);
+              state_proof = std::move(s.state_proof_);
+              proof = std::move(s.proof_);
+              ok = true;
+            },
+            [&](ton::lite_api::liteServer_blockLinkForward& s) {
+              auto& link = chain->new_link(ton::create_block_id(s.from_), ton::create_block_id(s.to_), s.to_key_block_);
+              link.is_fwd = true;
+              // dest_proof:bytes config_proof:bytes signatures:liteServer.SignatureSet
+              dest_proof = std::move(s.dest_proof_);
+              proof = std::move(s.config_proof_);
+              link.cc_seqno = s.signatures_->catchain_seqno_;
+              link.validator_set_hash = s.signatures_->validator_set_hash_;
+              for (auto& sig : s.signatures_->signatures_) {
+                link.signatures.emplace_back(std::move(sig->node_id_short_), std::move(sig->signature_));
+              }
+              ok = true;
+            },
+            [&](auto& obj) {}));
+    if (!ok) {
+      return td::Status::Error("unknown constructor of liteServer.BlockLink");
+    }
+    auto& link = chain->last_link();
+    if (!dest_proof.empty()) {
+      auto d_res = vm::std_boc_deserialize(std::move(dest_proof));
+      if (d_res.is_error()) {
+        return td::Status::Error("cannot deserialize dest_proof in a block proof link: "s +
+                                 d_res.move_as_error().to_string());
+      }
+      link.dest_proof = d_res.move_as_ok();
+    }
+    auto d_res = vm::std_boc_deserialize(std::move(proof));
+    if (d_res.is_error()) {
+      return td::Status::Error("cannot deserialize proof in a block proof link: "s + d_res.move_as_error().to_string());
+    }
+    link.proof = d_res.move_as_ok();
+    if (!link.is_fwd) {
+      d_res = vm::std_boc_deserialize(std::move(state_proof));
+      if (d_res.is_error()) {
+        return td::Status::Error("cannot deserialize state_proof in a block proof link: "s +
+                                 d_res.move_as_error().to_string());
+      }
+      link.state_proof = d_res.move_as_ok();
+    }
+    LOG(DEBUG) << "deserialized a " << (link.is_fwd ? "forward" : "backward") << " BlkProofLink from "
+               << link.from.to_str() << " to " << link.to.to_str() << " with " << link.signatures.size()
+               << " signatures";
+  }
+  LOG(DEBUG) << "deserialized a BlkProofChain of " << chain->link_count() << " links";
+  return std::move(chain);
+}
+
+void TestNode::got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice pchain) {
+  LOG(INFO) << "got block proof from " << from.to_str() << " to "
+            << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode << " (" << pchain.size()
+            << " bytes)";
+  auto res = deserialize_proof_chain(std::move(pchain));
+  if (res.is_error()) {
+    LOG(ERROR) << "cannot deserialize liteServer.partialBlockProof: " << res.move_as_error();
+    return;
+  }
+  auto chain = res.move_as_ok();
+  auto err = chain->validate();
+  if (err.is_error()) {
+    LOG(ERROR) << "block proof chain is invalid: " << err;
+    return;
+  }
+  LOG(INFO) << "valid " << (chain->complete ? "" : "in") << "complete proof chain: last block is " << chain->to.to_str()
+            << ", last key block is " << (chain->has_key_block ? chain->key_blkid.to_str() : "(undefined)");
+  // TODO: if `from` was a trusted key block, then mark `to` as a trusted key block, and update the known value of latest trusted key block if `to` is newer
+  if (!chain->complete && (mode & 0x1000)) {
+    get_block_proof(chain->to, to, mode | 0x2000);
+    return;
+  }
+  if (chain->has_key_block) {
+    register_blkid(chain->key_blkid);
+  }
+  register_blkid(chain->to);
+  show_new_blkids();
+}
+
 int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler();
@@ -2041,12 +2193,14 @@ int main(int argc, char* argv[]) {
     return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
-    td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
+    td::set_signal_handler(td::SignalType::HangUp,
+                           [](int sig) {
 #if TD_DARWIN || TD_LINUX
-      close(0);
-      setsid();
+                             close(0);
+                             setsid();
 #endif
-    }).ensure();
+                           })
+        .ensure();
     return td::Status::OK();
   });
 #if TD_DARWIN || TD_LINUX

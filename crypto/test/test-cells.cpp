@@ -519,11 +519,11 @@ TEST(base64, main) {
   REGRESSION_VERIFY(os.str());
 }
 
-void check_bits256_scan(std::ostream& os, td::Bits256 a, td::Bits256 b) {
+void check_bits256_scan(std::ostream& stream, td::Bits256 a, td::Bits256 b) {
   auto c = a ^ b;
   auto bit = c.count_leading_zeroes();
   auto bit2 = a.count_matching(b);
-  // os << a.to_hex() << " and " << b.to_hex() << " match in " << bit << " or " << bit2 << " first bits" << std::endl;
+  // stream << a.to_hex() << " and " << b.to_hex() << " match in " << bit << " or " << bit2 << " first bits" << std::endl;
   // std::cerr << a.to_hex() << " and " << b.to_hex() << " match in " << bit << " or " << bit2 << " first bits (a XOR b = " << c.to_hex() << ")" << std::endl;
   CHECK((int)bit >= 0 && bit <= 256);
   for (td::uint32 i = 0; i < bit; i++) {
@@ -533,7 +533,7 @@ void check_bits256_scan(std::ostream& os, td::Bits256 a, td::Bits256 b) {
   CHECK(bit == bit2);
 }
 
-void check_bits_scan(std::ostream& os, td::ConstBitPtr a, bool value) {
+void check_bits_scan(std::ostream& stream, td::ConstBitPtr a, bool value) {
   auto bit = (unsigned)a.scan(value, 256);
   CHECK((int)bit >= 0 && bit <= 256);
   for (td::uint32 i = 0; i < bit; i++) {

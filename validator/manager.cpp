@@ -1275,7 +1275,7 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast) {
 }
 
 void ValidatorManagerImpl::start_up() {
-  db_ = create_db_actor(actor_id(this), db_root_);
+  db_ = create_db_actor(actor_id(this), db_root_, opts_->get_filedb_depth());
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
 
   auto Q =
@@ -1702,6 +1702,33 @@ void ValidatorManagerImpl::allow_archive(BlockIdExt block_id, td::Promise<bool> 
     }
   });
   td::actor::send_closure(db_, &Db::archive, block_id, std::move(P));
+}
+
+void ValidatorManagerImpl::allow_delete(BlockIdExt block_id, td::Promise<bool> promise) {
+  auto key_ttl = td::Clocks::system() - opts_->key_proof_ttl();
+  auto ttl = td::Clocks::system() - opts_->archive_ttl();
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), promise = std::move(promise), ttl, key_ttl](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(true);
+          return;
+        }
+        auto handle = R.move_as_ok();
+        if (!handle->moved_to_storage()) {
+          promise.set_result(false);
+          return;
+        }
+        if (!handle->inited_unix_time()) {
+          promise.set_result(true);
+          return;
+        }
+        if (!handle->inited_is_key_block() || !handle->is_key_block()) {
+          promise.set_result(handle->unix_time() <= ttl);
+        } else {
+          promise.set_result(handle->unix_time() <= key_ttl);
+        }
+      });
+  get_block_handle(block_id, false, std::move(P));
 }
 
 void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) {

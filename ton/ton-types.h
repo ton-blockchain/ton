@@ -310,6 +310,8 @@ struct ZeroStateIdExt {
 struct BlockSignature {
   NodeIdShort node;
   td::BufferSlice signature;
+  BlockSignature(const NodeIdShort& _node, td::BufferSlice _signature) : node(_node), signature(std::move(_signature)) {
+  }
 };
 
 struct ReceivedBlock {
@@ -355,6 +357,9 @@ struct Ed25519_PublicKey {
   }
   operator Bits256() const {
     return _pubkey;
+  }
+  td::Slice as_slice() const {
+    return _pubkey.as_slice();
   }
   bool operator==(const Ed25519_PublicKey& other) const {
     return _pubkey == other._pubkey;

@@ -455,12 +455,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
  public:
+  void allow_delete(BlockIdExt block_id, td::Promise<bool> promise);
   void allow_archive(BlockIdExt block_id, td::Promise<bool> promise);
   void allow_block_data_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) override {
     if (!is_archive) {
       allow_archive(block_id, std::move(promise));
     } else {
-      promise.set_result(false);
+      allow_delete(block_id, std::move(promise));
     }
   }
   void allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) override;
@@ -476,21 +477,21 @@ class ValidatorManagerImpl : public ValidatorManager {
     if (!is_archive) {
       allow_archive(block_id, std::move(promise));
     } else {
-      promise.set_result(false);
+      allow_delete(block_id, std::move(promise));
     }
   }
   void allow_block_proof_link_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) override {
     if (!is_archive) {
       allow_archive(block_id, std::move(promise));
     } else {
-      promise.set_result(false);
+      allow_delete(block_id, std::move(promise));
     }
   }
   void allow_block_candidate_gc(BlockIdExt block_id, td::Promise<bool> promise) override {
     allow_block_state_gc(block_id, std::move(promise));
   }
   void allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) override {
-    promise.set_result(false);
+    allow_delete(block_id, std::move(promise));
   }
 
   void send_peek_key_block_request();

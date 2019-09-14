@@ -671,7 +671,8 @@ void AcceptBlockQuery::got_proof_link(BlockIdExt id, Ref<ProofLink> proof) {
     // first link in chain
     if (ancestors_.size() != link_prev_.size() || ancestors_[0]->blk_ != link_prev_[0] ||
         (ancestors_.size() == 2 && ancestors_[1]->blk_ != link_prev_[1])) {
-      fatal_error("invalid first link at block "s + id.to_str() + " for shardchain block " + id_.to_str());
+      fatal_error("invalid first link at block "s + id.to_str() + " for shardchain block " + id_.to_str(),
+                  ErrorCode::cancelled);
       return;
     }
     create_topshard_blk_descr();
@@ -680,7 +681,8 @@ void AcceptBlockQuery::got_proof_link(BlockIdExt id, Ref<ProofLink> proof) {
     // intermediate link
     if (link_prev_.size() != 1 || ton::ShardIdFull(link_prev_[0].id) != ton::ShardIdFull(id_) ||
         link_prev_[0].id.seqno + 1 != id.id.seqno) {
-      fatal_error("invalid intermediate link at block "s + id.to_str() + " for shardchain block " + id_.to_str());
+      fatal_error("invalid intermediate link at block "s + id.to_str() + " for shardchain block " + id_.to_str(),
+                  ErrorCode::cancelled);
       return;
     }
     require_proof_link(link_prev_[0]);

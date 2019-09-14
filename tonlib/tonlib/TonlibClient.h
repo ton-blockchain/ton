@@ -76,6 +76,9 @@ class TonlibClient : public td::actor::Actor {
     return tonlib_api::make_object<tonlib_api::error>(400, "Function can't be executed synchronously");
   }
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::runTests& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::raw_getAccountAddress& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testWallet_getAccountAddress& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testGiver_getAccountAddress& request);
   template <class T, class P>
   td::Status do_request(const T& request, P&& promise) {
     return td::Status::Error(400, "Function is unsupported");
@@ -88,8 +91,6 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::options_setConfig& request,
                         td::Promise<object_ptr<tonlib_api::ok>>&& promise);
 
-  td::Status do_request(const tonlib_api::raw_getAccountAddress& request,
-                        td::Promise<object_ptr<tonlib_api::accountAddress>>&& promise);
   td::Status do_request(const tonlib_api::raw_sendMessage& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
   td::Status do_request(tonlib_api::raw_getAccountState& request,
                         td::Promise<object_ptr<tonlib_api::raw_accountState>>&& promise);
@@ -97,8 +98,6 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::raw_transactions>>&& promise);
 
   td::Status do_request(const tonlib_api::testWallet_init& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
-  td::Status do_request(const tonlib_api::testWallet_getAccountAddress& request,
-                        td::Promise<object_ptr<tonlib_api::accountAddress>>&& promise);
   td::Status do_request(const tonlib_api::testWallet_sendGrams& request,
                         td::Promise<object_ptr<tonlib_api::ok>>&& promise);
   td::Status do_request(tonlib_api::testWallet_getAccountState& request,
@@ -106,8 +105,6 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::testGiver_getAccountState& request,
                         td::Promise<object_ptr<tonlib_api::testGiver_accountState>>&& promise);
-  td::Status do_request(tonlib_api::testGiver_getAccountAddress& request,
-                        td::Promise<object_ptr<tonlib_api::accountAddress>>&& promise);
   td::Status do_request(const tonlib_api::testGiver_sendGrams& request,
                         td::Promise<object_ptr<tonlib_api::ok>>&& promise);
 

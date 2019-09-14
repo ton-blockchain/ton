@@ -43,6 +43,7 @@
 #include "block/block.h"
 
 #include "td/utils/filesystem.h"
+#include "td/utils/misc.h"
 #include "td/utils/optional.h"
 #include "td/utils/PathView.h"
 #include "td/utils/port/thread.h"
@@ -1037,7 +1038,7 @@ void interpret_tuple_index(vm::Stack& stack) {
   if ((td::uint64)idx >= tuple->size()) {
     throw vm::VmError{vm::Excno::range_chk, "array index out of range"};
   }
-  stack.push((*tuple)[idx]);
+  stack.push((*tuple)[td::narrow_cast<size_t>(idx)]);
 }
 
 void interpret_tuple_set(vm::Stack& stack) {
@@ -1047,7 +1048,7 @@ void interpret_tuple_set(vm::Stack& stack) {
   if ((td::uint64)idx >= tuple->size()) {
     throw vm::VmError{vm::Excno::range_chk, "array index out of range"};
   }
-  tuple.write()[idx] = std::move(val);
+  tuple.write()[td::narrow_cast<size_t>(idx)] = std::move(val);
   stack.push_tuple(std::move(tuple));
 }
 
@@ -1095,7 +1096,7 @@ void interpret_allot(vm::Stack& stack) {
   auto n = stack.pop_long_range(0xffffffff);
   Ref<vm::Tuple> ref{true};
   auto& tuple = ref.unique_write();
-  tuple.reserve(n);
+  tuple.reserve(td::narrow_cast<size_t>(n));
   while (n-- > 0) {
     tuple.emplace_back(Ref<vm::Box>{true});
   }

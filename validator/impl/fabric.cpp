@@ -38,8 +38,9 @@ namespace ton {
 
 namespace validator {
 
-td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_) {
-  return td::actor::create_actor<RootDb>("db", manager, db_root_);
+td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
+                                        td::uint32 depth) {
+  return td::actor::create_actor<RootDb>("db", manager, db_root_, depth);
 }
 
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data) {

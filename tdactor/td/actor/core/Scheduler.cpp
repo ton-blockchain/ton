@@ -282,6 +282,12 @@ void Scheduler::close_scheduler_group(SchedulerGroupInfo &group_info) {
       worker->actor_info_creator.clear();
     }
   }
+  //for (auto &scheduler : group_info.schedulers) {
+  //scheduler.io_worker->actor_info_creator.ensure_empty();
+  //for (auto &worker : scheduler.cpu_workers) {
+  //worker->actor_info_creator.ensure_empty();
+  //}
+  //}
 }
 }  // namespace core
 }  // namespace actor

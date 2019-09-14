@@ -57,9 +57,6 @@ struct Node {
   ton::adnl::AdnlNodeIdFull adnl_id_full;
 };
 
-std::vector<Node> nodes;
-td::uint32 total_nodes = 11;
-
 class CatChainInst : public td::actor::Actor {
  public:
   class PayloadExtra : public ton::catchain::CatChainBlock::Extra {
@@ -211,6 +208,9 @@ class CatChainInst : public td::actor::Actor {
   td::uint32 height_ = 0;
   std::vector<td::uint64> prev_values_;
 };
+
+static std::vector<Node> nodes;
+static td::uint32 total_nodes = 11;
 
 int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);

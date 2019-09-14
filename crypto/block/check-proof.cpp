@@ -25,8 +25,12 @@
 #include "ton/ton-shard.h"
 
 #include "vm/cells/MerkleProof.h"
+#include "openssl/digest.h"
+#include "Ed25519.h"
 
 namespace block {
+using namespace std::literals::string_literals;
+
 td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blkid, ton::Bits256* store_shard_hash_to,
                                     bool check_state_hash) {
   ton::RootHash vhash{root->get_hash().bits()};
@@ -291,4 +295,234 @@ td::Result<TransactionList::Info> TransactionList::validate() const {
   }
   return std::move(res);
 }
+
+td::Status BlockProofLink::validate() const {
+  if (!(from.is_masterchain_ext() && to.is_masterchain_ext())) {
+    return td::Status::Error("BlockProofLink must have both source and destination blocks in the masterchain");
+  }
+  if (from.seqno() == to.seqno()) {
+    return td::Status::Error("BlockProofLink connects two masterchain blocks "s + from.to_str() + " and " +
+                             to.to_str() + " of equal height");
+  }
+  if (is_fwd != (from.seqno() < to.seqno())) {
+    return td::Status::Error("BlockProofLink from "s + from.to_str() + " to " + to.to_str() +
+                             " is incorrectly declared as a " + (is_fwd ? "forward" : "backward") + " link");
+  }
+  if (dest_proof.is_null() && to.seqno()) {
+    return td::Status::Error("BlockProofLink contains no proof for destination block "s + to.to_str());
+  }
+  if (proof.is_null()) {
+    return td::Status::Error("BlockProofLink contains no proof for source block "s + from.to_str());
+  }
+  if (!is_fwd && state_proof.is_null()) {
+    return td::Status::Error("a backward BlockProofLink contains no proof for the source state of "s + from.to_str());
+  }
+  if (is_fwd && signatures.empty()) {
+    return td::Status::Error("a forward BlockProofLink from "s + from.to_str() + " to " + to.to_str() +
+                             " contains no signatures");
+  }
+  try {
+    // virtualize Merkle proof roots
+    auto vs_root = vm::MerkleProof::virtualize(proof, 1);
+    if (vs_root.is_null()) {
+      return td::Status::Error("BlockProofLink contains an invalid Merkle proof for source block "s + from.to_str());
+    }
+    ton::Bits256 state_hash;
+    if (from.seqno()) {
+      TRY_STATUS(check_block_header(vs_root, from, is_fwd ? nullptr : &state_hash));
+    }
+    auto vd_root = dest_proof.not_null() ? vm::MerkleProof::virtualize(dest_proof, 1) : Ref<vm::Cell>{};
+    if (vd_root.is_null() && to.seqno()) {
+      return td::Status::Error("BlockProofLink contains an invalid Merkle proof for destination block "s + to.to_str());
+    }
+    block::gen::Block::Record blk;
+    block::gen::BlockInfo::Record info;
+    if (to.seqno()) {
+      TRY_STATUS(check_block_header(vd_root, to));
+      if (!(tlb::unpack_cell(vd_root, blk) && tlb::unpack_cell(blk.info, info))) {
+        return td::Status::Error("cannot unpack header for block "s + from.to_str());
+      }
+      if (info.key_block != is_key) {
+        return td::Status::Error(PSTRING() << "incorrect is_key_block value " << is_key << " for destination block "
+                                           << to.to_str());
+      }
+    } else if (!is_key) {
+      // return td::Status::Error("Zerostate destination block "s + to.to_str() + " does not have is_key_block set");
+    }
+    if (!is_fwd) {
+      // check a backward link
+      auto vstate_root = vm::MerkleProof::virtualize(state_proof, 1);
+      if (vstate_root.is_null()) {
+        return td::Status::Error("backward BlockProofLink contains an invalid Merkle proof for source state "s +
+                                 from.to_str());
+      }
+      if (state_hash != vstate_root->get_hash().bits()) {
+        return td::Status::Error("BlockProofLink contains a state proof for "s + from.to_str() +
+                                 " with incorrect root hash");
+      }
+      TRY_RESULT(config, block::ConfigInfo::extract_config(vstate_root, block::ConfigInfo::needPrevBlocks));
+      if (!config->check_old_mc_block_id(to, true)) {
+        return td::Status::Error("cannot check that "s + to.to_str() + " is indeed a previous masterchain block of " +
+                                 from.to_str() + " using the presented Merkle proof of masterchain state");
+      }
+      return td::Status::OK();
+    } else {
+      // check a forward link
+      // extract configuration from source key block or zerostate
+      auto cfg_res = from.seqno() ? block::Config::extract_from_key_block(vs_root, block::ConfigInfo::needValidatorSet)
+                                  : block::Config::extract_from_state(vs_root, block::ConfigInfo::needValidatorSet);
+      if (cfg_res.is_error()) {
+        return td::Status::Error("cannot extract configuration from source key block "s + from.to_str() +
+                                 " of a forward BlockProofLink: " + cfg_res.move_as_error().to_string());
+      }
+      auto config = cfg_res.move_as_ok();
+      // compute validator set
+      ton::ShardIdFull shard{ton::masterchainId};
+      auto nodes = config->compute_validator_set(shard, info.gen_utime, info.gen_catchain_seqno);
+      if (nodes.empty()) {
+        return td::Status::Error(PSTRING()
+                                 << "while checking a forward BlockProofLink: cannot compute validator set for block "
+                                 << to.to_str() << " with utime " << info.gen_utime << " and cc_seqno "
+                                 << info.gen_catchain_seqno << " starting from previous key block " << from.to_str());
+      }
+      // check computed validator set hash
+      auto vset_hash = compute_validator_set_hash(cc_seqno, shard, nodes);
+      if (vset_hash != info.gen_validator_list_hash_short) {
+        return td::Status::Error(
+            PSTRING() << "while checking a forward BlockProofLink: computed validator set for block " << to.to_str()
+                      << " with utime " << info.gen_utime << " and cc_seqno " << info.gen_catchain_seqno
+                      << " starting from previous key block " << from.to_str() << " has hash " << vset_hash
+                      << " different from " << info.gen_validator_list_hash_short << " stated in block header");
+      }
+      // check signatures
+      auto err = check_block_signatures(nodes, signatures, to);
+      if (err.is_error()) {
+        return td::Status::Error("error checking signatures for block "s + to.to_str() +
+                                 " in a forward BlockProofLink: " + err.to_string());
+      }
+      return td::Status::OK();
+    }
+  } catch (vm::VmError& err) {
+    return td::Status::Error("vm error while checking BlockProofLink from "s + from.to_str() + " to " + to.to_str() +
+                             " : " + err.get_msg());
+  } catch (vm::VmVirtError& err) {
+    return td::Status::Error("virtualization error while checking BlockProofLink from "s + from.to_str() + " to " +
+                             to.to_str() + " : " + err.get_msg());
+  }
+}
+
+td::Status BlockProofChain::validate() {
+  valid = false;
+  has_key_block = false;
+  key_blkid.invalidate();
+  if (!(from.is_masterchain_ext() && to.is_masterchain_ext())) {
+    return td::Status::Error("BlockProofChain must have both source and destination blocks in the masterchain");
+  }
+  if (!link_count()) {
+    if (from != to) {
+      return td::Status::Error("BlockProofChain has no links, but its source block "s + from.to_str() +
+                               " and destination block " + to.to_str() + " differ");
+    }
+    valid = true;
+    return td::Status::OK();
+  }
+  ton::BlockIdExt cur = from;
+  int i = 0;
+  for (const auto& link : links) {
+    ++i;
+    if (link.from != cur) {
+      return td::Status::Error(PSTRING() << "link #" << i << " in a BlockProofChain begins with block "
+                                         << link.from.to_str() << " but the previous link ends at different block "
+                                         << cur.to_str());
+    }
+    auto err = link.validate();
+    if (err.is_error()) {
+      return td::Status::Error(PSTRING() << "link #" << i << " in BlockProofChain is invalid: " << err.to_string());
+    }
+    if (link.is_key && (!has_key_block || key_blkid.seqno() < link.to.seqno())) {
+      key_blkid = link.to;
+      has_key_block = true;
+    }
+    cur = link.to;
+  }
+  if (cur != to) {
+    return td::Status::Error("last link of BlockProofChain ends at block "s + cur.to_str() +
+                             " different from declared chain destination block " + to.to_str());
+  }
+  valid = true;
+  return td::Status::OK();
+}
+
+td::Bits256 compute_node_id_short(td::Bits256 ed25519_pubkey) {
+  // pub.ed25519#4813b4c6 key:int256 = PublicKey;
+  struct pubkey {
+    int magic = 0x4813b4c6;
+    unsigned char ed25519_key[32];
+  } PK;
+  std::memcpy(PK.ed25519_key, ed25519_pubkey.data(), 32);
+  static_assert(sizeof(pubkey) == 36, "PublicKey structure is not 36 bytes long");
+  td::Bits256 hash;
+  digest::hash_str<digest::SHA256>(hash.data(), (void*)&PK, sizeof(pubkey));
+  return hash;
+}
+
+td::Status check_block_signatures(const std::vector<ton::ValidatorDescr>& nodes,
+                                  const std::vector<ton::BlockSignature>& signatures, const ton::BlockIdExt& blkid) {
+  if (nodes.empty()) {
+    return td::Status::Error("empty validator public keys set");
+  }
+  if (signatures.empty()) {
+    return td::Status::Error("empty validator signature set");
+  }
+  // compute the string to be signed and its hash
+  unsigned char to_sign[68];
+  td::as<td::uint32>(to_sign) = 0xc50b6e70;  // ton.blockId root_cell_hash:int256 file_hash:int256 = ton.BlockId;
+  memcpy(to_sign + 4, blkid.root_hash.data(), 32);
+  memcpy(to_sign + 36, blkid.file_hash.data(), 32);
+  // unsigned char hash[32];
+  // digest::hash_str<digest::SHA256>(hash, (void*)to_sign, sizeof(to_sign));
+
+  ton::ValidatorWeight total_weight = 0, signed_weight = 0;
+  std::vector<std::pair<td::Bits256, unsigned>> node_map;
+  for (unsigned i = 0; i < nodes.size(); i++) {
+    total_weight += nodes[i].weight;
+    node_map.emplace_back(compute_node_id_short(nodes[i].key), i);
+  }
+  std::sort(node_map.begin(), node_map.end());
+  std::vector<unsigned> seen;
+  for (auto& sig : signatures) {
+    // lookup node in validator set
+    auto& id = sig.node;
+    auto it = std::lower_bound(node_map.begin(), node_map.end(), id,
+                               [](const auto& p, const auto& x) { return p.first < x; });
+    if (it == node_map.end() || it->first != id) {
+      return td::Status::Error("signature set contains unknown NodeIdShort "s + id.to_hex());
+    }
+    unsigned i = it->second;
+    seen.emplace_back(i);
+    // check one signature
+    td::Ed25519::PublicKey pub_key{td::SecureString{nodes.at(i).key.as_slice()}};
+    auto res = pub_key.verify_signature(td::Slice{to_sign, 68}, sig.signature.as_slice());
+    if (res.is_error()) {
+      return res;
+    }
+    signed_weight += nodes[i].weight;
+    if (signed_weight > total_weight) {
+      break;
+    }
+  }
+  std::sort(seen.begin(), seen.end());
+  for (std::size_t i = 1; i < seen.size(); i++) {
+    if (seen[i] == seen[i - 1]) {
+      return td::Status::Error("signature set contains duplicate signature for NodeIdShort "s +
+                               compute_node_id_short(nodes.at(seen[i]).key).to_hex());
+    }
+  }
+  if (3 * signed_weight <= 2 * total_weight) {
+    return td::Status::Error(PSTRING() << "insufficient total signature weight: only " << signed_weight << " out of "
+                                       << total_weight);
+  }
+  return td::Status::OK();
+}
+
 }  // namespace block

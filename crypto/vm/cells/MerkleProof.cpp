@@ -19,6 +19,7 @@
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/CellBuilder.h"
 #include "vm/cells/CellSlice.h"
+#include "vm/boc.h"
 
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
@@ -260,4 +261,39 @@ Ref<Cell> MerkleProof::combine(Ref<Cell> a, Ref<Cell> b) {
   }
   return res.move_as_ok();
 }
+
+MerkleProofBuilder::MerkleProofBuilder(Ref<Cell> root)
+    : usage_tree(std::make_shared<CellUsageTree>()), orig_root(std::move(root)) {
+  usage_root = UsageCell::create(orig_root, usage_tree->root_ptr());
+}
+
+void MerkleProofBuilder::reset(Ref<Cell> root) {
+  usage_tree = std::make_shared<CellUsageTree>();
+  orig_root = std::move(root);
+  usage_root = UsageCell::create(orig_root, usage_tree->root_ptr());
+}
+
+void MerkleProofBuilder::clear() {
+  usage_tree.reset();
+  orig_root.clear();
+  usage_root.clear();
+}
+
+Ref<Cell> MerkleProofBuilder::extract_proof() const {
+  return MerkleProof::generate(orig_root, usage_tree.get());
+}
+
+bool MerkleProofBuilder::extract_proof_to(Ref<Cell> &proof_root) const {
+  return orig_root.not_null() && (proof_root = extract_proof()).not_null();
+}
+
+td::Result<td::BufferSlice> MerkleProofBuilder::extract_proof_boc() const {
+  Ref<Cell> proof_root = extract_proof();
+  if (proof_root.is_null()) {
+    return td::Status::Error("cannot create Merkle proof");
+  } else {
+    return std_boc_serialize(std::move(proof_root));
+  }
+}
+
 }  // namespace vm

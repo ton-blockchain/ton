@@ -83,6 +83,9 @@ class ActorInfoCreator {
   ~ActorInfoCreator() {
     clear();
   }
+  void ensure_empty() {
+    pool_.for_each([](auto &actor_info) { LOG(ERROR) << actor_info.get_name(); });
+  }
 
  private:
   SharedObjectPool<ActorInfo> pool_;

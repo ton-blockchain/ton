@@ -181,6 +181,9 @@ class ValidatorEngine : public td::actor::Actor {
   td::Clocks::Duration state_ttl_ = 0;
   td::Clocks::Duration block_ttl_ = 0;
   td::Clocks::Duration sync_ttl_ = 0;
+  td::Clocks::Duration archive_ttl_ = 0;
+  td::Clocks::Duration key_proof_ttl_ = 0;
+  td::uint32 db_depth_ = 33;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -196,6 +199,9 @@ class ValidatorEngine : public td::actor::Actor {
     fift_dir_ = str;
   }
   void set_db_root(std::string db_root);
+  void set_db_depth(td::uint32 value) {
+    db_depth_ = value;
+  }
   void set_state_ttl(td::Clocks::Duration t) {
     state_ttl_ = t;
   }
@@ -204,6 +210,12 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_sync_ttl(td::Clocks::Duration t) {
     sync_ttl_ = t;
+  }
+  void set_archive_ttl(td::Clocks::Duration t) {
+    archive_ttl_ = t;
+  }
+  void set_key_proof_ttl(td::Clocks::Duration t) {
+    key_proof_ttl_ = t;
   }
   void add_ip(td::IPAddress addr) {
     addrs_.push_back(addr);

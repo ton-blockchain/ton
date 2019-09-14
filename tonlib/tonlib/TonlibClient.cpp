@@ -54,6 +54,10 @@ auto try_f(F&& f) noexcept -> decltype(f()) {
 
 #define TRY_VM(f) try_f([&] { return f; })
 
+tonlib_api::object_ptr<tonlib_api::error> status_to_tonlib_api(const td::Status& status) {
+  return tonlib_api::make_object<tonlib_api::error>(status.code(), status.message().str());
+}
+
 static block::AccountState create_account_state(ton::tl_object_ptr<ton::lite_api::liteServer_accountState> from) {
   block::AccountState res;
   res.blk = ton::create_block_id(from->id_);
@@ -177,7 +181,6 @@ class GetRawAccountState : public td::actor::Actor {
     auto account_state = create_account_state(std::move(raw_account_state));
     TRY_RESULT(info, account_state.validate(last_block_, address_));
     auto serialized_state = account_state.state.clone();
-    LOG(ERROR) << serialized_state.size();
     RawAccountState res;
     res.info = std::move(info);
     auto cell = res.info.root;
@@ -288,6 +291,7 @@ void TonlibClient::on_result(td::uint64 id, tonlib_api::object_ptr<tonlib_api::O
   callback_->on_result(id, std::move(response));
 }
 void TonlibClient::request(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Function> function) {
+  LOG(ERROR) << to_string(function);
   if (function == nullptr) {
     LOG(ERROR) << "Receive empty static request";
     return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "Request is empty"));
@@ -311,7 +315,7 @@ void TonlibClient::request(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Fun
     td::Promise<ReturnType> promise = [actor_id = actor_id(self), id](td::Result<ReturnType> r_result) {
       tonlib_api::object_ptr<tonlib_api::Object> result;
       if (r_result.is_error()) {
-        result = tonlib_api::make_object<tonlib_api::error>(r_result.error().code(), r_result.error().message().str());
+        result = status_to_tonlib_api(r_result.error());
       } else {
         result = r_result.move_as_ok();
       }
@@ -343,6 +347,9 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::static_request(
 bool TonlibClient::is_static_request(td::int32 id) {
   switch (id) {
     case tonlib_api::runTests::ID:
+    case tonlib_api::raw_getAccountAddress::ID:
+    case tonlib_api::testWallet_getAccountAddress::ID:
+    case tonlib_api::testGiver_getAccountAddress::ID:
       return true;
     default:
       return false;
@@ -365,6 +372,37 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const
   }
   runner.run_all();
   return tonlib_api::make_object<tonlib_api::ok>();
+}
+td::Result<block::StdAddress> get_account_address(const tonlib_api::raw_initialAccountState& raw_state) {
+  TRY_RESULT(code, vm::std_boc_deserialize(raw_state.code_));
+  TRY_RESULT(data, vm::std_boc_deserialize(raw_state.data_));
+  return GenericAccount::get_address(0 /*zerochain*/, GenericAccount::get_init_state(std::move(code), std::move(data)));
+}
+
+td::Result<block::StdAddress> get_account_address(const tonlib_api::testWallet_initialAccountState& test_wallet_state) {
+  auto key = td::Ed25519::PublicKey(td::SecureString(test_wallet_state.public_key_));
+  return GenericAccount::get_address(0 /*zerochain*/, TestWallet::get_init_state(key));
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
+    const tonlib_api::raw_getAccountAddress& request) {
+  auto r_account_address = get_account_address(*request.initital_account_state_);
+  if (r_account_address.is_error()) {
+    return status_to_tonlib_api(r_account_address.error());
+  }
+  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize());
+}
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
+    const tonlib_api::testWallet_getAccountAddress& request) {
+  auto r_account_address = get_account_address(*request.initital_account_state_);
+  if (r_account_address.is_error()) {
+    return status_to_tonlib_api(r_account_address.error());
+  }
+  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize());
+}
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
+    const tonlib_api::testGiver_getAccountAddress& request) {
+  return tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize());
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::init& request,
@@ -409,17 +447,6 @@ td::Status TonlibClient::do_request(const tonlib_api::options_setConfig& request
   TRY_STATUS(set_config(request.config_));
   promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
   return td::Status::OK();
-}
-
-td::Result<block::StdAddress> get_account_address(const tonlib_api::raw_initialAccountState& raw_state) {
-  TRY_RESULT(code, vm::std_boc_deserialize(raw_state.code_));
-  TRY_RESULT(data, vm::std_boc_deserialize(raw_state.data_));
-  return GenericAccount::get_address(0 /*zerochain*/, GenericAccount::get_init_state(std::move(code), std::move(data)));
-}
-
-td::Result<block::StdAddress> get_account_address(const tonlib_api::testWallet_initialAccountState& test_wallet_state) {
-  auto key = td::Ed25519::PublicKey(td::SecureString(test_wallet_state.public_key_));
-  return GenericAccount::get_address(0 /*zerochain*/, TestWallet::get_init_state(key));
 }
 
 tonlib_api::object_ptr<tonlib_api::internal_transactionId> to_transaction_id(const block::AccountState::Info& info) {
@@ -624,13 +651,6 @@ td::Result<tonlib_api::object_ptr<tonlib_api::generic_AccountState>> to_generic_
 
 // Raw
 
-td::Status TonlibClient::do_request(const tonlib_api::raw_getAccountAddress& request,
-                                    td::Promise<object_ptr<tonlib_api::accountAddress>>&& promise) {
-  TRY_RESULT(account_address, get_account_address(*request.initital_account_state_));
-  promise.set_value(tonlib_api::make_object<tonlib_api::accountAddress>(account_address.rserialize()));
-  return td::Status::OK();
-}
-
 td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
   td::Ref<vm::Cell> init_state;
@@ -701,12 +721,6 @@ td::Status TonlibClient::do_request(tonlib_api::raw_getTransactions& request,
   return td::Status::OK();
 }
 
-td::Status TonlibClient::do_request(tonlib_api::testGiver_getAccountAddress& request,
-                                    td::Promise<object_ptr<tonlib_api::accountAddress>>&& promise) {
-  promise.set_value(tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize()));
-  return td::Status::OK();
-}
-
 td::Result<KeyStorage::InputKey> from_tonlib(tonlib_api::inputKey& input_key) {
   if (!input_key.key_) {
     return td::Status::Error(400, "Field key must not be empty");
@@ -732,13 +746,6 @@ td::Status TonlibClient::do_request(const tonlib_api::testWallet_init& request,
                                   vm::std_boc_serialize(init_state).move_as_ok().as_slice().str(),
                                   vm::std_boc_serialize(init_message).move_as_ok().as_slice().str()),
       std::move(promise));
-}
-
-td::Status TonlibClient::do_request(const tonlib_api::testWallet_getAccountAddress& request,
-                                    td::Promise<object_ptr<tonlib_api::accountAddress>>&& promise) {
-  TRY_RESULT(account_address, get_account_address(*request.initital_account_state_));
-  promise.set_value(tonlib_api::make_object<tonlib_api::accountAddress>(account_address.rserialize()));
-  return td::Status::OK();
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::testWallet_sendGrams& request,
@@ -837,6 +844,7 @@ td::Status TonlibClient::do_request(const tonlib_api::generic_getAccountState& r
 td::Status TonlibClient::do_request(tonlib_api::generic_sendGrams& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
   TRY_RESULT(account_address, block::StdAddress::parse(request.source_->account_address_));
+  LOG(INFO) << "Send " << request.amount_ << " nanograms from " << account_address.rserialize();
   td::actor::create_actor<GetRawAccountState>(
       "GetAccountState", client_.get_client(), std::move(account_address),
       [promise = std::move(promise), self = this, actor_id = td::actor::actor_id(),
@@ -858,6 +866,7 @@ td::Status TonlibClient::do_request(tonlib_api::generic_sendGrams& request,
                                                    query = tonlib_api::testGiver_sendGrams(
                                                        std::move(destination), test_giver_state.account_state_->seqno_,
                                                        amount)]() mutable {
+                              LOG(INFO) << "Send " << to_string(query);
                               auto status = self->do_request(query, std::move(promise));
                               if (status.is_error()) {
                                 CHECK(promise);

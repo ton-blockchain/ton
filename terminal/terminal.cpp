@@ -34,7 +34,15 @@ void TerminalLogInterface::append(CSlice slice, int log_level) {
     default_log_interface->append(slice, log_level);
   } else {
     instance_->deactivate_readline();
-    td::TsCerr() << TC_GREEN << slice << TC_EMPTY;
+    std::string color;
+    if (log_level == 0 || log_level == 1) {
+      color = TC_RED;
+    } else if (log_level == 2) {
+      color = TC_YELLOW;
+    } else {
+      color = TC_GREEN;
+    }
+    td::TsCerr() << color << slice << TC_EMPTY;
     instance_->reactivate_readline();
     if (log_level == VERBOSITY_NAME(FATAL)) {
       process_fatal_error(slice);
@@ -106,13 +114,14 @@ void TerminalIOImpl::tear_down() {
   out_mutex_.lock();
 #ifdef USE_READLINE
   if (use_readline_) {
-    out_mutex_.lock();
+    //out_mutex_.lock();
     rl_callback_handler_remove();
-    out_mutex_.unlock();
+    //out_mutex_.unlock();
   }
 #endif
   instance_ = nullptr;
   out_mutex_.unlock();
+  log_interface_.release();  // TODO: actually release memory
 }
 
 /*void TerminalIOImpl::read_line() {

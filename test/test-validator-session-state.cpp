@@ -27,6 +27,7 @@
 */
 #include "adnl/adnl.h"
 
+#include "td/utils/misc.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/path.h"
 #include "td/utils/Random.h"
@@ -34,6 +35,7 @@
 #include "validator-session/validator-session-description.h"
 #include "validator-session/validator-session-state.h"
 
+#include <limits>
 #include <memory>
 #include <set>
 
@@ -193,7 +195,8 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
 
   Description(ton::validatorsession::ValidatorSessionOptions opts, td::uint32 total_nodes)
       : opts_(opts), total_nodes_(total_nodes) {
-    pdata_size_[0] = 1ull << 33;
+    pdata_size_[0] =
+        static_cast<std::size_t>(std::numeric_limits<std::size_t>::max() < (1ull << 32) ? 1ull << 30 : 1ull << 33);
     pdata_size_[1] = 1 << 22;
     pdata_[0] = new td::uint8[pdata_size_[0]];
     pdata_[1] = new td::uint8[pdata_size_[1]];

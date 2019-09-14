@@ -34,11 +34,14 @@ std::string FileDb::get_file_name(const RefId& ref_id, bool create_dirs) {
   auto ref_id_hash = get_ref_id_hash(ref_id);
 
   auto s = ref_id_hash.to_hex();
-  if (create_dirs) {
-    td::mkdir(root_path_ + "/files/" + s[0] + s[1] + "/").ensure();
-    td::mkdir(root_path_ + "/files/" + s[0] + s[1] + "/" + s[2] + s[3] + "/").ensure();
+  std::string path = root_path_ + "/files/";
+  for (td::uint32 i = 0; i < depth_; i++) {
+    path = path + s[2 * i] + s[2 * i + 1] + "/";
+    if (create_dirs) {
+      td::mkdir(path).ensure();
+    }
   }
-  return root_path_ + "/files/" + s[0] + s[1] + "/" + s[2] + s[3] + "/" + s;
+  return path + s;
 }
 
 void FileDb::store_file(RefId ref_id, td::BufferSlice data, td::Promise<FileHash> promise) {
@@ -169,8 +172,8 @@ void FileDb::set_block(const RefIdHash& ref, DbEntry entry) {
   kv_->set(get_key(ref), entry.release()).ensure();
 }
 
-FileDb::FileDb(td::actor::ActorId<RootDb> root_db, std::string root_path, bool is_archive)
-    : root_db_(root_db), root_path_(root_path), is_archive_(is_archive) {
+FileDb::FileDb(td::actor::ActorId<RootDb> root_db, std::string root_path, td::uint32 depth, bool is_archive)
+    : root_db_(root_db), root_path_(root_path), depth_(depth), is_archive_(is_archive) {
 }
 
 void FileDb::start_up() {

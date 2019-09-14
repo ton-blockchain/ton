@@ -87,6 +87,10 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
                                        sig_set, approve_sig_set,
                                        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {
+      if (R.error().code() == ErrorCode::cancelled) {
+        promise.set_value(td::Unit());
+        return;
+      }
       LOG_CHECK(R.error().code() == ErrorCode::timeout || R.error().code() == ErrorCode::notready) << R.move_as_error();
       td::actor::send_closure(SelfId, &ValidatorGroup::retry_accept_block_query, block_id, std::move(block),
                               std::move(prev), std::move(sig_set), std::move(approve_sig_set), std::move(promise));

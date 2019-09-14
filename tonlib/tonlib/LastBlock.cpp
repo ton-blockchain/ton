@@ -43,6 +43,8 @@ void LastBlock::on_masterchain_info(
     auto info = r_info.move_as_ok();
     update_zero_state(create_zero_state_id(info->init_));
     update_mc_last_block(create_block_id(info->last_));
+  } else {
+    LOG(WARNING) << "Failed liteServer_getMasterchainInfo " << r_info.error();
   }
   for (auto& promise : promises_) {
     auto copy = mc_last_block_id_;

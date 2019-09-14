@@ -33,6 +33,9 @@ td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const
 td::Result<td::Bits256> check_state_proof(ton::BlockIdExt blkid, td::Slice proof);
 td::Result<Ref<vm::Cell>> check_extract_state_proof(ton::BlockIdExt blkid, td::Slice proof, td::Slice data);
 
+td::Status check_block_signatures(const std::vector<ton::ValidatorDescr>& nodes,
+                                  const std::vector<ton::BlockSignature>& signatures, const ton::BlockIdExt& blkid);
+
 struct AccountState {
   ton::BlockIdExt blk;
   ton::BlockIdExt shard_blk;

@@ -255,7 +255,7 @@ void ValidateQuery::start_up() {
     LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
     td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                  timeout, [ self = get_self(), i ](td::Result<Ref<ShardState>> res)->void {
+                                  timeout, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
                                     LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
                                     td::actor::send_closure_later(
                                         std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
@@ -269,16 +269,16 @@ void ValidateQuery::start_up() {
   // 5. request masterchain state referred to in the block
   if (!is_masterchain()) {
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(),
-                                  timeout, [self = get_self()](td::Result<Ref<ShardState>> res) {
+    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout,
+                                  [self = get_self()](td::Result<Ref<ShardState>> res) {
                                     LOG(DEBUG) << "got answer to wait_block_state() query for masterchain block";
                                     td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state,
                                                                   std::move(res));
                                   });
     // 5.1. request corresponding block handle
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::get_block_handle, mc_blkid_,
-                                  true, [self = get_self()](td::Result<BlockHandle> res) {
+    td::actor::send_closure_later(manager, &ValidatorManager::get_block_handle, mc_blkid_, true,
+                                  [self = get_self()](td::Result<BlockHandle> res) {
                                     LOG(DEBUG) << "got answer to get_block_handle() query for masterchain block";
                                     td::actor::send_closure_later(std::move(self), &ValidateQuery::got_mc_handle,
                                                                   std::move(res));
@@ -1008,7 +1008,8 @@ bool ValidateQuery::compute_next_state() {
     return reject_query("header of new state claims it belongs to block "s + hdr_id.to_str() + " instead of " +
                         id_.id.to_str());
   }
-  if (info.custom->size_refs() != is_masterchain()) {
+  CHECK(info.custom->size_refs() == 0 || info.custom->size_refs() == 1);
+  if (info.custom->size_refs() != static_cast<unsigned>(is_masterchain())) {
     return reject_query("McStateExtra in the new state of a non-masterchain block, or conversely");
   }
   if (is_masterchain()) {
@@ -1166,7 +1167,7 @@ bool ValidateQuery::request_neighbor_queues() {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
     ++pending;
     send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
-                       [ self = get_self(), i ](td::Result<Ref<MessageQueue>> res) {
+                       [self = get_self(), i](td::Result<Ref<MessageQueue>> res) {
                          td::actor::send_closure(std::move(self), &ValidateQuery::got_neighbor_out_queue, i,
                                                  std::move(res));
                        });
@@ -1284,12 +1285,13 @@ bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, [
-    self = get_self(), blkid
-  ](td::Result<Ref<ShardState>> res) {
-    LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
-    td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_aux_shard_state, blkid, std::move(res));
-  });
+  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
+                                [self = get_self(), blkid](td::Result<Ref<ShardState>> res) {
+                                  LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
+                                  td::actor::send_closure_later(std::move(self),
+                                                                &ValidateQuery::after_get_aux_shard_state, blkid,
+                                                                std::move(res));
+                                });
   state.clear();
   return true;
 }
@@ -1625,8 +1627,8 @@ bool ValidateQuery::check_shard_layout() {
   WorkchainId wc_id{ton::workchainInvalid};
   Ref<block::WorkchainInfo> wc_info;
 
-  if (!new_shard_conf_->process_sibling_shard_hashes([ self = this, &wc_set, &wc_id, &wc_info, &ccvc ](
-          block::McShardHash & cur, const block::McShardHash* sibling) {
+  if (!new_shard_conf_->process_sibling_shard_hashes([self = this, &wc_set, &wc_id, &wc_info, &ccvc](
+                                                         block::McShardHash& cur, const block::McShardHash* sibling) {
         if (!cur.is_valid()) {
           return -2;
         }
@@ -4617,8 +4619,8 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
     old_publishers = std::make_unique<vm::Dictionary>(256);
   }
   if (!old_publishers->scan_diff(*new_publishers,
-                                 [ this, lib_key = key ](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val,
-                                                         Ref<vm::CellSlice> new_val) {
+                                 [this, lib_key = key](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val,
+                                                       Ref<vm::CellSlice> new_val) {
                                    CHECK(key_len == 256);
                                    if (old_val.not_null() && !old_val->empty_ext()) {
                                      return false;

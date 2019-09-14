@@ -64,6 +64,9 @@ if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
   target_link_libraries(tonlib PUBLIC ${JAVA_JVM_LIBRARY})
 endif()
 
+add_executable(tonlib-cli tonlib/tonlib-cli.cpp)
+target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal)
+
 if (NOT CMAKE_CROSSCOMPILING)
   if (TD_ENABLE_JNI)
 	  #FIXME

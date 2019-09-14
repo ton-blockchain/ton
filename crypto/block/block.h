@@ -457,27 +457,47 @@ struct ValueFlow {
 
 std::ostream& operator<<(std::ostream& os, const ValueFlow& vflow);
 
-struct BlkProofLink {
+struct BlockProofLink {
   ton::BlockIdExt from, to;
   bool is_key{false}, is_fwd{false};
-  Ref<vm::Cell> dest_proof, shard_proof, proof;
+  Ref<vm::Cell> dest_proof, state_proof, proof;
   ton::CatchainSeqno cc_seqno{0};
   td::uint32 validator_set_hash{0};
   std::vector<ton::BlockSignature> signatures;
-  BlkProofLink(ton::BlockIdExt _from, ton::BlockIdExt _to, bool _iskey = false)
+  BlockProofLink(ton::BlockIdExt _from, ton::BlockIdExt _to, bool _iskey = false)
       : from(_from), to(_to), is_key(_iskey), is_fwd(to.seqno() > from.seqno()) {
   }
+  bool incomplete() const {
+    return dest_proof.is_null();
+  }
+  td::Status validate() const;
 };
 
-struct BlkProofChain {
+struct BlockProofChain {
   ton::BlockIdExt from, to;
   int mode;
-  std::vector<BlkProofLink> links;
+  bool complete{false}, has_key_block{false}, valid{false};
+  ton::BlockIdExt key_blkid;
+  std::vector<BlockProofLink> links;
   std::size_t link_count() const {
     return links.size();
   }
-  BlkProofChain(ton::BlockIdExt _from, ton::BlockIdExt _to, int _mode) : from(_from), to(_to), mode(_mode) {
+  BlockProofChain(ton::BlockIdExt _from, ton::BlockIdExt _to, int _mode = 0) : from(_from), to(_to), mode(_mode) {
   }
+  BlockProofLink& new_link(const ton::BlockIdExt& cur, const ton::BlockIdExt& next, bool iskey = false) {
+    links.emplace_back(cur, next, iskey);
+    return links.back();
+  }
+  const BlockProofLink& last_link() const {
+    return links.back();
+  }
+  BlockProofLink& last_link() {
+    return links.back();
+  }
+  bool last_link_incomplete() const {
+    return !links.empty() && last_link().incomplete();
+  }
+  td::Status validate();
 };
 
 int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard);
@@ -529,6 +549,8 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
 td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
                                      ton::BlockIdExt* fetch_blkid = nullptr);
+td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
+                              ton::Bits256* store_shard_hash_to = nullptr);
 
 std::unique_ptr<vm::AugmentedDictionary> get_prev_blocks_dict(Ref<vm::Cell> state_root);
 bool get_old_mc_block_id(vm::AugmentedDictionary* prev_blocks_dict, ton::BlockSeqno seqno, ton::BlockIdExt& blkid,

@@ -408,8 +408,9 @@ void RootDb::get_async_serializer_state(td::Promise<AsyncSerializerState> promis
 void RootDb::start_up() {
   cell_db_ = td::actor::create_actor<CellDb>("celldb", actor_id(this), root_path_ + "/celldb/");
   block_db_ = td::actor::create_actor<BlockDb>("blockdb", actor_id(this), root_path_ + "/blockdb/");
-  file_db_ = td::actor::create_actor<FileDb>("filedb", actor_id(this), root_path_ + "/files/", false);
-  archive_db_ = td::actor::create_actor<FileDb>("filedbarchive", actor_id(this), root_path_ + "/archive/", true);
+  file_db_ = td::actor::create_actor<FileDb>("filedb", actor_id(this), root_path_ + "/files/", depth_, false);
+  archive_db_ =
+      td::actor::create_actor<FileDb>("filedbarchive", actor_id(this), root_path_ + "/archive/", depth_, true);
   lt_db_ = td::actor::create_actor<LtDb>("ltdb", actor_id(this), root_path_ + "/ltdb/");
   state_db_ = td::actor::create_actor<StateDb>("statedb", actor_id(this), root_path_ + "/state/");
   static_files_db_ = td::actor::create_actor<StaticFilesDb>("staticfilesdb", actor_id(this), root_path_ + "/static/");

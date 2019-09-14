@@ -32,6 +32,7 @@
 #include "terminal/terminal.h"
 #include "vm/cells.h"
 #include "vm/stack.hpp"
+#include "block/block.h"
 #include "td/utils/filesystem.h"
 
 using td::Ref;
@@ -39,11 +40,13 @@ using td::Ref;
 class TestNode : public td::actor::Actor {
  private:
   std::string global_config_ = "ton-global.config";
-
+  static constexpr int min_ls_version = 0x101;         // server version >= 1.1
+  static constexpr long long min_ls_capabilities = 1;  // at least +1 = build proof chains
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
 
   bool readline_enabled_ = true;
+  bool server_ok_ = false;
   td::int32 liteserver_idx_ = -1;
 
   bool ready_ = false;
@@ -138,6 +141,9 @@ class TestNode : public td::actor::Actor {
                               ton::LogicalTime lt);
   void got_block_transactions(ton::BlockIdExt blkid, int mode, unsigned req_count, bool incomplete,
                               std::vector<TransId> trans, td::BufferSlice proof);
+  bool get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
+  void got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice res);
+  td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(td::BufferSlice pchain);
   bool do_parse_line();
   bool show_help(std::string command);
   std::string get_word(char delim = ' ');

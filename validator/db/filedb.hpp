@@ -152,7 +152,7 @@ class FileDb : public td::actor::Actor {
   void gc();
   void skip_gc();
 
-  FileDb(td::actor::ActorId<RootDb> root_db, std::string root_path, bool is_archive);
+  FileDb(td::actor::ActorId<RootDb> root_db, std::string root_path, td::uint32 depth, bool is_archive);
 
  private:
   struct DbEntry {
@@ -187,6 +187,7 @@ class FileDb : public td::actor::Actor {
 
   std::string root_path_;
   std::string db_path_;
+  td::uint32 depth_;
 
   bool is_archive_;
 

@@ -24,6 +24,7 @@
 #include "interfaces/validator-manager.h"
 #include "interfaces/shard.h"
 #include "shard.hpp"
+#include "proof.hpp"
 
 namespace ton {
 
@@ -40,20 +41,25 @@ class LiteQuery : public td::actor::Actor {
   StdSmcAddress acc_addr_;
   LogicalTime trans_lt_;
   Bits256 trans_hash_;
-  BlockIdExt base_blk_id_, blk_id_;
+  BlockIdExt base_blk_id_, base_blk_id_alt_, blk_id_;
   Ref<MasterchainStateQ> mc_state_, mc_state0_;
   Ref<ShardStateQ> state_;
   Ref<BlockData> mc_block_, block_;
+  Ref<ProofQ> mc_proof_, mc_proof_alt_;
+  Ref<ProofLinkQ> proof_link_;
+  td::BufferSlice buffer_;
   std::function<void()> continuation_;
   bool cont_set_{false};
   td::BufferSlice shard_proof_;
   std::vector<Ref<vm::Cell>> roots_;
   std::vector<Ref<td::CntObject>> aux_objs_;
   std::vector<ton::BlockIdExt> blk_ids_;
-  std::unique_ptr<block::BlkProofChain> chain_;
+  std::unique_ptr<block::BlockProofChain> chain_;
 
  public:
   static constexpr double default_timeout_seconds = 4.5;
+  static constexpr int ls_version = 0x101;         // 1.1
+  static constexpr long long ls_capabilities = 1;  // +1 = build block proof chains
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::Promise<td::BufferSlice> promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
@@ -64,6 +70,7 @@ class LiteQuery : public td::actor::Actor {
   bool fatal_error(std::string err_msg, int err_code = -400);
   bool fatal_error(int err_code, std::string err_msg = "");
   void abort_query(td::Status reason);
+  void abort_query_ext(td::Status reason, std::string err_msg);
   bool finish_query(td::BufferSlice result);
   void alarm() override;
   void start_up() override;
@@ -77,6 +84,7 @@ class LiteQuery : public td::actor::Actor {
   void continue_getBlockHeader(BlockIdExt blkid, int mode, Ref<BlockData> block);
   void perform_getState(BlockIdExt blkid);
   void continue_getState(BlockIdExt blkid, Ref<ShardState> state);
+  void continue_getZeroState(BlockIdExt blkid, td::BufferSlice state);
   void perform_sendMessage(td::BufferSlice ext_msg);
   void perform_getAccountState(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr);
   void continue_getAccountState_0(Ref<MasterchainState> mc_state, BlockIdExt blkid);
@@ -105,18 +113,25 @@ class LiteQuery : public td::actor::Actor {
   bool construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool construct_proof_link_back(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool construct_proof_link_back_cont(ton::BlockIdExt cur, ton::BlockIdExt next);
+  bool adjust_last_proof_link(ton::BlockIdExt cur, Ref<vm::Cell> block_root);
   bool finish_proof_chain(ton::BlockIdExt id);
 
   bool request_block_data(BlockIdExt blkid);
   bool request_block_state(BlockIdExt blkid);
   bool request_block_data_state(BlockIdExt blkid);
+  bool request_proof_link(BlockIdExt blkid);
   bool request_mc_block_data(BlockIdExt blkid);
   bool request_mc_block_state(BlockIdExt blkid);
   bool request_mc_block_data_state(BlockIdExt blkid);
+  bool request_mc_proof(BlockIdExt blkid, int mode = 0);
+  bool request_zero_state(BlockIdExt blkid);
   void got_block_state(BlockIdExt blkid, Ref<ShardState> state);
   void got_mc_block_state(BlockIdExt blkid, Ref<ShardState> state);
   void got_block_data(BlockIdExt blkid, Ref<BlockData> data);
   void got_mc_block_data(BlockIdExt blkid, Ref<BlockData> data);
+  void got_mc_block_proof(BlockIdExt blkid, int mode, Ref<Proof> proof);
+  void got_block_proof_link(BlockIdExt blkid, Ref<ProofLink> proof_link);
+  void got_zero_state(BlockIdExt blkid, td::BufferSlice zerostate);
   void dec_pending() {
     if (!--pending_) {
       check_pending();
@@ -128,11 +143,14 @@ class LiteQuery : public td::actor::Actor {
   bool make_state_root_proof(Ref<vm::Cell>& proof);
   bool make_state_root_proof(Ref<vm::Cell>& proof, Ref<ShardStateQ> state, Ref<BlockData> block,
                              const BlockIdExt& blkid);
+  bool make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, Ref<vm::Cell> block_root,
+                             const BlockIdExt& blkid);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, vm::CellSlice& cs, ShardIdFull shard, ShardIdFull& true_shard,
                              Ref<vm::Cell>& leaf, bool& found, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, AccountIdPrefixFull prefix);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, BlockIdExt& blkid, AccountIdPrefixFull prefix);
+  bool make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, const BlockIdExt& old_blkid);
 };
 
 }  // namespace validator

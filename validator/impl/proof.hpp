@@ -49,9 +49,20 @@ class ProofLinkQ : virtual public ProofLink {
   td::Result<td::Ref<ConfigHolder>> get_key_block_config() const override;
   td::Result<BasicHeaderInfo> get_basic_header_info() const override;
 
- protected:
-  td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> get_virtual_root(
-      bool lazy = false) const;
+  struct VirtualizedProof {
+    Ref<vm::Cell> root, sig_root;
+    std::shared_ptr<vm::StaticBagOfCellsDb> boc;
+    VirtualizedProof() = default;
+    VirtualizedProof(Ref<vm::Cell> _vroot, Ref<vm::Cell> _sigroot, std::shared_ptr<vm::StaticBagOfCellsDb> _boc)
+        : root(std::move(_vroot)), sig_root(std::move(_sigroot)), boc(std::move(_boc)) {
+    }
+    void clear() {
+      root.clear();
+      sig_root.clear();
+      boc.reset();
+    }
+  };
+  td::Result<VirtualizedProof> get_virtual_root(bool lazy = false) const;
 };
 
 #if TD_MSVC
@@ -66,6 +77,7 @@ class ProofQ : public Proof, public ProofLinkQ {
     return new ProofQ(id_, data_.clone());
   }
   td::Result<Ref<ProofLink>> export_as_proof_link() const override;
+  td::Result<Ref<vm::Cell>> get_signatures_root() const;
 };
 #if TD_MSVC
 #pragma warning(pop)

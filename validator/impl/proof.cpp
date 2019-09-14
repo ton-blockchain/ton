@@ -47,11 +47,11 @@ td::Result<BlockSeqno> ProofLinkQ::prev_key_mc_seqno() const {
   //  return td::Status::Error(
   //      -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
   //}
-  TRY_RESULT(pair, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root(true));
   try {
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
-    if (!(tlb::unpack_cell(std::move(pair.first), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
+    if (!(tlb::unpack_cell(std::move(virt.root), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
       return td::Status::Error(-668,
                                "cannot unpack block header in the Merkle proof for masterchain block "s + id_.to_str());
     }
@@ -66,10 +66,10 @@ td::Result<td::Ref<ConfigHolder>> ProofLinkQ::get_key_block_config() const {
     return td::Status::Error(
         -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
   }
-  TRY_RESULT(pair, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root(true));
   try {
-    TRY_RESULT(cfg, block::Config::extract_from_key_block(std::move(pair.first), block::Config::needValidatorSet));
-    return td::make_ref<ConfigHolderQ>(std::move(cfg), std::move(pair.second));
+    TRY_RESULT(cfg, block::Config::extract_from_key_block(std::move(virt.root), block::Config::needValidatorSet));
+    return td::make_ref<ConfigHolderQ>(std::move(cfg), std::move(virt.boc));
   } catch (vm::VmVirtError &) {
     return td::Status::Error(-668,
                              "virtualization error while traversing masterchain block proof for "s + id_.to_str());
@@ -78,11 +78,11 @@ td::Result<td::Ref<ConfigHolder>> ProofLinkQ::get_key_block_config() const {
 
 td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const {
   BasicHeaderInfo res;
-  TRY_RESULT(pair, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root(true));
   try {
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
-    if (!(tlb::unpack_cell(std::move(pair.first), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
+    if (!(tlb::unpack_cell(std::move(virt.root), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
       return td::Status::Error(-668,
                                "cannot unpack block header in the Merkle proof for masterchain block "s + id_.to_str());
     }
@@ -96,8 +96,7 @@ td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const
   }
 }
 
-td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> ProofLinkQ::get_virtual_root(
-    bool lazy) const {
+td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy) const {
   if (data_.empty()) {
     return td::Status::Error(-668, "block proof is empty");
   }
@@ -143,7 +142,23 @@ td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> Pr
                                        " contains a Merkle proof with incorrect root hash: expected " +
                                        proof_blk_id.root_hash.to_hex() + ", found " + virt_hash.to_hex());
   }
-  return std::make_pair(std::move(virt_root), std::move(boc));
+  return VirtualizedProof{std::move(virt_root), proof.signatures->prefetch_ref(), std::move(boc)};
+}
+
+td::Result<Ref<vm::Cell>> ProofQ::get_signatures_root() const {
+  if (data_.empty()) {
+    return td::Status::Error(-668, "block proof is empty");
+  }
+  TRY_RESULT(root, vm::std_boc_deserialize(data_.as_slice()));
+  block::gen::BlockProof::Record proof;
+  BlockIdExt proof_blk_id;
+  if (!(tlb::unpack_cell(root, proof) && block::tlb::t_BlockIdExt.unpack(proof.proof_for.write(), proof_blk_id))) {
+    return td::Status::Error(-668, "masterchain block proof is invalid");
+  }
+  if (proof_blk_id != id_) {
+    return td::Status::Error(-668, "masterchain block proof is for another block");
+  }
+  return proof.signatures->prefetch_ref();
 }
 
 }  // namespace validator

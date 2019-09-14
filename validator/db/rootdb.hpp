@@ -36,8 +36,8 @@ namespace validator {
 class RootDb : public Db {
  public:
   enum class Flags : td::uint32 { f_started = 1, f_ready = 2, f_switched = 4, f_archived = 8 };
-  RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path)
-      : validator_manager_(validator_manager), root_path_(std::move(root_path)) {
+  RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path, td::uint32 depth)
+      : validator_manager_(validator_manager), root_path_(std::move(root_path)), depth_(depth) {
   }
 
   void start_up() override;
@@ -112,6 +112,7 @@ class RootDb : public Db {
   td::actor::ActorId<ValidatorManager> validator_manager_;
 
   std::string root_path_;
+  td::uint32 depth_;
 
   td::actor::ActorOwn<CellDb> cell_db_;
   td::actor::ActorOwn<BlockDb> block_db_;

@@ -1643,6 +1643,37 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
   return td::Status::OK();
 }
 
+td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& id, ton::Bits256* store_shard_hash_to) {
+  block::gen::Block::Record blk;
+  block::gen::BlockInfo::Record info;
+  ton::ShardIdFull shard;
+  if (!(tlb::unpack_cell(block_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no)) {
+    return td::Status::Error("cannot unpack block header");
+  }
+  ton::BlockId hdr_id{shard, (unsigned)info.seq_no};
+  if (id.id != hdr_id) {
+    return td::Status::Error("block header contains block id "s + hdr_id.to_str() + ", expected " + id.id.to_str());
+  }
+  if (id.root_hash != block_root->get_hash().bits()) {
+    return td::Status::Error("block header has incorrect root hash "s + block_root->get_hash().bits().to_hex(256) +
+                             " instead of expected " + id.root_hash.to_hex());
+  }
+  if (info.not_master != !shard.is_masterchain()) {
+    return td::Status::Error("block has invalid not_master flag in its (Merkelized) header");
+  }
+  if (store_shard_hash_to) {
+    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
+          && upd_cs.size_ext() == 0x20228)) {
+      return td::Status::Error("invalid Merkle update in block header");
+    }
+    auto upd_hash = upd_cs.prefetch_ref(1)->get_hash(0);
+    *store_shard_hash_to = upd_hash.bits();
+  }
+  return td::Status::OK();
+}
+
 std::unique_ptr<vm::AugmentedDictionary> get_prev_blocks_dict(Ref<vm::Cell> state_root) {
   block::gen::ShardStateUnsplit::Record info;
   block::gen::McStateExtra::Record extra_info;
