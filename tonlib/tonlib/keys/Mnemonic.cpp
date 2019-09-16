@@ -28,8 +28,11 @@
 #include "td/utils/Span.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
+#include "td/utils/Timer.h"
 
 #include "crypto/Ed25519.h"
+
+#include <algorithm>
 
 namespace tonlib {
 td::Result<Mnemonic> Mnemonic::create(td::SecureString words, td::SecureString password) {
@@ -133,7 +136,28 @@ td::SecureString Mnemonic::join(td::Span<td::SecureString> words) {
   return res;
 }
 
+td::Span<std::string> Mnemonic::word_hints(td::Slice prefix) {
+  static std::vector<std::string> words = [] {
+    auto bip_words = Mnemonic::normalize_and_split(td::SecureString(bip39_english()));
+    std::vector<std::string> res;
+    for (auto &word : bip_words) {
+      res.push_back(word.as_slice().str());
+    }
+    return res;
+  }();
+  if (prefix.empty()) {
+    return words;
+  }
+
+  auto p = std::equal_range(words.begin(), words.end(), prefix, [&](td::Slice a, td::Slice b) {
+    return a.truncate(prefix.size()) < b.truncate(prefix.size());
+  });
+
+  return td::Span<std::string>(&*p.first, p.second - p.first);
+}
+
 td::Result<Mnemonic> Mnemonic::create_new(Options options) {
+  td::Timer timer;
   if (options.words_count == 0) {
     options.words_count = 24;
   }
@@ -146,14 +170,28 @@ td::Result<Mnemonic> Mnemonic::create_new(Options options) {
     max_iterations *= 256;
   }
 
+  td::Random::add_seed(options.entropy.as_slice());
+  SCOPE_EXIT {
+    td::Random::secure_cleanup();
+  };
+
   auto bip_words = Mnemonic::normalize_and_split(td::SecureString(bip39_english()));
   CHECK(bip_words.size() == 2048);
 
   int A = 0, B = 0, C = 0;
   for (int iteration = 0; iteration < max_iterations; iteration++) {
     std::vector<td::SecureString> words;
+    td::SecureString rnd((options.words_count * 11 + 7) / 8);
+    td::Random::secure_bytes(rnd.as_mutable_slice());
     for (int i = 0; i < options.words_count; i++) {
-      words.push_back(bip_words[td::Random::secure_int32() & 2047].copy());
+      size_t word_i = 0;
+      for (size_t j = 0; j < 11; j++) {
+        size_t offset = i * 11 + j;
+        if ((rnd[offset / 8] & (1 << (offset & 7))) != 0) {
+          word_i |= 1 << j;
+        }
+      }
+      words.push_back(bip_words[word_i].copy());
     }
 
     bool has_password = !options.password.empty();
@@ -180,7 +218,7 @@ td::Result<Mnemonic> Mnemonic::create_new(Options options) {
       continue;
     }
 
-    LOG(INFO) << "Mnemonic generation debug stats: " << A << " " << B << " " << C;
+    LOG(INFO) << "Mnemonic generation debug stats: " << A << " " << B << " " << C << " " << timer;
     return std::move(mnemonic);
   }
   return td::Status::Error("Failed to create a mnemonic (should not happen)");

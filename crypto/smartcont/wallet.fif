@@ -1,26 +1,20 @@
-#!/usr/bin/fift -s
+#!/usr/bin/env fift -s
 "TonUtil.fif" include
 
 { ."usage: " @' $0 type ." <filename-base> <dest-addr> <seqno> <amount> [-B <body-boc>] [<savefile>]" cr
   ."Creates a request to simple wallet created by new-wallet.fif, with private key loaded from file <filename-base>.pk "
   ."and address from <filename-base>.addr, and saves it into <savefile>.boc ('wallet-query.boc' by default)" cr 1 halt
 } : usage
+$# dup 4 < swap 5 > or ' usage if
 def? $6 { @' $5 "-B" $= { @' $6 =: body-boc-file [forget] $6 def? $7 { @' $7 =: $5 [forget] $7 } { [forget] $5 } cond
   @' $# 2- =: $# } if } if
-def? $# { @' $# dup 4 < swap 5 > or ' usage if } if
 
-"new-wallet" constant file-base
-Basechain 0x13CB612A00A7C092C7DFD2EA45D603A9B54591BA4C88F71E707E009B879F0FB2 2constant dest_addr
-0 constant seqno
-GR$.666 constant amount
 true constant bounce
 
-def? $4 {
-  @' $1 =: file-base
-  @' $2 bounce parse-load-address =: bounce 2=: dest_addr
-  @' $3 parse-int =: seqno
-  @' $4 $>GR =: amount
-} if
+$1 =: file-base
+$2 bounce parse-load-address =: bounce 2=: dest_addr
+$3 parse-int =: seqno
+$4 $>GR =: amount
 def? $5 { @' $5 } { "wallet-query" } cond constant savefile
 
 file-base +".addr" load-address

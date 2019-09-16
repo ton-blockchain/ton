@@ -126,9 +126,9 @@ void transfer_grams(Client& client, std::string from, std::string to, td::int64 
 }
 Wallet create_empty_wallet(Client& client) {
   using tonlib_api::make_object;
-  auto key =
-      sync_send(client, make_object<tonlib_api::createNewKey>(td::SecureString("local"), td::SecureString("mnemonic")))
-          .move_as_ok();
+  auto key = sync_send(client, make_object<tonlib_api::createNewKey>(td::SecureString("local"),
+                                                                     td::SecureString("mnemonic"), td::SecureString()))
+                 .move_as_ok();
   Wallet wallet{"", {key->public_key_, std::move(key->secret_)}};
 
   auto account_address =
@@ -210,8 +210,8 @@ int main(int argc, char* argv[]) {
     // init
     sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(global_config_str, "."))).ensure();
 
-    auto key = sync_send(client,
-                         make_object<tonlib_api::createNewKey>(td::SecureString("local"), td::SecureString("mnemonic")))
+    auto key = sync_send(client, make_object<tonlib_api::createNewKey>(
+                                     td::SecureString("local"), td::SecureString("mnemonic"), td::SecureString()))
                    .move_as_ok();
 
     auto create_input_key = [&] {

@@ -33,6 +33,16 @@ namespace block {
 
 using td::Ref;
 
+struct PublicKey {
+  std::string key;
+
+  static td::Result<PublicKey> from_bytes(td::Slice key);
+
+  static td::Result<PublicKey> parse(td::Slice key);
+
+  std::string serialize(bool base64_url = false);
+};
+
 struct StdAddress {
   ton::WorkchainId workchain{ton::workchainInvalid};
   bool bounceable{true};  // addresses must be bounceable by default
@@ -149,12 +159,12 @@ struct MsgProcessedUpto {
   MsgProcessedUpto(ton::ShardId _shard, ton::BlockSeqno _mcseqno, ton::LogicalTime _lt, td::ConstBitPtr _hash)
       : shard(_shard), mc_seqno(_mcseqno), last_inmsg_lt(_lt), last_inmsg_hash(_hash) {
   }
-  bool operator<(const MsgProcessedUpto& other) const & {
+  bool operator<(const MsgProcessedUpto& other) const& {
     return shard < other.shard || (shard == other.shard && mc_seqno < other.mc_seqno);
   }
-  bool contains(const MsgProcessedUpto& other) const &;
+  bool contains(const MsgProcessedUpto& other) const&;
   bool contains(ton::ShardId other_shard, ton::LogicalTime other_lt, td::ConstBitPtr other_hash,
-                ton::BlockSeqno other_mc_seqno) const &;
+                ton::BlockSeqno other_mc_seqno) const&;
   // NB: this is for checking whether we have already imported an internal message
   bool already_processed(const EnqueuedMsgDescr& msg) const;
 };
@@ -470,13 +480,14 @@ struct BlockProofLink {
   bool incomplete() const {
     return dest_proof.is_null();
   }
-  td::Status validate() const;
+  td::Status validate(td::uint32* save_utime = nullptr) const;
 };
 
 struct BlockProofChain {
   ton::BlockIdExt from, to;
   int mode;
-  bool complete{false}, has_key_block{false}, valid{false};
+  td::uint32 last_utime{0};
+  bool complete{false}, has_key_block{false}, has_utime{false}, valid{false};
   ton::BlockIdExt key_blkid;
   std::vector<BlockProofLink> links;
   std::size_t link_count() const {

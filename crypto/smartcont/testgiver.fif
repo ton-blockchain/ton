@@ -1,29 +1,21 @@
-#!/usr/bin/fift -s
+#!/usr/bin/env fift -s
 "TonUtil.fif" include
 
 { ."usage: " @' $0 type ." <dest-addr> <seqno> <amount> [<savefile>]" cr
   ."Creates a request to TestGiver and saves it into <savefile>.boc" cr
   ."('testgiver-query.boc' by default)" cr 1 halt
 } : usage
-def? $# { @' $# 3 - -2 and ' usage if } if
+
+$# 3 - -2 and ' usage if
 
 // "testgiver.addr" load-address 
 Masterchain 0x8156775b79325e5d62e742d9b96c30b6515a5cd2f1f64c5da4b193c03f070e0d
 2constant giver_addr
  ."Test giver address = " giver_addr 2dup .addr cr 6 .Addr cr
 
-Basechain 0x60c04141c6a7b96d68615e7a91d265ad0f3a9a922e9ae9c901d4fa83f5d3c0d0
-2constant dest_addr 
-false constant bounce
-
-0 constant seqno
-GR$6.666 constant amount
-
-def? $3 { 
-  @' $1 bounce parse-load-address =: bounce 2=: dest_addr
-  @' $2 parse-int =: seqno
-  @' $3 $>GR =: amount
-} if
+$1 true parse-load-address =: bounce 2=: dest_addr
+$2 parse-int =: seqno
+$3 $>GR =: amount
 def? $4 { @' $4 } { "testgiver-query" } cond constant savefile
 
 ."Requesting " amount .GR ."to account "

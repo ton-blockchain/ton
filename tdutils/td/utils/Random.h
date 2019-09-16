@@ -35,6 +35,7 @@ class Random {
 
   // works only for current thread
   static void add_seed(Slice bytes, double entropy = 0);
+  static void secure_cleanup();
 #endif
 
   static uint32 fast_uint32();

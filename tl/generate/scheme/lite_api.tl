@@ -27,6 +27,7 @@ liteServer.error code:int message:string = liteServer.Error;
 liteServer.accountId workchain:int id:int256 = liteServer.AccountId;
 
 liteServer.masterchainInfo last:tonNode.blockIdExt state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfo;
+liteServer.masterchainInfoExt mode:# version:int capabilities:long last:tonNode.blockIdExt last_utime:int now:int state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfoExt;
 liteServer.currentTime now:int = liteServer.CurrentTime;
 liteServer.version mode:# version:int capabilities:long now:int = liteServer.Version;
 liteServer.blockData id:tonNode.blockIdExt data:bytes = liteServer.BlockData;
@@ -53,6 +54,7 @@ liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 ---functions---
 
 liteServer.getMasterchainInfo = liteServer.MasterchainInfo;
+liteServer.getMasterchainInfoExt mode:# = liteServer.MasterchainInfoExt;
 liteServer.getTime = liteServer.CurrentTime;
 liteServer.getVersion = liteServer.Version;
 liteServer.getBlock id:tonNode.blockIdExt = liteServer.BlockData;

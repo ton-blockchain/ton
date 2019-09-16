@@ -79,6 +79,7 @@ class TonlibClient : public td::actor::Actor {
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::raw_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testWallet_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testGiver_getAccountAddress& request);
+  static object_ptr<tonlib_api::Object> do_static_request(tonlib_api::getBip39Hints& request);
   template <class T, class P>
   td::Status do_request(const T& request, P&& promise) {
     return td::Status::Error(400, "Function is unsupported");

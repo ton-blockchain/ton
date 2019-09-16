@@ -50,6 +50,7 @@
 #include "td/utils/port/Stat.h"
 #include "td/utils/Timer.h"
 #include "td/utils/tl_helpers.h"
+#include "td/utils/crypto.h"
 
 #include <ctime>
 
@@ -704,6 +705,10 @@ void interpret_int_to_bytes(vm::Stack& stack, bool sgnd, bool lsb) {
   stack.push_bytes(std::string{(char*)buffer, sz});
 }
 
+void interpret_string_to_bytes(vm::Stack& stack) {
+  stack.push_bytes(stack.pop_string());
+}
+
 void interpret_bytes_hash(vm::Stack& stack) {
   std::string str = stack.pop_bytes();
   unsigned char buffer[32];
@@ -1304,6 +1309,21 @@ void interpret_ed25519_chksign(vm::Stack& stack) {
   td::Ed25519::PublicKey pub_key{td::SecureString{key}};
   auto res = pub_key.verify_signature(td::Slice{data}, td::Slice{signature});
   stack.push_bool(res.is_ok());
+}
+
+void interpret_crc16(vm::Stack& stack) {
+  std::string str = stack.pop_bytes();
+  stack.push_smallint(td::crc16(td::Slice{str}));
+}
+
+void interpret_crc32(vm::Stack& stack) {
+  std::string str = stack.pop_bytes();
+  stack.push_smallint(td::crc32(td::Slice{str}));
+}
+
+void interpret_crc32c(vm::Stack& stack) {
+  std::string str = stack.pop_bytes();
+  stack.push_smallint(td::crc32c(td::Slice{str}));
 }
 
 // vm dictionaries
@@ -2427,6 +2447,7 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("B>Li@ ", std::bind(interpret_bytes_fetch_int, _1, 0x11));
   d.def_stack_word("B>Lu@+ ", std::bind(interpret_bytes_fetch_int, _1, 0x12));
   d.def_stack_word("B>Li@+ ", std::bind(interpret_bytes_fetch_int, _1, 0x13));
+  d.def_stack_word("$>B ", interpret_string_to_bytes);
   d.def_stack_word("Bhash ", interpret_bytes_hash);
   // cell manipulation (create, write and modify cells)
   d.def_stack_word("<b ", interpret_empty);
@@ -2493,6 +2514,9 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("ed25519_sign ", interpret_ed25519_sign);
   d.def_stack_word("ed25519_chksign ", interpret_ed25519_chksign);
   d.def_stack_word("ed25519_sign_uint ", interpret_ed25519_sign_uint);
+  d.def_stack_word("crc16 ", interpret_crc16);
+  d.def_stack_word("crc32 ", interpret_crc32);
+  d.def_stack_word("crc32c ", interpret_crc32c);
   // vm dictionaries
   d.def_stack_word("dictnew ", interpret_dict_new);
   d.def_stack_word("dict>s ", interpret_dict_to_slice);

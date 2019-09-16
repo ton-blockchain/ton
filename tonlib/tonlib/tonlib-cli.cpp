@@ -152,6 +152,8 @@ class TonlibCli : public td::actor::Actor {
       auto to = parser.read_word();
       auto grams = parser.read_word();
       transfer(from, to, grams);
+    } else if (cmd == "hint") {
+      get_hints(parser.read_word());
     }
   }
 
@@ -191,21 +193,27 @@ class TonlibCli : public td::actor::Actor {
         };
   }
 
-  void generate_key(std::string entropy = "") {
+  void generate_key(td::SecureString entropy = {}) {
     if (entropy.size() < 20) {
       td::TerminalIO::out() << "Enter some entropy";
-      cont_ = [this, entropy](td::Slice new_entropy) { generate_key(entropy + new_entropy.str()); };
+      cont_ = [this, entropy = std::move(entropy)](td::Slice new_entropy) {
+        td::SecureString res(entropy.size() + new_entropy.size());
+        res.as_mutable_slice().copy_from(entropy.as_slice());
+        res.as_mutable_slice().substr(entropy.size()).copy_from(new_entropy);
+        generate_key(std::move(res));
+      };
       return;
     }
     td::TerminalIO::out() << "Enter password (could be empty)";
-    cont_ = [this, entropy](td::Slice password) { generate_key(std::move(entropy), td::SecureString(password)); };
+    cont_ = [this, entropy = std::move(entropy)](td::Slice password) mutable {
+      generate_key(std::move(entropy), td::SecureString(password));
+    };
   }
 
-  void generate_key(std::string entropy, td::SecureString password) {
-    //TODO: use entropy
+  void generate_key(td::SecureString entropy, td::SecureString password) {
     auto password_copy = password.copy();
-    send_query(tonlib_api::make_object<tonlib_api::createNewKey>(std::move(password_copy),
-                                                                 td::SecureString() /*mnemonic password*/),
+    send_query(tonlib_api::make_object<tonlib_api::createNewKey>(
+                   std::move(password_copy), td::SecureString() /*mnemonic password*/, std::move(entropy)),
                [this, password = std::move(password)](auto r_key) mutable {
                  if (r_key.is_error()) {
                    LOG(ERROR) << "Failed to create new key: " << r_key.error();
@@ -541,6 +549,15 @@ class TonlibCli : public td::actor::Actor {
                  }
                  td::TerminalIO::out() << to_string(r_res.ok());
                });
+  }
+
+  void get_hints(td::Slice prefix) {
+    using tonlib_api::make_object;
+    auto obj = tonlib::TonlibClient::static_request(make_object<tonlib_api::getBip39Hints>(prefix.str()));
+    if (obj->get_id() == tonlib_api::error::ID) {
+      return;
+    }
+    td::TerminalIO::out() << to_string(obj);
   }
 };
 

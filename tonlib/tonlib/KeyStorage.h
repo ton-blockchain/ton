@@ -50,7 +50,7 @@ class KeyStorage {
 
   td::Status set_directory(std::string directory);
 
-  td::Result<Key> create_new_key(td::Slice local_password, td::Slice key_password);
+  td::Result<Key> create_new_key(td::Slice local_password, td::Slice key_password, td::Slice entropy);
 
   td::Result<ExportedKey> export_key(InputKey input_key);
   td::Result<ExportedPemKey> export_pem_key(InputKey input_key, td::Slice key_password);

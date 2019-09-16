@@ -24,9 +24,60 @@
 #include "common/util.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_storers.h"
+#include "td/utils/misc.h"
 
 namespace block {
 using namespace std::literals::string_literals;
+
+td::Result<PublicKey> PublicKey::from_bytes(td::Slice key) {
+  if (key.size() != 32) {
+    return td::Status::Error("Ed25519 public key must be exactly 32 bytes long");
+  }
+  PublicKey res;
+  res.key = key.str();
+  return res;
+}
+
+td::Result<PublicKey> PublicKey::parse(td::Slice key) {
+  if (key.size() != 48) {
+    return td::Status::Error("Serialized Ed25519 public key must be exactly 48 characters long");
+  }
+  td::uint8 buf[36];
+  if (!buff_base64_decode(td::MutableSlice(buf, 36), key, true)) {
+    return td::Status::Error("Public key is not serialized in base64 encoding");
+  }
+
+  td::uint16 hash = static_cast<td::uint16>((static_cast<unsigned>(buf[34]) << 8) + buf[35]);
+  if (hash != td::crc16(td::Slice(buf, 34))) {
+    return td::Status::Error("Public key has incorrect crc16 hash");
+  }
+
+  if (buf[0] != 0x3e) {
+    return td::Status::Error("Not a public key");
+  }
+  if (buf[1] != 0xe6) {
+    return td::Status::Error("Not an ed25519 public key");
+  }
+
+  return from_bytes(td::Slice(buf + 2, 32));
+}
+
+std::string PublicKey::serialize(bool base64_url) {
+  CHECK(key.size() == 32);
+  std::string buf(36, 0);
+  td::MutableSlice bytes(buf);
+
+  bytes[0] = static_cast<char>(0x3e);
+  bytes[1] = static_cast<char>(0xe6);
+  bytes.substr(2).copy_from(key);
+  auto hash = td::crc16(bytes.substr(0, 34));
+  bytes[34] = static_cast<char>(hash >> 8);
+  bytes[35] = static_cast<char>(hash & 255);
+
+  std::string res(48, 0);
+  buff_base64_encode(res, bytes, base64_url);
+  return res;
+}
 
 bool pack_std_smc_addr_to(char result[48], bool base64_url, ton::WorkchainId wc, const ton::StdSmcAddress& addr,
                           bool bounceable, bool testnet) {
@@ -316,14 +367,14 @@ std::unique_ptr<MsgProcessedUptoCollection> MsgProcessedUptoCollection::unpack(t
   return v && v->valid ? std::move(v) : std::unique_ptr<MsgProcessedUptoCollection>{};
 }
 
-bool MsgProcessedUpto::contains(const MsgProcessedUpto& other) const & {
+bool MsgProcessedUpto::contains(const MsgProcessedUpto& other) const& {
   return ton::shard_is_ancestor(shard, other.shard) && mc_seqno >= other.mc_seqno &&
          (last_inmsg_lt > other.last_inmsg_lt ||
           (last_inmsg_lt == other.last_inmsg_lt && !(last_inmsg_hash < other.last_inmsg_hash)));
 }
 
 bool MsgProcessedUpto::contains(ton::ShardId other_shard, ton::LogicalTime other_lt, td::ConstBitPtr other_hash,
-                                ton::BlockSeqno other_mc_seqno) const & {
+                                ton::BlockSeqno other_mc_seqno) const& {
   return ton::shard_is_ancestor(shard, other_shard) && mc_seqno >= other_mc_seqno &&
          (last_inmsg_lt > other_lt || (last_inmsg_lt == other_lt && !(last_inmsg_hash < other_hash)));
 }

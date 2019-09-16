@@ -24,6 +24,7 @@
 #include "tonlib/TestWallet.h"
 #include "tonlib/TestGiver.h"
 #include "tonlib/utils.h"
+#include "tonlib/keys/Mnemonic.h"
 
 #include "auto/tl/tonlib_api.hpp"
 #include "block/block-auto.h"
@@ -350,6 +351,7 @@ bool TonlibClient::is_static_request(td::int32 id) {
     case tonlib_api::raw_getAccountAddress::ID:
     case tonlib_api::testWallet_getAccountAddress::ID:
     case tonlib_api::testGiver_getAccountAddress::ID:
+    case tonlib_api::getBip39Hints::ID:
       return true;
     default:
       return false;
@@ -403,6 +405,11 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::testGiver_getAccountAddress& request) {
   return tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize());
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(tonlib_api::getBip39Hints& request) {
+  return tonlib_api::make_object<tonlib_api::bip39Hints>(
+      td::transform(Mnemonic::word_hints(td::trim(td::to_lower_inplace(request.prefix_))), [](auto& x) { return x; }));
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::init& request,
@@ -900,8 +907,8 @@ td::Status TonlibClient::do_request(tonlib_api::generic_sendGrams& request,
 
 td::Status TonlibClient::do_request(const tonlib_api::createNewKey& request,
                                     td::Promise<object_ptr<tonlib_api::key>>&& promise) {
-  TRY_RESULT(key,
-             key_storage_.create_new_key(std::move(request.local_password_), std::move(request.mnemonic_password_)));
+  TRY_RESULT(key, key_storage_.create_new_key(std::move(request.local_password_), std::move(request.mnemonic_password_),
+                                              std::move(request.random_extra_seed_)));
   promise.set_value(tonlib_api::make_object<tonlib_api::key>(key.public_key.as_slice().str(), std::move(key.secret)));
   return td::Status::OK();
 }

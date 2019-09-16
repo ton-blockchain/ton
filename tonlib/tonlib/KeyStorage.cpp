@@ -63,9 +63,11 @@ td::Result<KeyStorage::Key> KeyStorage::save_key(const DecryptedKey &decrypted_k
   return std::move(res);
 }
 
-td::Result<KeyStorage::Key> KeyStorage::create_new_key(td::Slice local_password, td::Slice mnemonic_password) {
+td::Result<KeyStorage::Key> KeyStorage::create_new_key(td::Slice local_password, td::Slice mnemonic_password,
+                                                       td::Slice entropy) {
   Mnemonic::Options create_options;
   create_options.password = td::SecureString(mnemonic_password);
+  create_options.entropy = td::SecureString(entropy);
   TRY_RESULT(mnemonic, Mnemonic::create_new(std::move(create_options)));
 
   return save_key(DecryptedKey(std::move(mnemonic)), local_password);

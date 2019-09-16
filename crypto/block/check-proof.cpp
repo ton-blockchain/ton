@@ -296,7 +296,10 @@ td::Result<TransactionList::Info> TransactionList::validate() const {
   return std::move(res);
 }
 
-td::Status BlockProofLink::validate() const {
+td::Status BlockProofLink::validate(td::uint32* save_utime) const {
+  if (save_utime) {
+    *save_utime = 0;
+  }
   if (!(from.is_masterchain_ext() && to.is_masterchain_ext())) {
     return td::Status::Error("BlockProofLink must have both source and destination blocks in the masterchain");
   }
@@ -345,6 +348,9 @@ td::Status BlockProofLink::validate() const {
       if (info.key_block != is_key) {
         return td::Status::Error(PSTRING() << "incorrect is_key_block value " << is_key << " for destination block "
                                            << to.to_str());
+      }
+      if (save_utime) {
+        *save_utime = info.gen_utime;
       }
     } else if (!is_key) {
       // return td::Status::Error("Zerostate destination block "s + to.to_str() + " does not have is_key_block set");
@@ -414,6 +420,8 @@ td::Status BlockProofLink::validate() const {
 td::Status BlockProofChain::validate() {
   valid = false;
   has_key_block = false;
+  has_utime = false;
+  last_utime = 0;
   key_blkid.invalidate();
   if (!(from.is_masterchain_ext() && to.is_masterchain_ext())) {
     return td::Status::Error("BlockProofChain must have both source and destination blocks in the masterchain");
@@ -435,7 +443,7 @@ td::Status BlockProofChain::validate() {
                                          << link.from.to_str() << " but the previous link ends at different block "
                                          << cur.to_str());
     }
-    auto err = link.validate();
+    auto err = link.validate(&last_utime);
     if (err.is_error()) {
       return td::Status::Error(PSTRING() << "link #" << i << " in BlockProofChain is invalid: " << err.to_string());
     }
@@ -449,6 +457,7 @@ td::Status BlockProofChain::validate() {
     return td::Status::Error("last link of BlockProofChain ends at block "s + cur.to_str() +
                              " different from declared chain destination block " + to.to_str());
   }
+  has_utime = (last_utime > 0);
   valid = true;
   return td::Status::OK();
 }

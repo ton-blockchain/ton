@@ -255,7 +255,7 @@ void ValidateQuery::start_up() {
     LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
     td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                  timeout, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
+                                  timeout, [ self = get_self(), i ](td::Result<Ref<ShardState>> res)->void {
                                     LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
                                     td::actor::send_closure_later(
                                         std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
@@ -269,16 +269,16 @@ void ValidateQuery::start_up() {
   // 5. request masterchain state referred to in the block
   if (!is_masterchain()) {
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout,
-                                  [self = get_self()](td::Result<Ref<ShardState>> res) {
+    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(),
+                                  timeout, [self = get_self()](td::Result<Ref<ShardState>> res) {
                                     LOG(DEBUG) << "got answer to wait_block_state() query for masterchain block";
                                     td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state,
                                                                   std::move(res));
                                   });
     // 5.1. request corresponding block handle
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::get_block_handle, mc_blkid_, true,
-                                  [self = get_self()](td::Result<BlockHandle> res) {
+    td::actor::send_closure_later(manager, &ValidatorManager::get_block_handle, mc_blkid_,
+                                  true, [self = get_self()](td::Result<BlockHandle> res) {
                                     LOG(DEBUG) << "got answer to get_block_handle() query for masterchain block";
                                     td::actor::send_closure_later(std::move(self), &ValidateQuery::got_mc_handle,
                                                                   std::move(res));
@@ -722,19 +722,32 @@ bool ValidateQuery::fetch_config_params() {
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config_->get_config_param(is_masterchain() ? 20 : 21);
-    block::gen::GasLimitsPrices::Record rec;
-    if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
+    if (cell.is_null()) {
       return fatal_error("cannot fetch current gas prices and limits from masterchain configuration");
     }
-    compute_phase_cfg_.gas_limit = rec.gas_limit;
-    compute_phase_cfg_.gas_credit = rec.gas_credit;
-    compute_phase_cfg_.gas_price = rec.gas_price;
+    auto f = [self = this](const auto& r, td::uint64 spec_limit) {
+      self->compute_phase_cfg_.gas_limit = r.gas_limit;
+      self->compute_phase_cfg_.special_gas_limit = spec_limit;
+      self->compute_phase_cfg_.gas_credit = r.gas_credit;
+      self->compute_phase_cfg_.gas_price = r.gas_price;
+      self->storage_phase_cfg_.freeze_due_limit = td::RefInt256{true, r.freeze_due_limit};
+      self->storage_phase_cfg_.delete_due_limit = td::RefInt256{true, r.delete_due_limit};
+    };
+    block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
+    if (tlb::unpack_cell(cell, rec)) {
+      f(rec, rec.special_gas_limit);
+    } else {
+      block::gen::GasLimitsPrices::Record_gas_prices rec0;
+      if (tlb::unpack_cell(std::move(cell), rec0)) {
+        f(rec0, rec0.gas_limit);
+      } else {
+        return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
+      }
+    }
     compute_phase_cfg_.compute_threshold();
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.global_config = config_->get_root_cell();
-    storage_phase_cfg_.freeze_due_limit = td::RefInt256{true, rec.freeze_due_limit};
-    storage_phase_cfg_.delete_due_limit = td::RefInt256{true, rec.delete_due_limit};
   }
   {
     // compute action_phase_cfg
@@ -1167,7 +1180,7 @@ bool ValidateQuery::request_neighbor_queues() {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
     ++pending;
     send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
-                       [self = get_self(), i](td::Result<Ref<MessageQueue>> res) {
+                       [ self = get_self(), i ](td::Result<Ref<MessageQueue>> res) {
                          td::actor::send_closure(std::move(self), &ValidateQuery::got_neighbor_out_queue, i,
                                                  std::move(res));
                        });
@@ -1285,13 +1298,12 @@ bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
-                                [self = get_self(), blkid](td::Result<Ref<ShardState>> res) {
-                                  LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
-                                  td::actor::send_closure_later(std::move(self),
-                                                                &ValidateQuery::after_get_aux_shard_state, blkid,
-                                                                std::move(res));
-                                });
+  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, [
+    self = get_self(), blkid
+  ](td::Result<Ref<ShardState>> res) {
+    LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
+    td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_aux_shard_state, blkid, std::move(res));
+  });
   state.clear();
   return true;
 }
@@ -1627,8 +1639,8 @@ bool ValidateQuery::check_shard_layout() {
   WorkchainId wc_id{ton::workchainInvalid};
   Ref<block::WorkchainInfo> wc_info;
 
-  if (!new_shard_conf_->process_sibling_shard_hashes([self = this, &wc_set, &wc_id, &wc_info, &ccvc](
-                                                         block::McShardHash& cur, const block::McShardHash* sibling) {
+  if (!new_shard_conf_->process_sibling_shard_hashes([ self = this, &wc_set, &wc_id, &wc_info, &ccvc ](
+          block::McShardHash & cur, const block::McShardHash* sibling) {
         if (!cur.is_valid()) {
           return -2;
         }
@@ -4619,8 +4631,8 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
     old_publishers = std::make_unique<vm::Dictionary>(256);
   }
   if (!old_publishers->scan_diff(*new_publishers,
-                                 [this, lib_key = key](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val,
-                                                       Ref<vm::CellSlice> new_val) {
+                                 [ this, lib_key = key ](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val,
+                                                         Ref<vm::CellSlice> new_val) {
                                    CHECK(key_len == 256);
                                    if (old_val.not_null() && !old_val->empty_ext()) {
                                      return false;

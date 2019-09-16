@@ -1,4 +1,4 @@
-#!/usr/bin/fift -s
+#!/usr/bin/env fift -s
 "TonUtil.fif" include
 "Asm.fif" include
 
@@ -6,10 +6,9 @@
   ."Creates a new wallet in specified workchain, with private key saved to or loaded from <filename-base>.pk" cr
   ."('new-wallet.pk' by default)" cr 1 halt
 } : usage
-def? $# { @' $# 1- -2 and ' usage if } if
+$# 1- -2 and ' usage if
 
-Basechain constant wc  // create a wallet in workchain 0 (basechain)
-def? $1 { @' $1 parse-workchain-id =: wc } if   // set workchain id from command line argument
+$1 parse-workchain-id =: wc    // set workchain id from command line argument
 def? $2 { @' $2 } { "new-wallet" } cond constant file-base
 
 ."Creating new wallet in workchain " wc . cr

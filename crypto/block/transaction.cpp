@@ -695,7 +695,7 @@ td::RefInt256 ComputePhaseConfig::compute_gas_price(td::uint64 gas_used) const {
 bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg) {
   // Compute gas limits
   if (account.is_special) {
-    cp.gas_max = cfg.gas_limit;  // TODO: introduce special gas limits?
+    cp.gas_max = cfg.special_gas_limit;
   } else {
     cp.gas_max = cfg.gas_bought_for(balance.grams);
   }

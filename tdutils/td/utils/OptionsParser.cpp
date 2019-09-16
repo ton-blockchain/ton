@@ -35,6 +35,11 @@ void OptionsParser::set_description(std::string description) {
 
 void OptionsParser::add_option(Option::Type type, char short_key, Slice long_key, Slice description,
                                std::function<Status(Slice)> callback) {
+  for (auto &option : options_) {
+    if (option.short_key == short_key || (!long_key.empty() && long_key == option.long_key)) {
+      LOG(ERROR) << "Ignore duplicated option '" << short_key << "' '" << long_key << "'";
+    }
+  }
   options_.push_back(Option{type, short_key, long_key.str(), description.str(), std::move(callback)});
 }
 

@@ -24,6 +24,8 @@ exportedKey word_list:vector<secureString> = ExportedKey;
 exportedPemKey pem:secureString = ExportedPemKey;
 exportedEncryptedKey data:secureBytes = ExportedEncryptedKey;
 
+bip39Hints words:vector<string> = Bip39Hints;
+
 accountAddress account_address:string = AccountAddress;
 
 internal.transactionId lt:int64 hash:bytes = internal.TransactionId;
@@ -56,7 +58,7 @@ close = Ok;
 
 options.setConfig config:string = Ok;
 
-createNewKey local_password:secureBytes mnemonic_password:secureBytes = Key;
+createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;
 deleteKey public_key:bytes = Ok;
 exportKey input_key:inputKey = ExportedKey;
 exportPemKey input_key:inputKey key_password:secureBytes = ExportedPemKey;
@@ -65,6 +67,8 @@ importKey local_password:secureBytes mnemonic_password:secureBytes exported_key:
 importPemKey local_password:secureBytes key_password:secureBytes exported_key:exportedPemKey = Key;
 importEncryptedKey local_password:secureBytes key_password:secureBytes exported_encrypted_key:exportedEncryptedKey = Key;
 changeLocalPassword input_key:inputKey new_local_password:secureBytes = Key;
+
+getBip39Hints prefix:string = Bip39Hints;
 
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountAddress initital_account_state:raw.initialAccountState = AccountAddress;

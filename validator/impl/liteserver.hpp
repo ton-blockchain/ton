@@ -57,8 +57,11 @@ class LiteQuery : public td::actor::Actor {
   std::unique_ptr<block::BlockProofChain> chain_;
 
  public:
-  enum { default_timeout_msec = 4500 };              // 4.5 seconds
-  enum { ls_version = 0x101, ls_capabilities = 1 };  // version 1.1; +1 = build block proof chains
+  enum { default_timeout_msec = 4500 };  // 4.5 seconds
+  enum {
+    ls_version = 0x101,
+    ls_capabilities = 3
+  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::Promise<td::BufferSlice> promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
@@ -75,8 +78,8 @@ class LiteQuery : public td::actor::Actor {
   void start_up() override;
   void perform_getTime();
   void perform_getVersion();
-  void perform_getMasterchainInfo();
-  void continue_getMasterchainInfo(Ref<MasterchainState> mc_state, BlockIdExt blkid);
+  void perform_getMasterchainInfo(int mode);
+  void continue_getMasterchainInfo(Ref<MasterchainState> mc_state, BlockIdExt blkid, int mode);
   void perform_getBlock(BlockIdExt blkid);
   void continue_getBlock(BlockIdExt blkid, Ref<BlockData> block);
   void perform_getBlockHeader(BlockIdExt blkid, int mode);

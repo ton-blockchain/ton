@@ -94,9 +94,14 @@ class TestNode : public td::actor::Actor {
 
   void run_init_queries();
   bool get_server_time();
-  bool get_server_version();
+  bool get_server_version(int mode = 0);
+  void got_server_version(td::Result<td::BufferSlice> res, int mode);
   bool get_server_mc_block_id();
-  void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid);
+  void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
+  void got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
+                                  long long capabilities, int last_utime, int server_now);
+  void set_server_version(td::int32 version, td::int64 capabilities);
+  void set_server_time(int server_utime);
   bool request_block(ton::BlockIdExt blkid);
   bool request_state(ton::BlockIdExt blkid);
   void got_mc_block(ton::BlockIdExt blkid, td::BufferSlice data);

@@ -132,6 +132,12 @@ TEST(Tonlib, TestGiver) {
   vm::CellSlice(vm::NoVm(), res).print_rec(std::cerr);
   CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == res->get_hash());
 }
+TEST(Tonlib, PublicKey) {
+  block::PublicKey::parse("pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2").ensure_error();
+  auto key = block::PublicKey::parse("Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2").move_as_ok();
+  CHECK(td::buffer_to_hex(key.key) == "3EE9DC0A7A0B6CA01770CE34698792BD8ECB53A6949BFD6C81B6E3CA475B74D7");
+  CHECK(key.serialize() == "Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2");
+}
 
 TEST(Tonlib, Address) {
   auto a = block::StdAddress::parse("-1:538fa7cc24ff8eaa101d84a5f1ab7e832fe1d84b309cdfef4ee94373aac80f7d").move_as_ok();
@@ -287,12 +293,14 @@ TEST(Tonlib, KeysApi) {
   auto local_password = td::SecureString("local password");
   auto mnemonic_password = td::SecureString("mnemonic password");
   {
-    auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), td::SecureString{}))
+    auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), td::SecureString{},
+                                                                       td::SecureString{}))
                    .move_as_ok();
   }
 
   //createNewKey local_password:bytes mnemonic_password:bytes = Key;
-  auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), mnemonic_password.copy()))
+  auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), mnemonic_password.copy(),
+                                                                     td::SecureString{}))
                  .move_as_ok();
 
   sync_send(client, make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(

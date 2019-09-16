@@ -18,7 +18,8 @@
 */
 #pragma once
 #include "td/utils/Slice.h"
+#include "td/utils/Span.h"
 
 namespace tonlib {
 td::CSlice bip39_english();
-}
+}  // namespace tonlib

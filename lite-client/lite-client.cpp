@@ -235,57 +235,98 @@ bool TestNode::get_server_time() {
   });
 }
 
-bool TestNode::get_server_version() {
+bool TestNode::get_server_version(int mode) {
   auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getVersion>(), true);
-  return envelope_send_query(std::move(b), [&, Self = actor_id(this) ](td::Result<td::BufferSlice> res)->void {
-    server_ok_ = false;
-    if (res.is_error()) {
-      LOG(ERROR) << "cannot get server version and time (server too old?)";
-    } else {
-      auto F = ton::fetch_tl_object<ton::lite_api::liteServer_version>(res.move_as_ok(), true);
-      if (F.is_error()) {
-        LOG(ERROR) << "cannot parse answer to liteServer.getVersion";
-      } else {
-        auto a = F.move_as_ok();
-        server_version_ = a->version_;
-        server_capabilities_ = a->capabilities_;
-        server_time_ = a->now_;
-        server_time_got_at_ = static_cast<td::uint32>(td::Clocks::system());
-        LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
-        LOG(WARNING) << "server version is " << (server_version_ >> 8) << "." << (server_version_ & 0xff)
-                     << ", capabilities " << server_capabilities_;
-        server_ok_ = (server_version_ >= min_ls_version) && !(~server_capabilities_ & min_ls_capabilities);
-      }
-    }
-    if (!server_ok_) {
-      LOG(ERROR) << "server version is too old (at least " << (min_ls_version >> 8) << "." << (min_ls_version & 0xff)
-                 << " with capabilities " << min_ls_capabilities << " required), some queries are unavailable";
-    }
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), mode ](td::Result<td::BufferSlice> res) {
+    td::actor::send_closure_later(Self, &TestNode::got_server_version, std::move(res), mode);
   });
+};
+
+void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
+  server_ok_ = false;
+  if (res.is_error()) {
+    LOG(ERROR) << "cannot get server version and time (server too old?)";
+  } else {
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_version>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getVersion";
+    } else {
+      auto a = F.move_as_ok();
+      set_server_version(a->version_, a->capabilities_);
+      set_server_time(a->now_);
+    }
+  }
+  if (!server_ok_) {
+    LOG(ERROR) << "server version is too old (at least " << (min_ls_version >> 8) << "." << (min_ls_version & 0xff)
+               << " with capabilities " << min_ls_capabilities << " required), some queries are unavailable";
+  }
+  if (mode & 0x100) {
+    get_server_mc_block_id();
+  }
+}
+
+void TestNode::set_server_version(td::int32 version, td::int64 capabilities) {
+  if (server_version_ != version || server_capabilities_ != capabilities) {
+    server_version_ = version;
+    server_capabilities_ = capabilities;
+    LOG(WARNING) << "server version is " << (server_version_ >> 8) << "." << (server_version_ & 0xff)
+                 << ", capabilities " << server_capabilities_;
+  }
+  server_ok_ = (server_version_ >= min_ls_version) && !(~server_capabilities_ & min_ls_capabilities);
+}
+
+void TestNode::set_server_time(int server_utime) {
+  server_time_ = server_utime;
+  server_time_got_at_ = static_cast<td::uint32>(td::Clocks::system());
+  LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
 }
 
 bool TestNode::get_server_mc_block_id() {
-  auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
-  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res)->void {
-    if (res.is_error()) {
-      LOG(ERROR) << "cannot get masterchain info from server";
-      return;
-    } else {
-      auto F = ton::fetch_tl_object<ton::lite_api::liteServer_masterchainInfo>(res.move_as_ok(), true);
-      if (F.is_error()) {
-        LOG(ERROR) << "cannot parse answer to liteServer.getMasterchainInfo";
+  int mode = (server_capabilities_ & 2) ? 0 : -1;
+  if (mode < 0) {
+    auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
+    return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res)->void {
+      if (res.is_error()) {
+        LOG(ERROR) << "cannot get masterchain info from server";
+        return;
       } else {
-        auto f = F.move_as_ok();
-        auto blk_id = create_block_id(f->last_);
-        auto zstate_id = create_zero_state_id(f->init_);
-        LOG(INFO) << "last masterchain block is " << blk_id.to_str();
-        td::actor::send_closure_later(Self, &TestNode::got_server_mc_block_id, blk_id, zstate_id);
+        auto F = ton::fetch_tl_object<ton::lite_api::liteServer_masterchainInfo>(res.move_as_ok(), true);
+        if (F.is_error()) {
+          LOG(ERROR) << "cannot parse answer to liteServer.getMasterchainInfo";
+        } else {
+          auto f = F.move_as_ok();
+          auto blk_id = create_block_id(f->last_);
+          auto zstate_id = create_zero_state_id(f->init_);
+          LOG(INFO) << "last masterchain block is " << blk_id.to_str();
+          td::actor::send_closure_later(Self, &TestNode::got_server_mc_block_id, blk_id, zstate_id, 0);
+        }
       }
-    }
-  });
+    });
+  } else {
+    auto b =
+        ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfoExt>(mode), true);
+    return envelope_send_query(std::move(b), [ Self = actor_id(this), mode ](td::Result<td::BufferSlice> res)->void {
+      if (res.is_error()) {
+        LOG(ERROR) << "cannot get extended masterchain info from server";
+        return;
+      } else {
+        auto F = ton::fetch_tl_object<ton::lite_api::liteServer_masterchainInfoExt>(res.move_as_ok(), true);
+        if (F.is_error()) {
+          LOG(ERROR) << "cannot parse answer to liteServer.getMasterchainInfoExt";
+        } else {
+          auto f = F.move_as_ok();
+          auto blk_id = create_block_id(f->last_);
+          auto zstate_id = create_zero_state_id(f->init_);
+          LOG(INFO) << "last masterchain block is " << blk_id.to_str();
+          td::actor::send_closure_later(Self, &TestNode::got_server_mc_block_id_ext, blk_id, zstate_id, mode,
+                                        f->version_, f->capabilities_, f->last_utime_, f->now_);
+        }
+      }
+    });
+  }
 }
 
-void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid) {
+void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created) {
   if (!zstate_id_.is_valid()) {
     zstate_id_ = zstateid;
     LOG(INFO) << "zerostate id set to " << zstate_id_.to_str();
@@ -304,7 +345,34 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   } else if (mc_last_id_.id.seqno < blkid.id.seqno) {
     mc_last_id_ = blkid;
   }
+  td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
+  if (created > 0) {
+    td::TerminalIO::out() << " created at " << created << " (" << static_cast<td::int32>(td::Clocks::system()) - created
+                          << " seconds ago)\n";
+  } else {
+    td::TerminalIO::out() << "\n";
+  }
   show_new_blkids();
+}
+
+void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
+                                          long long capabilities, int last_utime, int server_now) {
+  set_server_version(version, capabilities);
+  set_server_time(server_now);
+  if (last_utime > server_now) {
+    LOG(WARNING) << "server claims to have a masterchain block " << blkid.to_str() << " created at " << last_utime
+                 << " (" << last_utime - server_now << " seconds in the future)";
+  } else if (last_utime < server_now - 60) {
+    LOG(WARNING) << "server appears to be out of sync: its newest masterchain block is " << blkid.to_str()
+                 << " created at " << last_utime << " (" << server_now - last_utime
+                 << " seconds ago according to the server's clock)";
+  } else if (last_utime < server_time_got_at_ - 60) {
+    LOG(WARNING) << "either the server is out of sync, or the local clock is set incorrectly: the newest masterchain "
+                    "block known to server is "
+                 << blkid.to_str() << " created at " << last_utime << " (" << server_now - server_time_got_at_
+                 << " seconds ago according to the local clock)";
+  }
+  got_server_mc_block_id(blkid, zstateid, last_utime);
 }
 
 bool TestNode::request_block(ton::BlockIdExt blkid) {
@@ -423,8 +491,7 @@ td::Status TestNode::save_db_file(ton::FileHash file_hash, td::BufferSlice data)
 }
 
 void TestNode::run_init_queries() {
-  get_server_version();
-  get_server_mc_block_id();
+  get_server_version(0x100);
 }
 
 std::string TestNode::get_word(char delim) {
@@ -2008,10 +2075,10 @@ bool TestNode::get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mod
   }
   if (!(mode & 0x2000)) {
     LOG(INFO) << "got block proof request from " << from.to_str() << " to "
-            << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode;
+              << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode;
   } else {
     LOG(DEBUG) << "got block proof request from " << from.to_str() << " to "
-            << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode;
+               << ((mode & 1) ? to.to_str() : "last masterchain block") << " with mode=" << mode;
   }
   if (!from.is_masterchain_ext()) {
     LOG(ERROR) << "source block " << from.to_str() << " is not a valid masterchain block id";
@@ -2112,22 +2179,36 @@ void TestNode::got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mod
     return;
   }
   auto chain = res.move_as_ok();
+  if (chain->from != from) {
+    LOG(ERROR) << "block proof chain starts from block " << chain->from.to_str() << ", not from requested block "
+               << from.to_str();
+    return;
+  }
   auto err = chain->validate();
   if (err.is_error()) {
     LOG(ERROR) << "block proof chain is invalid: " << err;
     return;
   }
-  LOG(INFO) << "valid " << (chain->complete ? "" : "in") << "complete proof chain: last block is " << chain->to.to_str()
-            << ", last key block is " << (chain->has_key_block ? chain->key_blkid.to_str() : "(undefined)");
   // TODO: if `from` was a trusted key block, then mark `to` as a trusted key block, and update the known value of latest trusted key block if `to` is newer
   if (!chain->complete && (mode & 0x1000)) {
+    LOG(INFO) << "valid " << (chain->complete ? "" : "in") << "complete proof chain: last block is "
+              << chain->to.to_str() << ", last key block is "
+              << (chain->has_key_block ? chain->key_blkid.to_str() : "(undefined)");
     get_block_proof(chain->to, to, mode | 0x2000);
     return;
   }
+  td::TerminalIO::out() << "valid " << (chain->complete ? "" : "in") << "complete proof chain: last block is "
+                        << chain->to.to_str() << ", last key block is "
+                        << (chain->has_key_block ? chain->key_blkid.to_str() : "(undefined)") << std::endl;
   if (chain->has_key_block) {
     register_blkid(chain->key_blkid);
   }
   register_blkid(chain->to);
+  auto now = static_cast<td::uint32>(td::Clocks::system());
+  if (!(mode & 1) || (chain->last_utime > now - 3600)) {
+    td::TerminalIO::out() << "last block in chain was generated at " << chain->last_utime << " ("
+                          << now - chain->last_utime << " seconds ago)\n";
+  }
   show_new_blkids();
 }
 

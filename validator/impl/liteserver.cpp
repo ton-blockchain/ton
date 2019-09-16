@@ -118,7 +118,10 @@ void LiteQuery::start_up() {
       td::overloaded(
           [&](lite_api::liteServer_getTime& q) { this->perform_getTime(); },
           [&](lite_api::liteServer_getVersion& q) { this->perform_getVersion(); },
-          [&](lite_api::liteServer_getMasterchainInfo& q) { this->perform_getMasterchainInfo(); },
+          [&](lite_api::liteServer_getMasterchainInfo& q) { this->perform_getMasterchainInfo(-1); },
+          [&](lite_api::liteServer_getMasterchainInfoExt& q) {
+            this->perform_getMasterchainInfo(q.mode_ & 0x7fffffff);
+          },
           [&](lite_api::liteServer_getBlock& q) { this->perform_getBlock(ton::create_block_id(q.id_)); },
           [&](lite_api::liteServer_getBlockHeader& q) {
             this->perform_getBlockHeader(ton::create_block_id(q.id_), q.mode_);
@@ -181,22 +184,27 @@ void LiteQuery::perform_getVersion() {
   finish_query(std::move(b));
 }
 
-void LiteQuery::perform_getMasterchainInfo() {
-  LOG(INFO) << "started a getMasterchainInfo() liteserver query";
+void LiteQuery::perform_getMasterchainInfo(int mode) {
+  LOG(INFO) << "started a getMasterchainInfo(" << mode << ") liteserver query";
+  if (mode > 0) {
+    fatal_error("unsupported getMasterchainInfo mode");
+    return;
+  }
   td::actor::send_closure_later(
       manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
-      [Self = actor_id(this)](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res)->void {
+      [ Self = actor_id(this), mode ](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
         } else {
           auto pair = res.move_as_ok();
           td::actor::send_closure_later(Self, &LiteQuery::continue_getMasterchainInfo, std::move(pair.first),
-                                        pair.second);
+                                        pair.second, mode);
         }
       });
 }
 
-void LiteQuery::continue_getMasterchainInfo(Ref<ton::validator::MasterchainState> mc_state, BlockIdExt blkid) {
+void LiteQuery::continue_getMasterchainInfo(Ref<ton::validator::MasterchainState> mc_state, BlockIdExt blkid,
+                                            int mode) {
   LOG(INFO) << "obtained data for getMasterchainInfo() : last block = " << blkid.to_str();
   auto mc_state_q = Ref<ton::validator::MasterchainStateQ>(std::move(mc_state));
   if (mc_state_q.is_null()) {
@@ -206,8 +214,12 @@ void LiteQuery::continue_getMasterchainInfo(Ref<ton::validator::MasterchainState
   auto zerostate_id = mc_state_q->get_zerostate_id();
   auto zs_tl = create_tl_object<lite_api::tonNode_zeroStateIdExt>(zerostate_id.workchain, zerostate_id.root_hash,
                                                                   zerostate_id.file_hash);
-  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_masterchainInfo>(
-      ton::create_tl_lite_block_id(blkid), mc_state_q->root_hash(), std::move(zs_tl));
+  td::int32 now = static_cast<td::int32>(std::time(nullptr));
+  auto b = (mode == -1) ? ton::create_serialize_tl_object<ton::lite_api::liteServer_masterchainInfo>(
+                              ton::create_tl_lite_block_id(blkid), mc_state_q->root_hash(), std::move(zs_tl))
+                        : ton::create_serialize_tl_object<ton::lite_api::liteServer_masterchainInfoExt>(
+                              mode, ls_version, ls_capabilities, ton::create_tl_lite_block_id(blkid),
+                              mc_state_q->get_unix_time(), now, mc_state_q->root_hash(), std::move(zs_tl));
   finish_query(std::move(b));
 }
 
