@@ -382,8 +382,9 @@ class TonlibCli : public td::actor::Actor {
 
   void export_key(std::string key, size_t key_i, td::Slice password) {
     using tonlib_api::make_object;
+    td::SecureString new_secret(td::base64_encode(keys_[key_i].secret.copy()));
     send_query(make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(
-                   make_object<tonlib_api::key>(keys_[key_i].public_key, keys_[key_i].secret.copy()),
+                   make_object<tonlib_api::key>(keys_[key_i].public_key, new_secret.copy()),
                    td::SecureString(password))),
                [key = std::move(key)](auto r_res) {
                  if (r_res.is_error()) {

@@ -24,6 +24,7 @@
 
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
+#include "crypto/common/util.h"
 
 namespace tonlib {
 std::string to_file_name(td::Slice public_key) {
@@ -75,8 +76,9 @@ td::Result<KeyStorage::Key> KeyStorage::create_new_key(td::Slice local_password,
 
 td::Result<DecryptedKey> KeyStorage::export_decrypted_key(InputKey input_key) {
   TRY_RESULT(encrypted_data, td::read_file_secure(to_file_path(input_key.key.public_key)));
+  td::SecureString new_secret(td::str_base64_decode(input_key.key.secret));
   EncryptedKey encrypted_key{std::move(encrypted_data), td::Ed25519::PublicKey(std::move(input_key.key.public_key)),
-                             std::move(input_key.key.secret)};
+                             std::move(new_secret)};
   return encrypted_key.decrypt(std::move(input_key.local_password));
 }
 
