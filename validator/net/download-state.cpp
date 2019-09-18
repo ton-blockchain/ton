@@ -148,6 +148,10 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
             abort_query(td::Status::Error(ErrorCode::notready, "state not found"));
           },
           [&, self = this](ton_api::tonNode_preparedState &f) {
+            if (masterchain_block_id_.is_valid()) {
+              got_block_state_part(td::BufferSlice{}, 0);
+              return;
+            }
             auto P = td::PromiseCreator::lambda([SelfId = actor_id(self)](td::Result<td::BufferSlice> R) {
               if (R.is_error()) {
                 td::actor::send_closure(SelfId, &DownloadState::abort_query, R.move_as_error());
@@ -156,17 +160,46 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
               }
             });
 
-            td::BufferSlice query;
-            if (masterchain_block_id_.is_valid()) {
-              query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentState>(
-                  create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
-            } else {
-              query = create_serialize_tl_object<ton_api::tonNode_downloadZeroState>(create_tl_block_id(block_id_));
-            }
+            td::BufferSlice query =
+                create_serialize_tl_object<ton_api::tonNode_downloadZeroState>(create_tl_block_id(block_id_));
             td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_,
                                     overlay_id_, "download state", std::move(P), timeout_, std::move(query),
                                     FullNode::max_state_size(), rldp_);
           }));
+}
+
+void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 requested_size) {
+  bool last_part = data.size() < requested_size;
+  sum_ += data.size();
+  parts_.push_back(std::move(data));
+
+  if (last_part) {
+    td::BufferSlice res{sum_};
+    auto S = res.as_slice();
+    for (auto &p : parts_) {
+      S.copy_from(p.as_slice());
+      S.remove_prefix(p.size());
+    }
+    parts_.clear();
+    CHECK(!S.size());
+    got_block_state(std::move(res));
+    return;
+  }
+
+  td::uint32 part_size = 4 << 20;
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), part_size](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(SelfId, &DownloadState::abort_query, R.move_as_error());
+    } else {
+      td::actor::send_closure(SelfId, &DownloadState::got_block_state_part, R.move_as_ok(), part_size);
+    }
+  });
+
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSlice>(
+      create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
+                          "download state", std::move(P), timeout_, std::move(query), FullNode::max_state_size(),
+                          rldp_);
 }
 
 void DownloadState::got_block_state(td::BufferSlice data) {

@@ -28,6 +28,7 @@
 #include "common/refcnt.hpp"
 #include "common/bigint.hpp"
 #include "common/refint.h"
+#include "common/bigexp.h"
 #include "common/bitstring.h"
 #include "common/util.h"
 #include "vm/cells.h"
@@ -567,5 +568,89 @@ TEST(bits256_scan, main) {
     check_bits_scan(os, td::ConstBitPtr{r} + k, true);
   }
   os << "bits256_scan test OK";
+  REGRESSION_VERIFY(os.str());
+}
+
+bool check_exp(std::ostream& stream, const td::NegExpBinTable& tab, double x) {
+  long long xx = lround(x * (1LL << 52));
+  td::BigInt256 yy;
+  if (!tab.nexpf(yy, -xx, 52)) {
+    stream << "cannot compute exp(" << x << ") = exp(" << xx << " * 2^(-52))" << std::endl;
+    return false;
+  }
+  double y = yy.to_double() * exp2(-252);
+  double y0 = exp(x);
+  bool ok = (abs(y - y0) < 1e-15);
+  if (!ok) {
+    stream << "exp(" << x << ") = exp(" << xx << " * 2^(-52)) = " << yy << " / 2^252 = " << y << " (correct value is "
+           << y0 << ") " << (ok ? "match" : "incorrect") << std::endl;
+  }
+  return ok;
+}
+
+TEST(bigexp, main) {
+  os = create_ss();
+  td::NegExpBinTable tab(252, 32, -128);
+  bool ok = true;
+  if (!tab.is_valid()) {
+    os << "cannot initialize td::NegExpBinTable(252, 32, -128)" << std::endl;
+    ok = false;
+  } else {
+    // for (int i = -128; i < 32; i++) {
+    //  os << "exp(-2^" << i << ") = " << tab.exp_pw2_ref(i) << " / 2^252 = " << tab.exp_pw2_ref(i)->to_double() * exp2(-252) << " (correct value is " << exp(-exp2(i)) << ")" << std::endl;
+    // }
+    ok &= check_exp(os, tab, -2.39);
+    ok &= check_exp(os, tab, 0);
+    ok &= check_exp(os, tab, -1);
+    ok &= check_exp(os, tab, -2);
+    ok &= check_exp(os, tab, -16);
+    ok &= check_exp(os, tab, -17);
+    ok &= check_exp(os, tab, -0.5);
+    ok &= check_exp(os, tab, -0.25);
+    ok &= check_exp(os, tab, -3.1415926535);
+    ok &= check_exp(os, tab, -1e-9);
+  }
+  if (ok) {
+    os << "bigexp test OK\n";
+  } else {
+    os << "bigexp test FAILED\n";
+  }
+  REGRESSION_VERIFY(os.str());
+}
+
+bool check_intexp(std::ostream& stream, td::uint64 x, unsigned k, td::uint64 yc = 0) {
+  td::uint64 y = td::umulnexps32(x, k);
+  long long delta = (long long)(y - yc);
+  bool ok = (y <= x && std::abs(delta) <= 1);
+  if (!ok) {
+    stream << x << "*exp(-" << k << "/65536) = " << y << " (correct value " << yc << ", delta = " << delta << ")"
+           << std::endl;
+  }
+  return ok;
+}
+
+TEST(uint64_exp, main) {
+  os = create_ss();
+  bool ok = true;
+  ok &= check_intexp(os, 3167801306015831286, 4003, 2980099890648636481);
+  ok &= check_intexp(os, 1583900653007915643, 4003, 1490049945324318240);
+  ok &= check_intexp(os, 9094494907266047891, 17239, 6990995826652297465);
+  ok &= check_intexp(os, 5487867407433215099, 239017, 143048684491504152);
+  ok &= check_intexp(os, 46462010749955243, 239017, 1211095134625318);  // up
+  ok &= check_intexp(os, 390263500024095125, 2700001, 1);
+  ok &= check_intexp(os, 390263500024095124, 2700001, 1);
+  ok &= check_intexp(os, std::numeric_limits<td::uint64>::max(), 2952601, 1);
+  ok &= check_intexp(os, std::numeric_limits<td::uint64>::max(), 2952696, 1);
+  ok &= check_intexp(os, std::numeric_limits<td::uint64>::max(), 2952697, 0);
+  ok &= check_intexp(os, std::numeric_limits<td::uint64>::max(), 2952800, 0);
+  ok &= check_intexp(os, std::numeric_limits<td::uint64>::max(), 295269700, 0);
+  ok &= check_intexp(os, std::numeric_limits<td::uint64>::max(), 2000018, 1028453);
+  ok &= check_intexp(os, 1ULL << 60, 2770991, 1);
+  ok &= check_intexp(os, 1ULL << 60, 2770992, 0);
+  if (ok) {
+    os << "uint64_exp test OK\n";
+  } else {
+    os << "uint64_exp test FAILED\n";
+  }
   REGRESSION_VERIFY(os.str());
 }

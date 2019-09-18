@@ -150,7 +150,6 @@ class TestNode : public td::actor::Actor {
                               std::vector<TransId> trans, td::BufferSlice proof);
   bool get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
   void got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice res);
-  td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(td::BufferSlice pchain);
   bool do_parse_line();
   bool show_help(std::string command);
   std::string get_word(char delim = ' ');

@@ -35,6 +35,11 @@
 
 { (configdict) 0= abort"Configuration dictionary is empty" } : configdict
 
+// version capabilities --
+{ <b x{c4} s, rot 32 u, swap 64 u, b> 8 config! } : config.version!
+1 constant capIhr
+2 constant capCreateStats
+
 // max-validators masterchain-validators min-validators --
 { swap rot <b swap 16 u, swap 16 u, swap 16 u, b> 16 config! } : config.validator_num!
 

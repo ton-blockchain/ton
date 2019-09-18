@@ -45,6 +45,7 @@ class DownloadState : public td::actor::Actor {
   void got_block_handle(BlockHandle handle);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_state_description(td::BufferSlice data_description);
+  void got_block_state_part(td::BufferSlice data, td::uint32 requested_size);
   void got_block_state(td::BufferSlice data);
 
  private:
@@ -66,6 +67,8 @@ class DownloadState : public td::actor::Actor {
 
   BlockHandle handle_;
   td::BufferSlice state_;
+  std::vector<td::BufferSlice> parts_;
+  td::uint64 sum_ = 0;
 };
 
 }  // namespace fullnode

@@ -144,6 +144,7 @@ class FileDb : public td::actor::Actor {
   void store_file(RefId ref_id, td::BufferSlice data, td::Promise<FileHash> promise);
   void store_file_continue(RefId ref_id, FileHash file_hash, std::string path, td::Promise<FileHash> promise);
   void load_file(RefId ref_id, td::Promise<td::BufferSlice> promise);
+  void load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise);
   void check_file(RefId ref_id, td::Promise<bool> promise);
 
   void start_up() override;

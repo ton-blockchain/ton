@@ -55,12 +55,13 @@ class Collator final : public td::actor::Actor {
   bool block_full_{false};
   bool inbound_queues_empty_{false};
   bool libraries_changed_{false};
+  bool prev_key_block_exists_{false};
   UnixTime min_ts;
   BlockIdExt min_mc_block_id;
   std::vector<BlockIdExt> prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
   std::vector<Ref<BlockData>> prev_block_data;
-  td::Bits256 created_by;
+  Ed25519_PublicKey created_by_;
   Ref<ValidatorSet> validator_set;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -78,7 +79,7 @@ class Collator final : public td::actor::Actor {
 
  public:
   Collator(ShardIdFull shard, td::uint32 min_ts, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-           Ref<ValidatorSet> validator_set, td::Bits256 collator_id, td::actor::ActorId<ValidatorManager> manager,
+           Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, td::actor::ActorId<ValidatorManager> manager,
            td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
@@ -132,13 +133,15 @@ class Collator final : public td::actor::Actor {
   ton::LogicalTime prev_key_block_lt_;
   bool accept_msgs_{true};
   bool shard_conf_adjusted_{false};
+  bool ihr_enabled_{false};
+  bool create_stats_enabled_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
   Ref<block::WorkchainInfo> wc_info_;
   std::vector<Ref<ShardTopBlockDescription>> shard_block_descr_;
   std::vector<Ref<ShardTopBlockDescrQ>> used_shard_block_descr_;
   std::unique_ptr<vm::Dictionary> shard_libraries_;
-  Ref<vm::Cell> mc_state_extra;
+  Ref<vm::Cell> mc_state_extra_;
   std::unique_ptr<vm::AugmentedDictionary> account_dict;
   std::map<ton::StdSmcAddress, std::unique_ptr<block::Account>> accounts;
   std::vector<block::StoragePrices> storage_prices_;
@@ -162,6 +165,9 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
+  std::unique_ptr<vm::Dictionary> block_create_stats_;
+  std::map<td::Bits256, int> block_create_count_;
+  unsigned block_create_total_{0};
   std::vector<ExtMessage::Hash> bad_ext_msgs_, delay_ext_msgs_;
   Ref<vm::Cell> shard_account_blocks_;  // ShardAccountBlocks
   std::vector<Ref<vm::Cell>> collated_roots_;
@@ -200,6 +206,7 @@ class Collator final : public td::actor::Actor {
                         const block::CurrencyCollection& created);
   bool store_shard_fees(Ref<block::McShardHash> descr);
   bool import_new_shard_top_blocks();
+  bool register_shard_block_creators(std::vector<td::Bits256> creator_list);
   bool init_block_limits();
   bool compute_minted_amount(block::CurrencyCollection& to_mint);
   bool init_value_create();
@@ -264,6 +271,9 @@ class Collator final : public td::actor::Actor {
   bool add_public_library(td::ConstBitPtr key, td::ConstBitPtr addr, Ref<vm::Cell> library);
   bool remove_public_library(td::ConstBitPtr key, td::ConstBitPtr addr);
   bool check_block_overload();
+  bool update_block_creator_count(td::ConstBitPtr key, unsigned shard_incr, unsigned mc_incr);
+  int creator_count_outdated(td::ConstBitPtr key, vm::CellSlice& cs);
+  bool update_block_creator_stats();
   bool create_mc_state_extra();
   bool create_shard_state();
   td::Result<Ref<vm::Cell>> get_config_data_from_smc(const ton::StdSmcAddress& cfg_addr);

@@ -138,7 +138,35 @@ void FileDb::load_file(RefId ref_id, td::Promise<td::BufferSlice> promise) {
         }
       });
 
-  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), std::move(P)).release();
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), 0, -1, std::move(P)).release();
+}
+
+void FileDb::load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise) {
+  auto ref_id_hash = get_ref_id_hash(ref_id);
+  auto R = get_block(ref_id_hash);
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+    return;
+  }
+
+  auto v = R.move_as_ok();
+
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), file_hash = v.file_hash](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error());
+        } else {
+          auto data = R.move_as_ok();
+          if (file_hash != sha256_bits256(data.as_slice())) {
+            promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "db error: bad file hash"));
+          } else {
+            promise.set_value(std::move(data));
+          }
+        }
+      });
+
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), offset, max_size, std::move(P))
+      .release();
 }
 
 void FileDb::check_file(RefId ref_id, td::Promise<bool> promise) {

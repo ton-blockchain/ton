@@ -233,7 +233,7 @@ class TonlibCli : public td::actor::Actor {
     td::SecureString buf(10000);
     td::StringBuilder sb(buf.as_mutable_slice());
     for (auto& info : keys_) {
-      sb << td::base64_encode(info.public_key) << " " << td::base64_encode(info.secret) << "\n";
+      sb << info.public_key << " " << td::base64_encode(info.secret) << "\n";
     }
     LOG_IF(FATAL, sb.is_error()) << "StringBuilder overflow";
     td::atomic_write_file(key_db_path(), sb.as_cslice());
@@ -247,21 +247,20 @@ class TonlibCli : public td::actor::Actor {
     auto db = r_db.move_as_ok();
     td::ConstParser parser(db.as_slice());
     while (true) {
-      auto public_key_b64 = parser.read_word();
+      auto public_key = parser.read_word();
       auto secret_b64 = parser.read_word();
       if (secret_b64.empty()) {
         break;
       }
-      auto r_public_key = td::base64_decode(public_key_b64);
       auto r_secret = td::base64_decode_secure(secret_b64);
-      if (r_public_key.is_error() || r_secret.is_error()) {
-        LOG(ERROR) << "Invalid key database at " << key_db_path();
+      if (r_secret.is_error()) {
+        LOG(ERROR) << "Invalid secret database at " << key_db_path();
       }
 
       KeyInfo info;
-      info.public_key = r_public_key.move_as_ok();
+      info.public_key = public_key.str();
       info.secret = r_secret.move_as_ok();
-      LOG(INFO) << td::buffer_to_hex(info.public_key);
+      LOG(INFO) << info.public_key;
 
       keys_.push_back(std::move(info));
     }
@@ -271,7 +270,7 @@ class TonlibCli : public td::actor::Actor {
     td::TerminalIO::out() << "Got " << keys_.size() << " keys"
                           << "\n";
     for (size_t i = 0; i < keys_.size(); i++) {
-      td::TerminalIO::out() << "  #" << i << ": " << td::buffer_to_hex(keys_[i].public_key) << "\n";
+      td::TerminalIO::out() << "  #" << i << ": " << keys_[i].public_key << "\n";
     }
   }
 
@@ -302,7 +301,7 @@ class TonlibCli : public td::actor::Actor {
     size_t res = 0;
     size_t cnt = 0;
     for (size_t i = 0; i < keys_.size(); i++) {
-      auto full_key = td::to_lower(td::buffer_to_hex(keys_[i].public_key));
+      auto full_key = td::to_lower(keys_[i].public_key);
       if (td::begins_with(full_key, prefix)) {
         res = i;
         cnt++;
@@ -452,27 +451,22 @@ class TonlibCli : public td::actor::Actor {
       cont_ = [this](td::Slice key) { this->get_state(key); };
       return;
     }
-    auto r_key_i = to_key_i(key);
-    if (r_key_i.is_error()) {
+    auto r_address = to_account_address(key, false);
+    if (r_address.is_error()) {
       td::TerminalIO::out() << "Unknown key id: [" << key << "]\n";
       return;
     }
-    auto key_i = r_key_i.move_as_ok();
+    auto address = r_address.move_as_ok();
     using tonlib_api::make_object;
-    auto obj = tonlib::TonlibClient::static_request(make_object<tonlib_api::testWallet_getAccountAddress>(
-        make_object<tonlib_api::testWallet_initialAccountState>(keys_[key_i].public_key)));
-    if (obj->get_id() == tonlib_api::error::ID) {
-      td::TerminalIO::out() << "Can't get state of [" << key << "] : " << to_string(obj);
-    }
-    send_query(
-        make_object<tonlib_api::generic_getAccountState>(ton::move_tl_object_as<tonlib_api::accountAddress>(obj)),
-        [](auto r_res) {
-          if (r_res.is_error()) {
-            td::TerminalIO::out() << "Can't get state: " << r_res.error() << "\n";
-            return;
-          }
-          td::TerminalIO::out() << to_string(r_res.ok());
-        });
+    send_query(make_object<tonlib_api::generic_getAccountState>(
+                   ton::move_tl_object_as<tonlib_api::accountAddress>(std::move(address.address))),
+               [](auto r_res) {
+                 if (r_res.is_error()) {
+                   td::TerminalIO::out() << "Can't get state: " << r_res.error() << "\n";
+                   return;
+                 }
+                 td::TerminalIO::out() << to_string(r_res.ok());
+               });
   }
 
   void transfer(td::Slice from, td::Slice to, td::Slice grams) {
@@ -497,6 +491,7 @@ class TonlibCli : public td::actor::Actor {
                   td::Slice password) mutable { this->transfer(std::move(from), std::move(to), grams, password); };
       return;
     }
+    transfer(r_from_address.move_as_ok(), r_to_address.move_as_ok(), r_grams.move_as_ok(), "");
   }
 
   void transfer(Address from, Address to, td::uint64 grams, td::Slice password) {

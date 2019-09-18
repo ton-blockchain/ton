@@ -65,6 +65,55 @@ td::Result<Config> Config::parse(std::string str) {
     client.adnl_id = ton::adnl::AdnlNodeIdFull(ton::pubkeys::Ed25519(td::Bits256(td::Slice(key).ubegin())));
     res.lite_clients.push_back(std::move(client));
   }
+
+  TRY_RESULT(validator_obj,
+             td::get_json_object_field(json.get_object(), "validator", td::JsonValue::Type::Object, false));
+  auto &validator = validator_obj.get_object();
+  TRY_RESULT(validator_type, td::get_json_object_string_field(validator, "@type", false));
+  if (validator_type != "validator.config.global") {
+    return td::Status::Error("Invalid config (7)");
+  }
+  TRY_RESULT(zero_state_obj, td::get_json_object_field(validator, "zero_state", td::JsonValue::Type::Object, false));
+  auto &zero_state = zero_state_obj.get_object();
+
+  ton::WorkchainId zero_workchain_id;
+  {
+    TRY_RESULT(wc, td::get_json_object_int_field(zero_state, "workchain"));
+    zero_workchain_id = wc;
+  }
+  ton::ShardId zero_shard_id;  // uint64
+  {
+    TRY_RESULT(shard_id, td::get_json_object_long_field(zero_state, "shard"));
+    zero_shard_id = static_cast<ton::ShardId>(shard_id);
+  }
+  ton::BlockSeqno zero_seqno;
+  {
+    TRY_RESULT(seqno, td::get_json_object_int_field(zero_state, "seqno"));
+    zero_seqno = seqno;
+  }
+
+  ton::RootHash zero_root_hash;
+  {
+    TRY_RESULT(hash_b64, td::get_json_object_string_field(zero_state, "root_hash"));
+    TRY_RESULT(hash, td::base64_decode(hash_b64));
+    if (hash.size() * 8 != ton::RootHash::size()) {
+      return td::Status::Error("Invalid config (8)");
+    }
+    zero_root_hash = ton::RootHash(td::ConstBitPtr(td::Slice(hash).ubegin()));
+  }
+  ton::FileHash zero_file_hash;
+  {
+    TRY_RESULT(hash_b64, td::get_json_object_string_field(zero_state, "file_hash"));
+    TRY_RESULT(hash, td::base64_decode(hash_b64));
+    if (hash.size() * 8 != ton::FileHash::size()) {
+      return td::Status::Error("Invalid config (9)");
+    }
+    zero_file_hash = ton::RootHash(td::ConstBitPtr(td::Slice(hash).ubegin()));
+  }
+
+  res.zero_state_id = ton::BlockIdExt(zero_workchain_id, zero_shard_id, zero_seqno, std::move(zero_root_hash),
+                                      std::move(zero_file_hash));
+
   return res;
 }
 }  // namespace tonlib

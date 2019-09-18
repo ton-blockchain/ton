@@ -152,6 +152,12 @@ void ValidateQuery::start_up() {
   alarm_timestamp() = timeout;
   rand_seed_.set_zero();
 
+  created_by_ = block_candidate.pubkey;
+  if (created_by_.is_zero()) {
+    // !!FIXME!! remove this debug later
+    td::as<td::uint32>(created_by_.data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
+  }
+
   CHECK(id_ == block_candidate.id);
   if (ShardIdFull(id_) != shard_) {
     soft_reject_query(PSTRING() << "block candidate belongs to shard " << ShardIdFull(id_).to_str()
@@ -431,6 +437,10 @@ bool ValidateQuery::init_parse() {
     return reject_query("after_merge value mismatch in block header");
   }
   rand_seed_ = extra.rand_seed;
+  if (created_by_ != extra.created_by) {
+    return reject_query("block candidate "s + id_.to_str() + " has creator " + created_by_.to_hex() +
+                        " but the block header contains different value " + extra.created_by.to_hex());
+  }
   if (is_masterchain()) {
     if (!extra.custom->size_refs()) {
       return reject_query("masterchain block candidate without McBlockExtra");
@@ -658,6 +668,7 @@ bool ValidateQuery::try_unpack_mc_state() {
         mc_state_root_,
         block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
             block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
+            block::ConfigInfo::needCapabilities |
             (is_masterchain() ? block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc : 0));
     if (res.is_error()) {
       return fatal_error(-666, "cannot extract configuration from reference masterchain state "s + mc_blkid_.to_str() +
@@ -666,6 +677,8 @@ bool ValidateQuery::try_unpack_mc_state() {
     config_ = res.move_as_ok();
     CHECK(config_);
     config_->set_block_id_ext(mc_blkid_);
+    ihr_enabled_ = config_->ihr_enabled();
+    create_stats_enabled_ = config_->create_stats_enabled();
     old_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
     if (!is_masterchain()) {
       new_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -677,7 +690,8 @@ bool ValidateQuery::try_unpack_mc_state() {
     if (global_id_ != config_->get_global_blockchain_id()) {
       return reject_query("blockchain global id mismatch");
     }
-    if (config_->get_last_key_block(prev_key_block_, prev_key_block_lt_)) {
+    prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
+    if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
     } else {
       prev_key_block_seqno_ = 0;
@@ -1044,7 +1058,7 @@ bool ValidateQuery::compute_next_state() {
         state_root_, block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries |
                          block::ConfigInfo::needValidatorSet | block::ConfigInfo::needWorkchainInfo |
                          block::ConfigInfo::needStateExtraRoot | block::ConfigInfo::needAccountsRoot |
-                         block::ConfigInfo::needSpecialSmc);
+                         block::ConfigInfo::needSpecialSmc | block::ConfigInfo::needCapabilities);
     if (r_config_info.is_error()) {
       return reject_query("cannot extract configuration from new masterchain state "s + mc_blkid_.to_str() + " : " +
                           r_config_info.error().to_string());
@@ -1508,6 +1522,8 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                               descr->funds_created_.to_str());
         }
       }
+      // register shard block creators
+      register_shard_block_creators(sh_bd->get_creator_list(chain_len));
       // ...
     } catch (vm::VmError& err) {
       return reject_query("incorrect ShardTopBlockDescr for "s + shard.to_str() +
@@ -1675,6 +1691,21 @@ bool ValidateQuery::check_shard_layout() {
     }
   }
   return check_mc_validator_info(is_key_block_ || (now_ / ccvc.mc_cc_lifetime > prev_now_ / ccvc.mc_cc_lifetime));
+}
+
+// similar to Collator::register_shard_block_creators
+bool ValidateQuery::register_shard_block_creators(std::vector<td::Bits256> creator_list) {
+  for (const auto& x : creator_list) {
+    LOG(DEBUG) << "registering block creator " << x.to_hex();
+    if (!x.is_zero()) {
+      auto res = block_create_count_.emplace(x, 1);
+      if (!res.second) {
+        (res.first->second)++;
+      }
+      block_create_total_++;
+    }
+  }
+  return true;
 }
 
 bool ValidateQuery::check_cur_validator_set() {
@@ -4949,9 +4980,15 @@ bool ValidateQuery::check_mc_state_extra() {
     return reject_query("invalid configuration update");
   }
   // ...
-  // flags:(## 16) { flags = 0 }
-  if (new_extra.r1.flags != 0) {
-    return reject_query("new McStateExtra has non-zero (unsupported) extension flags; validator too old?");
+  // flags:(## 16) { flags <= 1 }
+  if (new_extra.r1.flags & ~1) {
+    return reject_query(PSTRING() << "new McStateExtra has non-zero (unsupported) extension flags "
+                                  << new_extra.r1.flags << "; validator too old?");
+  }
+  if ((bool)(new_extra.r1.flags & 1) != create_stats_enabled_) {
+    return reject_query(PSTRING() << "new McStateExtra has extension flags " << new_extra.r1.flags
+                                  << " but active configuration defines create_stats_enabled="
+                                  << create_stats_enabled_);
   }
   // validator_info:ValidatorInfo
   // (already checked in check_mc_validator_info())
@@ -5043,10 +5080,20 @@ bool ValidateQuery::check_mc_state_extra() {
       return reject_query("new masterchain state declares previous key block to be "s + blkid.to_str() +
                           " but the value computed from previous masterchain state is " + prev_key_block_.to_str());
     }
-  } else if (prev_key_block_seqno_ > 0) {
+  } else if (prev_key_block_exists_) {
     return reject_query(PSTRING() << "new masterchain state declares no previous key block, but the block header "
                                      "announces previous key block seqno "
                                   << prev_key_block_seqno_);
+  }
+  // block_create_stats:(flags . 0)?BlockCreateStats
+  if (new_extra.r1.flags & 1) {
+    block::gen::BlockCreateStats::Record rec;
+    if (!tlb::csr_unpack(new_extra.r1.block_create_stats, rec)) {
+      return reject_query("cannot unpack BlockCreateStats in the new masterchain state");
+    }
+    if (!check_block_create_stats()) {
+      return reject_query("invalid BlockCreateStats update in the new masterchain state");
+    }
   }
   // global_balance:CurrencyCollection
   block::CurrencyCollection global_balance, old_global_balance;
@@ -5066,6 +5113,136 @@ bool ValidateQuery::check_mc_state_extra() {
                         expected_global_balance.to_str() + ", found " + global_balance.to_str());
   }
   // ...
+  return true;
+}
+
+td::Status ValidateQuery::check_counter_update(const block::DiscountedCounter& oc, const block::DiscountedCounter& nc,
+                                               unsigned expected_incr) {
+  block::DiscountedCounter cc{oc};
+  if (nc.is_zero()) {
+    if (expected_incr) {
+      return td::Status::Error(PSTRING() << "new counter total is zero, but the total should have been increased by "
+                                         << expected_incr);
+    }
+    if (oc.is_zero()) {
+      return td::Status::OK();
+    }
+    cc.increase_by(0, now_);
+    if (!cc.almost_zero()) {
+      return td::Status::Error(
+          "counter has been reset to zero, but it still has non-zero components after relaxation: "s + cc.to_str() +
+          "; original value before relaxation was " + oc.to_str());
+    }
+    return td::Status::OK();
+  }
+  if (!expected_incr) {
+    if (oc == nc) {
+      return td::Status::OK();
+    } else {
+      return td::Status::Error("unnecessary relaxation of counter from "s + oc.to_str() + " to " + nc.to_str() +
+                               " without an increment");
+    }
+  }
+  if (nc.total < oc.total) {
+    return td::Status::Error(PSTRING() << "total counter goes back from " << oc.total << " to " << nc.total
+                                       << " (increment by " << expected_incr << " expected instead)");
+  }
+  if (nc.total != oc.total + expected_incr) {
+    return td::Status::Error(PSTRING() << "total counter has been incremented by " << nc.total - oc.total << ", from "
+                                       << oc.total << " to " << nc.total << " (increment by " << expected_incr
+                                       << " expected instead)");
+  }
+  if (!cc.increase_by(expected_incr, now_)) {
+    return td::Status::Error(PSTRING() << "old counter value " << oc.to_str() << " cannot be increased by "
+                                       << expected_incr);
+  }
+  if (!cc.almost_equals(nc)) {
+    return td::Status::Error(PSTRING() << "counter " << oc.to_str() << " has been increased by " << expected_incr
+                                       << " with an incorrect resulting value " << nc.to_str()
+                                       << "; correct result should be " << cc.to_str()
+                                       << " (up to +/-1 in the last two components)");
+  }
+  return td::Status::OK();
+}
+
+bool ValidateQuery::check_one_block_creator_update(td::ConstBitPtr key, Ref<vm::CellSlice> old_val,
+                                                   Ref<vm::CellSlice> new_val) {
+  LOG(DEBUG) << "checking update of CreatorStats for "s + key.to_hex(256);
+  block::DiscountedCounter mc0, shard0, mc1, shard1;
+  if (!block::unpack_CreatorStats(std::move(old_val), mc0, shard0)) {
+    return reject_query("cannot unpack CreatorStats for "s + key.to_hex(256) + " from previous masterchain state");
+  }
+  bool nv_exists = new_val.not_null();
+  if (!block::unpack_CreatorStats(std::move(new_val), mc1, shard1)) {
+    return reject_query("cannot unpack CreatorStats for "s + key.to_hex(256) + " from new masterchain state");
+  }
+  unsigned mc_incr = (created_by_ == key);
+  unsigned shard_incr = 0;
+  if (key.is_zero(256)) {
+    mc_incr = 1;
+    shard_incr = block_create_total_;
+  } else {
+    auto it = block_create_count_.find(td::Bits256{key});
+    shard_incr = (it == block_create_count_.end() ? 0 : it->second);
+  }
+  auto err = check_counter_update(mc0, mc1, mc_incr);
+  if (err.is_error()) {
+    return reject_query("invalid update of created masterchain blocks counter in CreatorStats for "s + key.to_hex(256) +
+                        " : " + err.to_string());
+  }
+  err = check_counter_update(shard0, shard1, shard_incr);
+  if (err.is_error()) {
+    return reject_query("invalid update of created shardchain blocks counter in CreatorStats for "s + key.to_hex(256) +
+                        " : " + err.to_string());
+  }
+  if (mc1.is_zero() && shard1.is_zero() && nv_exists) {
+    return reject_query("new CreatorStats for "s + key.to_hex(256) +
+                        " contains two zero counters (it should have been completely deleted instead)");
+  }
+  return true;
+}
+
+// similar to Collator::update_block_creator_stats()
+bool ValidateQuery::check_block_create_stats() {
+  LOG(INFO) << "checking all CreatorStats updates between the old and the new state";
+  try {
+    CHECK(ps_.block_create_stats_ && ns_.block_create_stats_);
+    if (!ps_.block_create_stats_->scan_diff(
+            *ns_.block_create_stats_,
+            [this](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val, Ref<vm::CellSlice> new_val) {
+              CHECK(key_len == 256);
+              return check_one_block_creator_update(key, std::move(old_val), std::move(new_val));
+            },
+            3 /* check augmentation of changed nodes */)) {
+      return reject_query("invalid BlockCreateStats dictionary in the new state");
+    }
+    for (const auto& p : block_create_count_) {
+      auto old_val = ps_.block_create_stats_->lookup(p.first);
+      auto new_val = ns_.block_create_stats_->lookup(p.first);
+      if (old_val.is_null() != new_val.is_null()) {
+        continue;
+      }
+      if (old_val.not_null() && !new_val->contents_equal(*old_val)) {
+        continue;
+      }
+      if (!check_one_block_creator_update(p.first.bits(), std::move(old_val), std::move(new_val))) {
+        return reject_query("invalid update of BlockCreator entry for "s + p.first.to_hex());
+      }
+    }
+    auto key = td::Bits256::zero();
+    auto old_val = ps_.block_create_stats_->lookup(key);
+    auto new_val = ns_.block_create_stats_->lookup(key);
+    if (new_val.is_null()) {
+      return reject_query(
+          "new masterchain state does not contain a BlockCreator entry with zero key with total statistics");
+    }
+    if (!check_one_block_creator_update(key.bits(), std::move(old_val), std::move(new_val))) {
+      return reject_query("invalid update of BlockCreator entry for "s + key.to_hex());
+    }
+  } catch (vm::VmError& err) {
+    return reject_query("invalid BlockCreateStats dictionary difference between the old and the new state: "s +
+                        err.get_msg());
+  }
   return true;
 }
 

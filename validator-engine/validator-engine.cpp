@@ -1087,7 +1087,7 @@ void ValidatorEngine::load_local_config(td::Promise<td::Unit> promise) {
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false, ig.get_promise());
   }
 
-  td::uint32 max_time = 1;
+  td::uint32 max_time = 2000000000;
 
   if (conf.dht_.size() > 0) {
     for (auto &d : conf.dht_) {

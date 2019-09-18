@@ -135,10 +135,12 @@ class ValidateQuery : public td::actor::Actor {
   bool is_key_block_{false};
   bool update_shard_cc_{false};
   bool is_fake_{false};
+  bool prev_key_block_exists_{false};
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
   int shard_pfx_len_;
+  td::Bits256 created_by_;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -174,6 +176,8 @@ class ValidateQuery : public td::actor::Actor {
   ton::LogicalTime max_shard_lt_{0};
 
   int global_id_{0};
+  bool ihr_enabled_{false};
+  bool create_stats_enabled_{false};
   ton::BlockSeqno prev_key_block_seqno_;
   ton::BlockIdExt prev_key_block_;
   ton::LogicalTime prev_key_block_lt_;
@@ -196,6 +200,9 @@ class ValidateQuery : public td::actor::Actor {
   block::ShardState ps_, ns_;
   std::unique_ptr<vm::AugmentedDictionary> sibling_out_msg_queue_;
   std::shared_ptr<block::MsgProcessedUptoCollection> sibling_processed_upto_;
+
+  std::map<td::Bits256, int> block_create_count_;
+  unsigned block_create_total_{0};
 
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict_, out_msg_dict_, account_blocks_dict_;
   block::ValueFlow value_flow_;
@@ -285,6 +292,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
                        const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc);
   bool check_shard_layout();
+  bool register_shard_block_creators(std::vector<td::Bits256> creator_list);
   bool check_cur_validator_set();
   bool check_mc_validator_info(bool update_mc_cc);
   bool check_utime_lt();
@@ -342,6 +350,10 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::CellSlice> old_val_extra,
                                   Ref<vm::CellSlice> new_val_extra);
   bool check_mc_state_extra();
+  td::Status check_counter_update(const block::DiscountedCounter& oc, const block::DiscountedCounter& nc,
+                                  unsigned expected_incr);
+  bool check_one_block_creator_update(td::ConstBitPtr key, Ref<vm::CellSlice> old_val, Ref<vm::CellSlice> new_val);
+  bool check_block_create_stats();
   bool check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();

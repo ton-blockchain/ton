@@ -270,7 +270,7 @@ void ValidateBroadcast::written_block_data() {
       if (!key_proof_link_.is_null()) {
         run_check_proof_query(broadcast_.block_id, proof_, manager_, timeout_, std::move(P), key_proof_link_);
       } else {
-        CHECK(!zero_state_.not_null());
+        CHECK(zero_state_.not_null());
         run_check_proof_query(broadcast_.block_id, proof_, manager_, timeout_, std::move(P), zero_state_);
       }
     } else {

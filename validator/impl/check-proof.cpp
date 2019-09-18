@@ -218,12 +218,19 @@ bool CheckProof::init_parse(bool is_aux) {
   if (is_key_block_ && !shard.is_masterchain()) {
     return fatal_error("a non-masterchain block cannot be a key block");
   }
+  block::gen::BlockExtra::Record extra;
+  if (!is_aux) {
+    /* FIXME: temp (uncommend later)
+    if (!tlb::unpack_cell(std::move(blk.extra), extra)) {
+      return fatal_error("cannot unpack extra header of block "s + blk_id.to_str());
+    }
+    */
+  }
   if (is_key_block_ && !is_aux) {
     // visit validator-set related fields in key blocks
-    block::gen::BlockExtra::Record extra;
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(std::move(blk.extra), extra) && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) &&
-          mc_extra.key_block && mc_extra.config.not_null())) {
+    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+          mc_extra.config.not_null())) {
       return fatal_error("cannot unpack extra header of key masterchain block "s + blk_id.to_str());
     }
     auto cfg = block::Config::unpack_config(std::move(mc_extra.config));

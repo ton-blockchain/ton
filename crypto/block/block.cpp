@@ -21,6 +21,7 @@
 #include "block/block-auto.h"
 #include "block/block-parse.h"
 #include "ton/ton-shard.h"
+#include "common/bigexp.h"
 #include "common/util.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_storers.h"
@@ -367,14 +368,14 @@ std::unique_ptr<MsgProcessedUptoCollection> MsgProcessedUptoCollection::unpack(t
   return v && v->valid ? std::move(v) : std::unique_ptr<MsgProcessedUptoCollection>{};
 }
 
-bool MsgProcessedUpto::contains(const MsgProcessedUpto& other) const& {
+bool MsgProcessedUpto::contains(const MsgProcessedUpto& other) const & {
   return ton::shard_is_ancestor(shard, other.shard) && mc_seqno >= other.mc_seqno &&
          (last_inmsg_lt > other.last_inmsg_lt ||
           (last_inmsg_lt == other.last_inmsg_lt && !(last_inmsg_hash < other.last_inmsg_hash)));
 }
 
 bool MsgProcessedUpto::contains(ton::ShardId other_shard, ton::LogicalTime other_lt, td::ConstBitPtr other_hash,
-                                ton::BlockSeqno other_mc_seqno) const& {
+                                ton::BlockSeqno other_mc_seqno) const & {
   return ton::shard_is_ancestor(shard, other_shard) && mc_seqno >= other_mc_seqno &&
          (last_inmsg_lt > other_lt || (last_inmsg_lt == other_lt && !(last_inmsg_hash < other_hash)));
 }
@@ -787,6 +788,14 @@ td::Status ShardState::unpack_state(ton::BlockIdExt blkid, Ref<vm::Cell> prev_st
     }
     if (!global_balance_.validate_unpack(extra.global_balance)) {
       return td::Status::Error(-666, "ShardState of "s + id_.to_str() + " does not contain a valid global_balance");
+    }
+    if (extra.r1.flags & 1) {
+      if (extra.r1.block_create_stats->prefetch_ulong(8) != 0x17) {
+        return td::Status::Error(-666, "ShardState of "s + id_.to_str() + " does not contain a valid BlockCreateStats");
+      }
+      block_create_stats_ = std::make_unique<vm::Dictionary>(extra.r1.block_create_stats->prefetch_ref(), 256);
+    } else {
+      block_create_stats_ = std::make_unique<vm::Dictionary>(256);
     }
   }
   return unpack_out_msg_queue_info(std::move(state.out_msg_queue_info));
@@ -1387,6 +1396,114 @@ std::ostream& operator<<(std::ostream& os, const ValueFlow& vflow) {
   return os;
 }
 
+bool DiscountedCounter::increase_by(unsigned count, ton::UnixTime now) {
+  if (!validate()) {
+    return false;
+  }
+  td::uint64 scaled = (td::uint64(count) << 32);
+  if (!total) {
+    last_updated = now;
+    total = count;
+    cnt2048 = scaled;
+    cnt65536 = scaled;
+    return true;
+  }
+  if (count > ~total || cnt2048 > ~scaled || cnt65536 > ~scaled) {
+    return false /* invalidate() */;  // overflow
+  }
+  unsigned dt = (now >= last_updated ? now - last_updated : 0);
+  if (dt > 0) {
+    // more precise version of cnt2048 = llround(cnt2048 * exp(-dt / 2048.));
+    // (rounding error has absolute value < 1)
+    cnt2048 = (dt >= 48 * 2048 ? 0 : td::umulnexps32(cnt2048, dt << 5));
+    // more precise version of cnt65536 = llround(cnt65536 * exp(-dt / 65536.));
+    // (rounding error has absolute value < 1)
+    cnt65536 = td::umulnexps32(cnt65536, dt);
+  }
+  total += count;
+  cnt2048 += scaled;
+  cnt65536 += scaled;
+  last_updated = now;
+  return true;
+}
+
+bool DiscountedCounter::validate() {
+  if (!is_valid()) {
+    return false;
+  }
+  if (!total) {
+    if (cnt2048 | cnt65536) {
+      return invalidate();
+    }
+  } else if (!last_updated) {
+    return invalidate();
+  }
+  return true;
+}
+
+bool DiscountedCounter::fetch(vm::CellSlice& cs) {
+  valid = (cs.fetch_uint_to(32, last_updated) && cs.fetch_uint_to(64, total) && cs.fetch_uint_to(64, cnt2048) &&
+           cs.fetch_uint_to(64, cnt65536));
+  return validate() || invalidate();
+}
+
+bool DiscountedCounter::unpack(Ref<vm::CellSlice> csr) {
+  return (csr.not_null() && fetch(csr.write()) && csr->empty_ext()) || invalidate();
+}
+
+bool DiscountedCounter::store(vm::CellBuilder& cb) const {
+  return is_valid() && cb.store_long_bool(last_updated, 32) && cb.store_long_bool(total, 64) &&
+         cb.store_long_bool(cnt2048, 64) && cb.store_long_bool(cnt65536, 64);
+}
+
+Ref<vm::CellSlice> DiscountedCounter::pack() const {
+  vm::CellBuilder cb;
+  if (store(cb)) {
+    return vm::load_cell_slice_ref(cb.finalize());
+  } else {
+    return {};
+  }
+}
+
+bool DiscountedCounter::show(std::ostream& os) const {
+  if (!is_valid()) {
+    os << "<invalid-counter>";
+    return false;
+  }
+  os << "(counter last_updated:" << last_updated << " total:" << total << " cnt2048: " << (double)cnt2048 / (1LL << 32)
+     << " cnt65536: " << (double)cnt65536 / (1LL << 32) << ")";
+  return true;
+}
+
+std::string DiscountedCounter::to_str() const {
+  std::ostringstream stream;
+  if (show(stream)) {
+    return stream.str();
+  } else {
+    return "<invalid-counter>";
+  }
+}
+
+bool fetch_CreatorStats(vm::CellSlice& cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt) {
+  return cs.fetch_ulong(4) == 4   // creator_info#4
+         && mc_cnt.fetch(cs)      // mc_blocks:Counters
+         && shard_cnt.fetch(cs);  // shard_blocks:Counters
+}
+
+bool store_CreatorStats(vm::CellBuilder& cb, const DiscountedCounter& mc_cnt, const DiscountedCounter& shard_cnt) {
+  return cb.store_long_bool(4, 4)  // creator_info#4
+         && mc_cnt.store(cb)       // mc_blocks:Counters
+         && shard_cnt.store(cb);   // shard_blocks:Counters
+}
+
+bool unpack_CreatorStats(Ref<vm::CellSlice> cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt) {
+  if (cs.is_null()) {
+    return mc_cnt.set_zero() && shard_cnt.set_zero();
+  } else {
+    return fetch_CreatorStats(cs.write(), mc_cnt, shard_cnt) && cs->empty_ext();
+  }
+}
+
 /*
  * 
  *    Other block-related functions
@@ -1565,8 +1682,8 @@ std::pair<int, int> perform_hypercube_routing(ton::AccountIdPrefixFull src, ton:
   if (!ton::shard_contains(cur, transit)) {
     return {-1, -1};
   }
-  if (transit.account_id_prefix == dest.account_id_prefix || ton::shard_contains(cur, dest)) {
-    // if destination is already reached, or is in this shard, set cur:=next_hop:=dest
+  if (ton::shard_contains(cur, dest)) {
+    // if destination is in this shard, set cur:=next_hop:=dest
     return {96, 96};
   }
   if (transit.workchain == ton::masterchainId || dest.workchain == ton::masterchainId) {

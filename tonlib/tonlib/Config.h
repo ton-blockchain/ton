@@ -19,6 +19,7 @@
 #pragma once
 #include "adnl/adnl-node-id.hpp"
 #include "td/utils/port/IPAddress.h"
+#include "ton/ton-types.h"
 
 namespace tonlib {
 struct Config {
@@ -26,6 +27,7 @@ struct Config {
     ton::adnl::AdnlNodeIdFull adnl_id;
     td::IPAddress address;
   };
+  ton::BlockIdExt zero_state_id;
   std::vector<LiteClient> lite_clients;
   static td::Result<Config> parse(std::string str);
 };

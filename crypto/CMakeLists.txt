@@ -9,6 +9,7 @@ set(TON_CRYPTO_SOURCE
   common/bigint.cpp
   common/refcnt.cpp
   common/refint.cpp
+  common/bigexp.cpp
   common/bitstring.cpp
   common/util.cpp
   ellcurve/Ed25519.cpp
@@ -42,6 +43,7 @@ set(TON_CRYPTO_SOURCE
   common/bitstring.h
   common/refcnt.hpp
   common/refint.h
+  common/bigexp.h
   common/util.h
 
   ellcurve/Ed25519.h
@@ -227,7 +229,7 @@ target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils)
 if (NOT WIN32)
   target_link_libraries(ton_crypto PUBLIC dl z)
 endif()
-target_include_directories(ton_crypto SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})
 target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -324,10 +326,10 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(create-state wingetopt)
 endif()
 
-add_executable(test-block block/test-block.cpp)
-target_include_directories(test-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+add_executable(dump-block block/dump-block.cpp)
+target_include_directories(dump-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(test-block PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(dump-block PUBLIC ton_crypto fift-lib ton_block)
 if (WINGETOPT_FOUND)
-  target_link_libraries_system(test-block wingetopt)
+  target_link_libraries_system(dump-block wingetopt)
 endif()

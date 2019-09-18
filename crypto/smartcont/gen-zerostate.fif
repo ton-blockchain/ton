@@ -150,6 +150,8 @@ Masterchain swap
  * Configuration Parameters
  *
  */
+// version capabilities
+0 capCreateStats config.version!
 // max-validators max-main-validators min-validators
 // 9 4 1 config.validator_num!
 1000 100 5 config.validator_num!

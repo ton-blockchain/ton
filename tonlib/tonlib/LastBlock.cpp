@@ -20,8 +20,13 @@
 
 #include "ton/lite-tl.hpp"
 
+#include "lite-client/lite-client-common.h"
+
 namespace tonlib {
-LastBlock::LastBlock(ExtClientRef client, td::actor::ActorShared<> parent) {
+LastBlock::LastBlock(ExtClientRef client, ton::ZeroStateIdExt zero_state_id, ton::BlockIdExt last_block_id,
+                     td::actor::ActorShared<> parent) {
+  zero_state_id_ = std::move(zero_state_id);
+  mc_last_block_id_ = std::move(last_block_id);
   client_.set_client(client);
   parent_ = std::move(parent);
 }
@@ -36,7 +41,48 @@ void LastBlock::get_last_block(td::Promise<ton::BlockIdExt> promise) {
 void LastBlock::do_get_last_block() {
   client_.send_query(ton::lite_api::liteServer_getMasterchainInfo(),
                      [this](auto r_info) { this->on_masterchain_info(std::move(r_info)); });
+  return;
+  //liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode.0?tonNode.blockIdExt = liteServer.PartialBlockProof;
+  client_.send_query(
+      ton::lite_api::liteServer_getBlockProof(0, create_tl_lite_block_id(mc_last_block_id_), nullptr),
+      [this, from = mc_last_block_id_](auto r_block_proof) { this->on_block_proof(from, std::move(r_block_proof)); });
 }
+
+td::Result<bool> LastBlock::process_block_proof(
+    ton::BlockIdExt from,
+    td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_partialBlockProof>> r_block_proof) {
+  TRY_RESULT(block_proof, std::move(r_block_proof));
+  LOG(ERROR) << to_string(block_proof);
+  TRY_RESULT(chain, liteclient::deserialize_proof_chain(std::move(block_proof)));
+  if (chain->from != from) {
+    return td::Status::Error(PSLICE() << "block proof chain starts from block " << chain->from.to_str()
+                                      << ", not from requested block " << from.to_str());
+  }
+  TRY_STATUS(chain->validate());
+  update_mc_last_block(chain->to);
+  return chain->complete;
+}
+
+void LastBlock::on_block_proof(
+    ton::BlockIdExt from,
+    td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_partialBlockProof>> r_block_proof) {
+  auto r_is_ready = process_block_proof(from, std::move(r_block_proof));
+  if (r_is_ready.is_error()) {
+    LOG(WARNING) << "Failed liteServer_getBlockProof " << r_block_proof.error();
+    return;
+  }
+  auto is_ready = r_is_ready.move_as_ok();
+  if (is_ready) {
+    for (auto& promise : promises_) {
+      auto copy = mc_last_block_id_;
+      promise.set_value(std::move(copy));
+    }
+    promises_.clear();
+  } else {
+    do_get_last_block();
+  }
+}
+
 void LastBlock::on_masterchain_info(
     td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_masterchainInfo>> r_info) {
   if (r_info.is_ok()) {

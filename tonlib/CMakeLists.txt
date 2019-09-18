@@ -50,9 +50,9 @@ add_library(tonlib STATIC ${TONLIB_SOURCE})
 target_include_directories(tonlib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
-  ${OPENSSL_INCLUDE_DIR}
+  $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>
 )
-target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block)
+target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block lite-client-common)
 target_link_libraries(tonlib PUBLIC tdutils tl_tonlib_api)
 
 if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
@@ -119,7 +119,8 @@ install(TARGETS tonlibjson TonlibJson EXPORT Tonlib
 )
 
 if (NOT TON_USE_ABSEIL)
-install(TARGETS tdnet keys crc32c tdactor adnllite tl_api tl-utils tl_lite_api tl-lite-utils ton_crypto ton_block tdutils tl_tonlib_api tonlib Tonlib EXPORT Tonlib
+install(TARGETS tdnet keys crc32c tdactor adnllite tl_api tl-utils tl_lite_api tl-lite-utils ton_crypto ton_block
+  tdutils tl_tonlib_api tonlib lite-client-common Tonlib EXPORT Tonlib
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin

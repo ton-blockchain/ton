@@ -260,6 +260,22 @@ td::Status Config::unpack() {
     workchains_ = std::move(pair.first);
     workchains_dict_ = std::move(pair.second);
   }
+  if (mode & needCapabilities) {
+    auto cell = get_config_param(8);
+    if (cell.is_null()) {
+      version_ = 0;
+      capabilities_ = 0;
+    } else {
+      block::gen::GlobalVersion::Record gv;
+      if (!tlb::unpack_cell(std::move(cell), gv)) {
+        return td::Status::Error(
+            "cannot extract global blockchain version and capabilities from GlobalVersion in configuration parameter "
+            "#8");
+      }
+      version_ = gv.version;
+      capabilities_ = gv.capabilities;
+    }
+  }
   // ...
   return td::Status::OK();
 }
@@ -339,7 +355,7 @@ bool ConfigInfo::get_last_key_block(ton::BlockIdExt& blkid, ton::LogicalTime& bl
     blkid = block_id;
     blklt = lt;
   }
-  return blkid.is_valid() && blkid.seqno();
+  return blkid.is_valid();
 }
 
 td::Result<std::pair<WorkchainSet, std::unique_ptr<vm::Dictionary>>> Config::unpack_workchain_list_ext(

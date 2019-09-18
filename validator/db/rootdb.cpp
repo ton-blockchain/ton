@@ -299,6 +299,13 @@ void RootDb::get_persistent_state_file(BlockIdExt block_id, BlockIdExt mastercha
                           FileDb::RefId{fileref::PersistentState{block_id, masterchain_block_id}}, std::move(promise));
 }
 
+void RootDb::get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
+                                             td::int64 max_size, td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(archive_db_, &FileDb::load_file_slice,
+                          FileDb::RefId{fileref::PersistentState{block_id, masterchain_block_id}}, offset, max_size,
+                          std::move(promise));
+}
+
 void RootDb::check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                                 td::Promise<bool> promise) {
   td::actor::send_closure(archive_db_, &FileDb::check_file,

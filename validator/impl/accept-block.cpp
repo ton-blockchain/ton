@@ -88,13 +88,14 @@ bool AcceptBlockQuery::create_new_proof() {
   auto usage_cell = vm::UsageCell::create(block_root_, usage_tree->root_ptr());
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
+  block::gen::BlockExtra::Record extra;
   block::gen::ExtBlkRef::Record mcref{};  // _ ExtBlkRef = BlkMasterInfo;
   block::CurrencyCollection fees;
   ShardIdFull shard;
   if (!(tlb::unpack_cell(usage_cell, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
         block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no &&
         block::gen::BlkPrevInfo{info.after_merge}.validate_ref(info.prev_ref) &&
-        block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) &&
+        tlb::unpack_cell(std::move(blk.extra), extra) && block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) &&
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
     return fatal_error("cannot unpack block header");
   }
@@ -126,10 +127,9 @@ bool AcceptBlockQuery::create_new_proof() {
   }
   // 4. visit validator-set related fields in key blocks
   if (is_key_block_) {
-    block::gen::BlockExtra::Record extra;
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(std::move(blk.extra), extra) && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) &&
-          mc_extra.key_block && mc_extra.config.not_null())) {
+    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+          mc_extra.config.not_null())) {
       return fatal_error("cannot unpack extra header of key masterchain block "s + blk_id.to_str());
     }
     auto cfg = block::Config::unpack_config(std::move(mc_extra.config));
@@ -156,10 +156,8 @@ bool AcceptBlockQuery::create_new_proof() {
     mc_blkid_.root_hash = mcref.root_hash;
     mc_blkid_.file_hash = mcref.file_hash;
   } else if (!is_key_block_) {
-    block::gen::BlockExtra::Record extra;
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(std::move(blk.extra), extra) && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) &&
-          !mc_extra.key_block)) {
+    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && !mc_extra.key_block)) {
       return fatal_error("extra header of non-key masterchain block "s + blk_id.to_str() +
                          " is invalid or contains extra information reserved for key blocks only");
     }
@@ -332,8 +330,8 @@ void AcceptBlockQuery::written_block_data() {
   if (is_fake_) {
     signatures_ = Ref<BlockSignatureSetQ>(create_signature_set(std::vector<BlockSignature>{}));
   }
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_,
-                          [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_,
+                          signatures_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_signatures);
                           });
@@ -367,8 +365,8 @@ void AcceptBlockQuery::written_block_info() {
     td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority(), timeout_,
                             std::move(P));
   } else {
-    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(), timeout_,
-                            [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(),
+                            timeout_, [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
                               check_send_error(SelfId, R) ||
                                   td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_block_data,
                                                                R.move_as_ok());
@@ -408,8 +406,8 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
   handle_->set_split(state_->before_split());
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_,
-                          [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_,
+                          state_, [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_state, R.move_as_ok());
                           });
@@ -481,8 +479,8 @@ void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, Bl
   if (last_mc_id_.id.seqno < mc_blkid_.id.seqno) {
     VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_.to_str()
                           << ", trying to obtain it";
-    td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
-                                  [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
+    td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(),
+                                  timeout_, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                                     check_send_error(SelfId, R) ||
                                         td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_mc_state,
                                                                      R.move_as_ok());
@@ -588,7 +586,7 @@ void AcceptBlockQuery::require_proof_link(BlockIdExt id) {
   CHECK(ton::ShardIdFull(id) == ton::ShardIdFull(id_));
   CHECK(id.id.seqno == id_.id.seqno - 1 - proof_links_.size());
   td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_proof_link_short, id, timeout_,
-                                [SelfId = actor_id(this), id](td::Result<Ref<ProofLink>> R) {
+                                [ SelfId = actor_id(this), id ](td::Result<Ref<ProofLink>> R) {
                                   check_send_error(SelfId, R) ||
                                       td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_proof_link, id,
                                                                    R.move_as_ok());
@@ -647,9 +645,15 @@ bool AcceptBlockQuery::unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof_lin
   }
   try {
     block::gen::Block::Record block;
+    block::gen::BlockExtra::Record extra;
     if (!(tlb::unpack_cell(virt_root, block) && block::gen::t_ValueFlow.force_validate_ref(block.value_flow))) {
       return fatal_error("block proof link for block "s + id.to_str() + " does not contain value flow information");
     }
+    /* TEMP (uncomment later)
+    if (!tlb::unpack_cell(std::move(block.extra), extra)) {
+      return fatal_error("block proof link for block "s + id.to_str() + " does not contain BlockExtra information");
+    }
+    */
   } catch (vm::VmError& err) {
     return fatal_error("error unpacking proof link for block "s + id.to_str() + " : " + err.get_msg());
   } catch (vm::VmVirtError& err) {
