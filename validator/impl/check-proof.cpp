@@ -220,11 +220,10 @@ bool CheckProof::init_parse(bool is_aux) {
   }
   block::gen::BlockExtra::Record extra;
   if (!is_aux) {
-    /* FIXME: temp (uncommend later)
-    if (!tlb::unpack_cell(std::move(blk.extra), extra)) {
+    // FIXME: remove "is_key_block_ &&" later
+    if (is_key_block_ && !tlb::unpack_cell(std::move(blk.extra), extra)) {
       return fatal_error("cannot unpack extra header of block "s + blk_id.to_str());
     }
-    */
   }
   if (is_key_block_ && !is_aux) {
     // visit validator-set related fields in key blocks
