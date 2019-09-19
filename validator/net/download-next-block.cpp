@@ -33,7 +33,8 @@ DownloadNextBlock::DownloadNextBlock(adnl::AdnlNodeIdShort local_id, overlay::Ov
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                      td::actor::ActorId<rldp::Rldp> rldp,
                                      td::actor::ActorId<overlay::Overlays> overlays,
-                                     td::actor::ActorId<adnl::Adnl> adnl, td::Promise<ReceivedBlock> promise)
+                                     td::actor::ActorId<adnl::Adnl> adnl,
+                                     td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise)
     : local_id_(local_id)
     , overlay_id_(overlay_id)
     , prev_(prev)
@@ -43,6 +44,7 @@ DownloadNextBlock::DownloadNextBlock(adnl::AdnlNodeIdShort local_id, overlay::Ov
     , rldp_(rldp)
     , overlays_(overlays)
     , adnl_(adnl)
+    , client_(client)
     , promise_(std::move(promise)) {
 }
 
@@ -76,6 +78,10 @@ void DownloadNextBlock::start_up() {
                             false, std::move(P));
     return;
   }
+  if (!client_.empty()) {
+    got_node(node_);
+    return;
+  }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<adnl::AdnlNodeIdShort>> R) {
     if (R.is_error()) {
@@ -107,8 +113,14 @@ void DownloadNextBlock::got_node(adnl::AdnlNodeIdShort id) {
   });
 
   auto query = create_serialize_tl_object<ton_api::tonNode_getNextBlockDescription>(create_tl_block_id(prev_->id()));
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_query, id, local_id_, overlay_id_, "get_prepare",
-                          std::move(P), td::Timestamp::in(1.0), std::move(query));
+  if (client_.empty()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_query, id, local_id_, overlay_id_, "get_prepare",
+                            std::move(P), td::Timestamp::in(1.0), std::move(query));
+  } else {
+    td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_prepare",
+                            create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
+                            td::Timestamp::in(1.0), std::move(P));
+  }
 }
 
 void DownloadNextBlock::got_next_node(td::BufferSlice data) {
@@ -138,7 +150,7 @@ void DownloadNextBlock::got_next_node_handle(BlockHandle handle) {
 void DownloadNextBlock::finish_query() {
   if (promise_) {
     td::actor::create_actor<DownloadBlock>("downloadnext", next_block_id_, local_id_, overlay_id_, prev_, node_,
-                                           priority_, timeout_, validator_manager_, rldp_, overlays_, adnl_,
+                                           priority_, timeout_, validator_manager_, rldp_, overlays_, adnl_, client_,
                                            std::move(promise_))
         .release();
   }

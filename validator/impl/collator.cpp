@@ -74,10 +74,6 @@ void Collator::start_up() {
   if (prev_blocks.size() > 1) {
     LOG(DEBUG) << "Previous block #2 is " << prev_blocks.at(1).to_str();
   }
-  //if (created_by_.is_zero()) {
-  // !!FIXME!! remove this debug later
-  //td::as<td::uint32>(created_by_.data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
-  //}
   // 1. check validity of parameters, especially prev_blocks, shard and min_mc_block_id
   if (shard.workchain != ton::masterchainId && shard.workchain != ton::basechainId) {
     fatal_error(-667, "can create block candidates only for masterchain (-1) and base workchain (0)");
@@ -180,7 +176,7 @@ void Collator::start_up() {
     LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
     td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                  timeout, [self = get_self(), i](td::Result<Ref<ShardState>> res) {
+                                  timeout, [ self = get_self(), i ](td::Result<Ref<ShardState>> res) {
                                     LOG(DEBUG) << "got answer to wait_block_state query #" << i;
                                     td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i,
                                                                   std::move(res));
@@ -191,7 +187,7 @@ void Collator::start_up() {
       LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       ++pending;
       td::actor::send_closure_later(manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(),
-                                    timeout, [self = get_self(), i](td::Result<Ref<BlockData>> res) {
+                                    timeout, [ self = get_self(), i ](td::Result<Ref<BlockData>> res) {
                                       LOG(DEBUG) << "got answer to wait_block_data query #" << i;
                                       td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i,
                                                                     std::move(res));
@@ -201,8 +197,8 @@ void Collator::start_up() {
   // 4. load external messages
   LOG(DEBUG) << "sending get_external_messages() query to Manager";
   ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard,
-                                [self = get_self()](td::Result<std::vector<Ref<ExtMessage>>> res) -> void {
+  td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages,
+                                shard, [self = get_self()](td::Result<std::vector<Ref<ExtMessage>>> res)->void {
                                   LOG(DEBUG) << "got answer to get_external_messages() query";
                                   td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages,
                                                                 std::move(res));
@@ -212,8 +208,8 @@ void Collator::start_up() {
     LOG(DEBUG) << "sending get_shard_blocks() query to Manager";
     ++pending;
     td::actor::send_closure_later(
-        manager, &ValidatorManager::get_shard_blocks, prev_blocks[0],
-        [self = get_self()](td::Result<std::vector<Ref<ShardTopBlockDescription>>> res) -> void {
+        manager, &ValidatorManager::get_shard_blocks,
+        prev_blocks[0], [self = get_self()](td::Result<std::vector<Ref<ShardTopBlockDescription>>> res)->void {
           LOG(DEBUG) << "got answer to get_shard_blocks() query";
           td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_blocks, std::move(res));
         });
@@ -330,7 +326,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
   td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
-                                [self = get_self(), blkid](td::Result<Ref<ShardState>> res) {
+                                [ self = get_self(), blkid ](td::Result<Ref<ShardState>> res) {
                                   LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
                                   td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state,
                                                                 blkid, std::move(res));
@@ -418,8 +414,8 @@ void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, Bl
     // NB. it is needed only for creating a correct ExtBlkRef reference to it, which requires start_lt and end_lt
     LOG(DEBUG) << "sending wait_block_data() query #-1 for " << mc_block_id_.to_str() << " to Manager";
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout,
-                                  [self = get_self()](td::Result<Ref<BlockData>> res) {
+    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(),
+                                  timeout, [self = get_self()](td::Result<Ref<BlockData>> res) {
                                     LOG(DEBUG) << "got answer to wait_block_data query #-1";
                                     td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, -1,
                                                                   std::move(res));
@@ -558,7 +554,7 @@ bool Collator::request_neighbor_msg_queues() {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
     ++pending;
     send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
-                       [self = get_self(), i](td::Result<Ref<MessageQueue>> res) {
+                       [ self = get_self(), i ](td::Result<Ref<MessageQueue>> res) {
                          td::actor::send_closure(std::move(self), &Collator::got_neighbor_out_queue, i, std::move(res));
                        });
     ++i;
@@ -2936,24 +2932,24 @@ bool Collator::update_shard_config(const block::WorkchainSet& wc_set, const bloc
   WorkchainId wc_id{ton::workchainInvalid};
   Ref<block::WorkchainInfo> wc_info;
   ton::BlockSeqno& min_seqno = min_ref_mc_seqno_;
-  return shard_conf_->process_sibling_shard_hashes(
-      [&wc_set, &wc_id, &wc_info, &ccvc, &min_seqno, now = now_, update_cc](block::McShardHash& cur,
-                                                                            const block::McShardHash* sibling) {
-        if (!cur.is_valid()) {
-          return -2;
-        }
-        if (wc_id != cur.workchain()) {
-          wc_id = cur.workchain();
-          auto it = wc_set.find(wc_id);
-          if (it == wc_set.end()) {
-            wc_info.clear();
-          } else {
-            wc_info = it->second;
-          }
-        }
-        min_seqno = std::min(min_seqno, cur.min_ref_mc_seqno_);
-        return update_one_shard(cur, sibling, wc_info.get(), now, ccvc, update_cc);
-      });
+  return shard_conf_->process_sibling_shard_hashes([
+    &wc_set, &wc_id, &wc_info, &ccvc, &min_seqno, now = now_, update_cc
+  ](block::McShardHash & cur, const block::McShardHash* sibling) {
+    if (!cur.is_valid()) {
+      return -2;
+    }
+    if (wc_id != cur.workchain()) {
+      wc_id = cur.workchain();
+      auto it = wc_set.find(wc_id);
+      if (it == wc_set.end()) {
+        wc_info.clear();
+      } else {
+        wc_info = it->second;
+      }
+    }
+    min_seqno = std::min(min_seqno, cur.min_ref_mc_seqno_);
+    return update_one_shard(cur, sibling, wc_info.get(), now, ccvc, update_cc);
+  });
 }
 
 bool Collator::create_mc_state_extra() {
@@ -3198,10 +3194,10 @@ bool Collator::update_block_creator_stats() {
       return fatal_error("cannot update CreatorStats for "s + p.first.to_hex());
     }
   }
-  if (/*!created_by_.is_zero() &&*/ !update_block_creator_count(created_by_.as_bits256().bits(), 0, 1)) {
+  if (!created_by_.is_zero() && !update_block_creator_count(created_by_.as_bits256().bits(), 0, 1)) {
     return fatal_error("cannot update CreatorStats for "s + created_by_.as_bits256().to_hex());
   }
-  if (!update_block_creator_count(td::Bits256::zero().bits(), block_create_total_, 1)) {
+  if (!update_block_creator_count(td::Bits256::zero().bits(), block_create_total_, !created_by_.is_zero())) {
     return fatal_error("cannot update CreatorStats with zero index (representing the sum of other CreatorStats)");
   }
   int cnt = block_create_stats_->filter([this](vm::CellSlice& cs, td::ConstBitPtr key, int key_len) {
@@ -3766,7 +3762,7 @@ bool Collator::create_block_candidate() {
   // 4. save block candidate
   LOG(INFO) << "saving new BlockCandidate";
   td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
-                                block_candidate->clone(), [self = get_self()](td::Result<td::Unit> saved) -> void {
+                                block_candidate->clone(), [self = get_self()](td::Result<td::Unit> saved)->void {
                                   LOG(DEBUG) << "got answer to set_block_candidate";
                                   td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
                                                                 std::move(saved));

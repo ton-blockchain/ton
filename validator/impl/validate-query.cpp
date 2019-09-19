@@ -151,12 +151,7 @@ void ValidateQuery::start_up() {
   LOG(INFO) << "validate query for " << block_candidate.id.to_str() << " started";
   alarm_timestamp() = timeout;
   rand_seed_.set_zero();
-
   created_by_ = block_candidate.pubkey;
-  if (created_by_.is_zero()) {
-    // !!FIXME!! remove this debug later
-    td::as<td::uint32>(created_by_.data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
-  }
 
   CHECK(id_ == block_candidate.id);
   if (ShardIdFull(id_) != shard_) {
@@ -5179,7 +5174,7 @@ bool ValidateQuery::check_one_block_creator_update(td::ConstBitPtr key, Ref<vm::
   unsigned mc_incr = (created_by_ == key);
   unsigned shard_incr = 0;
   if (key.is_zero(256)) {
-    mc_incr = 1;
+    mc_incr = !created_by_.is_zero();
     shard_incr = block_create_total_;
   } else {
     auto it = block_create_count_.find(td::Bits256{key});

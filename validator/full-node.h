@@ -30,6 +30,7 @@
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "validator/validator.h"
+#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -71,7 +72,7 @@ class FullNode : public td::actor::Actor {
                                               td::actor::ActorId<dht::Dht> dht,
                                               td::actor::ActorId<overlay::Overlays> overlays,
                                               td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                              std::string db_root);
+                                              td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
 };
 
 }  // namespace fullnode

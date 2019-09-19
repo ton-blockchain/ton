@@ -70,8 +70,14 @@ else()
 endif()
 
 #BEGIN internal
-option(TON_USE_ROCKSDB "Use \"ON\" to enable RocksDb." ON)
-option(TON_USE_ABSEIL "Use \"ON\" to enable Abseil." ON)
+option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
+if (TON_ONLY_TONBLIB)
+  set(NOT_TON_ONLY_TONLIB false)
+else()
+  set(NOT_TON_ONLY_TONLIB true)
+endif()
+option(TON_USE_ROCKSDB "Use \"ON\" to enable RocksDb." ${NOT_TON_ONLY_TONLIB})
+option(TON_USE_ABSEIL "Use \"ON\" to enable Abseil." ${NOT_TON_ONLY_TONLIB})
 option(TON_USE_JEMALLOC "Use \"ON\" to enable JeMalloc." OFF)
 #END internal
 
@@ -328,6 +334,7 @@ function(target_link_libraries_system target)
   endforeach(lib)
 endfunction(target_link_libraries_system)
 
+set(TDUTILS_MIME_TYPE OFF CACHE BOOL "Generate mime type conversion")
 add_subdirectory(tdutils)
 add_subdirectory(memprof)
 add_subdirectory(tdactor)
@@ -350,6 +357,7 @@ add_subdirectory(tonlib)
 #END tonlib
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_subdirectory(common)
 add_subdirectory(tdfec)
 add_subdirectory(keyring)
@@ -365,10 +373,14 @@ add_subdirectory(validator-engine)
 add_subdirectory(validator-engine-console)
 add_subdirectory(dht-server)
 add_subdirectory(utils)
+endif()
 #END internal
 
 if (NOT CMAKE_CROSSCOMPILING)
-  add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tdmime_auto tlb_generate_block)
+  if (TDUTILS_MIME_TYPE)
+    set(TDMIME_AUTO tdmime_auto)
+  endif()
+  add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tlb_generate_block ${TDMIME_AUTO})
 endif()
 
 #TESTS
@@ -406,6 +418,7 @@ target_link_libraries(test-tonlib-offline tdutils tdactor adnllite tl_api ton_cr
 #END tonlib
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_executable(test-db test/test-td-main.cpp ${TONDB_TEST_SOURCE})
 target_link_libraries(test-db PRIVATE ton_db memprof)
 
@@ -467,6 +480,7 @@ if (HAS_PARENT)
 endif()
 add_library(all_tests INTERFACE)
 target_link_libraries(all_tests INTERFACE tdutils tdactor tdnet tdfec ton_db ton_crypto fift-lib)
+endif()
 #END internal
 
 enable_testing()
@@ -485,8 +499,10 @@ add_test(test-tonlib-offline test-tonlib-offline)
 #END tonlib
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_test(test-fec test-fec)
 add_test(test-tddb test-tddb ${TEST_OPTIONS})
 add_test(test-db test-db ${TEST_OPTIONS})
+endif()
 #END internal
 

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 set(ADNL_HEADERS
   adnl-address-list.h
   adnl-address-list.hpp
@@ -66,6 +67,7 @@ set(ADNL_PROXY_SOURCE
 
 #FIXME
 set(ADNL_LITE_HEADERS ${ADNL_HEADERS})
+endif()
 #END internal
 
 set(ADNL_LITE_SOURCE
@@ -77,6 +79,7 @@ set(ADNL_LITE_SOURCE
 )
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_library(adnl STATIC ${ADNL_SOURCE})
 
 target_include_directories(adnl PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
@@ -95,6 +98,7 @@ target_link_libraries(adnl-pong PUBLIC tdactor ton_crypto tl_api tdnet common
 add_library(adnltest STATIC ${ADNL_TEST_SOURCE})
 target_include_directories(adnltest PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(adnltest PUBLIC adnl )
+endif()
 #END internal
 
 add_library(adnllite STATIC ${ADNL_LITE_SOURCE})

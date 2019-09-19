@@ -54,7 +54,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
-    UNREACHABLE();
+    promise.set_error(td::Status::Error(ErrorCode::error, "unknown query"));
   }
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getNextBlockDescription &query,
                      td::Promise<td::BufferSlice> promise);
@@ -122,7 +122,8 @@ class FullNodeShardImpl : public FullNodeShard {
                     FileHash zero_state_file_hash, td::actor::ActorId<keyring::Keyring> keyring,
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                     td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<ValidatorManagerInterface> validator_manager);
+                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                    td::actor::ActorId<adnl::AdnlExtClient> client);
 
  private:
   ShardIdFull shard_;
@@ -138,6 +139,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorId<adnl::AdnlExtClient> client_;
 
   td::uint32 attempt_ = 0;
 

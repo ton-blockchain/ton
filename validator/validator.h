@@ -59,6 +59,9 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool is_hardfork(BlockIdExt block_id) const = 0;
   virtual td::uint32 get_vertical_height(BlockSeqno seqno) const = 0;
   virtual td::uint32 get_filedb_depth() const = 0;
+  virtual td::uint32 key_block_utime_step() const {
+    return 86400;
+  }
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;

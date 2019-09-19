@@ -23,6 +23,7 @@
 #include "validator/validator.h"
 #include "rldp/rldp.h"
 #include "ton/ton-io.hpp"
+#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -36,7 +37,8 @@ class DownloadNextBlock : public td::actor::Actor {
                     td::uint32 priority, td::Timestamp timeout,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<ReceivedBlock> promise);
+                    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
+                    td::Promise<ReceivedBlock> promise);
 
   void abort_query(td::Status reason);
   void finish_query();
@@ -62,6 +64,7 @@ class DownloadNextBlock : public td::actor::Actor {
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<ReceivedBlock> promise_;
 
   adnl::AdnlNodeIdShort node_ = adnl::AdnlNodeIdShort::zero();
