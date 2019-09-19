@@ -109,7 +109,11 @@ void ValidatorManagerMasterchainReiniter::downloaded_zero_state() {
 
 void ValidatorManagerMasterchainReiniter::try_download_key_blocks() {
   if (!download_new_key_blocks_until_) {
-    download_new_key_blocks_until_ = td::Timestamp::in(60.0);
+    if (opts_->allow_blockchain_init()) {
+      download_new_key_blocks_until_ = td::Timestamp::in(60.0);
+    } else {
+      download_new_key_blocks_until_ = td::Timestamp::in(600.0);
+    }
   }
   if (key_blocks_.size() > 0) {
     auto h = *key_blocks_.rbegin();
@@ -118,18 +122,18 @@ void ValidatorManagerMasterchainReiniter::try_download_key_blocks() {
       choose_masterchain_state();
       return;
     }
-  }
-  if (opts_->allow_blockchain_init() && download_new_key_blocks_until_.is_in_past()) {
-    choose_masterchain_state();
-    return;
+    if ((opts_->allow_blockchain_init() || h->unix_time() + 2 * 86400 > td::Clocks::system()) &&
+        download_new_key_blocks_until_.is_in_past()) {
+      choose_masterchain_state();
+      return;
+    }
   }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<BlockIdExt>> R) {
     if (R.is_error()) {
       LOG(WARNING) << "failed to download key blocks: " << R.move_as_error();
-      delay_action(
-          [=]() { td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::try_download_key_blocks); },
-          td::Timestamp::in(1.0));
+      td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::got_next_key_blocks,
+                              std::vector<BlockIdExt>{});
     } else {
       td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::got_next_key_blocks, R.move_as_ok());
     }
@@ -140,11 +144,19 @@ void ValidatorManagerMasterchainReiniter::try_download_key_blocks() {
 
 void ValidatorManagerMasterchainReiniter::got_next_key_blocks(std::vector<BlockIdExt> vec) {
   if (!vec.size()) {
-    try_download_key_blocks();
+    delay_action(
+        [SelfId = actor_id(this)]() {
+          td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::try_download_key_blocks);
+        },
+        td::Timestamp::in(1.0));
     return;
   }
   if (download_new_key_blocks_until_) {
-    download_new_key_blocks_until_ = td::Timestamp::in(60.0);
+    if (opts_->allow_blockchain_init()) {
+      download_new_key_blocks_until_ = td::Timestamp::in(60.0);
+    } else {
+      download_new_key_blocks_until_ = td::Timestamp::in(600.0);
+    }
   }
   LOG(WARNING) << "last key block is " << vec[vec.size() - 1];
   auto s = static_cast<td::uint32>(key_blocks_.size());
