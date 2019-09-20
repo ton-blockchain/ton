@@ -85,6 +85,7 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   Ref<block::McShardHash> get_top_descr(int sum_cnt = 0) const {
     return get_prev_descr(0, sum_cnt);
   }
+  std::vector<td::Bits256> get_creator_list(int count) const;
   Ref<vm::Cell> get_root() const {
     return root_;
   }
@@ -131,6 +132,7 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   std::vector<BlockIdExt> chain_mc_blk_ids_;
   std::vector<BlockIdExt> link_prev_;
   std::vector<std::pair<block::CurrencyCollection, block::CurrencyCollection>> chain_fees_;
+  std::vector<td::Bits256> creators_;
   UnixTime first_gen_utime_;
 
   ShardTopBlockDescrQ(const ShardTopBlockDescrQ& other) = default;

@@ -33,10 +33,8 @@ class ClientKotlin {
 @SmallTest
 class TonTest {
     val config = """{
-  "@type": "config.global",
-  "liteclients": [
+  "liteservers": [
     {
-      "@type": "liteclient.config.global",
       "ip": 1137658550,
       "port": 4924,
       "id": {
@@ -44,7 +42,17 @@ class TonTest {
         "key": "peJTw/arlRfssgTuf9BMypJzqOi7SXEqSPSWiEw2U1M="
       }
     }
-  ]
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
 }"""
     @Test
     fun createTestWallet() {
@@ -52,7 +60,7 @@ class TonTest {
         val dir = getContext().getExternalFilesDir(null).toString() + "/";
         runBlocking {
             client.send(TonApi.Init(TonApi.Options(config, dir)))
-            val key = client.send(TonApi.CreateNewKey("local password".toByteArray(), "mnemonic password".toByteArray())) as TonApi.Key
+            val key = client.send(TonApi.CreateNewKey("local password".toByteArray(), "mnemonic password".toByteArray(), "".toByteArray())) as TonApi.Key
             val walletAddress = client.send(TonApi.TestWalletGetAccountAddress(TonApi.TestWalletInitialAccountState(key.publicKey))) as TonApi.AccountAddress;
             val testGiverState = client.send(TonApi.TestGiverGetAccountState()) as TonApi.TestGiverAccountState
 

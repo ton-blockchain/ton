@@ -625,11 +625,66 @@ void interpret_bytes_len(vm::Stack& stack) {
   stack.push_smallint((long long)stack.pop_bytes().size());
 }
 
-void interpret_bytes_hex_print_raw(IntCtx& ctx) {
-  const char hex_digits[] = "0123456789ABCDEF";
+const char hex_digits[] = "0123456789abcdef";
+const char HEX_digits[] = "0123456789ABCDEF";
+
+static inline const char* hex_digits_table(bool upcase) {
+  return upcase ? HEX_digits : hex_digits;
+}
+
+void interpret_bytes_hex_print_raw(IntCtx& ctx, bool upcase) {
+  auto hex_digits = hex_digits_table(upcase);
   std::string str = ctx.stack.pop_bytes();
   for (unsigned c : str) {
     *ctx.output_stream << hex_digits[(c >> 4) & 15] << hex_digits[c & 15];
+  }
+}
+
+void interpret_bytes_to_hex(vm::Stack& stack, bool upcase) {
+  auto hex_digits = hex_digits_table(upcase);
+  std::string str = stack.pop_bytes();
+  std::string t(str.size() * 2, 0);
+  for (std::size_t i = 0; i < str.size(); i++) {
+    unsigned c = str[i];
+    t[2 * i] = hex_digits[(c >> 4) & 15];
+    t[2 * i + 1] = hex_digits[c & 15];
+  }
+  stack.push_string(std::move(t));
+}
+
+void interpret_hex_to_bytes(vm::Stack& stack, bool partial) {
+  std::string str = stack.pop_string(), t;
+  if (!partial) {
+    if (str.size() & 1) {
+      throw IntError{"not a hex string"};
+    }
+    t.reserve(str.size() >> 1);
+  }
+  std::size_t i;
+  unsigned f = 0;
+  for (i = 0; i < str.size(); i++) {
+    int c = str[i];
+    if (c >= '0' && c <= '9') {
+      c -= '0';
+    } else {
+      c |= 0x20;
+      if (c >= 'a' && c <= 'f') {
+        c -= 'a' - 10;
+      } else {
+        if (!partial) {
+          throw IntError{"not a hex string"};
+        }
+        break;
+      }
+    }
+    f = (f << 4) + c;
+    if (i & 1) {
+      t += (char)(f & 0xff);
+    }
+  }
+  stack.push_bytes(t);
+  if (partial) {
+    stack.push_smallint(i & -2);
   }
 }
 
@@ -1525,39 +1580,6 @@ void interpret_pfx_dict_get(vm::Stack& stack) {
   }
 }
 
-void interpret_bytes_hex_literal(IntCtx& ctx) {
-  auto s = ctx.scan_word_to('}');
-  std::string t;
-  t.reserve(s.size() >> 1);
-  int v = 1;
-  for (char c : s) {
-    if (c == ' ' || c == '\t') {
-      continue;
-    }
-    v <<= 4;
-    if (c >= '0' && c <= '9') {
-      v += c - '0';
-    } else {
-      c |= 0x20;
-      if (c >= 'a' && c <= 'f') {
-        v += c - ('a' - 10);
-      } else {
-        v = -1;
-        break;
-      }
-    }
-    if (v & 0x100) {
-      t.push_back((char)v);
-      v = 1;
-    }
-  }
-  if (v != 1) {
-    throw IntError{"Invalid bytes hexstring constant"};
-  }
-  ctx.stack.push_bytes(std::move(t));
-  push_argcount(ctx.stack, 1);
-}
-
 void interpret_bitstring_hex_literal(IntCtx& ctx) {
   auto s = ctx.scan_word_to('}');
   unsigned char buff[128];
@@ -2430,7 +2452,11 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("-trailing0 ", std::bind(interpret_str_remove_trailing_int, _1, '0'));
   d.def_stack_word("$len ", interpret_str_len);
   d.def_stack_word("Blen ", interpret_bytes_len);
-  d.def_ctx_word("Bx. ", interpret_bytes_hex_print_raw);
+  d.def_ctx_word("Bx. ", std::bind(interpret_bytes_hex_print_raw, _1, true));
+  d.def_stack_word("B>X ", std::bind(interpret_bytes_to_hex, _1, true));
+  d.def_stack_word("B>x ", std::bind(interpret_bytes_to_hex, _1, false));
+  d.def_stack_word("x>B ", std::bind(interpret_hex_to_bytes, _1, false));
+  d.def_stack_word("x>B? ", std::bind(interpret_hex_to_bytes, _1, true));
   d.def_stack_word("B| ", interpret_bytes_split);
   d.def_stack_word("B+ ", interpret_bytes_concat);
   d.def_stack_word("B= ", interpret_bytes_equal);
@@ -2542,7 +2568,6 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("dictmerge ", interpret_dict_merge);
   d.def_ctx_word("dictdiff ", interpret_dict_diff);
   // slice/bitstring constants
-  d.def_active_word("B{", interpret_bytes_hex_literal);
   d.def_active_word("x{", interpret_bitstring_hex_literal);
   d.def_active_word("b{", interpret_bitstring_binary_literal);
   // boxes/holes/variables

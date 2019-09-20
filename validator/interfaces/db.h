@@ -55,6 +55,8 @@ class Db : public td::actor::Actor {
                                            td::Promise<td::Unit> promise) = 0;
   virtual void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                          td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
+                                               td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                                   td::Promise<bool> promise) = 0;
   virtual void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) = 0;

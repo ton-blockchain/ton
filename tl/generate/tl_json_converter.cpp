@@ -126,10 +126,11 @@ void gen_from_json_constructor(StringBuilder &sb, const T *constructor, bool is_
       sb << "    TRY_RESULT(value, get_json_object_field(from, \"" << tl::simple::gen_cpp_name(arg.name)
          << "\", JsonValue::Type::Null, true));\n";
       sb << "    if (value.type() != JsonValue::Type::Null) {\n";
-      if (arg.type->type == tl::simple::Type::Bytes) {
+      if (arg.type->type == tl::simple::Type::Bytes || arg.type->type == tl::simple::Type::SecureBytes) {
         sb << "      TRY_STATUS(from_json_bytes(to." << tl::simple::gen_cpp_field_name(arg.name) << ", value));\n";
       } else if (arg.type->type == tl::simple::Type::Vector &&
-                 arg.type->vector_value_type->type == tl::simple::Type::Bytes) {
+                 (arg.type->vector_value_type->type == tl::simple::Type::Bytes ||
+                  arg.type->vector_value_type->type == tl::simple::Type::SecureBytes)) {
         sb << "      TRY_STATUS(from_json_vector_bytes(to." << tl::simple::gen_cpp_field_name(arg.name)
            << ", value));\n";
       } else {

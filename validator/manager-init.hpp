@@ -45,7 +45,7 @@ class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
   void downloaded_proof_link(td::BufferSlice data);
   void downloaded_zero_state();
 
-  void try_download_key_blocks();
+  void try_download_key_blocks(bool try_start);
   void got_next_key_blocks(std::vector<BlockIdExt> vec);
   void got_key_block_handle(td::uint32 idx, BlockHandle handle);
 

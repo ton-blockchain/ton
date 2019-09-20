@@ -262,6 +262,13 @@ void ValidatorManagerImpl::get_persistent_state(BlockIdExt block_id, BlockIdExt 
   td::actor::send_closure(db_, &Db::get_persistent_state_file, block_id, masterchain_block_id, std::move(promise));
 }
 
+void ValidatorManagerImpl::get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                      td::int64 offset, td::int64 max_length,
+                                                      td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(db_, &Db::get_persistent_state_file_slice, block_id, masterchain_block_id, offset, max_length,
+                          std::move(promise));
+}
+
 void ValidatorManagerImpl::get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Ref<Proof>> R) mutable {
     if (R.is_error()) {
@@ -433,12 +440,16 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not synced"));
     return;
   }
-  auto F = fetch_tl_object<lite_api::liteServer_query>(std::move(data), true);
-  if (F.is_error()) {
-    promise.set_error(F.move_as_error());
-    return;
+  auto F = fetch_tl_object<lite_api::liteServer_query>(data.clone(), true);
+  if (F.is_ok()) {
+    data = std::move(F.move_as_ok()->data_);
+  } else {
+    auto G = fetch_tl_prefix<lite_api::liteServer_queryPrefix>(data, true);
+    if (G.is_error()) {
+      promise.set_error(G.move_as_error());
+      return;
+    }
   }
-  auto obj = F.move_as_ok();
 
   auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
     td::BufferSlice data;
@@ -451,7 +462,7 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
     promise.set_value(std::move(data));
   });
 
-  run_liteserver_query(std::move(obj->data_), actor_id(this), std::move(P));
+  run_liteserver_query(std::move(data), actor_id(this), std::move(P));
 }
 
 void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,

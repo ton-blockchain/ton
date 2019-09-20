@@ -280,7 +280,11 @@ void TonlibClient::init_ext_client() {
   raw_client_ = ExtClientLazy::create(lite_client.adnl_id, lite_client.address,
                                       td::make_unique<Callback>(td::actor::actor_shared()));
   ref_cnt_++;
-  raw_last_block_ = td::actor::create_actor<LastBlock>("LastBlock", get_client_ref(), td::actor::actor_shared());
+  raw_last_block_ = td::actor::create_actor<LastBlock>(
+      "LastBlock", get_client_ref(),
+      ton::ZeroStateIdExt(config_.zero_state_id.id.workchain, config_.zero_state_id.root_hash,
+                          config_.zero_state_id.file_hash),
+      config_.zero_state_id, td::actor::actor_shared());
   client_.set_client(get_client_ref());
 }
 
@@ -382,7 +386,8 @@ td::Result<block::StdAddress> get_account_address(const tonlib_api::raw_initialA
 }
 
 td::Result<block::StdAddress> get_account_address(const tonlib_api::testWallet_initialAccountState& test_wallet_state) {
-  auto key = td::Ed25519::PublicKey(td::SecureString(test_wallet_state.public_key_));
+  TRY_RESULT(key_bytes, block::PublicKey::parse(test_wallet_state.public_key_));
+  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
   return GenericAccount::get_address(0 /*zerochain*/, TestWallet::get_init_state(key));
 }
 
@@ -733,7 +738,8 @@ td::Result<KeyStorage::InputKey> from_tonlib(tonlib_api::inputKey& input_key) {
     return td::Status::Error(400, "Field key must not be empty");
   }
 
-  return KeyStorage::InputKey{{td::SecureString(input_key.key_->public_key_), std::move(input_key.key_->secret_)},
+  TRY_RESULT(key_bytes, block::PublicKey::parse(input_key.key_->public_key_));
+  return KeyStorage::InputKey{{td::SecureString(key_bytes.key), std::move(input_key.key_->secret_)},
                               std::move(input_key.local_password_)};
 }
 
@@ -909,7 +915,8 @@ td::Status TonlibClient::do_request(const tonlib_api::createNewKey& request,
                                     td::Promise<object_ptr<tonlib_api::key>>&& promise) {
   TRY_RESULT(key, key_storage_.create_new_key(std::move(request.local_password_), std::move(request.mnemonic_password_),
                                               std::move(request.random_extra_seed_)));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key.public_key.as_slice().str(), std::move(key.secret)));
+  TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -926,7 +933,8 @@ td::Status TonlibClient::do_request(const tonlib_api::exportKey& request,
 
 td::Status TonlibClient::do_request(const tonlib_api::deleteKey& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
-  TRY_STATUS(key_storage_.delete_key(request.public_key_));
+  TRY_RESULT(key_bytes, block::PublicKey::parse(request.public_key_));
+  TRY_STATUS(key_storage_.delete_key(key_bytes.key));
   promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
   return td::Status::OK();
 }
@@ -938,7 +946,8 @@ td::Status TonlibClient::do_request(const tonlib_api::importKey& request,
   }
   TRY_RESULT(key, key_storage_.import_key(std::move(request.local_password_), std::move(request.mnemonic_password_),
                                           KeyStorage::ExportedKey{std::move(request.exported_key_->word_list_)}));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key.public_key.as_slice().str(), std::move(key.secret)));
+  TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -951,9 +960,9 @@ td::Status TonlibClient::do_request(const tonlib_api::exportPemKey& request,
     return td::Status::Error(400, "Field key must not be empty");
   }
 
-  KeyStorage::InputKey input_key{
-      {td::SecureString(request.input_key_->key_->public_key_), std::move(request.input_key_->key_->secret_)},
-      std::move(request.input_key_->local_password_)};
+  TRY_RESULT(key_bytes, block::PublicKey::parse(request.input_key_->key_->public_key_));
+  KeyStorage::InputKey input_key{{td::SecureString(key_bytes.key), std::move(request.input_key_->key_->secret_)},
+                                 std::move(request.input_key_->local_password_)};
   TRY_RESULT(exported_pem_key, key_storage_.export_pem_key(std::move(input_key), std::move(request.key_password_)));
   promise.set_value(tonlib_api::make_object<tonlib_api::exportedPemKey>(std::move(exported_pem_key.pem)));
   return td::Status::OK();
@@ -966,7 +975,8 @@ td::Status TonlibClient::do_request(const tonlib_api::importPemKey& request,
   }
   TRY_RESULT(key, key_storage_.import_pem_key(std::move(request.local_password_), std::move(request.key_password_),
                                               KeyStorage::ExportedPemKey{std::move(request.exported_key_->pem_)}));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key.public_key.as_slice().str(), std::move(key.secret)));
+  TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -989,7 +999,8 @@ td::Status TonlibClient::do_request(const tonlib_api::importEncryptedKey& reques
   TRY_RESULT(key, key_storage_.import_encrypted_key(
                       std::move(request.local_password_), std::move(request.key_password_),
                       KeyStorage::ExportedEncryptedKey{std::move(request.exported_encrypted_key_->data_)}));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key.public_key.as_slice().str(), std::move(key.secret)));
+  TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -1001,11 +1012,10 @@ td::Status TonlibClient::do_request(const tonlib_api::changeLocalPassword& reque
   if (!request.input_key_->key_) {
     return td::Status::Error(400, "Field key must not be empty");
   }
-  KeyStorage::InputKey input_key{
-      {td::SecureString(request.input_key_->key_->public_key_), std::move(request.input_key_->key_->secret_)},
-      std::move(request.input_key_->local_password_)};
+  TRY_RESULT(input_key, from_tonlib(*request.input_key_));
   TRY_RESULT(key, key_storage_.change_local_password(std::move(input_key), std::move(request.new_local_password_)));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key.public_key.as_slice().str(), std::move(key.secret)));
+  promise.set_value(
+      tonlib_api::make_object<tonlib_api::key>(request.input_key_->key_->public_key_, std::move(key.secret)));
   return td::Status::OK();
 }
 

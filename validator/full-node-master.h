@@ -17,18 +17,29 @@
     Copyright 2017-2019 Telegram Systems LLP
 */
 #pragma once
-#include "adnl/adnl-node-id.hpp"
-#include "td/utils/port/IPAddress.h"
-#include "ton/ton-types.h"
 
-namespace tonlib {
-struct Config {
-  struct LiteClient {
-    ton::adnl::AdnlNodeIdFull adnl_id;
-    td::IPAddress address;
-  };
-  ton::BlockIdExt zero_state_id;
-  std::vector<LiteClient> lite_clients;
-  static td::Result<Config> parse(std::string str);
+#include "full-node.h"
+#include "validator/interfaces/block-handle.h"
+
+namespace ton {
+
+namespace validator {
+
+namespace fullnode {
+
+class FullNodeMaster : public td::actor::Actor {
+ public:
+  virtual ~FullNodeMaster() = default;
+
+  static td::actor::ActorOwn<FullNodeMaster> create(adnl::AdnlNodeIdShort adnl_id, td::uint16 port,
+                                                    FileHash zero_state_file_hash,
+                                                    td::actor::ActorId<keyring::Keyring> keyring,
+                                                    td::actor::ActorId<adnl::Adnl> adnl,
+                                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager);
 };
-}  // namespace tonlib
+
+}  // namespace fullnode
+
+}  // namespace validator
+
+}  // namespace ton

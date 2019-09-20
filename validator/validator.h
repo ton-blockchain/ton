@@ -59,6 +59,9 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool is_hardfork(BlockIdExt block_id) const = 0;
   virtual td::uint32 get_vertical_height(BlockSeqno seqno) const = 0;
   virtual td::uint32 get_filedb_depth() const = 0;
+  virtual td::uint32 key_block_utime_step() const {
+    return 86400;
+  }
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -143,6 +146,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                              td::Promise<bool> promise) = 0;
   virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                     td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
+                                          td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;

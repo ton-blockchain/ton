@@ -499,14 +499,20 @@ _ key:Bool blk_ref:ExtBlkRef = KeyExtBlkRef;
 
 _ (HashmapAugE 32 KeyExtBlkRef KeyMaxLt) = OldMcBlocksInfo;
 
+
+counters#_ last_updated:uint32 total:uint64 cnt2048:uint64 cnt65536:uint64 = Counters; 
+creator_info#4 mc_blocks:Counters shard_blocks:Counters = CreatorStats; 
+block_create_stats#17 counters:(HashmapE 256 CreatorStats) = BlockCreateStats;
+
 masterchain_state_extra#cc26
   shard_hashes:ShardHashes
   config:ConfigParams
-  ^[ flags:(## 16) { flags = 0 }
+  ^[ flags:(## 16) { flags <= 1 }
      validator_info:ValidatorInfo
      prev_blocks:OldMcBlocksInfo
      after_key_block:Bool
-     last_key_block:(Maybe ExtBlkRef) ]
+     last_key_block:(Maybe ExtBlkRef)
+     block_create_stats:(flags . 0)?BlockCreateStats ]
   global_balance:CurrencyCollection
 = McStateExtra;
 

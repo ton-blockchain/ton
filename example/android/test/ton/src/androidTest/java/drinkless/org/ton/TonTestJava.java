@@ -54,21 +54,28 @@ public class TonTestJava {
         }
     }
 
-    String config =
-            "{" +
-                    "\"@type\": \"config.global\"," +
-                    "\"liteclients\": [" +
-                    "{" +
-                    "\"@type\": \"liteclient.config.global\"," +
-                    "\"ip\": 1137658550," +
-                    "\"port\": 4924," +
-                    "\"id\": {" +
-                    "\"@type\": \"pub.ed25519\"," +
-                    "\"key\": \"peJTw/arlRfssgTuf9BMypJzqOi7SXEqSPSWiEw2U1M=\"" +
-                    "}" +
-                    "}" +
-                    "]" +
-                    "}";
+    String config = "{\n" +
+            "  \"liteservers\": [\n" +
+            "    {\n" +
+            "      \"ip\": 1137658550,\n" +
+            "      \"port\": 4924,\n" +
+            "      \"id\": {\n" +
+            "        \"@type\": \"pub.ed25519\",\n" +
+            "        \"key\": \"peJTw/arlRfssgTuf9BMypJzqOi7SXEqSPSWiEw2U1M=\"\n" +
+            "      }\n" +
+            "    }\n" +
+            "  ],\n" +
+            "  \"validator\": {\n" +
+            "    \"@type\": \"validator.config.global\",\n" +
+            "    \"zero_state\": {\n" +
+            "      \"workchain\": -1,\n" +
+            "      \"shard\": -9223372036854775808,\n" +
+            "      \"seqno\": 0,\n" +
+            "      \"root_hash\": \"VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=\",\n" +
+            "      \"file_hash\": \"eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo=\"\n" +
+            "    }\n" +
+            "  }\n" +
+            "}";
 
     private void appendLog(String log) {
         Log.w("XX", log);
@@ -85,7 +92,7 @@ public class TonTestJava {
                 return;
             }
             appendLog("config set ok");
-            TonApi.Key key = (TonApi.Key) client.send(new TonApi.CreateNewKey("local password".getBytes(), "mnemonic password".getBytes()));
+            TonApi.Key key = (TonApi.Key) client.send(new TonApi.CreateNewKey("local password".getBytes(), "mnemonic password".getBytes(), "".getBytes()));
             appendLog("got private key");
             TonApi.AccountAddress walletAddress = (TonApi.AccountAddress) client.send(new TonApi.TestWalletGetAccountAddress(new TonApi.TestWalletInitialAccountState(key.publicKey)));
             appendLog("got account address");

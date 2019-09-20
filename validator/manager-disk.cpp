@@ -123,7 +123,12 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
       });
 
   LOG(ERROR) << "running collate query";
-  run_collate_query(shard_id, 0, last_masterchain_block_id_, prev, local_id_, val_set, actor_id(this),
+  if (local_id_.is_zero()) {
+    //td::as<td::uint32>(created_by_.data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
+  }
+  Ed25519_PublicKey created_by{td::Bits256::zero()};
+  td::as<td::uint32>(created_by.as_bits256().data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
+  run_collate_query(shard_id, 0, last_masterchain_block_id_, prev, created_by, val_set, actor_id(this),
                     td::Timestamp::in(10.0), std::move(P));
 }
 

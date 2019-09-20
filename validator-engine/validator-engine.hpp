@@ -33,6 +33,8 @@
 #include "validator/manager.h"
 #include "validator/validator.h"
 #include "validator/full-node.h"
+#include "validator/full-node-master.h"
+#include "adnl/adnl-ext-client.h"
 
 #include "td/actor/MultiPromise.h"
 
@@ -74,7 +76,10 @@ struct Config {
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
-  ton::PublicKeyHash full_node;
+  ton::PublicKeyHash full_node = ton::PublicKeyHash::zero();
+  td::IPAddress full_node_slave_addr;
+  ton::PublicKey full_node_slave_adnl_id;
+  std::map<td::int32, ton::PublicKeyHash> full_node_masters;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
@@ -96,6 +101,8 @@ struct Config {
   td::Result<bool> config_add_validator_adnl_id(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,
                                                 ton::UnixTime expire_at);
   td::Result<bool> config_add_full_node_adnl_id(ton::PublicKeyHash id);
+  td::Result<bool> config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id);
+  td::Result<bool> config_add_full_node_master(td::int32 port, ton::PublicKeyHash id);
   td::Result<bool> config_add_lite_server(ton::PublicKeyHash key, td::int32 port);
   td::Result<bool> config_add_control_interface(ton::PublicKeyHash key, td::int32 port);
   td::Result<bool> config_add_control_process(ton::PublicKeyHash key, td::int32 port, ton::PublicKeyHash id,
@@ -130,7 +137,9 @@ class ValidatorEngine : public td::actor::Actor {
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager_;
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorOwn<ton::adnl::AdnlExtClient> full_node_client_;
   td::actor::ActorOwn<ton::validator::fullnode::FullNode> full_node_;
+  std::map<td::uint16, td::actor::ActorOwn<ton::validator::fullnode::FullNodeMaster>> full_node_masters_;
   td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server_;
 
   std::string local_config_ = "";
@@ -265,6 +274,9 @@ class ValidatorEngine : public td::actor::Actor {
   void add_control_process(ton::PublicKeyHash id, td::uint16 port, ton::PublicKeyHash pub, td::int32 permissions);
   void start_control_interface();
   void started_control_interface(td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server);
+
+  void start_full_node_masters();
+  void started_full_node_masters();
 
   void started();
 
