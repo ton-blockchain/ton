@@ -21,12 +21,64 @@
 #include "block/block-auto.h"
 #include "block/block-parse.h"
 #include "ton/ton-shard.h"
+#include "common/bigexp.h"
 #include "common/util.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_storers.h"
+#include "td/utils/misc.h"
 
 namespace block {
 using namespace std::literals::string_literals;
+
+td::Result<PublicKey> PublicKey::from_bytes(td::Slice key) {
+  if (key.size() != 32) {
+    return td::Status::Error("Ed25519 public key must be exactly 32 bytes long");
+  }
+  PublicKey res;
+  res.key = key.str();
+  return res;
+}
+
+td::Result<PublicKey> PublicKey::parse(td::Slice key) {
+  if (key.size() != 48) {
+    return td::Status::Error("Serialized Ed25519 public key must be exactly 48 characters long");
+  }
+  td::uint8 buf[36];
+  if (!buff_base64_decode(td::MutableSlice(buf, 36), key, true)) {
+    return td::Status::Error("Public key is not serialized in base64 encoding");
+  }
+
+  td::uint16 hash = static_cast<td::uint16>((static_cast<unsigned>(buf[34]) << 8) + buf[35]);
+  if (hash != td::crc16(td::Slice(buf, 34))) {
+    return td::Status::Error("Public key has incorrect crc16 hash");
+  }
+
+  if (buf[0] != 0x3e) {
+    return td::Status::Error("Not a public key");
+  }
+  if (buf[1] != 0xe6) {
+    return td::Status::Error("Not an ed25519 public key");
+  }
+
+  return from_bytes(td::Slice(buf + 2, 32));
+}
+
+std::string PublicKey::serialize(bool base64_url) {
+  CHECK(key.size() == 32);
+  std::string buf(36, 0);
+  td::MutableSlice bytes(buf);
+
+  bytes[0] = static_cast<char>(0x3e);
+  bytes[1] = static_cast<char>(0xe6);
+  bytes.substr(2).copy_from(key);
+  auto hash = td::crc16(bytes.substr(0, 34));
+  bytes[34] = static_cast<char>(hash >> 8);
+  bytes[35] = static_cast<char>(hash & 255);
+
+  std::string res(48, 0);
+  buff_base64_encode(res, bytes, base64_url);
+  return res;
+}
 
 bool pack_std_smc_addr_to(char result[48], bool base64_url, ton::WorkchainId wc, const ton::StdSmcAddress& addr,
                           bool bounceable, bool testnet) {
@@ -737,6 +789,14 @@ td::Status ShardState::unpack_state(ton::BlockIdExt blkid, Ref<vm::Cell> prev_st
     if (!global_balance_.validate_unpack(extra.global_balance)) {
       return td::Status::Error(-666, "ShardState of "s + id_.to_str() + " does not contain a valid global_balance");
     }
+    if (extra.r1.flags & 1) {
+      if (extra.r1.block_create_stats->prefetch_ulong(8) != 0x17) {
+        return td::Status::Error(-666, "ShardState of "s + id_.to_str() + " does not contain a valid BlockCreateStats");
+      }
+      block_create_stats_ = std::make_unique<vm::Dictionary>(extra.r1.block_create_stats->prefetch_ref(), 256);
+    } else {
+      block_create_stats_ = std::make_unique<vm::Dictionary>(256);
+    }
   }
   return unpack_out_msg_queue_info(std::move(state.out_msg_queue_info));
 }
@@ -1336,6 +1396,114 @@ std::ostream& operator<<(std::ostream& os, const ValueFlow& vflow) {
   return os;
 }
 
+bool DiscountedCounter::increase_by(unsigned count, ton::UnixTime now) {
+  if (!validate()) {
+    return false;
+  }
+  td::uint64 scaled = (td::uint64(count) << 32);
+  if (!total) {
+    last_updated = now;
+    total = count;
+    cnt2048 = scaled;
+    cnt65536 = scaled;
+    return true;
+  }
+  if (count > ~total || cnt2048 > ~scaled || cnt65536 > ~scaled) {
+    return false /* invalidate() */;  // overflow
+  }
+  unsigned dt = (now >= last_updated ? now - last_updated : 0);
+  if (dt > 0) {
+    // more precise version of cnt2048 = llround(cnt2048 * exp(-dt / 2048.));
+    // (rounding error has absolute value < 1)
+    cnt2048 = (dt >= 48 * 2048 ? 0 : td::umulnexps32(cnt2048, dt << 5));
+    // more precise version of cnt65536 = llround(cnt65536 * exp(-dt / 65536.));
+    // (rounding error has absolute value < 1)
+    cnt65536 = td::umulnexps32(cnt65536, dt);
+  }
+  total += count;
+  cnt2048 += scaled;
+  cnt65536 += scaled;
+  last_updated = now;
+  return true;
+}
+
+bool DiscountedCounter::validate() {
+  if (!is_valid()) {
+    return false;
+  }
+  if (!total) {
+    if (cnt2048 | cnt65536) {
+      return invalidate();
+    }
+  } else if (!last_updated) {
+    return invalidate();
+  }
+  return true;
+}
+
+bool DiscountedCounter::fetch(vm::CellSlice& cs) {
+  valid = (cs.fetch_uint_to(32, last_updated) && cs.fetch_uint_to(64, total) && cs.fetch_uint_to(64, cnt2048) &&
+           cs.fetch_uint_to(64, cnt65536));
+  return validate() || invalidate();
+}
+
+bool DiscountedCounter::unpack(Ref<vm::CellSlice> csr) {
+  return (csr.not_null() && fetch(csr.write()) && csr->empty_ext()) || invalidate();
+}
+
+bool DiscountedCounter::store(vm::CellBuilder& cb) const {
+  return is_valid() && cb.store_long_bool(last_updated, 32) && cb.store_long_bool(total, 64) &&
+         cb.store_long_bool(cnt2048, 64) && cb.store_long_bool(cnt65536, 64);
+}
+
+Ref<vm::CellSlice> DiscountedCounter::pack() const {
+  vm::CellBuilder cb;
+  if (store(cb)) {
+    return vm::load_cell_slice_ref(cb.finalize());
+  } else {
+    return {};
+  }
+}
+
+bool DiscountedCounter::show(std::ostream& os) const {
+  if (!is_valid()) {
+    os << "<invalid-counter>";
+    return false;
+  }
+  os << "(counter last_updated:" << last_updated << " total:" << total << " cnt2048: " << (double)cnt2048 / (1LL << 32)
+     << " cnt65536: " << (double)cnt65536 / (1LL << 32) << ")";
+  return true;
+}
+
+std::string DiscountedCounter::to_str() const {
+  std::ostringstream stream;
+  if (show(stream)) {
+    return stream.str();
+  } else {
+    return "<invalid-counter>";
+  }
+}
+
+bool fetch_CreatorStats(vm::CellSlice& cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt) {
+  return cs.fetch_ulong(4) == 4   // creator_info#4
+         && mc_cnt.fetch(cs)      // mc_blocks:Counters
+         && shard_cnt.fetch(cs);  // shard_blocks:Counters
+}
+
+bool store_CreatorStats(vm::CellBuilder& cb, const DiscountedCounter& mc_cnt, const DiscountedCounter& shard_cnt) {
+  return cb.store_long_bool(4, 4)  // creator_info#4
+         && mc_cnt.store(cb)       // mc_blocks:Counters
+         && shard_cnt.store(cb);   // shard_blocks:Counters
+}
+
+bool unpack_CreatorStats(Ref<vm::CellSlice> cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt) {
+  if (cs.is_null()) {
+    return mc_cnt.set_zero() && shard_cnt.set_zero();
+  } else {
+    return fetch_CreatorStats(cs.write(), mc_cnt, shard_cnt) && cs->empty_ext();
+  }
+}
+
 /*
  * 
  *    Other block-related functions
@@ -1514,8 +1682,8 @@ std::pair<int, int> perform_hypercube_routing(ton::AccountIdPrefixFull src, ton:
   if (!ton::shard_contains(cur, transit)) {
     return {-1, -1};
   }
-  if (transit.account_id_prefix == dest.account_id_prefix || ton::shard_contains(cur, dest)) {
-    // if destination is already reached, or is in this shard, set cur:=next_hop:=dest
+  if (ton::shard_contains(cur, dest)) {
+    // if destination is in this shard, set cur:=next_hop:=dest
     return {96, 96};
   }
   if (transit.workchain == ton::masterchainId || dest.workchain == ton::masterchainId) {
@@ -1639,6 +1807,37 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
     mc_blkid = prev.at(0);
   } else {
     mc_blkid = ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, mcref.seq_no, mcref.root_hash, mcref.file_hash};
+  }
+  return td::Status::OK();
+}
+
+td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& id, ton::Bits256* store_shard_hash_to) {
+  block::gen::Block::Record blk;
+  block::gen::BlockInfo::Record info;
+  ton::ShardIdFull shard;
+  if (!(tlb::unpack_cell(block_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no)) {
+    return td::Status::Error("cannot unpack block header");
+  }
+  ton::BlockId hdr_id{shard, (unsigned)info.seq_no};
+  if (id.id != hdr_id) {
+    return td::Status::Error("block header contains block id "s + hdr_id.to_str() + ", expected " + id.id.to_str());
+  }
+  if (id.root_hash != block_root->get_hash().bits()) {
+    return td::Status::Error("block header has incorrect root hash "s + block_root->get_hash().bits().to_hex(256) +
+                             " instead of expected " + id.root_hash.to_hex());
+  }
+  if (info.not_master != !shard.is_masterchain()) {
+    return td::Status::Error("block has invalid not_master flag in its (Merkelized) header");
+  }
+  if (store_shard_hash_to) {
+    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
+          && upd_cs.size_ext() == 0x20228)) {
+      return td::Status::Error("invalid Merkle update in block header");
+    }
+    auto upd_hash = upd_cs.prefetch_ref(1)->get_hash(0);
+    *store_shard_hash_to = upd_hash.bits();
   }
   return td::Status::OK();
 }

@@ -9,6 +9,7 @@ set(TON_VALIDATOR_SOURCE
   block.cpp
   check-proof.cpp
   collator.cpp
+  config.cpp
   external-message.cpp
   fabric.cpp
   ihr-message.cpp
@@ -27,6 +28,7 @@ set(TON_VALIDATOR_SOURCE
   collate-query-impl.h
   collator-impl.h
   collator.h
+  config.hpp
   external-message.hpp
   ihr-message.hpp
   liteserver.hpp

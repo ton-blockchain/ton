@@ -142,7 +142,9 @@ void CellDbIn::gc() {
 }
 
 void CellDbIn::gc_cont(BlockHandle handle) {
-  CHECK(handle->inited_state_boc());
+  if (!handle->inited_state_boc()) {
+    LOG(WARNING) << "inited_state_boc=false, but state in db. blockid=" << handle->id();
+  }
   handle->set_deleted_state_boc();
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Unit> R) {

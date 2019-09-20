@@ -67,7 +67,7 @@ td::Result<std::unique_ptr<Config>> Config::extract_from_key_block(Ref<vm::Cell>
         tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block && mc_extra.config.not_null())) {
     return td::Status::Error(-400, "cannot unpack extra header of key block to extract configuration");
   }
-  return block::Config::unpack_config(std::move(mc_extra.config));
+  return block::Config::unpack_config(std::move(mc_extra.config), mode);
 }
 
 td::Result<std::unique_ptr<Config>> Config::extract_from_state(Ref<vm::Cell> mc_state_root, int mode) {
@@ -260,6 +260,22 @@ td::Status Config::unpack() {
     workchains_ = std::move(pair.first);
     workchains_dict_ = std::move(pair.second);
   }
+  if (mode & needCapabilities) {
+    auto cell = get_config_param(8);
+    if (cell.is_null()) {
+      version_ = 0;
+      capabilities_ = 0;
+    } else {
+      block::gen::GlobalVersion::Record gv;
+      if (!tlb::unpack_cell(std::move(cell), gv)) {
+        return td::Status::Error(
+            "cannot extract global blockchain version and capabilities from GlobalVersion in configuration parameter "
+            "#8");
+      }
+      version_ = gv.version;
+      capabilities_ = gv.capabilities;
+    }
+  }
   // ...
   return td::Status::OK();
 }
@@ -339,7 +355,7 @@ bool ConfigInfo::get_last_key_block(ton::BlockIdExt& blkid, ton::LogicalTime& bl
     blkid = block_id;
     blklt = lt;
   }
-  return blkid.is_valid() && blkid.seqno();
+  return blkid.is_valid();
 }
 
 td::Result<std::pair<WorkchainSet, std::unique_ptr<vm::Dictionary>>> Config::unpack_workchain_list_ext(
@@ -1003,47 +1019,47 @@ std::vector<ton::BlockId> ShardConfig::get_shard_hash_ids(
   std::vector<ton::BlockId> res;
   bool mcout = mc_shard_hash_.is_null() || !mc_shard_hash_->seqno();  // include masterchain as a shard if seqno > 0
   bool ok = shard_hashes_dict_->check_for_each(
-      [&res, &mcout, mc_shard_hash_ = mc_shard_hash_, &filter](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key,
-                                                               int n) -> bool {
-        int workchain = (int)key.get_int(n);
-        if (workchain >= 0 && !mcout) {
-          if (filter(ton::ShardIdFull{ton::masterchainId}, true)) {
-            res.emplace_back(mc_shard_hash_->blk_.id);
-          }
-          mcout = true;
-        }
-        if (!cs_ref->have_refs()) {
-          return false;
-        }
-        std::stack<std::pair<Ref<vm::Cell>, unsigned long long>> stack;
-        stack.emplace(cs_ref->prefetch_ref(), ton::shardIdAll);
-        while (!stack.empty()) {
-          vm::CellSlice cs{vm::NoVm{}, std::move(stack.top().first)};
-          unsigned long long shard = stack.top().second;
-          stack.pop();
-          int t = (int)cs.fetch_ulong(1);
-          if (t < 0) {
-            return false;
-          }
-          if (!filter(ton::ShardIdFull{workchain, shard}, !t)) {
-            continue;
-          }
-          if (!t) {
-            if (!(cs.advance(4) && cs.have(32))) {
+      [&res, &mcout, mc_shard_hash_ = mc_shard_hash_, &filter ](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n)
+          ->bool {
+            int workchain = (int)key.get_int(n);
+            if (workchain >= 0 && !mcout) {
+              if (filter(ton::ShardIdFull{ton::masterchainId}, true)) {
+                res.emplace_back(mc_shard_hash_->blk_.id);
+              }
+              mcout = true;
+            }
+            if (!cs_ref->have_refs()) {
               return false;
             }
-            res.emplace_back(workchain, shard, (int)cs.prefetch_ulong(32));
-            continue;
-          }
-          unsigned long long delta = (td::lower_bit64(shard) >> 1);
-          if (!delta || cs.size_ext() != 0x20000) {
-            return false;
-          }
-          stack.emplace(cs.prefetch_ref(1), shard + delta);
-          stack.emplace(cs.prefetch_ref(0), shard - delta);
-        }
-        return true;
-      },
+            std::stack<std::pair<Ref<vm::Cell>, unsigned long long>> stack;
+            stack.emplace(cs_ref->prefetch_ref(), ton::shardIdAll);
+            while (!stack.empty()) {
+              vm::CellSlice cs{vm::NoVm{}, std::move(stack.top().first)};
+              unsigned long long shard = stack.top().second;
+              stack.pop();
+              int t = (int)cs.fetch_ulong(1);
+              if (t < 0) {
+                return false;
+              }
+              if (!filter(ton::ShardIdFull{workchain, shard}, !t)) {
+                continue;
+              }
+              if (!t) {
+                if (!(cs.advance(4) && cs.have(32))) {
+                  return false;
+                }
+                res.emplace_back(workchain, shard, (int)cs.prefetch_ulong(32));
+                continue;
+              }
+              unsigned long long delta = (td::lower_bit64(shard) >> 1);
+              if (!delta || cs.size_ext() != 0x20000) {
+                return false;
+              }
+              stack.emplace(cs.prefetch_ref(1), shard + delta);
+              stack.emplace(cs.prefetch_ref(0), shard - delta);
+            }
+            return true;
+          },
       true);
   if (!ok) {
     return {};
@@ -1399,8 +1415,8 @@ td::Result<std::vector<ton::StdSmcAddress>> Config::get_special_smartcontracts(b
     return td::Status::Error(-666, "configuration loaded without fundamental smart contract list");
   }
   std::vector<ton::StdSmcAddress> res;
-  if (!special_smc_dict->check_for_each([&res, &without_config, conf_addr = config_addr.bits()](
-                                            Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) {
+  if (!special_smc_dict->check_for_each([&res, &without_config, conf_addr = config_addr.bits() ](
+          Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) {
         if (cs_ref->size_ext() || n != 256) {
           return false;
         }
@@ -1482,6 +1498,7 @@ std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull 
 std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                                ton::CatchainSeqno cc_seqno) const {
   if (!cur_validators_) {
+    LOG(DEBUG) << "failed to compute validator set: cur_validators_ is empty";
     return {};
   } else {
     return compute_validator_set(shard, *cur_validators_, time, cc_seqno);
@@ -1564,7 +1581,7 @@ std::vector<ton::ValidatorDescr> Config::do_compute_validator_set(const block::C
                                                                   ton::ShardIdFull shard,
                                                                   const block::ValidatorSet& vset, ton::UnixTime time,
                                                                   ton::CatchainSeqno cc_seqno) {
-  LOG(DEBUG) << "in Config::do_compute_validator_set() for " << shard.to_str() << " ; cc_seqno=" << cc_seqno;
+  // LOG(DEBUG) << "in Config::do_compute_validator_set() for " << shard.to_str() << " ; cc_seqno=" << cc_seqno;
   std::vector<ton::ValidatorDescr> nodes;
   bool is_mc = shard.is_masterchain();
   unsigned count = std::min<unsigned>(is_mc ? vset.main : ccv_conf.shard_val_num, vset.total);

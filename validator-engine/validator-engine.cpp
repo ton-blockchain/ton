@@ -50,6 +50,8 @@
 
 #include "memprof/memprof.h"
 
+#include "dht/dht.hpp"
+
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
@@ -119,6 +121,18 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   }
   config_add_full_node_adnl_id(ton::PublicKeyHash{config.fullnode_}).ensure();
 
+  if (config.fullnodeslave_) {
+    td::IPAddress ip;
+    ip.init_ipv4_port(td::IPAddress::ipv4_to_str(config.fullnodeslave_->ip_),
+                      static_cast<td::uint16>(config.fullnodeslave_->port_))
+        .ensure();
+    config_add_full_node_slave(ip, ton::PublicKey{config.fullnodeslave_->adnl_}).ensure();
+  }
+
+  for (auto &s : config.fullnodemasters_) {
+    config_add_full_node_master(s->port_, ton::PublicKeyHash{s->adnl_}).ensure();
+  }
+
   for (auto &serv : config.liteservers_) {
     config_add_lite_server(ton::PublicKeyHash{serv->id_}, serv->port_).ensure();
   }
@@ -178,6 +192,17 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
         val.first.tl(), std::move(temp_vec), std::move(adnl_val_vec), val.second.election_date, val.second.expire_at));
   }
 
+  ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave> full_node_slave = nullptr;
+  if (!full_node_slave_adnl_id.empty()) {
+    full_node_slave = ton::create_tl_object<ton::ton_api::engine_validator_fullNodeSlave>(
+        full_node_slave_addr.get_ipv4(), full_node_slave_addr.get_port(), full_node_slave_adnl_id.tl());
+  }
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;
+  for (auto &x : full_node_masters) {
+    full_node_masters_vec.push_back(
+        ton::create_tl_object<ton::ton_api::engine_validator_fullNodeMaster>(x.first, x.second.tl()));
+  }
+
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_liteServer>> liteserver_vec;
   for (auto &x : liteservers) {
     liteserver_vec.push_back(ton::create_tl_object<ton::ton_api::engine_liteServer>(x.second.tl(), x.first));
@@ -199,7 +224,8 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
       out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
-      std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
+      std::move(full_node_slave), std::move(full_node_masters_vec), std::move(liteserver_vec), std::move(control_vec),
+      std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -357,6 +383,36 @@ td::Result<bool> Config::config_add_full_node_adnl_id(ton::PublicKeyHash id) {
     incref(id);
   }
   full_node = id;
+  return true;
+}
+
+td::Result<bool> Config::config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id) {
+  if (full_node_slave_adnl_id == id && addr == full_node_slave_addr) {
+    return false;
+  }
+  full_node_slave_adnl_id = id;
+  full_node_slave_addr = addr;
+  return true;
+}
+
+td::Result<bool> Config::config_add_full_node_master(td::int32 port, ton::PublicKeyHash id) {
+  if (adnl_ids.count(id) == 0) {
+    return td::Status::Error(ton::ErrorCode::notready,
+                             "to-be-added full node master adnl address not in adnl nodes list");
+  }
+  auto it = full_node_masters.find(port);
+  if (it != full_node_masters.end()) {
+    if (it->second == id) {
+      return false;
+    } else {
+      return td::Status::Error("duplicate master port");
+    }
+  }
+  if (liteservers.count(port) > 0 || controls.count(port) > 0) {
+    return td::Status::Error("duplicate master port");
+  }
+  incref(id);
+  full_node_masters.emplace(port, id);
   return true;
 }
 
@@ -749,6 +805,65 @@ class ValidatorElectionBidCreator : public td::actor::Actor {
   td::BufferSlice result_;
 };
 
+class CheckDhtServerStatusQuery : public td::actor::Actor {
+ public:
+  void start_up() override {
+    auto &n = dht_config_->nodes();
+
+    result_.resize(n.size(), false);
+
+    pending_ = n.size();
+    for (td::uint32 i = 0; i < n.size(); i++) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), idx = i](td::Result<td::BufferSlice> R) {
+        td::actor::send_closure(SelfId, &CheckDhtServerStatusQuery::got_result, idx, R.is_ok());
+      });
+
+      auto &E = n.list().at(i);
+
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_peer, local_id_, E.adnl_id(), E.addr_list());
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::send_query, local_id_, E.adnl_id().compute_short_id(), "ping",
+                              std::move(P), td::Timestamp::in(1.0),
+                              ton::create_serialize_tl_object<ton::ton_api::dht_getSignedAddressList>());
+    }
+  }
+
+  void got_result(td::uint32 idx, bool result) {
+    result_[idx] = result;
+    CHECK(pending_ > 0);
+    if (!--pending_) {
+      finish_query();
+    }
+  }
+
+  void finish_query() {
+    std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_dhtServerStatus>> vec;
+    auto &n = dht_config_->nodes();
+    for (td::uint32 i = 0; i < n.size(); i++) {
+      auto &E = n.list().at(i);
+      vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_dhtServerStatus>(
+          E.adnl_id().compute_short_id().bits256_value(), result_[i] ? 1 : 0));
+    }
+    promise_.set_value(
+        ton::create_serialize_tl_object<ton::ton_api::engine_validator_dhtServersStatus>(std::move(vec)));
+    stop();
+  }
+
+  CheckDhtServerStatusQuery(std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config, ton::adnl::AdnlNodeIdShort local_id,
+                            td::actor::ActorId<ton::adnl::Adnl> adnl, td::Promise<td::BufferSlice> promise)
+      : dht_config_(std::move(dht_config)), local_id_(local_id), adnl_(adnl), promise_(std::move(promise)) {
+  }
+
+ private:
+  std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
+
+  std::vector<bool> result_;
+  td::uint32 pending_;
+
+  ton::adnl::AdnlNodeIdShort local_id_;
+  td::actor::ActorId<ton::adnl::Adnl> adnl_;
+  td::Promise<td::BufferSlice> promise_;
+};
+
 void ValidatorEngine::set_local_config(std::string str) {
   local_config_ = str;
 }
@@ -907,6 +1022,15 @@ td::Status ValidatorEngine::load_global_config() {
   if (sync_ttl_ != 0) {
     validator_options_.write().set_sync_blocks_before(sync_ttl_);
   }
+  if (archive_ttl_ != 0) {
+    validator_options_.write().set_archive_ttl(archive_ttl_);
+  }
+  if (key_proof_ttl_ != 0) {
+    validator_options_.write().set_key_proof_ttl(key_proof_ttl_);
+  }
+  if (db_depth_ <= 32) {
+    validator_options_.write().set_filedb_depth(db_depth_);
+  }
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -1017,7 +1141,7 @@ void ValidatorEngine::load_local_config(td::Promise<td::Unit> promise) {
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false, ig.get_promise());
   }
 
-  td::uint32 max_time = 1;
+  td::uint32 max_time = 2000000000;
 
   if (conf.dht_.size() > 0) {
     for (auto &d : conf.dht_) {
@@ -1281,8 +1405,11 @@ void ValidatorEngine::start_dht() {
     add_dht(dht);
   }
 
-  CHECK(!default_dht_node_.is_zero());
-  td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_dht_node, dht_nodes_[default_dht_node_].get());
+  if (default_dht_node_.is_zero()) {
+    LOG(ERROR) << "trying to work without DHT";
+  } else {
+    td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_dht_node, dht_nodes_[default_dht_node_].get());
+  }
 
   started_dht();
 }
@@ -1301,8 +1428,10 @@ void ValidatorEngine::started_rldp() {
 }
 
 void ValidatorEngine::start_overlays() {
-  overlay_manager_ =
-      ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+  if (!default_dht_node_.is_zero()) {
+    overlay_manager_ =
+        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+  }
   started_overlays();
 }
 
@@ -1333,14 +1462,26 @@ void ValidatorEngine::started_validator() {
 }
 
 void ValidatorEngine::start_full_node() {
-  if (!config_.full_node.is_zero()) {
+  if (!config_.full_node.is_zero() || !config_.full_node_slave_adnl_id.empty()) {
     auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto short_id = pk.compute_short_id();
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+    if (!config_.full_node_slave_adnl_id.empty()) {
+      class Cb : public ton::adnl::AdnlExtClient::Callback {
+       public:
+        void on_ready() override {
+        }
+        void on_stop_ready() override {
+        }
+      };
+      full_node_client_ = ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{config_.full_node_slave_adnl_id},
+                                                           config_.full_node_slave_addr, std::make_unique<Cb>());
+    }
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,
-        keyring_.get(), adnl_.get(), rldp_.get(), dht_nodes_[default_dht_node_].get(), overlay_manager_.get(),
-        validator_manager_.get(), db_root_);
+        keyring_.get(), adnl_.get(), rldp_.get(),
+        default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
+        overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
   }
 
   for (auto &v : config_.validators) {
@@ -1429,6 +1570,21 @@ void ValidatorEngine::started_control_interface(td::actor::ActorOwn<ton::adnl::A
       add_control_process(s.second.key, static_cast<td::uint16>(s.first), p.first, p.second);
     }
   }
+  start_full_node_masters();
+}
+
+void ValidatorEngine::start_full_node_masters() {
+  for (auto &x : config_.full_node_masters) {
+    full_node_masters_.emplace(
+        static_cast<td::uint16>(x.first),
+        ton::validator::fullnode::FullNodeMaster::create(
+            ton::adnl::AdnlNodeIdShort{x.second}, static_cast<td::uint16>(x.first),
+            validator_options_->zero_block_id().file_hash, keyring_.get(), adnl_.get(), validator_manager_.get()));
+  }
+  started_full_node_masters();
+}
+
+void ValidatorEngine::started_full_node_masters() {
   started();
 }
 
@@ -2535,6 +2691,31 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createEle
       .release();
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_checkDhtServers &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+  if (!dht_config_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no dht config")));
+    return;
+  }
+
+  if (config_.adnl_ids.count(ton::PublicKeyHash{query.id_}) == 0) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no dht config")));
+    return;
+  }
+
+  td::actor::create_actor<CheckDhtServerStatusQuery>("pinger", dht_config_, ton::adnl::AdnlNodeIdShort{query.id_},
+                                                     adnl_.get(), std::move(promise))
+      .release();
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -2602,6 +2783,11 @@ std::atomic<bool> need_stats_flag{false};
 void need_stats(int sig) {
   need_stats_flag.store(true);
 }
+std::atomic<bool> rotate_logs_flags{false};
+void force_rotate_logs(int sig) {
+  rotate_logs_flags.store(true);
+}
+
 void dump_memory_stats() {
   if (!is_memprof_on()) {
     return;
@@ -2684,22 +2870,28 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_fift_dir, fname); });
     return td::Status::OK();
   });
+  p.add_option('F', "filedb-depth",
+               "depth of autodirs for blocks, proofs, etc. Default value is 2. You need to clear the "
+               "database, if you need to change this option",
+               [&](td::Slice fname) {
+                 acts.push_back([&x, fname = fname.str()]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_db_depth, td::to_integer<td::uint32>(fname));
+                 });
+                 return td::Status::OK();
+               });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
-    td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
-      close(0);
-      setsid();
+    close(0);
+    setsid();
 #endif
-    }).ensure();
+    td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
     return td::Status::OK();
   });
-#if TD_DARWIN || TD_LINUX
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
     return td::Status::OK();
   });
-#endif
   p.add_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600", [&](td::Slice fname) {
     auto v = td::to_double(fname);
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
@@ -2709,6 +2901,18 @@ int main(int argc, char *argv[]) {
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_block_ttl, v); });
+                 return td::Status::OK();
+               });
+  p.add_option('A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=365*86400",
+               [&](td::Slice fname) {
+                 auto v = td::to_double(fname);
+                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_ttl, v); });
+                 return td::Status::OK();
+               });
+  p.add_option('K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
+               [&](td::Slice fname) {
+                 auto v = td::to_double(fname);
+                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_key_proof_ttl, v); });
                  return td::Status::OK();
                });
   p.add_option('S', "sync-before", "in initial sync download all blocks for last given seconds default=3600",
@@ -2754,6 +2958,11 @@ int main(int argc, char *argv[]) {
   while (scheduler.run(1)) {
     if (need_stats_flag.exchange(false)) {
       dump_stats();
+    }
+    if (rotate_logs_flags.exchange(false)) {
+      if (td::log_interface) {
+        td::log_interface->rotate();
+      }
     }
   }
 

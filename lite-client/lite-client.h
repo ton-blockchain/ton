@@ -32,6 +32,7 @@
 #include "terminal/terminal.h"
 #include "vm/cells.h"
 #include "vm/stack.hpp"
+#include "block/block.h"
 #include "td/utils/filesystem.h"
 
 using td::Ref;
@@ -39,11 +40,15 @@ using td::Ref;
 class TestNode : public td::actor::Actor {
  private:
   std::string global_config_ = "ton-global.config";
-
+  enum {
+    min_ls_version = 0x101,
+    min_ls_capabilities = 1
+  };  // server version >= 1.1, capabilities at least +1 = build proof chains
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
 
   bool readline_enabled_ = true;
+  bool server_ok_ = false;
   td::int32 liteserver_idx_ = -1;
 
   bool ready_ = false;
@@ -89,9 +94,14 @@ class TestNode : public td::actor::Actor {
 
   void run_init_queries();
   bool get_server_time();
-  bool get_server_version();
+  bool get_server_version(int mode = 0);
+  void got_server_version(td::Result<td::BufferSlice> res, int mode);
   bool get_server_mc_block_id();
-  void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid);
+  void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
+  void got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
+                                  long long capabilities, int last_utime, int server_now);
+  void set_server_version(td::int32 version, td::int64 capabilities);
+  void set_server_time(int server_utime);
   bool request_block(ton::BlockIdExt blkid);
   bool request_state(ton::BlockIdExt blkid);
   void got_mc_block(ton::BlockIdExt blkid, td::BufferSlice data);
@@ -138,6 +148,8 @@ class TestNode : public td::actor::Actor {
                               ton::LogicalTime lt);
   void got_block_transactions(ton::BlockIdExt blkid, int mode, unsigned req_count, bool incomplete,
                               std::vector<TransId> trans, td::BufferSlice proof);
+  bool get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
+  void got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice res);
   bool do_parse_line();
   bool show_help(std::string command);
   std::string get_word(char delim = ' ');

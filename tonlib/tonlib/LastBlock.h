@@ -24,7 +24,8 @@
 namespace tonlib {
 class LastBlock : public td::actor::Actor {
  public:
-  explicit LastBlock(ExtClientRef client, td::actor::ActorShared<> parent);
+  explicit LastBlock(ExtClientRef client, ton::ZeroStateIdExt zero_state_id, ton::BlockIdExt last_block_id,
+                     td::actor::ActorShared<> parent);
 
   void get_last_block(td::Promise<ton::BlockIdExt> promise);
 
@@ -39,6 +40,11 @@ class LastBlock : public td::actor::Actor {
 
   void do_get_last_block();
   void on_masterchain_info(td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_masterchainInfo>> r_info);
+  void on_block_proof(ton::BlockIdExt from,
+                      td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_partialBlockProof>> r_block_proof);
+  td::Result<bool> process_block_proof(
+      ton::BlockIdExt from,
+      td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_partialBlockProof>> r_block_proof);
 
   void update_zero_state(ton::ZeroStateIdExt zero_state_id);
 

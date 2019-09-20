@@ -128,6 +128,9 @@ struct BitPtrGen {
   std::size_t scan(bool value, std::size_t len) const {
     return bitstring::bits_memscan(*this, len, value);
   }
+  bool is_zero(std::size_t len) const {
+    return scan(false, len) == len;
+  }
   long long get_int(unsigned bits) const {
     return bitstring::bits_load_long(*this, bits);
   }
@@ -279,7 +282,7 @@ class BitSliceGen {
     ensure_throw(set_size_bool(bits));
     return *this;
   }
-  BitSliceGen subslice(unsigned from, unsigned bits) const & {
+  BitSliceGen subslice(unsigned from, unsigned bits) const& {
     return BitSliceGen(*this, from, bits);
   }
   BitSliceGen subslice(unsigned from, unsigned bits) && {
@@ -467,7 +470,7 @@ class BitArray {
   unsigned char* data() {
     return bytes.data();
   }
-  unsigned size() const {
+  static unsigned size() {
     return n;
   }
   const byte_array_t& as_array() const {

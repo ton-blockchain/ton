@@ -18,11 +18,13 @@
 */
 #pragma once
 #include "vm/cells/Cell.h"
+#include "td/utils/buffer.h"
 
 #include <utility>
 #include <functional>
 
 namespace vm {
+
 class MerkleProof {
  public:
   using IsPrunnedFunction = std::function<bool(const Ref<Cell> &)>;
@@ -43,4 +45,21 @@ class MerkleProof {
   static Ref<Cell> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree);
   static Ref<Cell> virtualize_raw(Ref<Cell> cell, Cell::VirtualizationParameters virt);
 };
+
+class MerkleProofBuilder {
+  std::shared_ptr<CellUsageTree> usage_tree;
+  Ref<vm::Cell> orig_root, usage_root;
+
+ public:
+  MerkleProofBuilder(Ref<Cell> root);
+  void reset(Ref<Cell> root);
+  void clear();
+  Ref<Cell> root() const {
+    return usage_root;
+  }
+  Ref<Cell> extract_proof() const;
+  bool extract_proof_to(Ref<Cell> &proof_root) const;
+  td::Result<td::BufferSlice> extract_proof_boc() const;
+};
+
 }  // namespace vm

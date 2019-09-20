@@ -34,11 +34,14 @@ std::string FileDb::get_file_name(const RefId& ref_id, bool create_dirs) {
   auto ref_id_hash = get_ref_id_hash(ref_id);
 
   auto s = ref_id_hash.to_hex();
-  if (create_dirs) {
-    td::mkdir(root_path_ + "/files/" + s[0] + s[1] + "/").ensure();
-    td::mkdir(root_path_ + "/files/" + s[0] + s[1] + "/" + s[2] + s[3] + "/").ensure();
+  std::string path = root_path_ + "/files/";
+  for (td::uint32 i = 0; i < depth_; i++) {
+    path = path + s[2 * i] + s[2 * i + 1] + "/";
+    if (create_dirs) {
+      td::mkdir(path).ensure();
+    }
   }
-  return root_path_ + "/files/" + s[0] + s[1] + "/" + s[2] + s[3] + "/" + s;
+  return path + s;
 }
 
 void FileDb::store_file(RefId ref_id, td::BufferSlice data, td::Promise<FileHash> promise) {
@@ -135,7 +138,35 @@ void FileDb::load_file(RefId ref_id, td::Promise<td::BufferSlice> promise) {
         }
       });
 
-  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), std::move(P)).release();
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), 0, -1, std::move(P)).release();
+}
+
+void FileDb::load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise) {
+  auto ref_id_hash = get_ref_id_hash(ref_id);
+  auto R = get_block(ref_id_hash);
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+    return;
+  }
+
+  auto v = R.move_as_ok();
+
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), file_hash = v.file_hash](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error());
+        } else {
+          auto data = R.move_as_ok();
+          if (file_hash != sha256_bits256(data.as_slice())) {
+            promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "db error: bad file hash"));
+          } else {
+            promise.set_value(std::move(data));
+          }
+        }
+      });
+
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), offset, max_size, std::move(P))
+      .release();
 }
 
 void FileDb::check_file(RefId ref_id, td::Promise<bool> promise) {
@@ -169,8 +200,8 @@ void FileDb::set_block(const RefIdHash& ref, DbEntry entry) {
   kv_->set(get_key(ref), entry.release()).ensure();
 }
 
-FileDb::FileDb(td::actor::ActorId<RootDb> root_db, std::string root_path, bool is_archive)
-    : root_db_(root_db), root_path_(root_path), is_archive_(is_archive) {
+FileDb::FileDb(td::actor::ActorId<RootDb> root_db, std::string root_path, td::uint32 depth, bool is_archive)
+    : root_db_(root_db), root_path_(root_path), depth_(depth), is_archive_(is_archive) {
 }
 
 void FileDb::start_up() {

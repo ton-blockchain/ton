@@ -53,6 +53,8 @@ constexpr unsigned min_split_merge_interval = 30;  // split/merge interval must 
 constexpr unsigned max_split_merge_delay =
     1000;  // end of split/merge interval must be at most 1000 seconds in the future
 
+enum GlobalCapabilities { capIhrEnabled = 1, capCreateStatsEnabled = 2 };
+
 inline int shard_pfx_len(ShardId shard) {
   return shard ? 63 - td::count_trailing_zeroes_non_zero64(shard) : 0;
 }
@@ -310,6 +312,8 @@ struct ZeroStateIdExt {
 struct BlockSignature {
   NodeIdShort node;
   td::BufferSlice signature;
+  BlockSignature(const NodeIdShort& _node, td::BufferSlice _signature) : node(_node), signature(std::move(_signature)) {
+  }
 };
 
 struct ReceivedBlock {
@@ -356,8 +360,21 @@ struct Ed25519_PublicKey {
   operator Bits256() const {
     return _pubkey;
   }
+  td::Slice as_slice() const {
+    return _pubkey.as_slice();
+  }
   bool operator==(const Ed25519_PublicKey& other) const {
     return _pubkey == other._pubkey;
+  }
+  bool clear() {
+    _pubkey.set_zero();
+    return true;
+  }
+  bool is_zero() const {
+    return _pubkey.is_zero();
+  }
+  bool non_zero() const {
+    return !is_zero();
   }
 };
 

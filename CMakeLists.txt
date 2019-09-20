@@ -19,9 +19,65 @@ if (TON_REAL_BINARY_DIR STREQUAL TON_REAL_SOURCE_DIR)
   message(FATAL_ERROR "In-source build failed.")
 endif()
 
+# HAVE_SSE42 for crc32c and rocksdb
+include(CheckCXXSourceCompiles)
+# Check for SSE4.2 support in the compiler.
+set(OLD_CMAKE_REQURED_FLAGS ${CMAKE_REQUIRED_FLAGS})
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} /arch:AVX")
+else(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -msse4.2")
+endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+check_cxx_source_compiles("
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else  // !defined(_MSC_VER)
+#include <cpuid.h>
+#include <nmmintrin.h>
+#endif  // defined(_MSC_VER)
+
+int main() {
+  _mm_crc32_u8(0, 0); _mm_crc32_u32(0, 0);
+#if defined(_M_X64) || defined(__x86_64__)
+   _mm_crc32_u64(0, 0);
+#endif // defined(_M_X64) || defined(__x86_64__)
+  return 0;
+}
+"  CRC32C_HAVE_SSE42)
+set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQURED_FLAGS})
+
+if(NOT MSVC)
+  set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
+endif()
+CHECK_CXX_SOURCE_COMPILES("
+#include <cstdint>
+#include <nmmintrin.h>
+#include <wmmintrin.h>
+int main() {
+  volatile uint32_t x = _mm_crc32_u32(0, 0);
+  const auto a = _mm_set_epi64x(0, 0);
+  const auto b = _mm_set_epi64x(0, 0);
+  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
+  auto d = _mm_cvtsi128_si64(c);
+}
+" ROCKSDB_HAVE_SSE42)
+unset(CMAKE_REQUIRED_FLAGS)
+
+if (ROCKSDB_HAVE_SSE42 AND CRC32C_HAVE_SSE42)
+  set(HAVE_SSE42 TRUE)
+else()
+  set(HAVE_SSE42 FALSE)
+endif()
+
 #BEGIN internal
-option(TON_USE_ROCKSDB "Use \"ON\" to enable RocksDb." ON)
-option(TON_USE_ABSEIL "Use \"ON\" to enable Abseil." ON)
+option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
+if (TON_ONLY_TONBLIB)
+  set(NOT_TON_ONLY_TONLIB false)
+else()
+  set(NOT_TON_ONLY_TONLIB true)
+endif()
+option(TON_USE_ROCKSDB "Use \"ON\" to enable RocksDb." ${NOT_TON_ONLY_TONLIB})
+option(TON_USE_ABSEIL "Use \"ON\" to enable Abseil." ${NOT_TON_ONLY_TONLIB})
 option(TON_USE_JEMALLOC "Use \"ON\" to enable JeMalloc." OFF)
 #END internal
 
@@ -278,6 +334,7 @@ function(target_link_libraries_system target)
   endforeach(lib)
 endfunction(target_link_libraries_system)
 
+set(TDUTILS_MIME_TYPE OFF CACHE BOOL "Generate mime type conversion")
 add_subdirectory(tdutils)
 add_subdirectory(memprof)
 add_subdirectory(tdactor)
@@ -300,6 +357,7 @@ add_subdirectory(tonlib)
 #END tonlib
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_subdirectory(common)
 add_subdirectory(tdfec)
 add_subdirectory(keyring)
@@ -315,10 +373,14 @@ add_subdirectory(validator-engine)
 add_subdirectory(validator-engine-console)
 add_subdirectory(dht-server)
 add_subdirectory(utils)
+endif()
 #END internal
 
 if (NOT CMAKE_CROSSCOMPILING)
-  add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tdmime_auto tlb_generate_block)
+  if (TDUTILS_MIME_TYPE)
+    set(TDMIME_AUTO tdmime_auto)
+  endif()
+  add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tlb_generate_block ${TDMIME_AUTO})
 endif()
 
 #TESTS
@@ -356,6 +418,7 @@ target_link_libraries(test-tonlib-offline tdutils tdactor adnllite tl_api ton_cr
 #END tonlib
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_executable(test-db test/test-td-main.cpp ${TONDB_TEST_SOURCE})
 target_link_libraries(test-db PRIVATE ton_db memprof)
 
@@ -391,16 +454,6 @@ target_link_libraries(test-catchain overlay tdutils tdactor adnl adnltest rldp t
 #add_executable(test-validator-session test/test-validator-session.cpp)
 #target_link_libraries(test-validator-session overlay tdutils tdactor adnl tl_api dht
 #  catchain validatorsession)
-#add_executable(test-ton-dummy-0 test/test-ton-dummy-0.cpp)
-#target_link_libraries(test-ton-dummy-0 overlay tdutils tdactor adnl tl_api dht
-#  catchain validatorsession ton-node validator dummy_validator validator )
-#add_executable(test-dummy-0-lite-client test/test-dummy-0-lite-client.cpp)
-#target_link_libraries(test-dummy-0-lite-client overlay tdutils tdactor adnl tl_api dht
-#  catchain validatorsession ton-node validator dummy_validator validator
-#  terminal )
-#add_executable(test-ton-dummy-0-collator test/test-ton-collator.cpp)
-#target_link_libraries(test-ton-dummy-0-collator overlay tdutils tdactor adnl tl_api
-#  dht  catchain validatorsession ton-node validator_disk dummy_validator validator_disk )
 add_executable(test-ton-collator test/test-ton-collator.cpp)
 target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
   catchain validatorsession validator-disk ton_validator validator-disk )
@@ -427,6 +480,7 @@ if (HAS_PARENT)
 endif()
 add_library(all_tests INTERFACE)
 target_link_libraries(all_tests INTERFACE tdutils tdactor tdnet tdfec ton_db ton_crypto fift-lib)
+endif()
 #END internal
 
 enable_testing()
@@ -445,8 +499,10 @@ add_test(test-tonlib-offline test-tonlib-offline)
 #END tonlib
 
 #BEGIN internal
+if (NOT TON_ONLY_TONLIB)
 add_test(test-fec test-fec)
 add_test(test-tddb test-tddb ${TEST_OPTIONS})
 add_test(test-db test-db ${TEST_OPTIONS})
+endif()
 #END internal
 

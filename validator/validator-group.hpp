@@ -79,6 +79,7 @@ class ValidatorGroup : public td::actor::Actor {
 
   ShardIdFull shard_;
   PublicKeyHash local_id_;
+  PublicKey local_id_full_;
   ValidatorSessionId session_id_;
 
   std::vector<BlockIdExt> prev_block_ids_;

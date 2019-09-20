@@ -362,9 +362,14 @@ tonNode.prepareZeroState block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.getNextKeyBlockIds block:tonNode.blockIdExt max_size:int = tonNode.KeyBlocks;
 tonNode.downloadBlock block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.downloadZeroState block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProof block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProofLink block:tonNode.blockIdExt = tonNode.Data;
+
+tonNode.slave.sendExtMessage message:tonNode.externalMessage = True;
+
+tonNode.query = Object;
 
 ---types---
 
@@ -481,9 +486,12 @@ engine.controlInterface id:int256 port:int allowed:(vector engine.controlProcess
 engine.gc ids:(vector int256) = engine.Gc;
 
 engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
+engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
+engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
         dht:(vector engine.dht)
-        validators:(vector engine.validator) fullnode:int256  
+        validators:(vector engine.validator) fullnode:int256 fullnodeslave:engine.validator.fullNodeSlave
+        fullnodemasters:(vector engine.validator.fullNodeMaster)
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config; 
 
@@ -495,6 +503,14 @@ engine.adnlProxy.port in_port:int out_port:int dst_ip:int dst_port:int proxy_typ
 engine.adnlProxy.config ports:(vector engine.adnlProxy.port) = engine.adnlProxy.Config;
 
 ---functions---
+
+---types---
+
+adnl.pong value:long = adnl.Pong;
+
+---functions---
+
+adnl.ping value:long = adnl.Pong;
 
 ---types---
 
@@ -512,6 +528,9 @@ engine.validator.success = engine.validator.Success;
 engine.validator.jsonConfig data:string = engine.validator.JsonConfig;
 
 engine.validator.electionBid election_date:int perm_key:int256 adnl_addr:int256 to_send_payload:bytes = engine.validator.ElectionBid; 
+
+engine.validator.dhtServerStatus id:int256 status:int = engine.validator.DhtServerStatus;
+engine.validator.dhtServersStatus servers:(vector engine.validator.dhtServerStatus) = engine.validator.DhtServersStatus;
 
 ---functions---
 
@@ -549,5 +568,7 @@ engine.validator.getConfig = engine.validator.JsonConfig;
 engine.validator.setVerbosity verbosity:int = engine.validator.Success; 
 
 engine.validator.createElectionBid election_date:int election_addr:string wallet:string = engine.validator.ElectionBid;
+
+engine.validator.checkDhtServers id:int256 = engine.validator.DhtServersStatus;
 
 engine.validator.controlQuery data:bytes = Object;

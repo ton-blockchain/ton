@@ -21,6 +21,7 @@
 #include "auto/tl/tonlib_api.h"
 
 namespace tonlib_api = ton::tonlib_api;
+namespace tonlib {
 
 class TonlibCallback {
  public:
@@ -28,3 +29,4 @@ class TonlibCallback {
   virtual void on_error(std::uint64_t id, tonlib_api::object_ptr<tonlib_api::error> error) = 0;
   virtual ~TonlibCallback() = default;
 };
+}  // namespace tonlib

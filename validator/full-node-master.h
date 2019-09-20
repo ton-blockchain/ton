@@ -18,35 +18,27 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
-#include "validator/interfaces/signature-set.h"
+#include "full-node.h"
+#include "validator/interfaces/block-handle.h"
 
 namespace ton {
 
 namespace validator {
 
-namespace dummy0 {
+namespace fullnode {
 
-class BlockSignatureSetImpl : public BlockSignatureSet {
+class FullNodeMaster : public td::actor::Actor {
  public:
-  BlockSignatureSetImpl(std::vector<BlockSignature> signatures) : BlockSignatureSet{std::move(signatures)} {
-  }
+  virtual ~FullNodeMaster() = default;
 
-  BlockSignatureSetImpl *make_copy() const override {
-    std::vector<BlockSignature> vec;
-    auto &sigs = signatures();
-    for (auto &s : sigs) {
-      vec.emplace_back(BlockSignature{s.node, s.signature.clone()});
-    }
-
-    return new BlockSignatureSetImpl{std::move(vec)};
-  }
-
-  td::BufferSlice serialize() const override;
-  static td::Ref<BlockSignatureSet> fetch(td::BufferSlice data);
+  static td::actor::ActorOwn<FullNodeMaster> create(adnl::AdnlNodeIdShort adnl_id, td::uint16 port,
+                                                    FileHash zero_state_file_hash,
+                                                    td::actor::ActorId<keyring::Keyring> keyring,
+                                                    td::actor::ActorId<adnl::Adnl> adnl,
+                                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager);
 };
 
-}  // namespace dummy0
+}  // namespace fullnode
 
 }  // namespace validator
 

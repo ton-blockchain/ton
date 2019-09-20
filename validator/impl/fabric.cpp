@@ -38,8 +38,9 @@ namespace ton {
 
 namespace validator {
 
-td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_) {
-  return td::actor::create_actor<RootDb>("db", manager, db_root_);
+td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
+                                        td::uint32 depth) {
+  return td::actor::create_actor<RootDb>("db", manager, db_root_, depth);
 }
 
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data) {
@@ -179,7 +180,7 @@ void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_maste
 }
 
 void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& min_masterchain_block_id,
-                       std::vector<BlockIdExt> prev, PublicKeyHash collator_id, td::Ref<ValidatorSet> validator_set,
+                       std::vector<BlockIdExt> prev, Ed25519_PublicKey collator_id, td::Ref<ValidatorSet> validator_set,
                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                        td::Promise<BlockCandidate> promise) {
   BlockSeqno seqno = 0;
@@ -189,8 +190,8 @@ void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& m
     }
   }
   td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1), shard, min_ts,
-                                    min_masterchain_block_id, std::move(prev), std::move(validator_set),
-                                    collator_id.bits256_value(), std::move(manager), timeout, std::move(promise))
+                                    min_masterchain_block_id, std::move(prev), std::move(validator_set), collator_id,
+                                    std::move(manager), timeout, std::move(promise))
       .release();
 }
 

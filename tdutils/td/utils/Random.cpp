@@ -51,6 +51,11 @@ void Random::secure_bytes(unsigned char *ptr, size_t size) {
     buf_pos = buf_size;
     generation = 0;
   }
+  if (ptr == nullptr) {
+    td::MutableSlice(buf, buf_size).fill_zero_secure();
+    buf_pos = buf_size;
+    return;
+  }
   if (generation != random_seed_generation.load(std::memory_order_relaxed)) {
     generation = random_seed_generation.load(std::memory_order_acquire);
     buf_pos = buf_size;
@@ -108,6 +113,10 @@ uint64 Random::secure_uint64() {
 void Random::add_seed(Slice bytes, double entropy) {
   RAND_add(bytes.data(), static_cast<int>(bytes.size()), entropy);
   random_seed_generation++;
+}
+
+void Random::secure_cleanup() {
+  Random::secure_bytes(nullptr, 0);
 }
 #endif
 

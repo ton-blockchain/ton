@@ -27,6 +27,7 @@ liteServer.error code:int message:string = liteServer.Error;
 liteServer.accountId workchain:int id:int256 = liteServer.AccountId;
 
 liteServer.masterchainInfo last:tonNode.blockIdExt state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfo;
+liteServer.masterchainInfoExt mode:# version:int capabilities:long last:tonNode.blockIdExt last_utime:int now:int state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfoExt;
 liteServer.currentTime now:int = liteServer.CurrentTime;
 liteServer.version mode:# version:int capabilities:long now:int = liteServer.Version;
 liteServer.blockData id:tonNode.blockIdExt data:bytes = liteServer.BlockData;
@@ -43,8 +44,8 @@ liteServer.transactionId3 account:int256 lt:long = liteServer.TransactionId3;
 liteServer.blockTransactions id:tonNode.blockIdExt req_count:# incomplete:Bool ids:(vector liteServer.transactionId) proof:bytes = liteServer.BlockTransactions;
 liteServer.signature node_id_short:int256 signature:bytes = liteServer.Signature;
 liteServer.signatureSet validator_set_hash:int catchain_seqno:int signatures:(vector liteServer.signature) = liteServer.SignatureSet;
-liteServer.blockLinkBack to_key_block:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt dest_proof:bytes shard_proof:bytes proof:bytes = liteServer.BlockLink;
-liteServer.blockLinkForward to_key_block:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt dest_proof:bytes config_proof:bytes signatures:liteServer.signatureSet = liteServer.BlockLink;
+liteServer.blockLinkBack to_key_block:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt dest_proof:bytes proof:bytes state_proof:bytes = liteServer.BlockLink;
+liteServer.blockLinkForward to_key_block:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt dest_proof:bytes config_proof:bytes signatures:liteServer.SignatureSet = liteServer.BlockLink;
 liteServer.partialBlockProof complete:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt steps:(vector liteServer.BlockLink) = liteServer.PartialBlockProof;
 liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
 
@@ -53,6 +54,7 @@ liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 ---functions---
 
 liteServer.getMasterchainInfo = liteServer.MasterchainInfo;
+liteServer.getMasterchainInfoExt mode:# = liteServer.MasterchainInfoExt;
 liteServer.getTime = liteServer.CurrentTime;
 liteServer.getVersion = liteServer.Version;
 liteServer.getBlock id:tonNode.blockIdExt = liteServer.BlockData;
@@ -70,4 +72,5 @@ liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode
 liteServer.getConfigAll mode:# id:tonNode.blockIdExt = liteServer.ConfigInfo;
 liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
 
+liteServer.queryPrefix = Object; 
 liteServer.query data:bytes = Object;

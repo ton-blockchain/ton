@@ -74,7 +74,7 @@ class AdnlExtClientImpl : public AdnlExtClient {
   }
 
   void start_up() override {
-    alarm_timestamp() = next_create_at_;
+    alarm();
   }
   void conn_stopped(td::actor::ActorId<AdnlExtConnection> conn) {
     if (!conn_.empty() && conn_.get() == conn) {

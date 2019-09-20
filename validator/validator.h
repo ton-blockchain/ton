@@ -53,9 +53,15 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::ClocksBase::Duration sync_blocks_before() const = 0;
   virtual td::ClocksBase::Duration block_ttl() const = 0;
   virtual td::ClocksBase::Duration state_ttl() const = 0;
+  virtual td::ClocksBase::Duration archive_ttl() const = 0;
+  virtual td::ClocksBase::Duration key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
   virtual bool is_hardfork(BlockIdExt block_id) const = 0;
   virtual td::uint32 get_vertical_height(BlockSeqno seqno) const = 0;
+  virtual td::uint32 get_filedb_depth() const = 0;
+  virtual td::uint32 key_block_utime_step() const {
+    return 86400;
+  }
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -64,14 +70,18 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_sync_blocks_before(td::ClocksBase::Duration value) = 0;
   virtual void set_block_ttl(td::ClocksBase::Duration value) = 0;
   virtual void set_state_ttl(td::ClocksBase::Duration value) = 0;
+  virtual void set_archive_ttl(td::ClocksBase::Duration value) = 0;
+  virtual void set_key_proof_ttl(td::ClocksBase::Duration value) = 0;
   virtual void set_initial_sync_disabled(bool value) = 0;
   virtual void set_hardforks(std::vector<BlockIdExt> hardforks) = 0;
+  virtual void set_filedb_depth(td::uint32 value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
       std::function<bool(ShardIdFull)> check_shard = [](ShardIdFull) { return true; },
       bool allow_blockchain_init = false, td::ClocksBase::Duration sync_blocks_before = 300,
       td::ClocksBase::Duration block_ttl = 86400 * 7, td::ClocksBase::Duration state_ttl = 3600,
+      td::ClocksBase::Duration archive_ttl = 86400 * 365, td::ClocksBase::Duration key_proof_ttl = 86400 * 3650,
       bool initial_sync_disabled = false);
 };
 
@@ -136,6 +146,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                              td::Promise<bool> promise) = 0;
   virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                     td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
+                                          td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;

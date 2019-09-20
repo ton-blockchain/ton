@@ -47,6 +47,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::ClocksBase::Duration state_ttl() const override {
     return state_ttl_;
   }
+  td::ClocksBase::Duration archive_ttl() const override {
+    return archive_ttl_;
+  }
+  td::ClocksBase::Duration key_proof_ttl() const override {
+    return key_proof_ttl_;
+  }
   bool initial_sync_disabled() const override {
     return initial_sync_disabled_;
   }
@@ -70,6 +76,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     }
     return static_cast<td::uint32>(best);
   }
+  td::uint32 get_filedb_depth() const override {
+    return db_depth_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -92,11 +101,21 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_state_ttl(td::ClocksBase::Duration value) override {
     state_ttl_ = value;
   }
+  void set_archive_ttl(td::ClocksBase::Duration value) override {
+    archive_ttl_ = value;
+  }
+  void set_key_proof_ttl(td::ClocksBase::Duration value) override {
+    key_proof_ttl_ = value;
+  }
   void set_initial_sync_disabled(bool value) override {
     initial_sync_disabled_ = value;
   }
   void set_hardforks(std::vector<BlockIdExt> vec) override {
     hardforks_ = std::move(vec);
+  }
+  void set_filedb_depth(td::uint32 value) override {
+    CHECK(value <= 32);
+    db_depth_ = value;
   }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
@@ -106,7 +125,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull)> check_shard, bool allow_blockchain_init,
                               td::ClocksBase::Duration sync_blocks_before, td::ClocksBase::Duration block_ttl,
-                              td::ClocksBase::Duration state_ttl, bool initial_sync_disabled)
+                              td::ClocksBase::Duration archive_ttl, td::ClocksBase::Duration state_ttl,
+                              td::ClocksBase::Duration key_proof_ttl, bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
       , check_shard_(std::move(check_shard))
@@ -114,6 +134,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
       , sync_blocks_before_(sync_blocks_before)
       , block_ttl_(block_ttl)
       , state_ttl_(state_ttl)
+      , archive_ttl_(archive_ttl)
+      , key_proof_ttl_(key_proof_ttl)
       , initial_sync_disabled_(initial_sync_disabled) {
   }
 
@@ -125,8 +147,11 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::ClocksBase::Duration sync_blocks_before_;
   td::ClocksBase::Duration block_ttl_;
   td::ClocksBase::Duration state_ttl_;
+  td::ClocksBase::Duration archive_ttl_;
+  td::ClocksBase::Duration key_proof_ttl_;
   bool initial_sync_disabled_;
   std::vector<BlockIdExt> hardforks_;
+  td::uint32 db_depth_ = 2;
 };
 
 }  // namespace validator

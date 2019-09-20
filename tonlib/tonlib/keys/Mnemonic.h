@@ -36,6 +36,7 @@ class Mnemonic {
     }
     int words_count = 24;
     td::SecureString password;
+    td::SecureString entropy;
   };
   static td::Result<Mnemonic> create_new(Options options = {});
 
@@ -51,6 +52,7 @@ class Mnemonic {
   std::vector<td::SecureString> get_words() const;
 
   static std::vector<td::SecureString> normalize_and_split(td::SecureString words);
+  static td::Span<std::string> word_hints(td::Slice prefix);
 
  private:
   std::vector<td::SecureString> words_;

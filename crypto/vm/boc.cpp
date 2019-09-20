@@ -717,7 +717,7 @@ td::Result<td::Slice> BagOfCells::get_cell_slice(int idx, td::Slice data) {
     return td::Status::Error(PSLICE() << "invalid index entry [" << offs << "; " << offs_end << "], "
                                       << td::tag("data.size()", data.size()));
   }
-  return data.substr(offs, offs_end - offs);
+  return data.substr(offs, td::narrow_cast<size_t>(offs_end - offs));
 }
 
 td::Result<td::Ref<vm::DataCell>> BagOfCells::deserialize_cell(int idx, td::Slice cells_slice,

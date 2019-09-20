@@ -27,11 +27,18 @@ namespace validator {
 
 class ProofLink : public td::CntObject {
  public:
+  struct BasicHeaderInfo {
+    UnixTime utime;
+    CatchainSeqno cc_seqno;
+    td::uint32 validator_set_hash;
+    BlockSeqno prev_key_mc_seqno;
+  };
   virtual ~ProofLink() = default;
   virtual BlockIdExt block_id() const = 0;
   virtual td::BufferSlice data() const = 0;
   virtual td::Result<BlockSeqno> prev_key_mc_seqno() const = 0;
   virtual td::Result<td::Ref<ConfigHolder>> get_key_block_config() const = 0;
+  virtual td::Result<BasicHeaderInfo> get_basic_header_info() const = 0;
 };
 
 class Proof : virtual public ProofLink {

@@ -441,7 +441,7 @@ class Config {
   };
 
  public:
-  enum { needValidatorSet = 16, needSpecialSmc = 32, needWorkchainInfo = 256 };
+  enum { needValidatorSet = 16, needSpecialSmc = 32, needWorkchainInfo = 256, needCapabilities = 512 };
   int mode{0};
   ton::BlockIdExt block_id;
 
@@ -452,6 +452,8 @@ class Config {
   std::unique_ptr<ValidatorSet> cur_validators_;
   std::unique_ptr<vm::Dictionary> workchains_dict_;
   WorkchainSet workchains_;
+  int version_{-1};
+  long long capabilities_{-1};
 
  protected:
   std::unique_ptr<vm::Dictionary> special_smc_dict;
@@ -473,6 +475,24 @@ class Config {
   }
   bool is_masterchain() const {
     return block_id.is_masterchain();
+  }
+  bool has_capabilities() const {
+    return capabilities_ >= 0;
+  }
+  long long get_capabilities() const {
+    return capabilities_;
+  }
+  int get_global_version() const {
+    return version_;
+  }
+  bool has_capability(long long cap_set) const {
+    return has_capabilities() && (capabilities_ & cap_set) == cap_set;
+  }
+  bool ihr_enabled() const {
+    return has_capability(ton::capIhrEnabled);
+  }
+  bool create_stats_enabled() const {
+    return has_capability(ton::capCreateStatsEnabled);
   }
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;

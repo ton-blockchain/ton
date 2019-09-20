@@ -82,7 +82,7 @@ class WriteFile : public td::actor::Actor {
 class ReadFile : public td::actor::Actor {
  public:
   void start_up() override {
-    auto S = td::read_file(file_name_);
+    auto S = td::read_file(file_name_, max_length_, offset_);
     if (S.is_ok()) {
       promise_.set_result(S.move_as_ok());
     } else {
@@ -92,12 +92,14 @@ class ReadFile : public td::actor::Actor {
     }
     stop();
   }
-  ReadFile(std::string file_name, td::Promise<td::BufferSlice> promise)
-      : file_name_(file_name), promise_(std::move(promise)) {
+  ReadFile(std::string file_name, td::int64 offset, td::int64 max_length, td::Promise<td::BufferSlice> promise)
+      : file_name_(file_name), offset_(offset), max_length_(max_length), promise_(std::move(promise)) {
   }
 
  private:
   std::string file_name_;
+  td::int64 offset_;
+  td::int64 max_length_;
   td::Promise<td::BufferSlice> promise_;
 };
 

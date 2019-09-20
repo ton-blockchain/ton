@@ -33,6 +33,8 @@
 #include "validator/manager.h"
 #include "validator/validator.h"
 #include "validator/full-node.h"
+#include "validator/full-node-master.h"
+#include "adnl/adnl-ext-client.h"
 
 #include "td/actor/MultiPromise.h"
 
@@ -74,7 +76,10 @@ struct Config {
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
-  ton::PublicKeyHash full_node;
+  ton::PublicKeyHash full_node = ton::PublicKeyHash::zero();
+  td::IPAddress full_node_slave_addr;
+  ton::PublicKey full_node_slave_adnl_id;
+  std::map<td::int32, ton::PublicKeyHash> full_node_masters;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
@@ -96,6 +101,8 @@ struct Config {
   td::Result<bool> config_add_validator_adnl_id(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,
                                                 ton::UnixTime expire_at);
   td::Result<bool> config_add_full_node_adnl_id(ton::PublicKeyHash id);
+  td::Result<bool> config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id);
+  td::Result<bool> config_add_full_node_master(td::int32 port, ton::PublicKeyHash id);
   td::Result<bool> config_add_lite_server(ton::PublicKeyHash key, td::int32 port);
   td::Result<bool> config_add_control_interface(ton::PublicKeyHash key, td::int32 port);
   td::Result<bool> config_add_control_process(ton::PublicKeyHash key, td::int32 port, ton::PublicKeyHash id,
@@ -130,7 +137,9 @@ class ValidatorEngine : public td::actor::Actor {
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager_;
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorOwn<ton::adnl::AdnlExtClient> full_node_client_;
   td::actor::ActorOwn<ton::validator::fullnode::FullNode> full_node_;
+  std::map<td::uint16, td::actor::ActorOwn<ton::validator::fullnode::FullNodeMaster>> full_node_masters_;
   td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server_;
 
   std::string local_config_ = "";
@@ -181,6 +190,9 @@ class ValidatorEngine : public td::actor::Actor {
   td::Clocks::Duration state_ttl_ = 0;
   td::Clocks::Duration block_ttl_ = 0;
   td::Clocks::Duration sync_ttl_ = 0;
+  td::Clocks::Duration archive_ttl_ = 0;
+  td::Clocks::Duration key_proof_ttl_ = 0;
+  td::uint32 db_depth_ = 33;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -196,6 +208,9 @@ class ValidatorEngine : public td::actor::Actor {
     fift_dir_ = str;
   }
   void set_db_root(std::string db_root);
+  void set_db_depth(td::uint32 value) {
+    db_depth_ = value;
+  }
   void set_state_ttl(td::Clocks::Duration t) {
     state_ttl_ = t;
   }
@@ -204,6 +219,12 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_sync_ttl(td::Clocks::Duration t) {
     sync_ttl_ = t;
+  }
+  void set_archive_ttl(td::Clocks::Duration t) {
+    archive_ttl_ = t;
+  }
+  void set_key_proof_ttl(td::Clocks::Duration t) {
+    key_proof_ttl_ = t;
   }
   void add_ip(td::IPAddress addr) {
     addrs_.push_back(addr);
@@ -253,6 +274,9 @@ class ValidatorEngine : public td::actor::Actor {
   void add_control_process(ton::PublicKeyHash id, td::uint16 port, ton::PublicKeyHash pub, td::int32 permissions);
   void start_control_interface();
   void started_control_interface(td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server);
+
+  void start_full_node_masters();
+  void started_full_node_masters();
 
   void started();
 
@@ -346,6 +370,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_getStats &query, td::BufferSlice data, ton::PublicKeyHash src,
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_createElectionBid &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_checkDhtServers &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

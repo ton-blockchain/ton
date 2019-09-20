@@ -153,10 +153,11 @@ inline char to_lower(char c) {
   return c;
 }
 
-inline void to_lower_inplace(MutableSlice slice) {
+inline MutableSlice to_lower_inplace(MutableSlice slice) {
   for (auto &c : slice) {
     c = to_lower(c);
   }
+  return slice;
 }
 
 inline string to_lower(Slice slice) {
@@ -321,8 +322,8 @@ string url_encode(Slice str);
 
 namespace detail {
 template <class T, class U>
-struct is_same_signedness
-    : public std::integral_constant<bool, std::is_signed<T>::value == std::is_signed<U>::value> {};
+struct is_same_signedness : public std::integral_constant<bool, std::is_signed<T>::value == std::is_signed<U>::value> {
+};
 
 template <class T, class Enable = void>
 struct safe_undeflying_type {

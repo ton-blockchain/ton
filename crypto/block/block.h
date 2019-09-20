@@ -33,6 +33,16 @@ namespace block {
 
 using td::Ref;
 
+struct PublicKey {
+  std::string key;
+
+  static td::Result<PublicKey> from_bytes(td::Slice key);
+
+  static td::Result<PublicKey> parse(td::Slice key);
+
+  std::string serialize(bool base64_url = false);
+};
+
 struct StdAddress {
   ton::WorkchainId workchain{ton::workchainInvalid};
   bool bounceable{true};  // addresses must be bounceable by default
@@ -382,6 +392,7 @@ struct ShardState {
   CurrencyCollection total_balance_, total_validator_fees_, global_balance_;
   std::unique_ptr<vm::AugmentedDictionary> out_msg_queue_;
   std::unique_ptr<vm::Dictionary> ihr_pending_;
+  std::unique_ptr<vm::Dictionary> block_create_stats_;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_;
 
   bool is_valid() const {
@@ -457,27 +468,109 @@ struct ValueFlow {
 
 std::ostream& operator<<(std::ostream& os, const ValueFlow& vflow);
 
-struct BlkProofLink {
+struct DiscountedCounter {
+  struct SetZero {};
+  bool valid;
+  ton::UnixTime last_updated;
+  td::uint64 total;
+  td::uint64 cnt2048;
+  td::uint64 cnt65536;
+  DiscountedCounter() : valid(false) {
+  }
+  DiscountedCounter(SetZero) : valid(true), last_updated(0), total(0), cnt2048(0), cnt65536(0) {
+  }
+  DiscountedCounter(ton::UnixTime _lastupd, td::uint64 _total, td::uint64 _cnt2048, td::uint64 _cnt65536)
+      : valid(true), last_updated(_lastupd), total(_total), cnt2048(_cnt2048), cnt65536(_cnt65536) {
+  }
+  static DiscountedCounter Zero() {
+    return SetZero();
+  }
+  bool is_valid() const {
+    return valid;
+  }
+  bool invalidate() {
+    return (valid = false);
+  }
+  bool set_zero() {
+    last_updated = 0;
+    total = cnt2048 = cnt65536 = 0;
+    return (valid = true);
+  }
+  bool is_zero() const {
+    return !total;
+  }
+  bool almost_zero() const {
+    return (cnt2048 | cnt65536) <= 1;
+  }
+  bool operator==(const DiscountedCounter& other) const {
+    return last_updated == other.last_updated && total == other.total && cnt2048 == other.cnt2048 &&
+           cnt65536 == other.cnt65536;
+  }
+  bool almost_equals(const DiscountedCounter& other) const {
+    return last_updated == other.last_updated && total == other.total && cnt2048 <= other.cnt2048 + 1 &&
+           other.cnt2048 <= cnt2048 + 1 && cnt65536 <= other.cnt65536 + 1 && other.cnt65536 <= cnt65536 + 1;
+  }
+  bool validate();
+  bool increase_by(unsigned count, ton::UnixTime now);
+  bool fetch(vm::CellSlice& cs);
+  bool unpack(Ref<vm::CellSlice> csr);
+  bool store(vm::CellBuilder& cb) const;
+  Ref<vm::CellSlice> pack() const;
+  bool show(std::ostream& os) const;
+  std::string to_str() const;
+};
+
+static inline std::ostream& operator<<(std::ostream& os, const DiscountedCounter& dcount) {
+  dcount.show(os);
+  return os;
+}
+
+bool fetch_CreatorStats(vm::CellSlice& cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt);
+bool store_CreatorStats(vm::CellBuilder& cb, const DiscountedCounter& mc_cnt, const DiscountedCounter& shard_cnt);
+bool unpack_CreatorStats(Ref<vm::CellSlice> cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt);
+
+struct BlockProofLink {
   ton::BlockIdExt from, to;
   bool is_key{false}, is_fwd{false};
-  Ref<vm::Cell> dest_proof, shard_proof, proof;
+  Ref<vm::Cell> dest_proof, state_proof, proof;
   ton::CatchainSeqno cc_seqno{0};
   td::uint32 validator_set_hash{0};
   std::vector<ton::BlockSignature> signatures;
-  BlkProofLink(ton::BlockIdExt _from, ton::BlockIdExt _to, bool _iskey = false)
+  BlockProofLink(ton::BlockIdExt _from, ton::BlockIdExt _to, bool _iskey = false)
       : from(_from), to(_to), is_key(_iskey), is_fwd(to.seqno() > from.seqno()) {
   }
+  bool incomplete() const {
+    return dest_proof.is_null();
+  }
+  td::Status validate(td::uint32* save_utime = nullptr) const;
 };
 
-struct BlkProofChain {
+struct BlockProofChain {
   ton::BlockIdExt from, to;
   int mode;
-  std::vector<BlkProofLink> links;
+  td::uint32 last_utime{0};
+  bool complete{false}, has_key_block{false}, has_utime{false}, valid{false};
+  ton::BlockIdExt key_blkid;
+  std::vector<BlockProofLink> links;
   std::size_t link_count() const {
     return links.size();
   }
-  BlkProofChain(ton::BlockIdExt _from, ton::BlockIdExt _to, int _mode) : from(_from), to(_to), mode(_mode) {
+  BlockProofChain(ton::BlockIdExt _from, ton::BlockIdExt _to, int _mode = 0) : from(_from), to(_to), mode(_mode) {
   }
+  BlockProofLink& new_link(const ton::BlockIdExt& cur, const ton::BlockIdExt& next, bool iskey = false) {
+    links.emplace_back(cur, next, iskey);
+    return links.back();
+  }
+  const BlockProofLink& last_link() const {
+    return links.back();
+  }
+  BlockProofLink& last_link() {
+    return links.back();
+  }
+  bool last_link_incomplete() const {
+    return !links.empty() && last_link().incomplete();
+  }
+  td::Status validate();
 };
 
 int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard);
@@ -529,6 +622,8 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
 td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
                                      ton::BlockIdExt* fetch_blkid = nullptr);
+td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
+                              ton::Bits256* store_shard_hash_to = nullptr);
 
 std::unique_ptr<vm::AugmentedDictionary> get_prev_blocks_dict(Ref<vm::Cell> state_root);
 bool get_old_mc_block_id(vm::AugmentedDictionary* prev_blocks_dict, ton::BlockSeqno seqno, ton::BlockIdExt& blkid,

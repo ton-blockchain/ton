@@ -54,6 +54,7 @@ class ExtClient {
   template <class QueryT>
   void send_query(QueryT query, td::Promise<typename QueryT::ReturnType> promise) {
     auto raw_query = ton::serialize_tl_object(&query, true);
+    LOG(ERROR) << "send query to liteserver: " << to_string(query);
     td::BufferSlice liteserver_query =
         ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(raw_query)), true);
 

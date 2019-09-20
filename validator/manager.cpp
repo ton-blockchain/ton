@@ -262,6 +262,13 @@ void ValidatorManagerImpl::get_persistent_state(BlockIdExt block_id, BlockIdExt 
   td::actor::send_closure(db_, &Db::get_persistent_state_file, block_id, masterchain_block_id, std::move(promise));
 }
 
+void ValidatorManagerImpl::get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                      td::int64 offset, td::int64 max_length,
+                                                      td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(db_, &Db::get_persistent_state_file_slice, block_id, masterchain_block_id, offset, max_length,
+                          std::move(promise));
+}
+
 void ValidatorManagerImpl::get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Ref<Proof>> R) mutable {
     if (R.is_error()) {
@@ -433,12 +440,16 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not synced"));
     return;
   }
-  auto F = fetch_tl_object<lite_api::liteServer_query>(std::move(data), true);
-  if (F.is_error()) {
-    promise.set_error(F.move_as_error());
-    return;
+  auto F = fetch_tl_object<lite_api::liteServer_query>(data.clone(), true);
+  if (F.is_ok()) {
+    data = std::move(F.move_as_ok()->data_);
+  } else {
+    auto G = fetch_tl_prefix<lite_api::liteServer_queryPrefix>(data, true);
+    if (G.is_error()) {
+      promise.set_error(G.move_as_error());
+      return;
+    }
   }
-  auto obj = F.move_as_ok();
 
   auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
     td::BufferSlice data;
@@ -451,7 +462,7 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
     promise.set_value(std::move(data));
   });
 
-  run_liteserver_query(std::move(obj->data_), actor_id(this), std::move(P));
+  run_liteserver_query(std::move(data), actor_id(this), std::move(P));
 }
 
 void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
@@ -1275,7 +1286,7 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast) {
 }
 
 void ValidatorManagerImpl::start_up() {
-  db_ = create_db_actor(actor_id(this), db_root_);
+  db_ = create_db_actor(actor_id(this), db_root_, opts_->get_filedb_depth());
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
 
   auto Q =
@@ -1704,6 +1715,33 @@ void ValidatorManagerImpl::allow_archive(BlockIdExt block_id, td::Promise<bool> 
   td::actor::send_closure(db_, &Db::archive, block_id, std::move(P));
 }
 
+void ValidatorManagerImpl::allow_delete(BlockIdExt block_id, td::Promise<bool> promise) {
+  auto key_ttl = td::Clocks::system() - opts_->key_proof_ttl();
+  auto ttl = td::Clocks::system() - opts_->archive_ttl();
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), promise = std::move(promise), ttl, key_ttl](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(true);
+          return;
+        }
+        auto handle = R.move_as_ok();
+        if (!handle->moved_to_storage()) {
+          promise.set_result(false);
+          return;
+        }
+        if (!handle->inited_unix_time()) {
+          promise.set_result(true);
+          return;
+        }
+        if (!handle->inited_is_key_block() || !handle->is_key_block()) {
+          promise.set_result(handle->unix_time() <= ttl);
+        } else {
+          promise.set_result(handle->unix_time() <= key_ttl);
+        }
+      });
+  get_block_handle(block_id, false, std::move(P));
+}
+
 void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) {
   if (!gc_masterchain_handle_) {
     promise.set_result(false);
@@ -1908,12 +1946,14 @@ void ValidatorManagerImpl::send_peek_key_block_request() {
 }
 
 void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  std::vector<std::pair<std::string, std::string>> vec;
+  vec.emplace_back("unixtime", td::to_string(static_cast<UnixTime>(td::Clocks::system())));
   if (!last_masterchain_block_handle_) {
-    promise.set_value(std::vector<std::pair<std::string, std::string>>());
+    promise.set_value(std::move(vec));
     return;
   }
-  std::vector<std::pair<std::string, std::string>> vec;
   vec.emplace_back("masterchainblock", last_masterchain_block_id_.to_str());
+  vec.emplace_back("masterchainblocktime", td::to_string(last_masterchain_block_handle_->unix_time()));
   vec.emplace_back("gcmasterchainblock", gc_masterchain_handle_->id().to_str());
   vec.emplace_back("keymasterchainblock", last_key_block_handle_->id().to_str());
   vec.emplace_back("knownkeymasterchainblock", last_known_key_block_handle_->id().to_str());

@@ -131,14 +131,17 @@ td::Result<block::StdAddress> parse_account_addr(std::map<std::string, std::stri
     return td::Status::Error(ton::ErrorCode::error, "no account id");
   }
   std::string acc_string = it->second;
-  block::StdAddress a{acc_string};
-  if (a.is_valid()) {
+  block::StdAddress a;
+  if (a.parse_addr(td::Slice(acc_string))) {
     return a;
   }
   ton::WorkchainId workchain_id;
   it = opts.find("accountworkchain");
   if (it == opts.end()) {
-    return td::Status::Error(ton::ErrorCode::error, "no account workchain id");
+    it = opts.find("workchain");
+    if (it == opts.end()) {
+      return td::Status::Error(ton::ErrorCode::error, "no account workchain id");
+    }
   }
   try {
     workchain_id = std::stoi(it->second);
@@ -392,8 +395,26 @@ void HttpQueryBlockInfo::got_transactions(td::BufferSlice data) {
                                static_cast<ton::LogicalTime>(T->lt_), T->hash_);
   }
 
-  if (!--pending_queries_) {
-    finish_query();
+  if (f->incomplete_ && transactions_.size() > 0) {
+    const auto &T = *transactions_.rbegin();
+    auto query_3 = ton::serialize_tl_object(
+        ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
+            ton::create_tl_lite_block_id(block_id_), 7 + 128, 1024,
+            ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(T.addr.addr, T.lt), false, false),
+        true);
+    auto P_3 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &HttpQueryBlockInfo::abort_query, R.move_as_error_prefix("litequery failed: "));
+      } else {
+        td::actor::send_closure(SelfId, &HttpQueryBlockInfo::got_transactions, R.move_as_ok());
+      }
+    });
+    td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
+                            std::move(query_3), std::move(P_3));
+  } else {
+    if (!--pending_queries_) {
+      finish_query();
+    }
   }
 }
 
@@ -594,8 +615,27 @@ void HttpQueryBlockSearch::got_transactions(td::BufferSlice data) {
                                static_cast<ton::LogicalTime>(T->lt_), T->hash_);
   }
 
-  if (!--pending_queries_) {
-    finish_query();
+  if (f->incomplete_ && transactions_.size() > 0) {
+    const auto &T = *transactions_.rbegin();
+    auto query_3 = ton::serialize_tl_object(
+        ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
+            ton::create_tl_lite_block_id(block_id_), 7 + 128, 1024,
+            ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(T.addr.addr, T.lt), false, false),
+        true);
+    auto P_3 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &HttpQueryBlockSearch::abort_query,
+                                R.move_as_error_prefix("litequery failed: "));
+      } else {
+        td::actor::send_closure(SelfId, &HttpQueryBlockSearch::got_transactions, R.move_as_ok());
+      }
+    });
+    td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
+                            std::move(query_3), std::move(P_3));
+  } else {
+    if (!--pending_queries_) {
+      finish_query();
+    }
   }
 }
 

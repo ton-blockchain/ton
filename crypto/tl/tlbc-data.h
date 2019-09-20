@@ -30,7 +30,19 @@ struct Type;
 struct Constructor;
 
 struct TypeExpr {
-  enum { te_Unknown, te_Type, te_Param, te_Apply, te_Add, te_MulConst, te_IntConst, te_Tuple, te_Ref, te_CondType };
+  enum {
+    te_Unknown,
+    te_Type,
+    te_Param,
+    te_Apply,
+    te_Add,
+    te_GetBit,
+    te_MulConst,
+    te_IntConst,
+    te_Tuple,
+    te_Ref,
+    te_CondType
+  };
   enum { max_const_expr = 100000, const_htable_size = 170239 };
   int tp;
   int value;

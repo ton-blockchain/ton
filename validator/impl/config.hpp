@@ -17,45 +17,33 @@
     Copyright 2017-2019 Telegram Systems LLP
 */
 #pragma once
-
-#include "validator/interfaces/block.h"
-
-#include "adnl/utils.hpp"
-
-#include "ton/ton-types.h"
+#include "validator/interfaces/config.h"
 
 namespace ton {
-
 namespace validator {
+using td::Ref;
 
-namespace dummy0 {
-
-class Block : public BlockData {
- private:
-  td::BufferSlice data_;
-  BlockIdExt id_;
+class ConfigHolderQ : public ConfigHolder {
+  std::shared_ptr<block::Config> config_;
+  std::shared_ptr<vm::StaticBagOfCellsDb> boc_;
 
  public:
-  td::BufferSlice data() const override {
-    return data_.clone();
+  ConfigHolderQ() = default;
+  ConfigHolderQ(std::shared_ptr<block::Config> config, std::shared_ptr<vm::StaticBagOfCellsDb> boc)
+      : config_(std::move(config)), boc_(std::move(boc)) {
   }
-  FileHash file_hash() const override {
-    return id_.file_hash;
+  ConfigHolderQ(std::shared_ptr<block::Config> config) : config_(std::move(config)) {
   }
-  BlockIdExt block_id() const override {
-    return id_;
+  const block::Config *get_config() const {
+    return config_.get();
   }
-  td::Ref<vm::Cell> root_cell() const override {
-    return {};
+  ConfigHolderQ *make_copy() const override {
+    return new ConfigHolderQ(*this);
   }
-  Block *make_copy() const override {
-    return new Block(id_, data_.clone());
-  }
-  Block(BlockIdExt id, td::BufferSlice data) : data_(std::move(data)), id_(id) {
-  }
+  // if necessary, add more public methods providing interface to config_->...()
+  td::Ref<ValidatorSet> get_total_validator_set(int next) const override;  // next = -1 -> prev, next = 0 -> cur
+  td::Ref<ValidatorSet> get_validator_set(ShardIdFull shard, UnixTime utime, CatchainSeqno seqno) const override;
 };
-
-}  // namespace dummy0
 
 }  // namespace validator
 

@@ -64,7 +64,11 @@ std::string load_source(std::string name) {
 
 td::Ref<vm::Cell> get_test_wallet_source() {
   std::string code = R"ABCD(
-SETCP0 DUP IFNOTRET INC 32 THROWIF  // return if recv_internal, fail unless recv_external
+SETCP0 DUP IFNOTRET // return if recv_internal
+DUP 85143 INT EQUAL IFJMP:<{ // "seqno" get-method
+  DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
+}>
+INC 32 THROWIF  // fail unless recv_external
 512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
 c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
 s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
@@ -76,6 +80,7 @@ CHKSIGNU              // pubk cs cnt ?
 ACCEPT
 SWAP 32 LDU NIP
 DUP SREFS IF:<{
+  // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
   8 LDU LDREF         // pubk cnt mode msg cs
   s0 s2 XCHG SENDRAWMSG  // pubk cnt cs ; ( message sent )
 }>
@@ -86,6 +91,7 @@ INC NEWC 32 STU 256 STU ENDC c4 POPCTR
 }
 
 TEST(Tonlib, TestWallet) {
+  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_test_wallet_source()).move_as_ok());
   CHECK(get_test_wallet_source()->get_hash() == TestWallet::get_init_code()->get_hash());
   auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet.fif"), {"aba", "0"}).move_as_ok();
 
@@ -125,6 +131,12 @@ TEST(Tonlib, TestGiver) {
                                                 TestGiver::make_a_gift_message(0, 1000000000ll * 6666 / 1000, address));
   vm::CellSlice(vm::NoVm(), res).print_rec(std::cerr);
   CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == res->get_hash());
+}
+TEST(Tonlib, PublicKey) {
+  block::PublicKey::parse("pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2").ensure_error();
+  auto key = block::PublicKey::parse("Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2").move_as_ok();
+  CHECK(td::buffer_to_hex(key.key) == "3EE9DC0A7A0B6CA01770CE34698792BD8ECB53A6949BFD6C81B6E3CA475B74D7");
+  CHECK(key.serialize() == "Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2");
 }
 
 TEST(Tonlib, Address) {
@@ -281,12 +293,14 @@ TEST(Tonlib, KeysApi) {
   auto local_password = td::SecureString("local password");
   auto mnemonic_password = td::SecureString("mnemonic password");
   {
-    auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), td::SecureString{}))
+    auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), td::SecureString{},
+                                                                       td::SecureString{}))
                    .move_as_ok();
   }
 
   //createNewKey local_password:bytes mnemonic_password:bytes = Key;
-  auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), mnemonic_password.copy()))
+  auto key = sync_send(client, make_object<tonlib_api::createNewKey>(local_password.copy(), mnemonic_password.copy(),
+                                                                     td::SecureString{}))
                  .move_as_ok();
 
   sync_send(client, make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(

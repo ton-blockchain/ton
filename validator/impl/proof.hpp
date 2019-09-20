@@ -22,31 +22,11 @@
 #include "block/block-db.h"
 #include "block/mc-config.h"
 #include "vm/db/StaticBagOfCellsDb.h"
+#include "config.hpp"
 
 namespace ton {
 namespace validator {
 using td::Ref;
-
-class ConfigHolderQ : public ConfigHolder {
-  std::shared_ptr<block::Config> config_;
-  std::shared_ptr<vm::StaticBagOfCellsDb> boc_;
-
- public:
-  ConfigHolderQ() = default;
-  ConfigHolderQ(std::shared_ptr<block::Config> config, std::shared_ptr<vm::StaticBagOfCellsDb> boc)
-      : config_(std::move(config)), boc_(std::move(boc)) {
-  }
-  ConfigHolderQ(std::shared_ptr<block::Config> config) : config_(std::move(config)) {
-  }
-  const block::Config *get_config() const {
-    return config_.get();
-  }
-  ConfigHolderQ *make_copy() const override {
-    return new ConfigHolderQ(*this);
-  }
-  // if necessary, add more public methods providing interface to config_->...()
-  td::Ref<ValidatorSet> get_total_validator_set(int next) const override;  // next = -1 -> prev, next = 0 -> cur
-};
 
 class ProofLinkQ : virtual public ProofLink {
  protected:
@@ -67,10 +47,22 @@ class ProofLinkQ : virtual public ProofLink {
   }
   td::Result<BlockSeqno> prev_key_mc_seqno() const override;
   td::Result<td::Ref<ConfigHolder>> get_key_block_config() const override;
+  td::Result<BasicHeaderInfo> get_basic_header_info() const override;
 
- protected:
-  td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> get_virtual_root(
-      bool lazy = false) const;
+  struct VirtualizedProof {
+    Ref<vm::Cell> root, sig_root;
+    std::shared_ptr<vm::StaticBagOfCellsDb> boc;
+    VirtualizedProof() = default;
+    VirtualizedProof(Ref<vm::Cell> _vroot, Ref<vm::Cell> _sigroot, std::shared_ptr<vm::StaticBagOfCellsDb> _boc)
+        : root(std::move(_vroot)), sig_root(std::move(_sigroot)), boc(std::move(_boc)) {
+    }
+    void clear() {
+      root.clear();
+      sig_root.clear();
+      boc.reset();
+    }
+  };
+  td::Result<VirtualizedProof> get_virtual_root(bool lazy = false) const;
 };
 
 #if TD_MSVC
@@ -85,6 +77,7 @@ class ProofQ : public Proof, public ProofLinkQ {
     return new ProofQ(id_, data_.clone());
   }
   td::Result<Ref<ProofLink>> export_as_proof_link() const override;
+  td::Result<Ref<vm::Cell>> get_signatures_root() const;
 };
 #if TD_MSVC
 #pragma warning(pop)

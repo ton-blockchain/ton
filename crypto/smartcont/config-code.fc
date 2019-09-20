@@ -129,7 +129,7 @@
   var cs = begin_parse(get_data());
   var cfg_dict = cs~load_ref();
   int kl = 32;
-  cfg_dict~idict_set_ref(kl, -17, begin_cell().store_uint(now() >> 8, 32).end_cell());
+  ;; cfg_dict~idict_set_ref(kl, -17, begin_cell().store_uint(now() >> 16, 32).end_cell());
   var next_vset = cfg_dict.idict_get_ref(kl, 36);
   ifnot (next_vset.null?()) {
     ;; check whether we have to set next_vset as the current validator set

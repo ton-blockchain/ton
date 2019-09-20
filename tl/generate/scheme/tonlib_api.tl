@@ -18,11 +18,13 @@ ok = Ok;
 
 options config:string keystore_directory:string = Options;
 
-key public_key:bytes secret:secureBytes = Key;
+key public_key:string secret:secureBytes = Key;
 inputKey key:key local_password:secureBytes = InputKey;
 exportedKey word_list:vector<secureString> = ExportedKey;
 exportedPemKey pem:secureString = ExportedPemKey;
 exportedEncryptedKey data:secureBytes = ExportedEncryptedKey;
+
+bip39Hints words:vector<string> = Bip39Hints;
 
 accountAddress account_address:string = AccountAddress;
 
@@ -34,7 +36,7 @@ raw.message source:string destination:string value:int64 = raw.Message;
 raw.transaction data:bytes previous_transaction_id:internal.transactionId fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.Transaction> = raw.Transactions;
 
-testWallet.initialAccountState public_key:bytes = testWallet.InitialAccountState;
+testWallet.initialAccountState public_key:string = testWallet.InitialAccountState;
 testWallet.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId = testWallet.AccountState;
 
 testGiver.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId = testGiver.AccountState;
@@ -56,8 +58,8 @@ close = Ok;
 
 options.setConfig config:string = Ok;
 
-createNewKey local_password:secureBytes mnemonic_password:secureBytes = Key;
-deleteKey public_key:bytes = Ok;
+createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;
+deleteKey public_key:string = Ok;
 exportKey input_key:inputKey = ExportedKey;
 exportPemKey input_key:inputKey key_password:secureBytes = ExportedPemKey;
 exportEncryptedKey input_key:inputKey key_password:secureBytes = ExportedEncryptedKey;
@@ -65,6 +67,8 @@ importKey local_password:secureBytes mnemonic_password:secureBytes exported_key:
 importPemKey local_password:secureBytes key_password:secureBytes exported_key:exportedPemKey = Key;
 importEncryptedKey local_password:secureBytes key_password:secureBytes exported_encrypted_key:exportedEncryptedKey = Key;
 changeLocalPassword input_key:inputKey new_local_password:secureBytes = Key;
+
+getBip39Hints prefix:string = Bip39Hints;
 
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountAddress initital_account_state:raw.initialAccountState = AccountAddress;

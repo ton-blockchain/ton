@@ -45,7 +45,8 @@ void BlockArchiver::got_block_handle(BlockHandle handle) {
     return;
   }
 
-  if (!handle_->is_applied() && !handle_->is_archived()) {
+  if (!handle_->is_applied() && !handle_->is_archived() &&
+      (!handle_->inited_is_key_block() || !handle_->is_key_block())) {
     // no need for this block
     // probably this block not in final chain
     // this will eventually delete all associated data

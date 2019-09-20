@@ -43,15 +43,15 @@ td::Result<Ref<ProofLink>> ProofQ::export_as_proof_link() const {
 }
 
 td::Result<BlockSeqno> ProofLinkQ::prev_key_mc_seqno() const {
-  if (!id_.is_masterchain()) {
-    return td::Status::Error(
-        -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
-  }
-  TRY_RESULT(pair, get_virtual_root(true));
+  //if (!id_.is_masterchain()) {
+  //  return td::Status::Error(
+  //      -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
+  //}
+  TRY_RESULT(virt, get_virtual_root(true));
   try {
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
-    if (!(tlb::unpack_cell(std::move(pair.first), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
+    if (!(tlb::unpack_cell(std::move(virt.root), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
       return td::Status::Error(-668,
                                "cannot unpack block header in the Merkle proof for masterchain block "s + id_.to_str());
     }
@@ -66,19 +66,37 @@ td::Result<td::Ref<ConfigHolder>> ProofLinkQ::get_key_block_config() const {
     return td::Status::Error(
         -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
   }
-  TRY_RESULT(pair, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root(true));
   try {
-    TRY_RESULT(cfg, block::Config::extract_from_key_block(
-                        std::move(pair.first), block::Config::needValidatorSet | block::Config::needWorkchainInfo));
-    return td::make_ref<ConfigHolderQ>(std::move(cfg), std::move(pair.second));
+    TRY_RESULT(cfg, block::Config::extract_from_key_block(std::move(virt.root), block::Config::needValidatorSet));
+    return td::make_ref<ConfigHolderQ>(std::move(cfg), std::move(virt.boc));
   } catch (vm::VmVirtError &) {
     return td::Status::Error(-668,
                              "virtualization error while traversing masterchain block proof for "s + id_.to_str());
   }
 }
 
-td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> ProofLinkQ::get_virtual_root(
-    bool lazy) const {
+td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const {
+  BasicHeaderInfo res;
+  TRY_RESULT(virt, get_virtual_root(true));
+  try {
+    block::gen::Block::Record blk;
+    block::gen::BlockInfo::Record info;
+    if (!(tlb::unpack_cell(std::move(virt.root), blk) && tlb::unpack_cell(blk.info, info) && !info.version)) {
+      return td::Status::Error(-668,
+                               "cannot unpack block header in the Merkle proof for masterchain block "s + id_.to_str());
+    }
+    res.cc_seqno = info.gen_catchain_seqno;
+    res.utime = info.gen_utime;
+    res.validator_set_hash = info.gen_validator_list_hash_short;
+    res.prev_key_mc_seqno = info.prev_key_block_seqno;
+    return res;
+  } catch (vm::VmVirtError &) {
+    return td::Status::Error(-668, "virtualization error in masterchain block proof for "s + id_.to_str());
+  }
+}
+
+td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy) const {
   if (data_.empty()) {
     return td::Status::Error(-668, "block proof is empty");
   }
@@ -124,19 +142,23 @@ td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> Pr
                                        " contains a Merkle proof with incorrect root hash: expected " +
                                        proof_blk_id.root_hash.to_hex() + ", found " + virt_hash.to_hex());
   }
-  return std::make_pair(std::move(virt_root), std::move(boc));
+  return VirtualizedProof{std::move(virt_root), proof.signatures->prefetch_ref(), std::move(boc)};
 }
 
-td::Ref<ValidatorSet> ConfigHolderQ::get_total_validator_set(int next) const {
-  if (!config_) {
-    LOG(ERROR) << "MasterchainStateQ::get_total_validator_set() : no config";
-    return {};
+td::Result<Ref<vm::Cell>> ProofQ::get_signatures_root() const {
+  if (data_.empty()) {
+    return td::Status::Error(-668, "block proof is empty");
   }
-  auto nodes = config_->compute_total_validator_set(next);
-  if (nodes.empty()) {
-    return {};
+  TRY_RESULT(root, vm::std_boc_deserialize(data_.as_slice()));
+  block::gen::BlockProof::Record proof;
+  BlockIdExt proof_blk_id;
+  if (!(tlb::unpack_cell(root, proof) && block::tlb::t_BlockIdExt.unpack(proof.proof_for.write(), proof_blk_id))) {
+    return td::Status::Error(-668, "masterchain block proof is invalid");
   }
-  return Ref<ValidatorSetQ>{true, 0, ton::ShardIdFull{}, std::move(nodes)};
+  if (proof_blk_id != id_) {
+    return td::Status::Error(-668, "masterchain block proof is for another block");
+  }
+  return proof.signatures->prefetch_ref();
 }
 
 }  // namespace validator

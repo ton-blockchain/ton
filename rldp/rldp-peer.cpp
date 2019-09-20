@@ -38,9 +38,9 @@ void RldpTransferSenderImpl::create_encoder() {
     return;
   }
   td::BufferSlice D = data_.clone();
-  D.confirm_read(part_ * slice_size());
+  D.confirm_read(td::narrow_cast<std::size_t>(part_ * slice_size()));
   if (D.size() > slice_size()) {
-    D.truncate(slice_size());
+    D.truncate(td::narrow_cast<std::size_t>(slice_size()));
   }
   fec_type_ = td::fec::RaptorQEncoder::Parameters{D.size(), symbol_size(), 0};
   auto E = fec_type_.create_encoder(std::move(D));
@@ -143,7 +143,7 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
                                           << " data_size=" << data.data.size() << " part=" << part_));
         return;
       }
-      data_.as_slice().remove_prefix(offset_).copy_from(data.data.as_slice());
+      data_.as_slice().remove_prefix(td::narrow_cast<std::size_t>(offset_)).copy_from(data.data.as_slice());
       offset_ += data.data.size();
       auto obj = create_tl_object<ton_api::rldp_complete>(transfer_id_, part_);
       td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, serialize_tl_object(obj, true));
