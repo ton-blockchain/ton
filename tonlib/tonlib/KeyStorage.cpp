@@ -103,7 +103,7 @@ td::Status KeyStorage::delete_key(td::Slice public_key) {
 td::Result<KeyStorage::Key> KeyStorage::import_key(td::Slice local_password, td::Slice mnemonic_password,
                                                    ExportedKey exported_key) {
   TRY_RESULT(mnemonic, Mnemonic::create(std::move(exported_key.mnemonic_words), td::SecureString(mnemonic_password)));
-  if (!mnemonic.is_basic_seed()) {
+  if (mnemonic.is_basic_seed()) {
     if (mnemonic_password.empty() && mnemonic.is_password_seed()) {
       return td::Status::Error("Mnemonic password is expected");
     }
