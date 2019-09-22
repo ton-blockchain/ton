@@ -151,19 +151,13 @@ void FileDb::load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size,
 
   auto v = R.move_as_ok();
 
-  auto P = td::PromiseCreator::lambda(
-      [promise = std::move(promise), file_hash = v.file_hash](td::Result<td::BufferSlice> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-        } else {
-          auto data = R.move_as_ok();
-          if (file_hash != sha256_bits256(data.as_slice())) {
-            promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "db error: bad file hash"));
-          } else {
-            promise.set_value(std::move(data));
-          }
-        }
-      });
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
 
   td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), offset, max_size, std::move(P))
       .release();
