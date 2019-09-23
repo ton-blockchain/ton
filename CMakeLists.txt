@@ -71,7 +71,7 @@ endif()
 
 #BEGIN internal
 option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
-if (TON_ONLY_TONBLIB)
+if (TON_ONLY_TONLIB)
   set(NOT_TON_ONLY_TONLIB false)
 else()
   set(NOT_TON_ONLY_TONLIB true)

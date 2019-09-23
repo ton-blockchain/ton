@@ -121,12 +121,10 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   }
   config_add_full_node_adnl_id(ton::PublicKeyHash{config.fullnode_}).ensure();
 
-  if (config.fullnodeslave_) {
+  for (auto &s : config.fullnodeslaves_) {
     td::IPAddress ip;
-    ip.init_ipv4_port(td::IPAddress::ipv4_to_str(config.fullnodeslave_->ip_),
-                      static_cast<td::uint16>(config.fullnodeslave_->port_))
-        .ensure();
-    config_add_full_node_slave(ip, ton::PublicKey{config.fullnodeslave_->adnl_}).ensure();
+    ip.init_ipv4_port(td::IPAddress::ipv4_to_str(s->ip_), static_cast<td::uint16>(s->port_)).ensure();
+    config_add_full_node_slave(ip, ton::PublicKey{s->adnl_}).ensure();
   }
 
   for (auto &s : config.fullnodemasters_) {
@@ -192,10 +190,10 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
         val.first.tl(), std::move(temp_vec), std::move(adnl_val_vec), val.second.election_date, val.second.expire_at));
   }
 
-  ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave> full_node_slave = nullptr;
-  if (!full_node_slave_adnl_id.empty()) {
-    full_node_slave = ton::create_tl_object<ton::ton_api::engine_validator_fullNodeSlave>(
-        full_node_slave_addr.get_ipv4(), full_node_slave_addr.get_port(), full_node_slave_adnl_id.tl());
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
+  for (auto &x : full_node_slaves) {
+    full_node_slaves_vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_fullNodeSlave>(
+        x.addr.get_ipv4(), x.addr.get_port(), x.key.tl()));
   }
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;
   for (auto &x : full_node_masters) {
@@ -224,8 +222,8 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
       out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
-      std::move(full_node_slave), std::move(full_node_masters_vec), std::move(liteserver_vec), std::move(control_vec),
-      std::move(gc_vec));
+      std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
+      std::move(control_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -387,11 +385,16 @@ td::Result<bool> Config::config_add_full_node_adnl_id(ton::PublicKeyHash id) {
 }
 
 td::Result<bool> Config::config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id) {
-  if (full_node_slave_adnl_id == id && addr == full_node_slave_addr) {
-    return false;
+  for (auto &s : full_node_slaves) {
+    if (s.addr == addr) {
+      if (s.key == id) {
+        return true;
+      } else {
+        return td::Status::Error(ton::ErrorCode::error, "duplicate slave ip");
+      }
+    }
   }
-  full_node_slave_adnl_id = id;
-  full_node_slave_addr = addr;
+  full_node_slaves.push_back(FullNodeSlave{id, addr});
   return true;
 }
 
@@ -1462,11 +1465,15 @@ void ValidatorEngine::started_validator() {
 }
 
 void ValidatorEngine::start_full_node() {
-  if (!config_.full_node.is_zero() || !config_.full_node_slave_adnl_id.empty()) {
+  if (!config_.full_node.is_zero() || config_.full_node_slaves.size() > 0) {
     auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto short_id = pk.compute_short_id();
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
-    if (!config_.full_node_slave_adnl_id.empty()) {
+    if (config_.full_node_slaves.size() > 0) {
+      std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> vec;
+      for (auto &x : config_.full_node_slaves) {
+        vec.emplace_back(ton::adnl::AdnlNodeIdFull{x.key}, x.addr);
+      }
       class Cb : public ton::adnl::AdnlExtClient::Callback {
        public:
         void on_ready() override {
@@ -1474,8 +1481,7 @@ void ValidatorEngine::start_full_node() {
         void on_stop_ready() override {
         }
       };
-      full_node_client_ = ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{config_.full_node_slave_adnl_id},
-                                                           config_.full_node_slave_addr, std::make_unique<Cb>());
+      full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
     }
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,

@@ -506,6 +506,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
   td::Timestamp check_shard_clients_;
+  td::Timestamp log_status_at_;
   void alarm() override;
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> out_shard_blocks_;
 

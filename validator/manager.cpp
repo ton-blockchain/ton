@@ -1665,7 +1665,21 @@ void ValidatorManagerImpl::allow_persistent_state_file_gc(BlockIdExt block_id, B
     promise.set_result(false);
     return;
   }
-  promise.set_result(masterchain_block_id.id.seqno + (1 << 17) < gc_masterchain_handle_->id().id.seqno);
+  if (masterchain_block_id.seqno() == 0) {
+    promise.set_result(false);
+    return;
+  }
+  if (masterchain_block_id.seqno() >= gc_masterchain_handle_->id().seqno()) {
+    promise.set_result(false);
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+    R.ensure();
+    auto handle = R.move_as_ok();
+    CHECK(handle->is_key_block());
+    promise.set_result(ValidatorManager::persistent_state_ttl(handle->unix_time()) < td::Clocks::system());
+  });
+  get_block_handle(masterchain_block_id, false, std::move(P));
 }
 
 void ValidatorManagerImpl::allow_archive(BlockIdExt block_id, td::Promise<bool> promise) {
@@ -1814,6 +1828,16 @@ void ValidatorManagerImpl::state_serializer_update(BlockSeqno seqno) {
 void ValidatorManagerImpl::alarm() {
   try_advance_gc_masterchain_block();
   alarm_timestamp() = td::Timestamp::in(1.0);
+  if (log_status_at_.is_in_past()) {
+    if (last_masterchain_block_handle_) {
+      LOG(INFO) << "STATUS: last_masterchain_block_ago="
+                << td::format::as_time(td::Clocks::system() - last_masterchain_block_handle_->unix_time())
+                << " last_known_key_block_ago="
+                << td::format::as_time(td::Clocks::system() - last_known_key_block_handle_->unix_time());
+    }
+    log_status_at_ = td::Timestamp::in(60.0);
+  }
+  alarm_timestamp().relax(log_status_at_);
   if (resend_shard_blocks_at_ && resend_shard_blocks_at_.is_in_past()) {
     resend_shard_blocks_at_ = td::Timestamp::never();
     for (auto &B : out_shard_blocks_) {

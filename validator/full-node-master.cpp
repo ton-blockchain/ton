@@ -18,6 +18,7 @@
 */
 #include "td/utils/SharedSlice.h"
 #include "full-node-master.hpp"
+#include "full-node-shard-queries.hpp"
 
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
@@ -91,6 +92,20 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
   });
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle,
                           create_block_id(query.block_), false, std::move(P));
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  td::actor::create_actor<BlockFullSender>("sender", ton::create_block_id(query.block_), false, validator_manager_,
+                                           std::move(promise))
+      .release();
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  td::actor::create_actor<BlockFullSender>("sender", ton::create_block_id(query.prev_block_), true, validator_manager_,
+                                           std::move(promise))
+      .release();
 }
 
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlockProof &query,

@@ -18,13 +18,16 @@
 */
 #include "td/utils/SharedSlice.h"
 #include "full-node-shard.hpp"
+#include "full-node-shard-queries.hpp"
 
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
+#include "ton/ton-io.hpp"
 
 #include "adnl/utils.hpp"
-#include "net/download-next-block.hpp"
+#include "net/download-block-new.hpp"
 #include "net/download-block.hpp"
+#include "net/download-next-block.hpp"
 #include "net/download-state.hpp"
 #include "net/download-proof.hpp"
 #include "net/get-next-key-blocks.hpp"
@@ -77,15 +80,22 @@ void FullNodeShardImpl::try_get_next_block(td::Timestamp timeout, td::Promise<Re
     promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
     return;
   }
-  td::actor::create_actor<DownloadNextBlock>("downloadnext", adnl_id_, overlay_id_, handle_, download_next_priority(),
-                                             timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
-                                             std::move(promise))
-      .release();
+  if (use_new_download()) {
+    td::actor::create_actor<DownloadBlockNew>("downloadnext", adnl_id_, overlay_id_, handle_->id(),
+                                              ton::adnl::AdnlNodeIdShort::zero(), download_next_priority(), timeout,
+                                              validator_manager_, rldp_, overlays_, adnl_, client_, std::move(promise))
+        .release();
+  } else {
+    td::actor::create_actor<DownloadNextBlock>("downloadnext", adnl_id_, overlay_id_, handle_, download_next_priority(),
+                                               timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+                                               std::move(promise))
+        .release();
+  }
 }
 
 void FullNodeShardImpl::got_next_block(td::Result<BlockHandle> R) {
   if (R.is_error()) {
-    if (R.error().code() == ErrorCode::timeout) {
+    if (R.error().code() == ErrorCode::timeout || R.error().code() == ErrorCode::notready) {
       get_next_block();
       return;
     }
@@ -197,6 +207,20 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   });
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle,
                           create_block_id(query.block_), false, std::move(P));
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  td::actor::create_actor<BlockFullSender>("sender", ton::create_block_id(query.block_), false, validator_manager_,
+                                           std::move(promise))
+      .release();
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  td::actor::create_actor<BlockFullSender>("sender", ton::create_block_id(query.prev_block_), true, validator_manager_,
+                                           std::move(promise))
+      .release();
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlockProof &query,
@@ -520,10 +544,17 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
 
 void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                        td::Promise<ReceivedBlock> promise) {
-  td::actor::create_actor<DownloadBlock>("downloadreq", id, adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(),
-                                         priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
-                                         std::move(promise))
-      .release();
+  if (use_new_download()) {
+    td::actor::create_actor<DownloadBlockNew>("downloadreq", id, adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(),
+                                              priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+                                              std::move(promise))
+        .release();
+  } else {
+    td::actor::create_actor<DownloadBlock>("downloadreq", id, adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(),
+                                           priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+                                           std::move(promise))
+        .release();
+  }
 }
 
 void FullNodeShardImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
