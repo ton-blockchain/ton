@@ -358,6 +358,10 @@ tonNode.dataList data:(vector bytes) = tonNode.DataList;
 tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullEmpty = tonNode.DataFull;
 
+tonNode.capabilities version:int capabilities:long = tonNode.Capabilities;
+
+tonNode.success = tonNode.Success;
+
 ---functions---
 
 tonNode.getNextBlockDescription prev_block:tonNode.blockIdExt = tonNode.BlockDescription;
@@ -382,7 +386,9 @@ tonNode.downloadBlockProofs blocks:(vector tonNode.blockIdExt) = tonNode.DataLis
 tonNode.downloadBlockProofLink block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProofLinks blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
 
-tonNode.slave.sendExtMessage message:tonNode.externalMessage = True;
+tonNode.getCapabilities = tonNode.Capabilities;
+
+tonNode.slave.sendExtMessage message:tonNode.externalMessage = tonNode.Success;
 
 tonNode.query = Object;
 

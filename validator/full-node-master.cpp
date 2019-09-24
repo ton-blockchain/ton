@@ -27,6 +27,9 @@
 
 #include "common/delay.h"
 
+#include "auto/tl/lite_api.h"
+#include "tl-utils/lite-utils.hpp"
+
 namespace ton {
 
 namespace validator {
@@ -299,6 +302,21 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
   auto masterchain_block_id = create_block_id(query.masterchain_block_);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_slice, block_id,
                           masterchain_block_id, query.offset_, query.max_size_, std::move(P));
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  promise.set_value(create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version(), proto_capabilities()));
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_slave_sendExtMessage &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(
+      validator_manager_, &ValidatorManagerInterface::run_ext_query,
+      create_serialize_tl_object<lite_api::liteServer_query>(
+          create_serialize_tl_object<lite_api::liteServer_sendMessage>(std::move(query.message_->data_))),
+      [&](td::Result<td::BufferSlice>) {});
+  promise.set_value(create_serialize_tl_object<ton_api::tonNode_success>());
 }
 
 void FullNodeMasterImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,

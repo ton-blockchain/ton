@@ -1679,11 +1679,15 @@ void ValidatorEngine::try_add_validator_temp_key(ton::PublicKeyHash perm_key, to
     return;
   }
 
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+
   if (!validator_manager_.empty()) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_temp_key, temp_key,
-                            std::move(promise));
+                            ig.get_promise());
   }
-  write_config(std::move(promise));
+  write_config(ig.get_promise());
 }
 
 void ValidatorEngine::try_add_validator_adnl_addr(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,

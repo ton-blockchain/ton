@@ -5,9 +5,9 @@
   ."Creates a request to simple wallet created by new-wallet.fif, with private key loaded from file <filename-base>.pk "
   ."and address from <filename-base>.addr, and saves it into <savefile>.boc ('wallet-query.boc' by default)" cr 1 halt
 } : usage
-$# dup 4 < swap 5 > or ' usage if
 def? $6 { @' $5 "-B" $= { @' $6 =: body-boc-file [forget] $6 def? $7 { @' $7 =: $5 [forget] $7 } { [forget] $5 } cond
   @' $# 2- =: $# } if } if
+$# dup 4 < swap 5 > or ' usage if
 
 true constant bounce
 
@@ -22,7 +22,7 @@ file-base +".addr" load-address
 ."Source wallet address = " 2dup .addr cr 6 .Addr cr
 file-base +".pk" load-keypair nip constant wallet_pk
 
-def? body-boc-file { @' body-boc-file file>B B>boc } { <b "TEST" $, b> } cond
+def? body-boc-file { @' body-boc-file file>B B>boc } { <b 0 32 u, "TEST" $, b> } cond
 constant body-cell
 
 ."Transferring " amount .GR ."to account "

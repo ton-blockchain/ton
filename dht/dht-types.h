@@ -89,7 +89,6 @@ class DhtKey {
   }
   DhtKey(PublicKeyHash id, DhtKeyName namestr, td::uint32 idx)
       : id_(std::move(id)), namestr_(std::move(namestr)), idx_(idx) {
-    CHECK(namestr.size() <= max_name_length());
   }
   static td::Result<DhtKey> create(tl_object_ptr<ton_api::dht_key> key);
   td::Status check() const;
