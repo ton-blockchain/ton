@@ -18,17 +18,21 @@
 */
 #pragma once
 
-#include "tonlib/LastBlock.h"
+#include "vm/cells.h"
+#include "Ed25519.h"
+#include "block/block.h"
 
 namespace tonlib {
-class LastBlockStorage {
+class Wallet {
  public:
-  td::Status set_directory(std::string directory);
-  td::Result<LastBlockState> get_state(td::Slice name);
-  void save_state(td::Slice name, LastBlockState state);
+  static td::Ref<vm::Cell> get_init_state(const td::Ed25519::PublicKey& public_key);
+  static td::Ref<vm::Cell> get_init_message(const td::Ed25519::PrivateKey& private_key);
+  static td::Ref<vm::Cell> make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 seqno,
+                                               td::uint32 valid_until, td::int64 gramms, td::Slice message,
+                                               const block::StdAddress& dest_address);
 
- private:
-  std::string directory_;
-  std::string get_file_name(td::Slice name);
+  static td::Ref<vm::Cell> get_init_code();
+  static vm::CellHash get_init_code_hash();
+  static td::Ref<vm::Cell> get_init_data(const td::Ed25519::PublicKey& public_key);
 };
 }  // namespace tonlib

@@ -18,17 +18,32 @@
 */
 #pragma once
 
-#include "tonlib/LastBlock.h"
+#include "auto/tl/tonlib_api.h"
+
+#include "td/utils/common.h"
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
 
 namespace tonlib {
-class LastBlockStorage {
- public:
-  td::Status set_directory(std::string directory);
-  td::Result<LastBlockState> get_state(td::Slice name);
-  void save_state(td::Slice name, LastBlockState state);
+namespace tonlib_api = ton::tonlib_api;
 
- private:
-  std::string directory_;
-  std::string get_file_name(td::Slice name);
+class Logging {
+ public:
+  static td::Status set_current_stream(tonlib_api::object_ptr<tonlib_api::LogStream> stream);
+
+  static td::Result<tonlib_api::object_ptr<tonlib_api::LogStream>> get_current_stream();
+
+  static td::Status set_verbosity_level(int new_verbosity_level);
+
+  static int get_verbosity_level();
+
+  static std::vector<std::string> get_tags();
+
+  static td::Status set_tag_verbosity_level(td::Slice tag, int new_verbosity_level);
+
+  static td::Result<int> get_tag_verbosity_level(td::Slice tag);
+
+  static void add_message(int log_verbosity_level, td::Slice message);
 };
+
 }  // namespace tonlib

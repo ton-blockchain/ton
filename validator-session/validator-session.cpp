@@ -296,7 +296,7 @@ void ValidatorSessionImpl::process_query(PublicKeyHash src, td::BufferSlice data
   if (round_id < real_state_->cur_round_seqno()) {
     block = real_state_->get_committed_block(description(), round_id);
     if (!block || SentBlock::get_block_id(block) != id) {
-      promise.set_error(td::Status::Error(ErrorCode::notready, "wrong block"));
+      promise.set_error(td::Status::Error(ErrorCode::notready, "wrong block in old round"));
       return;
     }
   } else {

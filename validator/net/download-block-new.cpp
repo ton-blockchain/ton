@@ -226,7 +226,7 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
           [&](ton_api::tonNode_dataFullEmpty &x) {
             abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have this block"));
           },
-          [&](ton_api::tonNode_dataFull &x) {
+          [&, self = this](ton_api::tonNode_dataFull &x) {
             if (!allow_partial_proof_ && x.is_link_) {
               abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
               return;
@@ -243,7 +243,7 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
               return;
             }
 
-            auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+            auto P = td::PromiseCreator::lambda([SelfId = actor_id(self)](td::Result<td::Unit> R) {
               if (R.is_error()) {
                 td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query,
                                         R.move_as_error_prefix("received bad proof: "));

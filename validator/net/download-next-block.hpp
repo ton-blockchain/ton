@@ -34,7 +34,7 @@ namespace fullnode {
 class DownloadNextBlock : public td::actor::Actor {
  public:
   DownloadNextBlock(adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id, BlockHandle prev,
-                    td::uint32 priority, td::Timestamp timeout,
+                    adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
@@ -57,6 +57,8 @@ class DownloadNextBlock : public td::actor::Actor {
 
   BlockIdExt next_block_id_;
 
+  adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
+
   td::uint32 priority_;
 
   td::Timestamp timeout_;
@@ -66,8 +68,6 @@ class DownloadNextBlock : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<ReceivedBlock> promise_;
-
-  adnl::AdnlNodeIdShort node_ = adnl::AdnlNodeIdShort::zero();
 };
 
 }  // namespace fullnode

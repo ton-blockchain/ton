@@ -31,6 +31,7 @@
 #include "tonlib/utils.h"
 #include "tonlib/TestGiver.h"
 #include "tonlib/TestWallet.h"
+#include "tonlib/Wallet.h"
 #include "tonlib/GenericAccount.h"
 #include "tonlib/TonlibClient.h"
 #include "tonlib/Client.h"
@@ -114,6 +115,37 @@ TEST(Tonlib, TestWallet) {
   LOG(ERROR) << "-------";
   vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
   CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
+}
+
+td::Ref<vm::Cell> get_wallet_source() {
+  return fift::compile_asm(load_source("smartcont/wallet-code.fif"), "", false).move_as_ok();
+}
+
+TEST(Tonlib, Wallet) {
+  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_wallet_source()).move_as_ok());
+  CHECK(get_wallet_source()->get_hash() == Wallet::get_init_code()->get_hash());
+  // TODO: fix ater new-wallet supports new type of wallet
+  //auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet.fif"), {"aba", "0"}).move_as_ok();
+
+  //auto new_wallet_pk = fift_output.source_lookup.read_file("new-wallet.pk").move_as_ok().data;
+  //auto new_wallet_query = fift_output.source_lookup.read_file("new-wallet-query.boc").move_as_ok().data;
+  //auto new_wallet_addr = fift_output.source_lookup.read_file("new-wallet.addr").move_as_ok().data;
+
+  //td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
+  //auto pub_key = priv_key.get_public_key().move_as_ok();
+  //auto init_state = TestWallet::get_init_state(pub_key);
+  //auto init_message = TestWallet::get_init_message(priv_key);
+  //auto address = GenericAccount::get_address(0, init_state);
+
+  //CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
+
+  //td::Ref<vm::Cell> res = GenericAccount::create_ext_message(address, init_state, init_message);
+
+  //LOG(ERROR) << "-------";
+  //vm::load_cell_slice(res).print_rec(std::cerr);
+  //LOG(ERROR) << "-------";
+  //vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
+  //CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
 }
 
 TEST(Tonlib, TestGiver) {
@@ -346,9 +378,9 @@ TEST(Tonlib, KeysApi) {
   //importKey local_password:bytes mnemonic_password:bytes exported_key:exportedKey = Key;
   auto new_local_password = td::SecureString("new_local_password");
   // import already existed key
-  sync_send(client, make_object<tonlib_api::importKey>(new_local_password.copy(), mnemonic_password.copy(),
-                                                       make_object<tonlib_api::exportedKey>(copy_word_list())))
-      .ensure_error();
+  //sync_send(client, make_object<tonlib_api::importKey>(new_local_password.copy(), mnemonic_password.copy(),
+  //make_object<tonlib_api::exportedKey>(copy_word_list())))
+  //.ensure_error();
 
   {
     auto export_password = td::SecureString("export password");
@@ -361,7 +393,9 @@ TEST(Tonlib, KeysApi) {
                               export_password.copy()))
             .move_as_ok();
 
-    sync_send(client, make_object<tonlib_api::deleteKey>(key->public_key_)).move_as_ok();
+    sync_send(client,
+              make_object<tonlib_api::deleteKey>(make_object<tonlib_api::key>(key->public_key_, key->secret_.copy())))
+        .move_as_ok();
 
     sync_send(client, make_object<tonlib_api::importEncryptedKey>(
                           new_local_password.copy(), wrong_export_password.copy(),
@@ -374,10 +408,13 @@ TEST(Tonlib, KeysApi) {
                               make_object<tonlib_api::exportedEncryptedKey>(exported_encrypted_key->data_.copy())))
             .move_as_ok();
     CHECK(imported_encrypted_key->public_key_ == key->public_key_);
+    key = std::move(imported_encrypted_key);
   }
 
   //deleteKey public_key:bytes = Ok;
-  sync_send(client, make_object<tonlib_api::deleteKey>(key->public_key_)).move_as_ok();
+  sync_send(client,
+            make_object<tonlib_api::deleteKey>(make_object<tonlib_api::key>(key->public_key_, key->secret_.copy())))
+      .move_as_ok();
 
   auto err1 = sync_send(client, make_object<tonlib_api::importKey>(
                                     new_local_password.copy(), td::SecureString("wrong password"),
@@ -410,11 +447,13 @@ TEST(Tonlib, KeysApi) {
   LOG(ERROR) << to_string(exported_pem_key);
 
   //importPemKey exported_key:exportedPemKey key_password:bytes = Key;
-  sync_send(client, make_object<tonlib_api::importPemKey>(
-                        new_local_password.copy(), pem_password.copy(),
-                        make_object<tonlib_api::exportedPemKey>(exported_pem_key->pem_.copy())))
-      .ensure_error();
-  sync_send(client, make_object<tonlib_api::deleteKey>(key->public_key_)).move_as_ok();
+  //sync_send(client, make_object<tonlib_api::importPemKey>(
+  //new_local_password.copy(), pem_password.copy(),
+  //make_object<tonlib_api::exportedPemKey>(exported_pem_key->pem_.copy())))
+  //.ensure_error();
+  sync_send(client, make_object<tonlib_api::deleteKey>(
+                        make_object<tonlib_api::key>(imported_key->public_key_, imported_key->secret_.copy())))
+      .move_as_ok();
   sync_send(client, make_object<tonlib_api::importPemKey>(
                         new_local_password.copy(), td::SecureString("wrong pem password"),
                         make_object<tonlib_api::exportedPemKey>(exported_pem_key->pem_.copy())))
