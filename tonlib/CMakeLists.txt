@@ -158,12 +158,19 @@ install(EXPORT Tonlib
   NAMESPACE Tonlib::
   DESTINATION lib/cmake/Tonlib
 )
+configure_package_config_file(
+  CMake/TonlibConfig.cmake.in
+  "TonlibConfig.cmake"
+  INSTALL_DESTINATION "lib/cmake/Tonlib"
+)
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file("TonlibConfigVersion.cmake"
   VERSION ${TON_VERSION}
   COMPATIBILITY ExactVersion
 )
-install(FILES "TonlibConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/TonlibConfigVersion.cmake"
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/TonlibConfig.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/TonlibConfigVersion.cmake"
   DESTINATION lib/cmake/Tonlib
 )
 
