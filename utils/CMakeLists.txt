@@ -14,3 +14,11 @@ add_executable(json2tlo json2tlo.cpp )
 target_link_libraries(json2tlo tl_api ton_crypto keys )
 target_include_directories(json2tlo PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..)
+
+
+install(TARGETS generate-random-id json2tlo
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+)
