@@ -59,12 +59,12 @@ class TonTest {
         val client = ClientKotlin()
         val dir = getContext().getExternalFilesDir(null).toString() + "/";
         runBlocking {
-            client.send(TonApi.Init(TonApi.Options(config, dir)))
+            client.send(TonApi.Init(TonApi.Options(TonApi.Config(config, "", false, false), dir)))
             val key = client.send(TonApi.CreateNewKey("local password".toByteArray(), "mnemonic password".toByteArray(), "".toByteArray())) as TonApi.Key
             val walletAddress = client.send(TonApi.TestWalletGetAccountAddress(TonApi.TestWalletInitialAccountState(key.publicKey))) as TonApi.AccountAddress;
             val testGiverState = client.send(TonApi.TestGiverGetAccountState()) as TonApi.TestGiverAccountState
 
-            client.send(TonApi.TestGiverSendGrams(walletAddress, testGiverState.seqno, 6660000000)) as TonApi.Ok
+            client.send(TonApi.TestGiverSendGrams(walletAddress, testGiverState.seqno, 6660000000, "".toByteArray())) as TonApi.Ok
 
             while ((client.send(TonApi.GenericGetAccountState(walletAddress)) as TonApi.GenericAccountStateUninited).accountState.balance <= 0L) {
                 delay(1000L)
@@ -79,7 +79,7 @@ class TonTest {
 
             val state = client.send(TonApi.GenericGetAccountState(walletAddress)) as TonApi.GenericAccountStateTestWallet
             val balance = state.accountState.balance
-            client.send(TonApi.GenericSendGrams(inputKey, walletAddress, walletAddress, 10)) as TonApi.Ok
+            client.send(TonApi.GenericSendGrams(inputKey, walletAddress, walletAddress, 10, 0, true, "hello".toByteArray())) as TonApi.Ok
             while ((client.send(TonApi.GenericGetAccountState(walletAddress)) as TonApi.GenericAccountStateTestWallet).accountState.balance == balance) {
                 delay(1000L)
             }

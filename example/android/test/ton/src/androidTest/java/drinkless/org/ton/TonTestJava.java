@@ -86,7 +86,7 @@ public class TonTestJava {
         appendLog("start...");
 
             JavaClient client = new JavaClient();
-            Object result = client.send(new TonApi.Init(new TonApi.Options(config, getContext().getExternalFilesDir(null) + "/")));
+            Object result = client.send(new TonApi.Init(new TonApi.Options(new TonApi.Config(config, "", false, false), getContext().getExternalFilesDir(null) + "/")));
             if (!(result instanceof TonApi.Ok)) {
                 appendLog("failed to set config");
                 return;
@@ -98,7 +98,7 @@ public class TonTestJava {
             appendLog("got account address");
             appendLog("sending grams...");
             TonApi.TestGiverAccountState testGiverState = (TonApi.TestGiverAccountState) client.send(new TonApi.TestGiverGetAccountState());
-            result = client.send(new TonApi.TestGiverSendGrams(walletAddress, testGiverState.seqno, 6660000000L));
+            result = client.send(new TonApi.TestGiverSendGrams(walletAddress, testGiverState.seqno, 6660000000L, "".getBytes()));
             if (!(result instanceof TonApi.Ok)) {
                 appendLog("failed to send grams");
                 return;
@@ -143,7 +143,7 @@ public class TonTestJava {
             appendLog("sending grams...");
             TonApi.GenericAccountStateTestWallet state = (TonApi.GenericAccountStateTestWallet) client.send(new TonApi.GenericGetAccountState(walletAddress));
             long balance = state.accountState.balance;
-            result = client.send(new TonApi.GenericSendGrams(inputKey, walletAddress, walletAddress, 10));
+            result = client.send(new TonApi.GenericSendGrams(inputKey, walletAddress, walletAddress, 10, 0, true, "hello".getBytes()));
             if (!(result instanceof TonApi.Ok)) {
                 return;
             }

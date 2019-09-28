@@ -74,7 +74,6 @@ struct RawAccountState {
   td::Ref<vm::CellSlice> code;
   td::Ref<vm::CellSlice> data;
   block::AccountState::Info info;
-  td::int64 sync_utime = 0;
 };
 
 td::Result<td::int64> to_balance_or_throw(td::Ref<vm::CellSlice> balance_ref) {
@@ -191,7 +190,7 @@ class GetRawAccountState : public td::actor::Actor {
     auto serialized_state = account_state.state.clone();
     RawAccountState res;
     res.info = std::move(info);
-    res.sync_utime = last_block_.utime;
+    LOG_IF(ERROR, res.info.gen_utime > last_block_.utime) << res.info.gen_utime << " " << last_block_.utime;
     auto cell = res.info.root;
     if (cell.is_null()) {
       return res;
@@ -307,44 +306,54 @@ void TonlibClient::init_ext_client() {
      private:
       td::actor::ActorShared<> parent_;
     };
+    ext_client_outbound_ = {};
     ref_cnt_++;
     raw_client_ = ExtClientLazy::create(lite_client.adnl_id, lite_client.address,
                                         td::make_unique<Callback>(td::actor::actor_shared()));
   }
 }
 
-void TonlibClient::update_last_block_state(LastBlockState state) {
-  last_block_storage_.save_state("none", state);
+void TonlibClient::update_last_block_state(LastBlockState state, td::uint32 config_generation) {
+  if (config_generation == config_generation_) {
+    last_block_storage_.save_state(blockchain_name_, state);
+  }
 }
 
 void TonlibClient::init_last_block() {
   ref_cnt_++;
   class Callback : public LastBlock::Callback {
    public:
-    Callback(td::actor::ActorShared<TonlibClient> client) : client_(std::move(client)) {
+    Callback(td::actor::ActorShared<TonlibClient> client, td::uint32 config_generation)
+        : client_(std::move(client)), config_generation_(config_generation) {
     }
     void on_state_changed(LastBlockState state) override {
-      send_closure(client_, &TonlibClient::update_last_block_state, std::move(state));
+      send_closure(client_, &TonlibClient::update_last_block_state, std::move(state), config_generation_);
     }
 
    private:
     td::actor::ActorShared<TonlibClient> client_;
+    td::uint32 config_generation_;
   };
   LastBlockState state;
 
-  auto r_state = last_block_storage_.get_state("none");
-  if (r_state.is_error()) {
-    LOG(WARNING) << "Unknown LastBlockState: " << r_state.error();
+  td::Result<LastBlockState> r_state;
+  if (!ignore_cache_) {
+    r_state = last_block_storage_.get_state(blockchain_name_);
+  }
+  if (ignore_cache_ || r_state.is_error()) {
+    LOG_IF(WARNING, !ignore_cache_) << "Unknown LastBlockState: " << r_state.error();
     state.zero_state_id = ton::ZeroStateIdExt(config_.zero_state_id.id.workchain, config_.zero_state_id.root_hash,
                                               config_.zero_state_id.file_hash),
     state.last_block_id = config_.zero_state_id;
     state.last_key_block_id = config_.zero_state_id;
+    last_block_storage_.save_state(blockchain_name_, state);
   } else {
     state = r_state.move_as_ok();
   }
 
-  raw_last_block_ = td::actor::create_actor<LastBlock>("LastBlock", get_client_ref(), std::move(state),
-                                                       td::make_unique<Callback>(td::actor::actor_shared(this)));
+  raw_last_block_ =
+      td::actor::create_actor<LastBlock>("LastBlock", get_client_ref(), std::move(state), config_,
+                                         td::make_unique<Callback>(td::actor::actor_shared(this), config_generation_));
   client_.set_client(get_client_ref());
 }
 
@@ -416,6 +425,8 @@ bool TonlibClient::is_static_request(td::int32 id) {
     case tonlib_api::testWallet_getAccountAddress::ID:
     case tonlib_api::wallet_getAccountAddress::ID:
     case tonlib_api::testGiver_getAccountAddress::ID:
+    case tonlib_api::packAccountAddress::ID:
+    case tonlib_api::unpackAccountAddress::ID:
     case tonlib_api::getBip39Hints::ID:
     case tonlib_api::setLogStream::ID:
     case tonlib_api::getLogStream::ID:
@@ -472,7 +483,7 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
   if (r_account_address.is_error()) {
     return status_to_tonlib_api(r_account_address.error());
   }
-  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize());
+  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize(true));
 }
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::testWallet_getAccountAddress& request) {
@@ -480,7 +491,7 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
   if (r_account_address.is_error()) {
     return status_to_tonlib_api(r_account_address.error());
   }
-  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize());
+  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize(true));
 }
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::wallet_getAccountAddress& request) {
@@ -488,11 +499,39 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
   if (r_account_address.is_error()) {
     return status_to_tonlib_api(r_account_address.error());
   }
-  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize());
+  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize(true));
 }
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::testGiver_getAccountAddress& request) {
-  return tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize());
+  return tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize(true));
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
+    const tonlib_api::unpackAccountAddress& request) {
+  auto r_account_address = block::StdAddress::parse(request.account_address_);
+  if (r_account_address.is_error()) {
+    return status_to_tonlib_api(r_account_address.move_as_error());
+  }
+  auto account_address = r_account_address.move_as_ok();
+  return tonlib_api::make_object<tonlib_api::unpackedAccountAddress>(
+      account_address.workchain, account_address.bounceable, account_address.testnet,
+      account_address.addr.as_slice().str());
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
+    const tonlib_api::packAccountAddress& request) {
+  if (!request.account_address_) {
+    return status_to_tonlib_api(td::Status::Error(400, "Field account_address must not be empty"));
+  }
+  if (request.account_address_->addr_.size() != 32) {
+    return status_to_tonlib_api(td::Status::Error(400, "Field account_address.addr must not be exactly 32 bytes"));
+  }
+  block::StdAddress addr;
+  addr.workchain = request.account_address_->workchain_id_;
+  addr.bounceable = request.account_address_->bounceable_;
+  addr.testnet = request.account_address_->testnet_;
+  addr.addr.as_slice().copy_from(request.account_address_->addr_);
+  return tonlib_api::make_object<tonlib_api::accountAddress>(addr.rserialize(true));
 }
 
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(tonlib_api::getBip39Hints& request) {
@@ -510,8 +549,7 @@ td::Status TonlibClient::do_request(const tonlib_api::init& request,
   }
   TRY_STATUS(key_storage_.set_directory(request.options_->keystore_directory_));
   TRY_STATUS(last_block_storage_.set_directory(request.options_->keystore_directory_));
-  use_callbacks_for_network_ = request.options_->use_callbacks_for_network_;
-  if (!request.options_->config_.empty()) {
+  if (request.options_->config_) {
     TRY_STATUS(set_config(std::move(request.options_->config_)));
   }
   state_ = State::Running;
@@ -519,15 +557,26 @@ td::Status TonlibClient::do_request(const tonlib_api::init& request,
   return td::Status::OK();
 }
 
-td::Status TonlibClient::set_config(std::string config) {
-  if (config.empty()) {
-    return td::Status::Error("config is empty");
+td::Status TonlibClient::set_config(object_ptr<tonlib_api::config> config) {
+  if (!config) {
+    return td::Status::Error(400, "config is empty");
   }
-  TRY_RESULT(new_config, Config::parse(std::move(config)));
-  if (new_config.lite_clients.empty()) {
+  if (config->config_.empty()) {
+    return td::Status::Error(400, "config is empty");
+  }
+  TRY_RESULT(new_config, Config::parse(std::move(config->config_)));
+  if (new_config.lite_clients.empty() && !config->use_callbacks_for_network_) {
     return td::Status::Error("No lite clients in config");
   }
   config_ = std::move(new_config);
+  config_generation_++;
+  if (config->blockchain_name_.empty()) {
+    blockchain_name_ = td::sha256(config_.zero_state_id.to_str()).substr(0, 16);
+  } else {
+    blockchain_name_ = config->blockchain_name_;
+  }
+  use_callbacks_for_network_ = config->use_callbacks_for_network_;
+  ignore_cache_ = config->ignore_cache_;
   init_ext_client();
   init_last_block();
   return td::Status::OK();
@@ -541,9 +590,9 @@ td::Status TonlibClient::do_request(const tonlib_api::close& request,
   return td::Status::OK();
 }
 
-td::Status TonlibClient::do_request(const tonlib_api::options_setConfig& request,
+td::Status TonlibClient::do_request(tonlib_api::options_setConfig& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
-  TRY_STATUS(set_config(request.config_));
+  TRY_STATUS(set_config(std::move(request.config_)));
   promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
   return td::Status::OK();
 }
@@ -572,8 +621,8 @@ td::Result<tonlib_api::object_ptr<tonlib_api::raw_accountState>> to_raw_accountS
                .as_slice()
                .str();
   }
-  return tonlib_api::make_object<tonlib_api::raw_accountState>(raw_state.balance, std::move(code), std::move(data),
-                                                               to_transaction_id(raw_state.info), raw_state.sync_utime);
+  return tonlib_api::make_object<tonlib_api::raw_accountState>(
+      raw_state.balance, std::move(code), std::move(data), to_transaction_id(raw_state.info), raw_state.info.gen_utime);
 }
 
 td::Result<std::string> to_std_address_or_throw(td::Ref<vm::CellSlice> cs) {
@@ -588,7 +637,7 @@ td::Result<std::string> to_std_address_or_throw(td::Ref<vm::CellSlice> cs) {
   if (!tlb::csr_unpack(cs, addr)) {
     return td::Status::Error("Failed to unpack MsgAddressInt");
   }
-  return block::StdAddress(addr.workchain_id, addr.address).rserialize();
+  return block::StdAddress(addr.workchain_id, addr.address).rserialize(true);
 }
 
 td::Result<std::string> to_std_address(td::Ref<vm::CellSlice> cs) {
@@ -740,7 +789,7 @@ td::Result<tonlib_api::object_ptr<tonlib_api::testWallet_accountState>> to_testW
     return td::Status::Error("Failed to parse seq_no");
   }
   return tonlib_api::make_object<tonlib_api::testWallet_accountState>(
-      raw_state.balance, static_cast<td::uint32>(seqno), to_transaction_id(raw_state.info), raw_state.sync_utime);
+      raw_state.balance, static_cast<td::uint32>(seqno), to_transaction_id(raw_state.info), raw_state.info.gen_utime);
 }
 
 td::Result<tonlib_api::object_ptr<tonlib_api::wallet_accountState>> to_wallet_accountState(
@@ -755,7 +804,7 @@ td::Result<tonlib_api::object_ptr<tonlib_api::wallet_accountState>> to_wallet_ac
     return td::Status::Error("Failed to parse seq_no");
   }
   return tonlib_api::make_object<tonlib_api::wallet_accountState>(
-      raw_state.balance, static_cast<td::uint32>(seqno), to_transaction_id(raw_state.info), raw_state.sync_utime);
+      raw_state.balance, static_cast<td::uint32>(seqno), to_transaction_id(raw_state.info), raw_state.info.gen_utime);
 }
 
 td::Result<tonlib_api::object_ptr<tonlib_api::testGiver_accountState>> to_testGiver_accountState(
@@ -770,7 +819,7 @@ td::Result<tonlib_api::object_ptr<tonlib_api::testGiver_accountState>> to_testGi
     return td::Status::Error("Failed to parse seq_no");
   }
   return tonlib_api::make_object<tonlib_api::testGiver_accountState>(
-      raw_state.balance, static_cast<td::uint32>(seqno), to_transaction_id(raw_state.info), raw_state.sync_utime);
+      raw_state.balance, static_cast<td::uint32>(seqno), to_transaction_id(raw_state.info), raw_state.info.gen_utime);
 }
 
 td::Result<tonlib_api::object_ptr<tonlib_api::generic_AccountState>> to_generic_accountState(
@@ -778,7 +827,7 @@ td::Result<tonlib_api::object_ptr<tonlib_api::generic_AccountState>> to_generic_
   if (raw_state.code.is_null()) {
     return tonlib_api::make_object<tonlib_api::generic_accountStateUninited>(
         tonlib_api::make_object<tonlib_api::uninited_accountState>(raw_state.balance, to_transaction_id(raw_state.info),
-                                                                   raw_state.sync_utime));
+                                                                   raw_state.info.gen_utime));
   }
 
   auto code_hash = raw_state.code->prefetch_ref()->get_hash();
@@ -892,21 +941,21 @@ td::Status TonlibClient::do_request(const tonlib_api::testWallet_init& request,
   TRY_RESULT(private_key, key_storage_.load_private_key(std::move(input_key)));
   auto init_message = TestWallet::get_init_message(td::Ed25519::PrivateKey(std::move(private_key.private_key)));
   return do_request(
-      tonlib_api::raw_sendMessage(tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize()),
+      tonlib_api::raw_sendMessage(tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize(true)),
                                   vm::std_boc_serialize(init_state).move_as_ok().as_slice().str(),
                                   vm::std_boc_serialize(init_message).move_as_ok().as_slice().str()),
       std::move(promise));
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::testWallet_sendGrams& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::sendGramsResult>>&& promise) {
   if (!request.destination_) {
     return td::Status::Error(400, "Field destination must not be empty");
   }
   if (!request.private_key_) {
     return td::Status::Error(400, "Field private_key must not be empty");
   }
-  if (request.message_.size() > 124) {
+  if (request.message_.size() > 70) {
     return td::Status::Error(400, "Message is too long");
   }
   TRY_RESULT(account_address, block::StdAddress::parse(request.destination_->account_address_));
@@ -914,16 +963,30 @@ td::Status TonlibClient::do_request(const tonlib_api::testWallet_sendGrams& requ
   TRY_RESULT(input_key, from_tonlib(*request.private_key_));
   auto address = GenericAccount::get_address(
       0 /*zerochain*/, TestWallet::get_init_state(td::Ed25519::PublicKey(input_key.key.public_key.copy())));
-  TRY_RESULT(private_key, key_storage_.load_private_key(std::move(input_key)));
-  return do_request(tonlib_api::raw_sendMessage(
-                        tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize()), "",
-                        vm::std_boc_serialize(TestWallet::make_a_gift_message(
-                                                  td::Ed25519::PrivateKey(std::move(private_key.private_key)),
-                                                  request.seqno_, request.amount_, request.message_, account_address))
-                            .move_as_ok()
-                            .as_slice()
-                            .str()),
-                    std::move(promise));
+  TRY_RESULT(private_key_str, key_storage_.load_private_key(std::move(input_key)));
+  auto private_key = td::Ed25519::PrivateKey(std::move(private_key_str.private_key));
+  std::string init_state;
+  if (request.seqno_ == 0) {
+    TRY_RESULT(public_key, private_key.get_public_key());
+    init_state = vm::std_boc_serialize(TestWallet::get_init_state(public_key)).move_as_ok().as_slice().str();
+  }
+  td::Promise<object_ptr<tonlib_api::ok>> new_promise =
+      [promise = std::move(promise)](td::Result<object_ptr<tonlib_api::ok>> res) mutable {
+        if (res.is_error()) {
+          promise.set_error(res.move_as_error());
+        } else {
+          promise.set_value(tonlib_api::make_object<tonlib_api::sendGramsResult>(0));
+        }
+      };
+  return do_request(
+      tonlib_api::raw_sendMessage(
+          tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize(true)), std::move(init_state),
+          vm::std_boc_serialize(TestWallet::make_a_gift_message(private_key, request.seqno_, request.amount_,
+                                                                request.message_, account_address))
+              .move_as_ok()
+              .as_slice()
+              .str()),
+      std::move(new_promise));
 }
 
 td::Status TonlibClient::do_request(tonlib_api::testWallet_getAccountState& request,
@@ -956,21 +1019,21 @@ td::Status TonlibClient::do_request(const tonlib_api::wallet_init& request,
   TRY_RESULT(private_key, key_storage_.load_private_key(std::move(input_key)));
   auto init_message = Wallet::get_init_message(td::Ed25519::PrivateKey(std::move(private_key.private_key)));
   return do_request(
-      tonlib_api::raw_sendMessage(tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize()),
+      tonlib_api::raw_sendMessage(tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize(true)),
                                   vm::std_boc_serialize(init_state).move_as_ok().as_slice().str(),
                                   vm::std_boc_serialize(init_message).move_as_ok().as_slice().str()),
       std::move(promise));
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::wallet_sendGrams& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::sendGramsResult>>&& promise) {
   if (!request.destination_) {
     return td::Status::Error(400, "Field destination must not be empty");
   }
   if (!request.private_key_) {
     return td::Status::Error(400, "Field private_key must not be empty");
   }
-  if (request.message_.size() > 124) {
+  if (request.message_.size() > 70) {
     return td::Status::Error(400, "Message is too long");
   }
   TRY_RESULT(valid_until, td::narrow_cast_safe<td::uint32>(request.valid_until_));
@@ -979,17 +1042,30 @@ td::Status TonlibClient::do_request(const tonlib_api::wallet_sendGrams& request,
   TRY_RESULT(input_key, from_tonlib(*request.private_key_));
   auto address = GenericAccount::get_address(
       0 /*zerochain*/, Wallet::get_init_state(td::Ed25519::PublicKey(input_key.key.public_key.copy())));
-  TRY_RESULT(private_key, key_storage_.load_private_key(std::move(input_key)));
+  TRY_RESULT(private_key_str, key_storage_.load_private_key(std::move(input_key)));
+  auto private_key = td::Ed25519::PrivateKey(std::move(private_key_str.private_key));
+  std::string init_state;
+  if (request.seqno_ == 0) {
+    TRY_RESULT(public_key, private_key.get_public_key());
+    init_state = vm::std_boc_serialize(Wallet::get_init_state(public_key)).move_as_ok().as_slice().str();
+  }
+  td::Promise<object_ptr<tonlib_api::ok>> new_promise =
+      [promise = std::move(promise), valid_until](td::Result<object_ptr<tonlib_api::ok>> res) mutable {
+        if (res.is_error()) {
+          promise.set_error(res.move_as_error());
+        } else {
+          promise.set_value(tonlib_api::make_object<tonlib_api::sendGramsResult>(valid_until));
+        }
+      };
   return do_request(
       tonlib_api::raw_sendMessage(
-          tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize()), "",
-          vm::std_boc_serialize(Wallet::make_a_gift_message(td::Ed25519::PrivateKey(std::move(private_key.private_key)),
-                                                            request.seqno_, valid_until, request.amount_,
+          tonlib_api::make_object<tonlib_api::accountAddress>(address.rserialize(true)), std::move(init_state),
+          vm::std_boc_serialize(Wallet::make_a_gift_message(private_key, request.seqno_, valid_until, request.amount_,
                                                             request.message_, account_address))
               .move_as_ok()
               .as_slice()
               .str()),
-      std::move(promise));
+      std::move(new_promise));
 }
 
 td::Status TonlibClient::do_request(tonlib_api::wallet_getAccountState& request,
@@ -1012,23 +1088,31 @@ td::Status TonlibClient::do_request(tonlib_api::wallet_getAccountState& request,
 
 // TestGiver
 td::Status TonlibClient::do_request(const tonlib_api::testGiver_sendGrams& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::sendGramsResult>>&& promise) {
   if (!request.destination_) {
     return td::Status::Error(400, "Field destination must not be empty");
   }
-  if (request.message_.size() > 124) {
+  if (request.message_.size() > 70) {
     return td::Status::Error(400, "Message is too long");
   }
   TRY_RESULT(account_address, block::StdAddress::parse(request.destination_->account_address_));
   account_address.bounceable = false;
+  td::Promise<object_ptr<tonlib_api::ok>> new_promise =
+      [promise = std::move(promise)](td::Result<object_ptr<tonlib_api::ok>> res) mutable {
+        if (res.is_error()) {
+          promise.set_error(res.move_as_error());
+        } else {
+          promise.set_value(tonlib_api::make_object<tonlib_api::sendGramsResult>(0));
+        }
+      };
   return do_request(tonlib_api::raw_sendMessage(
-                        tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize()), "",
+                        tonlib_api::make_object<tonlib_api::accountAddress>(TestGiver::address().rserialize(true)), "",
                         vm::std_boc_serialize(TestGiver::make_a_gift_message(request.seqno_, request.amount_,
                                                                              request.message_, account_address))
                             .move_as_ok()
                             .as_slice()
                             .str()),
-                    std::move(promise));
+                    std::move(new_promise));
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::testGiver_getAccountState& request,
@@ -1085,21 +1169,16 @@ class TonlibQueryActor : public td::actor::Actor {
 class GenericSendGrams : public TonlibQueryActor {
  public:
   GenericSendGrams(td::actor::ActorShared<TonlibClient> client, tonlib_api::generic_sendGrams send_grams,
-                   td::Promise<tonlib_api::object_ptr<tonlib_api::ok>>&& promise)
+                   td::Promise<tonlib_api::object_ptr<tonlib_api::sendGramsResult>>&& promise)
       : TonlibQueryActor(std::move(client)), send_grams_(std::move(send_grams)), promise_(std::move(promise)) {
-    timeout_ = td::Timestamp::in(15);
   }
 
  private:
   tonlib_api::generic_sendGrams send_grams_;
-  td::Promise<tonlib_api::object_ptr<tonlib_api::ok>> promise_;
+  td::Promise<tonlib_api::object_ptr<tonlib_api::sendGramsResult>> promise_;
 
-  enum class SourceAction { Wait, Init, WaitInited, Ok } source_action_ = SourceAction::Wait;
   tonlib_api::object_ptr<tonlib_api::generic_AccountState> source_state_;
   block::StdAddress source_address_;
-  td::Timestamp source_next_get_state_;
-  td::Timestamp timeout_;
-  bool has_source_state_query_{false};
 
   tonlib_api::object_ptr<tonlib_api::generic_AccountState> destination_state_;
   bool is_destination_bounce_{false};
@@ -1117,6 +1196,7 @@ class GenericSendGrams : public TonlibQueryActor {
   }
 
   td::Status do_start_up() {
+    alarm_timestamp() = td::Timestamp::in(15);
     if (!send_grams_.destination_) {
       return td::Status::Error(400, "Field destination must not be empty");
     }
@@ -1161,39 +1241,26 @@ class GenericSendGrams : public TonlibQueryActor {
   }
 
   td::Status do_on_source_state(td::Result<tonlib_api::object_ptr<tonlib_api::generic_AccountState>> r_state) {
-    has_source_state_query_ = false;
     TRY_RESULT(state, std::move(r_state));
     source_state_ = std::move(state);
-    if (source_action_ == SourceAction::Wait) {
-      source_action_ = SourceAction::Ok;
-      if (false && source_state_->get_id() == tonlib_api::generic_accountStateUninited::ID &&
-          send_grams_.private_key_ && send_grams_.private_key_->key_) {
-        TRY_RESULT(key_bytes, block::PublicKey::parse(send_grams_.private_key_->key_->public_key_));
-        auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-        auto addr = GenericAccount::get_address(0 /*zerochain*/, TestWallet::get_init_state(key));
-        if (addr.addr == source_address_.addr) {
-          source_action_ = SourceAction::Init;
-          send_query(tonlib_api::testWallet_init(clone(send_grams_.private_key_)),
-                     [actor_id = actor_id(this)](auto r_res) {
-                       send_closure(actor_id, &GenericSendGrams::on_source_init, std::move(r_res));
-                     });
-        }
-      }
-    } else if (source_action_ == SourceAction::WaitInited) {
-      if (source_state_->get_id() != tonlib_api::generic_accountStateUninited::ID) {
-        source_action_ = SourceAction::Ok;
+    if (source_state_->get_id() == tonlib_api::generic_accountStateUninited::ID && send_grams_.private_key_ &&
+        send_grams_.private_key_->key_) {
+      TRY_RESULT(key_bytes, block::PublicKey::parse(send_grams_.private_key_->key_->public_key_));
+      auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
+
+      if (GenericAccount::get_address(0 /*zerochain*/, TestWallet::get_init_state(key)).addr == source_address_.addr) {
+        auto state = ton::move_tl_object_as<tonlib_api::generic_accountStateUninited>(source_state_);
+        source_state_ = tonlib_api::make_object<tonlib_api::generic_accountStateTestWallet>(
+            tonlib_api::make_object<tonlib_api::testWallet_accountState>(-1, 0, nullptr,
+                                                                         state->account_state_->sync_utime_));
+      } else if (GenericAccount::get_address(0 /*zerochain*/, Wallet::get_init_state(key)).addr ==
+                 source_address_.addr) {
+        auto state = ton::move_tl_object_as<tonlib_api::generic_accountStateUninited>(source_state_);
+        source_state_ = tonlib_api::make_object<tonlib_api::generic_accountStateWallet>(
+            tonlib_api::make_object<tonlib_api::wallet_accountState>(-1, 0, nullptr,
+                                                                     state->account_state_->sync_utime_));
       }
     }
-    return do_loop();
-  }
-
-  void on_source_init(td::Result<tonlib_api::object_ptr<tonlib_api::ok>> r_ok) {
-    do_on_source_init(std::move(r_ok));
-  }
-
-  td::Status do_on_source_init(td::Result<tonlib_api::object_ptr<tonlib_api::ok>> r_ok) {
-    TRY_RESULT(ok, std::move(r_ok));
-    source_action_ = SourceAction::WaitInited;
     return do_loop();
   }
 
@@ -1204,34 +1271,18 @@ class GenericSendGrams : public TonlibQueryActor {
   td::Status do_on_destination_state(td::Result<tonlib_api::object_ptr<tonlib_api::generic_AccountState>> r_state) {
     TRY_RESULT(state, std::move(r_state));
     destination_state_ = std::move(state);
-    if (destination_state_->get_id() == tonlib_api::generic_accountStateUninited::ID) {
-      //return td::Status::Error("Transfer to uninited wallet");
+    if (destination_state_->get_id() == tonlib_api::generic_accountStateUninited::ID && is_destination_bounce_ &&
+        !send_grams_.allow_send_to_uninited_) {
+      return td::Status::Error(400, "DANGEROUS_TRANSACTION: Transfer to uninited wallet");
     }
     return do_loop();
   }
 
   void alarm() override {
-    check(do_loop());
+    check(td::Status::Error("Timeout"));
   }
   td::Status do_loop() {
-    if (timeout_.is_in_past()) {
-      return td::Status::Error("Timeout");
-    }
-    alarm_timestamp().relax(timeout_);
-    if (source_action_ == SourceAction::WaitInited && !has_source_state_query_) {
-      if (source_next_get_state_.is_in_past()) {
-        source_next_get_state_ = td::Timestamp::in(1);
-        has_source_state_query_ = true;
-        send_query(tonlib_api::generic_getAccountState(
-                       tonlib_api::make_object<tonlib_api::accountAddress>(send_grams_.source_->account_address_)),
-                   [actor_id = actor_id(this)](auto r_res) {
-                     send_closure(actor_id, &GenericSendGrams::on_source_state, std::move(r_res));
-                   });
-      } else {
-        alarm_timestamp().relax(source_next_get_state_);
-      }
-    }
-    if (source_action_ != SourceAction::Ok || !destination_state_) {
+    if (!source_state_ || !destination_state_) {
       return td::Status::OK();
     }
     downcast_call(*source_state_,
@@ -1254,7 +1305,10 @@ class GenericSendGrams : public TonlibQueryActor {
                       [&](tonlib_api::generic_accountStateWallet& test_wallet_state) {
                         send_query(tonlib_api::wallet_sendGrams(
                                        std::move(send_grams_.private_key_), std::move(send_grams_.destination_),
-                                       test_wallet_state.account_state_->seqno_, std::numeric_limits<td::uint32>::max(),
+                                       test_wallet_state.account_state_->seqno_,
+                                       send_grams_.timeout_ == 0
+                                           ? 60 + test_wallet_state.account_state_->sync_utime_
+                                           : send_grams_.timeout_ + test_wallet_state.account_state_->sync_utime_,
                                        send_grams_.amount_, std::move(send_grams_.message_)),
                                    std::move(promise_));
                         stop();
@@ -1272,7 +1326,10 @@ class GenericSendGrams : public TonlibQueryActor {
 };
 
 td::Status TonlibClient::do_request(tonlib_api::generic_sendGrams& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::sendGramsResult>>&& promise) {
+  if (request.timeout_ < 0 || request.timeout_ > 300) {
+    return td::Status::Error(400, "Invalid timeout: must be between 0 and 300");
+  }
   auto id = actor_id_++;
   actors_[id] = td::actor::create_actor<GenericSendGrams>("GenericSendGrams", actor_shared(this, id),
                                                           std::move(request), std::move(promise));
@@ -1284,7 +1341,7 @@ td::Status TonlibClient::do_request(const tonlib_api::createNewKey& request,
   TRY_RESULT(key, key_storage_.create_new_key(std::move(request.local_password_), std::move(request.mnemonic_password_),
                                               std::move(request.random_extra_seed_)));
   TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(true), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -1321,7 +1378,7 @@ td::Status TonlibClient::do_request(const tonlib_api::importKey& request,
   TRY_RESULT(key, key_storage_.import_key(std::move(request.local_password_), std::move(request.mnemonic_password_),
                                           KeyStorage::ExportedKey{std::move(request.exported_key_->word_list_)}));
   TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(true), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -1350,7 +1407,7 @@ td::Status TonlibClient::do_request(const tonlib_api::importPemKey& request,
   TRY_RESULT(key, key_storage_.import_pem_key(std::move(request.local_password_), std::move(request.key_password_),
                                               KeyStorage::ExportedPemKey{std::move(request.exported_key_->pem_)}));
   TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(true), std::move(key.secret)));
   return td::Status::OK();
 }
 
@@ -1374,7 +1431,7 @@ td::Status TonlibClient::do_request(const tonlib_api::importEncryptedKey& reques
                       std::move(request.local_password_), std::move(request.key_password_),
                       KeyStorage::ExportedEncryptedKey{std::move(request.exported_encrypted_key_->data_)}));
   TRY_RESULT(key_bytes, block::PublicKey::from_bytes(key.public_key.as_slice()));
-  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(), std::move(key.secret)));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(true), std::move(key.secret)));
   return td::Status::OK();
 }
 
