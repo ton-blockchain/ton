@@ -1030,14 +1030,14 @@ void interpret_fetch_ref(vm::Stack& stack, int mode) {
     }
   } else {
     auto cell = (mode & 2) ? cs.write().fetch_ref() : cs->prefetch_ref();
-    if (mode & 2) {
-      stack.push(std::move(cs));
-    }
     if (mode & 1) {
       Ref<vm::CellSlice> new_cs{true, vm::NoVm(), std::move(cell)};
       stack.push(std::move(new_cs));
     } else {
       stack.push_cell(std::move(cell));
+    }
+    if (mode & 2) {
+      stack.push(std::move(cs));
     }
     if (mode & 4) {
       stack.push_bool(true);
