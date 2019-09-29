@@ -978,7 +978,9 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
     } else {
       stack.push_string(std::move(s));
     }
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     if (mode & 4) {
       stack.push_bool(true);
     }
