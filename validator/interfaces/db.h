@@ -93,6 +93,8 @@ class Db : public td::actor::Actor {
   virtual void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) = 0;
 
   virtual void archive(BlockIdExt block_id, td::Promise<td::Unit> promise) = 0;
+
+  virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
 };
 
 }  // namespace validator

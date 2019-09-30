@@ -57,7 +57,10 @@ class LiteQuery : public td::actor::Actor {
   std::unique_ptr<block::BlockProofChain> chain_;
 
  public:
-  enum { default_timeout_msec = 4500 };  // 4.5 seconds
+  enum {
+    default_timeout_msec = 4500,  // 4.5 seconds
+    max_transaction_count = 16    // fetch at most 16 transactions in one query
+  };
   enum {
     ls_version = 0x101,
     ls_capabilities = 3

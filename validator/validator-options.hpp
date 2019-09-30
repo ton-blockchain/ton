@@ -125,7 +125,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull)> check_shard, bool allow_blockchain_init,
                               td::ClocksBase::Duration sync_blocks_before, td::ClocksBase::Duration block_ttl,
-                              td::ClocksBase::Duration archive_ttl, td::ClocksBase::Duration state_ttl,
+                              td::ClocksBase::Duration state_ttl, td::ClocksBase::Duration archive_ttl,
                               td::ClocksBase::Duration key_proof_ttl, bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)

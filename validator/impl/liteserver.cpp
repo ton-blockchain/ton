@@ -780,11 +780,10 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
   CHECK(block_root.not_null() && state_root.not_null());
   RootHash rhash{block_root->get_hash().bits()};
   CHECK(rhash == blkid.root_hash);
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto usage_cell = vm::UsageCell::create(block_root, usage_tree->root_ptr());
+  vm::MerkleProofBuilder pb{std::move(block_root)};
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
-  if (!(tlb::unpack_cell(usage_cell, blk) && tlb::unpack_cell(blk.info, info))) {
+  if (!(tlb::unpack_cell(pb.root(), blk) && tlb::unpack_cell(blk.info, info))) {
     return fatal_error("cannot unpack block header");
   }
   vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
@@ -797,8 +796,7 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
   if (upd_hash.compare(state_hash, 256)) {
     return fatal_error("cannot construct Merkle proof for given masterchain state because of hash mismatch");
   }
-  proof = vm::MerkleProof::generate(block_root, usage_tree.get());
-  if (proof.is_null()) {
+  if (!pb.extract_proof_to(proof)) {
     return fatal_error("unknown error creating Merkle proof");
   }
   return true;
@@ -806,20 +804,17 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
 
 bool LiteQuery::make_shard_info_proof(Ref<vm::Cell>& proof, vm::CellSlice& cs, ShardIdFull shard,
                                       ShardIdFull& true_shard, Ref<vm::Cell>& leaf, bool& found, bool exact) {
-  auto state_root = mc_state_->root_cell();
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto usage_cell = vm::UsageCell::create(state_root, usage_tree->root_ptr());
+  vm::MerkleProofBuilder pb{mc_state_->root_cell()};
   block::gen::ShardStateUnsplit::Record sstate;
-  if (!(tlb::unpack_cell(usage_cell, sstate))) {
+  if (!(tlb::unpack_cell(pb.root(), sstate))) {
     return fatal_error("cannot unpack state header");
   }
-  auto shards_dict = block::ShardConfig::extract_shard_hashes_dict(usage_cell);
+  auto shards_dict = block::ShardConfig::extract_shard_hashes_dict(pb.root());
   if (!shards_dict) {
     return fatal_error("cannot extract ShardHashes from last mc state");
   }
   found = block::ShardConfig::get_shard_hash_raw_from(*shards_dict, cs, shard, true_shard, exact, &leaf);
-  proof = vm::MerkleProof::generate(state_root, usage_tree.get());
-  if (proof.is_null()) {
+  if (!pb.extract_proof_to(proof)) {
     return fatal_error("unknown error creating Merkle proof");
   }
   return true;
@@ -921,11 +916,9 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   if (!make_state_root_proof(proof1)) {
     return;
   }
-  auto state_root = state_->root_cell();
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto usage_cell = vm::UsageCell::create(state_root, usage_tree->root_ptr());
+  vm::MerkleProofBuilder pb{state_->root_cell()};
   block::gen::ShardStateUnsplit::Record sstate;
-  if (!(tlb::unpack_cell(usage_cell, sstate))) {
+  if (!tlb::unpack_cell(pb.root(), sstate)) {
     fatal_error("cannot unpack state header");
     return;
   }
@@ -935,10 +928,7 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   if (acc_csr.not_null()) {
     acc_root = acc_csr->prefetch_ref();
   }
-  auto proof2 = vm::MerkleProof::generate(state_root, usage_tree.get());
-  usage_tree.reset();
-  usage_cell.clear();
-  auto proof = vm::std_boc_serialize_multi({std::move(proof1), std::move(proof2)});
+  auto proof = vm::std_boc_serialize_multi({std::move(proof1), pb.extract_proof()});
   if (proof.is_error()) {
     fatal_error(proof.move_as_error());
     return;
@@ -962,23 +952,18 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
 void LiteQuery::continue_getOneTransaction() {
   LOG(INFO) << "completing getOneTransaction() query";
   CHECK(block_.not_null());
-  auto block_root = block_->root_cell();
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto usage_cell = vm::UsageCell::create(block_root, usage_tree->root_ptr());
-  auto trans_res = block::get_block_transaction(block_root, acc_workchain_, acc_addr_, trans_lt_);
+  vm::MerkleProofBuilder pb{block_->root_cell()};
+  auto trans_res = block::get_block_transaction(pb.root(), acc_workchain_, acc_addr_, trans_lt_);
   if (trans_res.is_error()) {
     fatal_error(trans_res.move_as_error());
     return;
   }
   auto trans_root = trans_res.move_as_ok();
-  auto proof = vm::MerkleProof::generate(block_root, usage_tree.get());
-  auto proof_boc = vm::std_boc_serialize(std::move(proof));
+  auto proof_boc = pb.extract_proof_boc();
   if (proof_boc.is_error()) {
     fatal_error(proof_boc.move_as_error());
     return;
   }
-  usage_tree.reset();
-  usage_cell.clear();
   td::BufferSlice data;
   if (trans_root.not_null()) {
     auto res = vm::std_boc_serialize(std::move(trans_root));
@@ -999,10 +984,13 @@ void LiteQuery::perform_getTransactions(WorkchainId workchain, StdSmcAddress add
                                         unsigned count) {
   LOG(INFO) << "started a getTransactions(" << workchain << ", " << addr.to_hex() << ", " << lt << ", " << hash.to_hex()
             << ", " << count << ") liteserver query";
-  if (count > 10) {
+  count = std::min(count, (unsigned)max_transaction_count);
+  /*
+  if (count > max_transaction_count) {
     fatal_error("cannot fetch more than 10 preceding transactions at one time");
     return;
   }
+  */
   if (workchain == ton::workchainInvalid) {
     fatal_error("invalid workchain specified");
     return;
@@ -1355,14 +1343,11 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
   CHECK(block_root.not_null());
   RootHash rhash{block_root->get_hash().bits()};
   CHECK(rhash == base_blk_id_.root_hash);
-  Ref<vm::Cell> usage_cell;
-  std::shared_ptr<vm::CellUsageTree> usage_tree;
+  vm::MerkleProofBuilder pb;
+  auto virt_root = block_root;
   if (mode & 32) {
     // proof requested
-    usage_tree = std::make_shared<vm::CellUsageTree>();
-    usage_cell = vm::UsageCell::create(block_root, usage_tree->root_ptr());
-  } else {
-    usage_cell = block_root;
+    virt_root = pb.init(std::move(virt_root));
   }
   if ((mode & 192) == 64) {  // reverse order, no starting point
     acc_addr_.set_ones();
@@ -1374,7 +1359,7 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
   try {
     block::gen::Block::Record blk;
     block::gen::BlockExtra::Record extra;
-    if (!(tlb::unpack_cell(usage_cell, blk) && tlb::unpack_cell(std::move(blk.extra), extra))) {
+    if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(std::move(blk.extra), extra))) {
       fatal_error("cannot find account transaction data in block "s + base_blk_id_.to_str());
       return;
     }
@@ -1433,8 +1418,7 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
   td::BufferSlice proof_data;
   if (mode & 32) {
     // create proof
-    auto proof = vm::MerkleProof::generate(block_root, usage_tree.get());
-    auto proof_boc = vm::std_boc_serialize(std::move(proof));
+    auto proof_boc = pb.extract_proof_boc();
     if (proof_boc.is_error()) {
       fatal_error(proof_boc.move_as_error());
       return;

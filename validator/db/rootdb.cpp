@@ -24,6 +24,7 @@
 #include "ton/ton-tl.hpp"
 #include "td/utils/overloaded.h"
 #include "common/checksum.h"
+#include "validator/stats-merger.h"
 
 namespace ton {
 
@@ -471,6 +472,13 @@ void RootDb::allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> p
                        td::actor::send_closure(validator_manager_, &ValidatorManager::allow_block_candidate_gc,
                                                key.block_id, std::move(promise));
                      }));
+}
+
+void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  auto merger = StatsMerger::create(std::move(promise));
+
+  td::actor::send_closure(file_db_, &FileDb::prepare_stats, merger.make_promise("filedb."));
+  td::actor::send_closure(archive_db_, &FileDb::prepare_stats, merger.make_promise("archivedb."));
 }
 
 }  // namespace validator

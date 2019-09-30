@@ -107,7 +107,7 @@ Replace it with the following:
   }
 ],
 
-`control.0.id` is set to the base64 identifier of the server's public key, and `control.0.allowed.0.id` is the base64 identifier of the client's public key. <CONSOLE-PORT> is the UDP port the server will listen to for console commands.
+`control.0.id` is set to the base64 identifier of the server's public key, and `control.0.allowed.0.id` is the base64 identifier of the client's public key. <CONSOLE-PORT> is the TCP port the server will listen to for console commands.
 
 7. Running the Full Node
 ~~~~~~~~~~~~~~~~~~~~~~~~

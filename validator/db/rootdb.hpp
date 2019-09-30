@@ -110,6 +110,8 @@ class RootDb : public Db {
   void allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise);
   void allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> promise);
 
+  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
+
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;
 

@@ -353,6 +353,45 @@ FileDb::DbEntry::DbEntry(tl_object_ptr<ton_api::db_filedb_value> entry)
     , file_hash(entry->file_hash_) {
 }
 
+void FileDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  std::vector<std::pair<std::string, std::string>> rocksdb_stats;
+  auto stats = kv_->stats();
+  if (stats.size() == 0) {
+    promise.set_value(std::move(rocksdb_stats));
+    return;
+  }
+  size_t pos = 0;
+  while (pos < stats.size()) {
+    while (pos < stats.size() &&
+           (stats[pos] == ' ' || stats[pos] == '\n' || stats[pos] == '\r' || stats[pos] == '\t')) {
+      pos++;
+    }
+    auto p = pos;
+    if (pos == stats.size()) {
+      break;
+    }
+    while (stats[pos] != '\n' && stats[pos] != '\r' && stats[pos] != ' ' && stats[pos] != '\t' && pos < stats.size()) {
+      pos++;
+    }
+    auto name = stats.substr(p, pos - p);
+    if (stats[pos] == '\n' || pos == stats.size()) {
+      rocksdb_stats.emplace_back(name, "");
+      continue;
+    }
+    while (pos < stats.size() &&
+           (stats[pos] == ' ' || stats[pos] == '\n' || stats[pos] == '\r' || stats[pos] == '\t')) {
+      pos++;
+    }
+    p = pos;
+    while (stats[pos] != '\n' && stats[pos] != '\r' && pos < stats.size()) {
+      pos++;
+    }
+    auto value = stats.substr(p, pos - p);
+    rocksdb_stats.emplace_back(name, value);
+  }
+  promise.set_value(std::move(rocksdb_stats));
+}
+
 }  // namespace validator
 
 }  // namespace ton
