@@ -937,8 +937,9 @@ void interpret_fetch(vm::Stack& stack, int mode) {
     if (mode & 2) {
       stack.push(std::move(cs));
     }
-    stack.push_bool(false);
-    if (!(mode & 4)) {
+    if (mode & 4) {
+      stack.push_bool(false);
+    } else {
       throw IntError{"end of data while reading integer from cell"};
     }
   } else {
@@ -964,8 +965,9 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
     if (mode & 2) {
       stack.push(std::move(cs));
     }
-    stack.push_bool(false);
-    if (!(mode & 4)) {
+    if (mode & 4) {
+      stack.push_bool(false);
+    } else {
       throw IntError{"end of data while reading byte string from cell"};
     }
   } else {
@@ -1018,8 +1020,9 @@ void interpret_fetch_ref(vm::Stack& stack, int mode) {
     if (mode & 2) {
       stack.push(std::move(cs));
     }
-    stack.push_bool(false);
-    if (!(mode & 4)) {
+    if (mode & 4) {
+      stack.push_bool(false);
+    } else {
       throw IntError{"end of data while reading reference from cell"};
     }
   } else {
