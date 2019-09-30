@@ -21,6 +21,8 @@
 #include "td/utils/Status.h"
 #include "td/utils/SharedSlice.h"
 
+#include "KeyValue.h"
+
 #include <string>
 
 namespace tonlib {
@@ -48,7 +50,7 @@ class KeyStorage {
     td::SecureString private_key;
   };
 
-  td::Status set_directory(std::string directory);
+  void set_key_value(std::shared_ptr<KeyValue> kv);
 
   td::Result<Key> create_new_key(td::Slice local_password, td::Slice key_password, td::Slice entropy);
 
@@ -67,12 +69,9 @@ class KeyStorage {
   td::Result<PrivateKey> load_private_key(InputKey input_key);
 
  private:
-  std::string directory_;
+  std::shared_ptr<KeyValue> kv_;
 
   td::Result<Key> save_key(const DecryptedKey& mnemonic, td::Slice local_password);
   td::Result<DecryptedKey> export_decrypted_key(InputKey input_key);
-
-  std::string to_file_path(const Key& key);
-  std::string to_file_path_old(const Key& key);
 };
 }  // namespace tonlib

@@ -547,8 +547,21 @@ td::Status TonlibClient::do_request(const tonlib_api::init& request,
   if (!request.options_) {
     return td::Status::Error(400, "Field options must not be empty");
   }
-  TRY_STATUS(key_storage_.set_directory(request.options_->keystore_directory_));
-  TRY_STATUS(last_block_storage_.set_directory(request.options_->keystore_directory_));
+  if (!request.options_->keystore_type_) {
+    return td::Status::Error(400, "Field options.keystore_type must not be empty");
+  }
+
+  td::Result<td::unique_ptr<KeyValue>> r_kv;
+  downcast_call(
+      *request.options_->keystore_type_,
+      td::overloaded(
+          [&](tonlib_api::keyStoreTypeDirectory& directory) { r_kv = KeyValue::create_dir(directory.directory_); },
+          [&](tonlib_api::keyStoreTypeInMemory& inmemory) { r_kv = KeyValue::create_inmemory(); }));
+  TRY_RESULT(kv, std::move(r_kv));
+  kv_ = std::shared_ptr<KeyValue>(kv.release());
+
+  key_storage_.set_key_value(kv_);
+  last_block_storage_.set_key_value(kv_);
   if (request.options_->config_) {
     TRY_STATUS(set_config(std::move(request.options_->config_)));
   }
@@ -672,12 +685,11 @@ td::Result<tonlib_api::object_ptr<tonlib_api::raw_message>> to_raw_message_or_th
         body = vm::load_cell_slice_ref(message.body->prefetch_ref());
       }
       std::string body_message;
-      if (body->size() % 8 == 0) {
-        body_message = std::string(body->size() / 8, 0);
-        body->prefetch_bytes(td::MutableSlice(body_message).ubegin(), body->size() / 8);
-        if (body_message.size() >= 4 && body_message[0] == 0 && body_message[1] == 0 && body_message[2] == 0 &&
-            body_message[3] == 0) {
-          body_message = body_message.substr(4);
+      if (body->size() >= 32 && body->prefetch_long(32) == 0) {
+        body.write().fetch_long(32);
+        auto r_body_message = vm::CellString::load(body.write());
+        if (r_body_message.is_ok()) {
+          body_message = r_body_message.move_as_ok();
         }
       }
 
@@ -955,7 +967,7 @@ td::Status TonlibClient::do_request(const tonlib_api::testWallet_sendGrams& requ
   if (!request.private_key_) {
     return td::Status::Error(400, "Field private_key must not be empty");
   }
-  if (request.message_.size() > 70) {
+  if (request.message_.size() > TestWallet::max_message_size) {
     return td::Status::Error(400, "Message is too long");
   }
   TRY_RESULT(account_address, block::StdAddress::parse(request.destination_->account_address_));
@@ -1033,7 +1045,7 @@ td::Status TonlibClient::do_request(const tonlib_api::wallet_sendGrams& request,
   if (!request.private_key_) {
     return td::Status::Error(400, "Field private_key must not be empty");
   }
-  if (request.message_.size() > 70) {
+  if (request.message_.size() > Wallet::max_message_size) {
     return td::Status::Error(400, "Message is too long");
   }
   TRY_RESULT(valid_until, td::narrow_cast_safe<td::uint32>(request.valid_until_));
@@ -1092,7 +1104,7 @@ td::Status TonlibClient::do_request(const tonlib_api::testGiver_sendGrams& reque
   if (!request.destination_) {
     return td::Status::Error(400, "Field destination must not be empty");
   }
-  if (request.message_.size() > 70) {
+  if (request.message_.size() > TestGiver::max_message_size) {
     return td::Status::Error(400, "Message is too long");
   }
   TRY_RESULT(account_address, block::StdAddress::parse(request.destination_->account_address_));

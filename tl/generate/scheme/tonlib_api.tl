@@ -16,8 +16,12 @@ vector {t:Type} # [ t ] = Vector t;
 error code:int32 message:string = Error;
 ok = Ok;
 
+keyStoreTypeDirectory directory:string = KeyStoreType;
+keyStoreTypeInMemory = KeyStoreType;
+
 config config:string blockchain_name:string use_callbacks_for_network:Bool ignore_cache:Bool = Config;
-options config:config keystore_directory:string = Options;
+
+options config:config keystore_type:KeyStoreType = Options;
 
 key public_key:string secret:secureBytes = Key;
 inputKey key:key local_password:secureBytes = InputKey;
@@ -37,7 +41,7 @@ raw.initialAccountState code:bytes data:bytes = raw.InitialAccountState;
 raw.accountState balance:int64 code:bytes data:bytes last_transaction_id:internal.transactionId sync_utime:int53 = raw.AccountState;
 raw.message source:string destination:string value:int64 message:bytes = raw.Message;
 raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
-raw.transactions transactions:vector<raw.Transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
+raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
 testWallet.initialAccountState public_key:string = testWallet.InitialAccountState;
 testWallet.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53 = testWallet.AccountState;

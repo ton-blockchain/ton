@@ -27,6 +27,7 @@ class TonlibCli : public td::actor::Actor {
     std::string config;
     std::string name;
     std::string key_dir{"."};
+    bool in_memory{false};
     bool use_callbacks_for_network{false};
     bool use_simple_wallet{false};
     bool ignore_cache{false};
@@ -120,7 +121,14 @@ class TonlibCli : public td::actor::Actor {
                       ? make_object<tonlib_api::config>(options_.config, options_.name,
                                                         options_.use_callbacks_for_network, options_.ignore_cache)
                       : nullptr;
-    send_query(make_object<tonlib_api::init>(make_object<tonlib_api::options>(std::move(config), options_.key_dir)),
+
+    tonlib_api::object_ptr<tonlib_api::KeyStoreType> ks_type;
+    if (options_.in_memory) {
+      ks_type = make_object<tonlib_api::keyStoreTypeInMemory>();
+    } else {
+      ks_type = make_object<tonlib_api::keyStoreTypeDirectory>(options_.key_dir);
+    }
+    send_query(make_object<tonlib_api::init>(make_object<tonlib_api::options>(std::move(config), std::move(ks_type))),
                [](auto r_ok) {
                  LOG_IF(ERROR, r_ok.is_error()) << r_ok.error();
                  td::TerminalIO::out() << "Tonlib is inited\n";
@@ -822,6 +830,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('D', "directory", "set keys directory", [&](td::Slice arg) {
     options.key_dir = arg.str();
+    return td::Status::OK();
+  });
+  p.add_option('M', "in-memory", "store keys only in-memory", [&]() {
+    options.in_memory = true;
     return td::Status::OK();
   });
   p.add_option('E', "execute", "execute one command", [&](td::Slice arg) {

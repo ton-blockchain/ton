@@ -24,6 +24,7 @@
 #include "tonlib/ExtClient.h"
 #include "tonlib/ExtClientOutbound.h"
 #include "tonlib/KeyStorage.h"
+#include "tonlib/KeyValue.h"
 #include "tonlib/LastBlockStorage.h"
 
 #include "td/actor/actor.h"
@@ -55,6 +56,7 @@ class TonlibClient : public td::actor::Actor {
   td::actor::ActorId<ExtClientOutbound> ext_client_outbound_;
 
   // KeyStorage
+  std::shared_ptr<KeyValue> kv_;
   KeyStorage key_storage_;
   LastBlockStorage last_block_storage_;
 
