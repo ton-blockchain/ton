@@ -934,7 +934,9 @@ void interpret_fetch(vm::Stack& stack, int mode) {
   auto n = stack.pop_smallint_range(256 + (mode & 1));
   auto cs = stack.pop_cellslice();
   if (!cs->have(n)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading integer from cell"};
@@ -959,7 +961,9 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
   unsigned n = stack.pop_smallint_range(127);
   auto cs = stack.pop_cellslice();
   if (!cs->have(n * 8)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading byte string from cell"};
@@ -1011,7 +1015,9 @@ void interpret_cell_remaining(vm::Stack& stack) {
 void interpret_fetch_ref(vm::Stack& stack, int mode) {
   auto cs = stack.pop_cellslice();
   if (!cs->have_refs(1)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading reference from cell"};
