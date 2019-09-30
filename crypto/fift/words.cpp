@@ -2131,7 +2131,7 @@ void interpret_run_vm(IntCtx& ctx, bool with_gas) {
   OstreamLogger ostream_logger(ctx.error_stream);
   auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
   vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 3, &data, log, nullptr, &gas);
+  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas);
   ctx.stack.push_smallint(res);
   ctx.stack.push_cell(std::move(data));
   if (with_gas) {
