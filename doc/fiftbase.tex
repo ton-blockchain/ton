@@ -1178,9 +1178,9 @@ The following words can be used to manipulate values of the type {\em Slice\/}, 
 \item {\tt B@?+} ($s$ $x$ -- $B$ $s'$ $-1$ or $s$ $0$), similar to {\tt B@+}, but uses a flag to indicate failure instead of throwing an exception.
 \item {\tt \$@}, {\tt \$@+}, {\tt \$@?}, {\tt \$@?+}, counterparts of {\tt B@}, {\tt B@+}, {\tt B@?}, {\tt B@?+}, returning the result as a (UTF-8) {\em String} instead of a {\em Bytes} value. These primitives do not check whether the byte sequence read is a valid UTF-8 string.
 \item {\tt ref@} ($s$ -- $c$), fetches the first reference from {\em Slice\/}~$s$ and returns the {\em Cell}~$c$ referred to. If there are no references left, throws an exception.
-\item {\tt ref@+} ($s$ -- $s'$ $c$), similar to {\tt ref@}, but returns the remainder of $s$ as well.
+\item {\tt ref@+} ($s$ -- $c$ $s'$), similar to {\tt ref@}, but returns the remainder of $s$ as well.
 \item {\tt ref@?} ($s$ -- $c$ $-1$ or $0$), similar to {\tt ref@}, but uses a flag to indicate failure instead of throwing an exception.
-\item {\tt ref@?+} ($s$ -- $s'$ $c$ $-1$ or $s$ $0$), similar to {\tt ref@+}, but uses a flag to indicate failure instead of throwing an exception.
+\item {\tt ref@?+} ($s$ -- $c$ $s'$ $-1$ or $s$ $0$), similar to {\tt ref@+}, but uses a flag to indicate failure instead of throwing an exception.
 \item {\tt empty?} ($s$ -- $?$), checks whether a {\em Slice\/} is empty (i.e., has no data bits and no references left), and returns $-1$ or $0$ accordingly.
 \item {\tt remaining} ($s$ -- $x$ $y$), returns both the number of data bits $x$ and the number of cell references $y$ remaining in {\em Slice\/}~$s$.
 \item {\tt sbits} ($s$ -- $x$), returns the number of data bits $x$ remaining in {\em Slice\/}~$s$.
