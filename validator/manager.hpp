@@ -432,8 +432,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     CHECK(block_id.is_masterchain());
     promise.set_result(opts_->is_hardfork(block_id));
   }
-  void get_vertical_height(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
-    promise.set_result(opts_->get_vertical_height(seqno));
+  void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
+    promise.set_result(opts_->get_vertical_seqno(seqno));
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
@@ -522,6 +522,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   td::actor::ActorOwn<adnl::AdnlExtServer> lite_server_;
+  td::actor::ActorOwn<LiteServerCache> lite_server_cache_;
   std::vector<td::uint16> pending_ext_ports_;
   std::vector<adnl::AdnlNodeIdShort> pending_ext_ids_;
 

@@ -942,7 +942,9 @@ void interpret_fetch(vm::Stack& stack, int mode) {
   auto n = stack.pop_smallint_range(256 + (mode & 1));
   auto cs = stack.pop_cellslice();
   if (!cs->have(n)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading integer from cell"};

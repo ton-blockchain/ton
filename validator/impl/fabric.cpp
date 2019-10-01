@@ -43,6 +43,11 @@ td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> man
   return td::actor::create_actor<RootDb>("db", manager, db_root_, depth);
 }
 
+td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
+                                                                   std::string db_root) {
+  return td::actor::create_actor<LiteServerCache>("cache");
+}
+
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data) {
   auto res = BlockQ::create(block_id, std::move(data));
   if (res.is_error()) {
@@ -196,7 +201,7 @@ void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& m
 }
 
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
-                          td::Promise<td::BufferSlice> promise) {
+                          td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise) {
   LiteQuery::run_query(std::move(data), std::move(manager), std::move(promise));
 }
 

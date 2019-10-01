@@ -57,7 +57,9 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::ClocksBase::Duration key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
   virtual bool is_hardfork(BlockIdExt block_id) const = 0;
-  virtual td::uint32 get_vertical_height(BlockSeqno seqno) const = 0;
+  virtual td::uint32 get_vertical_seqno(BlockSeqno seqno) const = 0;
+  virtual td::uint32 get_maximal_vertical_seqno() const = 0;
+  virtual td::uint32 get_last_fork_masterchain_seqno() const = 0;
   virtual td::uint32 get_filedb_depth() const = 0;
   virtual td::uint32 key_block_utime_step() const {
     return 86400;

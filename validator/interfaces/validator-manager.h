@@ -26,6 +26,7 @@
 #include "shard-block.h"
 #include "message-queue.h"
 #include "validator/validator.h"
+#include "liteserver.h"
 
 namespace ton {
 
@@ -147,7 +148,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
 
   virtual void check_is_hardfork(BlockIdExt block_id, td::Promise<bool> promise) = 0;
-  virtual void get_vertical_height(BlockSeqno seqno, td::Promise<td::uint32> promise) = 0;
+  virtual void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) = 0;
 
   virtual void update_last_known_key_block(BlockHandle handle, bool send_request) = 0;
   virtual void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;

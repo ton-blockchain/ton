@@ -279,8 +279,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     CHECK(block_id.is_masterchain());
     promise.set_result(opts_->is_hardfork(block_id));
   }
-  void get_vertical_height(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
-    promise.set_result(opts_->get_vertical_height(seqno));
+  void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
+    promise.set_result(opts_->get_vertical_seqno(seqno));
   }
   void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();

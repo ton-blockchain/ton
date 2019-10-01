@@ -27,6 +27,8 @@ namespace validator {
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
                                         td::uint32 depth);
+td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
+                                                                   std::string db_root);
 
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data);
 td::Result<td::Ref<BlockData>> create_block(ReceivedBlock data);
@@ -71,7 +73,7 @@ void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& m
                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                        td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
-                          td::Promise<td::BufferSlice> promise);
+                          td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
