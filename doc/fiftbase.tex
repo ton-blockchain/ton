@@ -1464,7 +1464,7 @@ execute implicit RET
 Notice that the Fift assembler chooses the shortest encoding of the {\tt PUSHINT}~$x$ instruction depending on its argument~$x$.
 
 \mysubsection{Immediate arguments}
-Some TVM instructions (such as {\tt PUSHINT}) accept immediate arguments. These arguments are usually passed to the Fift word assembling the corresponding instruction in the Fift stack. Integer immediate arguments are usually represented by {\em Integer\/}s, cells by {\em Cell\/}s, continuations by {\em Builder\/}s and {\em Cell\/}s, and cell slices by {\em Slice\/}s. For instance, {\tt 17 ADDCONST} assembles TVM instruction {\tt ADDCONST 17}, and {\tt x\{ABCD\_\} PUSHSLICE} assembles {\tt PUSHSLICE xABCD\_}:
+Some TVM instructions (such as {\tt PUSHINT}) accept immediate arguments. These arguments are usually passed to the Fift word assembling the corresponding instruction in the Fift stack. Integer immediate arguments are usually represented by {\em Integer\/}s, cells by {\em Cell\/}s, continuations by {\em Builder\/}s and {\em Cell\/}s, and cell slices by {\em Slice\/}s. For instance, {\tt 17 ADDCONST} assembles TVM instruction {\tt ADDINT 17}, and {\tt x\{ABCD\_\} PUSHSLICE} assembles {\tt PUSHSLICE xABCD\_}:
 \begin{verbatim}
 239 <{ 17 ADDCONST x{ABCD_} PUSHSLICE }>s dup csr.
 runvmcode . swap . csr.
@@ -1490,7 +1490,7 @@ execute ADD
 execute implicit RET
 256 0
 \end{verbatim}
-We can see that ``{\tt ADDCONST 239}'' has been tacitly replaced by {\tt PUSHINT 239} and {\tt ADD}. This feature is convenient when the immediate argument to {\tt ADDCONST} is itself a result of a Fift computation, and it is difficult to estimate whether it will always fit into the required range.
+We can see that {\tt 239 ADDCONST} has been tacitly replaced by {\tt PUSHINT 239} and {\tt ADD}. This feature is convenient when the immediate argument to {\tt ADDCONST} is itself a result of a Fift computation, and it is difficult to estimate whether it will always fit into the required range.
 
 In some cases, there are several versions of the same TVM instructions, one accepting an immediate argument and another without any arguments. For instance, there are both {\tt LSHIFT $n$} and {\tt LSHIFT} instructions. In the Fift assembler, such variants are assigned distinct mnemonics. In particular, {\tt LSHIFT $n$} is represented by {\tt $n$ LSHIFT\#}, and {\tt LSHIFT} is represented by itself.
 
