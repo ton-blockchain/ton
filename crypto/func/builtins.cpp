@@ -641,8 +641,8 @@ int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
       return x.always_less(y) ? 1 : (x.always_geq(y) ? 2 : 3);
     case 5:  // <>
       return x.always_neq(y) ? 1 : (x.always_equal(y) ? 2 : 3);
-    case 6:  // >=
-      return x.always_geq(y) ? 1 : (x.always_less(y) ? 2 : 3);
+    case 6:  // <=
+      return x.always_leq(y) ? 1 : (x.always_greater(y) ? 2 : 3);
     case 7:  // <=>
       return x.always_less(y)
                  ? 1
