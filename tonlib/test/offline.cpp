@@ -420,9 +420,14 @@ TEST(Tonlib, ParseAddres) {
   ASSERT_EQ(-1, addr->workchain_id_);
   ASSERT_EQ(true, addr->bounceable_);
   ASSERT_EQ(false, addr->testnet_);
+  auto raw = addr->addr_;
 
   auto addr_str = sync_send(client, make_object<tonlib_api::packAccountAddress>(std::move(addr))).move_as_ok();
   ASSERT_EQ("Ef9Tj6fMJP-OqhAdhKXxq36DL-HYSzCc3-9O6UNzqsgPfYFX", addr_str->account_address_);
+  auto addr_str2 = sync_send(client, make_object<tonlib_api::packAccountAddress>(
+                                         make_object<tonlib_api::unpackedAccountAddress>(-1, false, false, raw)))
+                       .move_as_ok();
+  ASSERT_EQ("Uf9Tj6fMJP-OqhAdhKXxq36DL-HYSzCc3-9O6UNzqsgPfdyS", addr_str2->account_address_);
 }
 
 TEST(Tonlib, KeysApi) {
@@ -550,7 +555,7 @@ TEST(Tonlib, KeysApi) {
           make_object<tonlib_api::inputKey>(
               make_object<tonlib_api::key>(key->public_key_, imported_key->secret_.copy()), new_local_password.copy()),
           pem_password.copy()));
-  if (r_exported_pem_key.is_error() && r_exported_pem_key.error().message() == "Not supported") {
+  if (r_exported_pem_key.is_error() && r_exported_pem_key.error().message() == "INTERNAL Not supported") {
     return;
   }
   auto exported_pem_key = r_exported_pem_key.move_as_ok();

@@ -138,7 +138,7 @@ void FileDb::load_file(RefId ref_id, td::Promise<td::BufferSlice> promise) {
         }
       });
 
-  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), 0, -1, std::move(P)).release();
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), 0, -1, 0, std::move(P)).release();
 }
 
 void FileDb::load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise) {
@@ -159,7 +159,7 @@ void FileDb::load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size,
     }
   });
 
-  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), offset, max_size, std::move(P))
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), offset, max_size, 0, std::move(P))
       .release();
 }
 

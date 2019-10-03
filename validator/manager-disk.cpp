@@ -897,7 +897,7 @@ void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_bloc
   td::actor::send_closure(db_, &Db::update_shard_client_state, masterchain_block_id, std::move(promise));
 }
 
-void ValidatorManagerImpl::get_shard_client_state(td::Promise<BlockIdExt> promise) {
+void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) {
   td::actor::send_closure(db_, &Db::get_shard_client_state, std::move(promise));
 }
 

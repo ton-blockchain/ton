@@ -41,6 +41,8 @@ class BlockDb : public td::actor::Actor {
   void gc();
   void skip_gc();
 
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise);
+
   BlockDb(td::actor::ActorId<RootDb> root_db, std::string db_path);
 
  private:

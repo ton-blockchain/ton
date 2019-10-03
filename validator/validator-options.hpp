@@ -33,7 +33,10 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return init_block_id_;
   }
   bool need_monitor(ShardIdFull shard) const override {
-    return check_shard_(shard);
+    return check_shard_(shard, ShardCheckMode::m_monitor);
+  }
+  bool need_validate(ShardIdFull shard) const override {
+    return check_shard_(shard, ShardCheckMode::m_validate);
   }
   bool allow_blockchain_init() const override {
     return allow_blockchain_init_;
@@ -82,6 +85,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::uint32 get_last_fork_masterchain_seqno() const override {
     return hardforks_.size() ? hardforks_.rbegin()->seqno() : 0;
   }
+  std::vector<BlockIdExt> get_hardforks() const override {
+    return hardforks_;
+  }
   td::uint32 get_filedb_depth() const override {
     return db_depth_;
   }
@@ -92,7 +98,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_init_block_id(BlockIdExt block_id) override {
     init_block_id_ = block_id;
   }
-  void set_shard_check_function(std::function<bool(ShardIdFull)> check_shard) override {
+  void set_shard_check_function(std::function<bool(ShardIdFull, ShardCheckMode)> check_shard) override {
     check_shard_ = std::move(check_shard);
   }
   void set_allow_blockchain_init(bool value) override {
@@ -129,7 +135,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   }
 
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
-                              std::function<bool(ShardIdFull)> check_shard, bool allow_blockchain_init,
+                              std::function<bool(ShardIdFull, ShardCheckMode)> check_shard, bool allow_blockchain_init,
                               td::ClocksBase::Duration sync_blocks_before, td::ClocksBase::Duration block_ttl,
                               td::ClocksBase::Duration state_ttl, td::ClocksBase::Duration archive_ttl,
                               td::ClocksBase::Duration key_proof_ttl, bool initial_sync_disabled)
@@ -148,7 +154,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
  private:
   BlockIdExt zero_block_id_;
   BlockIdExt init_block_id_;
-  std::function<bool(ShardIdFull)> check_shard_;
+  std::function<bool(ShardIdFull, ShardCheckMode)> check_shard_;
   bool allow_blockchain_init_;
   td::ClocksBase::Duration sync_blocks_before_;
   td::ClocksBase::Duration block_ttl_;

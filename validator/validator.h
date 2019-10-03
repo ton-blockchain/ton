@@ -46,9 +46,12 @@ class DownloadToken {
 
 struct ValidatorManagerOptions : public td::CntObject {
  public:
+  enum class ShardCheckMode { m_monitor, m_validate };
+
   virtual BlockIdExt zero_block_id() const = 0;
   virtual BlockIdExt init_block_id() const = 0;
   virtual bool need_monitor(ShardIdFull shard) const = 0;
+  virtual bool need_validate(ShardIdFull shard) const = 0;
   virtual bool allow_blockchain_init() const = 0;
   virtual td::ClocksBase::Duration sync_blocks_before() const = 0;
   virtual td::ClocksBase::Duration block_ttl() const = 0;
@@ -60,6 +63,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::uint32 get_vertical_seqno(BlockSeqno seqno) const = 0;
   virtual td::uint32 get_maximal_vertical_seqno() const = 0;
   virtual td::uint32 get_last_fork_masterchain_seqno() const = 0;
+  virtual std::vector<BlockIdExt> get_hardforks() const = 0;
   virtual td::uint32 get_filedb_depth() const = 0;
   virtual td::uint32 key_block_utime_step() const {
     return 86400;
@@ -67,7 +71,7 @@ struct ValidatorManagerOptions : public td::CntObject {
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
-  virtual void set_shard_check_function(std::function<bool(ShardIdFull)> check_shard) = 0;
+  virtual void set_shard_check_function(std::function<bool(ShardIdFull, ShardCheckMode)> check_shard) = 0;
   virtual void set_allow_blockchain_init(bool value) = 0;
   virtual void set_sync_blocks_before(td::ClocksBase::Duration value) = 0;
   virtual void set_block_ttl(td::ClocksBase::Duration value) = 0;
@@ -80,7 +84,7 @@ struct ValidatorManagerOptions : public td::CntObject {
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
-      std::function<bool(ShardIdFull)> check_shard = [](ShardIdFull) { return true; },
+      std::function<bool(ShardIdFull, ShardCheckMode)> check_shard = [](ShardIdFull, ShardCheckMode) { return true; },
       bool allow_blockchain_init = false, td::ClocksBase::Duration sync_blocks_before = 300,
       td::ClocksBase::Duration block_ttl = 86400 * 7, td::ClocksBase::Duration state_ttl = 3600,
       td::ClocksBase::Duration archive_ttl = 86400 * 365, td::ClocksBase::Duration key_proof_ttl = 86400 * 3650,

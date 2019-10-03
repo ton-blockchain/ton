@@ -18,6 +18,8 @@
 */
 #include "LastBlockStorage.h"
 
+#include "tonlib/utils.h"
+
 #include "td/utils/as.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
@@ -49,6 +51,7 @@ td::Result<LastBlockState> LastBlockStorage::get_state(td::Slice name) {
 }
 
 void LastBlockStorage::save_state(td::Slice name, LastBlockState state) {
+  VLOG(last_block) << "Save to cache: " << state;
   auto x = td::serialize(state);
   std::string y(x.size() + 8, 0);
   td::MutableSlice(y).substr(8).copy_from(x);

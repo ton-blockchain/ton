@@ -39,8 +39,8 @@ internal.transactionId lt:int64 hash:bytes = internal.TransactionId;
 
 raw.initialAccountState code:bytes data:bytes = raw.InitialAccountState;
 raw.accountState balance:int64 code:bytes data:bytes last_transaction_id:internal.transactionId sync_utime:int53 = raw.AccountState;
-raw.message source:string destination:string value:int64 message:bytes = raw.Message;
-raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
+raw.message source:string destination:string value:int64 fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes message:bytes = raw.Message;
+raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
 testWallet.initialAccountState public_key:string = testWallet.InitialAccountState;
@@ -63,7 +63,7 @@ generic.accountStateWallet account_state:wallet.accountState = generic.AccountSt
 generic.accountStateTestGiver account_state:testGiver.accountState = generic.AccountState;
 generic.accountStateUninited account_state:uninited.accountState = generic.AccountState;
 
-sendGramsResult sent_until:int53 = SendGramsResult;
+sendGramsResult sent_until:int53 body_hash:bytes = SendGramsResult;
 
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 
@@ -94,6 +94,7 @@ options.setConfig config:config = Ok;
 
 createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;
 deleteKey key:key = Ok;
+deleteAllKeys = Ok;
 exportKey input_key:inputKey = ExportedKey;
 exportPemKey input_key:inputKey key_password:secureBytes = ExportedPemKey;
 exportEncryptedKey input_key:inputKey key_password:secureBytes = ExportedEncryptedKey;

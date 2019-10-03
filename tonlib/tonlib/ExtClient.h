@@ -26,6 +26,10 @@
 
 #include "td/actor/actor.h"
 #include "td/utils/Container.h"
+#include "td/utils/Random.h"
+
+#include "TonlibError.h"
+#include "utils.h"
 
 namespace tonlib {
 class LastBlock;
@@ -53,23 +57,37 @@ class ExtClient {
   void with_last_block(td::Promise<LastBlockState> promise);
 
   template <class QueryT>
-  void send_query(QueryT query, td::Promise<typename QueryT::ReturnType> promise) {
+  void send_query(QueryT query, td::Promise<typename QueryT::ReturnType> promise, td::int32 seq_no = -1) {
     auto raw_query = ton::serialize_tl_object(&query, true);
-    LOG(ERROR) << "send query to liteserver: " << to_string(query);
+    td::uint32 tag = td::Random::fast_uint32();
+    VLOG(lite_server) << "send query to liteserver: " << tag << " " << to_string(query);
     td::BufferSlice liteserver_query =
         ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(raw_query)), true);
 
-    send_raw_query(std::move(liteserver_query), [promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-      promise.set_result([&]() -> td::Result<typename QueryT::ReturnType> {
-        TRY_RESULT(data, std::move(R));
-        auto r_error = ton::fetch_tl_object<ton::lite_api::liteServer_error>(data.clone(), true);
-        if (r_error.is_ok()) {
-          auto f = r_error.move_as_ok();
-          return td::Status::Error(f->code_, f->message_);
-        }
-        return ton::fetch_result<QueryT>(std::move(data));
-      }());
-    });
+    if (seq_no >= 0) {
+      auto wait = ton::lite_api::liteServer_waitMasterchainSeqno(seq_no, 5000);
+      VLOG(lite_server) << " with prefix " << to_string(wait);
+      auto prefix = ton::serialize_tl_object(&wait, true);
+      liteserver_query = td::BufferSlice(PSLICE() << prefix.as_slice() << liteserver_query.as_slice());
+    }
+
+    send_raw_query(
+        std::move(liteserver_query), [promise = std::move(promise), tag](td::Result<td::BufferSlice> R) mutable {
+          auto res = [&]() -> td::Result<typename QueryT::ReturnType> {
+            TRY_RESULT_PREFIX(data, std::move(R), TonlibError::LiteServerNetwork());
+            auto r_error = ton::fetch_tl_object<ton::lite_api::liteServer_error>(data.clone(), true);
+            if (r_error.is_ok()) {
+              auto f = r_error.move_as_ok();
+              return TonlibError::LiteServer(f->code_, f->message_);
+            }
+            return ton::fetch_result<QueryT>(std::move(data));
+          }
+          ();
+          VLOG_IF(lite_server, res.is_ok())
+              << "got result from liteserver: " << tag << " " << td::Slice(to_string(res.ok())).truncate(1 << 12);
+          VLOG_IF(lite_server, res.is_error()) << "got error from liteserver: " << tag << " " << res.error();
+          promise.set_result(std::move(res));
+        });
   }
 
  private:

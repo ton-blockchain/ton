@@ -128,7 +128,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_block_broadcast(BlockBroadcast broadcast) = 0;
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
-  virtual void get_shard_client_state(td::Promise<BlockIdExt> promise) = 0;
+  virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
   virtual void subscribe_to_shard(ShardIdFull shard) = 0;
 
   virtual void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) = 0;
@@ -152,6 +152,12 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void update_last_known_key_block(BlockHandle handle, bool send_request) = 0;
   virtual void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
+
+  virtual void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
+
+  virtual void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) = 0;
+
+  virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / 1024 != prev_ts / 1024;

@@ -1,6 +1,6 @@
 The aim of this document is to provide step-by-step instructions for setting up a full node for the TON Blockchain. We assume some familiarity with the TON Blockchain Lite Client, at least to the extent explained in the Lite Client HOWTO.
 
-Notice that you need a machine with a public IP address and a high-bandwidth network connection to run a TON Blockchain Full Node. Typically you'll need a sufficiently powerful server in a datacenter. It is a bad idea to run a Full Node on your home computer; instead, you could run a Full Node on a remote server, and use the TON Blockchain Lite Client to connect to it from home.
+Note that you need a machine with a public IP address and a high-bandwidth network connection to run a TON Blockchain Full Node. Typically you'll need a sufficiently powerful server in a datacenter with good network connectivity, using at least a 1 Gbit/s connection to reliably accommodate peak loads (the average load is expected to be approximately 100 Mbit/s). We recommend a dual-processor server with at least eight cores in each processor, at least 256 MiB RAM, at least 8 TB of conventional HDD storage and at least 512 GB of faster SSD storage. It is a bad idea to run a Full Node on your home computer; instead, you could run a Full Node on a remote server, and use the TON Blockchain Lite Client to connect to it from home.
 
 0. Downloading and compiling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

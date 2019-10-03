@@ -27,13 +27,13 @@
 #include <limits>
 
 namespace tonlib {
-td::Ref<vm::Cell> Wallet::get_init_state(const td::Ed25519::PublicKey& public_key) {
+td::Ref<vm::Cell> Wallet::get_init_state(const td::Ed25519::PublicKey& public_key) noexcept {
   auto code = get_init_code();
   auto data = get_init_data(public_key);
   return GenericAccount::get_init_state(std::move(code), std::move(data));
 }
 
-td::Ref<vm::Cell> Wallet::get_init_message(const td::Ed25519::PrivateKey& private_key) {
+td::Ref<vm::Cell> Wallet::get_init_message(const td::Ed25519::PrivateKey& private_key) noexcept {
   td::uint32 seqno = 0;
   td::uint32 valid_until = std::numeric_limits<td::uint32>::max();
   auto signature =
@@ -45,7 +45,7 @@ td::Ref<vm::Cell> Wallet::get_init_message(const td::Ed25519::PrivateKey& privat
 
 td::Ref<vm::Cell> Wallet::make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 seqno,
                                               td::uint32 valid_until, td::int64 gramms, td::Slice message,
-                                              const block::StdAddress& dest_address) {
+                                              const block::StdAddress& dest_address) noexcept {
   td::BigInt256 dest_addr;
   dest_addr.import_bits(dest_address.addr.as_bitslice());
   vm::CellBuilder cb;
@@ -54,11 +54,15 @@ td::Ref<vm::Cell> Wallet::make_a_gift_message(const td::Ed25519::PrivateKey& pri
       .append_cellslice(binary_bitstring_to_cellslice("b{000100}").move_as_ok())
       .store_long(dest_address.workchain, 8)
       .store_int256(dest_addr, 256);
+  td::int32 send_mode = 3;
+  if (gramms == -1) {
+    gramms = 0;
+    send_mode += 128;
+  }
   block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(gramms));
   cb.store_zeroes(9 + 64 + 32 + 1 + 1).store_bytes("\0\0\0\0", 4);
   vm::CellString::store(cb, message, 35 * 8).ensure();
   auto message_inner = cb.finalize();
-  td::int8 send_mode = 3;
   auto message_outer = vm::CellBuilder()
                            .store_long(seqno, 32)
                            .store_long(valid_until, 32)
@@ -70,7 +74,7 @@ td::Ref<vm::Cell> Wallet::make_a_gift_message(const td::Ed25519::PrivateKey& pri
   return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
 }
 
-td::Ref<vm::Cell> Wallet::get_init_code() {
+td::Ref<vm::Cell> Wallet::get_init_code() noexcept {
   static auto res = [] {
     auto serialized_code = td::base64_decode(
                                "te6ccgEEAQEAAAAAVwAAqv8AIN0gggFMl7qXMO1E0NcLH+Ck8mCDCNcYINMf0x8B+CO78mPtRNDTH9P/"
@@ -81,11 +85,11 @@ td::Ref<vm::Cell> Wallet::get_init_code() {
   return res;
 }
 
-vm::CellHash Wallet::get_init_code_hash() {
+vm::CellHash Wallet::get_init_code_hash() noexcept {
   return get_init_code()->get_hash();
 }
 
-td::Ref<vm::Cell> Wallet::get_init_data(const td::Ed25519::PublicKey& public_key) {
+td::Ref<vm::Cell> Wallet::get_init_data(const td::Ed25519::PublicKey& public_key) noexcept {
   return vm::CellBuilder().store_long(0, 32).store_bytes(public_key.as_octet_string()).finalize();
 }
 }  // namespace tonlib

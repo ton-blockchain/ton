@@ -104,6 +104,9 @@ class RootDb : public Db {
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) override;
 
+  void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) override;
+  void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) override;
+
   void archive(BlockIdExt block_id, td::Promise<td::Unit> promise) override;
 
   void allow_state_gc(BlockIdExt block_id, td::Promise<bool> promise);
@@ -111,6 +114,8 @@ class RootDb : public Db {
   void allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> promise);
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
+
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override;
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;

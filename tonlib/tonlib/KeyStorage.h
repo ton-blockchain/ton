@@ -60,6 +60,7 @@ class KeyStorage {
   td::Result<Key> change_local_password(InputKey input_key, td::Slice new_local_password);
 
   td::Status delete_key(const Key& key);
+  td::Status delete_all_keys();
 
   td::Result<Key> import_key(td::Slice local_password, td::Slice mnemonic_password, ExportedKey exported_key);
   td::Result<Key> import_pem_key(td::Slice local_password, td::Slice key_password, ExportedPemKey exported_key);

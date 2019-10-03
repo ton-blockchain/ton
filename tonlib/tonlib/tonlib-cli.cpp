@@ -192,6 +192,7 @@ class TonlibCli : public td::actor::Actor {
       td::TerminalIO::out() << "keys - show all stored keys\n";
       td::TerminalIO::out() << "unpackaddress <address> - validate and parse address\n";
       td::TerminalIO::out() << "importkey - import key\n";
+      td::TerminalIO::out() << "deletekeys - delete ALL PRIVATE KEYS\n";
       td::TerminalIO::out() << "exportkey [<key_id>] - export key\n";
       td::TerminalIO::out() << "setconfig <path> [<name>] [<use_callback>] [<force>] - set lite server config\n";
       td::TerminalIO::out() << "getstate <key_id> - get state of simple wallet with requested key\n";
@@ -213,6 +214,8 @@ class TonlibCli : public td::actor::Actor {
       try_stop();
     } else if (cmd == "keys") {
       dump_keys();
+    } else if (cmd == "deletekeys") {
+      delete_all_keys();
     } else if (cmd == "exportkey") {
       export_key(parser.read_word());
     } else if (cmd == "importkey") {
@@ -414,6 +417,27 @@ class TonlibCli : public td::actor::Actor {
     for (size_t i = 0; i < keys_.size(); i++) {
       dump_key(i);
     }
+  }
+  void delete_all_keys() {
+    static td::Slice password = td::Slice("I have written down mnemonic words");
+    td::TerminalIO::out() << "You are going to delete ALL PRIVATE KEYS. To confirm enter `" << password << "`\n";
+    cont_ = [this](td::Slice entered) {
+      if (password == entered) {
+        this->do_delete_all_keys();
+      } else {
+        td::TerminalIO::out() << "Your keys left intact\n";
+      }
+    };
+  }
+
+  void do_delete_all_keys() {
+    send_query(tonlib_api::make_object<tonlib_api::deleteAllKeys>(), [](auto r_res) {
+      if (r_res.is_error()) {
+        td::TerminalIO::out() << "Something went wrong: " << r_res.error() << "\n";
+        return;
+      }
+      td::TerminalIO::out() << "All your keys have been deleted\n";
+    });
   }
 
   std::string key_db_path() {

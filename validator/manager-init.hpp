@@ -34,12 +34,13 @@ namespace validator {
 class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
  public:
   ValidatorManagerMasterchainReiniter(td::Ref<ValidatorManagerOptions> opts,
-                                      td::actor::ActorId<ValidatorManager> manager,
+                                      td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<Db> db,
                                       td::Promise<ValidatorManagerInitResult> promise)
-      : opts_(std::move(opts)), manager_(manager), promise_(std::move(promise)) {
+      : opts_(std::move(opts)), manager_(manager), db_(db), promise_(std::move(promise)) {
     block_id_ = opts_->init_block_id();
   }
   void start_up() override;
+  void written_hardforks();
   void got_masterchain_handle(BlockHandle handle);
   void download_proof_link();
   void downloaded_proof_link(td::BufferSlice data);
@@ -70,6 +71,7 @@ class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
   std::vector<ShardIdFull> shards_;
 
   td::actor::ActorId<ValidatorManager> manager_;
+  td::actor::ActorId<Db> db_;
 
   td::Promise<ValidatorManagerInitResult> promise_;
 
@@ -95,6 +97,14 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   void got_gc_block_state(td::Ref<MasterchainState> state);
   void got_key_block_handle(BlockHandle handle);
   void got_shard_block_id(BlockIdExt block_id);
+  void got_hardforks(std::vector<BlockIdExt> hardforks);
+  void got_truncate_block_id(BlockIdExt block_id);
+  void got_truncate_block_handle(BlockHandle handle);
+  void got_truncate_state(td::Ref<MasterchainState> state);
+  void truncated_db();
+  void got_prev_key_block_handle(BlockHandle handle);
+  void truncated();
+  void written_next();
   void finish();
 
  private:
@@ -112,6 +122,7 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
 
   td::Promise<ValidatorManagerInitResult> promise_;
 
+  BlockIdExt client_block_id_;
   td::actor::ActorOwn<ShardClient> client_;
 };
 

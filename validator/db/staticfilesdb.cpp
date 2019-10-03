@@ -25,7 +25,9 @@ namespace validator {
 
 void StaticFilesDb::load_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) {
   auto path = path_ + "/" + file_hash.to_hex();
-  td::actor::create_actor<db::ReadFile>("read file", path, 0, -1, std::move(promise)).release();
+  td::actor::create_actor<db::ReadFile>("read file", path, 0, -1, db::ReadFile::Flags::f_disable_log,
+                                        std::move(promise))
+      .release();
 }
 
 }  // namespace validator

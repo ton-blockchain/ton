@@ -36,7 +36,7 @@ void ShardClient::start_up() {
     R.ensure();
     td::actor::send_closure(SelfId, &ShardClient::got_state_from_db, R.move_as_ok());
   });
-  td::actor::send_closure(manager_, &ValidatorManager::get_shard_client_state, std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::get_shard_client_state, true, std::move(P));
 }
 
 void ShardClient::got_state_from_db(BlockIdExt state) {
@@ -94,6 +94,8 @@ void ShardClient::saved_to_db() {
   }
 
   CHECK(masterchain_block_handle_);
+  td::actor::send_closure(manager_, &ValidatorManager::update_shard_client_block_handle, masterchain_block_handle_,
+                          [](td::Unit) {});
   if (masterchain_block_handle_->inited_next_left()) {
     new_masterchain_block_id(masterchain_block_handle_->one_next(true));
   } else {
@@ -196,6 +198,14 @@ void ShardClient::get_processed_masterchain_block(td::Promise<BlockSeqno> promis
     seqno--;
   }
   promise.set_result(seqno);
+}
+
+void ShardClient::get_processed_masterchain_block_id(td::Promise<BlockIdExt> promise) {
+  if (masterchain_block_handle_) {
+    promise.set_result(masterchain_block_handle_->id());
+  } else {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "shard client not started"));
+  }
 }
 
 void ShardClient::build_shard_overlays() {

@@ -1466,26 +1466,10 @@ bool Collator::fetch_config_params() {
     if (cell.is_null()) {
       return fatal_error("cannot fetch current gas prices and limits from masterchain configuration");
     }
-    auto f = [self = this](const auto& r, td::uint64 spec_limit) {
-      self->compute_phase_cfg_.gas_limit = r.gas_limit;
-      self->compute_phase_cfg_.special_gas_limit = spec_limit;
-      self->compute_phase_cfg_.gas_credit = r.gas_credit;
-      self->compute_phase_cfg_.gas_price = r.gas_price;
-      self->storage_phase_cfg_.freeze_due_limit = td::RefInt256{true, r.freeze_due_limit};
-      self->storage_phase_cfg_.delete_due_limit = td::RefInt256{true, r.delete_due_limit};
-    };
-    block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
-    if (tlb::unpack_cell(cell, rec)) {
-      f(rec, rec.special_gas_limit);
-    } else {
-      block::gen::GasLimitsPrices::Record_gas_prices rec0;
-      if (tlb::unpack_cell(std::move(cell), rec0)) {
-        f(rec0, rec0.gas_limit);
-      } else {
-        return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
-      }
+    if (!compute_phase_cfg_.parse_GasLimitsPrices(std::move(cell), storage_phase_cfg_.freeze_due_limit,
+                                                  storage_phase_cfg_.delete_due_limit)) {
+      return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
-    compute_phase_cfg_.compute_threshold();
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.global_config = config_->get_root_cell();

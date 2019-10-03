@@ -216,6 +216,95 @@ void LtDb::start_up() {
   kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path_).move_as_ok());
 }
 
+void LtDb::truncate_workchain(ShardIdFull shard, td::Ref<MasterchainState> state) {
+  auto key = get_desc_key(shard);
+  std::string value;
+  auto R = kv_->get(key, value);
+  R.ensure();
+  CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+  auto F = fetch_tl_object<ton_api::db_lt_desc_value>(td::BufferSlice{value}, true);
+  F.ensure();
+  auto f = F.move_as_ok();
+
+  auto shards = state->get_shards();
+  BlockSeqno seqno = 0;
+  if (shard.is_masterchain()) {
+    seqno = state->get_seqno();
+  } else {
+    for (auto s : shards) {
+      if (shard_intersects(s->shard(), shard)) {
+        seqno = s->top_block_id().seqno();
+        break;
+      }
+    }
+  }
+
+  while (f->last_idx_ > f->first_idx_) {
+    auto db_key = get_el_key(shard, f->last_idx_ - 1);
+    R = kv_->get(db_key, value);
+    R.ensure();
+    CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+    auto E = fetch_tl_object<ton_api::db_lt_el_value>(td::BufferSlice{value}, true);
+    E.ensure();
+    auto e = E.move_as_ok();
+
+    bool to_delete = static_cast<td::uint32>(e->id_->seqno_) > seqno;
+
+    if (!to_delete) {
+      break;
+    } else {
+      f->last_idx_--;
+      kv_->erase(db_key).ensure();
+    }
+  }
+
+  if (f->first_idx_ == f->last_idx_) {
+    f->last_ts_ = 0;
+    f->last_lt_ = 0;
+    f->last_seqno_ = 0;
+  }
+
+  kv_->set(key, serialize_tl_object(f, true)).ensure();
+}
+
+void LtDb::truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) {
+  auto status_key = create_serialize_tl_object<ton_api::db_lt_status_key>();
+  td::Result<td::KeyValue::GetStatus> R;
+  td::uint32 total_shards = 0;
+  {
+    std::string value;
+    R = kv_->get(status_key.as_slice(), value);
+    R.ensure();
+    if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+      promise.set_value(td::Unit());
+      return;
+    }
+    auto F = fetch_tl_object<ton_api::db_lt_status_value>(value, true);
+    F.ensure();
+    auto f = F.move_as_ok();
+    total_shards = f->total_shards_;
+    if (total_shards == 0) {
+      promise.set_value(td::Unit());
+      return;
+    }
+  }
+  kv_->begin_transaction().ensure();
+  for (td::uint32 idx = 0; idx < total_shards; idx++) {
+    auto shard_key = create_serialize_tl_object<ton_api::db_lt_shard_key>(idx);
+    std::string value;
+    R = kv_->get(shard_key.as_slice(), value);
+    R.ensure();
+    CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+    auto F = fetch_tl_object<ton_api::db_lt_shard_value>(value, true);
+    F.ensure();
+    auto f = F.move_as_ok();
+
+    truncate_workchain(ShardIdFull{f->workchain_, static_cast<td::uint64>(f->shard_)}, state);
+  }
+  kv_->commit_transaction().ensure();
+  promise.set_value(td::Unit());
+}
+
 }  // namespace validator
 
 }  // namespace ton

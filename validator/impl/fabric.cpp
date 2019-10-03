@@ -33,6 +33,7 @@
 #include "top-shard-descr.hpp"
 #include "ton/ton-io.hpp"
 #include "liteserver.hpp"
+#include "validator/fabric.h"
 
 namespace ton {
 
@@ -129,6 +130,11 @@ void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::ve
                                             std::move(prev), std::move(validator_set), std::move(manager),
                                             std::move(promise))
       .release();
+}
+
+void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
+                                     td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
+  promise.set_error(td::Status::Error(ErrorCode::error, "not implemented"));
 }
 
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,

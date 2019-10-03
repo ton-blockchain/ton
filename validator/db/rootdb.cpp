@@ -25,6 +25,7 @@
 #include "td/utils/overloaded.h"
 #include "common/checksum.h"
 #include "validator/stats-merger.h"
+#include "td/actor/MultiPromise.h"
 
 namespace ton {
 
@@ -413,6 +414,14 @@ void RootDb::get_async_serializer_state(td::Promise<AsyncSerializerState> promis
   td::actor::send_closure(state_db_, &StateDb::get_async_serializer_state, std::move(promise));
 }
 
+void RootDb::update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(state_db_, &StateDb::update_hardforks, std::move(blocks), std::move(promise));
+}
+
+void RootDb::get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) {
+  td::actor::send_closure(state_db_, &StateDb::get_hardforks, std::move(promise));
+}
+
 void RootDb::start_up() {
   cell_db_ = td::actor::create_actor<CellDb>("celldb", actor_id(this), root_path_ + "/celldb/");
   block_db_ = td::actor::create_actor<BlockDb>("blockdb", actor_id(this), root_path_ + "/blockdb/");
@@ -479,6 +488,15 @@ void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::s
 
   td::actor::send_closure(file_db_, &FileDb::prepare_stats, merger.make_promise("filedb."));
   td::actor::send_closure(archive_db_, &FileDb::prepare_stats, merger.make_promise("archivedb."));
+}
+
+void RootDb::truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) {
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+
+  td::actor::send_closure(lt_db_, &LtDb::truncate, state, ig.get_promise());
+  td::actor::send_closure(block_db_, &BlockDb::truncate, state, ig.get_promise());
 }
 
 }  // namespace validator

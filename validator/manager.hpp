@@ -143,6 +143,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     std::vector<Waiter<ResType>> waiting_;
     td::actor::ActorId<ActorT> actor_;
 
+    WaitList() = default;
+
     std::pair<td::Timestamp, td::uint32> get_timeout() const {
       td::Timestamp t = td::Timestamp::now();
       td::uint32 prio = 0;
@@ -256,6 +258,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
   void try_advance_gc_masterchain_block();
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
+  void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
  public:
   void install_callback(std::unique_ptr<Callback> new_callback, td::Promise<td::Unit> promise) override {
@@ -414,7 +417,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_block_broadcast(BlockBroadcast broadcast) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
-  void get_shard_client_state(td::Promise<BlockIdExt> promise) override;
+  void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
   void subscribe_to_shard(ShardIdFull shard) override;
 
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
@@ -448,7 +451,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void read_gc_list(std::vector<ValidatorSessionId> list);
 
   bool is_validator();
-  PublicKeyHash get_validator(td::Ref<ValidatorSet> val_set);
+  PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -501,6 +504,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_last_known_key_block(BlockHandle handle, bool send_request) override;
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
+
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override;
+
+  void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
 
  private:
   td::Timestamp resend_shard_blocks_at_;
@@ -558,6 +565,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   double block_ttl() const {
     return opts_->block_ttl();
   }
+
+ private:
+  std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 };
 
 }  // namespace validator
