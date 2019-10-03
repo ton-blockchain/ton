@@ -136,8 +136,6 @@ bool Op::set_var_info_except(const VarDescrList& new_var_info, const std::vector
   if (!var_list.size()) {
     return set_var_info(new_var_info);
   }
-  VarDescrList tmp_info{new_var_info};
-  tmp_info -= var_list;
   return set_var_info(new_var_info);
 }
 
