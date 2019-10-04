@@ -42,12 +42,10 @@ EncryptedKey DecryptedKey::encrypt(td::Slice local_password, td::Slice old_secre
   } else {
     td::Random::secure_bytes(secret.as_mutable_slice());
   }
-  td::SecureString decrypted_secret(32);
-  hmac_sha256(secret, local_password, decrypted_secret.as_mutable_slice());
+  td::SecureString decrypted_secret = SimpleEncryption::combine_secrets(secret, local_password);
 
-  td::SecureString encryption_secret(64);
-  pbkdf2_sha512(as_slice(decrypted_secret), "TON local key", EncryptedKey::PBKDF_ITERATIONS,
-                encryption_secret.as_mutable_slice());
+  td::SecureString encryption_secret =
+      SimpleEncryption::kdf(as_slice(decrypted_secret), "TON local key", EncryptedKey::PBKDF_ITERATIONS);
 
   std::vector<td::SecureString> mnemonic_words_copy;
   for (auto &w : mnemonic_words) {
