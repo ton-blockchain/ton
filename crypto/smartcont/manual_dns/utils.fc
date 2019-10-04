@@ -1,0 +1,10 @@
+;; DICT
+cell dict_get_ref(cell dict, int key_len, slice key) asm (key dict key_len) "DICTGETOPTREF";
+cell dict_set_ref(cell dict, int key_len, slice key, cell value) asm (value key dict key_len) "DICTSETREF";
+(cell, ()) ~dict_set_ref(cell dict, int key_len, slice key, cell value) asm (value key dict key_len) "DICTSETREF";
+
+;;TUPLE
+tuple tpush_slice(tuple t, slice cs) asm "TPUSH";
+(tuple, ()) ~tpush_int(tuple t, int cs) asm "TPUSH";
+(tuple, slice) tpop_slice(tuple t) asm "TPOP";
+(tuple, int) tpop_int(tuple t) asm "TPOP";

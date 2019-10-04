@@ -1,0 +1,306 @@
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;           UTILS  TODO: move  to utils.fc
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TUPLE
+tuple empty_tuple() asm "NIL";
+int tlen(tuple t) asm "TLEN";
+int size(slice s) asm "SBITS";
+builder store_dicts(builder b, slice s) asm "SDICTS";
+tuple cadr(tuple t) asm "CADR";
+tuple cddr(tuple t) asm "CDDR";
+
+;; Reverse Lisp-style lists
+;; @param {tuple} t, input tuple: (a, (b, (c, null)))
+;; @param {tuple} l, nil
+;;
+;; @return {tuple} reversed tuple: (c, (b, (a, null)))
+(tuple) treverse(tuple t, tuple l) {
+  if (t.null?()) {
+    return l;
+  }
+
+  if (t.cdr().null?()) {
+    return cons(t.car(), l);
+  }
+
+  return t.cddr().treverse(
+    cons(
+      t.cadr(),
+      cons(
+        t.car(),
+        l
+      )
+    )
+  );
+}
+
+;; NOT USED case consume too much gas
+int to_lower_case(int i) {
+  if ((i >= 65) & (i <= 90)) {
+    return i += 32;
+  }
+  return i;
+}
+
+;; NOT USED case consume too much gas
+int is_valid_symbol(int i) {
+  return (
+    ((i >= 48) & (i <= 57))  | ;; 0-9
+    ((i >= 65) & (i <= 90))  | ;; A-Z
+    ((i >= 97) & (i <= 122)) | ;; a-z
+    (i == 45) |                ;; -
+    (i == 0x0) |               ;; \0
+    (i == 0x2e)                ;; .
+  );
+}
+
+;; DEBUG
+;; keep slice for output (doesnt allow compiler to removed it if unused)
+() kslice(slice) impure {
+}
+;; keep cell for output
+() kcell(cell) impure {
+}
+;; keep cell for output
+() kint(int) impure {
+}
+;; keep cell for output
+() ktuple(tuple) impure {
+}
+;; Output delim line for logs
+;; Useful for separating some logic section in the code
+;;  delim(0);
+;;  ....
+;;  delim(1);
+;;
+;; $ ... 2>&1 | grep DEBUG
+() delim(int i) impure {
+  var t = nil;
+  repeat (10) {
+    t = cons(i, t);
+  }
+  t~dump();
+  ktuple(t);
+}
+
+;; PFXDICT
+(slice, slice, slice)  pfxdict_get_q(cell dict, int key_len, slice key) asm (key dict key_len) "PFXDICTGETQ" "NULLSWAPIFNOT" "NULLSWAPIFNOT" "DROP";
+(cell, int) ~pfxdict_set(cell dict, int key_len, slice key, slice value) asm (value key dict key_len) "PFXDICTSET";
+
+;; SLICE
+(int) schkbits(slice s, int i) asm "SCHKBITSQ";
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;            SCM CODE
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+() drop_data(int seqno, int public_key) impure {
+  set_data(
+    begin_cell()
+    .store_uint(seqno + 1, 32)
+    .store_uint(public_key, 256)
+    .store_dict(new_dict())
+    .end_cell()
+  );
+}
+
+;; Parse domain into zero-delimeted format
+;; Multiple zeros and dots are merged in 1 as
+;;                    `domain....with...multi..dots` -> `domain.with.multi.dots`
+;;                    `domain\0\0\0with\0\multi\0\0zeros` -> `domain\0with\0\multi\zeros`
+;; Throws an error(105) on invalid symbol (disabled)
+;;
+;; @param {slice} cs, domain in 2 formats:
+;;                    "A.B.CC"
+;;                    "A\0B\0CC"
+;;
+;; @return {slice} validated, normalized and reversed domain name slice
+;;                 example: CC\0B\0A\0
+;; @return {tuple} size of the subdomain names
+;;                 example: (4, 2, 2)
+(slice, tuple) parse_domain(slice cs) {
+  int dot_code = 0x2e;
+
+  int i = 0;
+  int offset = 0;
+  var subdomains = nil;
+  var subdomain_sizes = nil;
+  int bits = cs.size();
+  repeat (bits / 8) {
+    int symbol = cs.skip_bits(i * 8).preload_uint(8);
+    ;; symbol~dump();
+    ;; throw_unless(105, is_valid_symbol(symbol)); ;; consume too much gas
+
+    if ((symbol == dot_code) | (symbol == 0x0)) {
+      if (offset != i) {
+        int subdomain_size = (i - offset) * 8;
+        slice subdomain = cs.skip_bits(offset * 8).preload_bits(subdomain_size);
+        subdomains = cons(subdomain, subdomains);
+        subdomain_sizes = cons(subdomain_size + 8, subdomain_sizes);
+      }
+      offset = i + 1;
+    }
+    i += 1;
+  }
+
+  if (offset != i) {
+    int subdomain_size = (i - offset) * 8;
+    slice subdomain = cs.skip_bits(offset * 8).preload_bits(subdomain_size);
+    subdomains = cons(subdomain, subdomains);
+    subdomain_sizes = cons(subdomain_size + 8, subdomain_sizes);
+  }
+
+  var domain = begin_cell();
+  do {
+    (slice subdomain, subdomains) = subdomains.unpair();
+    domain = domain.store_slice(subdomain).store_uint(0x0, 8);
+  } until (subdomains.null?());
+  var domain_cs = domain.end_cell().begin_parse();
+  return (domain_cs, subdomain_sizes.treverse(nil));
+}
+
+(cell) add_resource_record(slice cs, cell registry) impure {
+  ;;delim(0);
+  ;; TODO: move out to configuration
+  int DOMAIN_MAX_SIZE = 123 * 8;
+  int TTL = 60 * 60 * 24 * 365; ;; 1 year
+
+  int category = cs~load_int(16);
+
+  var (domain, _) = parse_domain(cs~load_ref().begin_parse());
+
+  cell in_rr = cs~load_ref();
+  slice in_rr_cs = in_rr.begin_parse();
+  int type = in_rr_cs~load_uint(3); ;; FOR FUTURE
+  cell resource = in_rr_cs~load_ref();
+  int resource_type = resource.begin_parse().preload_uint(3);
+  throw_unless(104, resource_type == 1);
+
+  var (prefix, zone_cs, suffix) = registry.pfxdict_get_q(DOMAIN_MAX_SIZE, domain);
+
+  var zone = new_dict();
+  if (~ zone_cs.null?()) {
+    zone = begin_cell().store_slice(zone_cs).end_cell();
+  }
+  ;;delim(2);
+
+  int ttl = TTL;
+  if (in_rr_cs.schkbits(32)) {
+    ttl = in_rr_cs~load_uint(32);
+  }
+  int expire_at = now() + ttl;
+  cell rr = begin_cell()
+    .store_uint(expire_at, 32)
+    .store_ref(resource)
+    .end_cell();
+
+  zone~idict_set_ref(16, category, rr);
+  registry~pfxdict_set(DOMAIN_MAX_SIZE, domain, zone.begin_parse());
+  return registry;
+}
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;           PUBLIC INTERFACE
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+() recv_external(slice in_msg) impure {
+  var signature = in_msg~load_bits(512);
+  var msg_hash = slice_hash(in_msg);
+  var seqno = in_msg~load_uint(32);
+
+  ;; data contains seqno + public_key
+  var ds = begin_parse(get_data());
+  var (stored_seqno, public_key) = (ds~load_uint(32), ds~load_uint(256));
+  ;; prevent replay
+  throw_unless(33, stored_seqno == seqno);
+  throw_unless(34, check_signature(msg_hash, signature, public_key));
+  accept_message(); ;; TODO: what about balance depletion on error
+
+  var action = in_msg~load_uint(4);
+  var registry = ds~load_dict();
+  if (action == 1) {
+    ;; Type=ActionUpgrade
+    var new_code = in_msg~load_ref();
+    in_msg.end_parse();
+    set_code(new_code);
+    ds.end_parse();
+  } elseif (action == 2) {
+    ;; ActionAddResourceRecord
+    registry = add_resource_record(in_msg, registry);
+  } elseif (action == 3) {
+    ;; Type=DropData SHOULD BE REMOVED
+    registry = new_dict();
+  } elseif (action == 4) {
+    ;; Type=TransferSCM
+    var public_key_cs = in_msg~load_ref().begin_parse();
+    public_key = public_key_cs~load_uint(256);
+  }
+
+  set_data(
+    begin_cell()
+      .store_uint(stored_seqno + 1, 32)
+      .store_uint(public_key, 256)
+      .store_dict(registry)
+    .end_cell()
+  );
+}
+
+() recv_internal(slice in_msg) impure {
+}
+
+int seqno() method_id {
+  return get_data().begin_parse().preload_uint(32);
+}
+
+(int, cell) dnsresolve(int category, slice cs) method_id {
+  ;;delim(0);
+  int DOMAIN_MAX_SIZE = 123 * 8; ;; TODO: move out to configuration
+  var ds = get_data().begin_parse();
+  cell registry = ds.skip_bits(32 + 256).preload_dict();
+
+  var (domain, subdomain_sizes) = parse_domain(cs);
+  int domain_size = domain.size();
+  var response = empty_tuple();
+
+  int found = 0;
+  while ( (found == 0) & domain_size > 0 ) {
+    ;;delim(1);
+    ;;domain~dump();
+    ;;subdomain_sizes~dump();
+    var (prefix, zone_cs, suffix) = registry.pfxdict_get_q(DOMAIN_MAX_SIZE, domain);
+
+    ;;delim(2);
+    if (~ zone_cs.null?() & (prefix.size() == domain_size)) {
+      if (category == 0) {
+        found = 1;
+        var subdomain = begin_cell().store_slice(zone_cs).end_cell();
+        response = pair(domain_size, subdomain);
+      } else {
+        var zone = begin_cell().store_slice(zone_cs).end_cell();
+        var subdomain = zone.idict_get_ref(16, category);
+
+        if (~ subdomain.null?()) {
+          slice rr_cs = subdomain.begin_parse();
+          int expire_at = rr_cs~load_uint(32);
+          ;; https://github.com/ton-blockchain/ton/issues/148
+          ;;if (expire_at >= now()) {
+            found = 1;
+            response = pair(domain_size, subdomain);
+          ;;}
+        }
+      }
+    }
+
+    (int subdomain_size, subdomain_sizes) = subdomain_sizes.unpair();
+    domain_size -= subdomain_size;
+    domain = domain~load_bits(domain_size);
+    category = -1;
+  }
+
+  if (response.tlen() == 2) {
+    return response.unpair();
+  } else {
+    return (0, new_dict());
+  }
+}

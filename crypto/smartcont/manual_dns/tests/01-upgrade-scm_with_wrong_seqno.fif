@@ -1,0 +1,14 @@
+// Executes Upgrade code message into TVM with wrong seqno
+// MUST throw 33 error
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+dup constant code
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+<b 1 32 u, 1 4 u, code ref, b> constant data
+data hashu wallet_pk ed25519_sign_uint constant signature
+<b 10 32 u, public_key B, null dict, b> constant c4
+
+<b signature B, data <s s, b>
+<s -1 code <s c4 runvm drop 33 <> { 1 halt } if

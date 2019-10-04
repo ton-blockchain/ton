@@ -1,0 +1,37 @@
+// Register 1 ResourceRecord with custom ttl(1 hour) and check that is expired correctly
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+// Constants
+dup constant code
+null null null
+now 60 60 * 24 * - // 1 day ago
+4 tuple
+null
+cons constant c7
+
+null null null now 4 tuple
+null
+cons constant c7_2
+-1 0x1111111111111111111111111111111111111111111111111111111111111111 2constant addr
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+<b 0 32 u, public_key B, null dict, b> constant c4
+"blog.google.com" constant domain
+domain $len 1 + 8 * constant domain_size
+// register domain
+<b b{001} s, addr addr, b>
+<b b{010} s, swap ref, 60 60 * 32 u, b> // expire in 1 hour
+<b domain $, b>
+<b 0 32 u, 2 4 u, 1 16 i, swap ref, swap ref, b> constant msg_body
+msg_body hash wallet_pk ed25519_sign_uint constant signature
+
+// register domain
+<b signature B, msg_body <s s, b> <s
+-1 code <s c4 c7 runvmctx constant c4 0 <> { 1 halt } if
+
+// check that domain was registered
+1 domain $>s
+123660 // dnsresolve method
+code <s c4 c7_2 runvmctx drop ."Response: " .s 0 <> { 1 halt } if
+drop 0 <> { 1 halt } if

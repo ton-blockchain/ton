@@ -1,0 +1,38 @@
+// Transfer account to the new owner, store resource record with new key and fetch it successfuly
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+// Constants
+dup constant code
+null null null now 4 tuple
+null
+cons constant c7
+-1 0x1111111111111111111111111111111111111111111111111111111111111111 2constant addr
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+"/tmp/test1.pk" load-generate-keypair constant wallet_pk2 constant public_key2
+"blog.google.com" constant domain
+<b 0 32 u, public_key B, null dict, b> constant c4
+
+// transfer
+<b public_key2 B, b>
+<b 0 32 u, 4 4 u, swap ref, b> constant msg_body
+msg_body hashu wallet_pk ed25519_sign_uint constant signature
+<b signature B, msg_body <s s, b> <s
+
+-1 code <s c4 c7 runvmctx constant c4 0 <> { 1 halt } if
+
+// register domain
+<b b{001} s, addr addr, b>
+<b b{010} s, swap ref, b>
+<b domain $, b>
+<b 1 32 u, 2 4 u, 1 16 i, swap ref, swap ref, b> constant msg_body2
+msg_body2 hash wallet_pk2 ed25519_sign_uint constant signature2
+
+<b signature2 B, msg_body2 <s s, b> <s
+-1 code <s c4 c7 runvmctx constant c4 0 <> { 1 halt } if
+
+// check that domain was registered
+1 domain $>s
+123660 // dnsresolve method
+code <s c4 c7 runvmctx 2drop ."Response: " .s dup null eq? { 1 halt } if

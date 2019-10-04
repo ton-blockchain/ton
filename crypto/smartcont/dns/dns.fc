@@ -1,0 +1,24 @@
+() recv_external(slice in_msg) impure {
+  var cs = in_msg;
+  var data = cs~load_uint(255);
+  ;; var data1 = cs~load_uint(25);
+  accept_message();
+  var new_code = cs~load_ref();
+  cs.end_parse();
+  set_code(new_code);
+  ;; dump_stack();
+}
+
+() recv_internal(slice in_msg) impure {
+  ;; var cs = in_msg;
+  ;; var code = cs~load_ref();
+  ;; accept_message();
+  ;; set_code(code);
+  ;; cs.end_parse();
+
+  ;; accept_message();
+
+  ;; var new_code = cs~load_ref();
+  ;; cs.end_parse();
+  ;; set_code(new_code);
+}

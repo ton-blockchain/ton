@@ -1,0 +1,48 @@
+// Register 2 ResourceRecords in the same zone with different categories and try to retrieve both
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+// Constants
+dup constant code
+null null null now 4 tuple
+null
+cons constant c7
+-1 0x1111111111111111111111111111111111111111111111111111111111111111 2constant addr
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+<b 0 32 u, public_key B, null dict, b> constant c4
+"blog.google.com" constant domain
+domain $len 1 + 8 * constant domain_size
+// domain with category 1
+<b b{001} s, addr addr, b>
+<b b{010} s, swap ref, b>
+<b domain $, b>
+<b 0 32 u, 2 4 u, 1 16 i, swap ref, swap ref, b> constant msg_body
+msg_body hash wallet_pk ed25519_sign_uint constant signature
+
+// register domain
+<b signature B, msg_body <s s, b> <s
+-1 code <s c4 c7 runvmctx constant c4 0 <> { 1 halt } if
+
+// domain with category 2
+<b b{001} s, addr addr, b>
+<b b{010} s, swap ref, b>
+<b domain $, b>
+<b 1 32 u, 2 4 u, 2 16 i, swap ref, swap ref, b> constant msg_body
+msg_body hash wallet_pk ed25519_sign_uint constant signature
+
+// register domain
+<b signature B, msg_body <s s, b> <s
+-1 code <s c4 c7 runvmctx constant c4 0 <> { 1 halt } if
+
+// check that domain1 was registered
+1 domain $>s
+123660 // dnsresolve method
+code <s c4 c7 runvmctx drop ."Domain 1: ".s 0 <> { 1 halt } if
+drop domain_size <> { 1 halt } if
+
+// check that domain2 was registered
+2 domain $>s
+123660 // dnsresolve method
+code <s c4 c7 runvmctx drop ."Domain 2: " .s 0 <> { 1 halt } if
+drop domain_size <> { 1 halt } if

@@ -1,0 +1,16 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+
+{ ."usage: " @' $0 type ." <private_key_file>" cr
+  ."Shows public_key computed for private into <private_key_file>"
+  cr 1 halt
+} : usage
+def? $# { @' $# 1 <> ' usage if } if
+@' $1  constant pk_file
+
+pk_file .s dup ."Generating public key from " type cr
+pk_file file-exists? {
+  dup file>B dup Blen 32 <> abort"Private key must be exactly 32 bytes long" cr
+} { ."Private key file " type ." not found" cr } cond
+
+pk_file file>B priv>pub ."0x" Bx. cr

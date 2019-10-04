@@ -1,0 +1,37 @@
+// Register 1 ResourceRcord with 984bit(max) key into smartcontract and check that it was added
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+// Constants
+dup constant code
+null null null now 4 tuple
+null
+cons constant c7
+-1 0x1111111111111111111111111111111111111111111111111111111111111111 2constant addr
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+<b 0 32 u, public_key B, null dict, b> constant c4
+"tooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolongtooolo.com" constant domain
+domain $len 1 + 8 * constant domain_size
+// register domain
+<b b{001} s, addr addr, b>
+<b b{010} s, swap ref, b>
+<b domain $, b>
+<b 0 32 u, 2 4 u, 1 16 i, swap ref, swap ref, b> constant msg_body
+msg_body hash wallet_pk ed25519_sign_uint constant signature
+
+// register domain
+<b signature B, msg_body <s s, b> <s
+-1 code <s c4 c7 runvmctx constant c4 0 <> { 1 halt } if
+
+// check that domain was registered
+1 domain $>s
+123660 // dnsresolve method
+code <s c4 c7 runvmctx drop ."Response: " .s 0 <> { 1 halt } if
+swap domain_size <> { 1 halt } if
+<s ref@ <s 3 u@+ swap 1 <> { 1 halt } if
+8 i@+ swap constant wc
+256 u@ constant addr1
+
+addr addr1 <> { 1 halt } if
+wc <> { 1 halt } if

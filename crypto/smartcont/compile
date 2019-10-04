@@ -1,0 +1,163 @@
+#!/bin/bash
+#
+# ███████╗ ██████╗███╗   ███╗     ██████╗ ██████╗ ███╗   ███╗██████╗ ██╗██╗     ███████╗
+# ██╔════╝██╔════╝████╗ ████║    ██╔════╝██╔═══██╗████╗ ████║██╔══██╗██║██║     ██╔════╝
+# ███████╗██║     ██╔████╔██║    ██║     ██║   ██║██╔████╔██║██████╔╝██║██║     █████╗
+# ╚════██║██║     ██║╚██╔╝██║    ██║     ██║   ██║██║╚██╔╝██║██╔═══╝ ██║██║     ██╔══╝
+# ███████║╚██████╗██║ ╚═╝ ██║    ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║     ██║███████╗███████╗
+# ╚══════╝ ╚═════╝╚═╝     ╚═╝     ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
+#
+# Requires fift and fc compilers in PATH
+#
+# HOWTO:
+# ./compile -h|--help
+#
+error() {
+  echo -e "\e[31mERROR:\e[0m $1" 1>&2
+}
+
+
+if [ -z `command -v func` ]; then
+  error "func executable should be in PATH"
+  HAS_ERROR=1
+fi
+
+if [ -z `command -v fift` ]; then
+  error "fift executable should be in PATH"
+  HAS_ERROR=1
+fi
+
+if [ ! -z $HAS_ERROR ]; then
+  exit 1
+fi
+
+usage() {
+  echo Usage: ./compile [OPTIONS]... input.fc -m message.fif.sh
+  echo Toolkit for working with smartcontracts.
+  echo
+  echo "  -m, --message=file.fif.sh    create message with file.fif.sh, every file has separated MESSAGE_OPTIONS can be checked as ./compile -m message.file.sh -h"
+  echo
+  echo OPTIONS:
+  echo "  -o, --output=dir             dir output"
+  echo "                                 default=output"
+  echo "  -l, --lib=dir                lib directory contains stdlib.c"
+  echo "  -a, --addr=wc[:addr]|file    address in wc[:addr] format or simple file"
+  echo "  -k, --key=file               file with private key"
+  echo "                                 default=output.pk"
+  echo "  -v, --verbose                verbose all generated files"
+  echo "  -h, --help                   display this help and exit"
+}
+
+ARGS=()
+OPTS=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -a|--addr)
+      if [ -f $2 ]; then
+        ADDR_FILE=${2}
+      else
+        input=(`echo $2 | tr ":" " "`)
+        if [ ${#input[@]} -eq 2 ]; then
+          WC=${input[0]}
+          ADDR=${input[1]}
+        else
+          WC=${input[0]}
+        fi
+      fi
+      shift 2
+      ;;
+    -k|--key)
+      OUTPUT_PK=$2
+      shift 2
+      ;;
+    -o|--output)
+      OUTPUT_DIR=$2
+      shift 2
+      ;;
+    -l|--lib)
+      LIB_DIR=$2
+      shift
+      ;;
+    -m|--message)
+      MESSAGE=$2
+      shift 2
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift 1
+      ;;
+    -h|--help)
+      SHOW_HELP=1
+      shift
+      ;;
+    -*)
+      OPTS+=($1 $2)
+      shift 2
+      ;;
+    *)
+      ARGS+=($1)
+      shift
+      ;;
+  esac
+done
+eval set -- ${ARGS[@]} ${OPTS[@]}
+
+if [ $SHOW_HELP ]; then
+  usage
+  if [ $MESSAGE ]; then
+    source $MESSAGE -h
+  fi
+  exit
+fi
+
+if [ -z "$MESSAGE" ]; then
+  error "MUST provide -m option"
+  echo "Check ./compile -h"
+  exit 1
+fi
+
+if [ $? -ne 0 ]; then
+  error "Unable to read $MESSAGE"
+  exit 1
+fi
+
+INPUT_FC=${1}
+if [ ! -f "$INPUT_FC" ]; then
+  error "FunC file doesn't exist ${INPUT_FC}"
+  exit 1
+fi
+OUTPUT_PK=${OUTPUT_PK:-output.pk}
+INPUT_PK=${OUTPUT_PK}
+OUTPUT_DIR=${OUTPUT_DIR:-output}
+SCRIPT_DIR=`dirname ${BASH_SOURCE[0]}`
+mkdir -p $OUTPUT_DIR
+BASENAME=`basename -s .fc ${INPUT_FC}`
+OUTPUT_FIFT=${OUTPUT_DIR}/${BASENAME}.fif
+OUTPUT_ADDR=${OUTPUT_DIR}/${BASENAME}.addr
+OUTPUT_BOC=${OUTPUT_DIR}/${BASENAME}.boc
+LIB_DIR=${LIB_DIR:-"$SCRIPT_DIR"}
+WC=${WC:--1}
+
+func -APS ${LIB_DIR}/stdlib.fc ${INPUT_FC} > $OUTPUT_FIFT
+
+cat >> $OUTPUT_FIFT <<EOF
+  dup constant code
+EOF
+
+
+# Get Message X
+source "$MESSAGE" >> $OUTPUT_FIFT
+if [ ${PIPESTATUS[0]} != 0 ]; then
+  exit 1
+fi
+
+# Generate BOC <Bang Of Cells>
+cat >> $OUTPUT_FIFT <<EOF
+2 boc+>B "${OUTPUT_BOC}" tuck B>file
+."Boc is generated: ${OUTPUT_BOC}" cr
+EOF
+
+if [ -n "$VERBOSE" ]; then
+  cat $OUTPUT_FIFT
+fi
+fift -v3 $OUTPUT_FIFT

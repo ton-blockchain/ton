@@ -1,0 +1,22 @@
+// Executes Upgrade code message into TVM
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+// Constants
+dup constant code
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+<b 0 32 u, 1 4 u, code ref, b> constant data
+data hashu wallet_pk ed25519_sign_uint constant signature
+<b 0 32 u, public_key B, null dict, b> constant c4
+
+// first upgrade
+<b signature B, data <s s, b>
+<s -1 code <s c4 runvm constant c4 0 <> { 1 halt } if
+
+// second upgrade
+<b 1 32 u, 1 4 u, code ref, b> constant data
+data hashu wallet_pk ed25519_sign_uint constant signature
+
+<b signature B, data <s s, b>
+<s -1 code <s c4 runvm drop 0 <> { 1 halt } if

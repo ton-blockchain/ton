@@ -1,0 +1,114 @@
+#!/bin/bash
+#
+# ███████╗ ██████╗███╗   ███╗    ████████╗███████╗███████╗████████╗
+# ██╔════╝██╔════╝████╗ ████║    ╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝
+# ███████╗██║     ██╔████╔██║       ██║   █████╗  ███████╗   ██║
+# ╚════██║██║     ██║╚██╔╝██║       ██║   ██╔══╝  ╚════██║   ██║
+# ███████║╚██████╗██║ ╚═╝ ██║       ██║   ███████╗███████║   ██║
+# ╚══════╝ ╚═════╝╚═╝     ╚═╝       ╚═╝   ╚══════╝╚══════╝   ╚═╝
+#
+# Runs input.fc file into VM with inbound message
+# Uses /tmp path for storing generated fift code
+# Can be useful for developing/debugging VM code
+#
+# HOWTO:
+# ./test -h|--help
+#
+# For filtering #DEBUG# messages
+# ./test ... 2>&1 | grep DEBUG
+#
+
+if [ -z `command -v func` ]; then
+  echo "ERROR: func executable should be in PATH"
+  HAS_ERROR=1
+fi
+
+if [ -z `command -v fift` ]; then
+  echo "ERROR: fift executable should be in PATH"
+  HAS_ERROR=1
+fi
+
+if [ ! -z $HAS_ERROR ]; then
+  exit 1
+fi
+
+usage() {
+  echo Usage: ./test [OPTIONS]... input.fc test_message.fif
+  echo Tools for executing test_message.fif into VM with input.fc code.
+  echo "test_message.fif should contain some runvm invocations"
+  echo
+  echo OPTIONS
+  echo "  -l, --lib=dir           lib directory contains stdlib.c"
+  echo "  --log=file              log file"
+}
+
+opts=`getopt -o hl: \
+      -l help,lib:,log: \
+      -- $@`
+
+eval set -- $opts
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -h|--help)
+      usage
+      exit
+      ;;
+    -l|--lib)
+      LIB_DIR=$2
+      shift
+      ;;
+    --log)
+      LOG_FILE=$2
+      shift 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+shift
+
+INPUT_FC=${1}
+SCRIPT_DIR=`dirname ${BASH_SOURCE[0]}`
+LIB_DIR=${LIB_DIR:-"$SCRIPT_DIR"}
+OUTPUT_FIFT=/tmp/`date +%s`.fif
+
+if [ -z "$INPUT_FC" ]; then
+  echo "ERROR: MUST provide input.fc file"
+  exit 1
+fi
+
+INPUT_MESSAGE=${2}
+if [ -z "${INPUT_MESSAGE}" ]; then
+  echo "ERROR: MUST provide test_message.fif file"
+  exit 1
+fi
+
+func -AP ${LIB_DIR}/stdlib.fc ${INPUT_FC} | tee $OUTPUT_FIFT
+if [ $? -ne 0 ]; then
+  echo "ERROR: Unable to read input file"
+  exit 1
+fi
+
+cat $INPUT_MESSAGE | tee -a $OUTPUT_FIFT
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+  echo "ERROR: Unable to read test_message file"
+  exit 1
+fi
+
+if [ -z $LOG_FILE ]; then
+  fift $OUTPUT_FIFT
+else
+  fift $OUTPUT_FIFT 2>$LOG_FILE
+fi
+
+if [ $? -ne 0 ]; then
+  ERROR=1
+fi
+rm $OUTPUT_FIFT
+
+echo $ERROR
+if [[ $ERROR == 1 ]]; then
+  exit 1
+fi

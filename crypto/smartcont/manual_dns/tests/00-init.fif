@@ -1,0 +1,28 @@
+// Simulates  Transaction Compute phase on initialization message
+//
+// Stack: (code)
+"TonUtil.fif" include
+
+// Constants
+dup constant code
+-1 0x1111111111111111111111111111111111111111111111111111111111111111 2constant addr
+"/tmp/test.pk" load-generate-keypair constant wallet_pk constant public_key
+<b 0 32 u, public_key B, null dict, b> constant c4
+<b 0 32 u, 0 4 u, b> constant data
+<b b{001} s, code ref, b{1} s, c4 ref, b{0} s, b> constant state_init
+data hashu wallet_pk ed25519_sign_uint constant signature
+
+// stack.push_int(balance.grams);
+0
+// stack.push_int(msg_balance_remaining.grams);
+0
+// stack.push_cell(in_msg);
+<b b{1000100} s, addr addr, 0 Gram,
+   b{11} s, state_init ref,
+   b{0} s, c4 <s s,
+b>
+// stack.push_cellslice(in_msg_body);
+<b signature B, data <s s, b> <s
+// stack.push_bool(in_msg_extern);
+-1
+code <s c4 runvm drop .s 0 <> { 1 halt } if
