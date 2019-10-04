@@ -192,7 +192,7 @@ void LiteQuery::perform_getMasterchainInfo(int mode) {
   }
   td::actor::send_closure_later(
       manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
-      [Self = actor_id(this), mode](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) {
+      [ Self = actor_id(this), mode ](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
         } else {
@@ -230,7 +230,7 @@ void LiteQuery::perform_getBlock(BlockIdExt blkid) {
     return;
   }
   td::actor::send_closure_later(manager_, &ValidatorManager::get_block_data_from_db_short, blkid,
-                                [Self = actor_id(this), blkid](td::Result<Ref<ton::validator::BlockData>> res) {
+                                [ Self = actor_id(this), blkid ](td::Result<Ref<ton::validator::BlockData>> res) {
                                   if (res.is_error()) {
                                     td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
                                   } else {
@@ -256,7 +256,7 @@ void LiteQuery::perform_getBlockHeader(BlockIdExt blkid, int mode) {
     return;
   }
   td::actor::send_closure_later(manager_, &ValidatorManager::get_block_data_from_db_short, blkid,
-                                [Self = actor_id(this), blkid, mode](td::Result<Ref<ton::validator::BlockData>> res) {
+                                [ Self = actor_id(this), blkid, mode ](td::Result<Ref<ton::validator::BlockData>> res) {
                                   if (res.is_error()) {
                                     td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
                                   } else {
@@ -371,7 +371,7 @@ void LiteQuery::perform_getState(BlockIdExt blkid) {
   }
   if (blkid.id.seqno) {
     td::actor::send_closure_later(manager_, &ValidatorManager::get_shard_state_from_db_short, blkid,
-                                  [Self = actor_id(this), blkid](td::Result<Ref<ton::validator::ShardState>> res) {
+                                  [ Self = actor_id(this), blkid ](td::Result<Ref<ton::validator::ShardState>> res) {
                                     if (res.is_error()) {
                                       td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
                                     } else {
@@ -381,7 +381,7 @@ void LiteQuery::perform_getState(BlockIdExt blkid) {
                                   });
   } else {
     td::actor::send_closure_later(manager_, &ValidatorManager::get_zero_state, blkid,
-                                  [Self = actor_id(this), blkid](td::Result<td::BufferSlice> res) {
+                                  [ Self = actor_id(this), blkid ](td::Result<td::BufferSlice> res) {
                                     if (res.is_error()) {
                                       td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
                                     } else {
@@ -440,7 +440,7 @@ bool LiteQuery::request_mc_block_data(BlockIdExt blkid) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_block_data_from_db_short, blkid,
-      [Self = actor_id(this), blkid](td::Result<Ref<BlockData>> res) {
+      [ Self = actor_id(this), blkid ](td::Result<Ref<BlockData>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load block "s + blkid.to_str() + " : "));
@@ -466,7 +466,7 @@ bool LiteQuery::request_mc_proof(BlockIdExt blkid, int mode) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_block_proof_from_db_short, blkid,
-      [Self = actor_id(this), blkid, mode](td::Result<Ref<Proof>> res) {
+      [ Self = actor_id(this), blkid, mode ](td::Result<Ref<Proof>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load proof for "s + blkid.to_str() + " : "));
@@ -488,7 +488,7 @@ bool LiteQuery::request_mc_block_state(BlockIdExt blkid) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_shard_state_from_db_short, blkid,
-      [Self = actor_id(this), blkid](td::Result<Ref<ShardState>> res) {
+      [ Self = actor_id(this), blkid ](td::Result<Ref<ShardState>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load state for "s + blkid.to_str() + " : "));
@@ -519,7 +519,7 @@ bool LiteQuery::request_block_state(BlockIdExt blkid) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_shard_state_from_db_short, blkid,
-      [Self = actor_id(this), blkid](td::Result<Ref<ShardState>> res) {
+      [ Self = actor_id(this), blkid ](td::Result<Ref<ShardState>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load state for "s + blkid.to_str() + " : "));
@@ -541,7 +541,7 @@ bool LiteQuery::request_block_data(BlockIdExt blkid) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_block_data_from_db_short, blkid,
-      [Self = actor_id(this), blkid](td::Result<Ref<BlockData>> res) {
+      [ Self = actor_id(this), blkid ](td::Result<Ref<BlockData>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load block "s + blkid.to_str() + " : "));
@@ -563,7 +563,7 @@ bool LiteQuery::request_proof_link(BlockIdExt blkid) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_block_proof_link_from_db_short, blkid,
-      [Self = actor_id(this), blkid](td::Result<Ref<ProofLink>> res) {
+      [ Self = actor_id(this), blkid ](td::Result<Ref<ProofLink>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load proof link for "s + blkid.to_str() + " : "));
@@ -588,7 +588,7 @@ bool LiteQuery::request_zero_state(BlockIdExt blkid) {
   ++pending_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_zero_state, blkid,
-      [Self = actor_id(this), blkid](td::Result<td::BufferSlice> res) {
+      [ Self = actor_id(this), blkid ](td::Result<td::BufferSlice> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query,
                                   res.move_as_error_prefix("cannot load zerostate of "s + blkid.to_str() + " : "));
@@ -632,7 +632,7 @@ void LiteQuery::perform_getAccountState(BlockIdExt blkid, WorkchainId workchain,
     LOG(INFO) << "sending a get_top_masterchain_state_block query to manager";
     td::actor::send_closure_later(
         manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
-        [Self = actor_id(this)](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) -> void {
+        [Self = actor_id(this)](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res)->void {
           if (res.is_error()) {
             td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
           } else {
@@ -1067,7 +1067,7 @@ void LiteQuery::continue_getTransactions(unsigned remaining, bool exact) {
              << " " << trans_lt_;
   td::actor::send_closure_later(
       manager_, &ValidatorManager::get_block_by_lt_from_db, ton::extract_addr_prefix(acc_workchain_, acc_addr_),
-      trans_lt_, [Self = actor_id(this), remaining, manager = manager_](td::Result<BlockIdExt> res) {
+      trans_lt_, [ Self = actor_id(this), remaining, manager = manager_ ](td::Result<BlockIdExt> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_getTransactions, res.move_as_error(), ton::BlockIdExt{});
         } else {
@@ -1141,7 +1141,7 @@ void LiteQuery::perform_getShardInfo(BlockIdExt blkid, ShardIdFull shard, bool e
 void LiteQuery::perform_getConfigParams(BlockIdExt blkid, int mode, std::vector<int> param_list) {
   LOG(INFO) << "started a getConfigParams(" << blkid.to_str() << ", " << mode << ", <list of " << param_list.size()
             << " parameters>) liteserver query";
-  set_continuation([this, mode, param_list = std::move(param_list)]() mutable {
+  set_continuation([ this, mode, param_list = std::move(param_list) ]() mutable {
     continue_getConfigParams(mode, std::move(param_list));
   });
   request_mc_block_data_state(blkid);
@@ -1294,7 +1294,7 @@ void LiteQuery::perform_lookupBlock(BlockId blkid, int mode, LogicalTime lt, Uni
   LOG(INFO) << "performing a lookupBlock(" << blkid.to_str() << ", " << mode << ", " << lt << ", " << utime
             << ") query";
   auto P = td::PromiseCreator::lambda(
-      [Self = actor_id(this), manager = manager_, mode = (mode >> 4)](td::Result<BlockIdExt> res) {
+      [ Self = actor_id(this), manager = manager_, mode = (mode >> 4) ](td::Result<BlockIdExt> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
         } else {
@@ -1446,56 +1446,81 @@ void LiteQuery::perform_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, 
     return;
   }
   if (mode & 1) {
-    base_blk_id_ = (from.seqno() > to.seqno()) ? from : to;
-    td::actor::send_closure_later(manager_, &ValidatorManager::get_shard_state_from_db_short, base_blk_id_,
-                                  [Self = actor_id(this), from, to, mode](td::Result<Ref<ShardState>> res) {
-                                    if (res.is_error()) {
-                                      td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
-                                    } else {
-                                      td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from, to,
-                                                                    mode, Ref<MasterchainStateQ>(res.move_as_ok()));
-                                    }
-                                  });
+    if (mode & 0x1000) {
+      BlockIdExt bblk = (from.seqno() > to.seqno()) ? from : to;
+      td::actor::send_closure_later(manager_, &ValidatorManager::get_shard_state_from_db_short, bblk,
+                                    [ Self = actor_id(this), from, to, bblk, mode ](td::Result<Ref<ShardState>> res) {
+                                      if (res.is_error()) {
+                                        td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+                                      } else {
+                                        td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from,
+                                                                      to, mode, bblk,
+                                                                      Ref<MasterchainStateQ>(res.move_as_ok()));
+                                      }
+                                    });
+    } else {
+      td::actor::send_closure_later(
+          manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+          [ Self = actor_id(this), from, to, mode ](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+            if (res.is_error()) {
+              td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+            } else {
+              auto pair = res.move_as_ok();
+              td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from, to, mode, pair.second,
+                                            Ref<MasterchainStateQ>(std::move(pair.first)));
+            }
+          });
+    }
   } else if (mode & 2) {
     td::actor::send_closure_later(
         manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
-        [Self = actor_id(this), from, mode](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+        [ Self = actor_id(this), from, mode ](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
           if (res.is_error()) {
             td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
           } else {
             auto pair = res.move_as_ok();
             td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from, pair.second, mode,
-                                          Ref<MasterchainStateQ>(std::move(pair.first)));
+                                          pair.second, Ref<MasterchainStateQ>(std::move(pair.first)));
           }
         });
   } else {
     td::actor::send_closure_later(manager_, &ton::validator::ValidatorManager::get_shard_client_state, false,
-                                  [Self = actor_id(this), from, mode](td::Result<BlockIdExt> res) {
+                                  [ Self = actor_id(this), from, mode ](td::Result<BlockIdExt> res) {
                                     if (res.is_error()) {
                                       td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
                                     } else {
                                       td::actor::send_closure_later(Self, &LiteQuery::perform_getBlockProof, from,
-                                                                    res.move_as_ok(), mode | 1);
+                                                                    res.move_as_ok(), mode | 0x1001);
                                     }
                                   });
   }
 }
 
-void LiteQuery::continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, int mode,
+void LiteQuery::continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, BlockIdExt baseblk,
                                        Ref<MasterchainStateQ> state) {
+  base_blk_id_ = baseblk;
+  if (!base_blk_id_.is_masterchain_ext()) {
+    fatal_error("reference masterchain block "s + base_blk_id_.to_str() + " for constructing a proof chain is invalid");
+    return;
+  }
   if (!(mode & 1)) {
-    base_blk_id_ = to;
     if (!to.is_masterchain_ext()) {
       fatal_error("last masterchain block id "s + to.to_str() + " is invalid");
-      return;
-    }
-    if (from.seqno() > to.seqno()) {
-      fatal_error("client knows block "s + from.to_str() + " newer than the latest masterchain block " + to.to_str());
       return;
     }
   }
   if (state.is_null()) {
     fatal_error("obtained no valid masterchain state for block "s + base_blk_id_.to_str());
+    return;
+  }
+  if (from.seqno() > base_blk_id_.seqno()) {
+    fatal_error("client knows block "s + from.to_str() + " newer than the reference masterchain block " +
+                base_blk_id_.to_str());
+    return;
+  }
+  if (to.seqno() > base_blk_id_.seqno()) {
+    fatal_error("client knows block "s + to.to_str() + " newer than the reference masterchain block " +
+                base_blk_id_.to_str());
     return;
   }
   mc_state0_ = Ref<MasterchainStateQ>(state);
@@ -1507,13 +1532,13 @@ void LiteQuery::continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to,
   LOG(INFO) << "continuing getBlockProof(" << mode << ", " << from.to_str() << ", " << to.to_str()
             << ") query with a state for " << base_blk_id_.to_str();
   if (!state->check_old_mc_block_id(from)) {
-    fatal_error("source masterchain block "s + from.to_str() + " is unknown from the perspective of newer block " +
-                base_blk_id_.to_str());
+    fatal_error("proof source masterchain block "s + from.to_str() +
+                " is unknown from the perspective of reference block " + base_blk_id_.to_str());
     return;
   }
   if (!state->check_old_mc_block_id(to)) {
-    fatal_error("destination masterchain block "s + to.to_str() + " is unknown from the perspective of newer block " +
-                base_blk_id_.to_str());
+    fatal_error("proof destination masterchain block "s + to.to_str() +
+                " is unknown from the perspective of reference block " + base_blk_id_.to_str());
     return;
   }
   chain_ = std::make_unique<block::BlockProofChain>(from, to, mode);

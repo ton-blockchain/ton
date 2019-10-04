@@ -61,15 +61,14 @@ class ExtClient {
     auto raw_query = ton::serialize_tl_object(&query, true);
     td::uint32 tag = td::Random::fast_uint32();
     VLOG(lite_server) << "send query to liteserver: " << tag << " " << to_string(query);
-    td::BufferSlice liteserver_query =
-        ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(raw_query)), true);
-
     if (seq_no >= 0) {
       auto wait = ton::lite_api::liteServer_waitMasterchainSeqno(seq_no, 5000);
       VLOG(lite_server) << " with prefix " << to_string(wait);
       auto prefix = ton::serialize_tl_object(&wait, true);
-      liteserver_query = td::BufferSlice(PSLICE() << prefix.as_slice() << liteserver_query.as_slice());
+      raw_query = td::BufferSlice(PSLICE() << prefix.as_slice() << raw_query.as_slice());
     }
+    td::BufferSlice liteserver_query =
+        ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(raw_query)), true);
 
     send_raw_query(
         std::move(liteserver_query), [promise = std::move(promise), tag](td::Result<td::BufferSlice> R) mutable {

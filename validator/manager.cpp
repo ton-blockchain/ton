@@ -1880,10 +1880,12 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
 void ValidatorManagerImpl::shard_client_update(BlockSeqno seqno) {
   if (min_confirmed_masterchain_seqno_ < seqno) {
     min_confirmed_masterchain_seqno_ = seqno;
+  } else {
+    return;
   }
   while (shard_client_waiters_.size() > 0) {
     auto it = shard_client_waiters_.begin();
-    if (it->first > seqno) {
+    if (it->first > min_confirmed_masterchain_seqno_) {
       break;
     }
     for (auto &y : it->second.waiting_) {

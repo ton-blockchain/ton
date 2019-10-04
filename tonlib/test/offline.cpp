@@ -434,9 +434,10 @@ TEST(Tonlib, KeysApi) {
   using tonlib_api::make_object;
   Client client;
 
+  td::mkdir("testdir").ignore();
   // init
-  sync_send(client, make_object<tonlib_api::init>(
-                        make_object<tonlib_api::options>(nullptr, make_object<tonlib_api::keyStoreTypeDirectory>("."))))
+  sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(
+                        nullptr, make_object<tonlib_api::keyStoreTypeDirectory>("testdir"))))
       .ensure();
   auto local_password = td::SecureString("local password");
   auto mnemonic_password = td::SecureString("mnemonic password");
