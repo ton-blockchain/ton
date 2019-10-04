@@ -69,6 +69,10 @@ struct Config {
     ton::PublicKeyHash key;
     std::map<ton::PublicKeyHash, td::uint32> clients;
   };
+  struct FullNodeSlave {
+    ton::PublicKey key;
+    td::IPAddress addr;
+  };
 
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
   td::uint16 out_port;
@@ -77,8 +81,7 @@ struct Config {
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
   ton::PublicKeyHash full_node = ton::PublicKeyHash::zero();
-  td::IPAddress full_node_slave_addr;
-  ton::PublicKey full_node_slave_adnl_id;
+  std::vector<FullNodeSlave> full_node_slaves;
   std::map<td::int32, ton::PublicKeyHash> full_node_masters;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<td::int32, Control> controls;

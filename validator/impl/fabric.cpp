@@ -33,6 +33,7 @@
 #include "top-shard-descr.hpp"
 #include "ton/ton-io.hpp"
 #include "liteserver.hpp"
+#include "validator/fabric.h"
 
 namespace ton {
 
@@ -41,6 +42,11 @@ namespace validator {
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
                                         td::uint32 depth) {
   return td::actor::create_actor<RootDb>("db", manager, db_root_, depth);
+}
+
+td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
+                                                                   std::string db_root) {
+  return td::actor::create_actor<LiteServerCache>("cache");
 }
 
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data) {
@@ -126,6 +132,11 @@ void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::ve
       .release();
 }
 
+void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
+                                     td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
+  promise.set_error(td::Status::Error(ErrorCode::error, "not implemented"));
+}
+
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<td::Unit> promise) {
   td::actor::create_actor<ApplyBlock>(PSTRING() << "apply " << id, id, std::move(block), manager, timeout,
@@ -196,7 +207,7 @@ void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& m
 }
 
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
-                          td::Promise<td::BufferSlice> promise) {
+                          td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise) {
   LiteQuery::run_query(std::move(data), std::move(manager), std::move(promise));
 }
 

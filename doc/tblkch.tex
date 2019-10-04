@@ -2000,36 +2000,46 @@ In addition to the values listed in~\ptref{sp:boc.ser.class}, fixed by the choic
 \end{itemize}
 
 \nxsubpoint\label{sp:boc.ser.sch}\emb{TL-B scheme for serializing bags of cells}
-Several TL-B constructors can be used to serialize bags of cells into octet (i.e., 8-bit byte) sequences:
+Several TL-B constructors can be used to serialize bags of cells into octet (i.e., 8-bit byte) sequences. The only one that is currently used to serialize new bags of cell is
 \begin{verbatim}
-serialized_boc_tiny cells:uint8 roots:uint8 absent:uint8 
-  tot_cells_size:(## 32) cell_data:(tot_cells_size * [ uint8 ])
-  = BagOfCells;
-serialized_boc_small cells:uint16 roots:uint16 absent:uint16 
-  tot_cells_size:(## 32) cell_data:(tot_cells_size * [ uint8 ])
-  = BagOfCells;
-serialized_boc_medium cells:uint24 roots:uint24 absent:uint24 
-  tot_cells_size:(## 64) cell_data:(tot_cells_size * [ uint8 ])
-  = BagOfCells;
-serialized_boc_large cells:uint32 roots:uint32 absent:uint32 
-  tot_cells_size:(## 64) cell_data:(tot_cells_size * [ uint8 ])
-  = BagOfCells;
-\end{verbatim}
-Field {\tt cells} is $n$, {\tt roots} is $k$, {\tt absent} is $l$, and {\tt tot\_cells\_size} is $L_n$ (the total size of the serialization of all cells in bytes).
-
-If an index is present, parameters $s/8$ and $t/8$ are serialized separately as 8-bit fields {\tt size} and {\tt off\_bytes}, respectively:
-\begin{verbatim}
-serialized_boc_idx size:(## 8) { size <= 4 }
+serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1) 
+  has_cache_bits:(## 1) flags:(## 2) { flags = 0 }
+  size:(## 3) { size <= 4 }
   off_bytes:(## 8) { off_bytes <= 8 } 
   cells:(##(size * 8)) 
-  roots:(##(size * 8))
+  roots:(##(size * 8)) { roots >= 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
-  index:(cells * [ ##(off_bytes * 8) ])
+  root_list:(roots * ##(size * 8))
+  index:has_idx?(cells * ##(off_bytes * 8))
   cell_data:(tot_cells_size * [ uint8 ])
+  crc32c:has_crc32c?uint32
   = BagOfCells;
 \end{verbatim}
-Finally, constructors {\tt serialized\_boc\_*\_crc32}, with the asterisk replaced by either {\tt tiny}, {\tt small}, {\tt medium}, {\tt large}, or {\tt idx}, are also introduced, with one extra field {\tt crc32c:uint32} added as the last field.
+Field {\tt cells} is $n$, {\tt roots} is $k$, {\tt absent} is $l$, and {\tt tot\_cells\_size} is $L_n$ (the total size of the serialization of all cells in bytes). If an index is present, parameters $s/8$ and $t/8$ are serialized separately as {\tt size} and {\tt off\_bytes}, respectively, and the flag {\tt has\_idx} is set. The index itself is contained in {\tt index}, present only if {\tt has\_idx} is set. The field {\tt root\_list} contains the (zero-based) indices of the root nodes of the bag of cells.
+
+Two older constructors are still supported in the bag-of-cells deserialization functions:
+\begin{verbatim}
+serialized_boc_idx#68ff65f3 size:(## 8) { size <= 4 }
+  off_bytes:(## 8) { off_bytes <= 8 } 
+  cells:(##(size * 8)) 
+  roots:(##(size * 8)) { roots = 1 }
+  absent:(##(size * 8)) { roots + absent <= cells }
+  tot_cells_size:(##(off_bytes * 8))
+  index:(cells * ##(off_bytes * 8))
+  cell_data:(tot_cells_size * [ uint8 ])
+  = BagOfCells;
+
+serialized_boc_idx_crc32c#acc3a728 size:(## 8) { size <= 4 }
+  off_bytes:(## 8) { off_bytes <= 8 } 
+  cells:(##(size * 8)) 
+  roots:(##(size * 8)) { roots = 1 }
+  absent:(##(size * 8)) { roots + absent <= cells }
+  tot_cells_size:(##(off_bytes * 8))
+  index:(cells * ##(off_bytes * 8))
+  cell_data:(tot_cells_size * [ uint8 ])
+  crc32c:uint32 = BagOfCells;
+\end{verbatim}
 
 \nxsubpoint\emb{Storing compiled TVM code in files}
 Notice that the above procedure for serializing bags of cells may be used to serialize compiled smart contracts and other TVM code. One must define a TL-B constructor similar to the following:

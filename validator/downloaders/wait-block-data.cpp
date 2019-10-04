@@ -56,6 +56,20 @@ void WaitBlockData::start_up() {
   alarm_timestamp() = timeout_;
 
   CHECK(handle_);
+  if (!handle_->id().is_masterchain()) {
+    start();
+  } else {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<bool> R) {
+      R.ensure();
+      auto value = R.move_as_ok();
+      td::actor::send_closure(SelfId, &WaitBlockData::set_is_hardfork, value);
+    });
+    td::actor::send_closure(manager_, &ValidatorManager::check_is_hardfork, handle_->id(), std::move(P));
+  }
+}
+
+void WaitBlockData::set_is_hardfork(bool value) {
+  is_hardfork_ = value;
   start();
 }
 
@@ -76,6 +90,18 @@ void WaitBlockData::start() {
     });
 
     td::actor::send_closure(manager_, &ValidatorManager::get_block_data_from_db, handle_, std::move(P));
+  } else if (try_read_static_file_.is_in_past() && (is_hardfork_ || !handle_->id().is_masterchain())) {
+    try_read_static_file_ = td::Timestamp::in(30.0);
+
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &WaitBlockData::start);
+      } else {
+        td::actor::send_closure(SelfId, &WaitBlockData::got_static_file, R.move_as_ok());
+      }
+    });
+
+    td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, handle_->id().file_hash, std::move(P));
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ReceivedBlock> R) {
       if (R.is_error()) {
@@ -147,6 +173,29 @@ void WaitBlockData::force_read_from_db() {
   });
 
   td::actor::send_closure(manager_, &ValidatorManager::get_block_data_from_db, handle_, std::move(P));
+}
+
+void WaitBlockData::got_static_file(td::BufferSlice data) {
+  CHECK(td::sha256_bits256(data.as_slice()) == handle_->id().file_hash);
+
+  auto R = create_block(handle_->id(), std::move(data));
+  if (R.is_error()) {
+    LOG(ERROR) << "bad static file block: " << R.move_as_error();
+    start();
+    return;
+  }
+  data_ = R.move_as_ok();
+
+  CHECK(is_hardfork_ || !handle_->id().is_masterchain());
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(SelfId, &WaitBlockData::abort_query, R.move_as_error_prefix("bad static file block: "));
+    } else {
+      td::actor::send_closure(SelfId, &WaitBlockData::finish_query);
+    }
+  });
+  run_hardfork_accept_block_query(handle_->id(), data_, manager_, std::move(P));
 }
 
 }  // namespace validator

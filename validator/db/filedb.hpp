@@ -147,6 +147,8 @@ class FileDb : public td::actor::Actor {
   void load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise);
   void check_file(RefId ref_id, td::Promise<bool> promise);
 
+  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
+
   void start_up() override;
   void alarm() override;
 

@@ -5,30 +5,42 @@ if (NOT OPENSSL_FOUND)
 endif()
 
 set(TONLIB_SOURCE
+  tonlib/CellString.cpp
   tonlib/Client.cpp
   tonlib/Config.cpp
   tonlib/ExtClient.cpp
   tonlib/ExtClientLazy.cpp
+  tonlib/ExtClientOutbound.cpp
   tonlib/GenericAccount.cpp
   tonlib/KeyStorage.cpp
+  tonlib/KeyValue.cpp
   tonlib/LastBlock.cpp
+  tonlib/LastBlockStorage.cpp
+  tonlib/Logging.cpp
   tonlib/TestGiver.cpp
   tonlib/TestWallet.cpp
   tonlib/TonlibClient.cpp
   tonlib/utils.cpp
+  tonlib/Wallet.cpp
 
+  tonlib/CellString.h
   tonlib/Client.h
   tonlib/Config.h
   tonlib/ExtClient.h
   tonlib/ExtClientLazy.h
+  tonlib/ExtClientOutbound.h
   tonlib/GenericAccount.h
   tonlib/KeyStorage.h
+  tonlib/KeyValue.h
   tonlib/LastBlock.h
+  tonlib/LastBlockStorage.h
+  tonlib/Logging.h
   tonlib/TestGiver.h
   tonlib/TestWallet.h
   tonlib/TonlibCallback.h
   tonlib/TonlibClient.h
   tonlib/utils.h
+  tonlib/Wallet.h
 
   tonlib/keys/bip39.cpp
   tonlib/keys/DecryptedKey.cpp
@@ -68,7 +80,7 @@ add_executable(tonlib-cli tonlib/tonlib-cli.cpp)
 target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal)
 
 if (NOT CMAKE_CROSSCOMPILING)
-  if (TD_ENABLE_JNI)
+  if (TONLIB_ENABLE_JNI)
 	  #FIXME
 	  #add_dependencies(tonlib tonlib_generate_java_api)
   endif()

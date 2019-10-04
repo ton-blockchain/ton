@@ -71,7 +71,7 @@ endif()
 
 #BEGIN internal
 option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
-if (TON_ONLY_TONBLIB)
+if (TON_ONLY_TONLIB)
   set(NOT_TON_ONLY_TONLIB false)
 else()
   set(NOT_TON_ONLY_TONLIB true)
@@ -415,6 +415,10 @@ target_link_libraries(test-tonlib tdutils tdactor adnllite tl_api ton_crypto ton
 
 add_executable(test-tonlib-offline test/test-td-main.cpp ${TONLIB_OFFLINE_TEST_SOURCE})
 target_link_libraries(test-tonlib-offline tdutils tdactor adnllite tl_api ton_crypto ton_block fift-lib tl_tonlib_api tonlib)
+
+if (NOT CMAKE_CROSSCOMPILING)
+  add_dependencies(test-tonlib-offline gen_fif)
+endif()
 #END tonlib
 
 #BEGIN internal

@@ -21,16 +21,16 @@
 #include "tonlib/LastBlock.h"
 
 namespace tonlib {
-void ExtClient::with_last_block(td::Promise<ton::BlockIdExt> promise) {
+void ExtClient::with_last_block(td::Promise<LastBlockState> promise) {
   auto query_id = last_block_queries_.create(std::move(promise));
-  td::Promise<ton::BlockIdExt> P = [query_id, self = this,
-                                    actor_id = td::actor::actor_id()](td::Result<ton::BlockIdExt> result) {
+  td::Promise<LastBlockState> P = [query_id, self = this,
+                                   actor_id = td::actor::actor_id()](td::Result<LastBlockState> result) {
     send_lambda(actor_id, [self, query_id, result = std::move(result)]() mutable {
       self->last_block_queries_.extract(query_id).set_result(std::move(result));
     });
   };
   if (client_.last_block_actor_.empty()) {
-    return P.set_error(td::Status::Error(500, "No lite clients"));
+    return P.set_error(TonlibError::NoLiteServers());
   }
   td::actor::send_closure(client_.last_block_actor_, &LastBlock::get_last_block, std::move(P));
 }
@@ -44,7 +44,7 @@ void ExtClient::send_raw_query(td::BufferSlice query, td::Promise<td::BufferSlic
     });
   };
   if (client_.andl_ext_client_.empty()) {
-    return P.set_error(td::Status::Error(500, "No lite clients"));
+    return P.set_error(TonlibError::NoLiteServers());
   }
   td::actor::send_closure(client_.andl_ext_client_, &ton::adnl::AdnlExtClient::send_query, "query", std::move(query),
                           td::Timestamp::in(10.0), std::move(P));

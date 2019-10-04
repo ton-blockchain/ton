@@ -50,7 +50,7 @@ class DhtRemoteNode {
   DhtRemoteNode(DhtNode node, td::uint32 max_missed_pings)
       : node_(std::move(node)), max_missed_pings_(max_missed_pings) {
     failed_from_ = td::Time::now_cached();
-    id_ = node.get_key();
+    id_ = node_.get_key();
   }
   static td::Result<std::unique_ptr<DhtRemoteNode>> create(DhtNode node, td::uint32 max_missed_pings);
   DhtNode get_node() const {

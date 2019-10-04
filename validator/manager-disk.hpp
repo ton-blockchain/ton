@@ -241,7 +241,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
-  void get_shard_client_state(td::Promise<BlockIdExt> promise) override;
+  void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
   void subscribe_to_shard(ShardIdFull shard) override {
   }
 
@@ -279,8 +279,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     CHECK(block_id.is_masterchain());
     promise.set_result(opts_->is_hardfork(block_id));
   }
-  void get_vertical_height(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
-    promise.set_result(opts_->get_vertical_height(seqno));
+  void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
+    promise.set_result(opts_->get_vertical_seqno(seqno));
   }
   void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
@@ -329,8 +329,17 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void update_last_known_key_block(BlockHandle handle, bool send_request) override {
   }
+  void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override {
+  }
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override {
+    UNREACHABLE();
+  }
+
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override {
+    UNREACHABLE();
+  }
+  void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
 

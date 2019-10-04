@@ -93,6 +93,9 @@ struct BlockHandleInterface {
   virtual void set_archived() = 0;
   virtual void set_applied() = 0;
 
+  virtual void unsafe_clear_applied() = 0;
+  virtual void unsafe_clear_next() = 0;
+
   virtual td::BufferSlice serialize() const = 0;
 
   virtual ~BlockHandleInterface() = default;

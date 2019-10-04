@@ -81,25 +81,32 @@ class WriteFile : public td::actor::Actor {
 
 class ReadFile : public td::actor::Actor {
  public:
+  enum Flags : td::uint32 { f_disable_log = 1 };
   void start_up() override {
     auto S = td::read_file(file_name_, max_length_, offset_);
     if (S.is_ok()) {
       promise_.set_result(S.move_as_ok());
     } else {
       // TODO check error code
-      LOG(ERROR) << "missing file " << file_name_;
+      if (flags_ & Flags::f_disable_log) {
+        LOG(DEBUG) << "missing file " << file_name_;
+      } else {
+        LOG(ERROR) << "missing file " << file_name_;
+      }
       promise_.set_error(td::Status::Error(ErrorCode::notready, "file does not exist"));
     }
     stop();
   }
-  ReadFile(std::string file_name, td::int64 offset, td::int64 max_length, td::Promise<td::BufferSlice> promise)
-      : file_name_(file_name), offset_(offset), max_length_(max_length), promise_(std::move(promise)) {
+  ReadFile(std::string file_name, td::int64 offset, td::int64 max_length, td::uint32 flags,
+           td::Promise<td::BufferSlice> promise)
+      : file_name_(file_name), offset_(offset), max_length_(max_length), flags_(flags), promise_(std::move(promise)) {
   }
 
  private:
   std::string file_name_;
   td::int64 offset_;
   td::int64 max_length_;
+  td::uint32 flags_;
   td::Promise<td::BufferSlice> promise_;
 };
 

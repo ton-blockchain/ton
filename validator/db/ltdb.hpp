@@ -20,6 +20,7 @@
 
 #include "td/actor/actor.h"
 #include "td/db/KeyValueAsync.h"
+#include "validator/interfaces/db.h"
 
 #include "ton/ton-types.h"
 
@@ -41,6 +42,9 @@ class LtDb : public td::actor::Actor {
   void get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt, td::Promise<BlockIdExt> promise);
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<BlockIdExt> promise);
   void get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno seqno, td::Promise<BlockIdExt> promise);
+
+  void truncate_workchain(ShardIdFull shard, td::Ref<MasterchainState> state);
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise);
 
   void start_up() override;
 

@@ -1233,8 +1233,9 @@ first outputs ``{\tt x\{F55AA\}}'', and then throws an exception with the messag
 \mysubsection{Cell hash operations}\label{p:hash.ops}
 There are few words that operate on {\em Cell\/}s directly. The most important of them computes the {\em ($\Sha$-based) representation hash\/} of a given cell (cf.~\cite[3.1]{TVM}), which can be roughly described as the $\Sha$ hash of the cell's data bits concatenated with recursively computed hashes of the cells referred to by this cell:
 \begin{itemize}
-\item {\tt hash} ($c$ -- $B$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ (cf.~\cite[3.1]{TVM}), which unambiguously defines $c$ and all its descendants (provided there are no collisions for $\Sha$). The result is returned as a {\em Bytes\/} value consisting of exactly 32 bytes.
-\item {\tt shash} ($s$ -- $B$), computes the $\Sha$-based representation hash of a {\em Slice\/} by first transforming it into a cell. Equivalent to {\tt s>c hash}.
+\item {\tt hashB} ($c$ -- $B$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ (cf.~\cite[3.1]{TVM}), which unambiguously defines $c$ and all its descendants (provided there are no collisions for $\Sha$). The result is returned as a {\em Bytes\/} value consisting of exactly 32 bytes.
+\item {\tt hashu} ($c$ -- $x$), computes the $\Sha$-based representation hash of $c$ as above, but returns the result as a big-endian unsigned 256-bit {\em Integer}.
+\item {\tt shash} ($s$ -- $B$), computes the $\Sha$-based representation hash of a {\em Slice\/} by first transforming it into a cell. Equivalent to {\tt s>c hashB}.
 \end{itemize}
 
 \mysubsection{Bag-of-cells operations}\label{p:boc.ops}
@@ -1286,7 +1287,8 @@ prints ``{\tt 17239 -1000000001 ok}''.
 Additionally, there are several words for directly packing (serializing) data into {\em Bytes\/} values, and unpacking (deserializing) them afterwards. They can be combined with {\tt B>file} and {\tt file>B} to save data directly into binary files, and load them afterwards.
 \begin{itemize}
 \item {\tt Blen} ($B$ -- $x$), returns the length of a {\em Bytes\/} value~$B$ in bytes.
-\item {\tt Bhash} ($B$ -- $B'$), computes the $\Sha$ hash of a {\em Bytes\/} value. The hash is returned as a 32-byte {\em Bytes\/} value.
+\item {\tt BhashB} ($B$ -- $B'$), computes the $\Sha$ hash of a {\em Bytes\/} value. The hash is returned as a 32-byte {\em Bytes\/} value.
+\item {\tt Bhashu} ($B$ -- $x$), computes the $\Sha$ hash of a {\em Bytes\/} value and returns the hash as an unsigned 256-bit big-endian integer.
 \item {\tt B=} ($B$ $B'$ -- $?$), checks whether two {\em Bytes\/} sequences are equal.
 \item {\tt Bcmp} ($B$ $B'$ -- $x$), lexicographically compares two {\em Bytes\/} sequences, and returns $-1$, $0$, or $1$, depending on the comparison result.
 \item {\tt B>i@} ($B$ $x$ -- $y$), deserializes the first $x/8$ bytes of a {\em Bytes} value~$B$ as a signed big-endian $x$-bit {\em Integer}~$y$.
@@ -1970,7 +1972,9 @@ For example, the active prefix word {\tt B\{}, used for defining {\em Bytes\/} l
 \item {\tt B@?} ($s$ $x$ -- $B$ $-1$ or $0$), similar to {\tt B@}, but uses a flag to indicate failure instead of throwing an exception, cf.~\ptref{p:slice.ops}.
 \item {\tt B@?+} ($s$ $x$ -- $B$ $s'$ $-1$ or $s$ $0$), similar to {\tt B@+}, but uses a flag to indicate failure instead of throwing an exception, cf.~\ptref{p:slice.ops}.
 \item {\tt Bcmp} ($B$ $B'$ -- $x$), lexicographically compares two {\em Bytes\/} sequences, and returns $-1$, $0$, or $1$, depending on the comparison result, cf.~\ptref{p:bytes.ops}.
-\item {\tt Bhash} ($B$ -- $B'$), computes the $\Sha$ hash of a {\em Bytes\/} value, cf.~\ptref{p:bytes.ops}. The hash is returned as a 32-byte {\em Bytes\/} value.
+\item {\tt Bhash} ($B$ -- $x$), deprecated version of {\tt Bhashu}. Use {\tt Bhashu} or {\tt BhashB} instead.
+\item {\tt BhashB} ($B$ -- $B'$), computes the $\Sha$ hash of a {\em Bytes\/} value, cf.~\ptref{p:bytes.ops}. The hash is returned as a 32-byte {\em Bytes\/} value.
+\item {\tt Bhashu} ($B$ -- $x$), computes the $\Sha$ hash of a {\em Bytes\/} value, cf.~\ptref{p:bytes.ops}. The hash is returned as a big-endian unsigned 256-bit {\em Integer\/} value.
 \item {\tt Blen} ($B$ -- $x$), returns the length of a {\em Bytes\/} value~$B$ in bytes, cf.~\ptref{p:bytes.ops}.
 \item {\tt Bx.} ($B$ -- ), prints the hexadecimal representation of a {\em Bytes\/} value, cf.~\ptref{p:bytes.ops}. Each byte is represented by exactly two uppercase hexadecimal digits.
 \item {\tt \underline{B\{}$\langle{\textit{hex-digits}}\rangle$\}} ( -- $B$), pushes a {\em Bytes\/} literal containing data represented by an even number of hexadecimal digits, cf.~\ptref{p:bytes.ops}.
@@ -2062,7 +2066,9 @@ Typical values of $x$ are $x=0$ or $x=2$ for very small bags of cells (e.g., TON
 \item {\tt gasrunvmcode} (\dots $s$ $z$ -- \dots $x$ $z'$), a gas-aware version of {\tt runvmcode}, cf.~\ptref{p:tvm.ops}: invokes a new instance of TVM with the current continuation {\tt cc} initialized from {\em Slice\/} $s$ and with the gas limit set to $z$, thus executing code~$s$ in TVM. The original Fift stack (without $s$) is passed in its entirety as the initial stack of the new TVM instance. When TVM terminates, its resulting stack is used as the new Fift stack, with the exit code $x$ and the actually consumed gas $z'$ pushed at its top. If $x$ is non-zero, indicating that TVM has been terminated by an unhandled exception, the next stack entry from the top contains the parameter of this exception, and $x$ is the exception code. All other entries are removed from the stack in this case.
 \item {\tt gasrunvmdict} (\dots $s$ $z$ -- \dots $x$ $z'$), a gas-aware version of {\tt runvmdict}, cf.~\ptref{p:tvm.ops}: invokes a new instance of TVM with the current continuation {\tt cc} initialized from {\em Slice\/} $s$ and sets the gas limit to $z$ similarly to {\tt gasrunvmcode}, but also initializes the special register {\tt c3} with the same value, and pushes a zero into the initial TVM stack before the TVM execution begins. The actually consumed gas is returned as an {\em Integer\/} $z'$. In a typical application {\em Slice\/}~$s$ consists of a subroutine selection code that uses the top-of-stack {\em Integer\/} to select the subroutine to be executed, thus enabling the definition and execution of several mutually-recursive subroutines (cf.~\cite[4.6]{TVM} and~\ptref{p:asm.prog}). The selector equal to zero corresponds to the {\tt main()} subroutine in a large TVM program.
 \item {\tt halt} ($x$ -- ), quits to the operating system similarly to {\tt bye}, but uses {\em Integer\/} $x$ as the exit code, cf.~\ptref{p:exit.fift}.
-\item {\tt hash} ($c$ -- $B$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ (cf.~\cite[3.1]{TVM}), which unambiguously defines $c$ and all its descendants (provided there are no collisions for $\Sha$), cf.~\ptref{p:hash.ops}. The result is returned as a {\em Bytes\/} value consisting of exactly 32 bytes.
+\item {\tt hash} ($c$ -- $x$), a deprecated version of {\tt hashu}. Use {\tt hashu} or {\tt hashB} instead. 
+\item {\tt hashB} ($c$ -- $B$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ (cf.~\cite[3.1]{TVM}), which unambiguously defines $c$ and all its descendants (provided there are no collisions for $\Sha$), cf.~\ptref{p:hash.ops}. The result is returned as a {\em Bytes\/} value consisting of exactly 32 bytes.
+\item {\tt hashu} ($c$ -- $x$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ similarly to {\tt hashB}, but returns the result as a big-endian unsigned 256-bit {\em Integer}.
 \item {\tt hold} ($S$ $x$ -- $S'$), appends to {\em String\/}~$S$ one UTF-8 encoded character with Unicode codepoint~$x$. Equivalent to {\tt chr \$+}.
 \item {\tt hole} ( -- $p$), creates a new {\em Box\/}~$p$ that does not hold any value, cf.~\ptref{p:variables}. Equivalent to {\tt null box}.
 \item {\tt i,} ($b$ $x$ $y$ -- $b'$), appends the big-endian binary representation of a signed $y$-bit integer~$x$ to {\em Builder\/}~$b$, where $0\leq y\leq 257$, cf.~\ptref{p:builder.ops}. If there is not enough room in $b$ (i.e., if $b$ already contains more than $1023-y$ data bits), or if {\em Integer\/}~$x$ does not fit into $y$ bits, an exception is thrown.
@@ -2120,7 +2126,7 @@ Typical values of $x$ are $x=0$ or $x=2$ for very small bags of cells (e.g., TON
 \item {\tt sbits} ($s$ -- $x$), returns the number of data bits $x$ remaining in {\em Slice}~$s$, cf.~\ptref{p:slice.ops}.
 \item {\tt second} ($t$ -- $x$), returns the second component of a {\em Tuple}, cf.~\ptref{p:tuples}. Equivalent to {\tt 1 []}.
 \item {\tt sgn} ($x$ -- $y$), computes the sign of an {\em Integer\/} $x$ (i.e., pushes $1$ if $x>0$, $-1$ if $x<0$, and $0$ if $x=0$), cf.~\ptref{p:int.comp}. Equivalent to {\tt 0 cmp}.
-\item {\tt shash} ($s$ -- $B$), computes the $\Sha$-based representation hash of a {\em Slice\/} by first transforming it into a cell, cf.~\ptref{p:hash.ops}. Equivalent to {\tt s>c hash}.
+\item {\tt shash} ($s$ -- $B$), computes the $\Sha$-based representation hash of a {\em Slice\/} by first transforming it into a cell, cf.~\ptref{p:hash.ops}. Equivalent to {\tt s>c hashB}.
 \item {\tt sign} ($S$ $x$ -- $S'$), appends a minus sign ``{\tt -}'' to {\em String\/}~$S$ if {\em Integer\/}~$x$ is negative. Otherwise leaves $S$ intact.
 \item {\tt single} ($x$ -- $t$), creates new singleton $t=(x)$, i.e., a one-element {\em Tuple}. Equivalent to {\tt 1 tuple}.
 \item {\tt skipspc} ( -- ), skips blank characters from the current input line until a non-blank or an end-of-line character is found.
