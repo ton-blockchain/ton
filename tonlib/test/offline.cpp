@@ -162,10 +162,10 @@ TEST(Tonlib, TestWallet) {
 
   fift_output.source_lookup.write_file("/main.fif", load_source("smartcont/wallet.fif")).ensure();
   auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
-  fift_output =
-      fift::mem_run_fift(std::move(fift_output.source_lookup),
-                         {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123", "321"})
-          .move_as_ok();
+  fift_output = fift::mem_run_fift(std::move(fift_output.source_lookup),
+                                   {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123",
+                                    "321", "-C", "TEST"})
+                    .move_as_ok();
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
   auto gift_message = GenericAccount::create_ext_message(
       address, {}, TestWallet::make_a_gift_message(priv_key, 123, 321000000000ll, "TEST", dest));

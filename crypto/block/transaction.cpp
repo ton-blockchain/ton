@@ -739,7 +739,8 @@ td::uint64 ComputePhaseConfig::gas_bought_for(td::RefInt256 nanograms) const {
 }
 
 td::RefInt256 ComputePhaseConfig::compute_gas_price(td::uint64 gas_used) const {
-  return td::rshift(gas_price256 * gas_used, 16, 1);
+  return gas_used <= flat_gas_limit ? td::make_refint(flat_gas_price)
+                                    : td::rshift(gas_price256 * (gas_used - flat_gas_limit), 16, 1) + flat_gas_price;
 }
 
 bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg) {

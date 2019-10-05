@@ -2149,7 +2149,23 @@ void interpret_run_vm(IntCtx& ctx, bool with_gas) {
   OstreamLogger ostream_logger(ctx.error_stream);
   auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
   vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 3, &data, log, nullptr, &gas);
+  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries());
+  ctx.stack.push_smallint(res);
+  ctx.stack.push_cell(std::move(data));
+  if (with_gas) {
+    ctx.stack.push_smallint(gas.gas_consumed());
+  }
+}
+
+void interpret_run_vm_c7(IntCtx& ctx, bool with_gas) {
+  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  auto c7 = ctx.stack.pop_tuple();
+  auto data = ctx.stack.pop_cell();
+  auto cs = ctx.stack.pop_cellslice();
+  OstreamLogger ostream_logger(ctx.error_stream);
+  auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
+  vm::GasLimits gas{gas_limit};
+  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7));
   ctx.stack.push_smallint(res);
   ctx.stack.push_cell(std::move(data));
   if (with_gas) {
@@ -2276,6 +2292,21 @@ void interpret_get_cmdline_arg(IntCtx& ctx) {
   } else {
     (*entry)(ctx);
   }
+}
+
+void interpret_getenv(vm::Stack& stack) {
+  auto str = stack.pop_string();
+  auto value = str.size() < 1024 ? getenv(str.c_str()) : nullptr;
+  stack.push_string(value ? std::string{value} : "");
+}
+
+void interpret_getenv_exists(vm::Stack& stack) {
+  auto str = stack.pop_string();
+  auto value = str.size() < 1024 ? getenv(str.c_str()) : nullptr;
+  if (value) {
+    stack.push_string(std::string{value});
+  }
+  stack.push_bool((bool)value);
 }
 
 // x1 .. xn n 'w -->
@@ -2572,6 +2603,8 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("file-exists? ", interpret_file_exists);
   // custom & crypto
   d.def_ctx_word("now ", interpret_now);
+  d.def_stack_word("getenv ", interpret_getenv);
+  d.def_stack_word("getenv? ", interpret_getenv_exists);
   d.def_stack_word("newkeypair ", interpret_new_keypair);
   d.def_stack_word("priv>pub ", interpret_priv_key_to_pub);
   d.def_stack_word("ed25519_sign ", interpret_ed25519_sign);
@@ -2696,6 +2729,8 @@ void init_words_vm(Dictionary& d) {
   d.def_ctx_word("gasrunvmdict ", std::bind(interpret_run_vm_dict, _1, true));
   d.def_ctx_word("runvm ", std::bind(interpret_run_vm, _1, false));
   d.def_ctx_word("gasrunvm ", std::bind(interpret_run_vm, _1, true));
+  d.def_ctx_word("runvmctx ", std::bind(interpret_run_vm_c7, _1, false));
+  d.def_ctx_word("gasrunvmctx ", std::bind(interpret_run_vm_c7, _1, true));
   d.def_ctx_word("dbrunvm ", interpret_db_run_vm);
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
 }
