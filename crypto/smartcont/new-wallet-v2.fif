@@ -1,4 +1,4 @@
-#!/usr/bin/env fift -s
+#!/usr/bin/env -S fift -s
 "TonUtil.fif" include
 "Asm.fif" include
 

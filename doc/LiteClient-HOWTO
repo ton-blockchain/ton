@@ -118,7 +118,7 @@ One such tool is the Fift interpreter, which is included in this distribution an
 Consider the file `new-wallet.fif` (usually located as `crypto/smartcont/new-wallet.fif` with respect to the source directory) containing the source of a simple wallet smart contract:
 
 ------------------------------------
-#!/usr/bin/env fift -s
+#!/usr/bin/env -S fift -s
 "TonUtil.fif" include
 "Asm.fif" include
 
@@ -271,7 +271,7 @@ result:  [ 39445 ]
 Next, you create an external message to the test giver asking it to send another message to your (uninitialized) smart contract carrying a specified amount of test Grams. There is a special Fift script for generating this external message located at crypto/smartcont/testgiver.fif:
 
 --------------------------------------------
-#!/usr/bin/env fift -s
+#!/usr/bin/env -S fift -s
 "TonUtil.fif" include
 
 { ."usage: " @' $0 type ." <dest-addr> <seqno> <amount> [<savefile>]" cr
@@ -486,7 +486,7 @@ Actually, the simple wallet smart contract used in this example can be used to t
 An example of how you might use this smart contract is provided in sample file crypto/smartcont/wallet.fif :
 
 --------------------------------------------------------
-#!/usr/bin/env fift -s
+#!/usr/bin/env -S fift -s
 "TonUtil.fif" include
 
 { ."usage: " @' $0 type ." <filename-base> <dest-addr> <seqno> <amount> [-B <body-boc>] [<savefile>]" cr
