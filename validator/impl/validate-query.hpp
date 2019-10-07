@@ -176,6 +176,7 @@ class ValidateQuery : public td::actor::Actor {
   ton::LogicalTime max_shard_lt_{0};
 
   int global_id_{0};
+  ton::BlockSeqno vert_seqno_{~0U};
   bool ihr_enabled_{false};
   bool create_stats_enabled_{false};
   ton::BlockSeqno prev_key_block_seqno_;

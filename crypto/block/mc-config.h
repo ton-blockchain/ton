@@ -556,7 +556,7 @@ class ConfigInfo : public Config, public ShardConfig {
     needAccountsRoot = 64,
     needPrevBlocks = 128
   };
-  int vert_seqno{-1};
+  ton::BlockSeqno vert_seqno{~0U};
   int global_id_{0};
   ton::UnixTime utime{0};
   ton::LogicalTime lt{0};
@@ -603,6 +603,9 @@ class ConfigInfo : public Config, public ShardConfig {
   }
   Ref<vm::Cell> get_state_extra_root() const {
     return state_extra_root_;
+  }
+  ton::BlockSeqno get_vert_seqno() const {
+    return vert_seqno;
   }
   ton::CatchainSeqno get_shard_cc_seqno(ton::ShardIdFull shard) const;
   bool get_last_key_block(ton::BlockIdExt& blkid, ton::LogicalTime& blklt, bool strict = false) const;

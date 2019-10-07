@@ -384,7 +384,7 @@ struct ShardState {
   int global_id_;
   ton::UnixTime utime_;
   ton::LogicalTime lt_;
-  ton::BlockSeqno mc_blk_seqno_, min_ref_mc_seqno_;
+  ton::BlockSeqno mc_blk_seqno_, min_ref_mc_seqno_, vert_seqno_;
   ton::BlockIdExt mc_blk_ref_;
   ton::LogicalTime mc_blk_lt_;
   bool before_split_{false};

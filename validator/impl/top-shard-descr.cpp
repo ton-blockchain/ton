@@ -100,6 +100,7 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     after_merge_ = info.after_merge;
     before_split_ = info.before_split;
     gen_utime_ = first_gen_utime_ = info.gen_utime;
+    vert_seqno_ = info.vert_seq_no;
   } else {
     auto nx_mc_seqno = chain_mc_blk_ids_.back().id.seqno;
     if (nx_mc_seqno < mc_blkid.id.seqno) {
@@ -122,6 +123,11 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
                                                << cur_id.to_str() << " and " << chain_blk_ids_.back().to_str());
     }
     first_gen_utime_ = info.gen_utime;
+    if (vert_seqno_ != BlockSeqno(info.vert_seq_no)) {
+      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id.to_str()
+                                               << " has vertical seqno " << info.vert_seq_no
+                                               << " distinct from the final value in chain " << vert_seqno_);
+    }
   }
   chain_mc_blk_ids_.push_back(mc_blkid);
   chain_blk_ids_.push_back(cur_id);
@@ -281,7 +287,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
     BlockSeqno delta = chain_mc_blk_ids_[0].id.seqno - last_mc_block_id.id.seqno;
     // too new
     if ((mode & Mode::fail_new) || (delta > 8 && (mode & Mode::fail_too_new))) {
-      return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
+      return td::Status::Error(-666, "ShardTopBlockDescr for "s + block_id_.to_str() +
                                          " is too new for us: it refers to masterchain block " +
                                          chain_mc_blk_ids_[0].id.to_str() + " but we know only " +
                                          last_mc_block_id.to_str());
@@ -289,6 +295,18 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
     return -1;  // valid, but too new
   }
   auto config = state->get_config();
+  if (config->get_vert_seqno() != vert_seqno_) {
+    if (vert_seqno_ < config->get_vert_seqno()) {
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+                                               << " is too old: it has vertical seqno " << vert_seqno_
+                                               << " but we already know about " << config->get_vert_seqno());
+    }
+    if (mode & Mode::fail_new) {
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+                                               << " is too new for us: it has vertical seqno " << vert_seqno_
+                                               << " but we know only about " << config->get_vert_seqno());
+    }
+  }
   BlockSeqno next_mc_seqno = ~BlockSeqno(0);
   for (const auto& mcid : chain_mc_blk_ids_) {
     if (mcid.id.seqno > next_mc_seqno) {

@@ -129,6 +129,7 @@ class Collator final : public td::actor::Actor {
   ton::UnixTime prev_state_utime_;
   int global_id_{0};
   ton::BlockSeqno min_ref_mc_seqno_{~0U};
+  ton::BlockSeqno vert_seqno_{~0U}, prev_vert_seqno_{~0U};
   ton::BlockIdExt prev_key_block_;
   ton::LogicalTime prev_key_block_lt_;
   bool accept_msgs_{true};

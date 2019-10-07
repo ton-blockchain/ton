@@ -518,6 +518,8 @@ bool Collator::unpack_last_mc_state() {
     prev_key_block_seqno_ = 0;
   }
   LOG(DEBUG) << "previous key block is " << prev_key_block_.to_str() << " (exists=" << prev_key_block_exists_ << ")";
+  vert_seqno_ = config_->get_vert_seqno();
+  LOG(DEBUG) << "vertical seqno (vert_seqno) is " << vert_seqno_;
   auto limits = config_->get_block_limits(is_masterchain());
   if (limits.is_error()) {
     return fatal_error(limits.move_as_error());
@@ -686,6 +688,12 @@ bool Collator::unpack_one_last_state(block::ShardState& ss, BlockIdExt blkid, Re
   if (res.is_error()) {
     return fatal_error(std::move(res));
   }
+  if (ss.vert_seqno_ > vert_seqno_) {
+    return fatal_error(
+        PSTRING() << "cannot create new block with vertical seqno " << vert_seqno_
+                  << " prescribed by the current masterchain configuration because the previous state of shard "
+                  << ss.id_.to_str() << " has larger vertical seqno " << ss.vert_seqno_);
+  }
   return true;
 }
 
@@ -712,8 +720,8 @@ bool Collator::split_last_state(block::ShardState& ss) {
 
 // SETS: account_dict, shard_libraries_, mc_state_extra
 //    total_balance_ = old_total_balance_, total_validator_fees_
-// SETS: overload_history, underload_history
-// SETS: prev_state_utime_, prev_state_lt_
+// SETS: overload_history_, underload_history_
+// SETS: prev_state_utime_, prev_state_lt_, prev_vert_seqno_
 // SETS: out_msg_queue, processed_upto_, ihr_pending
 bool Collator::import_shard_state_data(block::ShardState& ss) {
   account_dict = std::move(ss.account_dict_);
@@ -723,6 +731,7 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   underload_history_ = ss.underload_history_;
   prev_state_utime_ = ss.utime_;
   prev_state_lt_ = ss.lt_;
+  prev_vert_seqno_ = ss.vert_seqno_;
   total_balance_ = old_total_balance_ = std::move(ss.total_balance_);
   value_flow_.from_prev_blk = old_total_balance_;
   total_validator_fees_ = std::move(ss.total_validator_fees_);
@@ -3426,7 +3435,7 @@ bool Collator::create_shard_state() {
         && global_id_                               // { global_id != 0 }
         && block::ShardId{shard}.serialize(cb)      // shard_id:ShardIdent
         && cb.store_long_bool(new_block_seqno, 32)  // seq_no:uint32
-        && cb.store_long_bool(0, 32)                // vert_seq_no:#
+        && cb.store_long_bool(vert_seqno_, 32)      // vert_seq_no:#
         && cb.store_long_bool(now_, 32)             // gen_utime:uint32
         && cb.store_long_bool(max_lt, 64)           // gen_lt:uint64
         && update_processed_upto()                  // insert new ProcessedUpto
@@ -3561,9 +3570,9 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_bool_bool(want_split_)                         // want_split:Bool
          && cb.store_bool_bool(want_merge_)                         // want_merge:Bool
          && cb.store_bool_bool(is_key_block_)                       // key_block:Bool
-         && cb.store_long_bool(0, 9)                                // flags:(## 9)
+         && cb.store_long_bool(0, 9)                                // vert_seqno_incr:(## 1) flags:(## 8)
          && cb.store_long_bool(new_block_seqno, 32)                 // seq_no:#
-         && cb.store_long_bool(0, 32)                               // vert_seq_no:#
+         && cb.store_long_bool(vert_seqno_, 32)                     // vert_seq_no:#
          && block::ShardId{shard}.serialize(cb)                     // shard:ShardIdent
          && cb.store_long_bool(now_, 32)                            // gen_utime:uint32
          && cb.store_long_bool(start_lt, 64)                        // start_lt:uint64
