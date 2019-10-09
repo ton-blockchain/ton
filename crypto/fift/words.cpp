@@ -2346,7 +2346,7 @@ void compile_one_literal(WordList& wlist, vm::StackEntry val) {
     auto x = std::move(val).as_int();
     if (!x->signed_fits_bits(257)) {
       throw IntError{"invalid numeric literal"};
-    } else if (x->signed_fits_bits(64)) {
+    } else if (x->signed_fits_bits(td::BigIntInfo::word_shift)) {
       wlist.push_back(Ref<StackWord>{true, std::bind(interpret_const, _1, x->to_long())});
     } else {
       wlist.push_back(Ref<StackWord>{true, std::bind(interpret_big_const, _1, std::move(x))});

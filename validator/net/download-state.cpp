@@ -172,12 +172,12 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
                 create_serialize_tl_object<ton_api::tonNode_downloadZeroState>(create_tl_block_id(block_id_));
             if (client_.empty()) {
               td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_,
-                                      overlay_id_, "download state", std::move(P), timeout_, std::move(query),
-                                      FullNode::max_state_size(), rldp_);
+                                      overlay_id_, "download state", std::move(P), td::Timestamp::in(3.0),
+                                      std::move(query), FullNode::max_state_size(), rldp_);
             } else {
               td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
                                       create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
-                                      timeout_, std::move(P));
+                                      td::Timestamp::in(3.0), std::move(P));
             }
           }));
 }
@@ -213,12 +213,12 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
       create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "download state", std::move(P), timeout_, std::move(query), FullNode::max_state_size(),
-                            rldp_);
+                            "download state", std::move(P), td::Timestamp::in(10.0), std::move(query),
+                            FullNode::max_state_size(), rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
-                            create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)), timeout_,
-                            std::move(P));
+                            create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
+                            td::Timestamp::in(10.0), std::move(P));
   }
 }
 

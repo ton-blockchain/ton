@@ -406,8 +406,11 @@ bool Op::generate_code_step(Stack& stack) {
           }
           func->compile(stack.o, res, args);  // compile res := f (args)
         } else {
+          auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
           std::string name = sym::symbols.get_name(fun_ref->sym_idx);
-          stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
+          bool is_inline = (fv && (fv->flags & 3));
+          stack.o << AsmOp::Custom(name + (is_inline ? " INLINECALLDICT" : " CALLDICT"), (int)right.size(),
+                                   (int)left.size());
         }
       }
       stack.s.resize(k);
@@ -553,7 +556,7 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
-      if (!next->is_empty()) {
+      if (true || !next->is_empty()) {
         stack.o << "REPEAT:<{";
         stack.o.indent();
         stack.forget_const();
@@ -601,7 +604,7 @@ bool Op::generate_code_step(Stack& stack) {
     case _Until: {
       // stack.drop_vars_except(block0->var_info);
       // stack.opt_show();
-      if (!next->is_empty()) {
+      if (true || !next->is_empty()) {
         stack.o << "UNTIL:<{";
         stack.o.indent();
         stack.forget_const();
@@ -632,7 +635,7 @@ bool Op::generate_code_step(Stack& stack) {
       stack.drop_vars_except(block0->var_info);
       stack.opt_show();
       StackLayout layout1 = stack.vars();
-      bool next_empty = next->is_empty();
+      bool next_empty = false && next->is_empty();
       stack.o << "WHILE:<{";
       stack.o.indent();
       stack.forget_const();

@@ -32,6 +32,7 @@ namespace ton {
 namespace validator {
 
 void ValidatorManagerMasterchainReiniter::start_up() {
+  LOG(INFO) << "init_block_id=" << block_id_;
   CHECK(block_id_.is_masterchain());
   CHECK(block_id_.id.shard == shardIdAll);
   CHECK(block_id_.seqno() >= opts_->get_last_fork_masterchain_seqno());
@@ -83,7 +84,9 @@ void ValidatorManagerMasterchainReiniter::download_proof_link() {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
         LOG(WARNING) << "failed to download proof link: " << R.move_as_error();
-        td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link);
+        delay_action(
+            [SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link); },
+            td::Timestamp::in(1.0));
       } else {
         td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_proof_link, R.move_as_ok());
       }
@@ -208,6 +211,10 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
       p = key_blocks_[key_blocks_.size() - 2 - i];
     }
 
+    LOG(INFO) << "key block candidate: seqno=" << h->id().seqno()
+              << " is_persistent=" << (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time()))
+              << " ttl=" << ValidatorManager::persistent_state_ttl(h->unix_time())
+              << " syncbefore=" << opts_->sync_blocks_before();
     if (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time())) {
       auto ttl = ValidatorManager::persistent_state_ttl(h->unix_time());
       if (ttl > td::Clocks::system() + opts_->sync_blocks_before()) {

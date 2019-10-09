@@ -79,7 +79,10 @@ void define_keywords() {
       .add_keyword("<<=", Kw::_LshiftLet)
       .add_keyword(">>=", Kw::_RshiftLet)
       .add_keyword(">>~=", Kw::_RshiftRLet)
-      .add_keyword(">>^=", Kw::_RshiftCLet);
+      .add_keyword(">>^=", Kw::_RshiftCLet)
+      .add_keyword("&=", Kw::_AndLet)
+      .add_keyword("|=", Kw::_OrLet)
+      .add_keyword("^=", Kw::_XorLet);
 
   sym::symbols.add_keyword("return", Kw::_Return)
       .add_keyword("var", Kw::_Var)
@@ -105,6 +108,8 @@ void define_keywords() {
   sym::symbols.add_keyword("extern", Kw::_Extern)
       .add_keyword("asm", Kw::_Asm)
       .add_keyword("impure", Kw::_Impure)
+      .add_keyword("inline", Kw::_Inline)
+      .add_keyword("inline_ref", Kw::_InlineRef)
       .add_keyword("method_id", Kw::_MethodId)
       .add_keyword("operator", Kw::_Operator)
       .add_keyword("infix", Kw::_Infix)

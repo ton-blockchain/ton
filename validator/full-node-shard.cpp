@@ -596,17 +596,17 @@ void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::T
 
 void FullNodeShardImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                             td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<DownloadState>("downloadstatereq", id, BlockIdExt{}, adnl_id_, overlay_id_,
-                                         adnl::AdnlNodeIdShort::zero(), priority, timeout, validator_manager_, rldp_,
-                                         overlays_, adnl_, client_, std::move(promise))
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, BlockIdExt{}, adnl_id_,
+                                         overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
+                                         validator_manager_, rldp_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 
 void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
                                                   td::Timestamp timeout, td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<DownloadState>("downloadstatereq", id, masterchain_block_id, adnl_id_, overlay_id_,
-                                         adnl::AdnlNodeIdShort::zero(), priority, timeout, validator_manager_, rldp_,
-                                         overlays_, adnl_, client_, std::move(promise))
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, masterchain_block_id,
+                                         adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
+                                         validator_manager_, rldp_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 

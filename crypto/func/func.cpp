@@ -83,7 +83,8 @@ void generate_output_func(SymDef* func_sym) {
     if (verbosity >= 2) {
       std::cerr << "\n---------- resulting code for " << name << " -------------\n";
     }
-    *outs << std::string(indent * 2, ' ') << name << " PROC:<{\n";
+    bool inline_ref = (func_val->flags & 2);
+    *outs << std::string(indent * 2, ' ') << name << " PROC" << (inline_ref ? "REF" : "") << ":<{\n";
     code.generate_code(
         *outs,
         (stack_layout_comments ? Stack::_StkCmt | Stack::_CptStkCmt : 0) | (opt_level < 2 ? Stack::_DisableOpt : 0),
