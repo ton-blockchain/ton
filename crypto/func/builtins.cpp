@@ -947,7 +947,7 @@ void define_builtins() {
   define_builtin_func("preload_bits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false));
   define_builtin_func("int_at", TypeExpr::new_map(TupleInt, Int), compile_tuple_at);
   define_builtin_func("cell_at", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
-  define_builtin_func("slice_at", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
+  define_builtin_func("slice_at", TypeExpr::new_map(TupleInt, Slice), compile_tuple_at);
   define_builtin_func("tuple_at", TypeExpr::new_map(TupleInt, Tuple), compile_tuple_at);
   define_builtin_func("at", TypeExpr::new_forall({X}, TypeExpr::new_map(TupleInt, X)), compile_tuple_at);
   define_builtin_func("touch", TypeExpr::new_forall({X}, TypeExpr::new_map(X, X)), AsmOp::Nop());
