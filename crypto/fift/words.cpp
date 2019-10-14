@@ -614,6 +614,43 @@ void interpret_str_reverse(vm::Stack& stack) {
   stack.push_string(std::move(s));
 }
 
+void interpret_utf8_str_len(vm::Stack& stack) {
+  std::string s = stack.pop_string();
+  long long cnt = 0;
+  for (char c : s) {
+    if ((c & 0xc0) != 0x80) {
+      cnt++;
+    }
+  }
+  stack.push_smallint(cnt);
+}
+
+void interpret_utf8_str_split(vm::Stack& stack) {
+  stack.check_underflow(2);
+  unsigned c = stack.pop_smallint_range(0xffff);
+  std::string s = stack.pop_string();
+  if (c > s.size()) {
+    throw IntError{"not enough utf8 characters for cutting"};
+  }
+  auto it = s.begin();
+  for (; it < s.end(); ++it) {
+    if ((*it & 0xc0) != 0x80) {
+      if (!c) {
+        stack.push_string(std::string{s.begin(), it});
+        stack.push_string(std::string{it, s.end()});
+        return;
+      }
+      --c;
+    }
+  }
+  if (!c) {
+    stack.push_string(std::move(s));
+    stack.push_string(std::string{});
+  } else {
+    throw IntError{"not enough utf8 characters for cutting"};
+  }
+}
+
 void interpret_str_remove_trailing_int(vm::Stack& stack, int arg) {
   char x = (char)(arg ? arg : stack.pop_long_range(127));
   std::string s = stack.pop_string();
@@ -1797,6 +1834,16 @@ void interpret_char(IntCtx& ctx) {
   push_argcount(ctx, 1);
 }
 
+void interpret_char_internal(vm::Stack& stack) {
+  auto s = stack.pop_string();
+  int len = (s.size() < 10 ? (int)s.size() : 10);
+  int code = str_utf8_code(s.c_str(), len);
+  if (code < 0 || s.size() != (unsigned)len) {
+    throw IntError{"exactly one character expected"};
+  }
+  stack.push_smallint(code);
+}
+
 int parse_number(std::string s, td::RefInt256& num, td::RefInt256& denom, bool allow_frac = true,
                  bool throw_error = false) {
   if (allow_frac) {
@@ -2496,6 +2543,7 @@ void init_words_common(Dictionary& d) {
   // char/string manipulation
   d.def_active_word("\"", interpret_quote_str);
   d.def_active_word("char ", interpret_char);
+  d.def_stack_word("(char) ", interpret_char_internal);
   d.def_ctx_word("emit ", interpret_emit);
   d.def_ctx_word("space ", std::bind(interpret_emit_const, _1, ' '));
   d.def_ctx_word("cr ", std::bind(interpret_emit_const, _1, '\n'));
@@ -2515,6 +2563,8 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("-trailing0 ", std::bind(interpret_str_remove_trailing_int, _1, '0'));
   d.def_stack_word("$len ", interpret_str_len);
   d.def_stack_word("Blen ", interpret_bytes_len);
+  d.def_stack_word("$Len ", interpret_utf8_str_len);
+  d.def_stack_word("$Split ", interpret_utf8_str_split);
   d.def_ctx_word("Bx. ", std::bind(interpret_bytes_hex_print_raw, _1, true));
   d.def_stack_word("B>X ", std::bind(interpret_bytes_to_hex, _1, true));
   d.def_stack_word("B>x ", std::bind(interpret_bytes_to_hex, _1, false));

@@ -133,7 +133,7 @@ dup make_special dup constant smc3_addr
  * SmartContract #4 (elector)
  *
  */
-"elector-code.fif" include   // code in separate source file
+"auto/elector-code.fif" include   // code in separate source file
 <b 0 1 1+ 1+ 4 + 32 + u, 0 256 u, b>  // data: dict dict dict grams uint32 uint256
 empty_cell  // libraries
 GR$10  // balance: 10 grams
@@ -202,8 +202,7 @@ smc1_addr config.minter_smc!
 // 17 add-validator
 // newkeypair nip dup ."Validator #2 public key = " Bx. cr
 // 239 add-validator
-// 100000 =: orig_vset_valid_for
-100 =: orig_vset_valid_for  // original validator set valid 100 seconds only (DEBUG)
+100000 =: orig_vset_valid_for  // original validator set valid 100000 seconds
 now dup orig_vset_valid_for + 0 config.validators!
 
 /*
@@ -211,7 +210,7 @@ now dup orig_vset_valid_for + 0 config.validators!
  * SmartContract #5 (Configuration smart contract)
  *
  */
-"config-code.fif" include   // code in separate source file
+"auto/config-code.fif" include   // code in separate source file
 <b 0 32 u, 
    "config-master" +suffix +".pk" load-generate-keypair drop
    B,

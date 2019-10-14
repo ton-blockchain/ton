@@ -53,6 +53,7 @@ class ExtClient {
   ExtClientRef get_client() {
     return client_;
   }
+  ~ExtClient();
 
   void with_last_block(td::Promise<LastBlockState> promise);
 

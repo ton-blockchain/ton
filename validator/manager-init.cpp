@@ -215,12 +215,21 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
               << " is_persistent=" << (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time()))
               << " ttl=" << ValidatorManager::persistent_state_ttl(h->unix_time())
               << " syncbefore=" << opts_->sync_blocks_before();
+    if (h->unix_time() + opts_->sync_blocks_before() > td::Clocks::system()) {
+      LOG(INFO) << "ignoring: too new block";
+      continue;
+    }
     if (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time())) {
       auto ttl = ValidatorManager::persistent_state_ttl(h->unix_time());
-      if (ttl > td::Clocks::system() + opts_->sync_blocks_before()) {
+      td::Clocks::Duration time_to_download = 3600;
+      if (ttl > td::Clocks::system() + time_to_download) {
         handle = h;
         break;
+      } else {
+        LOG(INFO) << "ignoring: state is expiring shortly: expire_at=" << ttl;
       }
+    } else {
+      LOG(INFO) << "ignoring: state is not persistent";
     }
   }
 

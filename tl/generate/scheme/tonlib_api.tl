@@ -65,7 +65,11 @@ generic.accountStateUninited account_state:uninited.accountState = generic.Accou
 
 sendGramsResult sent_until:int53 body_hash:bytes = SendGramsResult;
 
+syncStateDone = SyncState;
+syncStateInProgress from_seqno:int32 to_seqno:int32 current_seqno:int32 = SyncState;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
+updateSyncState sync_state:SyncState = Update;
 
 //@class LogStream @description Describes a stream to which TDLib internal log is written
 
@@ -133,6 +137,8 @@ wallet.sendGrams private_key:inputKey destination:accountAddress seqno:int32 val
 testGiver.getAccountState = testGiver.AccountState;
 testGiver.getAccountAddress = AccountAddress;
 testGiver.sendGrams destination:accountAddress seqno:int32 amount:int64 message:bytes = SendGramsResult;
+
+sync = Ok;
 
 //generic.getAccountAddress initital_account_state:generic.InitialAccountState = AccountAddress;
 generic.getAccountState account_address:accountAddress = generic.AccountState;

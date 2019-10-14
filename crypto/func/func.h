@@ -397,6 +397,7 @@ inline std::ostream& operator<<(std::ostream& os, const VarDescr& vd) {
 
 struct VarDescrList {
   std::vector<VarDescr> list;
+  bool unreachable{false};
   VarDescrList() : list() {
   }
   VarDescrList(const std::vector<VarDescr>& _list) : list(_list) {
@@ -430,6 +431,10 @@ struct VarDescrList {
   VarDescrList operator|(const VarDescrList& y) const;
   VarDescrList& operator|=(const VarDescrList& values);
   void show(std::ostream& os) const;
+  void set_unreachable() {
+    list.clear();
+    unreachable = true;
+  }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const VarDescrList& values) {

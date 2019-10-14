@@ -94,7 +94,7 @@ class TonlibCli : public td::actor::Actor {
       td::actor::ActorShared<TonlibCli> id_;
     };
     ref_cnt_++;
-    client_ = td::actor::create_actor<tonlib::TonlibClient>("Tonlib", td::make_unique<TonlibCb>(actor_shared(this)));
+    client_ = td::actor::create_actor<tonlib::TonlibClient>("Tonlib", td::make_unique<TonlibCb>(actor_shared(this, 1)));
 
     td::mkdir(options_.key_dir).ignore();
 
@@ -144,6 +144,9 @@ class TonlibCli : public td::actor::Actor {
   void hangup_shared() override {
     CHECK(ref_cnt_ > 0);
     ref_cnt_--;
+    if (get_link_token() == 1) {
+      io_.reset();
+    }
     try_stop();
   }
   void try_stop() {
@@ -221,7 +224,6 @@ class TonlibCli : public td::actor::Actor {
       generate_key();
     } else if (cmd == "exit") {
       is_closing_ = true;
-      io_.reset();
       client_.reset();
       ref_cnt_--;
       try_stop();
@@ -263,9 +265,20 @@ class TonlibCli : public td::actor::Actor {
       set_bounceable(addr, to_bool(bounceable, true));
     } else if (cmd == "netstats") {
       dump_netstats();
+    } else if (cmd == "sync") {
+      sync();
     }
   }
 
+  void sync() {
+    using tonlib_api::make_object;
+    send_query(make_object<tonlib_api::sync>(), [](auto r_ok) {
+      LOG_IF(ERROR, r_ok.is_error()) << r_ok.error();
+      if (r_ok.is_ok()) {
+        td::TerminalIO::out() << "synchronized\n";
+      }
+    });
+  }
   void dump_netstats() {
     td::TerminalIO::out() << td::tag("snd", td::format::as_size(snd_bytes_)) << "\n";
     td::TerminalIO::out() << td::tag("rcv", td::format::as_size(rcv_bytes_)) << "\n";

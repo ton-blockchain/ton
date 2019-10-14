@@ -21,6 +21,10 @@
 #include "tonlib/LastBlock.h"
 
 namespace tonlib {
+ExtClient::~ExtClient() {
+  last_block_queries_.for_each([](auto id, auto &promise) { promise.set_error(TonlibError::Cancelled()); });
+  queries_.for_each([](auto id, auto &promise) { promise.set_error(TonlibError::Cancelled()); });
+}
 void ExtClient::with_last_block(td::Promise<LastBlockState> promise) {
   auto query_id = last_block_queries_.create(std::move(promise));
   td::Promise<LastBlockState> P = [query_id, self = this,

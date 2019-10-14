@@ -1680,7 +1680,7 @@ bool TestNode::get_config_params(ton::BlockIdExt blkid, int mode, std::string fi
                                           true);
   LOG(INFO) << "requesting " << params.size() << " configuration parameters with respect to masterchain block "
             << blkid.to_str();
-  return envelope_send_query(std::move(b), [ Self = actor_id(this), mode, filename,
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), mode, filename, blkid,
                                              params = std::move(params) ](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
       return;
@@ -1690,18 +1690,23 @@ bool TestNode::get_config_params(ton::BlockIdExt blkid, int mode, std::string fi
       LOG(ERROR) << "cannot parse answer to liteServer.getConfigParams";
     } else {
       auto f = F.move_as_ok();
-      td::actor::send_closure_later(Self, &TestNode::got_config_params, ton::create_block_id(f->id_),
+      td::actor::send_closure_later(Self, &TestNode::got_config_params, blkid, ton::create_block_id(f->id_),
                                     std::move(f->state_proof_), std::move(f->config_proof_), mode, filename,
                                     std::move(params));
     }
   });
 }
 
-void TestNode::got_config_params(ton::BlockIdExt blkid, td::BufferSlice state_proof, td::BufferSlice cfg_proof,
-                                 int mode, std::string filename, std::vector<int> params) {
+void TestNode::got_config_params(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, td::BufferSlice state_proof,
+                                 td::BufferSlice cfg_proof, int mode, std::string filename, std::vector<int> params) {
   LOG(INFO) << "got configuration parameters";
   if (!blkid.is_masterchain_ext()) {
     LOG(ERROR) << "reference block " << blkid.to_str() << " for the configuration is not a valid masterchain block";
+    return;
+  }
+  if (blkid != req_blkid) {
+    LOG(ERROR) << "got configuration parameters with respect to block " << blkid.to_str() << " instead of "
+               << req_blkid.to_str();
     return;
   }
   auto R = block::check_extract_state_proof(blkid, state_proof.as_slice(), cfg_proof.as_slice());

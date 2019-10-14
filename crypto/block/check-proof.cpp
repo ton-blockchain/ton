@@ -424,7 +424,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
   }
 }
 
-td::Status BlockProofChain::validate() {
+td::Status BlockProofChain::validate(td::CancellationToken cancellation_token) {
   valid = false;
   has_key_block = false;
   has_utime = false;
@@ -449,6 +449,9 @@ td::Status BlockProofChain::validate() {
       return td::Status::Error(PSTRING() << "link #" << i << " in a BlockProofChain begins with block "
                                          << link.from.to_str() << " but the previous link ends at different block "
                                          << cur.to_str());
+    }
+    if (cancellation_token) {
+      return td::Status::Error("Cancelled");
     }
     auto err = link.validate(&last_utime);
     if (err.is_error()) {

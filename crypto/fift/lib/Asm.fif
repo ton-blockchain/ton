@@ -975,6 +975,8 @@ x{F82} @Defop(4u) GETPARAM
 x{F823} @Defop NOW
 x{F824} @Defop BLOCKLT
 x{F825} @Defop LTIME
+x{F826} @Defop BALANCE
+x{F827} @Defop RANDSEED
 x{F828} @Defop MYADDR
 x{F829} @Defop CONFIGROOT
 x{F830} @Defop CONFIGDICT
