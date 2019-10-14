@@ -195,7 +195,7 @@ smc1_addr config.minter_smc!
 
 1000000000000 -17 of-cc 666666666666 239 of-cc cc+ config.to_mint!
 
-"validator-keys" +suffix +".pub" file>B
+"validator-keys" +suffix +".pk" load-generate-keypair drop
 { dup Blen } { 32 B| swap dup ."Validator public key = " Bx. cr
   17 add-validator } while drop
 // newkeypair nip dup ."Validator #1 public key = " Bx. cr 
