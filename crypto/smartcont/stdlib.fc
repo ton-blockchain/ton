@@ -34,6 +34,11 @@ cell preload_ref(slice s) asm "PLDREF";
 ;; int preload_uint(slice s, int len) asm "PLDUX";
 ;; (slice, slice) load_bits(slice s, int len) asm(s len -> 1 0) "LDSLICEX";
 ;; slice preload_bits(slice s, int len) asm "PLDSLICEX";
+(slice, (slice)) ~load_slice(slice s, int length) {
+  var ret = s.first_bits(length);
+  s = s.skip_bits(length);
+  return (s, (ret));
+}
 (slice, int) load_grams(slice s) asm( -> 1 0) "LDGRAMS";
 slice skip_bits(slice s, int len) asm "SDSKIPFIRST";
 slice first_bits(slice s, int len) asm "SDCUTFIRST";
