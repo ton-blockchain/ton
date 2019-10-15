@@ -433,8 +433,10 @@ struct PrettyPrinter {
   bool failed;
   bool nl_used;
   int mode;
+  std::string msg_hash;
+
   PrettyPrinter(std::ostream& _os, int _indent = 0, int _mode = 1)
-      : os(_os), indent(_indent), level(0), failed(false), nl_used(false), mode(_mode) {
+      : os(_os), indent(_indent), level(0), failed(false), nl_used(false), mode(_mode), msg_hash() {
   }
   ~PrettyPrinter();
   bool ok() const {

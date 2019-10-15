@@ -202,7 +202,7 @@ class HttpAnswer {
   HttpAnswer &operator<<(RawData<T> data) {
     std::ostringstream outp;
     data.x.print_ref(outp, data.root);
-    vm::load_cell_slice(data.root).print_rec(outp);
+    // Reduce size since we don't need it - vm::load_cell_slice(data.root).print_rec(outp);
     return *this << CodeBlock{outp.str()};
   }
 
