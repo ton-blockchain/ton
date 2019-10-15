@@ -25,7 +25,7 @@ namespace ton {
 namespace validator {
 
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(
-    BlockIdExt zero_block_id, BlockIdExt init_block_id, std::function<bool(ShardIdFull)> check_shard,
+    BlockIdExt zero_block_id, BlockIdExt init_block_id, std::function<bool(ShardIdFull, ShardCheckMode)> check_shard,
     bool allow_blockchain_init, td::ClocksBase::Duration sync_blocks_before, td::ClocksBase::Duration block_ttl,
     td::ClocksBase::Duration state_ttl, td::ClocksBase::Duration archive_ttl, td::ClocksBase::Duration key_proof_ttl,
     bool initial_sync_disabled) {

@@ -111,9 +111,14 @@ set(FULL_NODE_SOURCE
   full-node-shard.h
   full-node-shard.hpp
   full-node-shard.cpp
+  full-node-master.h
+  full-node-master.hpp
+  full-node-master.cpp
   
   net/download-block.hpp
   net/download-block.cpp
+  net/download-block-new.hpp
+  net/download-block-new.cpp
   net/download-next-block.hpp
   net/download-next-block.cpp
   net/download-state.hpp

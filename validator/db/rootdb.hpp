@@ -73,6 +73,8 @@ class RootDb : public Db {
                                    td::Promise<td::Unit> promise) override;
   void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                  td::Promise<td::BufferSlice> promise) override;
+  void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
+                                       td::int64 max_length, td::Promise<td::BufferSlice> promise) override;
   void check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                           td::Promise<bool> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
@@ -102,11 +104,18 @@ class RootDb : public Db {
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) override;
 
+  void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) override;
+  void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) override;
+
   void archive(BlockIdExt block_id, td::Promise<td::Unit> promise) override;
 
   void allow_state_gc(BlockIdExt block_id, td::Promise<bool> promise);
   void allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise);
   void allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> promise);
+
+  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
+
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override;
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;

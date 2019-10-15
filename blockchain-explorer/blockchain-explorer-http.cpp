@@ -268,8 +268,8 @@ HttpAnswer& HttpAnswer::operator<<(TransactionCell trans_c) {
   }
   *this << "<div class=\"table-responsive my-3\">\n"
         << "<table class=\"table-sm table-striped\">\n"
-        << "<tr><th>block</th><td><a href=\"" << BlockLink{trans_c.block_id} << "\">"
-        << trans_c.block_id.id.to_str() << "</a></td></tr>"
+        << "<tr><th>block</th><td><a href=\"" << BlockLink{trans_c.block_id} << "\">" << trans_c.block_id.id.to_str()
+        << "</a></td></tr>"
         << "<tr><th>workchain</th><td>" << trans_c.addr.workchain << "</td></tr>"
         << "<tr><th>account hex</th><td>" << trans_c.addr.addr.to_hex() << "</td></tr>"
         << "<tr><th>account</th><td>" << trans_c.addr.rserialize(true) << "</td></tr>"
@@ -381,8 +381,8 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
 
   *this << "<div class=\"table-responsive my-3\">\n"
         << "<table class=\"table-sm table-striped\">\n";
-  *this << "<tr><th>block</th><td><a href=\"" << BlockLink{acc_c.block_id} << "\">"
-        << block_id.id.to_str() << "</a></td></tr>";
+  *this << "<tr><th>block</th><td><a href=\"" << BlockLink{acc_c.block_id} << "\">" << block_id.id.to_str()
+        << "</a></td></tr>";
   *this << "<tr><th>workchain</th><td>" << acc_c.addr.workchain << "</td></tr>";
   *this << "<tr><th>account hex</th><td>" << acc_c.addr.addr.to_hex() << "</td></tr>";
   *this << "<tr><th>account</th><td>" << acc_c.addr.rserialize(true) << "</td></tr>";
@@ -438,21 +438,24 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
           << "<tr><th>roothash</th><td>" << block_id.root_hash.to_hex() << "</td></tr>\n"
           << "<tr><th>filehash</th><td>" << block_id.file_hash.to_hex() << "</td></tr>\n"
           << "<tr><th>time</th><td>" << info.gen_utime << "</td></tr>\n"
-          << "<tr><th>lt</th><td>" << info.start_lt << " .. " << info.end_lt
-          << "</td></tr>\n"
+          << "<tr><th>lt</th><td>" << info.start_lt << " .. " << info.end_lt << "</td></tr>\n"
           << "<tr><th>global_id</th><td>" << blk.global_id << "</td></tr>\n"
           << "<tr><th>version</th><td>" << info.version << "</td></tr>\n"
+          << "<tr><th>flags</th><td>" << info.flags << "</td></tr>\n"
+          << "<tr><th>key_block</th><td>" << info.key_block << "</td></tr>\n"
           << "<tr><th>not_master</th><td>" << info.not_master << "</td></tr>\n"
           << "<tr><th>after_merge</th><td>" << info.after_merge << "</td></tr>\n"
           << "<tr><th>after_split</th><td>" << info.after_split << "</td></tr>\n"
           << "<tr><th>before_split</th><td>" << info.before_split << "</td></tr>\n"
           << "<tr><th>want_merge</th><td>" << info.want_merge << "</td></tr>\n"
           << "<tr><th>want_split</th><td>" << info.want_split << "</td></tr>\n"
-          << "<tr><th>validator_list_hash_short</th><td>"
-          << info.gen_validator_list_hash_short << "</td></tr>\n"
+          << "<tr><th>validator_list_hash_short</th><td>" << info.gen_validator_list_hash_short << "</td></tr>\n"
           << "<tr><th>catchain_seqno</th><td>" << info.gen_catchain_seqno << "</td></tr>\n"
-          << "<tr><th>min_ref_mc_seqno</th><td>" << info.min_ref_mc_seqno
-          << "</td></tr>\n";
+          << "<tr><th>min_ref_mc_seqno</th><td>" << info.min_ref_mc_seqno << "</td></tr>\n"
+          << "<tr><th>vert_seqno</th><td>" << info.vert_seq_no << "</td></tr>\n"
+          << "<tr><th>vert_seqno_incr</th><td>" << info.vert_seqno_incr << "</td></tr>\n"
+          << "<tr><th>prev_key_block_seqno</th><td>"
+          << ton::BlockId{ton::masterchainId, ton::shardIdAll, info.prev_key_block_seqno} << "</td></tr>\n";
     for (auto id : prev) {
       *this << "<tr><th>prev block</th><td>" << id << "</td></tr>\n";
     }
@@ -627,7 +630,8 @@ std::string HttpAnswer::header() {
   sb_->clear();
   *this << "<!DOCTYPE html>\n"
         << "<html lang=\"en\"><head><meta charset=\"utf-8\"><title>" << title_ << "</title>\n"
-        << "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no\" />\n"
+        << "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, minimum-scale=1.0, "
+           "maximum-scale=1.0, user-scalable=no\" />\n"
         << "<meta name=\"format-detection\" content=\"telephone=no\" />\n"
         << "<!-- Latest compiled and minified CSS -->\n"
         << "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
@@ -648,7 +652,8 @@ std::string HttpAnswer::header() {
         << "<div class=\"input-group ml-auto\" style=\"max-width:540px;\">"
         << "<input class=\"form-control mr-2 rounded\" type=\"search\" placeholder=\"account\" aria-label=\"account\" "
         << "name=\"account\">";
-  *this << "<div class=\"input-group-append\"><button class=\"btn btn-outline-primary rounded\" type=\"submit\">view</button></div>"
+  *this << "<div class=\"input-group-append\"><button class=\"btn btn-outline-primary rounded\" "
+           "type=\"submit\">view</button></div>"
         << "</div></form>"
         << "</nav>\n";
 

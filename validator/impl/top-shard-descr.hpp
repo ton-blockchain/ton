@@ -85,8 +85,12 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   Ref<block::McShardHash> get_top_descr(int sum_cnt = 0) const {
     return get_prev_descr(0, sum_cnt);
   }
+  std::vector<td::Bits256> get_creator_list(int count) const;
   Ref<vm::Cell> get_root() const {
     return root_;
+  }
+  BlockSeqno get_vert_seqno() const {
+    return vert_seqno_;
   }
   ShardTopBlockDescrQ(td::BufferSlice data, bool is_fake = false)
       : ShardTopBlockDescrQBase(std::move(data)), is_fake_(is_fake) {
@@ -122,6 +126,7 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   UnixTime gen_utime_{0};
   CatchainSeqno catchain_seqno_{0};
   td::uint32 validator_set_hash_{0};
+  BlockSeqno vert_seqno_{~0U};
   td::uint32 sig_count_;
   ValidatorWeight sig_weight_;
   Ref<vm::Cell> sig_root_;
@@ -131,6 +136,7 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   std::vector<BlockIdExt> chain_mc_blk_ids_;
   std::vector<BlockIdExt> link_prev_;
   std::vector<std::pair<block::CurrencyCollection, block::CurrencyCollection>> chain_fees_;
+  std::vector<td::Bits256> creators_;
   UnixTime first_gen_utime_;
 
   ShardTopBlockDescrQ(const ShardTopBlockDescrQ& other) = default;

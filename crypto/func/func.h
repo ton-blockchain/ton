@@ -79,6 +79,9 @@ enum Keyword {
   _RshiftLet,
   _RshiftRLet,
   _RshiftCLet,
+  _AndLet,
+  _OrLet,
+  _XorLet,
   _Int,
   _Cell,
   _Slice,
@@ -90,6 +93,8 @@ enum Keyword {
   _Asm,
   _Impure,
   _Extern,
+  _Inline,
+  _InlineRef,
   _MethodId,
   _Operator,
   _Infix,
@@ -392,6 +397,7 @@ inline std::ostream& operator<<(std::ostream& os, const VarDescr& vd) {
 
 struct VarDescrList {
   std::vector<VarDescr> list;
+  bool unreachable{false};
   VarDescrList() : list() {
   }
   VarDescrList(const std::vector<VarDescr>& _list) : list(_list) {
@@ -425,6 +431,10 @@ struct VarDescrList {
   VarDescrList operator|(const VarDescrList& y) const;
   VarDescrList& operator|=(const VarDescrList& values);
   void show(std::ostream& os) const;
+  void set_unreachable() {
+    list.clear();
+    unreachable = true;
+  }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const VarDescrList& values) {
@@ -632,6 +642,9 @@ struct CodeBlob {
   }
   bool import_params(FormalArgList arg_list);
   var_idx_t create_var(int cls, TypeExpr* var_type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
+  var_idx_t create_tmp_var(TypeExpr* var_type = 0, const SrcLocation* loc = 0) {
+    return create_var(TmpVar::_Tmp, var_type, nullptr, loc);
+  }
   int split_vars(bool strict = false);
   bool compute_used_code_vars();
   bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
@@ -670,8 +683,9 @@ struct SymVal : sym::SymValBase {
   TypeExpr* sym_type;
   td::RefInt256 method_id;
   bool impure;
+  short flags;  // +1 = inline, +2 = inline_ref
   SymVal(int _type, int _idx, TypeExpr* _stype = nullptr, bool _impure = false)
-      : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure) {
+      : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure), flags(0) {
   }
   ~SymVal() override = default;
   TypeExpr* get_type() const {
@@ -802,6 +816,10 @@ struct Expr {
   int define_new_vars(CodeBlob& code);
   int predefine_vars();
   std::vector<var_idx_t> pre_compile(CodeBlob& code) const;
+  var_idx_t new_tmp(CodeBlob& code) const;
+  std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
+    return {new_tmp(code)};
+  }
 };
 
 /*
@@ -950,6 +968,7 @@ struct AsmOp {
   static AsmOp make_stk2(int a, int b, const char* str, int delta);
   static AsmOp make_stk3(int a, int b, int c, const char* str, int delta);
   static AsmOp IntConst(td::RefInt256 value);
+  static AsmOp BoolConst(bool f);
   static AsmOp Const(std::string push_op) {
     return AsmOp(a_const, 0, 1, std::move(push_op));
   }

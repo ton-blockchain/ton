@@ -122,8 +122,8 @@ class TestNode : public td::actor::Actor {
   bool get_all_shards(bool use_last = true, ton::BlockIdExt blkid = {});
   void got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::BufferSlice data);
   bool get_config_params(ton::BlockIdExt blkid, int mode = 0, std::string filename = "");
-  void got_config_params(ton::BlockIdExt blkid, td::BufferSlice state_proof, td::BufferSlice cfg_proof, int mode,
-                         std::string filename, std::vector<int> params);
+  void got_config_params(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, td::BufferSlice state_proof,
+                         td::BufferSlice cfg_proof, int mode, std::string filename, std::vector<int> params);
   bool get_block(ton::BlockIdExt blk, bool dump = false);
   void got_block(ton::BlockIdExt blkid, td::BufferSlice data, bool dump);
   bool get_state(ton::BlockIdExt blk, bool dump = false);
@@ -150,7 +150,6 @@ class TestNode : public td::actor::Actor {
                               std::vector<TransId> trans, td::BufferSlice proof);
   bool get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
   void got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice res);
-  td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(td::BufferSlice pchain);
   bool do_parse_line();
   bool show_help(std::string command);
   std::string get_word(char delim = ' ');

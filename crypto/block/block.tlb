@@ -325,7 +325,7 @@ trans_ord$0000 credit_first:Bool
 trans_storage$0001 storage_ph:TrStoragePhase
   = TransactionDescr;
 
-trans_tick_tock$001 is_tock:Bool storage:TrStoragePhase
+trans_tick_tock$001 is_tock:Bool storage_ph:TrStoragePhase
   compute_ph:TrComputePhase action:(Maybe ^TrActionPhase)
   aborted:Bool destroyed:Bool = TransactionDescr;
 //
@@ -333,6 +333,7 @@ split_merge_info$_ cur_shard_pfx_len:(## 6)
   acc_split_depth:(## 6) this_addr:bits256 sibling_addr:bits256
   = SplitMergeInfo;
 trans_split_prepare$0100 split_info:SplitMergeInfo
+  storage_ph:(Maybe TrStoragePhase)
   compute_ph:TrComputePhase action:(Maybe ^TrActionPhase)
   aborted:Bool destroyed:Bool
   = TransactionDescr;
@@ -345,6 +346,7 @@ trans_merge_prepare$0110 split_info:SplitMergeInfo
   = TransactionDescr;
 trans_merge_install$0111 split_info:SplitMergeInfo
   prepare_transaction:^Transaction
+  storage_ph:(Maybe TrStoragePhase)
   credit_ph:(Maybe TrCreditPhase)
   compute_ph:TrComputePhase action:(Maybe ^TrActionPhase)
   aborted:Bool destroyed:Bool
@@ -419,7 +421,7 @@ block_info#9bc7a987 version:uint32
   prev_key_block_seqno:uint32
   master_ref:not_master?^BlkMasterInfo 
   prev_ref:^(BlkPrevInfo after_merge)
-  prev_vert_ref:vert_seq_no?^(BlkPrevInfo 0)
+  prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
   = BlockInfo;
 
 prev_blk_info$_ prev:ExtBlkRef = BlkPrevInfo 0;
@@ -499,14 +501,20 @@ _ key:Bool blk_ref:ExtBlkRef = KeyExtBlkRef;
 
 _ (HashmapAugE 32 KeyExtBlkRef KeyMaxLt) = OldMcBlocksInfo;
 
+
+counters#_ last_updated:uint32 total:uint64 cnt2048:uint64 cnt65536:uint64 = Counters; 
+creator_info#4 mc_blocks:Counters shard_blocks:Counters = CreatorStats; 
+block_create_stats#17 counters:(HashmapE 256 CreatorStats) = BlockCreateStats;
+
 masterchain_state_extra#cc26
   shard_hashes:ShardHashes
   config:ConfigParams
-  ^[ flags:(## 16) { flags = 0 }
+  ^[ flags:(## 16) { flags <= 1 }
      validator_info:ValidatorInfo
      prev_blocks:OldMcBlocksInfo
      after_key_block:Bool
-     last_key_block:(Maybe ExtBlkRef) ]
+     last_key_block:(Maybe ExtBlkRef)
+     block_create_stats:(flags . 0)?BlockCreateStats ]
   global_balance:CurrencyCollection
 = McStateExtra;
 
@@ -601,6 +609,9 @@ gas_prices#dd gas_price:uint64 gas_limit:uint64 gas_credit:uint64
 
 gas_prices_ext#de gas_price:uint64 gas_limit:uint64 special_gas_limit:uint64 gas_credit:uint64 
   block_gas_limit:uint64 freeze_due_limit:uint64 delete_due_limit:uint64 
+  = GasLimitsPrices;
+
+gas_flat_pfx#d1 flat_gas_limit:uint64 flat_gas_price:uint64 other:GasLimitsPrices
   = GasLimitsPrices;
 
 config_mc_gas_prices#_ GasLimitsPrices = ConfigParam 20;

@@ -138,7 +138,29 @@ void FileDb::load_file(RefId ref_id, td::Promise<td::BufferSlice> promise) {
         }
       });
 
-  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), std::move(P)).release();
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), 0, -1, 0, std::move(P)).release();
+}
+
+void FileDb::load_file_slice(RefId ref_id, td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise) {
+  auto ref_id_hash = get_ref_id_hash(ref_id);
+  auto R = get_block(ref_id_hash);
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+    return;
+  }
+
+  auto v = R.move_as_ok();
+
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
+
+  td::actor::create_actor<db::ReadFile>("readfile", get_file_name(ref_id, false), offset, max_size, 0, std::move(P))
+      .release();
 }
 
 void FileDb::check_file(RefId ref_id, td::Promise<bool> promise) {
@@ -329,6 +351,45 @@ FileDb::DbEntry::DbEntry(tl_object_ptr<ton_api::db_filedb_value> entry)
     , prev(entry->prev_)
     , next(entry->next_)
     , file_hash(entry->file_hash_) {
+}
+
+void FileDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  std::vector<std::pair<std::string, std::string>> rocksdb_stats;
+  auto stats = kv_->stats();
+  if (stats.size() == 0) {
+    promise.set_value(std::move(rocksdb_stats));
+    return;
+  }
+  size_t pos = 0;
+  while (pos < stats.size()) {
+    while (pos < stats.size() &&
+           (stats[pos] == ' ' || stats[pos] == '\n' || stats[pos] == '\r' || stats[pos] == '\t')) {
+      pos++;
+    }
+    auto p = pos;
+    if (pos == stats.size()) {
+      break;
+    }
+    while (stats[pos] != '\n' && stats[pos] != '\r' && stats[pos] != ' ' && stats[pos] != '\t' && pos < stats.size()) {
+      pos++;
+    }
+    auto name = stats.substr(p, pos - p);
+    if (stats[pos] == '\n' || pos == stats.size()) {
+      rocksdb_stats.emplace_back(name, "");
+      continue;
+    }
+    while (pos < stats.size() &&
+           (stats[pos] == ' ' || stats[pos] == '\n' || stats[pos] == '\r' || stats[pos] == '\t')) {
+      pos++;
+    }
+    p = pos;
+    while (stats[pos] != '\n' && stats[pos] != '\r' && pos < stats.size()) {
+      pos++;
+    }
+    auto value = stats.substr(p, pos - p);
+    rocksdb_stats.emplace_back(name, value);
+  }
+  promise.set_value(std::move(rocksdb_stats));
 }
 
 }  // namespace validator

@@ -20,6 +20,7 @@
 
 #include "full-node.h"
 #include "validator/interfaces/block-handle.h"
+#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -59,13 +60,11 @@ class FullNodeShard : public td::actor::Actor {
 
   virtual void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) = 0;
 
-  static td::actor::ActorOwn<FullNodeShard> create(ShardIdFull shard, PublicKeyHash local_id,
-                                                   adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-                                                   td::actor::ActorId<keyring::Keyring> keyring,
-                                                   td::actor::ActorId<adnl::Adnl> adnl,
-                                                   td::actor::ActorId<rldp::Rldp> rldp,
-                                                   td::actor::ActorId<overlay::Overlays> overlays,
-                                                   td::actor::ActorId<ValidatorManagerInterface> validator_manager);
+  static td::actor::ActorOwn<FullNodeShard> create(
+      ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
+      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client);
 };
 
 }  // namespace fullnode

@@ -29,7 +29,8 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
   }
-  run_collate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_, local_id_, validator_set_, manager_,
+  run_collate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
+                    Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
                     td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -215,10 +216,16 @@ void ValidatorGroup::create_session() {
   init_ = true;
   std::vector<validatorsession::ValidatorSessionNode> vec;
   auto v = validator_set_->export_vector();
+  bool found = false;
   for (auto &el : v) {
     validatorsession::ValidatorSessionNode n;
     n.pub_key = ValidatorFullId{el.key};
     n.weight = el.weight;
+    if (n.pub_key.compute_short_id() == local_id_) {
+      CHECK(!found);
+      found = true;
+      local_id_full_ = n.pub_key;
+    }
     if (el.addr.is_zero()) {
       n.adnl_id = adnl::AdnlNodeIdShort{n.pub_key.compute_short_id()};
     } else {
@@ -226,6 +233,7 @@ void ValidatorGroup::create_session() {
     }
     vec.emplace_back(std::move(n));
   }
+  CHECK(found);
 
   session_ = validatorsession::ValidatorSession::create(session_id_, config_, local_id_, std::move(vec),
                                                         make_validator_session_callback(), keyring_, adnl_, rldp_,

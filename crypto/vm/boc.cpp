@@ -75,7 +75,7 @@ td::Result<int> CellSerializationInfo::get_bits(td::Slice cell) const {
   if (data_with_bits) {
     DCHECK(data_len != 0);
     int last = cell[data_offset + data_len - 1];
-    if (!last || last == 0x80) {
+    if (!(last & 0x7f)) {
       return td::Status::Error("overlong encoding");
     }
     return td::narrow_cast<int>((data_len - 1) * 8 + 7 - td::count_trailing_zeroes_non_zero32(last));
@@ -390,15 +390,6 @@ td::uint64 BagOfCells::compute_sizes(int mode, int& r_size, int& o_size) {
   if (rs > 4 || os > 8) {
     r_size = o_size = 0;
     return 0;
-  }
-  if (!(mode & Mode::WithIndex)) {
-    if (rs > 2 || os > 4) {
-      rs = std::max(3, rs);
-      os = 8;
-      data_bytes_adj = data_bytes + (unsigned long long)int_refs * rs + hashes;
-    } else {
-      os = 4;
-    }
   }
   r_size = rs;
   o_size = os;
@@ -988,27 +979,27 @@ td::Result<td::BufferSlice> std_boc_serialize_multi(std::vector<Ref<Cell>> roots
  * 
  */
 
-bool CellStorageStat::compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup, bool skip_count_root) {
+bool CellStorageStat::compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup, unsigned skip_count_root) {
   clear();
   return add_used_storage(std::move(cs_ref), kill_dup, skip_count_root) && clear_seen();
 }
 
-bool CellStorageStat::compute_used_storage(const CellSlice& cs, bool kill_dup, bool skip_count_root) {
+bool CellStorageStat::compute_used_storage(const CellSlice& cs, bool kill_dup, unsigned skip_count_root) {
   clear();
   return add_used_storage(cs, kill_dup, skip_count_root) && clear_seen();
 }
 
-bool CellStorageStat::compute_used_storage(CellSlice&& cs, bool kill_dup, bool skip_count_root) {
+bool CellStorageStat::compute_used_storage(CellSlice&& cs, bool kill_dup, unsigned skip_count_root) {
   clear();
   return add_used_storage(std::move(cs), kill_dup, skip_count_root) && clear_seen();
 }
 
-bool CellStorageStat::compute_used_storage(Ref<vm::Cell> cell, bool kill_dup, bool skip_count_root) {
+bool CellStorageStat::compute_used_storage(Ref<vm::Cell> cell, bool kill_dup, unsigned skip_count_root) {
   clear();
   return add_used_storage(std::move(cell), kill_dup, skip_count_root) && clear_seen();
 }
 
-bool CellStorageStat::add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup, bool skip_count_root) {
+bool CellStorageStat::add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup, unsigned skip_count_root) {
   if (cs_ref->is_unique()) {
     return add_used_storage(std::move(cs_ref.unique_write()), kill_dup, skip_count_root);
   } else {
@@ -1016,11 +1007,13 @@ bool CellStorageStat::add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup,
   }
 }
 
-bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, bool skip_count_root) {
-  if (!skip_count_root) {
+bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, unsigned skip_count_root) {
+  if (!(skip_count_root & 1)) {
     ++cells;
   }
-  bits += cs.size();
+  if (!(skip_count_root & 2)) {
+    bits += cs.size();
+  }
   for (unsigned i = 0; i < cs.size_refs(); i++) {
     if (!add_used_storage(cs.prefetch_ref(i), kill_dup)) {
       return false;
@@ -1029,11 +1022,13 @@ bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, bool 
   return true;
 }
 
-bool CellStorageStat::add_used_storage(CellSlice&& cs, bool kill_dup, bool skip_count_root) {
-  if (!skip_count_root) {
+bool CellStorageStat::add_used_storage(CellSlice&& cs, bool kill_dup, unsigned skip_count_root) {
+  if (!(skip_count_root & 1)) {
     ++cells;
   }
-  bits += cs.size();
+  if (!(skip_count_root & 2)) {
+    bits += cs.size();
+  }
   while (cs.size_refs()) {
     if (!add_used_storage(cs.fetch_ref(), kill_dup)) {
       return false;
@@ -1042,7 +1037,7 @@ bool CellStorageStat::add_used_storage(CellSlice&& cs, bool kill_dup, bool skip_
   return true;
 }
 
-bool CellStorageStat::add_used_storage(Ref<vm::Cell> cell, bool kill_dup, bool skip_count_root) {
+bool CellStorageStat::add_used_storage(Ref<vm::Cell> cell, bool kill_dup, unsigned skip_count_root) {
   if (cell.is_null()) {
     return false;
   }

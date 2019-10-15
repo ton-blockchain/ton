@@ -103,7 +103,7 @@ void FullNodeImpl::add_shard(ShardIdFull shard) {
   while (true) {
     if (shards_.count(shard) == 0) {
       shards_.emplace(shard, FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_,
-                                                   rldp_, overlays_, validator_manager_));
+                                                   rldp_, overlays_, validator_manager_, client_));
       if (all_validators_.size() > 0) {
         td::actor::send_closure(shards_[shard], &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
       }
@@ -413,7 +413,8 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                            td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
                            td::actor::ActorId<overlay::Overlays> overlays,
-                           td::actor::ActorId<ValidatorManagerInterface> validator_manager, std::string db_root)
+                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                           td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root)
     : local_id_(local_id)
     , adnl_id_(adnl_id)
     , zero_state_file_hash_(zero_state_file_hash)
@@ -423,6 +424,7 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , dht_(dht)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
+    , client_(client)
     , db_root_(db_root) {
   add_shard(ShardIdFull{masterchainId});
 }
@@ -434,9 +436,9 @@ td::actor::ActorOwn<FullNode> FullNode::create(ton::PublicKeyHash local_id, adnl
                                                td::actor::ActorId<dht::Dht> dht,
                                                td::actor::ActorId<overlay::Overlays> overlays,
                                                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                               std::string db_root) {
+                                               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root) {
   return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, keyring, adnl, rldp,
-                                               dht, overlays, validator_manager, db_root);
+                                               dht, overlays, validator_manager, client, db_root);
 }
 
 }  // namespace fullnode

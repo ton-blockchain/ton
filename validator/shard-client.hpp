@@ -88,6 +88,7 @@ class ShardClient : public td::actor::Actor {
   void new_masterchain_block_notification(BlockHandle handle, td::Ref<MasterchainState> state);
 
   void get_processed_masterchain_block(td::Promise<BlockSeqno> promise);
+  void get_processed_masterchain_block_id(td::Promise<BlockIdExt> promise);
 };
 
 }  // namespace validator

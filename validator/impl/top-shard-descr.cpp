@@ -41,14 +41,14 @@ ShardTopBlockDescrQ* ShardTopBlockDescrQ::make_copy() const {
 td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cell> proof_root, bool is_head) {
   auto virt_root = vm::MerkleProof::virtualize(proof_root, 1);
   if (virt_root.is_null()) {
-    return td::Status::Error(-666, std::string{} + "link for block " + cur_id.to_str() +
-                                       " inside ShardTopBlockDescr of " + block_id_.to_str() +
+    return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
+                                       block_id_.to_str() +
                                        " does not contain a valid Merkle proof for the block header");
   }
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != cur_id.root_hash) {
-    return td::Status::Error(-666, std::string{} + "link for block " + cur_id.to_str() +
-                                       " inside ShardTopBlockDescr of " + block_id_.to_str() +
+    return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
+                                       block_id_.to_str() +
                                        " contains a Merkle proof with incorrect root hash: expected " +
                                        cur_id.root_hash.to_hex() + ", found " + virt_hash.to_hex());
   }
@@ -56,18 +56,31 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
   BlockIdExt mc_blkid;
   auto res = block::unpack_block_prev_blk_try(virt_root, cur_id, link_prev_, mc_blkid, after_split);
   if (res.is_error()) {
-    return td::Status::Error(-666, std::string{"error in link for block "} + cur_id.to_str() +
-                                       " inside ShardTopBlockDescr of " + block_id_.to_str() + ": " +
-                                       res.move_as_error().to_string());
+    return td::Status::Error(-666, "error in link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
+                                       block_id_.to_str() + ": " + res.move_as_error().to_string());
   }
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
+  block::gen::BlockExtra::Record extra;
   block::gen::ValueFlow::Record flow;
   block::CurrencyCollection fees_collected, funds_created;
   if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
         block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) && tlb::unpack_cell(blk.value_flow, flow) &&
-        fees_collected.unpack(flow.fees_collected) && funds_created.unpack(flow.r2.created))) {
-    return td::Status::Error(-666, std::string{"cannot unpack block header in link for block "} + cur_id.to_str());
+        /*tlb::unpack_cell(blk.extra, extra) &&*/ fees_collected.unpack(flow.fees_collected) &&
+        funds_created.unpack(flow.r2.created))) {
+    return td::Status::Error(-666, "cannot unpack block header in link for block "s + cur_id.to_str());
+  }
+  // remove this "try ... catch ..." later and uncomment tlb::unpack_cell(blk.extra, extra) in the previous condition
+  try {
+    if (!tlb::unpack_cell(blk.extra, extra)) {
+      return td::Status::Error(-666,
+                               "cannot unpack block extra header (BlockExtra) in link for block "s + cur_id.to_str());
+    }
+  } catch (vm::VmVirtError& err) {
+    // backward compatibility with older Proofs / ProofLinks
+    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id.to_str()
+                 << ", setting creator_id to zero: " << err.get_msg();
+    extra.created_by.set_zero();
   }
   CHECK(after_split == info.after_split);
   if (info.gen_catchain_seqno != catchain_seqno_) {
@@ -87,6 +100,7 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     after_merge_ = info.after_merge;
     before_split_ = info.before_split;
     gen_utime_ = first_gen_utime_ = info.gen_utime;
+    vert_seqno_ = info.vert_seq_no;
   } else {
     auto nx_mc_seqno = chain_mc_blk_ids_.back().id.seqno;
     if (nx_mc_seqno < mc_blkid.id.seqno) {
@@ -109,10 +123,16 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
                                                << cur_id.to_str() << " and " << chain_blk_ids_.back().to_str());
     }
     first_gen_utime_ = info.gen_utime;
+    if (vert_seqno_ != BlockSeqno(info.vert_seq_no)) {
+      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id.to_str()
+                                               << " has vertical seqno " << info.vert_seq_no
+                                               << " distinct from the final value in chain " << vert_seqno_);
+    }
   }
   chain_mc_blk_ids_.push_back(mc_blkid);
   chain_blk_ids_.push_back(cur_id);
   chain_fees_.emplace_back(std::move(fees_collected), std::move(funds_created));
+  creators_.push_back(extra.created_by);
   if (!is_head) {
     if (info.after_split || info.after_merge) {
       return td::Status::Error(
@@ -267,7 +287,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
     BlockSeqno delta = chain_mc_blk_ids_[0].id.seqno - last_mc_block_id.id.seqno;
     // too new
     if ((mode & Mode::fail_new) || (delta > 8 && (mode & Mode::fail_too_new))) {
-      return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
+      return td::Status::Error(-666, "ShardTopBlockDescr for "s + block_id_.to_str() +
                                          " is too new for us: it refers to masterchain block " +
                                          chain_mc_blk_ids_[0].id.to_str() + " but we know only " +
                                          last_mc_block_id.to_str());
@@ -275,6 +295,18 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
     return -1;  // valid, but too new
   }
   auto config = state->get_config();
+  if (config->get_vert_seqno() != vert_seqno_) {
+    if (vert_seqno_ < config->get_vert_seqno()) {
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+                                               << " is too old: it has vertical seqno " << vert_seqno_
+                                               << " but we already know about " << config->get_vert_seqno());
+    }
+    if (mode & Mode::fail_new) {
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+                                               << " is too new for us: it has vertical seqno " << vert_seqno_
+                                               << " but we know only about " << config->get_vert_seqno());
+    }
+  }
   BlockSeqno next_mc_seqno = ~BlockSeqno(0);
   for (const auto& mcid : chain_mc_blk_ids_) {
     if (mcid.id.seqno > next_mc_seqno) {
@@ -487,6 +519,17 @@ Ref<block::McShardHash> ShardTopBlockDescrQ::get_prev_descr(int pos, int sum_cnt
       total_fees += chain_fees_.at(pos + i).first;
       funds_created += chain_fees_[pos + i].second;
     }
+  }
+  return res;
+}
+
+std::vector<td::Bits256> ShardTopBlockDescrQ::get_creator_list(int count) const {
+  if (!is_valid() || count < 0 || (unsigned)count > size()) {
+    return {};
+  }
+  std::vector<td::Bits256> res;
+  for (int i = count - 1; i >= 0; i--) {
+    res.push_back(creators_.at(i));
   }
   return res;
 }

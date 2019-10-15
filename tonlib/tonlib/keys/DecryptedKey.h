@@ -48,7 +48,7 @@ struct RawDecryptedKey {
 
 struct EncryptedKey;
 struct DecryptedKey {
-  DecryptedKey() = default;
+  DecryptedKey() = delete;
   explicit DecryptedKey(const Mnemonic &mnemonic);
   DecryptedKey(std::vector<td::SecureString> mnemonic_words, td::Ed25519::PrivateKey key);
   DecryptedKey(RawDecryptedKey key);
@@ -56,8 +56,6 @@ struct DecryptedKey {
   std::vector<td::SecureString> mnemonic_words;
   td::Ed25519::PrivateKey private_key;
 
-  static td::SecureString change_local_password(td::Slice secret, td::Slice old_local_password,
-                                                td::Slice new_local_password);
   EncryptedKey encrypt(td::Slice local_password, td::Slice secret = {}) const;
 };
 

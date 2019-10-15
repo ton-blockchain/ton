@@ -57,7 +57,10 @@ class LiteQuery : public td::actor::Actor {
   std::unique_ptr<block::BlockProofChain> chain_;
 
  public:
-  enum { default_timeout_msec = 4500 };  // 4.5 seconds
+  enum {
+    default_timeout_msec = 4500,  // 4.5 seconds
+    max_transaction_count = 16    // fetch at most 16 transactions in one query
+  };
   enum {
     ls_version = 0x101,
     ls_capabilities = 3
@@ -108,9 +111,10 @@ class LiteQuery : public td::actor::Actor {
   void perform_lookupBlock(BlockId blkid, int mode, LogicalTime lt, UnixTime utime);
   void perform_listBlockTransactions(BlockIdExt blkid, int mode, int count, Bits256 account, LogicalTime lt);
   void finish_listBlockTransactions(int mode, int count);
-  void perform_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
-  void continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, Ref<MasterchainStateQ> state);
-  bool construct_proof_chain(ton::BlockIdExt id);
+  void perform_getBlockProof(BlockIdExt from, BlockIdExt to, int mode);
+  void continue_getBlockProof(BlockIdExt from, BlockIdExt to, int mode, BlockIdExt baseblk,
+                              Ref<MasterchainStateQ> state);
+  bool construct_proof_chain(BlockIdExt id);
   bool construct_proof_link_forward(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool construct_proof_link_back(ton::BlockIdExt cur, ton::BlockIdExt next);

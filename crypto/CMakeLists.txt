@@ -9,6 +9,7 @@ set(TON_CRYPTO_SOURCE
   common/bigint.cpp
   common/refcnt.cpp
   common/refint.cpp
+  common/bigexp.cpp
   common/bitstring.cpp
   common/util.cpp
   ellcurve/Ed25519.cpp
@@ -42,6 +43,7 @@ set(TON_CRYPTO_SOURCE
   common/bitstring.h
   common/refcnt.hpp
   common/refint.h
+  common/bigexp.h
   common/util.h
 
   ellcurve/Ed25519.h
@@ -227,7 +229,7 @@ target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils)
 if (NOT WIN32)
   target_link_libraries(ton_crypto PUBLIC dl z)
 endif()
-target_include_directories(ton_crypto SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})
 target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -277,6 +279,7 @@ if (TON_USE_ASAN AND NOT WIN32)
   set(TURN_OFF_LSAN export LSAN_OPTIONS=detect_leaks=0)
 endif()
 
+file(MAKE_DIRECTORY smartcont/auto)
 if (NOT CMAKE_CROSSCOMPILING)
   set(GENERATE_TLB_CMD tlbc)
   add_custom_command(
@@ -293,27 +296,41 @@ if (NOT CMAKE_CROSSCOMPILING)
   add_custom_target(gen_fif ALL)
   function(GenFif)
     set(options )
-    set(oneValueArgs DEST)
+    set(oneValueArgs DEST NAME)
     set(multiValueArgs SOURCE)
     set(FUNC_LIB_SOURCE smartcont/stdlib.fc)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
     string(REGEX REPLACE "[^a-zA-Z_]" "_" ID ${ARG_DEST})
+    set(ARG_DEST_FIF "${ARG_DEST}.fif")
     add_custom_command(
-      COMMENT "Generate ${ARG_DEST}"
+      COMMENT "Generate ${ARG_DEST_FIF}"
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-      COMMAND func -PS -o ${ARG_DEST} ${FUNC_LIB_SOURCE} ${ARG_SOURCE}
+      COMMAND func -PS -o ${ARG_DEST_FIF} ${FUNC_LIB_SOURCE} ${ARG_SOURCE}
       MAIN_DEPENDENCY ${ARG_SOURCE}
       DEPENDS func ${FUNC_LIB_SOURCE}
-      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST}
+      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST_FIF}
     )
-    add_custom_target(gen_fif_${ID} DEPENDS ${ARG_DEST})
+    set(ARG_DEST_CPP "${ARG_DEST}.cpp")
+    add_custom_command(
+      COMMENT "Generate ${ARG_DEST_CPP}"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND fift -Ifift/lib:smartcont -s asm-to-cpp.fif ${ARG_DEST_FIF} ${ARG_DEST_CPP} ${ARG_NAME}
+      MAIN_DEPENDENCY ${ARG_SOURCE}
+      DEPENDS fift ${ARG_DEST_FIF} smartcont/asm-to-cpp.fif
+      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST_CPP}
+    )
+    add_custom_target(gen_fif_${ID} DEPENDS ${ARG_DEST_FIF} ${ARG_DEST_CPP})
     add_dependencies(gen_fif gen_fif_${ID})
   endfunction()
 
-  GenFif(DEST smartcont/config-code.fif SOURCE smartcont/config-code.fc)
-  GenFif(DEST smartcont/wallet-code.fif SOURCE smartcont/wallet-code.fc)
-  GenFif(DEST smartcont/simple-wallet-code.fif SOURCE smartcont/simple-wallet-code.fc)
-  GenFif(DEST smartcont/elector-code.fif SOURCE smartcont/elector-code.fc)
+  GenFif(DEST smartcont/auto/config-code SOURCE smartcont/config-code.fc NAME config)
+  GenFif(DEST smartcont/auto/wallet-code SOURCE smartcont/wallet-code.fc NAME wallet)
+  GenFif(DEST smartcont/auto/simple-wallet-code SOURCE smartcont/simple-wallet-code.fc NAME simple-wallet)
+  GenFif(DEST smartcont/auto/highload-wallet-code SOURCE smartcont/highload-wallet-code.fc NAME highload-wallet)
+  GenFif(DEST smartcont/auto/highload-wallet-v2-code SOURCE smartcont/highload-wallet-v2-code.fc NAME highoad-wallet-v2)
+  GenFif(DEST smartcont/auto/elector-code SOURCE smartcont/elector-code.fc NAME elector-code)
+  GenFif(DEST smartcont/auto/restricted-wallet-code SOURCE smartcont/restricted-wallet-code.fc NAME restricted-wallet)
+  GenFif(DEST smartcont/auto/restricted-wallet2-code SOURCE smartcont/restricted-wallet2-code.fc NAME restricted-wallet2)
 endif()
 
 add_executable(create-state block/create-state.cpp)
@@ -324,10 +341,13 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(create-state wingetopt)
 endif()
 
-add_executable(test-block block/test-block.cpp)
-target_include_directories(test-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+add_executable(dump-block block/dump-block.cpp)
+target_include_directories(dump-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(test-block PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(dump-block PUBLIC ton_crypto fift-lib ton_block)
 if (WINGETOPT_FOUND)
-  target_link_libraries_system(test-block wingetopt)
+  target_link_libraries_system(dump-block wingetopt)
 endif()
+
+install(TARGETS fift func RUNTIME DESTINATION bin)
+install(DIRECTORY fift/lib/ DESTINATION lib/fift)

@@ -588,7 +588,7 @@ void CatChainReceiverImpl::read_db() {
   read_db_ = true;
 
   next_rotate_ = td::Timestamp::in(60 + td::Random::fast(0, 60));
-  next_sync_ = td::Timestamp::in(0.01 * td::Random::fast(0, 60));
+  next_sync_ = td::Timestamp::in(0.001 * td::Random::fast(0, 60));
   alarm_timestamp().relax(next_rotate_);
   alarm_timestamp().relax(next_sync_);
 
@@ -627,7 +627,7 @@ void CatChainReceiverImpl::receive_query_from_overlay(adnl::AdnlNodeIdShort src,
     promise.set_error(td::Status::Error(ErrorCode::notready, "db not read"));
     return;
   }
-  td::PerfWarningTimer t{"catchain query process", 0.001};
+  td::PerfWarningTimer t{"catchain query process", 0.05};
   auto F = fetch_tl_object<ton_api::Function>(data.clone(), true);
   if (F.is_error()) {
     callback_->on_custom_query(get_source_by_adnl_id(src)->get_hash(), std::move(data), std::move(promise));
@@ -909,7 +909,7 @@ void CatChainReceiverImpl::choose_neighbours() {
 void CatChainReceiverImpl::alarm() {
   alarm_timestamp() = td::Timestamp::never();
   if (next_sync_ && next_sync_.is_in_past()) {
-    next_sync_ = td::Timestamp::in(td::Random::fast(2.0, 3.0));
+    next_sync_ = td::Timestamp::in(td::Random::fast(0.1, 0.2));
     for (auto i = 0; i < 3; i++) {
       auto S = get_source(td::Random::fast(0, get_sources_cnt() - 1));
       CHECK(S != nullptr);

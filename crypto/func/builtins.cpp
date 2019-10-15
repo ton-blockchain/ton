@@ -620,7 +620,7 @@ int compute_compare(td::RefInt256 x, td::RefInt256 y, int mode) {
   if (mode == 7) {
     return s;
   } else {
-    return (mode >> (1 - s)) & 1;
+    return -((mode >> (1 - s)) & 1);
   }
 }
 
@@ -641,8 +641,8 @@ int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
       return x.always_less(y) ? 1 : (x.always_geq(y) ? 2 : 3);
     case 5:  // <>
       return x.always_neq(y) ? 1 : (x.always_equal(y) ? 2 : 3);
-    case 6:  // >=
-      return x.always_geq(y) ? 1 : (x.always_less(y) ? 2 : 3);
+    case 6:  // <=
+      return x.always_leq(y) ? 1 : (x.always_greater(y) ? 2 : 3);
     case 7:  // <=>
       return x.always_less(y)
                  ? 1
@@ -661,18 +661,20 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
-    r.set_const(compute_compare(x.int_const, y.int_const, mode));
+    int v = compute_compare(x.int_const, y.int_const, mode);
+    r.set_const(v);
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return mode == 7 ? push_const(r.int_const) : AsmOp::BoolConst(v != 0);
   }
   int v = compute_compare(x, y, mode);
+  // std::cerr << "compute_compare(" << x << ", " << y << ", " << mode << ") = " << v << std::endl;
   assert(v);
   if (!(v & (v - 1))) {
     r.set_const(v - (v >> 2) - 2);
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return mode == 7 ? push_const(r.int_const) : AsmOp::BoolConst(v & 1);
   }
   r.val = ~0;
   if (v & 1) {
@@ -684,6 +686,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   if (v & 4) {
     r.val &= VarDescr::ConstOne;
   }
+  // std::cerr << "result: " << r << std::endl;
   static const char* cmp_int_names[] = {"", "GTINT", "EQINT", "GTINT", "LESSINT", "NEQINT", "LESSINT"};
   static const char* cmp_names[] = {"", "GREATER", "EQUAL", "GEQ", "LESS", "NEQ", "LEQ", "CMP"};
   static int cmp_int_delta[] = {0, 0, 0, -1, 0, 0, 1};
@@ -910,6 +913,7 @@ void define_builtins() {
   define_builtin_func("false", Int, /* AsmOp::Const("FALSE") */ std::bind(compile_bool_const, _1, _2, false));
   // define_builtin_func("null", Null, AsmOp::Const("PUSHNULL"));
   define_builtin_func("nil", Tuple, AsmOp::Const("PUSHNULL"));
+  define_builtin_func("Nil", Tuple, AsmOp::Const("NIL"));
   define_builtin_func("null?", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Int)), compile_is_null);
   define_builtin_func("cons", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor(X, Tuple), Tuple)),
                       AsmOp::Custom("CONS", 2, 1));
@@ -931,6 +935,10 @@ void define_builtins() {
                       AsmOp::Custom("4 TUPLE", 4, 1));
   define_builtin_func("untuple4", TypeExpr::new_forall({X, Y, Z, T}, TypeExpr::new_map(Tuple, XYZT)),
                       AsmOp::Custom("4 UNTUPLE", 1, 4));
+  define_builtin_func("first", TypeExpr::new_forall({X}, TypeExpr::new_map(Tuple, X)), AsmOp::Custom("FIRST", 1, 1));
+  define_builtin_func("second", TypeExpr::new_forall({X}, TypeExpr::new_map(Tuple, X)), AsmOp::Custom("SECOND", 1, 1));
+  define_builtin_func("third", TypeExpr::new_forall({X}, TypeExpr::new_map(Tuple, X)), AsmOp::Custom("THIRD", 1, 1));
+  define_builtin_func("fourth", TypeExpr::new_forall({X}, TypeExpr::new_map(Tuple, X)), AsmOp::Custom("3 INDEX", 1, 1));
   define_builtin_func("throw", impure_un_op, compile_throw, true);
   define_builtin_func("throw_if", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);
   define_builtin_func("throw_unless", impure_bin_op, std::bind(compile_cond_throw, _1, _2, false), true);
@@ -946,7 +954,7 @@ void define_builtins() {
   define_builtin_func("preload_bits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false));
   define_builtin_func("int_at", TypeExpr::new_map(TupleInt, Int), compile_tuple_at);
   define_builtin_func("cell_at", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
-  define_builtin_func("slice_at", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
+  define_builtin_func("slice_at", TypeExpr::new_map(TupleInt, Slice), compile_tuple_at);
   define_builtin_func("tuple_at", TypeExpr::new_map(TupleInt, Tuple), compile_tuple_at);
   define_builtin_func("at", TypeExpr::new_forall({X}, TypeExpr::new_map(TupleInt, X)), compile_tuple_at);
   define_builtin_func("touch", TypeExpr::new_forall({X}, TypeExpr::new_map(X, X)), AsmOp::Nop());
@@ -957,12 +965,11 @@ void define_builtins() {
                       AsmOp::Nop());
   define_builtin_func("~dump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
                       AsmOp::Custom("s0 DUMP", 1, 1));
-  define_builtin_func(
-      "run_method0", TypeExpr::new_map(Int, Unit),
-      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
-  define_builtin_func_x(
-      "run_method1", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),
-      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 1, false); }, {1, 0}, {}, true);
+  define_builtin_func("run_method0", TypeExpr::new_map(Int, Unit),
+                      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
+  define_builtin_func_x("run_method1",
+                        TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),
+                        [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 1, false); }, {1, 0}, {}, true);
   define_builtin_func_x(
       "run_method2", TypeExpr::new_forall({X, Y}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X, Y}), Unit)),
       [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 2, false); }, {1, 2, 0}, {}, true);

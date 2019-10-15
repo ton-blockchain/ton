@@ -26,6 +26,25 @@ namespace validator {
 
 namespace fullnode {
 
+struct Neighbour {
+  adnl::AdnlNodeIdShort adnl_id;
+  td::uint32 proto_version = 0;
+  td::uint64 capabilities = 0;
+  td::Clocks::Duration roundtrip = 0;
+  td::Clocks::Duration roundtrip_relax_at = 0;
+  double roundtrip_weight = 0;
+  double unreliability = 0;
+
+  Neighbour(adnl::AdnlNodeIdShort adnl_id) : adnl_id(std::move(adnl_id)) {
+  }
+  void update_proto_version(const ton_api::tonNode_capabilities &q);
+  void query_success(td::Clocks::Duration t);
+  void query_failed();
+  void update_roundtrip(td::Clocks::Duration t);
+
+  static Neighbour zero;
+};
+
 class FullNodeShardImpl : public FullNodeShard {
  public:
   WorkchainId get_workchain() const override {
@@ -41,6 +60,21 @@ class FullNodeShardImpl : public FullNodeShard {
   static constexpr td::uint32 download_next_priority() {
     return 1;
   }
+  static constexpr td::uint32 proto_version() {
+    return 1;
+  }
+  static constexpr td::uint64 proto_capabilities() {
+    return 0;
+  }
+  static constexpr td::uint32 max_neighbours() {
+    return 16;
+  }
+  static constexpr double stop_unreliability() {
+    return 5.0;
+  }
+  static constexpr double fail_unreliability() {
+    return 10.0;
+  }
 
   void create_overlay();
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
@@ -54,7 +88,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
-    UNREACHABLE();
+    promise.set_error(td::Status::Error(ErrorCode::error, "unknown query"));
   }
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getNextBlockDescription &query,
                      td::Promise<td::BufferSlice> promise);
@@ -68,6 +102,10 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlock &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareZeroState &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_preparePersistentState &query,
@@ -77,6 +115,10 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadZeroState &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentState &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                      td::Promise<td::BufferSlice> promise);
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);
@@ -116,13 +158,38 @@ class FullNodeShardImpl : public FullNodeShard {
   void sign_new_certificate(PublicKeyHash sign_by);
   void signed_new_certificate(ton::overlay::Certificate cert);
 
+  void ping_neighbours();
+  void reload_neighbours();
+  void got_neighbours(std::vector<adnl::AdnlNodeIdShort> res);
+  void update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, bool success);
+  void got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, td::BufferSlice data);
+  const Neighbour &choose_neighbour() const;
+
+  template <typename T>
+  td::Promise<T> create_neighbour_promise(const Neighbour &x, td::Promise<T> p) {
+    return td::PromiseCreator::lambda([id = x.adnl_id, SelfId = actor_id(this), p = std::move(p),
+                                       ts = td::Time::now()](td::Result<T> R) mutable {
+      if (R.is_error() && R.error().code() != ErrorCode::notready && R.error().code() != ErrorCode::cancelled) {
+        td::actor::send_closure(SelfId, &FullNodeShardImpl::update_neighbour_stats, id, td::Time::now() - ts, false);
+      } else {
+        td::actor::send_closure(SelfId, &FullNodeShardImpl::update_neighbour_stats, id, td::Time::now() - ts, true);
+      }
+      p.set_result(std::move(R));
+    });
+  }
+
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                     FileHash zero_state_file_hash, td::actor::ActorId<keyring::Keyring> keyring,
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                     td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<ValidatorManagerInterface> validator_manager);
+                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                    td::actor::ActorId<adnl::AdnlExtClient> client);
 
  private:
+  bool use_new_download() const {
+    return false;
+  }
+
   ShardIdFull shard_;
   BlockHandle handle_;
   td::Promise<td::Unit> promise_;
@@ -136,6 +203,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorId<adnl::AdnlExtClient> client_;
 
   td::uint32 attempt_ = 0;
 
@@ -147,6 +215,11 @@ class FullNodeShardImpl : public FullNodeShard {
 
   std::shared_ptr<ton::overlay::Certificate> cert_;
   overlay::OverlayPrivacyRules rules_;
+
+  std::map<adnl::AdnlNodeIdShort, Neighbour> neighbours_;
+  td::Timestamp reload_neighbours_at_;
+  td::Timestamp ping_neighbours_at_;
+  adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 };
 
 }  // namespace fullnode

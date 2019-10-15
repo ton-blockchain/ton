@@ -55,7 +55,7 @@ ValidatorSessionDescriptionImpl::ValidatorSessionDescriptionImpl(ValidatorSessio
   pdata_temp_size_ = 1 << 30;
   pdata_temp_ = new td::uint8[pdata_temp_size_];
 
-  pdata_perm_size_ = 1 << 30;
+  pdata_perm_size_ = 1ull << 30;
   pdata_perm_ptr_ = 0;
 
   for (auto &el : cache_) {

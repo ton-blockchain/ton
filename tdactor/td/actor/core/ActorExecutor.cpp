@@ -75,8 +75,8 @@ void ActorExecutor::send(ActorSignals signals) {
   pending_signals_.add_signals(signals);
 }
 
-void ActorExecutor::start() {
-  //LOG(ERROR) << "START " << actor_info_.get_name() << " " << tag("from_queue", options.from_queue);
+void ActorExecutor::start() noexcept {
+  //LOG(ERROR) << "START " << actor_info_.get_name() << " " << tag("from_queue", options_.from_queue);
   if (is_closed()) {
     return;
   }
@@ -126,7 +126,7 @@ void ActorExecutor::start() {
   }
 }
 
-void ActorExecutor::finish() {
+void ActorExecutor::finish() noexcept {
   //LOG(ERROR) << "FINISH " << actor_info_.get_name() << " " << tag("own_lock", actor_locker_.own_lock());
   if (!actor_locker_.own_lock()) {
     if (!pending_signals_.empty() && actor_locker_.add_signals(pending_signals_)) {

@@ -81,6 +81,7 @@ void define_keywords() {
       .add_kw_char('=')
       .add_kw_char('_')
       .add_kw_char('?')
+      .add_kw_char('.')
       .add_kw_char('~')
       .add_kw_char('^');
 
@@ -1128,6 +1129,19 @@ void TypeExpr::show(std::ostream& os, const Constructor* cs, int prio, int mode)
       }
       break;
     }
+    case te_GetBit: {
+      assert(args.size() == 2);
+      if (prio > 97) {
+        os << '(';
+      }
+      args[0]->show(os, cs, 98, mode);
+      os << ".";  // priority 20
+      args[1]->show(os, cs, 98, mode);
+      if (prio > 97) {
+        os << ')';
+      }
+      break;
+    }
     case te_IntConst: {
       assert(args.empty());
       os << value;
@@ -1202,11 +1216,12 @@ int abstract_nat_const(int value) {
 }
 
 unsigned char abstract_add_base_table[4][4] = {{0, 1, 2, 3}, {1, 2, 3, 2}, {2, 3, 2, 3}, {3, 2, 3, 2}};
-
 unsigned char abstract_mul_base_table[4][4] = {{0, 0, 0, 0}, {0, 1, 2, 3}, {0, 2, 2, 2}, {0, 3, 2, 3}};
+unsigned char abstract_getbit_b_table[4][4] = {{1, 1, 1, 1}, {2, 1, 1, 1}, {1, 3, 3, 3}, {2, 3, 3, 3}};
 
 unsigned char abstract_add_table[16][16];
 unsigned char abstract_mul_table[16][16];
+unsigned char abstract_getbit_table[16][16];
 
 void compute_semilat_table(unsigned char table[16][16], const unsigned char base_table[4][4]) {
   for (int x = 0; x < 16; x++) {
@@ -1226,9 +1241,28 @@ void compute_semilat_table(unsigned char table[16][16], const unsigned char base
   }
 }
 
+void compute_semilat_b_table(unsigned char table[16][16], const unsigned char b_table[4][4]) {
+  for (int x = 0; x < 16; x++) {
+    for (int y = 0; y < 16; y++) {
+      int res = 0;
+      for (int i = 0; i < 4; i++) {
+        if ((x >> i) & 1) {
+          for (int j = 0; j < 4; j++) {
+            if ((y >> j) & 1) {
+              res |= b_table[i][j];
+            }
+          }
+        }
+      }
+      table[x][y] = (unsigned char)res;
+    }
+  }
+}
+
 void init_abstract_tables() {
   compute_semilat_table(abstract_add_table, abstract_add_base_table);
   compute_semilat_table(abstract_mul_table, abstract_mul_base_table);
+  compute_semilat_b_table(abstract_getbit_table, abstract_getbit_b_table);
 }
 
 int abstract_add(int x, int y) {
@@ -1237,6 +1271,10 @@ int abstract_add(int x, int y) {
 
 int abstract_mul(int x, int y) {
   return abstract_mul_table[x & 15][y & 15];
+}
+
+int abstract_getbit(int x, int y) {
+  return abstract_getbit_table[x & 15][y & 15];
 }
 
 int TypeExpr::abstract_interpret_nat() const {
@@ -1249,6 +1287,9 @@ int TypeExpr::abstract_interpret_nat() const {
     case te_Add:
       assert(args.size() == 2);
       return abstract_add(args[0]->abstract_interpret_nat(), args[1]->abstract_interpret_nat());
+    case te_GetBit:
+      assert(args.size() == 2);
+      return abstract_getbit(args[0]->abstract_interpret_nat(), args[1]->abstract_interpret_nat());
     case te_IntConst:
       return abstract_nat_const(value);
     case te_MulConst:
@@ -1464,6 +1505,11 @@ void TypeExpr::const_type_name(std::ostream& os) const {
       os << "_plus";
       args[1]->const_type_name(os);
       return;
+    case te_GetBit:
+      args[0]->const_type_name(os);
+      os << "_bit";
+      args[1]->const_type_name(os);
+      return;
     case te_IntConst:
       os << "_" << value;
       return;
@@ -1571,6 +1617,13 @@ bool TypeExpr::bind_value(bool value_negated, Constructor& cs, bool checking_typ
       assert(is_nat && args.size() == 1 && value > 0);
       assert(negated == args[0]->negated);
       args[0]->bind_value(value_negated, cs);
+      return true;
+    }
+    case te_GetBit: {
+      assert(is_nat && args.size() == 2 && !args[0]->negated && !args[1]->negated);
+      assert(!negated);
+      args[0]->bind_value(false, cs);
+      args[1]->bind_value(false, cs);
       return true;
     }
     case te_Type: {
@@ -2057,10 +2110,34 @@ TypeExpr* parse_term(Lexer& lex, Constructor& cs, int mode) {
   }
 }
 
-// E ? E [ : E ]
-
-TypeExpr* parse_expr95(Lexer& lex, Constructor& cs, int mode) {
+// E[.E]
+TypeExpr* parse_expr97(Lexer& lex, Constructor& cs, int mode) {
   TypeExpr* expr = parse_term(lex, cs, mode | 3);
+  if (lex.tp() == '.') {
+    src::SrcLocation where = lex.cur().loc;
+    expr->close(lex.cur().loc);
+    // std::cerr << "parse ., mode " << mode << std::endl;
+    if (!(mode & 2)) {
+      throw src::ParseError{where, "bitfield expression cannot be used instead of a type expression"};
+    }
+    if (!expr->is_nat) {
+      throw src::ParseError{where, "cannot apply bit selection operator `.` to types"};
+    }
+    lex.next();
+    TypeExpr* expr2 = parse_term(lex, cs, mode & ~1);
+    expr2->close(lex.cur().loc);
+    if (expr->negated || expr2->negated) {
+      throw src::ParseError{where, "cannot apply bit selection operator `.` to values of negative polarity"};
+    }
+    expr = TypeExpr::mk_apply(where, TypeExpr::te_GetBit, expr, expr2);
+  }
+  expr->check_mode(lex.cur().loc, mode);
+  return expr;
+}
+
+// E ? E [ : E ]
+TypeExpr* parse_expr95(Lexer& lex, Constructor& cs, int mode) {
+  TypeExpr* expr = parse_expr97(lex, cs, mode | 3);
   if (lex.tp() != '?') {
     expr->check_mode(lex.cur().loc, mode);
     return expr;

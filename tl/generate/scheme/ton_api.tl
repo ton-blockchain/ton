@@ -322,6 +322,7 @@ tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode
 
 tonNode.blockDescriptionEmpty = tonNode.BlockDescription;
 tonNode.blockDescription id:tonNode.blockIdExt = tonNode.BlockDescription;
+tonNode.blocksDescription ids:(vector tonNode.blockIdExt) incomplete:Bool = tonNode.BlocksDescription;
 tonNode.preparedProofEmpty = tonNode.PreparedProof;
 tonNode.preparedProof = tonNode.PreparedProof;
 tonNode.preparedProofLink = tonNode.PreparedProof;
@@ -352,19 +353,44 @@ tonNode.keyBlocks blocks:(vector tonNode.blockIdExt) incomplete:Bool error:Bool 
 ton.blockId root_cell_hash:int256 file_hash:int256 = ton.BlockId;
 ton.blockIdApprove root_cell_hash:int256 file_hash:int256 = ton.BlockId;
 
+tonNode.dataList data:(vector bytes) = tonNode.DataList;
+
+tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = tonNode.DataFull;
+tonNode.dataFullEmpty = tonNode.DataFull;
+
+tonNode.capabilities version:int capabilities:long = tonNode.Capabilities;
+
+tonNode.success = tonNode.Success;
+
 ---functions---
 
 tonNode.getNextBlockDescription prev_block:tonNode.blockIdExt = tonNode.BlockDescription;
+tonNode.getNextBlocksDescription prev_block:tonNode.blockIdExt limit:int = tonNode.BlocksDescription;
+tonNode.getPrevBlocksDescription next_block:tonNode.blockIdExt limit:int cutoff_seqno:int = tonNode.BlocksDescription;
 tonNode.prepareBlockProof block:tonNode.blockIdExt allow_partial:Bool = tonNode.PreparedProof;
+tonNode.prepareBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareBlock block:tonNode.blockIdExt = tonNode.Prepared;
+tonNode.prepareBlocks blocks:(vector tonNode.blockIdExt) = tonNode.Prepared;
 tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.prepareZeroState block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.getNextKeyBlockIds block:tonNode.blockIdExt max_size:int = tonNode.KeyBlocks;
+tonNode.downloadNextBlockFull prev_block:tonNode.blockIdExt = tonNode.DataFull;
+tonNode.downloadBlockFull block:tonNode.blockIdExt = tonNode.DataFull;
 tonNode.downloadBlock block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadBlocks blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
 tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.downloadZeroState block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProof block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadBlockProofs blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
 tonNode.downloadBlockProofLink block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadBlockProofLinks blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
+
+tonNode.getCapabilities = tonNode.Capabilities;
+
+tonNode.slave.sendExtMessage message:tonNode.externalMessage = tonNode.Success;
+
+tonNode.query = Object;
 
 ---types---
 
@@ -418,12 +444,14 @@ db.state.initBlockId block:tonNode.blockIdExt = db.state.InitBlockId;
 db.state.gcBlockId block:tonNode.blockIdExt = db.state.GcBlockId;
 db.state.shardClient block:tonNode.blockIdExt = db.state.ShardClient;
 db.state.asyncSerializer block:tonNode.blockIdExt last:tonNode.blockIdExt last_ts:int = db.state.AsyncSerializer;
+db.state.hardforks blocks:(vector tonNode.blockIdExt) = db.state.Hardforks;
 
 db.state.key.destroyedSessions = db.state.Key;
 db.state.key.initBlockId = db.state.Key;
 db.state.key.gcBlockId = db.state.Key;
 db.state.key.shardClient = db.state.Key;
 db.state.key.asyncSerializer = db.state.Key;
+db.state.key.hardforks = db.state.Key;
 
 db.lt.el.key workchain:int shard:long idx:int = db.lt.Key;
 db.lt.desc.key workchain:int shard:long = db.lt.Key;
@@ -440,6 +468,7 @@ db.lt.status.value total_shards:int = db.lt.status.Value;
 
 validator.groupMember public_key_hash:int256 adnl:int256 weight:long = engine.validator.GroupMember; 
 validator.group workchain:int shard:long catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
+validator.groupEx workchain:int shard:long vertical_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
 
 ---functions---
 
@@ -481,9 +510,12 @@ engine.controlInterface id:int256 port:int allowed:(vector engine.controlProcess
 engine.gc ids:(vector int256) = engine.Gc;
 
 engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
+engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
+engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
         dht:(vector engine.dht)
-        validators:(vector engine.validator) fullnode:int256  
+        validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
+        fullnodemasters:(vector engine.validator.fullNodeMaster)
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config; 
 

@@ -394,9 +394,9 @@ class VmState final : public VmStateInterface {
   VmState();
   VmState(Ref<CellSlice> _code);
   VmState(Ref<CellSlice> _code, Ref<Stack> _stack, int flags = 0, Ref<Cell> _data = {}, VmLog log = {},
-          std::vector<Ref<Cell>> _libraries = {});
+          std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
   VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
-          VmLog log = {}, std::vector<Ref<Cell>> _libraries = {});
+          VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
   template <typename... Args>
   VmState(Ref<Cell> code_cell, Args&&... args)
       : VmState(convert_code_cell(std::move(code_cell)), std::forward<Args>(args)...) {
@@ -573,9 +573,11 @@ class VmState final : public VmStateInterface {
 };
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = 0, VmLog log = {},
-                long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {});
+                long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
+                Ref<Tuple> init_c7 = {});
 int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* data_ptr = 0, VmLog log = {},
-                long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {});
+                long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
+                Ref<Tuple> init_c7 = {});
 
 ControlData* force_cdata(Ref<Continuation>& cont);
 ControlRegs* force_cregs(Ref<Continuation>& cont);

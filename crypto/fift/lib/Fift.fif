@@ -9,6 +9,7 @@
 // { bl word (forget) } : forget
 { bl word 1 ' (forget) } :: [forget]
 { char " word 1 ' type } ::_ ."
+{ char } word x>B 1 'nop } ::_ B{
 { swap ({) over 2+ -roll swap (compile) (}) } : does
 { 1 'nop does create } : constant
 { 2 'nop does create } : 2constant
@@ -24,7 +25,7 @@
 { bl word 1 { -rot 2 'nop does swap 0 (create) }
 } :: 2=:
 { <b swap s, b> } : s>c
-{ s>c hash } : shash
+{ s>c hashB } : shash
 // to be more efficiently re-implemented in C++ in the future
 { dup 0< ' negate if } : abs
 { 2dup > ' swap if } : minmax
@@ -38,6 +39,34 @@
 // { dup abs <# #s rot sign #> nip } : (.)
 // { (.) type } : ._
 // { ._ space } : .
+{ dup 10 < { 48 } { 55 } cond + } : Digit
+{ dup 10 < { 48 } { 87 } cond + } : digit
+// x s b -- x' s'
+{ rot swap /mod Digit rot swap hold } : B#
+{ rot swap /mod digit rot swap hold } : b#
+{ 16 B# } : X#
+{ 16 b# } : x#
+// x s b -- 0 s'
+{ -rot { 2 pick B# over 0<= } until rot drop } : B#s
+{ -rot { 2 pick b# over 0<= } until rot drop } : b#s
+{ 16 B#s } : X#s
+{ 16 b#s } : x#s
+variable base
+{ 10 base ! } : decimal
+{ 16 base ! } : hex
+{ 8 base ! } : octal
+{ 2 base ! } : binary
+{ base @ B# } : Base#
+{ base @ b# } : base#
+{ base @ B#s } : Base#s
+{ base @ b#s } : base#s
+// x w -- s
+{ over abs <# rot 1- ' X# swap times X#s rot sign #> nip } : (0X.)
+{ over abs <# rot 1- ' x# swap times x#s rot sign #> nip } : (0x.)
+{ (0X.) type } : 0X._
+{ 0X._ space } : 0X.
+{ (0x.) type } : 0x._
+{ 0x._ space } : 0x.
 { bl (-trailing) } : -trailing
 { char 0 (-trailing) } : -trailing0
 { char " word 1 ' $+ } ::_ +"
@@ -81,3 +110,4 @@
 { null ' cons rot times } : list
 { true (atom) drop } : atom
 { bl word atom 1 'nop } ::_ `
+{ hole dup 1 { @ execute } does create } : recursive

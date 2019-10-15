@@ -1464,6 +1464,28 @@ void CppTypeCode::output_cpp_expr(std::ostream& os, const TypeExpr* expr, int pr
         os << ")";
       }
       return;
+    case TypeExpr::te_GetBit:
+      if (prio > 0) {
+        os << "(";
+      }
+      output_cpp_expr(os, expr->args[0], 5);
+      os << " & ";
+      if (expr->args[1]->tp == TypeExpr::te_IntConst && (unsigned)expr->args[1]->value <= 31) {
+        int v = expr->args[1]->value;
+        if (v > 1024) {
+          os << "0x" << std::hex << (1 << v) << std::dec;
+        } else {
+          os << (1 << v);
+        }
+      } else {
+        os << "(1 << ";
+        output_cpp_expr(os, expr->args[1], 5);
+        os << ")";
+      }
+      if (prio > 0) {
+        os << ")";
+      }
+      return;
     case TypeExpr::te_IntConst:
       os << expr->value;
       return;

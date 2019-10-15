@@ -27,6 +27,8 @@ namespace validator {
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
                                         td::uint32 depth);
+td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
+                                                                   std::string db_root);
 
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data);
 td::Result<td::Ref<BlockData>> create_block(ReceivedBlock data);
@@ -50,6 +52,8 @@ void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                                  td::Promise<td::Unit> promise);
+void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
+                                     td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<td::Unit> promise);
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
@@ -67,11 +71,11 @@ void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_maste
                         td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                         td::Promise<ValidateCandidateResult> promise, bool is_fake = false);
 void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& min_masterchain_block_id,
-                       std::vector<BlockIdExt> prev, PublicKeyHash local_id, td::Ref<ValidatorSet> validator_set,
+                       std::vector<BlockIdExt> prev, Ed25519_PublicKey local_id, td::Ref<ValidatorSet> validator_set,
                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                        td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
-                          td::Promise<td::BufferSlice> promise);
+                          td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,

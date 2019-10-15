@@ -22,6 +22,7 @@
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 #include "rldp/rldp.h"
+#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -35,7 +36,8 @@ class DownloadState : public td::actor::Actor {
                 overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                 td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                 td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::BufferSlice> promise);
+                td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
+                td::Promise<td::BufferSlice> promise);
 
   void abort_query(td::Status reason);
   void alarm() override;
@@ -45,6 +47,7 @@ class DownloadState : public td::actor::Actor {
   void got_block_handle(BlockHandle handle);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_state_description(td::BufferSlice data_description);
+  void got_block_state_part(td::BufferSlice data, td::uint32 requested_size);
   void got_block_state(td::BufferSlice data);
 
  private:
@@ -62,10 +65,13 @@ class DownloadState : public td::actor::Actor {
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<td::BufferSlice> promise_;
 
   BlockHandle handle_;
   td::BufferSlice state_;
+  std::vector<td::BufferSlice> parts_;
+  td::uint64 sum_ = 0;
 };
 
 }  // namespace fullnode
