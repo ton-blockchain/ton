@@ -148,6 +148,7 @@ bool TLB::print_ref(PrettyPrinter& pp, Ref<vm::Cell> cell_ref) const {
   if (cell_ref.is_null()) {
     return pp.fail("null cell reference");
   }
+  pp.msg_hash = cell_ref->get_hash().to_hex();
   bool is_special;
   auto cs = load_cell_slice_special(std::move(cell_ref), is_special);
   if (is_special) {
@@ -234,6 +235,10 @@ bool PrettyPrinter::raw_nl(int delta) {
 
 bool PrettyPrinter::open(std::string msg) {
   os << "(" << msg;
+  if (!msg_hash.empty()) {
+    os << " " << msg_hash;
+    msg_hash.clear();
+  }
   indent += 2;
   level++;
   return true;
