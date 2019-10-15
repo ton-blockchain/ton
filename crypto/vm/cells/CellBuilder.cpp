@@ -207,9 +207,8 @@ bool CellBuilder::store_bits_bool(const unsigned char* str, std::size_t bit_coun
 
 CellBuilder& CellBuilder::store_bits(const unsigned char* str, std::size_t bit_count, int bit_offset) {
   unsigned pos = bits;
-  if (prepare_reserve(bit_count)) {
-    td::bitstring::bits_memcpy(data, pos, str, bit_offset, bit_count);
-  }
+  ensure_throw(prepare_reserve(bit_count));
+  td::bitstring::bits_memcpy(data, pos, str, bit_offset, bit_count);
   return *this;
 }
 
@@ -528,9 +527,6 @@ int CellBuilder::serialize(unsigned char* buff, int buff_size) const {
 
 CellBuilder* CellBuilder::make_copy() const {
   CellBuilder* c = new CellBuilder();
-  if (!c) {
-    throw CellWriteError();
-  }
   c->bits = bits;
   std::memcpy(c->data, data, (bits + 7) >> 3);
   c->refs_cnt = refs_cnt;

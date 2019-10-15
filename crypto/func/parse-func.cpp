@@ -428,7 +428,6 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
     res->flags = Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
     res->deduce_type(lex.cur());
     if (modify) {
-      // FIXME (use _LetFirst instead of _Letop)
       auto tmp = res;
       res = new Expr{Expr::_LetFirst, {obj->copy(), tmp}};
       res->here = loc;
@@ -587,7 +586,8 @@ Expr* parse_expr10(Lexer& lex, CodeBlob& code, bool nv) {
   auto x = parse_expr13(lex, code, nv);
   int t = lex.tp();
   if (t == _PlusLet || t == _MinusLet || t == _TimesLet || t == _DivLet || t == _DivRLet || t == _DivCLet ||
-      t == _ModLet || t == _LshiftLet || t == _RshiftLet || t == _RshiftCLet || t == _RshiftRLet) {
+      t == _ModLet || t == _LshiftLet || t == _RshiftLet || t == _RshiftCLet || t == _RshiftRLet || t == _AndLet ||
+      t == _OrLet || t == _XorLet) {
     x->chk_lvalue(lex.cur());
     x->chk_rvalue(lex.cur());
     sym_idx_t name = symbols.lookup_add(std::string{"^_"} + lex.cur().str + "_");
@@ -974,6 +974,11 @@ void parse_func_def(Lexer& lex) {
   if (impure) {
     lex.next();
   }
+  int f = 0;
+  if (lex.tp() == _Inline || lex.tp() == _InlineRef) {
+    f = (lex.tp() == _Inline) ? 1 : 2;
+    lex.next();
+  }
   td::RefInt256 method_id;
   std::string method_name;
   if (lex.tp() == _MethodId) {
@@ -1069,6 +1074,17 @@ void parse_func_def(Lexer& lex) {
       val->method_id = std::move(method_id);
     } else if (val->method_id != method_id) {
       lex.cur().error("integer method identifier for `"s + func_name.str + "` changed to a different value");
+    }
+  }
+  if (f) {
+    auto val = dynamic_cast<SymVal*>(func_sym->value);
+    if (!val) {
+      lex.cur().error("cannot set unknown function `"s + func_name.str + "` as an inline");
+    }
+    if (!(val->flags & 3)) {
+      val->flags = (short)(val->flags | f);
+    } else if ((val->flags & 3) != f) {
+      lex.cur().error("inline mode for `"s + func_name.str + "` changed with respect to a previous declaration");
     }
   }
   if (verbosity >= 1) {

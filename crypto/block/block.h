@@ -26,6 +26,7 @@
 #include <ostream>
 #include "tl/tlblib.hpp"
 #include "td/utils/bits.h"
+#include "td/utils/CancellationToken.h"
 #include "td/utils/StringBuilder.h"
 #include "ton/ton-types.h"
 
@@ -145,6 +146,9 @@ struct EnqueuedMsgDescr {
     return false;
   }
   bool unpack(vm::CellSlice& cs);
+  bool same_workchain() const {
+    return cur_prefix_.workchain == next_prefix_.workchain;
+  }
 };
 
 using compute_shard_end_lt_func_t = std::function<ton::LogicalTime(ton::AccountIdPrefixFull)>;
@@ -381,7 +385,7 @@ struct ShardState {
   int global_id_;
   ton::UnixTime utime_;
   ton::LogicalTime lt_;
-  ton::BlockSeqno mc_blk_seqno_, min_ref_mc_seqno_;
+  ton::BlockSeqno mc_blk_seqno_, min_ref_mc_seqno_, vert_seqno_;
   ton::BlockIdExt mc_blk_ref_;
   ton::LogicalTime mc_blk_lt_;
   bool before_split_{false};
@@ -392,6 +396,7 @@ struct ShardState {
   CurrencyCollection total_balance_, total_validator_fees_, global_balance_;
   std::unique_ptr<vm::AugmentedDictionary> out_msg_queue_;
   std::unique_ptr<vm::Dictionary> ihr_pending_;
+  std::unique_ptr<vm::Dictionary> block_create_stats_;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_;
 
   bool is_valid() const {
@@ -467,6 +472,67 @@ struct ValueFlow {
 
 std::ostream& operator<<(std::ostream& os, const ValueFlow& vflow);
 
+struct DiscountedCounter {
+  struct SetZero {};
+  bool valid;
+  ton::UnixTime last_updated;
+  td::uint64 total;
+  td::uint64 cnt2048;
+  td::uint64 cnt65536;
+  DiscountedCounter() : valid(false) {
+  }
+  DiscountedCounter(SetZero) : valid(true), last_updated(0), total(0), cnt2048(0), cnt65536(0) {
+  }
+  DiscountedCounter(ton::UnixTime _lastupd, td::uint64 _total, td::uint64 _cnt2048, td::uint64 _cnt65536)
+      : valid(true), last_updated(_lastupd), total(_total), cnt2048(_cnt2048), cnt65536(_cnt65536) {
+  }
+  static DiscountedCounter Zero() {
+    return SetZero();
+  }
+  bool is_valid() const {
+    return valid;
+  }
+  bool invalidate() {
+    return (valid = false);
+  }
+  bool set_zero() {
+    last_updated = 0;
+    total = cnt2048 = cnt65536 = 0;
+    return (valid = true);
+  }
+  bool is_zero() const {
+    return !total;
+  }
+  bool almost_zero() const {
+    return (cnt2048 | cnt65536) <= 1;
+  }
+  bool operator==(const DiscountedCounter& other) const {
+    return last_updated == other.last_updated && total == other.total && cnt2048 == other.cnt2048 &&
+           cnt65536 == other.cnt65536;
+  }
+  bool almost_equals(const DiscountedCounter& other) const {
+    return last_updated == other.last_updated && total == other.total && cnt2048 <= other.cnt2048 + 1 &&
+           other.cnt2048 <= cnt2048 + 1 && cnt65536 <= other.cnt65536 + 1 && other.cnt65536 <= cnt65536 + 1;
+  }
+  bool validate();
+  bool increase_by(unsigned count, ton::UnixTime now);
+  bool fetch(vm::CellSlice& cs);
+  bool unpack(Ref<vm::CellSlice> csr);
+  bool store(vm::CellBuilder& cb) const;
+  Ref<vm::CellSlice> pack() const;
+  bool show(std::ostream& os) const;
+  std::string to_str() const;
+};
+
+static inline std::ostream& operator<<(std::ostream& os, const DiscountedCounter& dcount) {
+  dcount.show(os);
+  return os;
+}
+
+bool fetch_CreatorStats(vm::CellSlice& cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt);
+bool store_CreatorStats(vm::CellBuilder& cb, const DiscountedCounter& mc_cnt, const DiscountedCounter& shard_cnt);
+bool unpack_CreatorStats(Ref<vm::CellSlice> cs, DiscountedCounter& mc_cnt, DiscountedCounter& shard_cnt);
+
 struct BlockProofLink {
   ton::BlockIdExt from, to;
   bool is_key{false}, is_fwd{false};
@@ -508,7 +574,7 @@ struct BlockProofChain {
   bool last_link_incomplete() const {
     return !links.empty() && last_link().incomplete();
   }
-  td::Status validate();
+  td::Status validate(td::CancellationToken cancellation_token = {});
 };
 
 int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard);

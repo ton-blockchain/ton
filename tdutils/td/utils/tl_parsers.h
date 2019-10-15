@@ -99,6 +99,16 @@ class TlParser {
     }
   }
 
+  bool can_prefetch_int() const {
+    return get_left_len() >= sizeof(int32);
+  }
+
+  int32 prefetch_int_unsafe() const {
+    int32 result;
+    std::memcpy(&result, data, sizeof(int32));
+    return result;
+  }
+
   int32 fetch_int_unsafe() {
     int32 result;
     std::memcpy(&result, data, sizeof(int32));
@@ -168,8 +178,9 @@ class TlParser {
       data += sizeof(int32);
     } else {
       check_len(sizeof(int32));
-      result_len = data[1] + (data[2] << 8) + (data[3] << 16) + (data[4] << 24) + (static_cast<uint64>(data[5]) << 32) +
-                   (static_cast<uint64>(data[6]) << 40) + (static_cast<uint64>(data[7]) << 48);
+      result_len = narrow_cast<size_t>(data[1] + (data[2] << 8) + (data[3] << 16) + (data[4] << 24) +
+                                       (static_cast<uint64>(data[5]) << 32) + (static_cast<uint64>(data[6]) << 40) +
+                                       (static_cast<uint64>(data[7]) << 48));
       if (result_len > std::numeric_limits<size_t>::max() - 3) {
         set_error("Too big string found");
         return T();

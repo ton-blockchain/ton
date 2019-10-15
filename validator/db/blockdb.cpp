@@ -229,6 +229,73 @@ tl_object_ptr<ton_api::db_blockdb_lru> BlockDb::DbEntry::release() {
   return create_tl_object<ton_api::db_blockdb_lru>(create_tl_block_id(block_id), prev, next);
 }
 
+void BlockDb::truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) {
+  std::map<ShardIdFull, BlockSeqno> max_seqno;
+  max_seqno.emplace(ShardIdFull{masterchainId}, state->get_seqno() + 1);
+
+  auto shards = state->get_shards();
+  auto it = KeyHash::zero();
+  kv_->begin_transaction().ensure();
+  while (true) {
+    auto R = get_block_lru(it);
+    R.ensure();
+    auto v = R.move_as_ok();
+    it = v.next;
+    R = get_block_lru(it);
+    R.ensure();
+    v = R.move_as_ok();
+    if (v.is_empty()) {
+      break;
+    }
+
+    auto s = v.block_id.shard_full();
+    if (!max_seqno.count(s)) {
+      bool found = false;
+      for (auto &shard : shards) {
+        if (shard_intersects(shard->shard(), s)) {
+          found = true;
+          max_seqno.emplace(s, shard->top_block_id().seqno() + 1);
+          break;
+        }
+      }
+      if (!found) {
+        max_seqno.emplace(s, 0);
+      }
+    }
+
+    bool to_delete = v.block_id.seqno() >= max_seqno[s];
+    if (to_delete) {
+      auto key_hash = get_block_value_key(v.block_id);
+      auto B = get_block_value(key_hash);
+      B.ensure();
+      auto handleR = create_block_handle(B.move_as_ok());
+      handleR.ensure();
+      auto handle = handleR.move_as_ok();
+
+      handle->unsafe_clear_applied();
+      handle->unsafe_clear_next();
+
+      if (handle->need_flush()) {
+        set_block_value(key_hash, handle->serialize());
+      }
+    } else if (v.block_id.seqno() + 1 == max_seqno[s]) {
+      auto key_hash = get_block_value_key(v.block_id);
+      auto B = get_block_value(key_hash);
+      B.ensure();
+      auto handleR = create_block_handle(B.move_as_ok());
+      handleR.ensure();
+      auto handle = handleR.move_as_ok();
+
+      handle->unsafe_clear_next();
+
+      if (handle->need_flush()) {
+        set_block_value(key_hash, handle->serialize());
+      }
+    }
+  }
+  kv_->commit_transaction().ensure();
+}
+
 }  // namespace validator
 
 }  // namespace ton

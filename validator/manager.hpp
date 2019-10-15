@@ -143,6 +143,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     std::vector<Waiter<ResType>> waiting_;
     td::actor::ActorId<ActorT> actor_;
 
+    WaitList() = default;
+
     std::pair<td::Timestamp, td::uint32> get_timeout() const {
       td::Timestamp t = td::Timestamp::now();
       td::uint32 prio = 0;
@@ -256,6 +258,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
   void try_advance_gc_masterchain_block();
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
+  void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
  public:
   void install_callback(std::unique_ptr<Callback> new_callback, td::Promise<td::Unit> promise) override {
@@ -301,6 +304,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                      td::Promise<bool> promise) override;
   void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                             td::Promise<td::BufferSlice> promise) override;
+  void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
+                                  td::int64 max_length, td::Promise<td::BufferSlice> promise) override;
   void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) override;
   void get_block_proof_link(BlockHandle block_id, td::Promise<td::BufferSlice> promise) override;
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
@@ -412,7 +417,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_block_broadcast(BlockBroadcast broadcast) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
-  void get_shard_client_state(td::Promise<BlockIdExt> promise) override;
+  void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
   void subscribe_to_shard(ShardIdFull shard) override;
 
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
@@ -430,8 +435,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     CHECK(block_id.is_masterchain());
     promise.set_result(opts_->is_hardfork(block_id));
   }
-  void get_vertical_height(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
-    promise.set_result(opts_->get_vertical_height(seqno));
+  void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
+    promise.set_result(opts_->get_vertical_seqno(seqno));
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
@@ -446,7 +451,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void read_gc_list(std::vector<ValidatorSessionId> list);
 
   bool is_validator();
-  PublicKeyHash get_validator(td::Ref<ValidatorSet> val_set);
+  PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -500,10 +505,15 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
 
+  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override;
+
+  void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
   td::Timestamp check_shard_clients_;
+  td::Timestamp log_status_at_;
   void alarm() override;
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> out_shard_blocks_;
 
@@ -519,6 +529,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   td::actor::ActorOwn<adnl::AdnlExtServer> lite_server_;
+  td::actor::ActorOwn<LiteServerCache> lite_server_cache_;
   std::vector<td::uint16> pending_ext_ports_;
   std::vector<adnl::AdnlNodeIdShort> pending_ext_ids_;
 
@@ -554,6 +565,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   double block_ttl() const {
     return opts_->block_ttl();
   }
+
+ private:
+  std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 };
 
 }  // namespace validator

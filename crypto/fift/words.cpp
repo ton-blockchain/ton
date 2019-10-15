@@ -614,6 +614,43 @@ void interpret_str_reverse(vm::Stack& stack) {
   stack.push_string(std::move(s));
 }
 
+void interpret_utf8_str_len(vm::Stack& stack) {
+  std::string s = stack.pop_string();
+  long long cnt = 0;
+  for (char c : s) {
+    if ((c & 0xc0) != 0x80) {
+      cnt++;
+    }
+  }
+  stack.push_smallint(cnt);
+}
+
+void interpret_utf8_str_split(vm::Stack& stack) {
+  stack.check_underflow(2);
+  unsigned c = stack.pop_smallint_range(0xffff);
+  std::string s = stack.pop_string();
+  if (c > s.size()) {
+    throw IntError{"not enough utf8 characters for cutting"};
+  }
+  auto it = s.begin();
+  for (; it < s.end(); ++it) {
+    if ((*it & 0xc0) != 0x80) {
+      if (!c) {
+        stack.push_string(std::string{s.begin(), it});
+        stack.push_string(std::string{it, s.end()});
+        return;
+      }
+      --c;
+    }
+  }
+  if (!c) {
+    stack.push_string(std::move(s));
+    stack.push_string(std::string{});
+  } else {
+    throw IntError{"not enough utf8 characters for cutting"};
+  }
+}
+
 void interpret_str_remove_trailing_int(vm::Stack& stack, int arg) {
   char x = (char)(arg ? arg : stack.pop_long_range(127));
   std::string s = stack.pop_string();
@@ -625,11 +662,66 @@ void interpret_bytes_len(vm::Stack& stack) {
   stack.push_smallint((long long)stack.pop_bytes().size());
 }
 
-void interpret_bytes_hex_print_raw(IntCtx& ctx) {
-  const char hex_digits[] = "0123456789ABCDEF";
+const char hex_digits[] = "0123456789abcdef";
+const char HEX_digits[] = "0123456789ABCDEF";
+
+static inline const char* hex_digits_table(bool upcase) {
+  return upcase ? HEX_digits : hex_digits;
+}
+
+void interpret_bytes_hex_print_raw(IntCtx& ctx, bool upcase) {
+  auto hex_digits = hex_digits_table(upcase);
   std::string str = ctx.stack.pop_bytes();
   for (unsigned c : str) {
     *ctx.output_stream << hex_digits[(c >> 4) & 15] << hex_digits[c & 15];
+  }
+}
+
+void interpret_bytes_to_hex(vm::Stack& stack, bool upcase) {
+  auto hex_digits = hex_digits_table(upcase);
+  std::string str = stack.pop_bytes();
+  std::string t(str.size() * 2, 0);
+  for (std::size_t i = 0; i < str.size(); i++) {
+    unsigned c = str[i];
+    t[2 * i] = hex_digits[(c >> 4) & 15];
+    t[2 * i + 1] = hex_digits[c & 15];
+  }
+  stack.push_string(std::move(t));
+}
+
+void interpret_hex_to_bytes(vm::Stack& stack, bool partial) {
+  std::string str = stack.pop_string(), t;
+  if (!partial) {
+    if (str.size() & 1) {
+      throw IntError{"not a hex string"};
+    }
+    t.reserve(str.size() >> 1);
+  }
+  std::size_t i;
+  unsigned f = 0;
+  for (i = 0; i < str.size(); i++) {
+    int c = str[i];
+    if (c >= '0' && c <= '9') {
+      c -= '0';
+    } else {
+      c |= 0x20;
+      if (c >= 'a' && c <= 'f') {
+        c -= 'a' - 10;
+      } else {
+        if (!partial) {
+          throw IntError{"not a hex string"};
+        }
+        break;
+      }
+    }
+    f = (f << 4) + c;
+    if (i & 1) {
+      t += (char)(f & 0xff);
+    }
+  }
+  stack.push_bytes(t);
+  if (partial) {
+    stack.push_smallint(i & -2);
   }
 }
 
@@ -709,13 +801,21 @@ void interpret_string_to_bytes(vm::Stack& stack) {
   stack.push_bytes(stack.pop_string());
 }
 
-void interpret_bytes_hash(vm::Stack& stack) {
+void interpret_bytes_to_string(vm::Stack& stack) {
+  stack.push_string(stack.pop_bytes());
+}
+
+void interpret_bytes_hash(vm::Stack& stack, bool as_uint) {
   std::string str = stack.pop_bytes();
   unsigned char buffer[32];
   digest::hash_str<digest::SHA256>(buffer, str.c_str(), str.size());
-  td::RefInt256 x{true};
-  x.write().import_bytes(buffer, 32, false);
-  stack.push_int(std::move(x));
+  if (as_uint) {
+    td::RefInt256 x{true};
+    x.write().import_bytes(buffer, 32, false);
+    stack.push_int(std::move(x));
+  } else {
+    stack.push_bytes(std::string{(char*)buffer, 32});
+  }
 }
 
 void interpret_empty(vm::Stack& stack) {
@@ -737,7 +837,9 @@ void interpret_store_str(vm::Stack& stack) {
   stack.check_underflow(2);
   auto str = stack.pop_string();
   auto cell = stack.pop_builder();
-  cell.write().store_bytes(str);  // may throw CellWriteError
+  if (!cell.write().store_bytes_bool(str)) {
+    throw IntError{"string does not fit into cell"};
+  }
   stack.push(cell);
 }
 
@@ -745,14 +847,18 @@ void interpret_store_bytes(vm::Stack& stack) {
   stack.check_underflow(2);
   auto str = stack.pop_bytes();
   auto cell = stack.pop_builder();
-  cell.write().store_bytes(str);  // may throw CellWriteError
+  if (!cell.write().store_bytes_bool(str)) {
+    throw IntError{"byte string does not fit into cell"};
+  }
   stack.push(cell);
 }
 
 void interpret_string_to_cellslice(vm::Stack& stack) {
   auto str = stack.pop_string();
   vm::CellBuilder cb;
-  cb.store_bytes(str);  // may throw CellWriteError
+  if (!cb.store_bytes_bool(str)) {
+    throw IntError{"string does not fit into cell"};
+  }
   stack.push_cellslice(td::Ref<vm::CellSlice>{true, cb.finalize()});
 }
 
@@ -760,7 +866,9 @@ void interpret_store_cellslice(vm::Stack& stack) {
   stack.check_underflow(2);
   auto cs = stack.pop_cellslice();
   auto cb = stack.pop_builder();
-  vm::cell_builder_add_slice(cb.write(), *cs);
+  if (!vm::cell_builder_add_slice_bool(cb.write(), *cs)) {
+    throw IntError{"slice does not fit into cell"};
+  }
   stack.push(std::move(cb));
 }
 
@@ -781,9 +889,11 @@ void interpret_concat_cellslice(vm::Stack& stack) {
   auto cs2 = stack.pop_cellslice();
   auto cs1 = stack.pop_cellslice();
   vm::CellBuilder cb;
-  vm::cell_builder_add_slice(cb, *cs1);
-  vm::cell_builder_add_slice(cb, *cs2);
-  stack.push_cellslice(td::Ref<vm::CellSlice>{true, cb.finalize()});
+  if (vm::cell_builder_add_slice_bool(cb, *cs1) && vm::cell_builder_add_slice_bool(cb, *cs2)) {
+    stack.push_cellslice(td::Ref<vm::CellSlice>{true, cb.finalize()});
+  } else {
+    throw IntError{"concatenation of two slices does not fit into a cell"};
+  }
 }
 
 void interpret_concat_cellslice_ref(vm::Stack& stack) {
@@ -803,7 +913,9 @@ void interpret_concat_builders(vm::Stack& stack) {
   stack.check_underflow(2);
   auto cb2 = stack.pop_builder();
   auto cb1 = stack.pop_builder();
-  cb1.write().append_builder(std::move(cb2));
+  if (!cb1.write().append_builder_bool(std::move(cb2))) {
+    throw IntError{"cannot concatenate two builders"};
+  }
   stack.push_builder(std::move(cb1));
 }
 
@@ -837,11 +949,15 @@ void interpret_builder_remaining_bitrefs(vm::Stack& stack, int mode) {
   }
 }
 
-void interpret_cell_hash(vm::Stack& stack) {
+void interpret_cell_hash(vm::Stack& stack, bool as_uint) {
   auto cell = stack.pop_cell();
-  td::RefInt256 hash{true};
-  hash.write().import_bytes(cell->get_hash().as_slice().ubegin(), 32, false);
-  stack.push_int(std::move(hash));
+  if (as_uint) {
+    td::RefInt256 hash{true};
+    hash.write().import_bytes(cell->get_hash().as_slice().ubegin(), 32, false);
+    stack.push_int(std::move(hash));
+  } else {
+    stack.push_bytes(cell->get_hash().as_slice().str());
+  }
 }
 
 void interpret_store_ref(vm::Stack& stack) {
@@ -879,7 +995,9 @@ void interpret_fetch(vm::Stack& stack, int mode) {
   auto n = stack.pop_smallint_range(256 + (mode & 1));
   auto cs = stack.pop_cellslice();
   if (!cs->have(n)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading integer from cell"};
@@ -904,7 +1022,9 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
   unsigned n = stack.pop_smallint_range(127);
   auto cs = stack.pop_cellslice();
   if (!cs->have(n * 8)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading byte string from cell"};
@@ -915,7 +1035,7 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
     if (mode & 2) {
       cs.write().fetch_bytes(tmp, n);
     } else {
-      cs.write().prefetch_bytes(tmp, n);
+      cs->prefetch_bytes(tmp, n);
     }
     std::string s{tmp, tmp + n};
     if (mode & 1) {
@@ -923,7 +1043,9 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
     } else {
       stack.push_string(std::move(s));
     }
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     if (mode & 4) {
       stack.push_bool(true);
     }
@@ -954,13 +1076,15 @@ void interpret_cell_remaining(vm::Stack& stack) {
 void interpret_fetch_ref(vm::Stack& stack, int mode) {
   auto cs = stack.pop_cellslice();
   if (!cs->have_refs(1)) {
-    stack.push(std::move(cs));
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
     stack.push_bool(false);
     if (!(mode & 4)) {
       throw IntError{"end of data while reading reference from cell"};
     }
   } else {
-    auto cell = (mode & 2) ? cs.write().fetch_ref() : cs.write().prefetch_ref();
+    auto cell = (mode & 2) ? cs.write().fetch_ref() : cs->prefetch_ref();
     if (mode & 2) {
       stack.push(std::move(cs));
     }
@@ -1234,8 +1358,8 @@ void interpret_file_exists(IntCtx& ctx) {
 
 // custom and crypto
 
-void interpret_now(vm::Stack& stack) {
-  stack.push_smallint(std::time(nullptr));
+void interpret_now(IntCtx& ctx) {
+  ctx.stack.push_smallint(ctx.source_lookup->now());
 }
 
 void interpret_new_keypair(vm::Stack& stack) {
@@ -1525,39 +1649,6 @@ void interpret_pfx_dict_get(vm::Stack& stack) {
   }
 }
 
-void interpret_bytes_hex_literal(IntCtx& ctx) {
-  auto s = ctx.scan_word_to('}');
-  std::string t;
-  t.reserve(s.size() >> 1);
-  int v = 1;
-  for (char c : s) {
-    if (c == ' ' || c == '\t') {
-      continue;
-    }
-    v <<= 4;
-    if (c >= '0' && c <= '9') {
-      v += c - '0';
-    } else {
-      c |= 0x20;
-      if (c >= 'a' && c <= 'f') {
-        v += c - ('a' - 10);
-      } else {
-        v = -1;
-        break;
-      }
-    }
-    if (v & 0x100) {
-      t.push_back((char)v);
-      v = 1;
-    }
-  }
-  if (v != 1) {
-    throw IntError{"Invalid bytes hexstring constant"};
-  }
-  ctx.stack.push_bytes(std::move(t));
-  push_argcount(ctx.stack, 1);
-}
-
 void interpret_bitstring_hex_literal(IntCtx& ctx) {
   auto s = ctx.scan_word_to('}');
   unsigned char buff[128];
@@ -1741,6 +1832,16 @@ void interpret_char(IntCtx& ctx) {
   }
   ctx.stack.push_smallint(code);
   push_argcount(ctx, 1);
+}
+
+void interpret_char_internal(vm::Stack& stack) {
+  auto s = stack.pop_string();
+  int len = (s.size() < 10 ? (int)s.size() : 10);
+  int code = str_utf8_code(s.c_str(), len);
+  if (code < 0 || s.size() != (unsigned)len) {
+    throw IntError{"exactly one character expected"};
+  }
+  stack.push_smallint(code);
 }
 
 int parse_number(std::string s, td::RefInt256& num, td::RefInt256& denom, bool allow_frac = true,
@@ -2095,7 +2196,23 @@ void interpret_run_vm(IntCtx& ctx, bool with_gas) {
   OstreamLogger ostream_logger(ctx.error_stream);
   auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
   vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 3, &data, log, nullptr, &gas);
+  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries());
+  ctx.stack.push_smallint(res);
+  ctx.stack.push_cell(std::move(data));
+  if (with_gas) {
+    ctx.stack.push_smallint(gas.gas_consumed());
+  }
+}
+
+void interpret_run_vm_c7(IntCtx& ctx, bool with_gas) {
+  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  auto c7 = ctx.stack.pop_tuple();
+  auto data = ctx.stack.pop_cell();
+  auto cs = ctx.stack.pop_cellslice();
+  OstreamLogger ostream_logger(ctx.error_stream);
+  auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
+  vm::GasLimits gas{gas_limit};
+  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7));
   ctx.stack.push_smallint(res);
   ctx.stack.push_cell(std::move(data));
   if (with_gas) {
@@ -2224,6 +2341,21 @@ void interpret_get_cmdline_arg(IntCtx& ctx) {
   }
 }
 
+void interpret_getenv(vm::Stack& stack) {
+  auto str = stack.pop_string();
+  auto value = str.size() < 1024 ? getenv(str.c_str()) : nullptr;
+  stack.push_string(value ? std::string{value} : "");
+}
+
+void interpret_getenv_exists(vm::Stack& stack) {
+  auto str = stack.pop_string();
+  auto value = str.size() < 1024 ? getenv(str.c_str()) : nullptr;
+  if (value) {
+    stack.push_string(std::string{value});
+  }
+  stack.push_bool((bool)value);
+}
+
 // x1 .. xn n 'w -->
 void interpret_execute_internal(IntCtx& ctx) {
   Ref<WordDef> word_def = pop_exec_token(ctx);
@@ -2261,7 +2393,7 @@ void compile_one_literal(WordList& wlist, vm::StackEntry val) {
     auto x = std::move(val).as_int();
     if (!x->signed_fits_bits(257)) {
       throw IntError{"invalid numeric literal"};
-    } else if (x->signed_fits_bits(64)) {
+    } else if (x->signed_fits_bits(td::BigIntInfo::word_shift)) {
       wlist.push_back(Ref<StackWord>{true, std::bind(interpret_const, _1, x->to_long())});
     } else {
       wlist.push_back(Ref<StackWord>{true, std::bind(interpret_big_const, _1, std::move(x))});
@@ -2411,6 +2543,7 @@ void init_words_common(Dictionary& d) {
   // char/string manipulation
   d.def_active_word("\"", interpret_quote_str);
   d.def_active_word("char ", interpret_char);
+  d.def_stack_word("(char) ", interpret_char_internal);
   d.def_ctx_word("emit ", interpret_emit);
   d.def_ctx_word("space ", std::bind(interpret_emit_const, _1, ' '));
   d.def_ctx_word("cr ", std::bind(interpret_emit_const, _1, '\n'));
@@ -2430,7 +2563,13 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("-trailing0 ", std::bind(interpret_str_remove_trailing_int, _1, '0'));
   d.def_stack_word("$len ", interpret_str_len);
   d.def_stack_word("Blen ", interpret_bytes_len);
-  d.def_ctx_word("Bx. ", interpret_bytes_hex_print_raw);
+  d.def_stack_word("$Len ", interpret_utf8_str_len);
+  d.def_stack_word("$Split ", interpret_utf8_str_split);
+  d.def_ctx_word("Bx. ", std::bind(interpret_bytes_hex_print_raw, _1, true));
+  d.def_stack_word("B>X ", std::bind(interpret_bytes_to_hex, _1, true));
+  d.def_stack_word("B>x ", std::bind(interpret_bytes_to_hex, _1, false));
+  d.def_stack_word("x>B ", std::bind(interpret_hex_to_bytes, _1, false));
+  d.def_stack_word("x>B? ", std::bind(interpret_hex_to_bytes, _1, true));
   d.def_stack_word("B| ", interpret_bytes_split);
   d.def_stack_word("B+ ", interpret_bytes_concat);
   d.def_stack_word("B= ", interpret_bytes_equal);
@@ -2448,7 +2587,10 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("B>Lu@+ ", std::bind(interpret_bytes_fetch_int, _1, 0x12));
   d.def_stack_word("B>Li@+ ", std::bind(interpret_bytes_fetch_int, _1, 0x13));
   d.def_stack_word("$>B ", interpret_string_to_bytes);
-  d.def_stack_word("Bhash ", interpret_bytes_hash);
+  d.def_stack_word("B>$ ", interpret_bytes_to_string);
+  d.def_stack_word("Bhash ", std::bind(interpret_bytes_hash, _1, true));
+  d.def_stack_word("Bhashu ", std::bind(interpret_bytes_hash, _1, true));
+  d.def_stack_word("BhashB ", std::bind(interpret_bytes_hash, _1, false));
   // cell manipulation (create, write and modify cells)
   d.def_stack_word("<b ", interpret_empty);
   d.def_stack_word("i, ", std::bind(interpret_store, _1, true));
@@ -2470,7 +2612,9 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("brembits ", std::bind(interpret_builder_remaining_bitrefs, _1, 1));
   d.def_stack_word("bremrefs ", std::bind(interpret_builder_remaining_bitrefs, _1, 2));
   d.def_stack_word("brembitrefs ", std::bind(interpret_builder_remaining_bitrefs, _1, 3));
-  d.def_stack_word("hash ", interpret_cell_hash);
+  d.def_stack_word("hash ", std::bind(interpret_cell_hash, _1, true));
+  d.def_stack_word("hashu ", std::bind(interpret_cell_hash, _1, true));
+  d.def_stack_word("hashB ", std::bind(interpret_cell_hash, _1, false));
   // cellslice manipulation (read from cells)
   d.def_stack_word("<s ", interpret_from_cell);
   d.def_stack_word("i@ ", std::bind(interpret_fetch, _1, 1));
@@ -2508,7 +2652,9 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("B>file ", interpret_write_file);
   d.def_ctx_word("file-exists? ", interpret_file_exists);
   // custom & crypto
-  d.def_stack_word("now ", interpret_now);
+  d.def_ctx_word("now ", interpret_now);
+  d.def_stack_word("getenv ", interpret_getenv);
+  d.def_stack_word("getenv? ", interpret_getenv_exists);
   d.def_stack_word("newkeypair ", interpret_new_keypair);
   d.def_stack_word("priv>pub ", interpret_priv_key_to_pub);
   d.def_stack_word("ed25519_sign ", interpret_ed25519_sign);
@@ -2542,7 +2688,6 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("dictmerge ", interpret_dict_merge);
   d.def_ctx_word("dictdiff ", interpret_dict_diff);
   // slice/bitstring constants
-  d.def_active_word("B{", interpret_bytes_hex_literal);
   d.def_active_word("x{", interpret_bitstring_hex_literal);
   d.def_active_word("b{", interpret_bitstring_binary_literal);
   // boxes/holes/variables
@@ -2634,6 +2779,8 @@ void init_words_vm(Dictionary& d) {
   d.def_ctx_word("gasrunvmdict ", std::bind(interpret_run_vm_dict, _1, true));
   d.def_ctx_word("runvm ", std::bind(interpret_run_vm, _1, false));
   d.def_ctx_word("gasrunvm ", std::bind(interpret_run_vm, _1, true));
+  d.def_ctx_word("runvmctx ", std::bind(interpret_run_vm_c7, _1, false));
+  d.def_ctx_word("gasrunvmctx ", std::bind(interpret_run_vm_c7, _1, true));
   d.def_ctx_word("dbrunvm ", interpret_db_run_vm);
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
 }

@@ -29,6 +29,7 @@
 
 #include "ton/ton-types.h"
 #include "ton/ton-tl.hpp"
+#include "ton/ton-io.hpp"
 
 #include "common/errorlog.h"
 
@@ -121,6 +122,16 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   }
   config_add_full_node_adnl_id(ton::PublicKeyHash{config.fullnode_}).ensure();
 
+  for (auto &s : config.fullnodeslaves_) {
+    td::IPAddress ip;
+    ip.init_ipv4_port(td::IPAddress::ipv4_to_str(s->ip_), static_cast<td::uint16>(s->port_)).ensure();
+    config_add_full_node_slave(ip, ton::PublicKey{s->adnl_}).ensure();
+  }
+
+  for (auto &s : config.fullnodemasters_) {
+    config_add_full_node_master(s->port_, ton::PublicKeyHash{s->adnl_}).ensure();
+  }
+
   for (auto &serv : config.liteservers_) {
     config_add_lite_server(ton::PublicKeyHash{serv->id_}, serv->port_).ensure();
   }
@@ -180,6 +191,17 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
         val.first.tl(), std::move(temp_vec), std::move(adnl_val_vec), val.second.election_date, val.second.expire_at));
   }
 
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
+  for (auto &x : full_node_slaves) {
+    full_node_slaves_vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_fullNodeSlave>(
+        x.addr.get_ipv4(), x.addr.get_port(), x.key.tl()));
+  }
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;
+  for (auto &x : full_node_masters) {
+    full_node_masters_vec.push_back(
+        ton::create_tl_object<ton::ton_api::engine_validator_fullNodeMaster>(x.first, x.second.tl()));
+  }
+
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_liteServer>> liteserver_vec;
   for (auto &x : liteservers) {
     liteserver_vec.push_back(ton::create_tl_object<ton::ton_api::engine_liteServer>(x.second.tl(), x.first));
@@ -201,7 +223,8 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
       out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
-      std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
+      std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
+      std::move(control_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -359,6 +382,41 @@ td::Result<bool> Config::config_add_full_node_adnl_id(ton::PublicKeyHash id) {
     incref(id);
   }
   full_node = id;
+  return true;
+}
+
+td::Result<bool> Config::config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id) {
+  for (auto &s : full_node_slaves) {
+    if (s.addr == addr) {
+      if (s.key == id) {
+        return true;
+      } else {
+        return td::Status::Error(ton::ErrorCode::error, "duplicate slave ip");
+      }
+    }
+  }
+  full_node_slaves.push_back(FullNodeSlave{id, addr});
+  return true;
+}
+
+td::Result<bool> Config::config_add_full_node_master(td::int32 port, ton::PublicKeyHash id) {
+  if (adnl_ids.count(id) == 0) {
+    return td::Status::Error(ton::ErrorCode::notready,
+                             "to-be-added full node master adnl address not in adnl nodes list");
+  }
+  auto it = full_node_masters.find(port);
+  if (it != full_node_masters.end()) {
+    if (it->second == id) {
+      return false;
+    } else {
+      return td::Status::Error("duplicate master port");
+    }
+  }
+  if (liteservers.count(port) > 0 || controls.count(port) > 0) {
+    return td::Status::Error("duplicate master port");
+  }
+  incref(id);
+  full_node_masters.emplace(port, id);
   return true;
 }
 
@@ -947,9 +1005,11 @@ td::Status ValidatorEngine::load_global_config() {
 
   ton::BlockIdExt init_block;
   if (!conf.validator_->init_block_) {
+    LOG(INFO) << "no init block in config. using zero state";
     init_block = zero_state;
   } else {
     init_block = ton::create_block_id(conf.validator_->init_block_);
+    LOG(INFO) << "found init block " << init_block;
     if (init_block.id.workchain != ton::masterchainId || init_block.id.shard != ton::shardIdAll) {
       return td::Status::Error(ton::ErrorCode::error, "[validator] section contains invalid [init_block]");
     }
@@ -1087,7 +1147,7 @@ void ValidatorEngine::load_local_config(td::Promise<td::Unit> promise) {
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false, ig.get_promise());
   }
 
-  td::uint32 max_time = 1;
+  td::uint32 max_time = 2000000000;
 
   if (conf.dht_.size() > 0) {
     for (auto &d : conf.dht_) {
@@ -1351,8 +1411,11 @@ void ValidatorEngine::start_dht() {
     add_dht(dht);
   }
 
-  CHECK(!default_dht_node_.is_zero());
-  td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_dht_node, dht_nodes_[default_dht_node_].get());
+  if (default_dht_node_.is_zero()) {
+    LOG(ERROR) << "trying to work without DHT";
+  } else {
+    td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_dht_node, dht_nodes_[default_dht_node_].get());
+  }
 
   started_dht();
 }
@@ -1371,8 +1434,10 @@ void ValidatorEngine::started_rldp() {
 }
 
 void ValidatorEngine::start_overlays() {
-  overlay_manager_ =
-      ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+  if (!default_dht_node_.is_zero()) {
+    overlay_manager_ =
+        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+  }
   started_overlays();
 }
 
@@ -1403,14 +1468,29 @@ void ValidatorEngine::started_validator() {
 }
 
 void ValidatorEngine::start_full_node() {
-  if (!config_.full_node.is_zero()) {
+  if (!config_.full_node.is_zero() || config_.full_node_slaves.size() > 0) {
     auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto short_id = pk.compute_short_id();
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+    if (config_.full_node_slaves.size() > 0) {
+      std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> vec;
+      for (auto &x : config_.full_node_slaves) {
+        vec.emplace_back(ton::adnl::AdnlNodeIdFull{x.key}, x.addr);
+      }
+      class Cb : public ton::adnl::AdnlExtClient::Callback {
+       public:
+        void on_ready() override {
+        }
+        void on_stop_ready() override {
+        }
+      };
+      full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
+    }
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,
-        keyring_.get(), adnl_.get(), rldp_.get(), dht_nodes_[default_dht_node_].get(), overlay_manager_.get(),
-        validator_manager_.get(), db_root_);
+        keyring_.get(), adnl_.get(), rldp_.get(),
+        default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
+        overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
   }
 
   for (auto &v : config_.validators) {
@@ -1499,6 +1579,21 @@ void ValidatorEngine::started_control_interface(td::actor::ActorOwn<ton::adnl::A
       add_control_process(s.second.key, static_cast<td::uint16>(s.first), p.first, p.second);
     }
   }
+  start_full_node_masters();
+}
+
+void ValidatorEngine::start_full_node_masters() {
+  for (auto &x : config_.full_node_masters) {
+    full_node_masters_.emplace(
+        static_cast<td::uint16>(x.first),
+        ton::validator::fullnode::FullNodeMaster::create(
+            ton::adnl::AdnlNodeIdShort{x.second}, static_cast<td::uint16>(x.first),
+            validator_options_->zero_block_id().file_hash, keyring_.get(), adnl_.get(), validator_manager_.get()));
+  }
+  started_full_node_masters();
+}
+
+void ValidatorEngine::started_full_node_masters() {
   started();
 }
 
@@ -1587,11 +1682,15 @@ void ValidatorEngine::try_add_validator_temp_key(ton::PublicKeyHash perm_key, to
     return;
   }
 
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+
   if (!validator_manager_.empty()) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_temp_key, temp_key,
-                            std::move(promise));
+                            ig.get_promise());
   }
-  write_config(std::move(promise));
+  write_config(ig.get_promise());
 }
 
 void ValidatorEngine::try_add_validator_adnl_addr(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,

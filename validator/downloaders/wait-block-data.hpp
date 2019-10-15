@@ -51,11 +51,13 @@ class WaitBlockData : public td::actor::Actor {
   void force_read_from_db();
 
   void start_up() override;
-  void got_block_handle(BlockHandle handle);
+  void set_is_hardfork(bool value);
   void start();
   void got_block_data_from_db(td::Ref<BlockData> data);
   void got_block_data_from_net(ReceivedBlock data);
   void failed_to_get_block_data_from_net(td::Status reason);
+
+  void got_static_file(td::BufferSlice data);
 
  private:
   BlockHandle handle_;
@@ -69,6 +71,8 @@ class WaitBlockData : public td::actor::Actor {
   td::Ref<BlockData> data_;
 
   bool reading_from_db_ = false;
+  bool is_hardfork_ = false;
+  td::Timestamp try_read_static_file_ = td::Timestamp::now();
 
   //td::PerfWarningTimer perf_timer_{"waitdata", 1.0};
 };

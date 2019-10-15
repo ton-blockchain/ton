@@ -32,6 +32,69 @@ namespace ton {
 
 namespace adnl {
 
+class TcpInfiniteListener : public td::actor::Actor {
+ public:
+  TcpInfiniteListener(td::int32 port, std::unique_ptr<td::TcpListener::Callback> callback)
+      : port_(port), callback_(std::move(callback)) {
+  }
+
+ private:
+  td::int32 port_;
+  std::unique_ptr<td::TcpListener::Callback> callback_;
+  td::actor::ActorOwn<td::TcpListener> tcp_listener_;
+  td::int32 refcnt_{0};
+  bool close_flag_{false};
+
+  void start_up() override {
+    loop();
+  }
+
+  void hangup() override {
+    close_flag_ = true;
+    tcp_listener_.reset();
+    if (refcnt_ == 0) {
+      stop();
+    }
+  }
+
+  void loop() override {
+    if (!tcp_listener_.empty()) {
+      return;
+    }
+    class Callback : public td::TcpListener::Callback {
+     public:
+      Callback(td::actor::ActorShared<TcpInfiniteListener> parent) : parent_(std::move(parent)) {
+      }
+      void accept(td::SocketFd fd) override {
+        td::actor::send_closure(parent_, &TcpInfiniteListener::accept, std::move(fd));
+      }
+
+     private:
+      td::actor::ActorShared<TcpInfiniteListener> parent_;
+    };
+    refcnt_++;
+    tcp_listener_ = td::actor::create_actor<td::TcpListener>(
+        td::actor::ActorOptions().with_name(PSLICE() << "TcpListener" << td::tag("port", port_)).with_poll(), port_,
+        std::make_unique<Callback>(actor_shared(this)));
+  }
+
+  void accept(td::SocketFd fd) {
+    callback_->accept(std::move(fd));
+  }
+
+  void hangup_shared() override {
+    refcnt_--;
+    tcp_listener_.reset();
+    if (close_flag_) {
+      if (refcnt_ == 0) {
+        stop();
+      }
+    } else {
+      alarm_timestamp() = td::Timestamp::in(5 /*5 seconds*/);
+    }
+  }
+};
+
 class AdnlExtServerImpl;
 
 class AdnlInboundConnection : public AdnlExtConnection {
@@ -69,6 +132,9 @@ class AdnlExtServerImpl : public AdnlExtServer {
     ports_.clear();
   }
 
+  void reopen_port() {
+  }
+
   AdnlExtServerImpl(td::actor::ActorId<AdnlPeerTable> adnl, std::vector<AdnlNodeIdShort> ids,
                     std::vector<td::uint16> ports)
       : peer_table_(adnl) {
@@ -84,7 +150,7 @@ class AdnlExtServerImpl : public AdnlExtServer {
   td::actor::ActorId<AdnlPeerTable> peer_table_;
   std::set<AdnlNodeIdShort> local_ids_;
   std::set<td::uint16> ports_;
-  std::map<td::uint16, td::actor::ActorOwn<td::TcpListener>> listeners_;
+  std::map<td::uint16, td::actor::ActorOwn<TcpInfiniteListener>> listeners_;
 };
 
 }  // namespace adnl

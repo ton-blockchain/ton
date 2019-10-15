@@ -146,8 +146,8 @@ void AdnlExtServerImpl::add_tcp_port(td::uint16 port) {
     }
   };
 
-  auto act = td::actor::create_actor<td::TcpListener>(td::actor::ActorOptions().with_name("listener").with_poll(), port,
-                                                      std::make_unique<Callback>(actor_id(this)));
+  auto act = td::actor::create_actor<TcpInfiniteListener>(td::actor::ActorOptions().with_name("listener").with_poll(),
+                                                          port, std::make_unique<Callback>(actor_id(this)));
   listeners_.emplace(port, std::move(act));
 }
 

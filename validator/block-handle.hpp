@@ -473,6 +473,21 @@ struct BlockHandleImpl : public BlockHandleInterface {
     }
   }
 
+  void unsafe_clear_applied() override {
+    if (is_applied()) {
+      lock();
+      flags_ &= ~Flags::dbf_applied;
+      unlock();
+    }
+  }
+  void unsafe_clear_next() override {
+    if (inited_next_left() || inited_next_right()) {
+      lock();
+      flags_ &= ~(Flags::dbf_inited_next_left | Flags::dbf_inited_next_right);
+      unlock();
+    }
+  }
+
   td::BufferSlice serialize() const override;
   BlockHandleImpl(BlockIdExt id)
       : id_(id), flags_(id_.is_masterchain() ? static_cast<td::uint32>(dbf_masterchain) : 0) {

@@ -75,7 +75,8 @@ class FullNodeImpl : public FullNode {
                td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
                td::actor::ActorId<overlay::Overlays> overlays,
-               td::actor::ActorId<ValidatorManagerInterface> validator_manager, std::string db_root);
+               td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
 
  private:
   PublicKeyHash local_id_;
@@ -93,6 +94,7 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorId<adnl::AdnlExtClient> client_;
 
   std::string db_root_;
 

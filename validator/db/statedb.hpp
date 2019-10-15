@@ -47,6 +47,9 @@ class StateDb : public td::actor::Actor {
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise);
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise);
 
+  void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise);
+  void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise);
+
   StateDb(td::actor::ActorId<RootDb> root_db, std::string path);
 
   void start_up() override;

@@ -22,6 +22,7 @@
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 #include "rldp/rldp.h"
+#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -35,12 +36,12 @@ class DownloadBlock : public td::actor::Actor {
                 adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
                 td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<rldp::Rldp> rldp,
                 td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                td::Promise<ReceivedBlock> promise);
+                td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise);
   DownloadBlock(BlockIdExt block_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
                 BlockHandle prev, adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
                 td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<rldp::Rldp> rldp,
                 td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                td::Promise<ReceivedBlock> promise);
+                td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise);
 
   void abort_query(td::Status reason);
   void alarm() override;
@@ -75,6 +76,7 @@ class DownloadBlock : public td::actor::Actor {
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<ReceivedBlock> promise_;
 
   BlockHandle handle_;
