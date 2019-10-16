@@ -114,7 +114,7 @@ class HttpAnswer {
     td::uint32 req_count_;
   };
   struct CodeBlock {
-    std::string data;
+    std::string& data;
   };
   struct Error {
     td::Status error;
@@ -202,8 +202,15 @@ class HttpAnswer {
   HttpAnswer &operator<<(RawData<T> data) {
     std::ostringstream outp;
     data.x.print_ref(outp, data.root);
-    // Reduce size since we don't need it - vm::load_cell_slice(data.root).print_rec(outp);
-    return *this << CodeBlock{outp.str()};
+    // Reduce size since we don't need it:
+    // - Do not output - vm::load_cell_slice(data.root).print_rec(outp);
+    // - Remove everything before account_blocks.
+    auto output{outp.str()};
+    auto account_blocks_pos = output.find("account_blocks");
+    if (account_blocks_pos !=  std::string::npos) {
+      output.erase(0, account_blocks_pos);
+    }
+    return *this << CodeBlock{output};
   }
 
  private:
