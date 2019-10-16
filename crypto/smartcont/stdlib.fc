@@ -1,6 +1,22 @@
 ;; Standard library for funC
 ;;
 
+forall X -> tuple cons(X head, tuple tail) asm "CONS";
+forall X -> (X, tuple) uncons(tuple list) asm "UNCONS";
+forall X -> (tuple, X) list_next(tuple list) asm( -> 1 0) "UNCONS";
+forall X -> X car(tuple list) asm "CAR";
+tuple cdr(tuple list) asm "CDR";
+forall X, Y -> tuple pair(X x, Y y) asm "PAIR";
+forall X, Y -> (X, Y) unpair(tuple t) asm "UNPAIR";
+forall X, Y, Z -> tuple triple(X x, Y y, Z z) asm "TRIPLE";
+forall X, Y, Z -> (X, Y, Z) untriple(tuple t) asm "UNTRIPLE";
+forall X, Y, Z, W -> tuple tuple4(X x, Y y, Z z, W w) asm "4 TUPLE";
+forall X, Y, Z, W -> (X, Y, Z, W) untuple4(tuple t) asm "4 UNTUPLE";
+forall X -> X first(tuple t) asm "FIRST";
+forall X -> X second(tuple t) asm "SECOND";
+forall X -> X third(tuple t) asm "THIRD";
+forall X -> X fourth(tuple t) asm "3 INDEX";
+
 int now() asm "NOW";
 slice my_address() asm "MYADDR";
 tuple get_balance() asm "BALANCE";

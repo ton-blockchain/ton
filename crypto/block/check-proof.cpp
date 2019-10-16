@@ -32,7 +32,7 @@ namespace block {
 using namespace std::literals::string_literals;
 
 td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blkid, ton::Bits256* store_shard_hash_to,
-                                    bool check_state_hash, td::uint32* save_utime) {
+                                    bool check_state_hash, td::uint32* save_utime, ton::LogicalTime* save_lt) {
   ton::RootHash vhash{root->get_hash().bits()};
   if (vhash != blkid.root_hash) {
     return td::Status::Error(PSTRING() << " block header for block " << blkid.to_str() << " has incorrect root hash "
@@ -49,6 +49,9 @@ td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blki
   }
   if (save_utime) {
     *save_utime = info.gen_utime;
+  }
+  if (save_lt) {
+    *save_lt = info.end_lt;
   }
   if (store_shard_hash_to) {
     vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
@@ -157,7 +160,7 @@ td::Status check_shard_proof(ton::BlockIdExt blk, ton::BlockIdExt shard_blk, td:
 
 td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const block::StdAddress& addr,
                                td::Ref<vm::Cell> root, ton::LogicalTime* last_trans_lt, ton::Bits256* last_trans_hash,
-                               td::uint32* save_utime) {
+                               td::uint32* save_utime, ton::LogicalTime* save_lt) {
   TRY_RESULT_PREFIX(Q_roots, vm::std_boc_deserialize_multi(std::move(proof)), "cannot deserialize account proof");
   if (Q_roots.size() != 2) {
     return td::Status::Error(PSLICE() << "account state proof must have exactly two roots");
@@ -174,7 +177,7 @@ td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const
     }
     ton::Bits256 state_hash = state_root->get_hash().bits();
     TRY_STATUS_PREFIX(check_block_header_proof(vm::MerkleProof::virtualize(std::move(Q_roots[0]), 1), shard_blk,
-                                               &state_hash, true, save_utime),
+                                               &state_hash, true, save_utime, save_lt),
                       "error in account shard block header proof : ");
     block::gen::ShardStateUnsplit::Record sstate;
     if (!(tlb::unpack_cell(std::move(state_root), sstate))) {
@@ -238,7 +241,7 @@ td::Result<AccountState::Info> AccountState::validate(ton::BlockIdExt ref_blk, b
 
   Info res;
   TRY_STATUS(block::check_account_proof(proof.as_slice(), shard_blk, addr, root, &res.last_trans_lt,
-                                        &res.last_trans_hash, &res.gen_utime));
+                                        &res.last_trans_hash, &res.gen_utime, &res.gen_lt));
   res.root = std::move(root);
 
   return res;

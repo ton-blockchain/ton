@@ -58,6 +58,7 @@
 #include "vm/continuation.h"
 #include "vm/cp0.h"
 #include "ton/ton-shard.h"
+#include "openssl/rand.hpp"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -1153,16 +1154,24 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
       vm::load_cell_slice(info.root).print_rec(outp);
       out << outp.str();
       out << "last transaction lt = " << info.last_trans_lt << " hash = " << info.last_trans_hash.to_hex() << std::endl;
+      block::gen::Account::Record_account acc;
+      block::gen::AccountStorage::Record store;
+      block::CurrencyCollection balance;
+      if (tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) && balance.unpack(store.balance)) {
+        out << "account balance is " << balance.to_str() << std::endl;
+      }
     } else {
       out << "account state is empty" << std::endl;
     }
   } else if (info.root.not_null()) {
     block::gen::Account::Record_account acc;
     block::gen::AccountStorage::Record store;
-    if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store))) {
+    block::CurrencyCollection balance;
+    if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) && balance.unpack(store.balance))) {
       LOG(ERROR) << "error unpacking account state";
       return;
     }
+    out << "account balance is " << balance.to_str() << std::endl;
     int tag = block::gen::t_AccountState.get_tag(*store.state);
     switch (tag) {
       case block::gen::AccountState::account_uninit:
@@ -1214,6 +1223,28 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
   }
 }
 
+Ref<vm::Tuple> TestNode::prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, Ref<vm::CellSlice> my_addr,
+                                       const block::CurrencyCollection& balance) const {
+  td::BitArray<256> rand_seed;
+  td::RefInt256 rand_seed_int{true};
+  prng::rand_gen().rand_bytes(rand_seed.data(), 32);
+  if (!rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false)) {
+    return {};
+  }
+  auto tuple = vm::make_tuple_ref(td::make_refint(0x076ef1ea),  // [ magic:0x076ef1ea
+                                  td::make_refint(0),           //   actions:Integer
+                                  td::make_refint(0),           //   msgs_sent:Integer
+                                  td::make_refint(now),         //   unixtime:Integer
+                                  td::make_refint(lt),          //   block_lt:Integer
+                                  td::make_refint(lt),          //   trans_lt:Integer
+                                  std::move(rand_seed_int),     //   rand_seed:Integer
+                                  balance.as_vm_tuple(),        //   balance_remaining:[Integer (Maybe Cell)]
+                                  my_addr,                      //  myself:MsgAddressInt
+                                  vm::StackEntry());            //  global_config:(Maybe Cell) ] = SmartContractInfo;
+  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
+  return vm::make_tuple_ref(std::move(tuple));
+}
+
 void TestNode::run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
                               td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
                               ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string method,
@@ -1240,7 +1271,9 @@ void TestNode::run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton:
   }
   block::gen::Account::Record_account acc;
   block::gen::AccountStorage::Record store;
-  if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store))) {
+  block::CurrencyCollection balance;
+  if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) &&
+        balance.validate_unpack(store.balance))) {
     LOG(ERROR) << "error unpacking account state";
     return;
   }
@@ -1276,6 +1309,8 @@ void TestNode::run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton:
   vm::GasLimits gas{gas_limit};
   LOG(DEBUG) << "creating VM";
   vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
+  vm.set_c7(prepare_vm_c7(info.gen_utime, info.gen_lt, acc.addr, balance));  // tuple with SmartContractInfo
+  // vm.incr_stack_trace(1);    // enable stack dump after each step
   LOG(INFO) << "starting VM to run method `" << method << "` (" << method_id << ") of smart contract " << workchain
             << ":" << addr.to_hex();
   int exit_code = ~vm.run();

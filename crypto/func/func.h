@@ -67,6 +67,8 @@ enum Keyword {
   _RshiftC,
   _DivR,
   _DivC,
+  _ModR,
+  _ModC,
   _DivMod,
   _PlusLet,
   _MinusLet,
@@ -75,6 +77,8 @@ enum Keyword {
   _DivRLet,
   _DivCLet,
   _ModLet,
+  _ModRLet,
+  _ModCLet,
   _LshiftLet,
   _RshiftLet,
   _RshiftRLet,
@@ -90,6 +94,7 @@ enum Keyword {
   _Tuple,
   _Type,
   _Mapsto,
+  _Forall,
   _Asm,
   _Impure,
   _Extern,
@@ -128,7 +133,7 @@ class IdSc {
  */
 
 struct TypeExpr {
-  enum te_type { te_Unknown, te_Indirect, te_Atomic, te_Tensor, te_Map, te_Type, te_ForAll } constr;
+  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Map, te_Type, te_ForAll } constr;
   enum {
     _Int = Keyword::_Int,
     _Cell = Keyword::_Cell,
@@ -173,6 +178,9 @@ struct TypeExpr {
   bool is_int() const {
     return is_atomic(_Int);
   }
+  bool is_var() const {
+    return constr == te_Var;
+  }
   bool has_fixed_width() const {
     return minw == maxw;
   }
@@ -215,7 +223,10 @@ struct TypeExpr {
     return new_tensor({te1, te2, te3});
   }
   static TypeExpr* new_var() {
-    return new TypeExpr{te_Unknown, --type_vars, 1};
+    return new TypeExpr{te_Var, --type_vars, 1};
+  }
+  static TypeExpr* new_var(int idx) {
+    return new TypeExpr{te_Var, idx, 1};
   }
   static TypeExpr* new_forall(std::vector<TypeExpr*> list, TypeExpr* body) {
     return new TypeExpr{te_ForAll, body, std::move(list)};
@@ -721,6 +732,16 @@ struct SymValCodeFunc : SymValFunc {
   CodeBlob* code;
   ~SymValCodeFunc() override = default;
   SymValCodeFunc(int val, TypeExpr* _ft, bool _impure = false) : SymValFunc(val, _ft, _impure), code(nullptr) {
+  }
+};
+
+struct SymValType : sym::SymValBase {
+  TypeExpr* sym_type;
+  SymValType(int _type, int _idx, TypeExpr* _stype = nullptr) : sym::SymValBase(_type, _idx), sym_type(_stype) {
+  }
+  ~SymValType() override = default;
+  TypeExpr* get_type() const {
+    return sym_type;
   }
 };
 
