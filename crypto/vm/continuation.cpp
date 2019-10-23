@@ -744,6 +744,9 @@ int VmState::run() {
     }
   } while (!res);
   // LOG(INFO) << "[EN] data cells: " << DataCell::get_total_data_cells();
+  if ((res | 1) == -1) {
+    commit();
+  }
   return res;
 }
 

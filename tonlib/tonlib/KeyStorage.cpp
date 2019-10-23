@@ -106,6 +106,9 @@ td::Result<KeyStorage::ExportedKey> KeyStorage::export_key(InputKey input_key) {
 }
 
 td::Result<KeyStorage::PrivateKey> KeyStorage::load_private_key(InputKey input_key) {
+  if (is_fake_input_key(input_key)) {
+    return fake_private_key();
+  }
   TRY_RESULT(decrypted_key, export_decrypted_key(std::move(input_key)));
   PrivateKey private_key;
   private_key.private_key = decrypted_key.private_key.as_octet_string();
@@ -166,20 +169,46 @@ td::Result<KeyStorage::Key> KeyStorage::import_pem_key(td::Slice local_password,
   return save_key(DecryptedKey({}, std::move(key)), local_password);
 }
 
-static std::string dummy_secret = "dummy secret of 32 bytes length!";
+td::SecureString get_dummy_secret() {
+  return td::SecureString("dummy secret of 32 bytes length!");
+}
 td::Result<KeyStorage::ExportedEncryptedKey> KeyStorage::export_encrypted_key(InputKey input_key,
                                                                               td::Slice key_password) {
   TRY_RESULT(decrypted_key, export_decrypted_key(std::move(input_key)));
-  auto res = decrypted_key.encrypt(key_password, dummy_secret);
+  auto res = decrypted_key.encrypt(key_password, get_dummy_secret());
   return ExportedEncryptedKey{std::move(res.encrypted_data)};
 }
 
 td::Result<KeyStorage::Key> KeyStorage::import_encrypted_key(td::Slice local_password, td::Slice key_password,
                                                              ExportedEncryptedKey exported_key) {
   EncryptedKey encrypted_key{std::move(exported_key.data), td::Ed25519::PublicKey(td::SecureString()),
-                             td::SecureString(dummy_secret)};
+                             get_dummy_secret()};
   TRY_RESULT_PREFIX(decrypted_key, encrypted_key.decrypt(key_password, false), TonlibError::KeyDecrypt());
   return save_key(std::move(decrypted_key), local_password);
+}
+
+KeyStorage::PrivateKey KeyStorage::fake_private_key() {
+  return PrivateKey{td::SecureString(32, 0)};
+}
+
+KeyStorage::InputKey KeyStorage::fake_input_key() {
+  return InputKey{{td::SecureString(32, 0), td::SecureString(32, 0)}, {}};
+}
+
+bool KeyStorage::is_fake_input_key(InputKey &input_key) {
+  auto is_zero = [](td::Slice slice, size_t size) {
+    if (slice.size() != size) {
+      return false;
+    }
+    for (auto c : slice) {
+      if (c != 0) {
+        return false;
+      }
+    }
+    return true;
+  };
+  return is_zero(input_key.local_password, 0) && is_zero(input_key.key.secret, 32) &&
+         is_zero(input_key.key.public_key, 32);
 }
 
 }  // namespace tonlib

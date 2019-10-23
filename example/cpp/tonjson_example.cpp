@@ -28,12 +28,12 @@
 #include <iostream>
 #include <tonlib/tonlib_client_json.h>
 
-// Basic example of TONLib JSON interface usage.
+// Basic example of tonlib JSON interface usage.
 // Native interface should be preferred instead in C++, so here is only an example of
 // the main event cycle, which should be essentially the same for all languages.
 
 int main() {
-  // disable TDLib logging
+  // disable tonlib logging
   void *client = tonlib_client_json_create();
   // somehow share the client with other threads, which will be able to send requests via tonlib_client_json_send
 

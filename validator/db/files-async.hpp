@@ -52,7 +52,7 @@ class WriteFile : public td::actor::Actor {
     auto res = R.move_as_ok();
     auto file = std::move(res.first);
     auto old_name = res.second;
-    size_t offset = 0;
+    td::uint64 offset = 0;
     while (data_.size() > 0) {
       auto R = file.pwrite(data_.as_slice(), offset);
       auto s = R.move_as_ok();

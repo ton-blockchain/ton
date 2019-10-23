@@ -119,8 +119,6 @@ class TestNode : public td::actor::Actor {
                       td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
                       ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string method,
                       std::vector<vm::StackEntry> params);
-  Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, Ref<vm::CellSlice> my_addr,
-                               const block::CurrencyCollection& balance) const;
   bool get_all_shards(bool use_last = true, ton::BlockIdExt blkid = {});
   void got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::BufferSlice data);
   bool get_config_params(ton::BlockIdExt blkid, int mode = 0, std::string filename = "");

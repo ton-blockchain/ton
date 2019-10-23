@@ -22,6 +22,7 @@
 #include "td/actor/actor.h"
 #include "validator/interfaces/block-handle.h"
 #include "ton/ton-io.hpp"
+#include "archive-db.hpp"
 
 namespace ton {
 
@@ -33,7 +34,8 @@ class FileDb;
 class BlockArchiver : public td::actor::Actor {
  public:
   BlockArchiver(BlockIdExt block_id, td::actor::ActorId<RootDb> root_db, td::actor::ActorId<FileDb> file_db,
-                td::actor::ActorId<FileDb> archive_db, td::Promise<td::Unit> promise);
+                td::actor::ActorId<FileDb> archive_db, td::actor::ActorId<ArchiveManager> archive,
+                td::Promise<td::Unit> promise);
 
   void abort_query(td::Status error);
 
@@ -52,6 +54,7 @@ class BlockArchiver : public td::actor::Actor {
   td::actor::ActorId<RootDb> root_db_;
   td::actor::ActorId<FileDb> file_db_;
   td::actor::ActorId<FileDb> archive_db_;
+  td::actor::ActorId<ArchiveManager> archive_;
   td::Promise<td::Unit> promise_;
 
   BlockHandle handle_;

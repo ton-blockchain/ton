@@ -188,7 +188,7 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
   parts_.push_back(std::move(data));
 
   if (last_part) {
-    td::BufferSlice res{sum_};
+    td::BufferSlice res{td::narrow_cast<std::size_t>(sum_)};
     auto S = res.as_slice();
     for (auto &p : parts_) {
       S.copy_from(p.as_slice());

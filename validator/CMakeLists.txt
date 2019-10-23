@@ -10,6 +10,8 @@ add_subdirectory(impl)
 set(VALIDATOR_DB_SOURCE
   db/archiver.cpp
   db/archiver.hpp
+  db/archive-db.cpp
+  db/archive-db.hpp
   db/blockdb.cpp
   db/blockdb.hpp
   db/celldb.cpp
@@ -25,6 +27,9 @@ set(VALIDATOR_DB_SOURCE
   db/statedb.cpp
   db/staticfilesdb.cpp
   db/staticfilesdb.hpp
+
+  db/package.hpp
+  db/package.cpp
 )
 
 set(VALIDATOR_HEADERS

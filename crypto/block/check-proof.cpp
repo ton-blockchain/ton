@@ -221,8 +221,6 @@ td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const
 td::Result<AccountState::Info> AccountState::validate(ton::BlockIdExt ref_blk, block::StdAddress addr) const {
   TRY_RESULT_PREFIX(root, vm::std_boc_deserialize(state.as_slice(), true), "cannot deserialize account state");
 
-  LOG(INFO) << "got account state for " << addr << " with respect to blocks " << blk.to_str()
-            << (shard_blk == blk ? "" : std::string{" and "} + shard_blk.to_str());
   if (blk != ref_blk && ref_blk.id.seqno != ~0U) {
     return td::Status::Error(PSLICE() << "obtained getAccountState() for a different reference block " << blk.to_str()
                                       << " instead of requested " << ref_blk.to_str());

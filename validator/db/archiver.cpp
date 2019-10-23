@@ -26,8 +26,13 @@ namespace validator {
 
 BlockArchiver::BlockArchiver(BlockIdExt block_id, td::actor::ActorId<RootDb> root_db,
                              td::actor::ActorId<FileDb> file_db, td::actor::ActorId<FileDb> archive_db,
-                             td::Promise<td::Unit> promise)
-    : block_id_(block_id), root_db_(root_db), file_db_(file_db), archive_db_(archive_db), promise_(std::move(promise)) {
+                             td::actor::ActorId<ArchiveManager> archive, td::Promise<td::Unit> promise)
+    : block_id_(block_id)
+    , root_db_(root_db)
+    , file_db_(file_db)
+    , archive_db_(archive_db)
+    , archive_(archive)
+    , promise_(std::move(promise)) {
 }
 
 void BlockArchiver::start_up() {
@@ -40,7 +45,7 @@ void BlockArchiver::start_up() {
 
 void BlockArchiver::got_block_handle(BlockHandle handle) {
   handle_ = std::move(handle);
-  if (handle_->moved_to_storage()) {
+  if (handle_->moved_to_archive()) {
     finish_query();
     return;
   }
@@ -63,16 +68,21 @@ void BlockArchiver::got_block_handle(BlockHandle handle) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::got_proof, R.move_as_ok());
   });
-  td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::Proof{block_id_}}, std::move(P));
+
+  if (handle_->moved_to_storage()) {
+    td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::Proof{block_id_}}, std::move(P));
+  } else {
+    td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::Proof{block_id_}}, std::move(P));
+  }
 }
 
 void BlockArchiver::got_proof(td::BufferSlice data) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<FileHash> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::written_proof);
   });
-  td::actor::send_closure(archive_db_, &FileDb::store_file, FileDb::RefId{fileref::Proof{block_id_}}, std::move(data),
-                          std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::write, handle_->unix_time(), handle_->is_key_block(),
+                          FileDb::RefId{fileref::Proof{block_id_}}, std::move(data), std::move(P));
 }
 
 void BlockArchiver::written_proof() {
@@ -85,16 +95,21 @@ void BlockArchiver::written_proof() {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::got_proof_link, R.move_as_ok());
   });
-  td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::ProofLink{block_id_}}, std::move(P));
+  if (handle_->moved_to_storage()) {
+    td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::ProofLink{block_id_}},
+                            std::move(P));
+  } else {
+    td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::ProofLink{block_id_}}, std::move(P));
+  }
 }
 
 void BlockArchiver::got_proof_link(td::BufferSlice data) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<FileHash> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::written_proof_link);
   });
-  td::actor::send_closure(archive_db_, &FileDb::store_file, FileDb::RefId{fileref::ProofLink{block_id_}},
-                          std::move(data), std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::write, handle_->unix_time(), handle_->is_key_block(),
+                          FileDb::RefId{fileref::ProofLink{block_id_}}, std::move(data), std::move(P));
 }
 
 void BlockArchiver::written_proof_link() {
@@ -106,20 +121,24 @@ void BlockArchiver::written_proof_link() {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::got_block_data, R.move_as_ok());
   });
-  td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::Block{block_id_}}, std::move(P));
+  if (handle_->moved_to_storage()) {
+    td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::Block{block_id_}}, std::move(P));
+  } else {
+    td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::Block{block_id_}}, std::move(P));
+  }
 }
 
 void BlockArchiver::got_block_data(td::BufferSlice data) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<FileHash> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::written_block_data);
   });
-  td::actor::send_closure(archive_db_, &FileDb::store_file, FileDb::RefId{fileref::Block{block_id_}}, std::move(data),
-                          std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::write, handle_->unix_time(), handle_->is_key_block(),
+                          FileDb::RefId{fileref::Block{block_id_}}, std::move(data), std::move(P));
 }
 
 void BlockArchiver::written_block_data() {
-  handle_->set_moved_to_storage();
+  handle_->set_moved_to_archive();
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();

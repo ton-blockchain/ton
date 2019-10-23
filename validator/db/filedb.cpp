@@ -331,6 +331,9 @@ FileDb::RefId FileDb::get_ref_from_tl(const ton_api::db_filedb_Key& from) {
           [&](const ton_api::db_filedb_key_candidate& key) {
             ref_id = fileref::Candidate{PublicKey{key.id_->source_}, create_block_id(key.id_->id_),
                                         key.id_->collated_data_file_hash_};
+          },
+          [&](const ton_api::db_filedb_key_blockInfo& key) {
+            ref_id = fileref::BlockInfo{create_block_id(key.block_id_)};
           }));
   return ref_id;
 }

@@ -393,8 +393,8 @@ class CoreActor : public CoreActorInterface {
       clients_.emplace_back(ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{remote_public_key_},
                                                              remote_addr_, make_callback(0)));
     }
-    daemon_ = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION, static_cast<td::uint16>(http_port_), nullptr, nullptr,
-                               &process_http_request, nullptr, MHD_OPTION_END);
+    daemon_ = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, static_cast<td::uint16>(http_port_), nullptr, nullptr,
+                               &process_http_request, nullptr, MHD_OPTION_THREAD_POOL_SIZE, 16, MHD_OPTION_END);
     CHECK(daemon_ != nullptr);
   }
 };

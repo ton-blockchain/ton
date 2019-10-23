@@ -2160,7 +2160,8 @@ Of the following primitives, only the first two are ``pure'' in the sense that t
 \item {\tt F802} --- {\tt BUYGAS} ($x$ -- ), computes the amount of gas that can be bought for $x$ nanograms, and sets $g_l$ accordingly in the same way as {\tt SETGASLIMIT}.
 \item {\tt F804} --- {\tt GRAMTOGAS} ($x$ -- $g$), computes the amount of gas that can be bought for $x$ nanograms. If $x$ is negative, returns 0. If $g$ exceeds $2^{63}-1$, it is replaced with this value.
 \item {\tt F805} --- {\tt GASTOGRAM} ($g$ -- $x$), computes the price of $g$ gas in nanograms.
-\item {\tt F806}--{\tt F80F} --- Reserved for gas-related primitives.
+\item {\tt F806}--{\tt F80E} --- Reserved for gas-related primitives.
+\item {\tt F80F} --- {\tt COMMIT} ( -- ), commits the current state of registers {\tt c4} (``persistent data'') and {\tt c5} (``actions'') so that the current execution is considered ``successful'' with the saved values even if an exception is thrown later.
 \end{itemize}
 
 \nxsubpoint\emb{Pseudo-random number generator primitives}

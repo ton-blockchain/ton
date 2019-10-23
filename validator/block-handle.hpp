@@ -59,6 +59,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
     dbf_moved = 0x1000000,
     dbf_deleted = 0x2000000,
     dbf_deleted_boc = 0x4000000,
+    dbf_moved_new = 0x8000000,
     dbf_processed = 0x10000000,
   };
 
@@ -94,6 +95,9 @@ struct BlockHandleImpl : public BlockHandleInterface {
   }
   bool moved_to_storage() const override {
     return flags_.load(std::memory_order_consume) & Flags::dbf_moved;
+  }
+  bool moved_to_archive() const override {
+    return flags_.load(std::memory_order_consume) & Flags::dbf_moved_new;
   }
   bool deleted() const override {
     return flags_.load(std::memory_order_consume) & Flags::dbf_deleted;
@@ -391,6 +395,15 @@ struct BlockHandleImpl : public BlockHandleInterface {
     }
     lock();
     flags_ |= Flags::dbf_moved;
+    unlock();
+  }
+  void set_moved_to_archive() override {
+    if (flags_.load(std::memory_order_consume) & Flags::dbf_moved_new) {
+      return;
+    }
+    lock();
+    flags_ |= Flags::dbf_moved_new;
+    flags_ &= ~Flags::dbf_moved;
     unlock();
   }
   void set_deleted() override {

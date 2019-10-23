@@ -32,7 +32,7 @@ namespace ton {
 namespace validator {
 
 void RootDb::store_block_data(BlockHandle handle, td::Ref<BlockData> block, td::Promise<td::Unit> promise) {
-  if (handle->moved_to_storage()) {
+  if (handle->moved_to_storage() || handle->moved_to_archive()) {
     promise.set_value(td::Unit());
     return;
   }
@@ -64,14 +64,19 @@ void RootDb::get_block_data(BlockHandle handle, td::Promise<td::Ref<BlockData>> 
           }
         });
 
-    td::actor::send_closure(handle->moved_to_storage() ? archive_db_.get() : file_db_.get(), &FileDb::load_file,
-                            FileDb::RefId{fileref::Block{handle->id()}}, std::move(P));
+    if (handle->moved_to_archive()) {
+      td::actor::send_closure(new_archive_db_, &ArchiveManager::read, handle->unix_time(), handle->is_key_block(),
+                              FileDb::RefId{fileref::Block{handle->id()}}, std::move(P));
+    } else {
+      td::actor::send_closure(handle->moved_to_storage() ? old_archive_db_.get() : file_db_.get(), &FileDb::load_file,
+                              FileDb::RefId{fileref::Block{handle->id()}}, std::move(P));
+    }
   }
 }
 
 void RootDb::store_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> data,
                                     td::Promise<td::Unit> promise) {
-  if (handle->moved_to_storage()) {
+  if (handle->moved_to_storage() || handle->moved_to_archive()) {
     promise.set_value(td::Unit());
     return;
   }
@@ -94,7 +99,7 @@ void RootDb::get_block_signatures(BlockHandle handle, td::Promise<td::Ref<BlockS
   if (!handle->inited_signatures()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not in db"));
   } else {
-    if (handle->moved_to_storage()) {
+    if (handle->moved_to_storage() || handle->moved_to_archive()) {
       promise.set_error(td::Status::Error(ErrorCode::error, "signatures already gc'd"));
       return;
     }
@@ -111,7 +116,7 @@ void RootDb::get_block_signatures(BlockHandle handle, td::Promise<td::Ref<BlockS
 }
 
 void RootDb::store_block_proof(BlockHandle handle, td::Ref<Proof> proof, td::Promise<td::Unit> promise) {
-  if (handle->moved_to_storage()) {
+  if (handle->moved_to_storage() || handle->moved_to_archive()) {
     promise.set_value(td::Unit());
     return;
   }
@@ -142,13 +147,18 @@ void RootDb::get_block_proof(BlockHandle handle, td::Promise<td::Ref<Proof>> pro
             promise.set_result(create_proof(id, R.move_as_ok()));
           }
         });
-    td::actor::send_closure(handle->moved_to_storage() ? archive_db_.get() : file_db_.get(), &FileDb::load_file,
-                            FileDb::RefId{fileref::Proof{handle->id()}}, std::move(P));
+    if (handle->moved_to_archive()) {
+      td::actor::send_closure(new_archive_db_, &ArchiveManager::read, handle->unix_time(), handle->is_key_block(),
+                              FileDb::RefId{fileref::Proof{handle->id()}}, std::move(P));
+    } else {
+      td::actor::send_closure(handle->moved_to_storage() ? old_archive_db_.get() : file_db_.get(), &FileDb::load_file,
+                              FileDb::RefId{fileref::Proof{handle->id()}}, std::move(P));
+    }
   }
 }
 
 void RootDb::store_block_proof_link(BlockHandle handle, td::Ref<ProofLink> proof, td::Promise<td::Unit> promise) {
-  if (handle->moved_to_storage()) {
+  if (handle->moved_to_storage() || handle->moved_to_archive()) {
     promise.set_value(td::Unit());
     return;
   }
@@ -179,8 +189,13 @@ void RootDb::get_block_proof_link(BlockHandle handle, td::Promise<td::Ref<ProofL
             promise.set_result(create_proof_link(id, R.move_as_ok()));
           }
         });
-    td::actor::send_closure(handle->moved_to_storage() ? archive_db_.get() : file_db_.get(), &FileDb::load_file,
-                            FileDb::RefId{fileref::ProofLink{handle->id()}}, std::move(P));
+    if (handle->moved_to_archive()) {
+      td::actor::send_closure(new_archive_db_, &ArchiveManager::read, handle->unix_time(), handle->is_key_block(),
+                              FileDb::RefId{fileref::ProofLink{handle->id()}}, std::move(P));
+    } else {
+      td::actor::send_closure(handle->moved_to_storage() ? old_archive_db_.get() : file_db_.get(), &FileDb::load_file,
+                              FileDb::RefId{fileref::ProofLink{handle->id()}}, std::move(P));
+    }
   }
 }
 
@@ -225,7 +240,7 @@ void RootDb::get_block_candidate(PublicKey source, BlockIdExt id, FileHash colla
 
 void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                td::Promise<td::Ref<ShardState>> promise) {
-  if (handle->moved_to_storage()) {
+  if (handle->moved_to_storage() || handle->moved_to_archive()) {
     promise.set_value(std::move(state));
     return;
   }
@@ -290,27 +305,27 @@ void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterc
     }
   });
 
-  td::actor::send_closure(archive_db_, &FileDb::store_file,
+  td::actor::send_closure(old_archive_db_, &FileDb::store_file,
                           FileDb::RefId{fileref::PersistentState{block_id, masterchain_block_id}}, std::move(state),
                           std::move(P));
 }
 
 void RootDb::get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                        td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(archive_db_, &FileDb::load_file,
+  td::actor::send_closure(old_archive_db_, &FileDb::load_file,
                           FileDb::RefId{fileref::PersistentState{block_id, masterchain_block_id}}, std::move(promise));
 }
 
 void RootDb::get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
                                              td::int64 max_size, td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(archive_db_, &FileDb::load_file_slice,
+  td::actor::send_closure(old_archive_db_, &FileDb::load_file_slice,
                           FileDb::RefId{fileref::PersistentState{block_id, masterchain_block_id}}, offset, max_size,
                           std::move(promise));
 }
 
 void RootDb::check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                                 td::Promise<bool> promise) {
-  td::actor::send_closure(archive_db_, &FileDb::check_file,
+  td::actor::send_closure(old_archive_db_, &FileDb::check_file,
                           FileDb::RefId{fileref::PersistentState{block_id, masterchain_block_id}}, std::move(promise));
 }
 
@@ -325,26 +340,38 @@ void RootDb::store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, t
     }
   });
 
-  td::actor::send_closure(archive_db_, &FileDb::store_file, FileDb::RefId{fileref::ZeroState{block_id}},
+  td::actor::send_closure(old_archive_db_, &FileDb::store_file, FileDb::RefId{fileref::ZeroState{block_id}},
                           std::move(state), std::move(P));
 }
 
 void RootDb::get_zero_state_file(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::ZeroState{block_id}},
+  td::actor::send_closure(old_archive_db_, &FileDb::load_file, FileDb::RefId{fileref::ZeroState{block_id}},
                           std::move(promise));
 }
 
 void RootDb::check_zero_state_file_exists(BlockIdExt block_id, td::Promise<bool> promise) {
-  td::actor::send_closure(archive_db_, &FileDb::check_file, FileDb::RefId{fileref::ZeroState{block_id}},
+  td::actor::send_closure(old_archive_db_, &FileDb::check_file, FileDb::RefId{fileref::ZeroState{block_id}},
                           std::move(promise));
 }
 
 void RootDb::store_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::send_closure(block_db_, &BlockDb::store_block_handle, std::move(handle), std::move(promise));
+  if (handle->moved_to_archive()) {
+    td::actor::send_closure(new_archive_db_, &ArchiveManager::write_handle, std::move(handle), std::move(promise));
+  } else {
+    td::actor::send_closure(block_db_, &BlockDb::store_block_handle, std::move(handle), std::move(promise));
+  }
 }
 
 void RootDb::get_block_handle(BlockIdExt id, td::Promise<BlockHandle> promise) {
-  td::actor::send_closure(block_db_, &BlockDb::get_block_handle, id, std::move(promise));
+  auto P = td::PromiseCreator::lambda(
+      [db = block_db_.get(), id, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          td::actor::send_closure(db, &BlockDb::get_block_handle, id, std::move(promise));
+        } else {
+          promise.set_value(R.move_as_ok());
+        }
+      });
+  td::actor::send_closure(new_archive_db_, &ArchiveManager::read_handle, id, std::move(P));
 }
 
 void RootDb::try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) {
@@ -426,16 +453,17 @@ void RootDb::start_up() {
   cell_db_ = td::actor::create_actor<CellDb>("celldb", actor_id(this), root_path_ + "/celldb/");
   block_db_ = td::actor::create_actor<BlockDb>("blockdb", actor_id(this), root_path_ + "/blockdb/");
   file_db_ = td::actor::create_actor<FileDb>("filedb", actor_id(this), root_path_ + "/files/", depth_, false);
-  archive_db_ =
+  old_archive_db_ =
       td::actor::create_actor<FileDb>("filedbarchive", actor_id(this), root_path_ + "/archive/", depth_, true);
   lt_db_ = td::actor::create_actor<LtDb>("ltdb", actor_id(this), root_path_ + "/ltdb/");
   state_db_ = td::actor::create_actor<StateDb>("statedb", actor_id(this), root_path_ + "/state/");
   static_files_db_ = td::actor::create_actor<StaticFilesDb>("staticfilesdb", actor_id(this), root_path_ + "/static/");
+  new_archive_db_ = td::actor::create_actor<ArchiveManager>("archivemanager", root_path_ + "/archive/");
 }
 
 void RootDb::archive(BlockIdExt block_id, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiveblock", block_id, actor_id(this), file_db_.get(), archive_db_.get(),
-                                         std::move(promise))
+  td::actor::create_actor<BlockArchiver>("archiveblock", block_id, actor_id(this), file_db_.get(),
+                                         old_archive_db_.get(), new_archive_db_.get(), std::move(promise))
       .release();
 }
 
@@ -480,14 +508,15 @@ void RootDb::allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> p
                        CHECK(!is_archive);
                        td::actor::send_closure(validator_manager_, &ValidatorManager::allow_block_candidate_gc,
                                                key.block_id, std::move(promise));
-                     }));
+                     },
+                     [&](const fileref::BlockInfo &key) { UNREACHABLE(); }));
 }
 
 void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
   auto merger = StatsMerger::create(std::move(promise));
 
   td::actor::send_closure(file_db_, &FileDb::prepare_stats, merger.make_promise("filedb."));
-  td::actor::send_closure(archive_db_, &FileDb::prepare_stats, merger.make_promise("archivedb."));
+  td::actor::send_closure(old_archive_db_, &FileDb::prepare_stats, merger.make_promise("archivedb."));
 }
 
 void RootDb::truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) {

@@ -387,11 +387,25 @@ td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
   if (vset_root.is_null()) {
     return td::Status::Error("validator set is absent");
   }
-  gen::ValidatorSet::Record rec;
-  if (!tlb::unpack_cell(std::move(vset_root), rec)) {
-    return td::Status::Error("validator set is invalid");
+  gen::ValidatorSet::Record_validators_ext rec;
+  Ref<vm::Cell> dict_root;
+  if (!tlb::unpack_cell(vset_root, rec)) {
+    gen::ValidatorSet::Record_validators rec0;
+    if (!tlb::unpack_cell(std::move(vset_root), rec0)) {
+      return td::Status::Error("validator set is invalid");
+    }
+    rec.utime_since = rec0.utime_since;
+    rec.utime_until = rec0.utime_until;
+    rec.total = rec0.total;
+    rec.main = rec0.main;
+    dict_root = vm::Dictionary::construct_root_from(*rec0.list);
+    rec.total_weight = 0;
+  } else if (rec.total_weight) {
+    dict_root = rec.list->prefetch_ref();
+  } else {
+    return td::Status::Error("validator set cannot have zero total weight");
   }
-  vm::Dictionary dict{vm::Dictionary::construct_root_from(*rec.list), 16};
+  vm::Dictionary dict{std::move(dict_root), 16};
   td::BitArray<16> key_buffer;
   auto last = dict.get_minmax_key(key_buffer.bits(), 16, true);
   if (last.is_null() || (int)key_buffer.to_ulong() != rec.total - 1) {
@@ -427,6 +441,9 @@ td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
     }
     ptr->list.emplace_back(sig_pubkey.pubkey, descr.weight, ptr->total_weight, descr.adnl_addr);
     ptr->total_weight += descr.weight;
+  }
+  if (rec.total_weight && rec.total_weight != ptr->total_weight) {
+    return td::Status::Error("validator set declares incorrect total weight");
   }
   return std::move(ptr);
 }
@@ -515,6 +532,58 @@ td::Result<std::vector<StoragePrices>> Config::get_storage_prices() const {
     return td::Status::Error("invalid storage prices dictionary in configuration parameter 18");
   }
   return std::move(res);
+}
+
+td::Result<GasLimitsPrices> Config::get_gas_limits_prices(bool is_masterchain) const {
+  GasLimitsPrices res;
+  auto id = is_masterchain ? 20 : 21;
+  auto cell = get_config_param(id);
+  if (cell.is_null()) {
+    return td::Status::Error(PSLICE() << "configuration parameter " << id << " with gas prices is absent");
+  }
+  auto cs = vm::load_cell_slice(std::move(cell));
+  block::gen::GasLimitsPrices::Record_gas_flat_pfx flat;
+  if (tlb::unpack(cs, flat)) {
+    cs = *flat.other;
+    res.flat_gas_limit = flat.flat_gas_limit;
+    res.flat_gas_price = flat.flat_gas_price;
+  }
+  auto f = [&](const auto& r, td::uint64 spec_limit) {
+    res.gas_limit = r.gas_limit;
+    res.special_gas_limit = spec_limit;
+    res.gas_credit = r.gas_credit;
+    res.gas_price = r.gas_price;
+    res.freeze_due_limit = r.freeze_due_limit;
+    res.delete_due_limit = r.delete_due_limit;
+  };
+  block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
+  if (tlb::unpack(cs, rec)) {
+    f(rec, rec.special_gas_limit);
+  } else {
+    block::gen::GasLimitsPrices::Record_gas_prices rec0;
+    if (tlb::unpack(cs, rec0)) {
+      f(rec0, rec0.gas_limit);
+    } else {
+      return td::Status::Error(PSLICE() << "configuration parameter " << id
+                                        << " with gas prices is invalid - can't parse");
+    }
+  }
+  return res;
+}
+
+td::Result<MsgPrices> Config::get_msg_prices(bool is_masterchain) const {
+  auto id = is_masterchain ? 24 : 25;
+  auto cell = get_config_param(id);
+  if (cell.is_null()) {
+    return td::Status::Error(PSLICE() << "configuration parameter " << id << " with msg prices is absent");
+  }
+  auto cs = vm::load_cell_slice(std::move(cell));
+  block::gen::MsgForwardPrices::Record rec;
+  if (!tlb::unpack(cs, rec)) {
+    return td::Status::Error(PSLICE() << "configuration parameter " << id
+                                      << " with msg prices is invalid - can't parse");
+  }
+  return MsgPrices(rec.lump_price, rec.bit_price, rec.cell_price, rec.ihr_price_factor, rec.first_frac, rec.next_frac);
 }
 
 CatchainValidatorsConfig Config::unpack_catchain_validators_config(Ref<vm::Cell> cell) {

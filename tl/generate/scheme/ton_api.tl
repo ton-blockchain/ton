@@ -411,13 +411,14 @@ db.root.key.config = db.root.Key;
 db.celldb.value block_id:tonNode.blockIdExt prev:int256 next:int256 root_hash:int256 = db.celldb.Value;
 db.celldb.key.value hash:int256 = db.celldb.key.Value;
 
-db.block.info id:tonNode.blockIdExt flags:# prev_left:flags.1?tonNode.blockIdExt
+db.block.info#4ac6e727 id:tonNode.blockIdExt flags:# prev_left:flags.1?tonNode.blockIdExt
                                             prev_right:flags.2?tonNode.blockIdExt
                                             next_left:flags.3?tonNode.blockIdExt
                                             next_right:flags.4?tonNode.blockIdExt
                                             lt:flags.13?long 
                                             ts:flags.14?int
                                             state:flags.17?int256 = db.block.Info;
+db.block.packedInfo id:tonNode.blockIdExt unixtime:int offset:long = db.block.Info;
 db.block.archivedInfo id:tonNode.blockIdExt flags:# next:flags.0?tonNode.blockIdExt = db.block.Info;
 
 db.blockdb.value next:tonNode.blockIdExt data:bytes = db.blockdb.Value;
@@ -436,6 +437,7 @@ db.filedb.key.proof block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.proofLink block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.signatures block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.candidate id:db.candidate.id = db.filedb.Key;
+db.filedb.key.blockInfo block_id:tonNode.blockIdExt = db.filedb.Key;
 
 db.filedb.value key:db.filedb.Key prev:int256 next:int256 file_hash:int256 = db.filedb.Value;
 
@@ -461,6 +463,13 @@ db.lt.el.value id:tonNode.blockIdExt lt:long ts:int = db.lt.el.Value;
 db.lt.desc.value first_idx:int last_idx:int last_seqno:int last_lt:long last_ts:int = db.lt.desc.Value; 
 db.lt.shard.value workchain:int shard:long = db.lt.shard.Value; 
 db.lt.status.value total_shards:int = db.lt.status.Value;
+
+db.archive.index.key = db.archive.Key;
+db.archive.package.key unixtime:int key:Bool = db.archive.Key;
+
+db.archive.index.value packages:(vector int) key_packages:(vector int) = db.archive.index.Value;
+db.archive.package.firstBlock workchain:int shard:long seqno:int lt:long = db.archive.package.FirstBlock;
+db.archive.package.value unixtime:int key:Bool firstblocks:(vector db.archive.package.firstBlock) deleted:Bool = db.archive.package.Value;
 
 ---functions---
 

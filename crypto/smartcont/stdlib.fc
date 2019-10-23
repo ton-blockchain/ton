@@ -16,6 +16,7 @@ forall X -> X first(tuple t) asm "FIRST";
 forall X -> X second(tuple t) asm "SECOND";
 forall X -> X third(tuple t) asm "THIRD";
 forall X -> X fourth(tuple t) asm "3 INDEX";
+forall X -> X null() asm "PUSHNULL";
 
 int now() asm "NOW";
 slice my_address() asm "MYADDR";
@@ -34,8 +35,10 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 
 cell get_data() asm "c4 PUSH";
 () set_data(cell c) impure asm "c4 POP";
+cell get_c3() impure asm "c3 PUSH";
 () set_c3(cell c) impure asm "c3 POP";
 () accept_message() impure asm "ACCEPT";
+() commit() impure asm "COMMIT";
 
 int min(int x, int y) asm "MIN";
 int max(int x, int y) asm "MAX";
@@ -52,7 +55,10 @@ cell preload_ref(slice s) asm "PLDREF";
 ;; slice preload_bits(slice s, int len) asm "PLDSLICEX";
 (slice, int) load_grams(slice s) asm( -> 1 0) "LDGRAMS";
 slice skip_bits(slice s, int len) asm "SDSKIPFIRST";
+(slice, ()) ~skip_bits(slice s, int len) asm "SDSKIPFIRST";
 slice first_bits(slice s, int len) asm "SDCUTFIRST";
+slice skip_last_bits(slice s, int len) asm "SDSKIPLAST";
+(slice, ()) ~skip_last_bits(slice s, int len) asm "SDSKIPLAST";
 (slice, cell) load_dict(slice s) asm( -> 1 0) "LDDICT";
 cell preload_dict(slice s) asm "PLDDICT";
 slice skip_dict(slice s) asm "SKIPDICT";
@@ -94,6 +100,16 @@ cell udict_get_ref(cell dict, int key_len, int index) asm(index dict key_len) "D
 (cell, slice, int) udict_delete_get?(cell dict, int key_len, int index) asm(index dict key_len) "DICTUDELGET" "NULLSWAPIFNOT";
 (cell, (slice, int)) ~idict_delete_get?(cell dict, int key_len, int index) asm(index dict key_len) "DICTIDELGET" "NULLSWAPIFNOT";
 (cell, (slice, int)) ~udict_delete_get?(cell dict, int key_len, int index) asm(index dict key_len) "DICTUDELGET" "NULLSWAPIFNOT";
+cell udict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTUSET";
+(cell, ()) ~udict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTUSET";
+cell idict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTISET";
+(cell, ()) ~idict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTISET";
+cell dict_set(cell dict, int key_len, slice index, slice value) asm(value index dict key_len) "DICTSET";
+(cell, ()) ~dict_set(cell dict, int key_len, slice index, slice value) asm(value index dict key_len) "DICTSET";
+(cell, int) udict_add?(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTUADD";
+(cell, int) udict_replace?(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTUREPLACE";
+(cell, int) idict_add?(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTIADD";
+(cell, int) idict_replace?(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTIREPLACE";
 cell udict_set_builder(cell dict, int key_len, int index, builder value) asm(value index dict key_len) "DICTUSETB";
 (cell, ()) ~udict_set_builder(cell dict, int key_len, int index, builder value) asm(value index dict key_len) "DICTUSETB";
 cell idict_set_builder(cell dict, int key_len, int index, builder value) asm(value index dict key_len) "DICTISETB";

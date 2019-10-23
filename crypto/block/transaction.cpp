@@ -421,7 +421,9 @@ void add_partial_storage_payment(td::BigInt256& payment, ton::UnixTime delta, co
   payment += b;
 }
 
-td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const {
+td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
+                                                  const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
+                                                  bool is_special, bool is_masterchain) {
   if (now <= last_paid || !last_paid || is_special || pricing.empty() || now <= pricing[0].valid_since) {
     return {};
   }
@@ -438,12 +440,16 @@ td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector
     ton::UnixTime valid_until = (i < n - 1 ? std::min(now, pricing[i + 1].valid_since) : now);
     if (upto < valid_until) {
       assert(upto >= pricing[i].valid_since);
-      add_partial_storage_payment(total.unique_write(), valid_until - upto, pricing[i], storage_stat, is_masterchain());
+      add_partial_storage_payment(total.unique_write(), valid_until - upto, pricing[i], storage_stat, is_masterchain);
     }
     upto = valid_until;
   }
   total.unique_write().rshift(16, 1);  // divide by 2^16 with ceil rounding to obtain nanograms
   return total;
+}
+
+td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const {
+  return StoragePrices::compute_storage_fees(now, pricing, storage_stat, last_paid, is_special, is_masterchain());
 }
 
 Transaction::Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
@@ -969,7 +975,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   gas = vm.get_gas_limits();
   cp.gas_used = std::min<long long>(gas.gas_consumed(), gas.gas_limit);
   cp.accepted = (gas.gas_credit == 0);
-  cp.success = (cp.accepted && (unsigned)cp.exit_code <= 1);
+  cp.success = (cp.accepted && vm.committed());
   if (cp.accepted & use_msg_state) {
     was_activated = true;
     acc_status = Account::acc_active;
@@ -978,8 +984,8 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
   LOG(INFO) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success;
   if (cp.success) {
-    cp.new_data = vm.get_c4();  // c4 -> persistent data
-    cp.actions = vm.get_d(5);   // c5 -> action list
+    cp.new_data = vm.get_committed_state().c4;  // c4 -> persistent data
+    cp.actions = vm.get_committed_state().c5;   // c5 -> action list
     int out_act_num = output_actions_count(cp.actions);
     if (verbosity > 2) {
       std::cerr << "new smart contract data: ";

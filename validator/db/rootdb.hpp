@@ -28,6 +28,7 @@
 #include "ltdb.hpp"
 #include "statedb.hpp"
 #include "staticfilesdb.hpp"
+#include "archive-db.hpp"
 
 namespace ton {
 
@@ -126,10 +127,11 @@ class RootDb : public Db {
   td::actor::ActorOwn<CellDb> cell_db_;
   td::actor::ActorOwn<BlockDb> block_db_;
   td::actor::ActorOwn<FileDb> file_db_;
-  td::actor::ActorOwn<FileDb> archive_db_;
+  td::actor::ActorOwn<FileDb> old_archive_db_;
   td::actor::ActorOwn<LtDb> lt_db_;
   td::actor::ActorOwn<StateDb> state_db_;
   td::actor::ActorOwn<StaticFilesDb> static_files_db_;
+  td::actor::ActorOwn<ArchiveManager> new_archive_db_;
 };
 
 }  // namespace validator

@@ -24,7 +24,8 @@ config config:string blockchain_name:string use_callbacks_for_network:Bool ignor
 options config:config keystore_type:KeyStoreType = Options;
 
 key public_key:string secret:secureBytes = Key;
-inputKey key:key local_password:secureBytes = InputKey;
+inputKeyRegular key:key local_password:secureBytes = InputKey;
+inputKeyFake = InputKey;
 exportedKey word_list:vector<secureString> = ExportedKey;
 exportedPemKey pem:secureString = ExportedPemKey;
 exportedEncryptedKey data:secureBytes = ExportedEncryptedKey;
@@ -68,28 +69,38 @@ sendGramsResult sent_until:int53 body_hash:bytes = SendGramsResult;
 syncStateDone = SyncState;
 syncStateInProgress from_seqno:int32 to_seqno:int32 current_seqno:int32 = SyncState;
 
+fees in_fwd_fee:int53 storage_fee:int53 gas_fee:int53 fwd_fee:int53= Fees;
+query.fees source_fees:fees destination_fees:fees = query.Fees;
+query.info id:int53 valid_until:int53 body_hash:bytes  = query.Info;
+
+smc.info id:int53 = smc.Info;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
 
-//@class LogStream @description Describes a stream to which TDLib internal log is written
+//@class LogStream @description Describes a stream to which tonlib internal log is written
 
 //@description The log is written to stderr or an OS specific log
 logStreamDefault = LogStream;
 
-//@description The log is written to a file @path Path to the file to where the internal TDLib log will be written @max_file_size Maximum size of the file to where the internal TDLib log is written before the file will be auto-rotated
+//@description The log is written to a file @path Path to the file to where the internal tonlib log will be written @max_file_size Maximum size of the file to where the internal tonlib log is written before the file will be auto-rotated
 logStreamFile path:string max_file_size:int53 = LogStream;
 
 //@description The log is written nowhere
 logStreamEmpty = LogStream;
 
 
-//@description Contains a TDLib internal log verbosity level @verbosity_level Log verbosity level
+//@description Contains a tonlib internal log verbosity level @verbosity_level Log verbosity level
 logVerbosityLevel verbosity_level:int32 = LogVerbosityLevel;
 
-//@description Contains a list of available TDLib internal log tags @tags List of log tags
+//@description Contains a list of available tonlib internal log tags @tags List of log tags
 logTags tags:vector<string> = LogTags;
 
 data bytes:secureBytes = Data;
+
+tvm.cell bytes:string = tvm.Cell;
+
+liteServer.info now:int53 version:int32 capabilities:int64 = liteServer.Info;
 
 ---functions---
 
@@ -101,13 +112,13 @@ options.setConfig config:config = Ok;
 createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;
 deleteKey key:key = Ok;
 deleteAllKeys = Ok;
-exportKey input_key:inputKey = ExportedKey;
-exportPemKey input_key:inputKey key_password:secureBytes = ExportedPemKey;
-exportEncryptedKey input_key:inputKey key_password:secureBytes = ExportedEncryptedKey;
+exportKey input_key:InputKey = ExportedKey;
+exportPemKey input_key:InputKey key_password:secureBytes = ExportedPemKey;
+exportEncryptedKey input_key:InputKey key_password:secureBytes = ExportedEncryptedKey;
 importKey local_password:secureBytes mnemonic_password:secureBytes exported_key:exportedKey = Key;
 importPemKey local_password:secureBytes key_password:secureBytes exported_key:exportedPemKey = Key;
 importEncryptedKey local_password:secureBytes key_password:secureBytes exported_encrypted_key:exportedEncryptedKey = Key;
-changeLocalPassword input_key:inputKey new_local_password:secureBytes = Key;
+changeLocalPassword input_key:InputKey new_local_password:secureBytes = Key;
 
 encrypt decrypted_data:secureBytes secret:secureBytes = Data;
 decrypt encrypted_data:secureBytes secret:secureBytes = Data;
@@ -121,18 +132,20 @@ getBip39Hints prefix:string = Bip39Hints;
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountAddress initital_account_state:raw.initialAccountState = AccountAddress;
 raw.getAccountState account_address:accountAddress = raw.AccountState;
-raw.sendMessage destination:accountAddress initial_account_state:bytes data:bytes = Ok;
 raw.getTransactions account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
+raw.sendMessage body:bytes  = Ok;
+raw.createAndSendMessage destination:accountAddress initial_account_state:bytes data:bytes = Ok;
+raw.createQuery destination:accountAddress init_code:bytes init_data:bytes body:bytes = query.Info;
 
-testWallet.init private_key:inputKey = Ok;
+testWallet.init private_key:InputKey = Ok;
 testWallet.getAccountAddress initital_account_state:testWallet.initialAccountState = AccountAddress;
 testWallet.getAccountState account_address:accountAddress = testWallet.AccountState;
-testWallet.sendGrams private_key:inputKey destination:accountAddress seqno:int32 amount:int64 message:bytes = SendGramsResult;
+testWallet.sendGrams private_key:InputKey destination:accountAddress seqno:int32 amount:int64 message:bytes = SendGramsResult;
 
-wallet.init private_key:inputKey = Ok;
+wallet.init private_key:InputKey = Ok;
 wallet.getAccountAddress initital_account_state:wallet.initialAccountState = AccountAddress;
 wallet.getAccountState account_address:accountAddress = wallet.AccountState;
-wallet.sendGrams private_key:inputKey destination:accountAddress seqno:int32 valid_until:int53 amount:int64 message:bytes = SendGramsResult;
+wallet.sendGrams private_key:InputKey destination:accountAddress seqno:int32 valid_until:int53 amount:int64 message:bytes = SendGramsResult;
 
 testGiver.getAccountState = testGiver.AccountState;
 testGiver.getAccountAddress = AccountAddress;
@@ -142,36 +155,50 @@ sync = Ok;
 
 //generic.getAccountAddress initital_account_state:generic.InitialAccountState = AccountAddress;
 generic.getAccountState account_address:accountAddress = generic.AccountState;
-generic.sendGrams private_key:inputKey source:accountAddress destination:accountAddress amount:int64 timeout:int32 allow_send_to_uninited:Bool message:bytes = SendGramsResult;
+generic.sendGrams private_key:InputKey source:accountAddress destination:accountAddress amount:int64 timeout:int32 allow_send_to_uninited:Bool message:bytes = SendGramsResult;
+
+generic.createSendGramsQuery private_key:InputKey source:accountAddress destination:accountAddress amount:int64 timeout:int32 allow_send_to_uninited:Bool message:bytes = query.Info;
+
+query.send id:int53 = Ok;
+query.forget id:int53 = Ok;
+query.estimateFees id:int53 ignore_chksig:Bool = query.Fees;
+query.getInfo id:int53 = query.Info;
+
+smc.load account_address:accountAddress = smc.Info;
+smc.getCode id:int53 = tvm.Cell;
+smc.getData id:int53 = tvm.Cell;
+smc.getState id:int53 = tvm.Cell;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;
 
 runTests dir:string = Ok;
 
-//@description Sets new log stream for internal logging of TDLib. This is an offline method. Can be called before authorization. Can be called synchronously @log_stream New log stream
+liteServer.getInfo = liteServer.Info;
+
+//@description Sets new log stream for internal logging of tonlib. This is an offline method. Can be called before authorization. Can be called synchronously @log_stream New log stream
 setLogStream log_stream:LogStream = Ok;
 
-//@description Returns information about currently used log stream for internal logging of TDLib. This is an offline method. Can be called before authorization. Can be called synchronously
+//@description Returns information about currently used log stream for internal logging of tonlib. This is an offline method. Can be called before authorization. Can be called synchronously
 getLogStream = LogStream;
 
-//@description Sets the verbosity level of the internal logging of TDLib. This is an offline method. Can be called before authorization. Can be called synchronously
+//@description Sets the verbosity level of the internal logging of tonlib. This is an offline method. Can be called before authorization. Can be called synchronously
 //@new_verbosity_level New value of the verbosity level for logging. Value 0 corresponds to fatal errors, value 1 corresponds to errors, value 2 corresponds to warnings and debug warnings, value 3 corresponds to informational, value 4 corresponds to debug, value 5 corresponds to verbose debug, value greater than 5 and up to 1023 can be used to enable even more logging
 setLogVerbosityLevel new_verbosity_level:int32 = Ok;
 
-//@description Returns current verbosity level of the internal logging of TDLib. This is an offline method. Can be called before authorization. Can be called synchronously
+//@description Returns current verbosity level of the internal logging of tonlib. This is an offline method. Can be called before authorization. Can be called synchronously
 getLogVerbosityLevel = LogVerbosityLevel;
 
-//@description Returns list of available TDLib internal log tags, for example, ["actor", "binlog", "connections", "notifications", "proxy"]. This is an offline method. Can be called before authorization. Can be called synchronously
+//@description Returns list of available tonlib internal log tags, for example, ["actor", "binlog", "connections", "notifications", "proxy"]. This is an offline method. Can be called before authorization. Can be called synchronously
 getLogTags = LogTags;
 
-//@description Sets the verbosity level for a specified TDLib internal log tag. This is an offline method. Can be called before authorization. Can be called synchronously
+//@description Sets the verbosity level for a specified tonlib internal log tag. This is an offline method. Can be called before authorization. Can be called synchronously
 //@tag Logging tag to change verbosity level @new_verbosity_level New verbosity level; 1-1024
 setLogTagVerbosityLevel tag:string new_verbosity_level:int32 = Ok;
 
-//@description Returns current verbosity level for a specified TDLib internal log tag. This is an offline method. Can be called before authorization. Can be called synchronously @tag Logging tag to change verbosity level
+//@description Returns current verbosity level for a specified tonlib internal log tag. This is an offline method. Can be called before authorization. Can be called synchronously @tag Logging tag to change verbosity level
 getLogTagVerbosityLevel tag:string = LogVerbosityLevel;
 
-//@description Adds a message to TDLib internal log. This is an offline method. Can be called before authorization. Can be called synchronously
+//@description Adds a message to tonlib internal log. This is an offline method. Can be called before authorization. Can be called synchronously
 //@verbosity_level Minimum verbosity level needed for the message to be logged, 0-1023 @text Text of a message to log
 addLogMessage verbosity_level:int32 text:string = Ok;

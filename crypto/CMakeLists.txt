@@ -88,6 +88,7 @@ set(TON_CRYPTO_SOURCE
   vm/cells/CellBuilder.cpp
   vm/cells/CellHash.cpp
   vm/cells/CellSlice.cpp
+  vm/cells/CellString.cpp
   vm/cells/CellTraits.cpp
   vm/cells/CellUsageTree.cpp
   vm/cells/DataCell.cpp
@@ -99,6 +100,7 @@ set(TON_CRYPTO_SOURCE
   vm/cells/CellBuilder.h
   vm/cells/CellHash.h
   vm/cells/CellSlice.h
+  vm/cells/CellString.h
   vm/cells/CellTraits.h
   vm/cells/CellUsageTree.h
   vm/cells/CellWithStorage.h
@@ -197,6 +199,24 @@ set(BLOCK_SOURCE
   block/transaction.h
 )
 
+set(SMC_ENVELOPE_SOURCE
+  smc-envelope/GenericAccount.cpp
+  smc-envelope/MultisigWallet.cpp
+  smc-envelope/SmartContract.cpp
+  smc-envelope/SmartContractCode.cpp
+  smc-envelope/TestGiver.cpp
+  smc-envelope/TestWallet.cpp
+  smc-envelope/Wallet.cpp
+
+  smc-envelope/GenericAccount.h
+  smc-envelope/MultisigWallet.h
+  smc-envelope/SmartContract.h
+  smc-envelope/SmartContractCode.h
+  smc-envelope/TestGiver.h
+  smc-envelope/TestWallet.h
+  smc-envelope/Wallet.h
+)
+
 set(ED25519_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/Ed25519.cpp
   PARENT_SCOPE
@@ -214,6 +234,11 @@ set(CELLS_TEST_SOURCE
 
 set(TONVM_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/vm.cpp
+  PARENT_SCOPE
+)
+
+set(SMARTCONT_TEST_SOURCE
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/test-smartcont.cpp
   PARENT_SCOPE
 )
 
@@ -329,9 +354,17 @@ if (NOT CMAKE_CROSSCOMPILING)
   GenFif(DEST smartcont/auto/highload-wallet-code SOURCE smartcont/highload-wallet-code.fc NAME highload-wallet)
   GenFif(DEST smartcont/auto/highload-wallet-v2-code SOURCE smartcont/highload-wallet-v2-code.fc NAME highoad-wallet-v2)
   GenFif(DEST smartcont/auto/elector-code SOURCE smartcont/elector-code.fc NAME elector-code)
+  GenFif(DEST smartcont/auto/multisig-code SOURCE smartcont/multisig-code.fc NAME multisig)
   GenFif(DEST smartcont/auto/restricted-wallet-code SOURCE smartcont/restricted-wallet-code.fc NAME restricted-wallet)
   GenFif(DEST smartcont/auto/restricted-wallet2-code SOURCE smartcont/restricted-wallet2-code.fc NAME restricted-wallet2)
+
+  GenFif(DEST smartcont/auto/simple-wallet-ext-code SOURCE smartcont/simple-wallet-ext-code.fc NAME simple-wallet-ext)
 endif()
+
+add_library(smc-envelope ${SMC_ENVELOPE_SOURCE})
+target_include_directories(smc-envelope PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(smc-envelope PUBLIC ton_crypto PRIVATE tdutils ton_block)
+add_dependencies(smc-envelope gen_fif)
 
 add_executable(create-state block/create-state.cpp)
 target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

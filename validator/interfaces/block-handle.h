@@ -33,6 +33,7 @@ struct BlockHandleInterface {
   virtual BlockIdExt id() const = 0;
   virtual bool received() const = 0;
   virtual bool moved_to_storage() const = 0;
+  virtual bool moved_to_archive() const = 0;
   virtual bool deleted() const = 0;
   virtual bool inited_next_left() const = 0;
   virtual bool inited_next_right() const = 0;
@@ -83,6 +84,7 @@ struct BlockHandleInterface {
   virtual void set_prev(BlockIdExt prev) = 0;
   virtual void set_received() = 0;
   virtual void set_moved_to_storage() = 0;
+  virtual void set_moved_to_archive() = 0;
   virtual void set_deleted() = 0;
   virtual void set_split(bool value) = 0;
   virtual void set_merge(bool value) = 0;

@@ -1842,6 +1842,27 @@ void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise
   UNREACHABLE();
 }
 
+void ValidatorManagerImpl::allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) {
+  auto P =
+      td::PromiseCreator::lambda([db = db_.get(), promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(false);
+        } else {
+          auto handle = R.move_as_ok();
+          if (!handle->moved_to_archive()) {
+            promise.set_result(false);
+          } else {
+            auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+              R.ensure();
+              promise.set_result(true);
+            });
+            td::actor::send_closure(db, &Db::store_block_handle, handle, std::move(P));
+          }
+        }
+      });
+  get_block_handle(block_id, false, std::move(P));
+}
+
 void ValidatorManagerImpl::got_next_gc_masterchain_handle(BlockHandle handle) {
   CHECK(gc_advancing_);
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {

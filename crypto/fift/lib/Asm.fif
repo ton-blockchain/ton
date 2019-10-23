@@ -970,6 +970,7 @@ x{F4B7} @Defop SUBDICTURPGET
 
 x{F800} @Defop ACCEPT
 x{F801} @Defop SETGASLIMIT
+x{F80F} @Defop COMMIT
 
 x{F82} @Defop(4u) GETPARAM
 x{F823} @Defop NOW

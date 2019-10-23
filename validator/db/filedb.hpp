@@ -130,6 +130,18 @@ class Candidate {
   BlockIdExt block_id;
   FileHash collated_data_file_hash;
 };
+
+class BlockInfo {
+ public:
+  tl_object_ptr<ton_api::db_filedb_Key> tl() const {
+    return create_tl_object<ton_api::db_filedb_key_blockInfo>(create_tl_block_id(block_id));
+  }
+  FileHash hash() const {
+    return create_hash_tl_object<ton_api::db_filedb_key_blockInfo>(create_tl_block_id(block_id));
+  }
+
+  BlockIdExt block_id;
+};
 };  // namespace fileref
 
 class RootDb;
@@ -138,7 +150,7 @@ class FileDb : public td::actor::Actor {
  public:
   using RefId =
       td::Variant<fileref::Empty, fileref::Block, fileref::ZeroState, fileref::PersistentState, fileref::Proof,
-                  fileref::Proof, fileref::ProofLink, fileref::Signatures, fileref::Candidate>;
+                  fileref::Proof, fileref::ProofLink, fileref::Signatures, fileref::Candidate, fileref::BlockInfo>;
   using RefIdHash = td::Bits256;
 
   void store_file(RefId ref_id, td::BufferSlice data, td::Promise<FileHash> promise);

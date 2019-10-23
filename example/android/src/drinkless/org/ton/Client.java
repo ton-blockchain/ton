@@ -13,18 +13,18 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Main class for interaction with the TDLib.
+ * Main class for interaction with the tonlib.
  */
 public final class Client implements Runnable {
     static {
         System.loadLibrary("native-lib");
     }
     /**
-     * Interface for handler for results of queries to TDLib and incoming updates from TDLib.
+     * Interface for handler for results of queries to tonlib and incoming updates from tonlib.
      */
     public interface ResultHandler {
         /**
-         * Callback called on result of query to TDLib or incoming update from TDLib.
+         * Callback called on result of query to tonlib or incoming update from tonlib.
          *
          * @param object Result of query or update of type TonApi.Update about new events.
          */
@@ -46,9 +46,9 @@ public final class Client implements Runnable {
     }
 
     /**
-     * Sends a request to the TDLib.
+     * Sends a request to the tonlib.
      *
-     * @param query            Object representing a query to the TDLib.
+     * @param query            Object representing a query to the tonlib.
      * @param resultHandler    Result handler with onResult method which will be called with result
      *                         of the query or with TonApi.Error as parameter. If it is null, nothing
      *                         will be called.
@@ -80,9 +80,9 @@ public final class Client implements Runnable {
     }
 
     /**
-     * Sends a request to the TDLib with an empty ExceptionHandler.
+     * Sends a request to the tonlib with an empty ExceptionHandler.
      *
-     * @param query         Object representing a query to the TDLib.
+     * @param query         Object representing a query to the tonlib.
      * @param resultHandler Result handler with onResult method which will be called with result
      *                      of the query or with TonApi.Error as parameter. If it is null, then
      *                      defaultExceptionHandler will be called.
@@ -93,9 +93,9 @@ public final class Client implements Runnable {
     }
 
     /**
-     * Synchronously executes a TDLib request. Only a few marked accordingly requests can be executed synchronously.
+     * Synchronously executes a tonlib request. Only a few marked accordingly requests can be executed synchronously.
      *
-     * @param query Object representing a query to the TDLib.
+     * @param query Object representing a query to the tonlib.
      * @return request result.
      * @throws NullPointerException if query is null.
      */
@@ -107,10 +107,10 @@ public final class Client implements Runnable {
     }
 
     /**
-     * Replaces handler for incoming updates from the TDLib.
+     * Replaces handler for incoming updates from the tonlib.
      *
      * @param updatesHandler   Handler with onResult method which will be called for every incoming
-     *                         update from the TDLib.
+     *                         update from the tonlib.
      * @param exceptionHandler Exception handler with onException method which will be called on
      *                         exception thrown from updatesHandler, if it is null, defaultExceptionHandler will be invoked.
      */
@@ -119,10 +119,10 @@ public final class Client implements Runnable {
     }
 
     /**
-     * Replaces handler for incoming updates from the TDLib. Sets empty ExceptionHandler.
+     * Replaces handler for incoming updates from the tonlib. Sets empty ExceptionHandler.
      *
      * @param updatesHandler Handler with onResult method which will be called for every incoming
-     *                       update from the TDLib.
+     *                       update from the tonlib.
      */
     public void setUpdatesHandler(ResultHandler updatesHandler) {
         setUpdatesHandler(updatesHandler, null);
@@ -157,7 +157,7 @@ public final class Client implements Runnable {
      */
     public static Client create(ResultHandler updatesHandler, ExceptionHandler updatesExceptionHandler, ExceptionHandler defaultExceptionHandler) {
         Client client = new Client(updatesHandler, updatesExceptionHandler, defaultExceptionHandler);
-        new Thread(client, "TDLib thread").start();
+        new Thread(client, "tonlib thread").start();
         return client;
     }
 
