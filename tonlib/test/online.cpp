@@ -462,29 +462,31 @@ void test_multisig(Client& client, const Wallet& giver_wallet) {
   transfer_grams(client, giver_wallet, address, 1 * Gramm).ensure();
   auto init_state = ms->get_init_state();
 
-  // Just transfer all (some) money back in one query
-  vm::CellBuilder icb;
-  ton::GenericAccount::store_int_message(icb, block::StdAddress::parse(giver_wallet.address).move_as_ok(),
-                                         5 * Gramm / 10);
-  icb.store_bytes("\0\0\0\0", 4);
-  vm::CellString::store(icb, "Greatings from multisig", 35 * 8).ensure();
-  ton::MultisigWallet::QueryBuilder qb(-1, icb.finalize());
-  for (int i = 0; i < k - 1; i++) {
-    qb.sign(i, private_keys[i]);
+  for (int i = 0; i < 2; i++) {
+    // Just transfer all (some) money back in one query
+    vm::CellBuilder icb;
+    ton::GenericAccount::store_int_message(icb, block::StdAddress::parse(giver_wallet.address).move_as_ok(), 1);
+    icb.store_bytes("\0\0\0\0", 4);
+    vm::CellString::store(icb, "Greatings from multisig", 35 * 8).ensure();
+    ton::MultisigWallet::QueryBuilder qb(-1 - i, icb.finalize());
+    for (int i = 0; i < k - 1; i++) {
+      qb.sign(i, private_keys[i]);
+    }
+
+    auto query_id =
+        create_raw_query(client, address,
+                         i == 0 ? vm::std_boc_serialize(ms->get_state().code).move_as_ok().as_slice().str() : "",
+                         i == 0 ? vm::std_boc_serialize(ms->get_state().data).move_as_ok().as_slice().str() : "",
+                         vm::std_boc_serialize(qb.create(k - 1, private_keys[k - 1])).move_as_ok().as_slice().str())
+            .move_as_ok();
+    auto fees = query_estimate_fees(client, query_id);
+
+    LOG(INFO) << "Expected src fees: " << fees.first;
+    LOG(INFO) << "Expected dst fees: " << fees.second;
+    auto a_state = get_account_state(client, address);
+    query_send(client, query_id);
+    auto new_a_state = wait_state_change(client, a_state, a_state.sync_utime + 30).move_as_ok();
   }
-
-  auto query_id =
-      create_raw_query(client, address, vm::std_boc_serialize(ms->get_state().code).move_as_ok().as_slice().str(),
-                       vm::std_boc_serialize(ms->get_state().data).move_as_ok().as_slice().str(),
-                       vm::std_boc_serialize(qb.create(k - 1, private_keys[k - 1])).move_as_ok().as_slice().str())
-          .move_as_ok();
-  auto fees = query_estimate_fees(client, query_id);
-
-  LOG(INFO) << "Expected src fees: " << fees.first;
-  LOG(INFO) << "Expected dst fees: " << fees.second;
-  auto a_state = get_account_state(client, address);
-  query_send(client, query_id);
-  auto new_a_state = wait_state_change(client, a_state, a_state.sync_utime + 30).move_as_ok();
 }
 
 int main(int argc, char* argv[]) {
@@ -515,8 +517,8 @@ int main(int argc, char* argv[]) {
 
   if (reset_keystore_dir) {
     td::rmrf(keystore_dir).ignore();
-    td::mkdir(keystore_dir).ensure();
   }
+  td::mkdir(keystore_dir).ensure();
 
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(INFO));
   static_send(make_object<tonlib_api::setLogTagVerbosityLevel>("tonlib_query", 4)).ensure();

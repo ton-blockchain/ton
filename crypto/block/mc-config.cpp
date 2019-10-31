@@ -534,19 +534,16 @@ td::Result<std::vector<StoragePrices>> Config::get_storage_prices() const {
   return std::move(res);
 }
 
-td::Result<GasLimitsPrices> Config::get_gas_limits_prices(bool is_masterchain) const {
+td::Result<GasLimitsPrices> Config::do_get_gas_limits_prices(td::Ref<vm::Cell> cell, int id) {
   GasLimitsPrices res;
-  auto id = is_masterchain ? 20 : 21;
-  auto cell = get_config_param(id);
-  if (cell.is_null()) {
-    return td::Status::Error(PSLICE() << "configuration parameter " << id << " with gas prices is absent");
-  }
-  auto cs = vm::load_cell_slice(std::move(cell));
+  auto cs = vm::load_cell_slice(cell);
   block::gen::GasLimitsPrices::Record_gas_flat_pfx flat;
   if (tlb::unpack(cs, flat)) {
     cs = *flat.other;
     res.flat_gas_limit = flat.flat_gas_limit;
     res.flat_gas_price = flat.flat_gas_price;
+  } else {
+    cs = vm::load_cell_slice(cell);
   }
   auto f = [&](const auto& r, td::uint64 spec_limit) {
     res.gas_limit = r.gas_limit;
@@ -569,6 +566,14 @@ td::Result<GasLimitsPrices> Config::get_gas_limits_prices(bool is_masterchain) c
     }
   }
   return res;
+}
+td::Result<GasLimitsPrices> Config::get_gas_limits_prices(bool is_masterchain) const {
+  auto id = is_masterchain ? 20 : 21;
+  auto cell = get_config_param(id);
+  if (cell.is_null()) {
+    return td::Status::Error(PSLICE() << "configuration parameter " << id << " with gas prices is absent");
+  }
+  return do_get_gas_limits_prices(std::move(cell), id);
 }
 
 td::Result<MsgPrices> Config::get_msg_prices(bool is_masterchain) const {

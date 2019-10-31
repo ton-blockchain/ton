@@ -163,6 +163,14 @@ slice create_new_entry(cs) inline {
   return begin_cell().store_int(false, 1).store_uint(0, 64).store_uint(0, 256).store_slice(cs).end_cell().begin_parse();
 }
 
+(cell, int, int, slice) unpack_suggestion(slice cs) inline {
+  return (cs~load_dict(), cs~load_uint(64), cs~load_uint(256), cs);
+}
+
+builder pack_suggestion(cell voters, int sum_weight, int vset_id, slice body) inline {
+  return begin_cell().store_dict(voters).store_uint(sum_weight, 64).store_uint(vset_id, 256).store_slice(body);
+}
+
 cell register_vote(vote_dict, action, cs, idx, weight) {
   int hash = 0;
   var entry = null();

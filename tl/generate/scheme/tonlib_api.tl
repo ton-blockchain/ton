@@ -73,7 +73,21 @@ fees in_fwd_fee:int53 storage_fee:int53 gas_fee:int53 fwd_fee:int53= Fees;
 query.fees source_fees:fees destination_fees:fees = query.Fees;
 query.info id:int53 valid_until:int53 body_hash:bytes  = query.Info;
 
+tvm.slice bytes:string = tvm.Slice;
+tvm.cell bytes:string = tvm.Cell;
+tvm.numberDecimal number:string = tvm.Number;
+
+tvm.stackEntrySlice slice:tvm.slice = tvm.StackEntry;
+tvm.stackEntryCell cell:tvm.cell = tvm.StackEntry;
+tvm.stackEntryNumber number:tvm.Number = tvm.StackEntry;
+tvm.stackEntryUnsupported = tvm.StackEntry;
+
 smc.info id:int53 = smc.Info;
+
+smc.methodIdNumber number:int32 = smc.MethodId;
+smc.methodIdName name:string = smc.MethodId;
+
+smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
 
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
@@ -98,8 +112,6 @@ logTags tags:vector<string> = LogTags;
 
 data bytes:secureBytes = Data;
 
-tvm.cell bytes:string = tvm.Cell;
-
 liteServer.info now:int53 version:int32 capabilities:int64 = liteServer.Info;
 
 ---functions---
@@ -108,6 +120,7 @@ init options:options = Ok;
 close = Ok;
 
 options.setConfig config:config = Ok;
+options.validateConfig config:config = Ok;
 
 createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;
 deleteKey key:key = Ok;
@@ -126,7 +139,6 @@ kdf password:secureBytes salt:secureBytes iterations:int32 = Data;
 
 unpackAccountAddress account_address:string = UnpackedAccountAddress;
 packAccountAddress account_address:unpackedAccountAddress = AccountAddress;
-
 getBip39Hints prefix:string = Bip39Hints;
 
 //raw.init initial_account_state:raw.initialAccountState = Ok;
@@ -168,6 +180,7 @@ smc.load account_address:accountAddress = smc.Info;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
+smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;

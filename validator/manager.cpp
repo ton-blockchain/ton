@@ -1843,7 +1843,9 @@ void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise
 }
 
 void ValidatorManagerImpl::allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) {
-  auto P =
+  promise.set_result(false);
+  return;
+  /*auto P =
       td::PromiseCreator::lambda([db = db_.get(), promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         if (R.is_error()) {
           promise.set_result(false);
@@ -1860,7 +1862,7 @@ void ValidatorManagerImpl::allow_block_info_gc(BlockIdExt block_id, td::Promise<
           }
         }
       });
-  get_block_handle(block_id, false, std::move(P));
+  get_block_handle(block_id, false, std::move(P));*/
 }
 
 void ValidatorManagerImpl::got_next_gc_masterchain_handle(BlockHandle handle) {

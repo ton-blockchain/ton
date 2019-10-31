@@ -19,6 +19,7 @@
 
 #include "block/block.h"
 #include "block/block-auto.h"
+#include "block/mc-config.h"
 
 #include "vm/cells.h"
 #include "vm/boc.h"
@@ -244,6 +245,17 @@ TEST(Tonlib, ParseAddres) {
                                          make_object<tonlib_api::unpackedAccountAddress>(-1, false, false, raw)))
                        .move_as_ok();
   ASSERT_EQ("Uf9Tj6fMJP-OqhAdhKXxq36DL-HYSzCc3-9O6UNzqsgPfdyS", addr_str2->account_address_);
+}
+
+TEST(Tonlib, ConfigParseBug) {
+  td::Slice literal =
+      "D1000000000000006400000000000186A0DE0000000003E8000000000000000F424000000000000F42400000000000002710000000000098"
+      "96800000000005F5E100000000003B9ACA00";
+  unsigned char buff[128];
+  int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), literal.begin(), literal.end());
+  CHECK(bits >= 0);
+  auto slice = vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize();
+  block::Config::do_get_gas_limits_prices(std::move(slice), 21).ensure();
 }
 
 TEST(Tonlib, EncryptionApi) {
