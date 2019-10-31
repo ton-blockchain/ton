@@ -65,6 +65,7 @@ class TonlibClient : public td::actor::Actor {
   // Config
   Config config_;
   td::uint32 config_generation_{0};
+  td::uint32 wallet_id_;
   std::string blockchain_name_;
   bool ignore_cache_{false};
   bool use_callbacks_for_network_{false};
@@ -123,6 +124,7 @@ class TonlibClient : public td::actor::Actor {
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::raw_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testWallet_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::wallet_getAccountAddress& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::wallet_v3_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testGiver_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::packAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::unpackAccountAddress& request);
@@ -150,6 +152,8 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::testWallet_getAccountAddress& request, P&&);
   template <class P>
   td::Status do_request(const tonlib_api::wallet_getAccountAddress& request, P&&);
+  template <class P>
+  td::Status do_request(const tonlib_api::wallet_v3_getAccountAddress& request, P&&);
   template <class P>
   td::Status do_request(const tonlib_api::testGiver_getAccountAddress& request, P&&);
   template <class P>
@@ -198,6 +202,7 @@ class TonlibClient : public td::actor::Actor {
     td::optional<Config> o_master_config;
     bool use_callbacks_for_network;
     bool ignore_cache;
+    td::uint32 wallet_id;
   };
   static td::Result<FullConfig> validate_config(tonlib_api::object_ptr<tonlib_api::config> config);
   void set_config(FullConfig config);

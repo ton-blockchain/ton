@@ -79,6 +79,9 @@ struct TonlibError {
   static td::Status InvalidPemKey() {
     return td::Status::Error(400, "INVALID_PEM_KEY");
   }
+  static td::Status NeedConfig() {
+    return td::Status::Error(400, "NeedConfig");
+  }
   static td::Status MessageTooLong() {
     return td::Status::Error(400, "MESSAGE_TOO_LONG");
   }

@@ -133,9 +133,11 @@ void sync(Client& client) {
   sync_send(client, make_object<tonlib_api::sync>()).ensure();
 }
 
+static td::uint32 default_wallet_id{0};
 std::string wallet_address(Client& client, const Key& key) {
-  return sync_send(client, make_object<tonlib_api::wallet_getAccountAddress>(
-                               make_object<tonlib_api::wallet_initialAccountState>(key.public_key)))
+  return sync_send(client,
+                   make_object<tonlib_api::wallet_v3_getAccountAddress>(
+                       make_object<tonlib_api::wallet_v3_initialAccountState>(key.public_key, default_wallet_id)))
       .move_as_ok()
       ->account_address_;
 }
@@ -171,6 +173,7 @@ AccountState get_account_state(Client& client, std::string address) {
     case tonlib_api::generic_accountStateUninited::ID:
       res.type = AccountState::Empty;
       break;
+    case tonlib_api::generic_accountStateWalletV3::ID:
     case tonlib_api::generic_accountStateWallet::ID:
       res.type = AccountState::Wallet;
       break;
@@ -358,8 +361,9 @@ Wallet create_empty_wallet(Client& client) {
   Wallet wallet{"", {key->public_key_, std::move(key->secret_)}};
 
   auto account_address =
-      sync_send(client, make_object<tonlib_api::wallet_getAccountAddress>(
-                            make_object<tonlib_api::wallet_initialAccountState>(wallet.key.public_key)))
+      sync_send(client,
+                make_object<tonlib_api::wallet_v3_getAccountAddress>(
+                    make_object<tonlib_api::wallet_v3_initialAccountState>(wallet.key.public_key, default_wallet_id)))
           .move_as_ok();
 
   wallet.address = account_address->account_address_;
@@ -529,6 +533,10 @@ int main(int argc, char* argv[]) {
 
   Client client;
   {
+    auto info = sync_send(client, make_object<tonlib_api::options_validateConfig>(
+                                      make_object<tonlib_api::config>(global_config_str, "", false, false)))
+                    .move_as_ok();
+    default_wallet_id = static_cast<td::uint32>(info->default_wallet_id_);
     sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(
                           make_object<tonlib_api::config>(global_config_str, "", false, false),
                           make_object<tonlib_api::keyStoreTypeDirectory>(keystore_dir))))

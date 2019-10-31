@@ -31,6 +31,7 @@
 #include "smc-envelope/GenericAccount.h"
 #include "smc-envelope/TestWallet.h"
 #include "smc-envelope/Wallet.h"
+#include "smc-envelope/WalletV3.h"
 #include "smc-envelope/TestGiver.h"
 
 #include "auto/tl/tonlib_api.hpp"
@@ -41,6 +42,7 @@
 
 #include "vm/boc.h"
 
+#include "td/utils/as.h"
 #include "td/utils/Random.h"
 #include "td/utils/optional.h"
 #include "td/utils/overloaded.h"
@@ -121,7 +123,8 @@ std::string to_bytes(td::Ref<vm::Cell> cell) {
 
 class AccountState {
  public:
-  AccountState(block::StdAddress address, RawAccountState&& raw) : address_(std::move(address)), raw_(std::move(raw)) {
+  AccountState(block::StdAddress address, RawAccountState&& raw, td::uint32 wallet_id)
+      : address_(std::move(address)), raw_(std::move(raw)), wallet_id_(wallet_id) {
     wallet_type_ = guess_type();
   }
 
@@ -162,6 +165,17 @@ class AccountState {
     return tonlib_api::make_object<tonlib_api::wallet_accountState>(get_balance(), static_cast<td::uint32>(seqno),
                                                                     to_transaction_id(raw().info), get_sync_time());
   }
+  td::Result<tonlib_api::object_ptr<tonlib_api::wallet_v3_accountState>> to_wallet_v3_accountState() const {
+    if (wallet_type_ != WalletV3) {
+      return TonlibError::AccountTypeUnexpected("WalletV3");
+    }
+    auto wallet = ton::WalletV3(get_smc_state());
+    TRY_RESULT(seqno, wallet.get_seqno());
+    TRY_RESULT(wallet_id, wallet.get_wallet_id());
+    return tonlib_api::make_object<tonlib_api::wallet_v3_accountState>(
+        get_balance(), static_cast<td::uint32>(wallet_id), static_cast<td::uint32>(seqno),
+        to_transaction_id(raw().info), get_sync_time());
+  }
 
   td::Result<tonlib_api::object_ptr<tonlib_api::testGiver_accountState>> to_testGiver_accountState() const {
     if (wallet_type_ != Giver) {
@@ -191,11 +205,15 @@ class AccountState {
         TRY_RESULT(res, to_wallet_accountState());
         return tonlib_api::make_object<tonlib_api::generic_accountStateWallet>(std::move(res));
       }
+      case WalletV3: {
+        TRY_RESULT(res, to_wallet_v3_accountState());
+        return tonlib_api::make_object<tonlib_api::generic_accountStateWalletV3>(std::move(res));
+      }
     }
     UNREACHABLE();
   }
 
-  enum WalletType { Empty, Unknown, Giver, SimpleWallet, Wallet };
+  enum WalletType { Empty, Unknown, Giver, SimpleWallet, Wallet, WalletV3 };
   WalletType get_wallet_type() const {
     return wallet_type_;
   }
@@ -235,6 +253,10 @@ class AccountState {
                address_.addr) {
       set_new_state({ton::Wallet::get_init_code(), ton::Wallet::get_init_data(key)});
       wallet_type_ = WalletType::Wallet;
+    } else if (ton::GenericAccount::get_address(address_.workchain, ton::WalletV3::get_init_state(key, wallet_id_))
+                   .addr == address_.addr) {
+      set_new_state({ton::WalletV3::get_init_code(), ton::WalletV3::get_init_data(key, wallet_id_)});
+      wallet_type_ = WalletType::WalletV3;
     }
     return wallet_type_;
   }
@@ -243,8 +265,8 @@ class AccountState {
     if (wallet_type_ != WalletType::Empty) {
       return wallet_type_;
     }
-    set_new_state({ton::Wallet::get_init_code(), ton::Wallet::get_init_data(key)});
-    wallet_type_ = WalletType::Wallet;
+    set_new_state({ton::WalletV3::get_init_code(), ton::WalletV3::get_init_data(key, wallet_id_)});
+    wallet_type_ = WalletType::WalletV3;
     return wallet_type_;
   }
 
@@ -274,6 +296,7 @@ class AccountState {
   block::StdAddress address_;
   RawAccountState raw_;
   WalletType wallet_type_{Unknown};
+  td::uint32 wallet_id_{0};
   bool has_new_state_{false};
 
   WalletType guess_type() const {
@@ -289,6 +312,9 @@ class AccountState {
     }
     if (code_hash == ton::Wallet::get_init_code_hash()) {
       return WalletType::Wallet;
+    }
+    if (code_hash == ton::WalletV3::get_init_code_hash()) {
+      return WalletType::WalletV3;
     }
     LOG(WARNING) << "Unknown code hash: " << td::base64_encode(code_hash.as_slice());
     return WalletType::Unknown;
@@ -999,6 +1025,7 @@ bool TonlibClient::is_static_request(td::int32 id) {
     case tonlib_api::raw_getAccountAddress::ID:
     case tonlib_api::testWallet_getAccountAddress::ID:
     case tonlib_api::wallet_getAccountAddress::ID:
+    case tonlib_api::wallet_v3_getAccountAddress::ID:
     case tonlib_api::testGiver_getAccountAddress::ID:
     case tonlib_api::packAccountAddress::ID:
     case tonlib_api::unpackAccountAddress::ID:
@@ -1062,6 +1089,12 @@ td::Result<block::StdAddress> get_account_address(const tonlib_api::wallet_initi
   auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
   return ton::GenericAccount::get_address(0 /*zerochain*/, ton::Wallet::get_init_state(key));
 }
+td::Result<block::StdAddress> get_account_address(const tonlib_api::wallet_v3_initialAccountState& test_wallet_state) {
+  TRY_RESULT(key_bytes, get_public_key(test_wallet_state.public_key_));
+  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
+  return ton::GenericAccount::get_address(
+      0 /*zerochain*/, ton::WalletV3::get_init_state(key, static_cast<td::uint32>(test_wallet_state.wallet_id_)));
+}
 
 td::Result<block::StdAddress> get_account_address(td::Slice account_address) {
   TRY_RESULT_PREFIX(address, block::StdAddress::parse(account_address), TonlibError::InvalidAccountAddress());
@@ -1070,6 +1103,9 @@ td::Result<block::StdAddress> get_account_address(td::Slice account_address) {
 
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::raw_getAccountAddress& request) {
+  if (!request.initital_account_state_) {
+    return status_to_tonlib_api(TonlibError::EmptyField("initial_account_state"));
+  }
   auto r_account_address = get_account_address(*request.initital_account_state_);
   if (r_account_address.is_error()) {
     return status_to_tonlib_api(r_account_address.error());
@@ -1079,6 +1115,12 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
 
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::testWallet_getAccountAddress& request) {
+  if (!request.initital_account_state_) {
+    return status_to_tonlib_api(TonlibError::EmptyField("initial_account_state"));
+  }
+  if (!request.initital_account_state_) {
+    return status_to_tonlib_api(TonlibError::EmptyField("initial_account_state"));
+  }
   auto r_account_address = get_account_address(*request.initital_account_state_);
   if (r_account_address.is_error()) {
     return status_to_tonlib_api(r_account_address.error());
@@ -1088,6 +1130,20 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
 
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::wallet_getAccountAddress& request) {
+  if (!request.initital_account_state_) {
+    return status_to_tonlib_api(TonlibError::EmptyField("initial_account_state"));
+  }
+  auto r_account_address = get_account_address(*request.initital_account_state_);
+  if (r_account_address.is_error()) {
+    return status_to_tonlib_api(r_account_address.error());
+  }
+  return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize(true));
+}
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
+    const tonlib_api::wallet_v3_getAccountAddress& request) {
+  if (!request.initital_account_state_) {
+    return status_to_tonlib_api(TonlibError::EmptyField("initial_account_state"));
+  }
   auto r_account_address = get_account_address(*request.initital_account_state_);
   if (r_account_address.is_error()) {
     return status_to_tonlib_api(r_account_address.error());
@@ -1249,12 +1305,14 @@ td::Result<TonlibClient::FullConfig> TonlibClient::validate_config(tonlib_api::o
   res.o_master_config = std::move(o_master_config);
   res.ignore_cache = config->ignore_cache_;
   res.use_callbacks_for_network = config->use_callbacks_for_network_;
+  res.wallet_id = td::as<td::uint32>(res.config.zero_state_id.root_hash.as_slice().data());
   return std::move(res);
 }
 
 void TonlibClient::set_config(FullConfig full_config) {
   config_ = std::move(full_config.config);
   config_generation_++;
+  wallet_id_ = full_config.wallet_id;
   blockchain_name_ = config_.zero_state_id.root_hash.as_slice().str();
 
   use_callbacks_for_network_ = full_config.use_callbacks_for_network;
@@ -1280,7 +1338,7 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
   if (r_config.is_error()) {
     return status_to_tonlib_api(r_config.move_as_error());
   }
-  return tonlib_api::make_object<tonlib_api::ok>();
+  return tonlib_api::make_object<tonlib_api::options_configInfo>(r_config.ok().wallet_id);
 }
 
 td::Status TonlibClient::do_request(tonlib_api::options_setConfig& request,
@@ -1893,6 +1951,23 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                                                             destination_->get_address());
         break;
       }
+      case AccountState::WalletV3: {
+        if (!private_key_) {
+          return TonlibError::EmptyField("private_key");
+        }
+        if (message.size() > ton::WalletV3::max_message_size) {
+          return TonlibError::MessageTooLong();
+        }
+        auto wallet = ton::WalletV3(source_->get_smc_state());
+        TRY_RESULT(seqno, wallet.get_seqno());
+        TRY_RESULT(wallet_id, wallet.get_wallet_id());
+        auto valid_until = source_->get_sync_time();
+        valid_until += send_grams_.timeout_ == 0 ? 60 : send_grams_.timeout_;
+        raw.valid_until = valid_until;
+        raw.message_body = ton::WalletV3::make_a_gift_message(private_key_.unwrap(), wallet_id, seqno, valid_until,
+                                                              amount, message, destination_->get_address());
+        break;
+      }
     }
 
     raw.new_state = source_->get_new_state();
@@ -2433,8 +2508,8 @@ td::Status TonlibClient::do_request(int_api::GetAccountState request,
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetRawAccountState>(
       "GetAccountState", client_.get_client(), request.address, actor_shared(this, actor_id),
-      promise.wrap([address = request.address](auto&& state) mutable {
-        return td::make_unique<AccountState>(std::move(address), std::move(state));
+      promise.wrap([address = request.address, wallet_id = wallet_id_](auto&& state) mutable {
+        return td::make_unique<AccountState>(std::move(address), std::move(state), wallet_id);
       }));
   return td::Status::OK();
 }
@@ -2477,6 +2552,11 @@ td::Status TonlibClient::do_request(const tonlib_api::testWallet_getAccountAddre
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::wallet_getAccountAddress& request, P&&) {
+  UNREACHABLE();
+  return TonlibError::Internal();
+}
+template <class P>
+td::Status TonlibClient::do_request(const tonlib_api::wallet_v3_getAccountAddress& request, P&&) {
   UNREACHABLE();
   return TonlibError::Internal();
 }

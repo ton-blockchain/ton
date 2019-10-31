@@ -22,6 +22,7 @@ keyStoreTypeInMemory = KeyStoreType;
 config config:string blockchain_name:string use_callbacks_for_network:Bool ignore_cache:Bool = Config;
 
 options config:config keystore_type:KeyStoreType = Options;
+options.configInfo default_wallet_id:int53 = options.ConfigInfo;
 
 key public_key:string secret:secureBytes = Key;
 inputKeyRegular key:key local_password:secureBytes = InputKey;
@@ -50,6 +51,9 @@ testWallet.accountState balance:int64 seqno:int32 last_transaction_id:internal.t
 wallet.initialAccountState public_key:string = wallet.InitialAccountState;
 wallet.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53 = wallet.AccountState;
 
+wallet.v3.initialAccountState public_key:string wallet_id:int53 = wallet.v3.InitialAccountState;
+wallet.v3.accountState balance:int64 wallet_id:int53 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53 = wallet.v3.AccountState;
+
 testGiver.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53= testGiver.AccountState;
 
 uninited.accountState balance:int64 last_transaction_id:internal.transactionId frozen_hash:bytes sync_utime:int53 = uninited.AccountState;
@@ -61,6 +65,7 @@ uninited.accountState balance:int64 last_transaction_id:internal.transactionId f
 generic.accountStateRaw account_state:raw.accountState = generic.AccountState;
 generic.accountStateTestWallet account_state:testWallet.accountState = generic.AccountState;
 generic.accountStateWallet account_state:wallet.accountState = generic.AccountState;
+generic.accountStateWalletV3 account_state:wallet.v3.accountState = generic.AccountState;
 generic.accountStateTestGiver account_state:testGiver.accountState = generic.AccountState;
 generic.accountStateUninited account_state:uninited.accountState = generic.AccountState;
 
@@ -120,7 +125,7 @@ init options:options = Ok;
 close = Ok;
 
 options.setConfig config:config = Ok;
-options.validateConfig config:config = Ok;
+options.validateConfig config:config = options.ConfigInfo;
 
 createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;
 deleteKey key:key = Ok;
@@ -158,6 +163,8 @@ wallet.init private_key:InputKey = Ok;
 wallet.getAccountAddress initital_account_state:wallet.initialAccountState = AccountAddress;
 wallet.getAccountState account_address:accountAddress = wallet.AccountState;
 wallet.sendGrams private_key:InputKey destination:accountAddress seqno:int32 valid_until:int53 amount:int64 message:bytes = SendGramsResult;
+
+wallet.v3.getAccountAddress initital_account_state:wallet.v3.initialAccountState = AccountAddress;
 
 testGiver.getAccountState = testGiver.AccountState;
 testGiver.getAccountAddress = AccountAddress;

@@ -207,6 +207,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/TestGiver.cpp
   smc-envelope/TestWallet.cpp
   smc-envelope/Wallet.cpp
+  smc-envelope/WalletV3.cpp
 
   smc-envelope/GenericAccount.h
   smc-envelope/MultisigWallet.h
@@ -215,6 +216,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/TestGiver.h
   smc-envelope/TestWallet.h
   smc-envelope/Wallet.h
+  smc-envelope/WalletV3.h
 )
 
 set(ED25519_TEST_SOURCE
