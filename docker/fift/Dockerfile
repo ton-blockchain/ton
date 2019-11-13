@@ -18,6 +18,7 @@ WORKDIR /artifacts/usr/local/lib
 RUN cp -r /ton/crypto/fift/lib fift
 
 
+
 FROM scratch
 COPY --from=build /artifacts /
 ENV FIFTPATH=/usr/local/lib/fift

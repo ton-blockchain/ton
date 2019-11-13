@@ -17,6 +17,8 @@ RUN cp /ton-build/crypto/func .
 WORKDIR /artifacts/usr/local/lib/func
 RUN cp -r /ton/crypto/smartcont/stdlib.fc .
 
+
+
 FROM scratch
 COPY --from=build /artifacts /
 WORKDIR /app

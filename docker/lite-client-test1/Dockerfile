@@ -18,6 +18,7 @@ WORKDIR /artifacts/var/local/lib/lite-client
 RUN wget https://test.ton.org/ton-lite-client-test1.config.json
 
 
+
 FROM scratch
 COPY --from=build /artifacts /
 WORKDIR /app
