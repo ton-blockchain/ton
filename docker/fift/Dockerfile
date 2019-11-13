@@ -2,7 +2,6 @@ FROM alpine:20190925 AS build
 
 WORKDIR /ton
 COPY ./ .
-RUN ln -s third-party/rocksdb/include .
 
 WORKDIR /ton-build
 RUN apk add --no-cache cmake g++ gflags-dev linux-headers make openssl-dev zlib-dev
