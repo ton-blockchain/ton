@@ -2,14 +2,6 @@ FROM alpine:20190925 AS build
 
 WORKDIR /ton
 COPY ./ .
-
-WORKDIR /ton/third-party
-RUN apk add --no-cache git
-RUN git clone https://github.com/abseil/abseil-cpp.git
-RUN git clone https://github.com/google/crc32c.git
-RUN git clone https://github.com/facebook/rocksdb.git
-
-WORKDIR /ton
 RUN ln -s third-party/rocksdb/include .
 
 WORKDIR /ton-build
