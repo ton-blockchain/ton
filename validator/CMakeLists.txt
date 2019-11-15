@@ -10,17 +10,17 @@ add_subdirectory(impl)
 set(VALIDATOR_DB_SOURCE
   db/archiver.cpp
   db/archiver.hpp
-  db/archive-db.cpp
-  db/archive-db.hpp
+  db/archive-manager.cpp
+  db/archive-manager.hpp
+  db/archive-slice.cpp
+  db/archive-slice.hpp
   db/blockdb.cpp
   db/blockdb.hpp
   db/celldb.cpp
   db/celldb.hpp
   db/files-async.hpp
-  db/filedb.hpp
-  db/filedb.cpp
-  db/ltdb.hpp
-  db/ltdb.cpp
+  db/fileref.hpp
+  db/fileref.cpp
   db/rootdb.cpp
   db/rootdb.hpp
   db/statedb.hpp
@@ -52,6 +52,8 @@ set(VALIDATOR_HEADERS
   interfaces/validator-manager.h
   interfaces/validator-set.h
   invariants.hpp
+  
+  import-db-slice.hpp
 
   manager-disk.h
   manager-disk.hpp
@@ -69,6 +71,7 @@ set(VALIDATOR_SOURCE
   apply-block.cpp
   block-handle.cpp
   get-next-key-blocks.cpp
+  import-db-slice.cpp
   shard-client.cpp
   state-serializer.cpp
   token-manager.cpp
@@ -124,6 +127,8 @@ set(FULL_NODE_SOURCE
   net/download-block.cpp
   net/download-block-new.hpp
   net/download-block-new.cpp
+  net/download-archive-slice.hpp
+  net/download-archive-slice.cpp
   net/download-next-block.hpp
   net/download-next-block.cpp
   net/download-state.hpp

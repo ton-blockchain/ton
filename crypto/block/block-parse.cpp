@@ -2005,6 +2005,23 @@ bool ExtBlkRef::unpack(Ref<vm::CellSlice> cs_ref, ton::BlockIdExt& blkid, ton::L
   return true;
 }
 
+bool ExtBlkRef::store(vm::CellBuilder& cb, const ton::BlockIdExt& blkid, ton::LogicalTime end_lt) const {
+  return cb.store_long_bool(end_lt, 64)            // ext_blk_ref$_ end_lt:uint64
+         && cb.store_long_bool(blkid.seqno(), 32)  // seq_no:uint32
+         && cb.store_bits_bool(blkid.root_hash)    // root_hash:bits256
+         && cb.store_bits_bool(blkid.file_hash);   // file_hash:bits256 = ExtBlkRef;
+}
+
+Ref<vm::Cell> ExtBlkRef::pack_cell(const ton::BlockIdExt& blkid, ton::LogicalTime end_lt) const {
+  vm::CellBuilder cb;
+  return store(cb, blkid, end_lt) ? cb.finalize() : Ref<vm::Cell>{};
+}
+
+bool ExtBlkRef::pack_to(Ref<vm::Cell>& cell, const ton::BlockIdExt& blkid, ton::LogicalTime end_lt) const {
+  vm::CellBuilder cb;
+  return store(cb, blkid, end_lt) && cb.finalize_to(cell);
+}
+
 const ExtBlkRef t_ExtBlkRef;
 const BlkMasterInfo t_BlkMasterInfo;
 

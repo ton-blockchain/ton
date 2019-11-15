@@ -79,6 +79,33 @@ void DownloadProof::finish_query() {
 void DownloadProof::start_up() {
   alarm_timestamp() = timeout_;
 
+  if (!block_id_.is_masterchain()) {
+    checked_db();
+    return;
+  }
+
+  auto P =
+      td::PromiseCreator::lambda([SelfId = actor_id(this), l = allow_partial_proof_](td::Result<td::BufferSlice> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &DownloadProof::checked_db);
+        } else {
+          if (l) {
+            td::actor::send_closure(SelfId, &DownloadProof::got_block_partial_proof, R.move_as_ok());
+          } else {
+            td::actor::send_closure(SelfId, &DownloadProof::got_block_proof, R.move_as_ok());
+          }
+        }
+      });
+  if (allow_partial_proof_) {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link, block_id_,
+                            std::move(P));
+  } else {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof, block_id_,
+                            std::move(P));
+  }
+}
+
+void DownloadProof::checked_db() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::unique_ptr<DownloadToken>> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &DownloadProof::abort_query,

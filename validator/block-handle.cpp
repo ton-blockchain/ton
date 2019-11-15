@@ -32,18 +32,19 @@ void BlockHandleImpl::flush(td::actor::ActorId<ValidatorManagerInterface> manage
 td::BufferSlice BlockHandleImpl::serialize() const {
   while (locked()) {
   }
-  auto flags = flags_.load(std::memory_order_consume) & ~Flags::dbf_processed;
+  auto flags = flags_.load(std::memory_order_consume) & ~(Flags::dbf_processed | Flags::dbf_moved_handle);
   return create_serialize_tl_object<ton_api::db_block_info>(
       create_tl_block_id(id_), flags, (flags & dbf_inited_prev_left) ? create_tl_block_id(prev_[0]) : nullptr,
       (flags & dbf_inited_prev_right) ? create_tl_block_id(prev_[1]) : nullptr,
       (flags & dbf_inited_next_left) ? create_tl_block_id(next_[0]) : nullptr,
       (flags & dbf_inited_next_right) ? create_tl_block_id(next_[1]) : nullptr, (flags & dbf_inited_lt) ? lt_ : 0,
-      (flags & dbf_inited_ts) ? ts_ : 0, (flags & dbf_inited_state) ? state_ : RootHash::zero());
+      (flags & dbf_inited_ts) ? ts_ : 0, (flags & dbf_inited_state) ? state_ : RootHash::zero(),
+      (flags & dbf_inited_masterchain_ref_block) ? masterchain_ref_seqno_ : 0);
 }
 
 BlockHandleImpl::BlockHandleImpl(td::BufferSlice data) {
   auto obj = fetch_tl_object<ton_api::db_block_info>(std::move(data), true).move_as_ok();
-  flags_ = obj->flags_ & ~Flags::dbf_processed;
+  flags_ = obj->flags_ & ~(Flags::dbf_processed | Flags::dbf_moved_handle);
   id_ = create_block_id(obj->id_);
   prev_[0] = (flags_ & dbf_inited_prev_left) ? create_block_id(obj->prev_left_) : BlockIdExt{};
   prev_[1] = (flags_ & dbf_inited_prev_right) ? create_block_id(obj->prev_right_) : BlockIdExt{};
@@ -52,6 +53,8 @@ BlockHandleImpl::BlockHandleImpl(td::BufferSlice data) {
   lt_ = (flags_ & dbf_inited_lt) ? obj->lt_ : 0;
   ts_ = (flags_ & dbf_inited_ts) ? obj->ts_ : 0;
   state_ = (flags_ & dbf_inited_state) ? obj->state_ : RootHash::zero();
+  masterchain_ref_seqno_ =
+      (flags_ & dbf_inited_masterchain_ref_block) ? static_cast<BlockSeqno>(obj->masterchain_ref_seqno_) : 0;
   get_thread_safe_counter().add(1);
 }
 

@@ -497,7 +497,7 @@ void TestNode::run_init_queries() {
   get_server_version(0x100);
 }
 
-std::string TestNode::get_word(char delim) {
+td::Slice TestNode::get_word(char delim) {
   if (delim == ' ' || !delim) {
     skipspc();
   }
@@ -506,10 +506,33 @@ std::string TestNode::get_word(char delim) {
     ptr++;
   }
   std::swap(ptr, parse_ptr_);
-  return std::string{ptr, parse_ptr_};
+  return td::Slice{ptr, parse_ptr_};
+}
+
+td::Slice TestNode::get_word_ext(const char* delims, const char* specials) {
+  if (delims[0] == ' ') {
+    skipspc();
+  }
+  const char* ptr = parse_ptr_;
+  while (ptr < parse_end_ && !strchr(delims, *ptr)) {
+    if (specials && strchr(specials, *ptr)) {
+      if (ptr == parse_ptr_) {
+        ptr++;
+      }
+      break;
+    }
+    ptr++;
+  }
+  std::swap(ptr, parse_ptr_);
+  return td::Slice{ptr, parse_ptr_};
 }
 
 bool TestNode::get_word_to(std::string& str, char delim) {
+  str = get_word(delim).str();
+  return !str.empty();
+}
+
+bool TestNode::get_word_to(td::Slice& str, char delim) {
   str = get_word(delim);
   return !str.empty();
 }
@@ -549,12 +572,12 @@ bool TestNode::parse_account_addr(ton::WorkchainId& wc, ton::StdSmcAddress& addr
   return block::parse_std_account_addr(get_word(), wc, addr) || set_error("cannot parse account address");
 }
 
-bool TestNode::convert_uint64(std::string word, td::uint64& val) {
+bool TestNode::convert_uint64(td::Slice word, td::uint64& val) {
   val = ~0ULL;
   if (word.empty()) {
     return false;
   }
-  const char* ptr = word.c_str();
+  const char* ptr = word.data();
   char* end = nullptr;
   val = std::strtoull(ptr, &end, 10);
   if (end == ptr + word.size()) {
@@ -565,12 +588,12 @@ bool TestNode::convert_uint64(std::string word, td::uint64& val) {
   }
 }
 
-bool TestNode::convert_int64(std::string word, td::int64& val) {
+bool TestNode::convert_int64(td::Slice word, td::int64& val) {
   val = (~0ULL << 63);
   if (word.empty()) {
     return false;
   }
-  const char* ptr = word.c_str();
+  const char* ptr = word.data();
   char* end = nullptr;
   val = std::strtoll(ptr, &end, 10);
   if (end == ptr + word.size()) {
@@ -581,7 +604,7 @@ bool TestNode::convert_int64(std::string word, td::int64& val) {
   }
 }
 
-bool TestNode::convert_uint32(std::string word, td::uint32& val) {
+bool TestNode::convert_uint32(td::Slice word, td::uint32& val) {
   td::uint64 tmp;
   if (convert_uint64(word, tmp) && (td::uint32)tmp == tmp) {
     val = (td::uint32)tmp;
@@ -591,7 +614,7 @@ bool TestNode::convert_uint32(std::string word, td::uint32& val) {
   }
 }
 
-bool TestNode::convert_int32(std::string word, td::int32& val) {
+bool TestNode::convert_int32(td::Slice word, td::int32& val) {
   td::int64 tmp;
   if (convert_int64(word, tmp) && (td::int32)tmp == tmp) {
     val = (td::int32)tmp;
@@ -629,6 +652,10 @@ int TestNode::parse_hex_digit(int c) {
     return c - 'a' + 10;
   }
   return -1;
+}
+
+bool TestNode::parse_hash(td::Slice str, ton::Bits256& hash) {
+  return str.size() == 64 && parse_hash(str.data(), hash);
 }
 
 bool TestNode::parse_hash(const char* str, ton::Bits256& hash) {
@@ -690,15 +717,15 @@ bool TestNode::parse_block_id_ext(std::string blkid_str, ton::BlockIdExt& blkid,
 }
 
 bool TestNode::parse_block_id_ext(ton::BlockIdExt& blk, bool allow_incomplete) {
-  return parse_block_id_ext(get_word(), blk, allow_incomplete) || set_error("cannot parse BlockIdExt");
+  return parse_block_id_ext(get_word().str(), blk, allow_incomplete) || set_error("cannot parse BlockIdExt");
 }
 
 bool TestNode::parse_hash(ton::Bits256& hash) {
   auto word = get_word();
-  return (!word.empty() && parse_hash(word.c_str(), hash)) || set_error("cannot parse hash");
+  return parse_hash(word, hash) || set_error("cannot parse hash");
 }
 
-bool TestNode::convert_shard_id(std::string str, ton::ShardIdFull& shard) {
+bool TestNode::convert_shard_id(td::Slice str, ton::ShardIdFull& shard) {
   shard.workchain = ton::workchainInvalid;
   shard.shard = 0;
   auto pos = str.find(':');
@@ -774,7 +801,44 @@ bool TestNode::parse_stack_value(td::Slice str, vm::StackEntry& value) {
 }
 
 bool TestNode::parse_stack_value(vm::StackEntry& value) {
-  return parse_stack_value(td::Slice{get_word()}, value) || set_error("invalid vm stack value");
+  auto word = get_word_ext(" \t", "[()]");
+  if (word.empty()) {
+    return set_error("stack value expected instead of end-of-line");
+  }
+  if (word.size() == 1 && (word[0] == '[' || word[0] == '(')) {
+    int expected = (word[0] == '(' ? ')' : ']');
+    std::vector<vm::StackEntry> values;
+    if (!parse_stack_values(values)) {
+      return false;
+    }
+    word = get_word_ext(" \t", "[()]");
+    if (word.size() != 1 || word[0] != expected) {
+      return set_error("closing bracket expected");
+    }
+    if (expected == ']') {
+      value = vm::StackEntry{std::move(values)};
+    } else {
+      value = vm::StackEntry::make_list(std::move(values));
+    }
+    return true;
+  } else {
+    return parse_stack_value(word, value) || set_error("invalid vm stack value");
+  }
+}
+
+bool TestNode::parse_stack_values(std::vector<vm::StackEntry>& values) {
+  values.clear();
+  while (!seekeoln()) {
+    if (cur() == ']' || cur() == ')') {
+      break;
+    }
+    values.emplace_back();
+    if (!parse_stack_value(values.back())) {
+      values.pop_back();
+      return false;
+    }
+  }
+  return true;
 }
 
 bool TestNode::set_error(std::string err_msg) {
@@ -865,7 +929,7 @@ bool TestNode::do_parse_line() {
   ton::BlockSeqno seqno{};
   ton::UnixTime utime{};
   unsigned count{};
-  std::string word = get_word();
+  std::string word = get_word().str();
   skipspc();
   if (word == "time") {
     return eoln() && get_server_time();
@@ -1027,12 +1091,11 @@ bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress 
 bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
                                 std::string method_name) {
   std::vector<vm::StackEntry> params;
-  while (!seekeoln()) {
-    vm::StackEntry param;
-    if (!parse_stack_value(param)) {
-      return false;
-    }
-    params.push_back(std::move(param));
+  if (!parse_stack_values(params)) {
+    return set_error("cannot parse list of TVM stack values");
+  }
+  if (!seekeoln()) {
+    return set_error("extra characters after a list of TVM stack values");
   }
   if (!ref_blkid.is_valid()) {
     return set_error("must obtain last block information before making other queries");
@@ -1278,7 +1341,7 @@ void TestNode::run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton:
   {
     std::ostringstream os;
     os << "arguments: ";
-    stack->dump(os);
+    stack->dump(os, 3);
     out << os.str();
   }
   long long gas_limit = vm::GasLimits::infty;
@@ -1302,7 +1365,7 @@ void TestNode::run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton:
   {
     std::ostringstream os;
     os << "result: ";
-    stack->dump(os);
+    stack->dump(os, 3);
     out << os.str();
   }
 }

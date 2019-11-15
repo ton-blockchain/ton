@@ -23,6 +23,7 @@ config config:string blockchain_name:string use_callbacks_for_network:Bool ignor
 
 options config:config keystore_type:KeyStoreType = Options;
 options.configInfo default_wallet_id:int53 = options.ConfigInfo;
+options.info config_info:options.configInfo = options.Info;
 
 key public_key:string secret:secureBytes = Key;
 inputKeyRegular key:key local_password:secureBytes = InputKey;
@@ -81,10 +82,14 @@ query.info id:int53 valid_until:int53 body_hash:bytes  = query.Info;
 tvm.slice bytes:string = tvm.Slice;
 tvm.cell bytes:string = tvm.Cell;
 tvm.numberDecimal number:string = tvm.Number;
+tvm.tuple elements:vector<tvm.StackEntry> = tvm.Tuple;
+tvm.list elements:vector<tvm.StackEntry> = tvm.List;
 
 tvm.stackEntrySlice slice:tvm.slice = tvm.StackEntry;
 tvm.stackEntryCell cell:tvm.cell = tvm.StackEntry;
 tvm.stackEntryNumber number:tvm.Number = tvm.StackEntry;
+tvm.stackEntryTuple tuple:tvm.Tuple = tvm.StackEntry;
+tvm.stackEntryList list:tvm.List = tvm.StackEntry;
 tvm.stackEntryUnsupported = tvm.StackEntry;
 
 smc.info id:int53 = smc.Info;
@@ -121,10 +126,10 @@ liteServer.info now:int53 version:int32 capabilities:int64 = liteServer.Info;
 
 ---functions---
 
-init options:options = Ok;
+init options:options = options.Info;
 close = Ok;
 
-options.setConfig config:config = Ok;
+options.setConfig config:config = options.ConfigInfo;
 options.validateConfig config:config = options.ConfigInfo;
 
 createNewKey local_password:secureBytes mnemonic_password:secureBytes random_extra_seed:secureBytes = Key;

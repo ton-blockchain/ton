@@ -110,12 +110,12 @@ void ValidateBroadcast::start_up() {
     } else if (key_block_seqno == last_masterchain_state_->get_seqno()) {
       got_key_block_handle(last_masterchain_block_handle_);
     } else {
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockIdExt> R) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
         if (R.is_error()) {
           td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
                                   R.move_as_error_prefix("cannot find reference key block id: "));
         } else {
-          td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_id, R.move_as_ok());
+          td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_handle, R.move_as_ok());
         }
       });
       td::actor::send_closure(manager_, &ValidatorManager::get_block_by_seqno_from_db,
@@ -305,7 +305,9 @@ void ValidateBroadcast::checked_proof() {
       }
     });
 
-    td::actor::create_actor<ApplyBlock>("applyblock", handle_->id(), data_, manager_, timeout_, std::move(P)).release();
+    td::actor::create_actor<ApplyBlock>("applyblock", handle_->id(), data_, handle_->id(), manager_, timeout_,
+                                        std::move(P))
+        .release();
   } else {
     finish_query();
   }

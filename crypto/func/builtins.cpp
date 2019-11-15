@@ -949,7 +949,7 @@ void define_builtins() {
   define_builtin_func("~touch2", TypeExpr::new_forall({X, Y}, TypeExpr::new_map(XY, TypeExpr::new_tensor({XY, Unit}))),
                       AsmOp::Nop());
   define_builtin_func("~dump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
-                      AsmOp::Custom("s0 DUMP", 1, 1));
+                      AsmOp::Custom("s0 DUMP", 1, 1), true);
   define_builtin_func("run_method0", TypeExpr::new_map(Int, Unit),
                       [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
   define_builtin_func("run_method1", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),

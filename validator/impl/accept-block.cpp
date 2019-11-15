@@ -41,14 +41,16 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   bool send_broadcast, td::actor::ActorId<ValidatorManager> manager,
-                                   td::Promise<td::Unit> promise)
+                                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
+                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
     , signatures_(std::move(signatures))
+    , approve_signatures_(std::move(approve_signatures))
     , is_fake_(false)
+    , is_fork_(false)
     , send_broadcast_(send_broadcast)
     , manager_(manager)
     , promise_(std::move(promise)) {
@@ -66,6 +68,7 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
     , is_fake_(true)
+    , is_fork_(false)
     , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise)) {
@@ -73,6 +76,74 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
   state_old_hash_.clear();
   state_hash_.clear();
   CHECK(prev_.size() > 0);
+}
+
+AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
+                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
+    : id_(id)
+    , data_(std::move(data))
+    , is_fake_(true)
+    , is_fork_(true)
+    , send_broadcast_(false)
+    , manager_(manager)
+    , promise_(std::move(promise)) {
+  state_keep_old_hash_.clear();
+  state_old_hash_.clear();
+  state_hash_.clear();
+}
+
+bool AcceptBlockQuery::precheck_header() {
+  VLOG(VALIDATOR_DEBUG) << "precheck_header()";
+  // 0. sanity check
+  CHECK(data_.not_null());
+  block_root_ = data_->root_cell();
+  if (data_->block_id() != id_) {
+    return fatal_error("incorrect block id in block data: "s + data_->block_id().to_str() + " instead of " +
+                       id_.to_str());
+  }
+  // 1. root hash and file hash check
+  RootHash blk_rhash{block_root_->get_hash().bits()};
+  if (blk_rhash != id_.root_hash) {
+    return fatal_error("block root hash mismatch: expected "s + id_.root_hash.to_hex() + ", found " +
+                       blk_rhash.to_hex());
+  }
+  if (is_fake_ || is_fork_) {
+    FileHash blk_fhash;
+    td::sha256(data_->data().as_slice(), blk_fhash.as_slice());
+    if (blk_fhash != id_.file_hash) {
+      return fatal_error("block file hash mismatch: expected "s + id_.file_hash.to_hex() + ", computed " +
+                         blk_fhash.to_hex());
+    }
+  }
+  // 2. check header fields
+  std::vector<ton::BlockIdExt> prev;
+  ton::BlockIdExt mc_blkid;
+  bool after_split;
+  auto res = block::unpack_block_prev_blk_try(block_root_, id_, prev, mc_blkid, after_split);
+  if (res.is_error()) {
+    return fatal_error("invalid block header in AcceptBlock: "s + res.to_string());
+  }
+  if (is_fork_) {
+    prev_ = prev;
+  } else if (prev_ != prev) {
+    return fatal_error("invalid previous block reference(s) in block header");
+  }
+  // 3. unpack header and check vert_seqno fields
+  block::gen::Block::Record blk;
+  block::gen::BlockInfo::Record info;
+  if (!(tlb::unpack_cell(block_root_, blk) && tlb::unpack_cell(blk.info, info))) {
+    return fatal_error("cannot unpack block header");
+  }
+  if (info.vert_seqno_incr && !is_fork_) {
+    return fatal_error("block header has vert_seqno_incr set in an ordinary AcceptBlock");
+  }
+  if (!info.vert_seqno_incr && is_fork_) {
+    return fatal_error("fork block header has no vert_seqno_incr");
+  }
+  if (is_fork_ && !info.key_block) {
+    return fatal_error("fork block is not a key block");
+  }
+  return true;
 }
 
 bool AcceptBlockQuery::create_new_proof() {
@@ -93,7 +164,7 @@ bool AcceptBlockQuery::create_new_proof() {
   block::CurrencyCollection fees;
   ShardIdFull shard;
   if (!(tlb::unpack_cell(usage_cell, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
-        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) &&
         block::gen::BlkPrevInfo{info.after_merge}.validate_ref(info.prev_ref) &&
         tlb::unpack_cell(std::move(blk.extra), extra) && block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) &&
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
@@ -292,6 +363,26 @@ void AcceptBlockQuery::start_up() {
     fatal_error("no real SignatureSet passed to AcceptBlockQuery");
     return;
   }
+  if (!is_fake_ && is_fork_) {
+    fatal_error("a non-fake AcceptBlockQuery for a forced fork block");
+    return;
+  }
+  if (!is_fork_ && !prev_.size()) {
+    fatal_error("no previous blocks passed to AcceptBlockQuery");
+    return;
+  }
+  if (is_fork_ && !is_masterchain()) {
+    fatal_error("cannot accept a non-masterchain fork block");
+    return;
+  }
+  if (is_fork_ && data_.is_null()) {
+    fatal_error("cannot accept a fork block without explicit data");
+    return;
+  }
+  if (data_.not_null() && !precheck_header()) {
+    fatal_error("invalid block header in AcceptBlock");
+    return;
+  }
 
   td::actor::send_closure(
       manager_, &ValidatorManager::get_block_handle, id_, true, [SelfId = actor_id(this)](td::Result<BlockHandle> R) {
@@ -330,8 +421,8 @@ void AcceptBlockQuery::written_block_data() {
   if (is_fake_) {
     signatures_ = Ref<BlockSignatureSetQ>(create_signature_set(std::vector<BlockSignature>{}));
   }
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_,
-                          signatures_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_,
+                          [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_signatures);
                           });
@@ -365,8 +456,8 @@ void AcceptBlockQuery::written_block_info() {
     td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority(), timeout_,
                             std::move(P));
   } else {
-    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(),
-                            timeout_, [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(), timeout_,
+                            [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
                               check_send_error(SelfId, R) ||
                                   td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_block_data,
                                                                R.move_as_ok());
@@ -380,6 +471,10 @@ void AcceptBlockQuery::got_block_data(td::Ref<BlockData> data) {
   CHECK(data_.not_null());
   if (data_->root_cell().is_null()) {
     fatal_error("block data does not contain a root cell");
+    return;
+  }
+  if (!precheck_header()) {
+    fatal_error("invalid block header in AcceptBlock");
     return;
   }
   if (handle_->received()) {
@@ -406,8 +501,8 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
   handle_->set_split(state_->before_split());
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_,
-                          state_, [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_,
+                          [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_state, R.move_as_ok());
                           });
@@ -479,8 +574,8 @@ void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, Bl
   if (last_mc_id_.id.seqno < mc_blkid_.id.seqno) {
     VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_.to_str()
                           << ", trying to obtain it";
-    td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(),
-                                  timeout_, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
+    td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
+                                  [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                                     check_send_error(SelfId, R) ||
                                         td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_mc_state,
                                                                      R.move_as_ok());
@@ -586,7 +681,7 @@ void AcceptBlockQuery::require_proof_link(BlockIdExt id) {
   CHECK(ton::ShardIdFull(id) == ton::ShardIdFull(id_));
   CHECK(id.id.seqno == id_.id.seqno - 1 - proof_links_.size());
   td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_proof_link_short, id, timeout_,
-                                [ SelfId = actor_id(this), id ](td::Result<Ref<ProofLink>> R) {
+                                [SelfId = actor_id(this), id](td::Result<Ref<ProofLink>> R) {
                                   check_send_error(SelfId, R) ||
                                       td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_proof_link, id,
                                                                    R.move_as_ok());
@@ -785,7 +880,7 @@ void AcceptBlockQuery::written_block_info_2() {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       check_send_error(SelfId, R) || td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::applied);
     });
-    run_apply_block_query(handle_->id(), data_, manager_, timeout_, std::move(P));
+    run_apply_block_query(handle_->id(), data_, handle_->id(), manager_, timeout_, std::move(P));
   } else {
     applied();
   }

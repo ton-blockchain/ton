@@ -165,7 +165,7 @@ bool CheckProof::init_parse(bool is_aux) {
   block::gen::ExtBlkRef::Record mcref;  // _ ExtBlkRef = BlkMasterInfo;
   ShardIdFull shard;
   if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
-        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) &&
         block::gen::BlkPrevInfo{info.after_merge}.validate_ref(info.prev_ref) &&
         block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) &&
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {

@@ -96,6 +96,10 @@ void interpret_dotstack_list(IntCtx& ctx) {
   *ctx.output_stream << std::endl;
 }
 
+void interpret_dotstack_list_dump(IntCtx& ctx) {
+  ctx.stack.dump(*ctx.output_stream, 3);
+}
+
 void interpret_dump(IntCtx& ctx) {
   ctx.stack.pop_chk().dump(*ctx.output_stream);
   *ctx.output_stream << ' ';
@@ -103,6 +107,10 @@ void interpret_dump(IntCtx& ctx) {
 
 void interpret_dump_internal(vm::Stack& stack) {
   stack.push_string(stack.pop_chk().to_string());
+}
+
+void interpret_list_dump_internal(vm::Stack& stack) {
+  stack.push_string(stack.pop_chk().to_lisp_string());
 }
 
 void interpret_print_list(IntCtx& ctx) {
@@ -2434,10 +2442,12 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("csr. ", interpret_dot_cellslice_rec);
   d.def_ctx_word(".s ", interpret_dotstack);
   d.def_ctx_word(".sl ", interpret_dotstack_list);
+  d.def_ctx_word(".sL ", interpret_dotstack_list_dump);  // TMP
   d.def_ctx_word(".dump ", interpret_dump);
   d.def_ctx_word(".l ", interpret_print_list);
   d.def_ctx_word(".tc ", interpret_dottc);
   d.def_stack_word("(dump) ", interpret_dump_internal);
+  d.def_stack_word("(ldump) ", interpret_list_dump_internal);
   d.def_stack_word("(.) ", interpret_dot_internal);
   d.def_stack_word("(x.) ", std::bind(interpret_dothex_internal, _1, false));
   d.def_stack_word("(X.) ", std::bind(interpret_dothex_internal, _1, true));

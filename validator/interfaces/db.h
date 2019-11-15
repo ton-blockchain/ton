@@ -72,9 +72,9 @@ class Db : public td::actor::Actor {
   virtual void get_block_handle(BlockIdExt id, td::Promise<BlockHandle> promise) = 0;
 
   virtual void apply_block(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
-  virtual void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockIdExt> promise) = 0;
-  virtual void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<BlockIdExt> promise) = 0;
-  virtual void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<BlockIdExt> promise) = 0;
+  virtual void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockHandle> promise) = 0;
+  virtual void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<BlockHandle> promise) = 0;
+  virtual void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<BlockHandle> promise) = 0;
 
   virtual void update_init_masterchain_block(BlockIdExt block, td::Promise<td::Unit> promise) = 0;
   virtual void get_init_masterchain_block(td::Promise<BlockIdExt> promise) = 0;
@@ -95,11 +95,25 @@ class Db : public td::actor::Actor {
   virtual void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) = 0;
   virtual void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) = 0;
 
-  virtual void archive(BlockIdExt block_id, td::Promise<td::Unit> promise) = 0;
+  virtual void archive(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
 
   virtual void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) = 0;
+
+  virtual void add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) = 0;
+  virtual void add_key_block_proof_link(td::Ref<ProofLink> proof_link, td::Promise<td::Unit> promise) = 0;
+  virtual void get_key_block_proof(BlockIdExt block_id, td::Promise<td::Ref<Proof>> promise) = 0;
+  virtual void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::Ref<ProofLink>> promise) = 0;
+  virtual void check_key_block_proof_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
+  virtual void check_key_block_proof_link_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
+
+  virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
+  virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                                 td::Promise<td::BufferSlice> promise) = 0;
+  virtual void set_async_mode(bool mode, td::Promise<td::Unit> promise) = 0;
+
+  virtual void run_gc(UnixTime ts) = 0;
 };
 
 }  // namespace validator

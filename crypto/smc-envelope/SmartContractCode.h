@@ -26,5 +26,6 @@ class SmartContractCode {
   static td::Ref<vm::Cell> wallet();
   static td::Ref<vm::Cell> simple_wallet();
   static td::Ref<vm::Cell> simple_wallet_ext();
+  static td::Ref<vm::Cell> highload_wallet();
 };
 }  // namespace ton

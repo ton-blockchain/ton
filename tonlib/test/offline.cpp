@@ -438,3 +438,94 @@ TEST(Tonlib, KeysApi) {
   CHECK(new_imported_key->public_key_ == key->public_key_);
   CHECK(new_imported_key->secret_ != key->secret_);
 }
+
+TEST(Tonlib, ConfigCache) {
+  using tonlib_api::make_object;
+  Client client;
+
+  td::mkdir("testdir").ignore();
+  // init
+  sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(
+                        nullptr, make_object<tonlib_api::keyStoreTypeDirectory>("testdir"))))
+      .ensure();
+
+  auto testnet = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  auto testnet2 = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "VXSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  auto testnet3 = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "ZXSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  auto bad = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(bad, "", true, false)))
+      .ensure_error();
+
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet, "", true, false)))
+      .ensure();
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet2, "", true, false)))
+      .ensure();
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet3, "", true, false)))
+      .ensure();
+
+  sync_send(client, make_object<tonlib_api::options_validateConfig>(
+                        make_object<tonlib_api::config>(testnet2, "testnet", true, false)))
+      .ensure_error();
+
+  sync_send(client, make_object<tonlib_api::options_setConfig>(
+                        make_object<tonlib_api::config>(testnet2, "testnet2", true, false)))
+      .ensure();
+  sync_send(client, make_object<tonlib_api::options_setConfig>(
+                        make_object<tonlib_api::config>(testnet3, "testnet2", true, false)))
+      .ensure_error();
+}

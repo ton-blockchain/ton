@@ -61,7 +61,7 @@ class FullNodeShardImpl : public FullNodeShard {
     return 1;
   }
   static constexpr td::uint32 proto_version() {
-    return 1;
+    return 2;
   }
   static constexpr td::uint64 proto_capabilities() {
     return 0;
@@ -120,6 +120,10 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
+                     td::Promise<td::BufferSlice> promise);
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
@@ -148,6 +152,8 @@ class FullNodeShardImpl : public FullNodeShard {
                                  td::Promise<td::BufferSlice> promise) override;
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                            td::Promise<std::vector<BlockIdExt>> promise) override;
+  void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                        td::Promise<std::string> promise) override;
 
   void set_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 

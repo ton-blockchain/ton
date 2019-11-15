@@ -222,6 +222,22 @@ StateDb::StateDb(td::actor::ActorId<RootDb> root_db, std::string db_path) : root
 
 void StateDb::start_up() {
   kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path_).move_as_ok());
+
+  std::string value;
+  auto R = kv_->get(create_serialize_tl_object<ton_api::db_state_key_dbVersion>(), value);
+  R.ensure();
+  if (R.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    auto F = fetch_tl_object<ton_api::db_state_dbVersion>(value, true);
+    F.ensure();
+    auto f = F.move_as_ok();
+    CHECK(f->version_ == 2);
+  } else {
+    kv_->begin_transaction().ensure();
+    kv_->set(create_serialize_tl_object<ton_api::db_state_key_dbVersion>(),
+             create_serialize_tl_object<ton_api::db_state_dbVersion>(2))
+        .ensure();
+    kv_->commit_transaction().ensure();
+  }
 }
 
 }  // namespace validator

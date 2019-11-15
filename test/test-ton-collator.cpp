@@ -303,6 +303,10 @@ class TestNode : public td::actor::Actor {
       void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
                                td::Promise<std::vector<ton::BlockIdExt>> promise) override {
       }
+      void download_archive(ton::BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+
+                            td::Promise<std::string> promise) override {
+      }
 
       void new_key_block(ton::validator::BlockHandle handle) override {
       }

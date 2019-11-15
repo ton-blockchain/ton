@@ -58,6 +58,14 @@ class TonlibClient : public td::actor::Actor {
 
   ~TonlibClient();
 
+  struct FullConfig {
+    Config config;
+    bool use_callbacks_for_network;
+    LastBlockState last_state;
+    std::string last_state_key;
+    td::uint32 wallet_id;
+  };
+
  private:
   enum class State { Uninited, Running, Closed } state_ = State::Uninited;
   td::unique_ptr<TonlibCallback> callback_;
@@ -66,8 +74,7 @@ class TonlibClient : public td::actor::Actor {
   Config config_;
   td::uint32 config_generation_{0};
   td::uint32 wallet_id_;
-  std::string blockchain_name_;
-  bool ignore_cache_{false};
+  std::string last_state_key_;
   bool use_callbacks_for_network_{false};
 
   // KeyStorage
@@ -89,7 +96,7 @@ class TonlibClient : public td::actor::Actor {
 
   ExtClientRef get_client_ref();
   void init_ext_client();
-  void init_last_block(td::optional<Config> o_master_config);
+  void init_last_block(LastBlockState state);
   void init_last_config();
 
   bool is_closing_{false};
@@ -128,7 +135,6 @@ class TonlibClient : public td::actor::Actor {
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::testGiver_getAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::packAccountAddress& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::unpackAccountAddress& request);
-  static object_ptr<tonlib_api::Object> do_static_request(tonlib_api::options_validateConfig& request);
   static object_ptr<tonlib_api::Object> do_static_request(tonlib_api::getBip39Hints& request);
 
   static object_ptr<tonlib_api::Object> do_static_request(tonlib_api::setLogStream& request);
@@ -160,8 +166,6 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::packAccountAddress& request, P&&);
   template <class P>
   td::Status do_request(const tonlib_api::unpackAccountAddress& request, P&&);
-  template <class P>
-  td::Status do_request(const tonlib_api::options_validateConfig& request, P&&);
   template <class P>
   td::Status do_request(tonlib_api::getBip39Hints& request, P&&);
 
@@ -197,18 +201,14 @@ class TonlibClient : public td::actor::Actor {
     }
   }
 
-  struct FullConfig {
-    Config config;
-    td::optional<Config> o_master_config;
-    bool use_callbacks_for_network;
-    bool ignore_cache;
-    td::uint32 wallet_id;
-  };
-  static td::Result<FullConfig> validate_config(tonlib_api::object_ptr<tonlib_api::config> config);
+  td::Result<FullConfig> validate_config(tonlib_api::object_ptr<tonlib_api::config> config);
   void set_config(FullConfig config);
-  td::Status do_request(const tonlib_api::init& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
+  td::Status do_request(const tonlib_api::init& request, td::Promise<object_ptr<tonlib_api::options_info>>&& promise);
   td::Status do_request(const tonlib_api::close& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
-  td::Status do_request(tonlib_api::options_setConfig& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
+  td::Status do_request(tonlib_api::options_validateConfig& request,
+                        td::Promise<object_ptr<tonlib_api::options_configInfo>>&& promise);
+  td::Status do_request(tonlib_api::options_setConfig& request,
+                        td::Promise<object_ptr<tonlib_api::options_configInfo>>&& promise);
 
   td::Status do_request(const tonlib_api::raw_sendMessage& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
   td::Status do_request(const tonlib_api::raw_createAndSendMessage& request,

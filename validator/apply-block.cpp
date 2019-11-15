@@ -53,6 +53,10 @@ void ApplyBlock::alarm() {
 void ApplyBlock::start_up() {
   VLOG(VALIDATOR_DEBUG) << "running apply_block for " << id_;
 
+  if (id_.is_masterchain()) {
+    masterchain_block_id_ = id_;
+  }
+
   alarm_timestamp() = timeout_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
@@ -144,6 +148,7 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
 }
 
 void ApplyBlock::written_block_data() {
+  VLOG(VALIDATOR_DEBUG) << "apply block: written block data for " << id_;
   if (handle_->is_applied() && handle_->processed()) {
     finish_query();
   } else {
@@ -161,6 +166,7 @@ void ApplyBlock::written_block_data() {
 }
 
 void ApplyBlock::got_cur_state(td::Ref<ShardState> state) {
+  VLOG(VALIDATOR_DEBUG) << "apply block: received state for " << id_;
   state_ = std::move(state);
   CHECK(handle_->received_state());
   written_state();
@@ -171,6 +177,7 @@ void ApplyBlock::written_state() {
     finish_query();
     return;
   }
+  VLOG(VALIDATOR_DEBUG) << "apply block: setting next for parents of " << id_;
 
   if (handle_->id().id.seqno != 0 && !handle_->is_applied()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -201,10 +208,12 @@ void ApplyBlock::written_next() {
     return;
   }
 
-  if (handle_->id().id.seqno != 0) {
+  VLOG(VALIDATOR_DEBUG) << "apply block: applying parents of " << id_;
+
+  if (handle_->id().id.seqno != 0 && !handle_->is_applied()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       if (R.is_error()) {
-        td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
+        td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error_prefix("prev: "));
       } else {
         td::actor::send_closure(SelfId, &ApplyBlock::applied_prev);
       }
@@ -213,9 +222,13 @@ void ApplyBlock::written_next() {
     td::MultiPromise mp;
     auto g = mp.init_guard();
     g.add_promise(std::move(P));
-    run_apply_block_query(handle_->one_prev(true), td::Ref<BlockData>{}, manager_, timeout_, g.get_promise());
+    BlockIdExt m = masterchain_block_id_;
+    if (id_.is_masterchain()) {
+      m = id_;
+    }
+    run_apply_block_query(handle_->one_prev(true), td::Ref<BlockData>{}, m, manager_, timeout_, g.get_promise());
     if (handle_->merge_before()) {
-      run_apply_block_query(handle_->one_prev(false), td::Ref<BlockData>{}, manager_, timeout_, g.get_promise());
+      run_apply_block_query(handle_->one_prev(false), td::Ref<BlockData>{}, m, manager_, timeout_, g.get_promise());
     }
   } else {
     applied_prev();
@@ -223,6 +236,10 @@ void ApplyBlock::written_next() {
 }
 
 void ApplyBlock::applied_prev() {
+  VLOG(VALIDATOR_DEBUG) << "apply block: waiting manager's confirm for " << id_;
+  if (!id_.is_masterchain()) {
+    handle_->set_masterchain_ref_block(masterchain_block_id_.seqno());
+  }
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
@@ -234,7 +251,12 @@ void ApplyBlock::applied_prev() {
 }
 
 void ApplyBlock::applied_set() {
+  VLOG(VALIDATOR_DEBUG) << "apply block: setting apply bit for " << id_;
   handle_->set_applied();
+  if (handle_->id().seqno() > 0) {
+    CHECK(handle_->handle_moved_to_archive());
+    CHECK(handle_->moved_to_archive());
+  }
   if (handle_->need_flush()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       if (R.is_error()) {

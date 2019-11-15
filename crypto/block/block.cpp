@@ -1745,7 +1745,7 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
   block::gen::ExtBlkRef::Record mcref;  // _ ExtBlkRef = BlkMasterInfo;
   ton::ShardIdFull shard;
   if (!(tlb::unpack_cell(block_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
-        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) &&
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
     return td::Status::Error("cannot unpack block header");
   }
@@ -1809,6 +1809,9 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
   } else {
     mc_blkid = ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, mcref.seq_no, mcref.root_hash, mcref.file_hash};
   }
+  if (shard.is_masterchain() && info.vert_seqno_incr && !info.key_block) {
+    return td::Status::Error("non-key masterchain block cannot have vert_seqno_incr set");
+  }
   return td::Status::OK();
 }
 
@@ -1817,7 +1820,7 @@ td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& i
   block::gen::BlockInfo::Record info;
   ton::ShardIdFull shard;
   if (!(tlb::unpack_cell(block_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
-        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no)) {
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard))) {
     return td::Status::Error("cannot unpack block header");
   }
   ton::BlockId hdr_id{shard, (unsigned)info.seq_no};

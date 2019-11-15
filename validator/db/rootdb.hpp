@@ -22,13 +22,10 @@
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
-#include "blockdb.hpp"
 #include "celldb.hpp"
-#include "filedb.hpp"
-#include "ltdb.hpp"
 #include "statedb.hpp"
 #include "staticfilesdb.hpp"
-#include "archive-db.hpp"
+#include "archive-manager.hpp"
 
 namespace ton {
 
@@ -85,9 +82,9 @@ class RootDb : public Db {
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
 
   void apply_block(BlockHandle handle, td::Promise<td::Unit> promise) override;
-  void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockIdExt> promise) override;
-  void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<BlockIdExt> promise) override;
-  void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<BlockIdExt> promise) override;
+  void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockHandle> promise) override;
+  void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<BlockHandle> promise) override;
+  void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<BlockHandle> promise) override;
 
   void update_init_masterchain_block(BlockIdExt block, td::Promise<td::Unit> promise) override;
   void get_init_masterchain_block(td::Promise<BlockIdExt> promise) override;
@@ -108,15 +105,29 @@ class RootDb : public Db {
   void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) override;
   void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) override;
 
-  void archive(BlockIdExt block_id, td::Promise<td::Unit> promise) override;
+  void archive(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
   void allow_state_gc(BlockIdExt block_id, td::Promise<bool> promise);
   void allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise);
-  void allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> promise);
+  //void allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> promise);
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
 
   void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override;
+
+  void add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) override;
+  void add_key_block_proof_link(td::Ref<ProofLink> proof_link, td::Promise<td::Unit> promise) override;
+  void get_key_block_proof(BlockIdExt block_id, td::Promise<td::Ref<Proof>> promise) override;
+  void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::Ref<ProofLink>> promise) override;
+  void check_key_block_proof_exists(BlockIdExt block_id, td::Promise<bool> promise) override;
+  void check_key_block_proof_link_exists(BlockIdExt block_id, td::Promise<bool> promise) override;
+
+  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) override;
+  void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                         td::Promise<td::BufferSlice> promise) override;
+  void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;
+
+  void run_gc(UnixTime ts) override;
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;
@@ -125,13 +136,9 @@ class RootDb : public Db {
   td::uint32 depth_;
 
   td::actor::ActorOwn<CellDb> cell_db_;
-  td::actor::ActorOwn<BlockDb> block_db_;
-  td::actor::ActorOwn<FileDb> file_db_;
-  td::actor::ActorOwn<FileDb> old_archive_db_;
-  td::actor::ActorOwn<LtDb> lt_db_;
   td::actor::ActorOwn<StateDb> state_db_;
   td::actor::ActorOwn<StaticFilesDb> static_files_db_;
-  td::actor::ActorOwn<ArchiveManager> new_archive_db_;
+  td::actor::ActorOwn<ArchiveManager> archive_db_;
 };
 
 }  // namespace validator

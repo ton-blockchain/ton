@@ -309,6 +309,26 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
   promise.set_value(create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version(), proto_capabilities()));
 }
 
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveNotFound>());
+        } else {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveInfo>(R.move_as_ok()));
+        }
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
+                          std::move(P));
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_slice, query.archive_id_,
+                          query.offset_, query.max_size_, std::move(promise));
+}
+
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_slave_sendExtMessage &query,
                                        td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(

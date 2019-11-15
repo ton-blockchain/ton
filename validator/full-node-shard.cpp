@@ -31,6 +31,7 @@
 #include "net/download-state.hpp"
 #include "net/download-proof.hpp"
 #include "net/get-next-key-blocks.hpp"
+#include "net/download-archive-slice.hpp"
 
 #include "td/utils/Random.h"
 
@@ -146,6 +147,7 @@ void FullNodeShardImpl::got_next_block(td::Result<BlockHandle> R) {
 }
 
 void FullNodeShardImpl::get_next_block() {
+  //return;
   attempt_++;
   auto P = td::PromiseCreator::lambda([validator_manager = validator_manager_, attempt = attempt_,
                                        block_id = handle_->id(), SelfId = actor_id(this)](td::Result<ReceivedBlock> R) {
@@ -450,6 +452,26 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   promise.set_value(create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version(), proto_capabilities()));
 }
 
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveNotFound>());
+        } else {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveInfo>(R.move_as_ok()));
+        }
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
+                          std::move(P));
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_slice, query.archive_id_,
+                          query.offset_, query.max_size_, std::move(promise));
+}
+
 void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                       td::Promise<td::BufferSlice> promise) {
   auto B = fetch_tl_object<ton_api::Function>(std::move(query), true);
@@ -637,6 +659,15 @@ void FullNodeShardImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp t
       .release();
 }
 
+void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                                         td::Promise<std::string> promise) {
+  auto &b = choose_neighbour();
+  td::actor::create_actor<DownloadArchiveSlice>(
+      "archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), timeout,
+      validator_manager_, rldp_, overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
+      .release();
+}
+
 void FullNodeShardImpl::set_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
   CHECK(!handle_);
   handle_ = std::move(handle);
@@ -741,7 +772,7 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
     authorized_keys.emplace(key, overlay::Overlays::max_fec_broadcast_size());
   }
 
-  rules_ = overlay::OverlayPrivacyRules{overlay::Overlays::max_simple_broadcast_size(), std::move(authorized_keys)};
+  rules_ = overlay::OverlayPrivacyRules{1 << 14, std::move(authorized_keys)};
   td::actor::send_closure(overlays_, &overlay::Overlays::set_privacy_rules, adnl_id_, overlay_id_, rules_);
 
   if (update_cert) {

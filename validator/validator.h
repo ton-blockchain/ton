@@ -117,6 +117,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                            td::Promise<td::BufferSlice> promise) = 0;
     virtual void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                                      td::Promise<std::vector<BlockIdExt>> promise) = 0;
+    virtual void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                                  td::Promise<std::string> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
   };
@@ -157,6 +159,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;
+  virtual void get_key_block_proof(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_next_key_blocks(BlockIdExt block_id, td::uint32 cnt,
                                    td::Promise<std::vector<BlockIdExt>> promise) = 0;
   virtual void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) = 0;
@@ -184,11 +188,15 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_proof_link_from_db_short(BlockIdExt id, td::Promise<td::Ref<ProofLink>> promise) = 0;
 
   virtual void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt,
-                                       td::Promise<BlockIdExt> promise) = 0;
+                                       td::Promise<BlockHandle> promise) = 0;
   virtual void get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                              td::Promise<BlockIdExt> promise) = 0;
+                                              td::Promise<BlockHandle> promise) = 0;
   virtual void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                          td::Promise<BlockIdExt> promise) = 0;
+                                          td::Promise<BlockHandle> promise) = 0;
+
+  virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
+  virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                                 td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;

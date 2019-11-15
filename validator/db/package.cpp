@@ -34,7 +34,7 @@ td::Status Package::truncate(td::uint64 size) {
   return fd_.truncate_to_current_position(size + header_size());
 }
 
-td::uint64 Package::append(std::string filename, td::Slice data) {
+td::uint64 Package::append(std::string filename, td::Slice data, bool sync) {
   CHECK(data.size() <= max_data_size());
   CHECK(filename.size() <= max_filename_size());
   auto size = fd_.get_size().move_as_ok();
@@ -48,8 +48,14 @@ td::uint64 Package::append(std::string filename, td::Slice data) {
   size += filename.size();
   CHECK(fd_.pwrite(data, size).move_as_ok() == data.size());
   size += data.size();
-  fd_.sync().ensure();
+  if (sync) {
+    fd_.sync().ensure();
+  }
   return orig_size - header_size();
+}
+
+void Package::sync() {
+  fd_.sync().ensure();
 }
 
 td::uint64 Package::size() const {
@@ -138,6 +144,30 @@ td::Result<Package> Package::open(std::string path, bool read_only, bool create)
     }
   }
   return Package{std::move(fd)};
+}
+
+void Package::iterate(std::function<bool(std::string, td::BufferSlice, td::uint64)> func) {
+  td::uint64 p = 0;
+
+  td::uint64 size = fd_.get_size().move_as_ok();
+  if (size < header_size()) {
+    LOG(ERROR) << "too short archive";
+    return;
+  }
+  size -= header_size();
+  while (p != size) {
+    auto R = read(p);
+    if (R.is_error()) {
+      LOG(ERROR) << "broken archive: " << R.move_as_error();
+      return;
+    }
+    auto q = R.move_as_ok();
+    if (!func(q.first, q.second.clone(), p)) {
+      break;
+    }
+
+    p = advance(p).move_as_ok();
+  }
 }
 
 }  // namespace ton

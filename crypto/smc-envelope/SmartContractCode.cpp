@@ -39,6 +39,7 @@ const auto& get_map() {
 #include "smartcont/auto/simple-wallet-ext-code.cpp"
 #include "smartcont/auto/simple-wallet-code.cpp"
 #include "smartcont/auto/wallet-code.cpp"
+#include "smartcont/auto/highload-wallet-code.cpp"
     return map;
   }();
   return map;
@@ -67,6 +68,10 @@ td::Ref<vm::Cell> SmartContractCode::simple_wallet() {
 }
 td::Ref<vm::Cell> SmartContractCode::simple_wallet_ext() {
   static auto res = load("simple-wallet-ext").move_as_ok();
+  return res;
+}
+td::Ref<vm::Cell> SmartContractCode::highload_wallet() {
+  static auto res = load("highload-wallet").move_as_ok();
   return res;
 }
 }  // namespace ton

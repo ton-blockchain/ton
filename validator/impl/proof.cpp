@@ -88,6 +88,7 @@ td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const
     }
     res.cc_seqno = info.gen_catchain_seqno;
     res.utime = info.gen_utime;
+    res.end_lt = info.end_lt;
     res.validator_set_hash = info.gen_validator_list_hash_short;
     res.prev_key_mc_seqno = info.prev_key_block_seqno;
     return res;
