@@ -14,8 +14,6 @@ set(VALIDATOR_DB_SOURCE
   db/archive-manager.hpp
   db/archive-slice.cpp
   db/archive-slice.hpp
-  db/blockdb.cpp
-  db/blockdb.hpp
   db/celldb.cpp
   db/celldb.hpp
   db/files-async.hpp
