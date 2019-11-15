@@ -11,15 +11,15 @@ namespace validator {
 
 std::string PackageId::path() const {
   if (temp) {
-    return "files/packages/";
+    return "/files/packages/";
   } else if (key) {
     char s[24];
     sprintf(s, "key%03d", id / 1000000);
-    return PSTRING() << "archive/packages/" << s << "/";
+    return PSTRING() << "/archive/packages/" << s << "/";
   } else {
     char s[20];
     sprintf(s, "arch%04d", id / 100000);
-    return PSTRING() << "archive/packages/" << s << "/";
+    return PSTRING() << "/archive/packages/" << s << "/";
   }
 }
 
