@@ -230,6 +230,14 @@ void FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeou
   td::actor::send_closure(shard, &FullNodeShard::get_next_key_blocks, block_id, timeout, std::move(promise));
 }
 
+void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                                    td::Promise<std::string> promise) {
+  auto shard = get_shard(ShardIdFull{masterchainId});
+  CHECK(!shard.empty());
+  td::actor::send_closure(shard, &FullNodeShard::download_archive, masterchain_seqno, std::move(tmp_dir), timeout,
+                          std::move(promise));
+}
+
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
   while (shards_.count(shard) == 0) {
     if (shard.shard == shardIdAll) {
@@ -391,6 +399,11 @@ void FullNodeImpl::start_up() {
     void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                              td::Promise<std::vector<BlockIdExt>> promise) override {
       td::actor::send_closure(id_, &FullNodeImpl::get_next_key_blocks, block_id, timeout, std::move(promise));
+    }
+    void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                          td::Promise<std::string> promise) override {
+      td::actor::send_closure(id_, &FullNodeImpl::download_archive, masterchain_seqno, std::move(tmp_dir), timeout,
+                              std::move(promise));
     }
 
     void new_key_block(BlockHandle handle) override {

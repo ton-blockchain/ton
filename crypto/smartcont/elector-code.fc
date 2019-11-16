@@ -792,6 +792,26 @@ _ participant_list() method_id {
   return l;
 }
 
+;; returns the list of all participants of current elections with their data
+_ participant_list_extended() method_id {
+  var elect = get_data().begin_parse().preload_dict();
+  if (elect.null?()) {
+    return nil;
+  }
+  var (elect_at, elect_close, min_stake, total_stake, members, failed, finished) = elect.unpack_elect();
+  var l = nil;
+  var id = (1 << 255) + ((1 << 255) - 1);
+  do {
+    (id, var cs, var f) = members.udict_get_prev?(256, id);
+    if (f) {
+      var (stake, time, max_factor, addr, adnl_addr) = (cs~load_grams(), cs~load_uint(32), cs~load_uint(32), cs~load_uint(256), cs~load_uint(256));
+      cs.end_parse();
+      l = cons(pair(id, tuple4(stake, max_factor, addr, adnl_addr)), l);
+    }
+  } until (~ f);
+  return l;
+}
+
 ;; computes the return stake
 int compute_returned_stake(int wallet_addr) method_id {
   var cs = get_data().begin_parse();

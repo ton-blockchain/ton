@@ -147,6 +147,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void allow_block_candidate_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
   virtual void allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
 
+  virtual void archive(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
+
   virtual void check_is_hardfork(BlockIdExt block_id, td::Promise<bool> promise) = 0;
   virtual void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) = 0;
 

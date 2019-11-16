@@ -39,9 +39,14 @@ namespace validator {
 
 class ApplyBlock : public td::actor::Actor {
  public:
-  ApplyBlock(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,
-             td::Timestamp timeout, td::Promise<td::Unit> promise)
-      : id_(id), block_(std::move(block)), manager_(manager), timeout_(timeout), promise_(std::move(promise)) {
+  ApplyBlock(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
+             td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<td::Unit> promise)
+      : id_(id)
+      , block_(std::move(block))
+      , masterchain_block_id_(masterchain_block_id)
+      , manager_(manager)
+      , timeout_(timeout)
+      , promise_(std::move(promise)) {
   }
 
   static constexpr td::uint32 apply_block_priority() {
@@ -65,6 +70,7 @@ class ApplyBlock : public td::actor::Actor {
  private:
   BlockIdExt id_;
   td::Ref<BlockData> block_;
+  BlockIdExt masterchain_block_id_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::Timestamp timeout_;
   td::Promise<td::Unit> promise_;

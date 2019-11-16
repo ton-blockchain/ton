@@ -9,6 +9,7 @@
 using namespace std::literals::string_literals;
 
 namespace liteclient {
+
 td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
     ton::lite_api::object_ptr<ton::lite_api::liteServer_partialBlockProof> f) {
   // deserialize proof chain
@@ -75,6 +76,7 @@ td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
   LOG(DEBUG) << "deserialized a BlkProofChain of " << chain->link_count() << " links";
   return std::move(chain);
 }
+
 td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, td::Ref<vm::CellSlice> my_addr,
                                  const block::CurrencyCollection& balance) {
   td::BitArray<256> rand_seed;
@@ -96,4 +98,5 @@ td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, td::Ref
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
   return vm::make_tuple_ref(std::move(tuple));
 }
+
 }  // namespace liteclient

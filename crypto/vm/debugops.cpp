@@ -74,7 +74,8 @@ int exec_dump_stack(VmState* st) {
     d = 255;
   }
   for (int i = d; i > 0; i--) {
-    std::cerr << stack[i - 1].to_string() << " ";
+    stack[i - 1].print_list(std::cerr);
+    std::cerr << ' ';
   }
   std::cerr << std::endl;
   return 0;
@@ -85,7 +86,9 @@ int exec_dump_value(VmState* st, unsigned arg) {
   VM_LOG(st) << "execute DUMP s" << arg;
   Stack& stack = st->get_stack();
   if ((int)arg < stack.depth()) {
-    std::cerr << "#DEBUG#: s" << arg << " = " << stack[arg].to_string() << std::endl;
+    std::cerr << "#DEBUG#: s" << arg << " = ";
+    stack[arg].print_list(std::cerr);
+    std::cerr << std::endl;
   } else {
     std::cerr << "#DEBUG#: s" << arg << " is absent" << std::endl;
   }

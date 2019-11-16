@@ -191,8 +191,8 @@ void test2(vm::CellSlice& cs) {
 }
 
 void usage() {
-  std::cout << "usage: test-block [-S][<boc-file>]\n\tor test-block -h\n\tDumps specified blockchain block or state "
-               "from <boc-file>, or runs some tests\n\t-S\tDump a blockchain state\n";
+  std::cout << "usage: dump-block [-S][<boc-file>]\n\tor dump-block -h\n\tDumps specified blockchain block or state "
+               "from <boc-file>, or runs some tests\n\t-S\tDump a blockchain state instead of a block\n";
   std::exit(2);
 }
 

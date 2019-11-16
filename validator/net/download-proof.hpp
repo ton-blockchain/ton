@@ -44,6 +44,7 @@ class DownloadProof : public td::actor::Actor {
   void finish_query();
 
   void start_up() override;
+  void checked_db();
   void got_download_token(std::unique_ptr<DownloadToken> token);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_proof_description(td::BufferSlice proof_description);

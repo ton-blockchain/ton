@@ -36,6 +36,7 @@ class ShardClient : public td::actor::Actor {
 
   bool waiting_ = false;
   bool init_mode_ = false;
+  bool started_ = false;
 
   td::actor::ActorId<ValidatorManager> manager_;
 
@@ -67,6 +68,7 @@ class ShardClient : public td::actor::Actor {
   void start_up() override;
   void start_up_init_mode();
   void start_up_init_mode_finished();
+  void start();
   void got_state_from_db(BlockIdExt masterchain_block_id);
 
   void im_download_shard_state(BlockIdExt block_id, td::Promise<td::Unit> promise);

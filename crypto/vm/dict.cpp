@@ -793,8 +793,7 @@ std::tuple<Ref<CellSlice>, Ref<Cell>, bool> dict_lookup_set(Ref<Cell> dict, td::
 std::pair<Ref<Cell>, bool> pfx_dict_set(Ref<Cell> dict, td::ConstBitPtr key, int m, int n,
                                         const PrefixDictionary::store_value_func_t& store_val,
                                         Dictionary::SetMode mode) {
-  std::cerr << "up to " << n << "-bit prefix code dictionary modification for " << m << "-bit key = " << key.to_hex(m)
-            << std::endl;
+  // std::cerr << "up to " << n << "-bit prefix code dictionary modification for " << m << "-bit key = " << key.to_hex(m) << std::endl;
   if (m > n) {
     return std::make_pair(Ref<Cell>{}, false);
   }

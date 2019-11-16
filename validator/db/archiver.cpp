@@ -24,38 +24,27 @@ namespace ton {
 
 namespace validator {
 
-BlockArchiver::BlockArchiver(BlockIdExt block_id, td::actor::ActorId<RootDb> root_db,
-                             td::actor::ActorId<FileDb> file_db, td::actor::ActorId<FileDb> archive_db,
-                             td::actor::ActorId<ArchiveManager> archive, td::Promise<td::Unit> promise)
-    : block_id_(block_id)
-    , root_db_(root_db)
-    , file_db_(file_db)
-    , archive_db_(archive_db)
-    , archive_(archive)
-    , promise_(std::move(promise)) {
+BlockArchiver::BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManager> archive_db,
+                             td::Promise<td::Unit> promise)
+    : handle_(std::move(handle)), archive_(archive_db), promise_(std::move(promise)) {
 }
 
 void BlockArchiver::start_up() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::got_block_handle, R.move_as_ok());
-  });
-  td::actor::send_closure(root_db_, &RootDb::get_block_handle_external, block_id_, false, std::move(P));
+  if (handle_->handle_moved_to_archive()) {
+    moved_handle();
+  } else {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+      R.ensure();
+      td::actor::send_closure(SelfId, &BlockArchiver::moved_handle);
+    });
+    td::actor::send_closure(archive_, &ArchiveManager::add_handle, handle_, std::move(P));
+  }
 }
 
-void BlockArchiver::got_block_handle(BlockHandle handle) {
-  handle_ = std::move(handle);
+void BlockArchiver::moved_handle() {
+  CHECK(handle_->handle_moved_to_archive());
   if (handle_->moved_to_archive()) {
     finish_query();
-    return;
-  }
-
-  if (!handle_->is_applied() && !handle_->is_archived() &&
-      (!handle_->inited_is_key_block() || !handle_->is_key_block())) {
-    // no need for this block
-    // probably this block not in final chain
-    // this will eventually delete all associated data
-    written_block_data();
     return;
   }
 
@@ -69,11 +58,7 @@ void BlockArchiver::got_block_handle(BlockHandle handle) {
     td::actor::send_closure(SelfId, &BlockArchiver::got_proof, R.move_as_ok());
   });
 
-  if (handle_->moved_to_storage()) {
-    td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::Proof{block_id_}}, std::move(P));
-  } else {
-    td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::Proof{block_id_}}, std::move(P));
-  }
+  td::actor::send_closure(archive_, &ArchiveManager::get_temp_file_short, fileref::Proof{handle_->id()}, std::move(P));
 }
 
 void BlockArchiver::got_proof(td::BufferSlice data) {
@@ -81,8 +66,8 @@ void BlockArchiver::got_proof(td::BufferSlice data) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::written_proof);
   });
-  td::actor::send_closure(archive_, &ArchiveManager::write, handle_->unix_time(), handle_->is_key_block(),
-                          FileDb::RefId{fileref::Proof{block_id_}}, std::move(data), std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::add_file, handle_, fileref::Proof{handle_->id()}, std::move(data),
+                          std::move(P));
 }
 
 void BlockArchiver::written_proof() {
@@ -95,12 +80,9 @@ void BlockArchiver::written_proof() {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::got_proof_link, R.move_as_ok());
   });
-  if (handle_->moved_to_storage()) {
-    td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::ProofLink{block_id_}},
-                            std::move(P));
-  } else {
-    td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::ProofLink{block_id_}}, std::move(P));
-  }
+
+  td::actor::send_closure(archive_, &ArchiveManager::get_temp_file_short, fileref::ProofLink{handle_->id()},
+                          std::move(P));
 }
 
 void BlockArchiver::got_proof_link(td::BufferSlice data) {
@@ -108,8 +90,8 @@ void BlockArchiver::got_proof_link(td::BufferSlice data) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::written_proof_link);
   });
-  td::actor::send_closure(archive_, &ArchiveManager::write, handle_->unix_time(), handle_->is_key_block(),
-                          FileDb::RefId{fileref::ProofLink{block_id_}}, std::move(data), std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::add_file, handle_, fileref::ProofLink{handle_->id()},
+                          std::move(data), std::move(P));
 }
 
 void BlockArchiver::written_proof_link() {
@@ -121,11 +103,8 @@ void BlockArchiver::written_proof_link() {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::got_block_data, R.move_as_ok());
   });
-  if (handle_->moved_to_storage()) {
-    td::actor::send_closure(archive_db_, &FileDb::load_file, FileDb::RefId{fileref::Block{block_id_}}, std::move(P));
-  } else {
-    td::actor::send_closure(file_db_, &FileDb::load_file, FileDb::RefId{fileref::Block{block_id_}}, std::move(P));
-  }
+
+  td::actor::send_closure(archive_, &ArchiveManager::get_temp_file_short, fileref::Block{handle_->id()}, std::move(P));
 }
 
 void BlockArchiver::got_block_data(td::BufferSlice data) {
@@ -133,8 +112,8 @@ void BlockArchiver::got_block_data(td::BufferSlice data) {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::written_block_data);
   });
-  td::actor::send_closure(archive_, &ArchiveManager::write, handle_->unix_time(), handle_->is_key_block(),
-                          FileDb::RefId{fileref::Block{block_id_}}, std::move(data), std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::add_file, handle_, fileref::Block{handle_->id()}, std::move(data),
+                          std::move(P));
 }
 
 void BlockArchiver::written_block_data() {
@@ -144,7 +123,7 @@ void BlockArchiver::written_block_data() {
     R.ensure();
     td::actor::send_closure(SelfId, &BlockArchiver::finish_query);
   });
-  td::actor::send_closure(root_db_, &RootDb::store_block_handle, handle_, std::move(P));
+  td::actor::send_closure(archive_, &ArchiveManager::update_handle, handle_, std::move(P));
 }
 
 void BlockArchiver::finish_query() {
@@ -156,7 +135,7 @@ void BlockArchiver::finish_query() {
 
 void BlockArchiver::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "failed to archive block " << block_id_ << ": " << reason;
+    VLOG(VALIDATOR_WARNING) << "failed to archive block " << handle_->id() << ": " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();

@@ -47,12 +47,16 @@ using td::Ref;
 class AcceptBlockQuery : public td::actor::Actor {
  public:
   struct IsFake {};
+  struct ForceFork {};
   AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures, bool send_broadcast,
+                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
+                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
   AcceptBlockQuery(IsFake fake, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                    td::Promise<td::Unit> promise);
+  AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
+                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 
  private:
   static constexpr td::uint32 priority() {
@@ -90,7 +94,9 @@ class AcceptBlockQuery : public td::actor::Actor {
   std::vector<BlockIdExt> prev_;
   Ref<ValidatorSetQ> validator_set_;
   Ref<BlockSignatureSetQ> signatures_;
+  Ref<BlockSignatureSetQ> approve_signatures_;
   bool is_fake_;
+  bool is_fork_;
   bool send_broadcast_;
   bool ancestors_split_{false}, is_key_block_{false};
   td::Timestamp timeout_ = td::Timestamp::in(600.0);
@@ -128,6 +134,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   static bool check_send_error(td::actor::ActorId<AcceptBlockQuery> SelfId, td::Result<T>& res) {
     return res.is_error() && check_send_error(std::move(SelfId), res.move_as_error());
   }
+  bool precheck_header();
   bool create_new_proof();
   bool unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof);
 

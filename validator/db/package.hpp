@@ -14,24 +14,17 @@ class Package {
 
   td::Status truncate(td::uint64 size);
 
-  td::uint64 append(std::string filename, td::Slice data);
+  td::uint64 append(std::string filename, td::Slice data, bool sync = true);
+  void sync();
   td::uint64 size() const;
   td::Result<std::pair<std::string, td::BufferSlice>> read(td::uint64 offset) const;
+
   td::Result<td::uint64> advance(td::uint64 offset);
+  void iterate(std::function<bool(std::string, td::BufferSlice, td::uint64)> func);
 
-  struct Iterator {
-    td::uint64 offset;
-    Package &package;
-
-    Iterator operator++(int);
-    const Iterator operator++(int) const;
-    td::Result<std::pair<std::string, td::BufferSlice>> read() const;
-  };
-
-  Iterator begin();
-  const Iterator begin() const;
-  Iterator end();
-  const Iterator end() const;
+  td::FileFd &fd() {
+    return fd_;
+  }
 
  private:
   td::FileFd fd_;

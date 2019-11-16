@@ -54,8 +54,9 @@ void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::ve
                                  td::Promise<td::Unit> promise);
 void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
                                      td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
-void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,
-                           td::Timestamp timeout, td::Promise<td::Unit> promise);
+void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
+                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+                           td::Promise<td::Unit> promise);
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise, bool skip_check_signatures = false);
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,

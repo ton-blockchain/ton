@@ -39,6 +39,15 @@ void ShardClient::start_up() {
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_client_state, true, std::move(P));
 }
 
+void ShardClient::start() {
+  if (!started_ && masterchain_state_.not_null()) {
+    started_ = true;
+    apply_all_shards();
+  } else {
+    started_ = true;
+  }
+}
+
 void ShardClient::got_state_from_db(BlockIdExt state) {
   CHECK(!init_mode_);
 
@@ -133,7 +142,9 @@ void ShardClient::download_masterchain_state() {
 void ShardClient::got_masterchain_block_state(td::Ref<MasterchainState> state) {
   masterchain_state_ = std::move(state);
   build_shard_overlays();
-  apply_all_shards();
+  if (started_) {
+    apply_all_shards();
+  }
 }
 
 void ShardClient::apply_all_shards() {
@@ -170,8 +181,8 @@ void ShardClient::apply_all_shards() {
 }
 
 void ShardClient::downloaded_shard_state(td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
-  run_apply_block_query(state->get_block_id(), td::Ref<BlockData>{}, manager_, td::Timestamp::in(600),
-                        std::move(promise));
+  run_apply_block_query(state->get_block_id(), td::Ref<BlockData>{}, masterchain_block_handle_->id(), manager_,
+                        td::Timestamp::in(600), std::move(promise));
 }
 
 void ShardClient::new_masterchain_block_notification(BlockHandle handle, td::Ref<MasterchainState> state) {

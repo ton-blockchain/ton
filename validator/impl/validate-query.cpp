@@ -430,6 +430,7 @@ bool ValidateQuery::init_parse() {
     return reject_query("a non-masterchain block cannot be a key block");
   }
   if (info.vert_seqno_incr) {
+    // what about non-masterchain blocks?
     return reject_query("new blocks cannot have vert_seqno_incr set");
   }
   if (info.after_merge != after_merge_) {
@@ -1620,12 +1621,13 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                                   << " has unchanged catchain seqno " << cc_seqno
                                   << ", but it must have been updated for all shards");
   }
-  if (!cc_updated && !info.before_merge_ && old_before_merge && !workchain_created) {
+  bool bm_cleared = !info.before_merge_ && old_before_merge;
+  if (!cc_updated && bm_cleared && !workchain_created) {
     return reject_query(PSTRING() << "new shard configuration for shard " << shard.to_str()
                                   << " has unchanged catchain seqno " << cc_seqno
                                   << " while the before_merge bit has been cleared");
   }
-  if (cc_updated && (!update_shard_cc_ || (!info.before_merge_ && old_before_merge))) {
+  if (cc_updated && !(update_shard_cc_ || bm_cleared)) {
     return reject_query(PSTRING() << "new shard configuration for shard " << shard.to_str()
                                   << " has increased catchain seqno " << cc_seqno << " without a good reason");
   }

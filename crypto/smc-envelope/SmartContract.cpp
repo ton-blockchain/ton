@@ -111,7 +111,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     LOG(DEBUG) << "VM log\n" << logger.res;
     std::ostringstream os;
-    res.stack->dump(os);
+    res.stack->dump(os, 2);
     LOG(DEBUG) << "VM stack:\n" << os.str();
     LOG(DEBUG) << "VM exit code: " << res.code;
     LOG(DEBUG) << "VM accepted: " << res.accepted;

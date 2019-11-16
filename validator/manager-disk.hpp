@@ -119,6 +119,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_proof_link(BlockHandle block_id, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
   }
+  void get_key_block_proof(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
+  void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
@@ -200,11 +202,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_proof_link_from_db(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) override;
   void get_block_proof_link_from_db_short(BlockIdExt id, td::Promise<td::Ref<ProofLink>> promise) override;
 
-  void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockIdExt> promise) override;
+  void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockHandle> promise) override;
   void get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                      td::Promise<BlockIdExt> promise) override;
+                                      td::Promise<BlockHandle> promise) override;
   void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                  td::Promise<BlockIdExt> promise) override;
+                                  td::Promise<BlockHandle> promise) override;
 
   // get block handle declared in parent class
   void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
@@ -257,6 +259,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
                           td::Promise<std::unique_ptr<DownloadToken>> promise) override {
     promise.set_error(td::Status::Error(ErrorCode::error, "download disabled"));
+  }
+
+  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) override {
+    UNREACHABLE();
+  }
+  void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                         td::Promise<td::BufferSlice> promise) override {
+    UNREACHABLE();
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
@@ -326,6 +336,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) override {
     promise.set_result(false);
+  }
+  void archive(BlockHandle handle, td::Promise<td::Unit> promise) override {
+    td::actor::send_closure(db_, &Db::archive, std::move(handle), std::move(promise));
   }
   void update_last_known_key_block(BlockHandle handle, bool send_request) override {
   }

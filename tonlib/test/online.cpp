@@ -533,14 +533,12 @@ int main(int argc, char* argv[]) {
 
   Client client;
   {
-    auto info = sync_send(client, make_object<tonlib_api::options_validateConfig>(
-                                      make_object<tonlib_api::config>(global_config_str, "", false, false)))
+    auto info = sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(
+                                      make_object<tonlib_api::config>(global_config_str, "", false, false),
+                                      make_object<tonlib_api::keyStoreTypeDirectory>(keystore_dir))))
                     .move_as_ok();
-    default_wallet_id = static_cast<td::uint32>(info->default_wallet_id_);
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(
-                          make_object<tonlib_api::config>(global_config_str, "", false, false),
-                          make_object<tonlib_api::keyStoreTypeDirectory>(keystore_dir))))
-        .ensure();
+    default_wallet_id = static_cast<td::uint32>(info->config_info_->default_wallet_id_);
+    LOG(ERROR) << default_wallet_id;
   }
 
   // wait till client is synchronized with blockchain.

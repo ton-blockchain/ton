@@ -45,6 +45,18 @@ const char* get_exception_msg(Excno exc_no) {
   }
 }
 
+bool StackEntry::is_list(const StackEntry* se) {
+  Ref<Tuple> tuple;
+  while (!se->empty()) {
+    tuple = se->as_tuple_range(2, 2);
+    if (tuple.is_null()) {
+      return false;
+    }
+    se = &tuple->at(1);
+  }
+  return true;
+}
+
 static const char HEX_digits[] = "0123456789ABCDEF";
 
 std::string str_to_hex(std::string data, std::string prefix) {
@@ -59,6 +71,12 @@ std::string str_to_hex(std::string data, std::string prefix) {
 std::string StackEntry::to_string() const {
   std::ostringstream os;
   dump(os);
+  return std::move(os).str();
+}
+
+std::string StackEntry::to_lisp_string() const {
+  std::ostringstream os;
+  print_list(os);
   return std::move(os).str();
 }
 
@@ -130,6 +148,12 @@ void StackEntry::print_list(std::ostream& os) const {
       break;
     case t_tuple: {
       const auto& tuple = *static_cast<Ref<Tuple>>(ref);
+      if (is_list()) {
+        os << '(';
+        tuple[0].print_list(os);
+        print_list_tail(os, &tuple[1]);
+        break;
+      }
       auto n = tuple.size();
       if (!n) {
         os << "[]";
@@ -137,7 +161,7 @@ void StackEntry::print_list(std::ostream& os) const {
         os << "[";
         tuple[0].print_list(os);
         os << "]";
-      } else if (n != 2) {
+      } else {
         os << "[";
         unsigned c = 0;
         for (const auto& entry : tuple) {
@@ -147,10 +171,6 @@ void StackEntry::print_list(std::ostream& os) const {
           entry.print_list(os);
         }
         os << ']';
-      } else {
-        os << '(';
-        tuple[0].print_list(os);
-        tuple[1].print_list_tail(os);
       }
       break;
     }
@@ -159,26 +179,40 @@ void StackEntry::print_list(std::ostream& os) const {
   }
 }
 
-void StackEntry::print_list_tail(std::ostream& os) const {
-  switch (tp) {
-    case t_null:
-      os << ')';
-      break;
-    case t_tuple: {
-      const auto& tuple = *static_cast<Ref<Tuple>>(ref);
-      if (tuple.size() == 2) {
-        os << ' ';
-        tuple[0].print_list(os);
-        tuple[1].print_list_tail(os);
-        break;
-      }
-    }
-    // fall through
-    default:
+void StackEntry::print_list_tail(std::ostream& os, const StackEntry* se) {
+  Ref<Tuple> tuple;
+  while (!se->empty()) {
+    tuple = se->as_tuple_range(2, 2);
+    if (tuple.is_null()) {
       os << " . ";
-      print_list(os);
-      os << ')';
+      se->print_list(os);
+      break;
+    }
+    os << ' ';
+    tuple->at(0).print_list(os);
+    se = &tuple->at(1);
   }
+  os << ')';
+}
+
+StackEntry StackEntry::make_list(std::vector<StackEntry>&& elems) {
+  StackEntry tail;
+  std::size_t n = elems.size();
+  while (n > 0) {
+    --n;
+    tail = StackEntry{vm::make_tuple_ref(std::move(elems[n]), tail)};
+  }
+  return tail;
+}
+
+StackEntry StackEntry::make_list(const std::vector<StackEntry>& elems) {
+  StackEntry tail;
+  std::size_t n = elems.size();
+  while (n > 0) {
+    --n;
+    tail = StackEntry{vm::make_tuple_ref(elems[n], tail)};
+  }
+  return tail;
 }
 
 StackEntry::StackEntry(Ref<Stack> stack_ref) : ref(std::move(stack_ref)), tp(t_stack) {
@@ -611,13 +645,21 @@ Ref<Stack> Stack::split_top(unsigned top_cnt, unsigned drop_cnt) {
   return new_stk;
 }
 
-void Stack::dump(std::ostream& os, bool cr) const {
+void Stack::dump(std::ostream& os, int mode) const {
   os << " [ ";
-  for (const auto& x : stack) {
-    os << x.to_string() << ' ';
+  if (mode & 2) {
+    for (const auto& x : stack) {
+      x.print_list(os);
+      os << ' ';
+    }
+  } else {
+    for (const auto& x : stack) {
+      x.dump(os);
+      os << ' ';
+    }
   }
   os << "] ";
-  if (cr) {
+  if (mode & 1) {
     os << std::endl;
   }
 }

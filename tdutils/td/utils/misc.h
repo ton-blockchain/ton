@@ -301,6 +301,20 @@ typename std::enable_if<std::is_unsigned<T>::value, T>::type hex_to_integer(Slic
   return integer_value;
 }
 
+template <class T>
+Result<typename std::enable_if<std::is_unsigned<T>::value, T>::type> hex_to_integer_safe(Slice str) {
+  T integer_value = 0;
+  auto begin = str.begin();
+  auto end = str.end();
+  while (begin != end) {
+    if (!is_hex_digit(*begin)) {
+      return Status::Error("not a hex digit");
+    }
+    integer_value = static_cast<T>(integer_value * 16 + hex_to_int(*begin++));
+  }
+  return integer_value;
+}
+
 double to_double(Slice str);
 
 template <class T>

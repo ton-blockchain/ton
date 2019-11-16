@@ -692,7 +692,7 @@ int VmState::step() {
   //VM_LOG(st) << "stack:";  stack->dump(VM_LOG(st));
   //VM_LOG(st) << "; cr0.refcnt = " << get_c0()->get_refcnt() - 1 << std::endl;
   if (stack_trace) {
-    stack->dump(std::cerr);
+    stack->dump(std::cerr, 3);
   }
   ++steps;
   if (code->size()) {

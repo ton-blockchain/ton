@@ -142,6 +142,12 @@ class StackEntry {
   bool is(int wanted) const {
     return tp == wanted;
   }
+  bool is_list() const {
+    return is_list(this);
+  }
+  static bool is_list(const StackEntry& se) {
+    return is_list(&se);
+  }
   void swap(StackEntry& se) {
     ref.swap(se.ref);
     std::swap(tp, se.tp);
@@ -157,8 +163,9 @@ class StackEntry {
   }
 
  private:
+  static bool is_list(const StackEntry* se);
   template <typename T, Type tag>
-  Ref<T> dynamic_as() const& {
+  Ref<T> dynamic_as() const & {
     return tp == tag ? static_cast<Ref<T>>(ref) : td::Ref<T>{};
   }
   template <typename T, Type tag>
@@ -170,7 +177,7 @@ class StackEntry {
     return tp == tag ? static_cast<Ref<T>>(std::move(ref)) : td::Ref<T>{};
   }
   template <typename T, Type tag>
-  Ref<T> as() const& {
+  Ref<T> as() const & {
     return tp == tag ? Ref<T>{td::static_cast_ref(), ref} : td::Ref<T>{};
   }
   template <typename T, Type tag>
@@ -183,6 +190,8 @@ class StackEntry {
   }
 
  public:
+  static StackEntry make_list(std::vector<StackEntry>&& elems);
+  static StackEntry make_list(const std::vector<StackEntry>& elems);
   template <typename T>
   static StackEntry maybe(Ref<T> ref) {
     if (ref.is_null()) {
@@ -191,31 +200,31 @@ class StackEntry {
       return ref;
     }
   }
-  td::RefInt256 as_int() const& {
+  td::RefInt256 as_int() const & {
     return as<td::CntInt256, t_int>();
   }
   td::RefInt256 as_int() && {
     return move_as<td::CntInt256, t_int>();
   }
-  Ref<Cell> as_cell() const& {
+  Ref<Cell> as_cell() const & {
     return as<Cell, t_cell>();
   }
   Ref<Cell> as_cell() && {
     return move_as<Cell, t_cell>();
   }
-  Ref<CellBuilder> as_builder() const& {
+  Ref<CellBuilder> as_builder() const & {
     return as<CellBuilder, t_builder>();
   }
   Ref<CellBuilder> as_builder() && {
     return move_as<CellBuilder, t_builder>();
   }
-  Ref<CellSlice> as_slice() const& {
+  Ref<CellSlice> as_slice() const & {
     return as<CellSlice, t_slice>();
   }
   Ref<CellSlice> as_slice() && {
     return move_as<CellSlice, t_slice>();
   }
-  Ref<Continuation> as_cont() const&;
+  Ref<Continuation> as_cont() const &;
   Ref<Continuation> as_cont() &&;
   Ref<Cnt<std::string>> as_string_ref() const {
     return as<Cnt<std::string>, t_string>();
@@ -230,16 +239,16 @@ class StackEntry {
   std::string as_bytes() const {
     return tp == t_bytes ? *as_bytes_ref() : "";
   }
-  Ref<Box> as_box() const&;
+  Ref<Box> as_box() const &;
   Ref<Box> as_box() &&;
-  Ref<Tuple> as_tuple() const&;
+  Ref<Tuple> as_tuple() const &;
   Ref<Tuple> as_tuple() &&;
-  Ref<Tuple> as_tuple_range(unsigned max_len = 255, unsigned min_len = 0) const&;
+  Ref<Tuple> as_tuple_range(unsigned max_len = 255, unsigned min_len = 0) const &;
   Ref<Tuple> as_tuple_range(unsigned max_len = 255, unsigned min_len = 0) &&;
-  Ref<Atom> as_atom() const&;
+  Ref<Atom> as_atom() const &;
   Ref<Atom> as_atom() &&;
   template <class T>
-  Ref<T> as_object() const& {
+  Ref<T> as_object() const & {
     return dynamic_as<T, t_object>();
   }
   template <class T>
@@ -248,8 +257,11 @@ class StackEntry {
   }
   void dump(std::ostream& os) const;
   void print_list(std::ostream& os) const;
-  void print_list_tail(std::ostream& os) const;
   std::string to_string() const;
+  std::string to_lisp_string() const;
+
+ private:
+  static void print_list_tail(std::ostream& os, const StackEntry* se);
 };
 
 inline void swap(StackEntry& se1, StackEntry& se2) {
@@ -490,7 +502,8 @@ class Stack : public td::CntObject {
       push(std::move(val));
     }
   }
-  void dump(std::ostream& os, bool cr = true) const;
+  // mode: +1 = add eoln, +2 = Lisp-style lists
+  void dump(std::ostream& os, int mode = 1) const;
 };
 
 }  // namespace vm

@@ -45,7 +45,7 @@ class ValidatorInvariants {
     CHECK(handle->inited_merge_before());
     CHECK(handle->inited_split_after());
     CHECK(handle->inited_prev());
-    CHECK(handle->inited_signatures());
+    CHECK(handle->inited_signatures() || handle->is_applied());
     CHECK(handle->inited_state_root_hash());
     CHECK(handle->inited_logical_time());
     CHECK(handle->inited_unix_time());

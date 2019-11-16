@@ -43,6 +43,7 @@
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/user.h"
+#include "td/utils/port/rlimit.h"
 #include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/TsFileLog.h"
 #include "td/utils/Random.h"
@@ -2841,6 +2842,8 @@ int main(int argc, char *argv[]) {
   SCOPE_EXIT {
     td::log_interface = td::default_log_interface;
   };
+
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 65536));
 
   std::vector<std::function<void()>> acts;
 

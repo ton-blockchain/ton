@@ -921,6 +921,9 @@ struct ExtBlkRef final : TLB {
   }
   bool unpack(vm::CellSlice& cs, ton::BlockIdExt& blkid, ton::LogicalTime* end_lt = nullptr) const;
   bool unpack(Ref<vm::CellSlice> cs_ref, ton::BlockIdExt& blkid, ton::LogicalTime* end_lt = nullptr) const;
+  bool store(vm::CellBuilder& cb, const ton::BlockIdExt& blkid, ton::LogicalTime end_lt) const;
+  Ref<vm::Cell> pack_cell(const ton::BlockIdExt& blkid, ton::LogicalTime end_lt) const;
+  bool pack_to(Ref<vm::Cell>& cell, const ton::BlockIdExt& blkid, ton::LogicalTime end_lt) const;
 };
 
 extern const ExtBlkRef t_ExtBlkRef;

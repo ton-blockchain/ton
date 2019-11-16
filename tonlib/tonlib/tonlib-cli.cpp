@@ -2,6 +2,7 @@
 
 #include "td/utils/filesystem.h"
 #include "td/utils/OptionsParser.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/Parser.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/path.h"
@@ -177,10 +178,6 @@ class TonlibCli : public td::actor::Actor {
                       ? make_object<tonlib_api::config>(options_.config, options_.name,
                                                         options_.use_callbacks_for_network, options_.ignore_cache)
                       : nullptr;
-    auto config2 = !options_.config.empty()
-                       ? make_object<tonlib_api::config>(options_.config, options_.name,
-                                                         options_.use_callbacks_for_network, options_.ignore_cache)
-                       : nullptr;
 
     tonlib_api::object_ptr<tonlib_api::KeyStoreType> ks_type;
     if (options_.in_memory) {
@@ -188,18 +185,13 @@ class TonlibCli : public td::actor::Actor {
     } else {
       ks_type = make_object<tonlib_api::keyStoreTypeDirectory>(options_.key_dir);
     }
-    auto obj =
-        tonlib::TonlibClient::static_request(make_object<tonlib_api::options_validateConfig>(std::move(config2)));
-    if (obj->get_id() != tonlib_api::error::ID) {
-      auto info = ton::move_tl_object_as<tonlib_api::options_configInfo>(obj);
-      wallet_id_ = static_cast<td::uint32>(info->default_wallet_id_);
-    } else {
-      LOG(ERROR) << "Invalid config";
-    }
     send_query(make_object<tonlib_api::init>(make_object<tonlib_api::options>(std::move(config), std::move(ks_type))),
-               [](auto r_ok) {
+               [&](auto r_ok) {
                  LOG_IF(ERROR, r_ok.is_error()) << r_ok.error();
-                 td::TerminalIO::out() << "Tonlib is inited\n";
+                 if (r_ok.is_ok()) {
+                   wallet_id_ = static_cast<td::uint32>(r_ok.ok()->config_info_->default_wallet_id_);
+                   td::TerminalIO::out() << "Tonlib is inited\n";
+                 }
                });
     if (options_.one_shot) {
       td::actor::send_closure(actor_id(this), &TonlibCli::parse_line, td::BufferSlice(options_.cmd));
@@ -482,6 +474,73 @@ class TonlibCli : public td::actor::Actor {
         tonlib_api::make_object<tonlib_api::tvm_numberDecimal>(dec_string(num)));
   }
 
+  td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>>> parse_stack(td::ConstParser& parser,
+                                                                                          td::Slice end_token) {
+    std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> stack;
+    while (true) {
+      auto word = parser.read_word();
+      LOG(ERROR) << word << " vs " << end_token;
+      if (word == end_token) {
+        break;
+      }
+      if (word == "[") {
+        TRY_RESULT(elements, parse_stack(parser, "]"));
+        stack.push_back(tonlib_api::make_object<tonlib_api::tvm_stackEntryTuple>(
+            tonlib_api::make_object<tonlib_api::tvm_tuple>(std::move(elements))));
+      } else if (word == "(") {
+        TRY_RESULT(elements, parse_stack(parser, ")"));
+        stack.push_back(tonlib_api::make_object<tonlib_api::tvm_stackEntryList>(
+            tonlib_api::make_object<tonlib_api::tvm_list>(std::move(elements))));
+      } else {
+        TRY_RESULT(stack_entry, parse_stack_entry(word));
+        stack.push_back(std::move(stack_entry));
+      }
+    }
+    return std::move(stack);
+  }
+
+  static void store_entry(td::StringBuilder& sb, tonlib_api::tvm_StackEntry& entry) {
+    downcast_call(entry, td::overloaded(
+                             [&](tonlib_api::tvm_stackEntryCell& cell) {
+                               auto r_cell = vm::std_boc_deserialize(cell.cell_->bytes_);
+                               if (r_cell.is_error()) {
+                                 sb << "<INVALID_CELL>";
+                               }
+                               auto cs = vm::load_cell_slice(r_cell.move_as_ok());
+                               std::stringstream ss;
+                               cs.print_rec(ss);
+                               sb << ss.str();
+                             },
+                             [&](tonlib_api::tvm_stackEntrySlice& cell) {
+                               auto r_cell = vm::std_boc_deserialize(cell.slice_->bytes_);
+                               if (r_cell.is_error()) {
+                                 sb << "<INVALID_CELL>";
+                               }
+                               auto cs = vm::load_cell_slice(r_cell.move_as_ok());
+                               std::stringstream ss;
+                               cs.print_rec(ss);
+                               sb << ss.str();
+                             },
+                             [&](tonlib_api::tvm_stackEntryNumber& cell) { sb << cell.number_->number_; },
+                             [&](tonlib_api::tvm_stackEntryTuple& cell) {
+                               sb << "(";
+                               for (auto& element : cell.tuple_->elements_) {
+                                 sb << " ";
+                                 store_entry(sb, *element);
+                               }
+                               sb << " )";
+                             },
+                             [&](tonlib_api::tvm_stackEntryList& cell) {
+                               sb << "[";
+                               for (auto& element : cell.list_->elements_) {
+                                 sb << " ";
+                                 store_entry(sb, *element);
+                               }
+                               sb << " ]";
+                             },
+                             [&](tonlib_api::tvm_stackEntryUnsupported& cell) { sb << "<UNSUPPORTED>"; }));
+  }
+
   void run_method(td::ConstParser& parser, td::Promise<td::Unit> promise) {
     TRY_RESULT_PROMISE(promise, addr, to_account_address(parser.read_word(), false));
 
@@ -492,15 +551,15 @@ class TonlibCli : public td::actor::Actor {
     } else {
       method = tonlib_api::make_object<tonlib_api::smc_methodIdName>(method_str.str());
     }
-    std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> stack;
-    while (true) {
-      auto word = parser.read_word();
-      if (word.empty()) {
-        break;
-      }
-      TRY_RESULT_PROMISE(promise, stack_entry, parse_stack_entry(word));
-      stack.push_back(std::move(stack_entry));
+    TRY_RESULT_PROMISE(promise, stack, parse_stack(parser, ""));
+    td::StringBuilder sb;
+    for (auto& entry : stack) {
+      store_entry(sb, *entry);
+      sb << "\n";
     }
+
+    td::TerminalIO::out() << "Run " << to_string(method) << "With stack:\n" << sb.as_cslice();
+
     auto to_run =
         tonlib_api::make_object<tonlib_api::smc_runGetMethod>(0 /*fixme*/, std::move(method), std::move(stack));
 
@@ -513,9 +572,16 @@ class TonlibCli : public td::actor::Actor {
     to_run->id_ = info->id_;
     send_query(std::move(to_run), promise.send_closure(actor_id(this), &TonlibCli::run_method_3));
   }
-
   void run_method_3(tonlib_api::object_ptr<tonlib_api::smc_runResult> info, td::Promise<td::Unit> promise) {
-    td::TerminalIO::out() << "Got smc result " << to_string(info);
+    td::StringBuilder sb;
+    for (auto& entry : info->stack_) {
+      store_entry(sb, *entry);
+      sb << "\n";
+    }
+
+    td::TerminalIO::out() << "Got smc result. exit code: " << info->exit_code_ << ", gas_used: " << info->gas_used_
+                          << "\n"
+                          << sb.as_cslice();
     promise.set_value({});
   }
 
@@ -972,7 +1038,7 @@ class TonlibCli : public td::actor::Actor {
 
   void import_key(std::vector<td::SecureString> words, td::Slice password) {
     using tonlib_api::make_object;
-    send_query(make_object<tonlib_api::importKey>(td::SecureString(password), td::SecureString(),
+    send_query(make_object<tonlib_api::importKey>(td::SecureString(password), td::SecureString(" test mnemonic"),
                                                   make_object<tonlib_api::exportedKey>(std::move(words))),
                [this, password = td::SecureString(password)](auto r_res) {
                  if (r_res.is_error()) {
@@ -1147,7 +1213,7 @@ class TonlibCli : public td::actor::Actor {
                                       return;
                                     }
                                     td::TerminalIO::out() << to_string(r_res.ok());
-                                    self->on_ok();
+                                    //self->on_ok();
                                   });
 
                  self->send_query(make_object<tonlib_api::query_send>(r_res.ok()->id_), [self](auto r_res) {
@@ -1160,7 +1226,7 @@ class TonlibCli : public td::actor::Actor {
                    self->on_ok();
                  });
 
-                 self->on_ok();
+                 //self->on_ok();
                });
   }
 

@@ -29,6 +29,7 @@ class ProofLink : public td::CntObject {
  public:
   struct BasicHeaderInfo {
     UnixTime utime;
+    LogicalTime end_lt;
     CatchainSeqno cc_seqno;
     td::uint32 validator_set_hash;
     BlockSeqno prev_key_mc_seqno;
