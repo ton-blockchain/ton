@@ -105,6 +105,7 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   void got_prev_key_block_handle(BlockHandle handle);
   void truncated();
   void written_next();
+  void start_shard_client();
   void finish();
 
  private:

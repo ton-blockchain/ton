@@ -99,7 +99,6 @@ void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
 }
 
 void FullNodeImpl::add_shard(ShardIdFull shard) {
-  LOG(WARNING) << "add shard " << shard;
   while (true) {
     if (shards_.count(shard) == 0) {
       shards_.emplace(shard, FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_,
@@ -239,6 +238,7 @@ void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, std::string tm
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
+  add_shard(ShardIdFull{shard.workchain, shardIdAll});
   while (shards_.count(shard) == 0) {
     if (shard.shard == shardIdAll) {
       return td::actor::ActorId<FullNodeShard>{};

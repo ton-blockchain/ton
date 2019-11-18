@@ -35,8 +35,10 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 
 cell get_data() asm "c4 PUSH";
 () set_data(cell c) impure asm "c4 POP";
-cell get_c3() impure asm "c3 PUSH";
-() set_c3(cell c) impure asm "c3 POP";
+cont get_c3() impure asm "c3 PUSH";
+() set_c3(cont c) impure asm "c3 POP";
+cont bless(slice s) impure asm "BLESS";
+
 () accept_message() impure asm "ACCEPT";
 () commit() impure asm "COMMIT";
 

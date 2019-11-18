@@ -626,9 +626,23 @@ inline void throw_rangechk(bool ok) {
 }
 }  // namespace
 
+int exec_bless_pop_c3(VmState* st) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute CTOSBLESSPOPc3";
+  stack.check_underflow(1);
+  throw_typechk(st->set_c(3, Ref<OrdCont>{true, vm::load_cell_slice_ref(stack.pop_cell()), st->get_cp()}));
+  return 0;
+}
+
 int exec_pop_ctr(VmState* st, unsigned args) {
   unsigned idx = args & 15;
   VM_LOG(st) << "execute POP c" << idx;
+  /*
+  if (idx == 3 && st->get_stack().depth() > 0 && st->get_stack().tos().is(StackEntry::t_cell)) {
+    // temp hack: accept cell argument for POP c3 and do auto-BLESSing
+    return exec_bless_pop_c3(st);
+  }
+  */
   throw_typechk(st->set(idx, st->get_stack().pop_chk()));
   return 0;
 }

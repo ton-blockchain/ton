@@ -215,10 +215,11 @@ now dup orig_vset_valid_for + 0 config.validators!
  *
  */
 "auto/config-code.fif" include   // code in separate source file
-<b 0 32 u, 
+<b configdict ref,  // initial configuration
+   0 32 u,          // seqno
    "config-master" +suffix +".pk" load-generate-keypair drop
    B,
-   configdict ref,
+   newdict dict,   // vote dict
 b> // data
 empty_cell  // libraries
 GR$10  // balance

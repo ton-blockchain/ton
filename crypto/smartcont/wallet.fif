@@ -1,11 +1,19 @@
 #!/usr/bin/fift -s
 "TonUtil.fif" include
 
-{ ."usage: " @' $0 type ." <filename-base> <dest-addr> <seqno> <amount> [-B <body-boc>] [-C <transfer-comment>] [<savefile>]" cr
+{ ."usage: " @' $0 type ." <filename-base> <dest-addr> <seqno> <amount> [-n] [-B <body-boc>] [-C <transfer-comment>] [<savefile>]" cr
   ."Creates a request to simple wallet created by new-wallet.fif, with private key loaded from file <filename-base>.pk "
   ."and address from <filename-base>.addr, and saves it into <savefile>.boc ('wallet-query.boc' by default)" cr 1 halt
 } : usage
 "" =: comment  // comment for simple transfers
+true =: allow-bounce
+def? $5 { @' $5 "-n" $= { false =: allow-bounce [forget] $5
+  def? $6 { @' $6 =: $5 [forget] $6 } if
+  def? $7 { @' $7 =: $6 [forget] $7 } if
+  @' $# 1- =: $#
+  } if
+} if
+  
 def? $6 { @' $5 dup "-B" $= swap "-C" $= tuck or
   { @' $6 swap { =: comment } { =: body-boc-file } cond [forget] $6
     def? $7 { @' $7 =: $5 [forget] $7 } { [forget] $5 } cond
@@ -17,7 +25,7 @@ $# dup 4 < swap 5 > or ' usage if
 true constant bounce
 
 $1 =: file-base
-$2 bounce parse-load-address =: bounce 2=: dest_addr
+$2 bounce parse-load-address allow-bounce and =: bounce 2=: dest_addr
 $3 parse-int =: seqno
 $4 $>GR =: amount
 def? $5 { @' $5 } { "wallet-query" } cond constant savefile

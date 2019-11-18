@@ -193,6 +193,9 @@ void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {
   handle_->set_logical_time(state_->get_logical_time());
   handle_->set_applied();
   handle_->set_split(state_->before_split());
+  if (!block_id_.is_masterchain()) {
+    handle_->set_masterchain_ref_block(masterchain_block_id_.seqno());
+  }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Unit> R) {
     CHECK(handle->handle_moved_to_archive());

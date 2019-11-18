@@ -338,7 +338,7 @@ int upgrade_code(s_addr, cs, query_id) {
   var code = cs~load_ref();
   set_code(code);
   ifnot(cs.slice_empty?()) {
-    set_c3(code);
+    set_c3(code.begin_parse().bless());
     ;; run_method3(1666, s_addr, cs, query_id);
     after_code_upgrade(s_addr, cs, query_id);
     throw(0);

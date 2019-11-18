@@ -1414,7 +1414,6 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
   gc_masterchain_state_ = std::move(R.gc_state);
 
   shard_client_ = std::move(R.clients);
-  td::actor::send_closure(shard_client_, &ShardClient::start);
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<ValidatorSessionId>> R) {
     if (R.is_error()) {
@@ -1429,8 +1428,6 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
   });
 
   td::actor::send_closure(db_, &Db::get_destroyed_validator_sessions, std::move(P));
-
-  send_peek_key_block_request();
 }
 
 void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
@@ -1442,6 +1439,104 @@ void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
 
   serializer_ =
       td::actor::create_actor<AsyncStateSerializer>("serializer", last_key_block_handle_->id(), opts_, actor_id(this));
+
+  if (!out_of_sync()) {
+    completed_prestart_sync();
+  } else {
+    prestart_sync();
+  }
+}
+
+bool ValidatorManagerImpl::out_of_sync() {
+  if (last_masterchain_block_handle_->unix_time() + 600 > td::Clocks::system()) {
+    return false;
+  }
+
+  if (validator_groups_.size() > 0 && last_known_key_block_handle_->id().seqno() <= last_masterchain_seqno_) {
+    return false;
+  }
+
+  return true;
+}
+
+void ValidatorManagerImpl::prestart_sync() {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
+  });
+  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+}
+
+void ValidatorManagerImpl::download_next_archive() {
+  if (!out_of_sync()) {
+    finish_prestart_sync();
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::string> R) {
+    if (R.is_error()) {
+      LOG(INFO) << "failed to download archive slice: " << R.error();
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
+    } else {
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::downloaded_archive_slice, R.move_as_ok());
+    }
+  });
+  callback_->download_archive(shard_client_handle_->id().seqno() + 1, db_root_ + "/tmp/", td::Timestamp::in(3600.0),
+                              std::move(P));
+}
+
+void ValidatorManagerImpl::downloaded_archive_slice(std::string name) {
+  LOG(INFO) << "downloaded archive slice: " << name;
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<BlockSeqno>> R) {
+    if (R.is_error()) {
+      LOG(INFO) << "failed to check downloaded archive slice: " << R.error();
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
+    } else {
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::checked_archive_slice, R.move_as_ok());
+    }
+  });
+
+  td::actor::create_actor<ArchiveImporter>("archiveimport", name, last_masterchain_state_,
+                                           shard_client_handle_->id().seqno(), opts_, actor_id(this), std::move(P))
+      .release();
+}
+
+void ValidatorManagerImpl::checked_archive_slice(std::vector<BlockSeqno> seqno) {
+  CHECK(seqno.size() == 2);
+  LOG(INFO) << "checked downloaded archive slice: mc_top_seqno=" << seqno[0] << " shard_top_seqno_=" << seqno[1];
+  CHECK(seqno[0] <= last_masterchain_seqno_);
+
+  BlockIdExt b;
+  CHECK(last_masterchain_state_->get_old_mc_block_id(seqno[1], b));
+
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), db = db_.get(), client = shard_client_.get()](td::Result<BlockHandle> R) {
+        R.ensure();
+        auto handle = R.move_as_ok();
+        auto P = td::PromiseCreator::lambda([SelfId, client, handle](td::Result<td::Ref<ShardState>> R) mutable {
+          auto P = td::PromiseCreator::lambda([SelfId](td::Result<td::Unit> R) {
+            R.ensure();
+            td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
+          });
+          td::actor::send_closure(client, &ShardClient::force_update_shard_client_ex, std::move(handle),
+                                  td::Ref<MasterchainState>{R.move_as_ok()}, std::move(P));
+        });
+        td::actor::send_closure(db, &Db::get_block_state, std::move(handle), std::move(P));
+      });
+  get_block_handle(b, true, std::move(P));
+}
+
+void ValidatorManagerImpl::finish_prestart_sync() {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::completed_prestart_sync);
+  });
+  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+}
+
+void ValidatorManagerImpl::completed_prestart_sync() {
+  td::actor::send_closure(shard_client_, &ShardClient::start);
+
+  send_peek_key_block_request();
 
   LOG(WARNING) << "initial read complete: " << last_masterchain_block_handle_->id() << " "
                << last_masterchain_block_id_;
@@ -1979,11 +2074,6 @@ void ValidatorManagerImpl::alarm() {
     }
     log_status_at_ = td::Timestamp::in(60.0);
   }
-  if (false && !downloading_archive_slice_ && shard_client_handle_ &&
-      shard_client_handle_->unix_time() + 600 <= td::Clocks::system() && next_download_archive_slice_at_.is_in_past()) {
-    next_download_archive_slice_at_ = td::Timestamp::in(10.0);
-    try_download_archive_slice();
-  }
   alarm_timestamp().relax(log_status_at_);
   if (resend_shard_blocks_at_ && resend_shard_blocks_at_.is_in_past()) {
     resend_shard_blocks_at_ = td::Timestamp::never();
@@ -2051,49 +2141,6 @@ void ValidatorManagerImpl::get_async_serializer_state(td::Promise<AsyncSerialize
 
 void ValidatorManagerImpl::try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(db_, &Db::try_get_static_file, file_hash, std::move(promise));
-}
-
-void ValidatorManagerImpl::try_download_archive_slice() {
-  CHECK(shard_client_handle_);
-  downloading_archive_slice_ = true;
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::string> R) {
-    if (R.is_error()) {
-      LOG(INFO) << "failed to download archive slice: " << R.error();
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::failed_to_download_archive_slice);
-    } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::downloaded_archive_slice, R.move_as_ok());
-    }
-  });
-  callback_->download_archive(shard_client_handle_->id().seqno(), db_root_ + "/tmp/", td::Timestamp::in(3600.0),
-                              std::move(P));
-}
-
-void ValidatorManagerImpl::failed_to_download_archive_slice() {
-  downloading_archive_slice_ = false;
-}
-
-void ValidatorManagerImpl::downloaded_archive_slice(std::string name) {
-  LOG(INFO) << "downloaded archive slice: " << name;
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<BlockSeqno>> R) {
-    if (R.is_error()) {
-      LOG(INFO) << "failed to check downloaded archive slice: " << R.error();
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::failed_to_download_archive_slice);
-    } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::checked_archive_slice, R.move_as_ok());
-    }
-  });
-
-  td::actor::create_actor<ArchiveImporter>("archiveimport", name, last_masterchain_state_,
-                                           shard_client_handle_->id().seqno(), opts_, actor_id(this), std::move(P))
-      .release();
-}
-
-void ValidatorManagerImpl::checked_archive_slice(std::vector<BlockSeqno> seqno) {
-  CHECK(seqno.size() == 2);
-  LOG(INFO) << "checked downloaded archive slice: mc_top_seqno=" << seqno[0] << " shard_top_seqno_=" << seqno[1];
-  downloading_archive_slice_ = false;
-  next_download_archive_slice_at_ = td::Timestamp::in(10.0);
 }
 
 void ValidatorManagerImpl::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {

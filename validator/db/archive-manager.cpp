@@ -250,8 +250,7 @@ void ArchiveManager::get_file_short_cont(FileReference ref_id, PackageId idx, td
 
 void ArchiveManager::get_file(BlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise) {
   if (handle->moved_to_archive()) {
-    auto f = get_file_desc(handle->id().shard_full(), PackageId{handle->masterchain_ref_block(), false, false}, 0, 0, 0,
-                           false);
+    auto f = get_file_desc(handle->id().shard_full(), get_package_id(handle->masterchain_ref_block()), 0, 0, 0, false);
     if (f) {
       td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_file, std::move(ref_id), std::move(promise));
       return;

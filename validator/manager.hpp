@@ -261,6 +261,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
+  bool out_of_sync();
+  void prestart_sync();
+  void download_next_archive();
+  void downloaded_archive_slice(std::string name);
+  void checked_archive_slice(std::vector<BlockSeqno> seqno);
+  void finish_prestart_sync();
+  void completed_prestart_sync();
+
  public:
   void install_callback(std::unique_ptr<Callback> new_callback, td::Promise<td::Unit> promise) override {
     callback_ = std::move(new_callback);
@@ -427,10 +435,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) override;
 
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
-  void try_download_archive_slice();
-  void downloaded_archive_slice(std::string name);
-  void checked_archive_slice(std::vector<BlockSeqno> seqno);
-  void failed_to_download_archive_slice();
 
   void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
                           td::Promise<std::unique_ptr<DownloadToken>> promise) override {
@@ -557,9 +561,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   bool started_ = false;
   bool allow_validate_ = false;
-
-  bool downloading_archive_slice_ = false;
-  td::Timestamp next_download_archive_slice_at_ = td::Timestamp::now();
 
  private:
   double state_ttl() const {

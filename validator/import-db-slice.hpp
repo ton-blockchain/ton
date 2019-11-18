@@ -25,6 +25,7 @@ class ArchiveImporter : public td::actor::Actor {
   void checked_all_masterchain_blocks(BlockSeqno seqno);
 
   void check_next_shard_client_seqno(BlockSeqno seqno);
+  void checked_shard_client_seqno(BlockSeqno seqno);
   void got_masterchain_state(td::Ref<MasterchainState> state);
   void apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise);
   void apply_shard_block_cont1(BlockHandle handle, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise);
@@ -36,7 +37,6 @@ class ArchiveImporter : public td::actor::Actor {
   std::string path_;
   td::Ref<MasterchainState> state_;
   BlockSeqno shard_client_seqno_;
-  BlockSeqno max_shard_client_seqno_;
 
   td::Ref<ValidatorManagerOptions> opts_;
 

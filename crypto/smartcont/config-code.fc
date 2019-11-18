@@ -26,7 +26,7 @@
 
 (int, int) check_validator_set(cell vset) {
   var cs = vset.begin_parse();
-  throw_if(9, (cs~load_uint(8) - 0x11) & -2);  ;; validators#11 or validators_ext#12
+  throw_unless(9, cs~load_uint(8) == 0x12);  ;; validators_ext#12 only
   int utime_since = cs~load_uint(32);
   int utime_until = cs~load_uint(32);
   int total = cs~load_uint(16);
@@ -103,7 +103,7 @@
   .end_cell(), 0);
 }
 
-() after_code_upgrade(slice param, cell old_code) impure method_id(1666) {
+() after_code_upgrade(slice param, cont old_code) impure method_id(1666) {
 }
 
 _ perform_action(cfg_dict, public_key, action, cs) {
@@ -119,7 +119,7 @@ _ perform_action(cfg_dict, public_key, action, cs) {
     var new_code = cs~load_ref();
     set_code(new_code);
     var old_code = get_c3();
-    set_c3(new_code);
+    set_c3(new_code.begin_parse().bless());
     after_code_upgrade(cs, old_code);
     throw(0);
     return (cfg_dict, public_key);
@@ -231,7 +231,7 @@ cell register_vote(vote_dict, action, cs, idx, weight) {
     if (ds.slice_bits() >= 40) {
       var tag = ds~load_uint(8);
       var since = ds.preload_uint(32);
-      if ((tag == 0x11) & (since >= now())) {
+      if ((since <= now()) & (tag == 0x12)) {
         ;; next validator set becomes active!
         var cur_vset = cfg_dict~idict_set_get_ref(kl, 34, next_vset);  ;; next_vset -> cur_vset
         cfg_dict~idict_set_get_ref(kl, 32, cur_vset);   ;; cur_vset -> prev_vset
@@ -240,4 +240,8 @@ cell register_vote(vote_dict, action, cs, idx, weight) {
     }
   }
   set_data(begin_cell().store_ref(cfg_dict).store_slice(cs).end_cell());
+}
+
+int seqno() impure method_id {
+  return get_data().begin_parse().preload_uint(32);
 }
