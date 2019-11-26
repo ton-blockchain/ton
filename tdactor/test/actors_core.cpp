@@ -101,10 +101,10 @@ TEST(Actor2, locker) {
   kill_signal.add_signal(ActorSignals::Kill);
 
   ActorSignals wakeup_signal;
-  kill_signal.add_signal(ActorSignals::Wakeup);
+  wakeup_signal.add_signal(ActorSignals::Wakeup);
 
   ActorSignals cpu_signal;
-  kill_signal.add_signal(ActorSignals::Cpu);
+  cpu_signal.add_signal(ActorSignals::Cpu);
 
   {
     ActorLocker lockerA(&state);
