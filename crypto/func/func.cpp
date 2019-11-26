@@ -151,6 +151,8 @@ int generate_output() {
 
 }  // namespace funC
 
+#ifndef FUNC_LIB
+
 void usage(const char* progname) {
   std::cerr
       << "usage: " << progname
@@ -262,3 +264,5 @@ int main(int argc, char* const argv[]) {
     std::exit(1);
   }
 }
+
+#endif // FUNC_LIB

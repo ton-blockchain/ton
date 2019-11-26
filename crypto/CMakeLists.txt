@@ -170,6 +170,9 @@ set(FUNC_LIB_SOURCE
   func/stack-transform.cpp
   func/optimize.cpp
   func/codegen.cpp
+  func/func.cpp
+
+  func/func.h
 )
 
 set(TLB_BLOCK_AUTO
@@ -283,6 +286,12 @@ endif()
 add_library(src_parser ${PARSER_SOURCE})
 target_include_directories(src_parser PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(src_parser PUBLIC ton_crypto)
+
+add_library(func-lib ${FUNC_LIB_SOURCE})
+target_compile_definitions(func-lib PUBLIC -DFUNC_LIB)
+target_include_directories(func-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(func-lib PUBLIC ton_crypto src_parser)
+set_target_properties(func-lib PROPERTIES OUTPUT_NAME func)
 
 add_executable(func func/func.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
