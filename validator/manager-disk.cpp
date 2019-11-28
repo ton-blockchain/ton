@@ -541,7 +541,7 @@ void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> t
                                                  std::vector<IhrMessage::Hash> to_delete) {
 }
 
-void ValidatorManagerImpl::get_block_data_from_db(BlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
+void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
   td::actor::send_closure(db_, &Db::get_block_data, handle, std::move(promise));
 }
 
@@ -558,7 +558,7 @@ void ValidatorManagerImpl::get_block_data_from_db_short(BlockIdExt block_id, td:
   get_block_handle(block_id, false, std::move(P));
 }
 
-void ValidatorManagerImpl::get_shard_state_from_db(BlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
+void ValidatorManagerImpl::get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
   td::actor::send_closure(db_, &Db::get_block_state, handle, std::move(promise));
 }
 
@@ -582,7 +582,7 @@ void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockId
   td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
 }
 
-void ValidatorManagerImpl::get_block_proof_from_db(BlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
+void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof, std::move(handle), std::move(promise));
 }
 
@@ -599,7 +599,8 @@ void ValidatorManagerImpl::get_block_proof_from_db_short(BlockIdExt block_id, td
   get_block_handle(block_id, false, std::move(P));
 }
 
-void ValidatorManagerImpl::get_block_proof_link_from_db(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) {
+void ValidatorManagerImpl::get_block_proof_link_from_db(ConstBlockHandle handle,
+                                                        td::Promise<td::Ref<ProofLink>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof_link, std::move(handle), std::move(promise));
 }
 
@@ -618,17 +619,17 @@ void ValidatorManagerImpl::get_block_proof_link_from_db_short(BlockIdExt block_i
 }
 
 void ValidatorManagerImpl::get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt,
-                                                   td::Promise<BlockHandle> promise) {
+                                                   td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(db_, &Db::get_block_by_lt, account, lt, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                                          td::Promise<BlockHandle> promise) {
+                                                          td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(db_, &Db::get_block_by_unix_time, account, ts, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                      td::Promise<BlockHandle> promise) {
+                                                      td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(db_, &Db::get_block_by_seqno, account, seqno, std::move(promise));
 }
 

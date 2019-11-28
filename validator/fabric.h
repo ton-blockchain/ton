@@ -38,6 +38,7 @@ td::Result<td::Ref<BlockSignatureSet>> create_signature_set(td::BufferSlice sig_
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::BufferSlice data);
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::DataCell> root_cell);
 td::Result<BlockHandle> create_block_handle(td::BufferSlice data);
+td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
 BlockHandle create_empty_block_handle(BlockIdExt id);
 td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data);
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);

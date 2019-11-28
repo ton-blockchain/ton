@@ -111,3 +111,4 @@ variable base
 { true (atom) drop } : atom
 { bl word atom 1 'nop } ::_ `
 { hole dup 1 { @ execute } does create } : recursive
+{ 0 { 1+ dup 1 ' $() does over (.) "$" swap $+ 0 (create) } rot times drop } : :$1..n

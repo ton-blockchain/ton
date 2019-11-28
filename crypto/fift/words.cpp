@@ -604,6 +604,12 @@ void interpret_str_split(vm::Stack& stack) {
   stack.push_string(std::string{str, sz});
 }
 
+void interpret_str_pos(vm::Stack& stack) {
+  auto s2 = stack.pop_string(), s1 = stack.pop_string();
+  auto pos = s1.find(s2);
+  stack.push_smallint(pos == std::string::npos ? -1 : pos);
+}
+
 void interpret_str_reverse(vm::Stack& stack) {
   std::string s = stack.pop_string();
   auto it = s.begin();
@@ -657,6 +663,20 @@ void interpret_utf8_str_split(vm::Stack& stack) {
   } else {
     throw IntError{"not enough utf8 characters for cutting"};
   }
+}
+
+void interpret_utf8_str_pos(vm::Stack& stack) {
+  auto s2 = stack.pop_string(), s1 = stack.pop_string();
+  auto pos = s1.find(s2);
+  if (pos == std::string::npos) {
+    stack.push_smallint(-1);
+    return;
+  }
+  int cnt = 0;
+  for (std::size_t i = 0; i < pos; i++) {
+    cnt += ((s1[i] & 0xc0) != 0x80);
+  }
+  stack.push_smallint(cnt);
 }
 
 void interpret_str_remove_trailing_int(vm::Stack& stack, int arg) {
@@ -2336,17 +2356,56 @@ void interpret_db_run_vm_parallel(IntCtx& ctx) {
   do_interpret_db_run_vm_parallel(ctx.error_stream, ctx.stack, ctx.ton_db, threads_n, tasks_n);
 }
 
+Ref<vm::Box> cmdline_args{true};
+
+void interpret_get_fixed_cmdline_arg(vm::Stack& stack, int n) {
+  if (!n) {
+    return;
+  }
+  auto v = cmdline_args->get();
+  while (true) {
+    if (v.empty()) {
+      stack.push(vm::StackEntry{});
+      return;
+    }
+    auto t = v.as_tuple_range(2, 2);
+    if (t.is_null()) {
+      throw IntError{"invalid cmdline arg list"};
+    }
+    if (!--n) {
+      stack.push(t->at(0));
+      return;
+    }
+    v = t->at(1);
+  }
+}
+
 // n -- executes $n
 void interpret_get_cmdline_arg(IntCtx& ctx) {
   int n = ctx.stack.pop_smallint_range(999999);
-  char buffer[14];
-  sprintf(buffer, "$%d ", n);
-  auto entry = ctx.dictionary->lookup(std::string{buffer});
+  if (n) {
+    interpret_get_fixed_cmdline_arg(ctx.stack, n);
+    return;
+  }
+  auto entry = ctx.dictionary->lookup("$0 ");
   if (!entry) {
     throw IntError{"-?"};
   } else {
     (*entry)(ctx);
   }
+}
+
+void interpret_get_cmdline_arg_count(vm::Stack& stack) {
+  auto v = cmdline_args->get();
+  int cnt;
+  for (cnt = 0; !v.empty(); cnt++) {
+    auto t = v.as_tuple_range(2, 2);
+    if (t.is_null()) {
+      throw IntError{"invalid cmdline arg list"};
+    }
+    v = t->at(1);
+  }
+  stack.push_smallint(cnt);
 }
 
 void interpret_getenv(vm::Stack& stack) {
@@ -2568,6 +2627,7 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("$= ", interpret_str_equal);
   d.def_stack_word("$cmp ", interpret_str_cmp);
   d.def_stack_word("$reverse ", interpret_str_reverse);
+  d.def_stack_word("$pos ", interpret_str_pos);
   d.def_stack_word("(-trailing) ", std::bind(interpret_str_remove_trailing_int, _1, 0));
   d.def_stack_word("-trailing ", std::bind(interpret_str_remove_trailing_int, _1, ' '));
   d.def_stack_word("-trailing0 ", std::bind(interpret_str_remove_trailing_int, _1, '0'));
@@ -2575,6 +2635,7 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("Blen ", interpret_bytes_len);
   d.def_stack_word("$Len ", interpret_utf8_str_len);
   d.def_stack_word("$Split ", interpret_utf8_str_split);
+  d.def_stack_word("$Pos ", interpret_utf8_str_pos);
   d.def_ctx_word("Bx. ", std::bind(interpret_bytes_hex_print_raw, _1, true));
   d.def_stack_word("B>X ", std::bind(interpret_bytes_to_hex, _1, true));
   d.def_stack_word("B>x ", std::bind(interpret_bytes_to_hex, _1, false));
@@ -2766,6 +2827,10 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("quit ", interpret_quit);
   d.def_ctx_word("bye ", interpret_bye);
   d.def_stack_word("halt ", interpret_halt);
+  // cmdline args
+  d.def_stack_word("$* ", std::bind(interpret_literal, _1, vm::StackEntry{cmdline_args}));
+  d.def_stack_word("$# ", interpret_get_cmdline_arg_count);
+  d.def_ctx_word("$() ", interpret_get_cmdline_arg);
 }
 
 void init_words_ton(Dictionary& d) {
@@ -2799,13 +2864,16 @@ void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* con
   using namespace std::placeholders;
   LOG(DEBUG) << "import_cmdlist_args(" << arg0 << "," << n << ")";
   d.def_stack_word("$0 ", std::bind(interpret_literal, _1, vm::StackEntry{arg0}));
-  for (int i = 0; i < n; i++) {
-    char buffer[14];
-    sprintf(buffer, "$%d ", i + 1);
-    d.def_stack_word(buffer, std::bind(interpret_literal, _1, vm::StackEntry{argv[i]}));
+  vm::StackEntry list;
+  for (int i = n - 1; i >= 0; i--) {
+    list = vm::StackEntry::cons(vm::StackEntry{argv[i]}, list);
   }
-  d.def_stack_word("$# ", std::bind(interpret_const, _1, n));
-  d.def_ctx_word("$() ", interpret_get_cmdline_arg);
+  cmdline_args->set(std::move(list));
+  for (int i = 1; i <= n; i++) {
+    char buffer[14];
+    sprintf(buffer, "$%d ", i);
+    d.def_stack_word(buffer, std::bind(interpret_get_fixed_cmdline_arg, _1, i));
+  }
 }
 
 std::pair<td::RefInt256, td::RefInt256> numeric_value_ext(std::string s, bool allow_frac = true) {

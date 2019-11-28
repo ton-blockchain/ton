@@ -48,6 +48,7 @@ liteServer.blockLinkBack to_key_block:Bool from:tonNode.blockIdExt to:tonNode.bl
 liteServer.blockLinkForward to_key_block:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt dest_proof:bytes config_proof:bytes signatures:liteServer.SignatureSet = liteServer.BlockLink;
 liteServer.partialBlockProof complete:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt steps:(vector liteServer.BlockLink) = liteServer.PartialBlockProof;
 liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
+liteServer.validatorStats mode:# id:tonNode.blockIdExt count:int complete:Bool state_proof:bytes data_proof:bytes = liteServer.ValidatorStats;
 
 liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 
@@ -71,6 +72,7 @@ liteServer.listBlockTransactions id:tonNode.blockIdExt mode:# count:# after:mode
 liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode.0?tonNode.blockIdExt = liteServer.PartialBlockProof;
 liteServer.getConfigAll mode:# id:tonNode.blockIdExt = liteServer.ConfigInfo;
 liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
+liteServer.getValidatorStats#091a58bc mode:# id:tonNode.blockIdExt limit:int start_after:mode.0?int256 modified_after:mode.2?int = liteServer.ValidatorStats;
 
 liteServer.queryPrefix = Object; 
 liteServer.query data:bytes = Object;

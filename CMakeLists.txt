@@ -441,7 +441,7 @@ if (USE_LIBRAPTORQ)
 endif()
 
 add_executable(test-hello-world test/test-hello-world.cpp )
-target_link_libraries(test-hello-world tl_api crypto ton_crypto)
+target_link_libraries(test-hello-world tl_api ton_crypto)
 
 add_executable(test-adnl test/test-adnl.cpp)
 target_link_libraries(test-adnl adnl adnltest dht tl_api)
@@ -510,6 +510,12 @@ add_test(test-tonlib-offline test-tonlib-offline)
 
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
+add_test(test-adnl test-adnl)
+add_test(test-dht test-dht)
+add_test(test-rldp test-rldp)
+add_test(test-validator-session-state test-validator-session-state)
+add_test(test-catchain test-catchain)
+
 add_test(test-fec test-fec)
 add_test(test-tddb test-tddb ${TEST_OPTIONS})
 add_test(test-db test-db ${TEST_OPTIONS})

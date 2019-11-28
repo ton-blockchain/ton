@@ -163,12 +163,12 @@ struct MsgProcessedUpto {
   MsgProcessedUpto(ton::ShardId _shard, ton::BlockSeqno _mcseqno, ton::LogicalTime _lt, td::ConstBitPtr _hash)
       : shard(_shard), mc_seqno(_mcseqno), last_inmsg_lt(_lt), last_inmsg_hash(_hash) {
   }
-  bool operator<(const MsgProcessedUpto& other) const& {
+  bool operator<(const MsgProcessedUpto& other) const & {
     return shard < other.shard || (shard == other.shard && mc_seqno < other.mc_seqno);
   }
-  bool contains(const MsgProcessedUpto& other) const&;
+  bool contains(const MsgProcessedUpto& other) const &;
   bool contains(ton::ShardId other_shard, ton::LogicalTime other_lt, td::ConstBitPtr other_hash,
-                ton::BlockSeqno other_mc_seqno) const&;
+                ton::BlockSeqno other_mc_seqno) const &;
   // NB: this is for checking whether we have already imported an internal message
   bool already_processed(const EnqueuedMsgDescr& msg) const;
 };
@@ -514,6 +514,9 @@ struct DiscountedCounter {
     return last_updated == other.last_updated && total == other.total && cnt2048 <= other.cnt2048 + 1 &&
            other.cnt2048 <= cnt2048 + 1 && cnt65536 <= other.cnt65536 + 1 && other.cnt65536 <= cnt65536 + 1;
   }
+  bool modified_since(ton::UnixTime utime) const {
+    return last_updated >= utime;
+  }
   bool validate();
   bool increase_by(unsigned count, ton::UnixTime now);
   bool fetch(vm::CellSlice& cs);
@@ -628,6 +631,8 @@ td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockI
                                      ton::BlockIdExt* fetch_blkid = nullptr);
 td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                               ton::Bits256* store_shard_hash_to = nullptr);
+
+std::unique_ptr<vm::Dictionary> get_block_create_stats_dict(Ref<vm::Cell> state_root);
 
 std::unique_ptr<vm::AugmentedDictionary> get_prev_blocks_dict(Ref<vm::Cell> state_root);
 bool get_old_mc_block_id(vm::AugmentedDictionary* prev_blocks_dict, ton::BlockSeqno seqno, ton::BlockIdExt& blkid,

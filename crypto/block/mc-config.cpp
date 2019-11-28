@@ -1710,6 +1710,30 @@ std::vector<ton::ValidatorDescr> Config::compute_total_validator_set(int next) c
   return res.move_as_ok()->export_validator_set();
 }
 
+td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {
+  if (vset_root.is_null()) {
+    return td::Status::Error("validator set absent");
+  }
+  gen::ValidatorSet::Record_validators_ext rec;
+  if (tlb::unpack_cell(vset_root, rec)) {
+    return std::pair<ton::UnixTime, ton::UnixTime>(rec.utime_since, rec.utime_until);
+  }
+  gen::ValidatorSet::Record_validators rec0;
+  if (tlb::unpack_cell(std::move(vset_root), rec0)) {
+    return std::pair<ton::UnixTime, ton::UnixTime>(rec0.utime_since, rec0.utime_until);
+  }
+  return td::Status::Error("validator set is invalid");
+}
+
+std::pair<ton::UnixTime, ton::UnixTime> Config::get_validator_set_start_stop(int next) const {
+  auto res = unpack_validator_set_start_stop(get_config_param(next < 0 ? 32 : (next ? 36 : 34)));
+  if (res.is_error()) {
+    return {0, 0};
+  } else {
+    return res.move_as_ok();
+  }
+}
+
 bool WorkchainInfo::unpack(ton::WorkchainId wc, vm::CellSlice& cs) {
   workchain = ton::workchainInvalid;
   if (wc == ton::workchainInvalid) {

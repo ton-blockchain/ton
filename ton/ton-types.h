@@ -25,6 +25,8 @@
 #include "td/utils/UInt.h"
 #include "td/utils/misc.h"
 
+#include <cinttypes>
+
 namespace ton {
 
 using WorkchainId = td::int32;
@@ -141,7 +143,7 @@ struct AccountIdPrefixFull {
   std::string to_str() const {
     char buffer[64];
     return std::string{
-        buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx)", workchain, (unsigned long long)account_id_prefix)};
+        buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx)", workchain, static_cast<long long>(account_id_prefix))};
   }
 };
 
@@ -204,8 +206,8 @@ struct BlockId {
   }
   std::string to_str() const {
     char buffer[64];
-    return std::string{buffer,
-                       (unsigned)snprintf(buffer, 63, "(%d,%016llx,%u)", workchain, (unsigned long long)shard, seqno)};
+    return std::string{buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx,%u)", workchain,
+                                                  static_cast<unsigned long long>(shard), seqno)};
   }
 };
 
@@ -282,7 +284,7 @@ struct BlockIdExt {
     BlockIdExt v;
     char rh[65];
     char fh[65];
-    auto r = sscanf(s.begin(), "(%d,%lx,%u):%64s:%64s", &v.id.workchain, &v.id.shard, &v.id.seqno, rh, fh);
+    auto r = sscanf(s.begin(), "(%d,%" SCNu64 ",%u):%64s:%64s", &v.id.workchain, &v.id.shard, &v.id.seqno, rh, fh);
     if (r < 5) {
       return td::Status::Error("failed to parse block id");
     }

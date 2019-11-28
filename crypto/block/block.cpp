@@ -789,10 +789,11 @@ td::Status ShardState::unpack_state(ton::BlockIdExt blkid, Ref<vm::Cell> prev_st
       return td::Status::Error(-666, "ShardState of "s + id_.to_str() + " does not contain a valid global_balance");
     }
     if (extra.r1.flags & 1) {
-      if (extra.r1.block_create_stats->prefetch_ulong(8) != 0x17) {
+      if (extra.r1.block_create_stats->prefetch_ulong(8) == 0x17) {
+        block_create_stats_ = std::make_unique<vm::Dictionary>(extra.r1.block_create_stats->prefetch_ref(), 256);
+      } else {
         return td::Status::Error(-666, "ShardState of "s + id_.to_str() + " does not contain a valid BlockCreateStats");
       }
-      block_create_stats_ = std::make_unique<vm::Dictionary>(extra.r1.block_create_stats->prefetch_ref(), 256);
     } else {
       block_create_stats_ = std::make_unique<vm::Dictionary>(256);
     }
@@ -1844,6 +1845,18 @@ td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& i
     *store_shard_hash_to = upd_hash.bits();
   }
   return td::Status::OK();
+}
+
+std::unique_ptr<vm::Dictionary> get_block_create_stats_dict(Ref<vm::Cell> state_root) {
+  block::gen::ShardStateUnsplit::Record info;
+  block::gen::McStateExtra::Record extra;
+  block::gen::BlockCreateStats::Record_block_create_stats cstats;
+  if (!(::tlb::unpack_cell(std::move(state_root), info) && info.custom->size_refs() &&
+        ::tlb::unpack_cell(info.custom->prefetch_ref(), extra) && (extra.r1.flags & 1) &&
+        ::tlb::csr_unpack(std::move(extra.r1.block_create_stats), cstats))) {
+    return {};
+  }
+  return std::make_unique<vm::Dictionary>(std::move(cstats.counters), 256);
 }
 
 std::unique_ptr<vm::AugmentedDictionary> get_prev_blocks_dict(Ref<vm::Cell> state_root) {

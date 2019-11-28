@@ -153,6 +153,12 @@ class TestNode : public td::actor::Actor {
                               std::vector<TransId> trans, td::BufferSlice proof);
   bool get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
   void got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice res);
+  bool get_creator_stats(ton::BlockIdExt blkid, int mode, unsigned req_count, ton::Bits256 start_after,
+                         ton::UnixTime min_utime);
+  void got_creator_stats(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, int req_mode, int mode,
+                         td::Bits256 start_after, ton::UnixTime min_utime, td::BufferSlice state_proof,
+                         td::BufferSlice data_proof, int count, int req_count, bool complete);
+  // parser
   bool do_parse_line();
   bool show_help(std::string command);
   td::Slice get_word(char delim = ' ');

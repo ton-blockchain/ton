@@ -43,6 +43,7 @@ class ConfigHolderQ : public ConfigHolder {
   // if necessary, add more public methods providing interface to config_->...()
   td::Ref<ValidatorSet> get_total_validator_set(int next) const override;  // next = -1 -> prev, next = 0 -> cur
   td::Ref<ValidatorSet> get_validator_set(ShardIdFull shard, UnixTime utime, CatchainSeqno seqno) const override;
+  std::pair<UnixTime, UnixTime> get_validator_set_start_stop(int next) const override;
 };
 
 }  // namespace validator

@@ -160,7 +160,7 @@ Masterchain swap
 // 9 4 1 config.validator_num!
 1000 100 13 config.validator_num!
 // min-stake max-stake min-total-stake max-factor
-GR$10000 GR$10000000 GR$1000000 sg~10 config.validator_stake_limits!
+GR$10000 GR$10000000 GR$500000 sg~10 config.validator_stake_limits!
 // elected-for elect-start-before elect-end-before stakes-frozen-for
 // 400000 200000 4000 400000 config.election_params!
 // 4000 2000 500 1000 config.election_params!  // DEBUG
@@ -219,7 +219,7 @@ now dup orig_vset_valid_for + 0 config.validators!
    0 32 u,          // seqno
    "config-master" +suffix +".pk" load-generate-keypair drop
    B,
-   newdict dict,   // vote dict
+   dictnew dict,   // vote dict
 b> // data
 empty_cell  // libraries
 GR$10  // balance
@@ -237,8 +237,8 @@ Masterchain swap
  */
  
 // pubkey amount `create-wallet1` or pubkey amount `create-wallet2`
-PK'PuZPPXK5Rff9SvtoS7Y9lUuEixvy-J6aishYFj3Qn6P0pJMb GR$100 create-wallet1
-PK'PuYiB1zAWzr4p8j6I681+sGUrRGcn6Ylf7vXl0xaUl/w6Xfg GR$170 create-wallet0
+PK'PuZPPXK5Rff9SvtoS7Y9lUuEixvy-J6aishYFj3Qn6P0pJMb GR$1000000000 create-wallet1
+PK'PuYiB1zAWzr4p8j6I681+sGUrRGcn6Ylf7vXl0xaUl/w6Xfg GR$1700000000 create-wallet0
 
 /*
  *

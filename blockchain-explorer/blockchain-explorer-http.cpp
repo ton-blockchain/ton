@@ -379,6 +379,23 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
     return *this;
   }
 
+  *this << "<form class=\"container\" action=\"" << prefix_ << "runmethod\" method=\"get\">"
+        << "<div class=\"row\">"
+        << "<p>Run get method<p>"
+        << "<div class=\"form-group col-lg-3 col-md-4\">"
+        << "<input type=\"text\" class=\"form-control mr-2\" name=\"method\" placeholder=\"method\">"
+        << "</div>\n"
+        << "<div class=\"form-group col-lg-4 col-md-6\">"
+        << "<input type=\"text\" class=\"form-control mr-2\" name=\"params\" placeholder=\"paramerers\"></div>"
+        << "<input type=\"hidden\" name=\"account\" value=\"" << acc_c.addr.rserialize(true) << "\">"
+        << "<input type=\"hidden\" name=\"workchain\" value=\"" << block_id.id.workchain << "\">"
+        << "<input type=\"hidden\" name=\"shard\" value=\"" << ton::shard_to_str(block_id.id.shard) << "\">"
+        << "<input type=\"hidden\" name=\"seqno\" value=\"" << block_id.id.seqno << "\">"
+        << "<input type=\"hidden\" name=\"roothash\" value=\"" << block_id.root_hash.to_hex() << "\">"
+        << "<input type=\"hidden\" name=\"filehash\" value=\"" << block_id.file_hash.to_hex() << "\">"
+        << "<div><button type=\"submit\" class=\"btn btn-primary mr-2\">Run!</button></div>"
+        << "</div></form>\n";
+
   *this << "<div class=\"table-responsive my-3\">\n"
         << "<table class=\"table-sm table-striped\">\n";
   *this << "<tr><th>block</th><td><a href=\"" << BlockLink{acc_c.block_id} << "\">" << block_id.id.to_str()
@@ -480,10 +497,13 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
     return *this;
   }
 
-  return *this << "<p><a class=\"btn btn-primary mr-2\" href=\"" << BlockDownloadLink{block_id} << "\" download=\""
-               << block_id.file_hash << ".boc\">download block</a>"
-               << "<a class=\"btn btn-primary\" href=\"" << BlockViewLink{block_id} << "\">view block</a>\n"
-               << "</p></div>";
+  *this << "<p><a class=\"btn btn-primary mr-2\" href=\"" << BlockDownloadLink{block_id} << "\" download=\""
+        << block_id.file_hash << ".boc\">download block</a>"
+        << "<a class=\"btn btn-primary\" href=\"" << BlockViewLink{block_id} << "\">view block</a>\n";
+  if (block_id.is_masterchain()) {
+    *this << "<a class=\"btn btn-primary\" href=\"" << ConfigViewLink{block_id} << "\">view config</a>\n";
+  }
+  return *this << "</p></div>";
 }
 
 HttpAnswer& HttpAnswer::operator<<(BlockShardsCell shards_c) {
@@ -571,6 +591,12 @@ HttpAnswer& HttpAnswer::operator<<(BlockViewLink block) {
   return *this;
 }
 
+HttpAnswer& HttpAnswer::operator<<(ConfigViewLink block) {
+  *this << prefix_ << "config?";
+  block_id_link(block.block_id);
+  return *this;
+}
+
 HttpAnswer& HttpAnswer::operator<<(BlockDownloadLink block) {
   *this << prefix_ << "download?";
   block_id_link(block.block_id);
@@ -606,8 +632,24 @@ HttpAnswer& HttpAnswer::operator<<(TransactionList trans) {
   return *this << "</tbody></table></div>";
 }
 
+HttpAnswer& HttpAnswer::operator<<(ConfigParam conf) {
+  std::ostringstream os;
+  *this << "<div id=\"configparam" << conf.idx << "\"><h3>param " << conf.idx << "</h3>";
+  if (conf.idx >= 0) {
+    *this << RawData<block::gen::ConfigParam>{conf.root, conf.idx};
+  } else {
+    *this << RawData<void>{conf.root};
+  }
+  *this << "</div>\n";
+  return *this;
+}
+
 HttpAnswer& HttpAnswer::operator<<(Error error) {
   return *this << "<div class=\"alert alert-danger\">" << error.error.to_string() << "</div>";
+}
+
+HttpAnswer& HttpAnswer::operator<<(Notification n) {
+  return *this << "<div class=\"alert alert-success\">" << n.text << "</div>";
 }
 
 void HttpAnswer::block_id_link(ton::BlockIdExt block_id) {

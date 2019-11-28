@@ -59,6 +59,7 @@
 #include "vm/cp0.h"
 #include "ton/ton-shard.h"
 #include "openssl/rand.hpp"
+#include "crypto/vm/utils.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -756,91 +757,6 @@ bool TestNode::parse_shard_id(ton::ShardIdFull& shard) {
   return convert_shard_id(get_word(), shard) || set_error("cannot parse full shard identifier or prefix");
 }
 
-bool TestNode::parse_stack_value(td::Slice str, vm::StackEntry& value) {
-  if (str.empty() || str.size() > 65535) {
-    return false;
-  }
-  int l = (int)str.size();
-  if (str[0] == '"') {
-    vm::CellBuilder cb;
-    if (l == 1 || str.back() != '"' || l >= 127 + 2 || !cb.store_bytes_bool(str.data() + 1, l - 2)) {
-      return false;
-    }
-    value = vm::StackEntry{vm::load_cell_slice_ref(cb.finalize())};
-    return true;
-  }
-  if (l >= 3 && (str[0] == 'x' || str[0] == 'b') && str[1] == '{' && str.back() == '}') {
-    unsigned char buff[128];
-    int bits =
-        (str[0] == 'x')
-            ? (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.begin() + 2, str.end() - 1)
-            : (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff), str.begin() + 2, str.end() - 1);
-    if (bits < 0) {
-      return false;
-    }
-    value =
-        vm::StackEntry{Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()}};
-    return true;
-  }
-  auto num = td::RefInt256{true};
-  auto& x = num.unique_write();
-  if (l >= 3 && str[0] == '0' && str[1] == 'x') {
-    if (x.parse_hex(str.data() + 2, l - 2) != l - 2) {
-      return false;
-    }
-  } else if (l >= 4 && str[0] == '-' && str[1] == '0' && str[2] == 'x') {
-    if (x.parse_hex(str.data() + 3, l - 3) != l - 3) {
-      return false;
-    }
-    x.negate().normalize();
-  } else if (!l || x.parse_dec(str.data(), l) != l) {
-    return false;
-  }
-  value = vm::StackEntry{std::move(num)};
-  return true;
-}
-
-bool TestNode::parse_stack_value(vm::StackEntry& value) {
-  auto word = get_word_ext(" \t", "[()]");
-  if (word.empty()) {
-    return set_error("stack value expected instead of end-of-line");
-  }
-  if (word.size() == 1 && (word[0] == '[' || word[0] == '(')) {
-    int expected = (word[0] == '(' ? ')' : ']');
-    std::vector<vm::StackEntry> values;
-    if (!parse_stack_values(values)) {
-      return false;
-    }
-    word = get_word_ext(" \t", "[()]");
-    if (word.size() != 1 || word[0] != expected) {
-      return set_error("closing bracket expected");
-    }
-    if (expected == ']') {
-      value = vm::StackEntry{std::move(values)};
-    } else {
-      value = vm::StackEntry::make_list(std::move(values));
-    }
-    return true;
-  } else {
-    return parse_stack_value(word, value) || set_error("invalid vm stack value");
-  }
-}
-
-bool TestNode::parse_stack_values(std::vector<vm::StackEntry>& values) {
-  values.clear();
-  while (!seekeoln()) {
-    if (cur() == ']' || cur() == ')') {
-      break;
-    }
-    values.emplace_back();
-    if (!parse_stack_value(values.back())) {
-      values.pop_back();
-      return false;
-    }
-  }
-  return true;
-}
-
 bool TestNode::set_error(std::string err_msg) {
   return set_error(td::Status::Error(-1, err_msg));
 }
@@ -912,6 +828,11 @@ bool TestNode::show_help(std::string command) {
          "header\n"
          "byutime <workchain> <shard-prefix> <utime>\tLooks up a block by workchain, shard and creation time, and "
          "shows its header\n"
+         "creatorstats <block-id-ext> [<count> [<start-pubkey>]]\tLists block creator statistics by validator public "
+         "key\n"
+         "recentcreatorstats <block-id-ext> <start-utime> [<count> [<start-pubkey>]]\tLists block creator statistics "
+         "updated after <start-utime> by validator public "
+         "key\n"
          "known\tShows the list of all known block ids\n"
          "privkey <filename>\tLoads a private key from file\n"
          "help [<command>]\tThis help\n"
@@ -999,6 +920,12 @@ bool TestNode::do_parse_line() {
     return parse_shard_id(shard) && parse_uint32(utime) && seekeoln() && lookup_block(shard, 4, utime);
   } else if (word == "bylt") {
     return parse_shard_id(shard) && parse_lt(lt) && seekeoln() && lookup_block(shard, 2, lt);
+  } else if (word == "creatorstats" || word == "recentcreatorstats") {
+    count = 1000;
+    int mode = (word == "recentcreatorstats" ? 4 : 0);
+    return parse_block_id_ext(blkid) && (!mode || parse_uint32(utime)) && (seekeoln() || parse_uint32(count)) &&
+           (seekeoln() || (parse_hash(hash) && (mode |= 1))) && seekeoln() &&
+           get_creator_stats(blkid, mode, count, hash, utime);
   } else if (word == "known") {
     return eoln() && show_new_blkids(true);
   } else if (word == "quit" && eoln()) {
@@ -1090,13 +1017,12 @@ bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress 
 
 bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
                                 std::string method_name) {
-  std::vector<vm::StackEntry> params;
-  if (!parse_stack_values(params)) {
-    return set_error("cannot parse list of TVM stack values");
+  auto R = vm::parse_stack_entries(td::Slice(parse_ptr_, parse_end_));
+  if (R.is_error()) {
+    return set_error(R.move_as_error().to_string());
   }
-  if (!seekeoln()) {
-    return set_error("extra characters after a list of TVM stack values");
-  }
+  parse_ptr_ = parse_end_;
+  auto params = R.move_as_ok();
   if (!ref_blkid.is_valid()) {
     return set_error("must obtain last block information before making other queries");
   }
@@ -2234,6 +2160,107 @@ void TestNode::got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mod
                           << now - chain->last_utime << " seconds ago)\n";
   }
   show_new_blkids();
+}
+
+bool TestNode::get_creator_stats(ton::BlockIdExt blkid, int mode, unsigned req_count, ton::Bits256 start_after,
+                                 ton::UnixTime min_utime) {
+  if (!(ready_ && !client_.empty())) {
+    return set_error("server connection not ready");
+  }
+  if (!blkid.is_masterchain_ext()) {
+    return set_error("only masterchain blocks contain block creator statistics");
+  }
+  if (!(mode & 1)) {
+    start_after.set_zero();
+  }
+  auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getValidatorStats>(
+                                        mode, ton::create_tl_lite_block_id(blkid), req_count, start_after, min_utime),
+                                    true);
+  LOG(INFO) << "requesting up to " << req_count << " block creator stats records with respect to masterchain block "
+            << blkid.to_str() << " starting from validator public key " << start_after.to_hex() << " created after "
+            << min_utime << " (mode=" << mode << ")";
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), mode, blkid, req_count, start_after,
+                                             min_utime ](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_validatorStats>(R.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getValidatorStats";
+    } else {
+      auto f = F.move_as_ok();
+      td::actor::send_closure_later(Self, &TestNode::got_creator_stats, blkid, ton::create_block_id(f->id_), mode,
+                                    f->mode_, start_after, min_utime, std::move(f->state_proof_),
+                                    std::move(f->data_proof_), f->count_, req_count, f->complete_);
+    }
+  });
+}
+
+void TestNode::got_creator_stats(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, int req_mode, int mode,
+                                 td::Bits256 start_after, ton::UnixTime min_utime, td::BufferSlice state_proof,
+                                 td::BufferSlice data_proof, int count, int req_count, bool complete) {
+  LOG(INFO) << "got answer to getValidatorStats query: " << count << " records out of " << req_count << ", "
+            << (complete ? "complete" : "incomplete");
+  if (!blkid.is_masterchain_ext()) {
+    LOG(ERROR) << "reference block " << blkid.to_str()
+               << " for block creator statistics is not a valid masterchain block";
+    return;
+  }
+  if (count > req_count) {
+    LOG(ERROR) << "obtained " << count << " answers to getValidatorStats query, but only " << req_count
+               << " were requested";
+    return;
+  }
+  if (blkid != req_blkid) {
+    LOG(ERROR) << "answer to getValidatorStats refers to masterchain block " << blkid.to_str()
+               << " different from requested " << req_blkid.to_str();
+    return;
+  }
+  auto R = block::check_extract_state_proof(blkid, state_proof.as_slice(), data_proof.as_slice());
+  if (R.is_error()) {
+    LOG(ERROR) << "masterchain state proof for " << blkid.to_str() << " is invalid : " << R.move_as_error().to_string();
+    return;
+  }
+  bool allow_eq = (mode & 3) != 1;
+  ton::Bits256 key{start_after};
+  std::ostringstream os;
+  try {
+    auto dict = block::get_block_create_stats_dict(R.move_as_ok());
+    if (!dict) {
+      LOG(ERROR) << "cannot extract BlockCreateStats from mc state";
+      return;
+    }
+    for (int i = 0; i < count + (int)complete; i++) {
+      auto v = dict->lookup_nearest_key(key, true, allow_eq);
+      if (v.is_null()) {
+        if (i != count) {
+          LOG(ERROR) << "could fetch only " << i << " CreatorStats entries out of " << count
+                     << " declared in answer to getValidatorStats";
+          return;
+        }
+        break;
+      }
+      block::DiscountedCounter mc_cnt, shard_cnt;
+      if (!block::unpack_CreatorStats(std::move(v), mc_cnt, shard_cnt)) {
+        LOG(ERROR) << "invalid CreatorStats record with key " << key.to_hex();
+        return;
+      }
+      if (mc_cnt.modified_since(min_utime) || shard_cnt.modified_since(min_utime)) {
+        os << key.to_hex() << " mc_cnt:" << mc_cnt << " shard_cnt:" << shard_cnt << std::endl;
+      }
+      allow_eq = false;
+    }
+    if (complete) {
+      os << "(complete)" << std::endl;
+    } else {
+      os << "(incomplete, repeat query from " << key.to_hex() << " )" << std::endl;
+    }
+    td::TerminalIO::out() << os.str();
+  } catch (vm::VmError& err) {
+    LOG(ERROR) << "error while traversing block creator stats: " << err.get_msg();
+  } catch (vm::VmVirtError& err) {
+    LOG(ERROR) << "virtualization error while traversing block creator stats: " << err.get_msg();
+  }
 }
 
 int main(int argc, char* argv[]) {

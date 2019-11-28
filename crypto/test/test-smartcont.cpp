@@ -455,16 +455,17 @@ TEST(Smartcon, Multisig) {
 
   int n = 100;
   int k = 99;
+  td::uint32 wallet_id = std::numeric_limits<td::uint32>::max() - 3;
   std::vector<td::Ed25519::PrivateKey> keys;
   for (int i = 0; i < n; i++) {
     keys.push_back(td::Ed25519::generate_private_key().move_as_ok());
   }
   auto init_state = ms_lib->create_init_data(
-      td::transform(keys, [](auto& key) { return key.get_public_key().ok().as_octet_string(); }), k);
+      wallet_id, td::transform(keys, [](auto& key) { return key.get_public_key().ok().as_octet_string(); }), k);
   auto ms = ton::MultisigWallet::create(init_state);
 
-  td::uint64 query_id = 123;
-  ton::MultisigWallet::QueryBuilder qb(query_id, vm::CellBuilder().finalize());
+  td::uint64 query_id = 123 | ((100 * 60ull) << 32);
+  ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
   // first empty query (init)
   CHECK(ms.write().send_external_message(vm::CellBuilder().finalize()).code == 0);
   // first empty query
@@ -491,7 +492,7 @@ TEST(Smartcon, Multisig) {
   ASSERT_EQ(0, ms->processed(query_id));
 
   {
-    ton::MultisigWallet::QueryBuilder qb(query_id, vm::CellBuilder().finalize());
+    ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
     for (int i = 50; i + 1 < 100; i++) {
       qb.sign(i, keys[i]);
     }
@@ -507,6 +508,7 @@ TEST(Smartcon, Multisig) {
 TEST(Smartcont, MultisigStress) {
   int n = 10;
   int k = 5;
+  td::uint32 wallet_id = std::numeric_limits<td::uint32>::max() - 3;
 
   std::vector<td::Ed25519::PrivateKey> keys;
   for (int i = 0; i < n; i++) {
@@ -515,13 +517,14 @@ TEST(Smartcont, MultisigStress) {
   auto public_keys = td::transform(keys, [](auto& key) { return key.get_public_key().ok().as_octet_string(); });
   auto ms_lib = ton::MultisigWallet::create();
   auto init_state_old =
-      ms_lib->create_init_data_fast(td::transform(public_keys, [](auto& key) { return key.copy(); }), k);
-  auto init_state = ms_lib->create_init_data(td::transform(public_keys, [](auto& key) { return key.copy(); }), k);
+      ms_lib->create_init_data_fast(wallet_id, td::transform(public_keys, [](auto& key) { return key.copy(); }), k);
+  auto init_state =
+      ms_lib->create_init_data(wallet_id, td::transform(public_keys, [](auto& key) { return key.copy(); }), k);
   CHECK(init_state_old->get_hash() == init_state->get_hash());
   auto ms = ton::MultisigWallet::create(init_state);
   CHECK(ms->get_public_keys() == public_keys);
 
-  td::int32 now = 0;
+  td::int32 now = 100 * 60;
   td::int32 qid = 1;
   using Mask = std::bitset<128>;
   struct Query {
@@ -566,7 +569,7 @@ TEST(Smartcont, MultisigStress) {
   };
 
   auto sign_query = [&](Query& query, Mask mask) {
-    auto qb = ton::MultisigWallet::QueryBuilder(query.id, query.message);
+    auto qb = ton::MultisigWallet::QueryBuilder(wallet_id, query.id, query.message);
     int first_i = -1;
     for (int i = 0; i < (int)mask.size(); i++) {
       if (mask.test(i)) {

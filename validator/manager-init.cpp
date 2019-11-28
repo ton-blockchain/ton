@@ -461,9 +461,9 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
     return;
   }
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), db = db_](td::Result<ConstBlockHandle> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_handle, R.move_as_ok());
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_id, R.move_as_ok()->id());
   });
   td::actor::send_closure(db_, &Db::get_block_by_seqno, AccountIdPrefixFull{masterchainId, 0}, b.seqno() - 1,
                           std::move(P));

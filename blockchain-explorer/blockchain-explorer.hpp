@@ -32,6 +32,8 @@
 #include "ton/ton-types.h"
 #include "td/utils/port/IPAddress.h"
 
+#define MAX_POST_SIZE (64 << 10)
+
 class CoreActorInterface : public td::actor::Actor {
  public:
   struct RemoteNodeStatus {

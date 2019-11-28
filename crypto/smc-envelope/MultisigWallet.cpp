@@ -8,8 +8,13 @@
 
 namespace ton {
 
-MultisigWallet::QueryBuilder::QueryBuilder(td::int64 query_id, td::Ref<vm::Cell> msg, int mode) {
-  msg_ = vm::CellBuilder().store_long(query_id, 64).store_long(mode, 8).store_ref(std::move(msg)).finalize();
+MultisigWallet::QueryBuilder::QueryBuilder(td::uint32 wallet_id, td::int64 query_id, td::Ref<vm::Cell> msg, int mode) {
+  msg_ = vm::CellBuilder()
+             .store_long(wallet_id, 32)
+             .store_long(query_id, 64)
+             .store_long(mode, 8)
+             .store_ref(std::move(msg))
+             .finalize();
 }
 void MultisigWallet::QueryBuilder::sign(td::int32 id, td::Ed25519::PrivateKey& pk) {
   CHECK(id < td::narrow_cast<td::int32>(mask_.size()));
@@ -87,26 +92,29 @@ std::vector<td::SecureString> MultisigWallet::get_public_keys() const {
   return res;
 }
 
-td::Ref<vm::Cell> MultisigWallet::create_init_data(std::vector<td::SecureString> public_keys, int k) const {
+td::Ref<vm::Cell> MultisigWallet::create_init_data(td::uint32 wallet_id, std::vector<td::SecureString> public_keys,
+                                                   int k) const {
   vm::Dictionary pk(8);
   for (size_t i = 0; i < public_keys.size(); i++) {
     auto key = pk.integer_key(td::make_refint(i), 8, false);
-    pk.set_builder(key.bits(), 8, vm::CellBuilder().store_bytes(public_keys[i].as_slice()));
+    pk.set_builder(key.bits(), 8, vm::CellBuilder().store_bytes(public_keys[i].as_slice()).store_long(0, 8));
   }
-  auto res = run_get_method("create_init_state",
-                            {td::make_refint(public_keys.size()), td::make_refint(k), pk.get_root_cell()});
+  auto res = run_get_method("create_init_state", {td::make_refint(wallet_id), td::make_refint(public_keys.size()),
+                                                  td::make_refint(k), pk.get_root_cell()});
   CHECK(res.code == 0);
   return res.stack.write().pop_cell();
 }
 
-td::Ref<vm::Cell> MultisigWallet::create_init_data_fast(std::vector<td::SecureString> public_keys, int k) {
+td::Ref<vm::Cell> MultisigWallet::create_init_data_fast(td::uint32 wallet_id, std::vector<td::SecureString> public_keys,
+                                                        int k) {
   vm::Dictionary pk(8);
   for (size_t i = 0; i < public_keys.size(); i++) {
     auto key = pk.integer_key(td::make_refint(i), 8, false);
-    pk.set_builder(key.bits(), 8, vm::CellBuilder().store_bytes(public_keys[i].as_slice()));
+    pk.set_builder(key.bits(), 8, vm::CellBuilder().store_bytes(public_keys[i].as_slice()).store_long(0, 8));
   }
 
   vm::CellBuilder cb;
+  cb.store_long(wallet_id, 32);
   cb.store_long(public_keys.size(), 8).store_long(k, 8).store_long(0, 64);
   cb.ensure_throw(cb.store_maybe_ref(pk.get_root_cell()));
   cb.ensure_throw(cb.store_maybe_ref({}));
@@ -156,7 +164,7 @@ std::vector<MultisigWallet::Message> MultisigWallet::get_unsigned_messaged(int i
   vm::Dictionary dict(std::move(cell), 64);
   std::vector<Message> res;
   dict.check_for_each([&](auto cs, auto ptr, auto ptr_bits) {
-    cs.write().skip_first(8);
+    cs.write().skip_first(8 + 8);
     Message message;
     td::BigInt256 query_id;
     query_id.import_bits(ptr, ptr_bits, false);

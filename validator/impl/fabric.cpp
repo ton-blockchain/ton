@@ -96,6 +96,10 @@ td::Result<BlockHandle> create_block_handle(td::BufferSlice data) {
   return ton::validator::BlockHandleImpl::create(std::move(data));
 }
 
+td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data) {
+  return ton::validator::BlockHandleImpl::create(std::move(data));
+}
+
 BlockHandle create_empty_block_handle(BlockIdExt id) {
   return ton::validator::BlockHandleImpl::create_empty(id);
 }

@@ -20,7 +20,7 @@ class MultisigWallet : public ton::SmartContract {
 
   class QueryBuilder {
    public:
-    QueryBuilder(td::int64 query_id, td::Ref<vm::Cell> msg, int mode = 3);
+    QueryBuilder(td::uint32 wallet_id, td::int64 query_id, td::Ref<vm::Cell> msg, int mode = 3);
     void sign(td::int32 id, td::Ed25519::PrivateKey& pk);
 
     td::Ref<vm::Cell> create_inner() const;
@@ -42,8 +42,9 @@ class MultisigWallet : public ton::SmartContract {
   // creation
   static td::Ref<MultisigWallet> create(td::Ref<vm::Cell> data = {});
 
-  td::Ref<vm::Cell> create_init_data(std::vector<td::SecureString> public_keys, int k) const;
-  static td::Ref<vm::Cell> create_init_data_fast(std::vector<td::SecureString> public_keys, int k);
+  td::Ref<vm::Cell> create_init_data(td::uint32 wallet_id, std::vector<td::SecureString> public_keys, int k) const;
+  static td::Ref<vm::Cell> create_init_data_fast(td::uint32 wallet_id, std::vector<td::SecureString> public_keys,
+                                                 int k);
 
   // get methods
   int processed(td::uint64 query_id) const;

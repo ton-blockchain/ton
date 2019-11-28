@@ -5086,7 +5086,7 @@ bool ValidateQuery::check_mc_state_extra() {
   }
   // block_create_stats:(flags . 0)?BlockCreateStats
   if (new_extra.r1.flags & 1) {
-    block::gen::BlockCreateStats::Record rec;
+    block::gen::BlockCreateStats::Record_block_create_stats rec;
     if (!tlb::csr_unpack(new_extra.r1.block_create_stats, rec)) {
       return reject_query("cannot unpack BlockCreateStats in the new masterchain state");
     }

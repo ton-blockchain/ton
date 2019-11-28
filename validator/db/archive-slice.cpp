@@ -204,6 +204,28 @@ void ArchiveSlice::get_handle(BlockIdExt block_id, td::Promise<BlockHandle> prom
   promise.set_value(std::move(handle));
 }
 
+void ArchiveSlice::get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) {
+  if (destroyed_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
+    return;
+  }
+  CHECK(!key_blocks_only_);
+  std::string value;
+  auto R = kv_->get(get_db_key_block_info(block_id), value);
+  R.ensure();
+  if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "handle not in archive slice"));
+    return;
+  }
+  auto E = create_block_handle(td::BufferSlice{value});
+  E.ensure();
+  auto handle = E.move_as_ok();
+  if (!temp_) {
+    handle->set_handle_moved_to_archive();
+  }
+  promise.set_value(std::move(handle));
+}
+
 void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
@@ -231,7 +253,7 @@ void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> p
 void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
                                     std::function<td::int32(ton_api::db_lt_desc_value &)> compare_desc,
                                     std::function<td::int32(ton_api::db_lt_el_value &)> compare, bool exact,
-                                    td::Promise<BlockHandle> promise) {
+                                    td::Promise<ConstBlockHandle> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
@@ -281,7 +303,7 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
         lseq = create_block_id(e->id_);
         l = x;
       } else {
-        get_handle(create_block_id(e->id_), std::move(promise));
+        get_temp_handle(create_block_id(e->id_), std::move(promise));
         return;
       }
     }
@@ -299,7 +321,7 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
     }
     if (block_id.is_valid() && ls + 1 == block_id.id.seqno) {
       if (!exact) {
-        get_handle(block_id, std::move(promise));
+        get_temp_handle(block_id, std::move(promise));
       } else {
         promise.set_error(td::Status::Error(ErrorCode::notready, "ltdb: block not found"));
       }
@@ -307,13 +329,14 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
     }
   }
   if (!exact && block_id.is_valid()) {
-    get_handle(block_id, std::move(promise));
+    get_temp_handle(block_id, std::move(promise));
   } else {
     promise.set_error(td::Status::Error(ErrorCode::notready, "ltdb: block not found"));
   }
 }
 
-void ArchiveSlice::get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt, td::Promise<BlockHandle> promise) {
+void ArchiveSlice::get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt,
+                                   td::Promise<ConstBlockHandle> promise) {
   return get_block_common(
       account_id,
       [lt](ton_api::db_lt_desc_value &w) {
@@ -326,7 +349,7 @@ void ArchiveSlice::get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime l
 }
 
 void ArchiveSlice::get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno seqno,
-                                      td::Promise<BlockHandle> promise) {
+                                      td::Promise<ConstBlockHandle> promise) {
   return get_block_common(
       account_id,
       [seqno](ton_api::db_lt_desc_value &w) {
@@ -343,7 +366,7 @@ void ArchiveSlice::get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno
 }
 
 void ArchiveSlice::get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts,
-                                          td::Promise<BlockHandle> promise) {
+                                          td::Promise<ConstBlockHandle> promise) {
   return get_block_common(
       account_id,
       [ts](ton_api::db_lt_desc_value &w) {

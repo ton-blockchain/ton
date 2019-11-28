@@ -648,12 +648,13 @@ td::Result<bool> Config::config_del_gc(ton::PublicKeyHash key) {
 class ValidatorElectionBidCreator : public td::actor::Actor {
  public:
   ValidatorElectionBidCreator(td::uint32 date, std::string addr, std::string wallet, std::string dir,
-                              td::actor::ActorId<ValidatorEngine> engine,
+                              std::vector<ton::PublicKeyHash> old_keys, td::actor::ActorId<ValidatorEngine> engine,
                               td::actor::ActorId<ton::keyring::Keyring> keyring, td::Promise<td::BufferSlice> promise)
       : date_(date)
       , addr_(addr)
       , wallet_(wallet)
       , dir_(dir)
+      , old_keys_(std::move(old_keys))
       , engine_(engine)
       , keyring_(keyring)
       , promise_(std::move(promise)) {
@@ -661,6 +662,22 @@ class ValidatorElectionBidCreator : public td::actor::Actor {
   }
 
   void start_up() override {
+    if (old_keys_.size() > 0) {
+      CHECK(old_keys_.size() == 3);
+
+      adnl_addr_ = ton::adnl::AdnlNodeIdShort{old_keys_[2]};
+      perm_key_ = old_keys_[0];
+
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ton::PublicKey> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &ValidatorElectionBidCreator::abort_query, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &ValidatorElectionBidCreator::got_perm_public_key, R.move_as_ok());
+        }
+      });
+      td::actor::send_closure(keyring_, &ton::keyring::Keyring::get_public_key, perm_key_, std::move(P));
+      return;
+    }
     auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     perm_key_full_ = pk1.compute_public_key();
     perm_key_ = perm_key_full_.compute_short_id();
@@ -710,6 +727,11 @@ class ValidatorElectionBidCreator : public td::actor::Actor {
                             ig.get_promise());
     td::actor::send_closure(engine_, &ValidatorEngine::try_add_validator_adnl_addr, perm_key_, adnl_addr_.pubkey_hash(),
                             ttl_, ig.get_promise());
+  }
+
+  void got_perm_public_key(ton::PublicKey pub) {
+    perm_key_full_ = pub;
+    updated_config();
   }
 
   void updated_config() {
@@ -792,6 +814,7 @@ class ValidatorElectionBidCreator : public td::actor::Actor {
   std::string addr_;
   std::string wallet_;
   std::string dir_;
+  std::vector<ton::PublicKeyHash> old_keys_;
   td::actor::ActorId<ValidatorEngine> engine_;
   td::actor::ActorId<ton::keyring::Keyring> keyring_;
 
@@ -899,28 +922,24 @@ void ValidatorEngine::alarm() {
     if (state_.not_null()) {
       bool need_write = false;
 
+      auto configR = state_->get_config_holder();
+      configR.ensure();
+      auto config = configR.move_as_ok();
+      auto cur_t = config->get_validator_set_start_stop(0);
+      CHECK(cur_t.first > 0);
+      LOG(ERROR) << "curt: " << cur_t.first << " " << cur_t.second;
+
       auto val_set = state_->get_total_validator_set(0);
       auto e = val_set->export_vector();
-      std::set<ton::PublicKeyHash> adnl_ids;
-      for (auto &el : e) {
-        adnl_ids.insert(ton::PublicKeyHash{el.addr});
-      }
       std::set<ton::PublicKeyHash> to_del;
       for (auto &val : config_.validators) {
-        if (val.second.expire_at < state_->get_unix_time() &&
-            !val_set->is_validator(ton::NodeIdShort{val.first.bits256_value()})) {
+        bool is_validator = false;
+        if (val_set->is_validator(ton::NodeIdShort{val.first.bits256_value()})) {
+          is_validator = true;
+        }
+        if (!is_validator && val.second.election_date < cur_t.first && cur_t.first + 600 < state_->get_unix_time()) {
           to_del.insert(val.first);
-        } else {
-          std::set<ton::PublicKeyHash> to_del_2;
-          for (auto &x : val.second.adnl_ids) {
-            if (x.second < state_->get_unix_time() && !adnl_ids.count(x.first)) {
-              to_del_2.insert(x.first);
-            }
-          }
-          for (auto &x : to_del_2) {
-            config_.config_del_validator_temp_key(val.first, x);
-            need_write = true;
-          }
+          continue;
         }
       }
       for (auto &x : to_del) {
@@ -2699,9 +2718,23 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createEle
     return;
   }
 
+  std::vector<ton::PublicKeyHash> v;
+  for (auto &x : config_.validators) {
+    if (x.second.election_date == static_cast<ton::UnixTime>(query.election_date_)) {
+      if (x.second.temp_keys.size() == 0 || x.second.adnl_ids.size() == 0) {
+        promise.set_value(
+            create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "prev bid is partial")));
+        return;
+      }
+      v.push_back(x.first);
+      v.push_back(x.second.temp_keys.begin()->first);
+      v.push_back(x.second.adnl_ids.begin()->first);
+    }
+  }
+
   td::actor::create_actor<ValidatorElectionBidCreator>("bidcreate", query.election_date_, query.election_addr_,
-                                                       query.wallet_, fift_dir_, actor_id(this), keyring_.get(),
-                                                       std::move(promise))
+                                                       query.wallet_, fift_dir_, std::move(v), actor_id(this),
+                                                       keyring_.get(), std::move(promise))
       .release();
 }
 

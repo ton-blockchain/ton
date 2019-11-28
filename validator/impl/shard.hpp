@@ -139,7 +139,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   std::shared_ptr<block::ConfigInfo> get_config() const {
     return config_;
   }
-  td::Result<td::Ref<ConfigHolder>> get_key_block_config() const override {
+  td::Result<td::Ref<ConfigHolder>> get_config_holder() const override {
     if (!config_) {
       return td::Status::Error(ErrorCode::notready, "config not found");
     } else {

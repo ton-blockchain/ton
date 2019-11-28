@@ -366,6 +366,10 @@ action_send_msg#0ec3c86d mode:(## 8)
 action_set_code#ad4de08e new_code:^Cell = OutAction;
 action_reserve_currency#36e6b809 mode:(## 8)
   currency:CurrencyCollection = OutAction;
+libref_hash$0 lib_hash:bits256 = LibRef;
+libref_ref$1 library:^Cell = LibRef;
+action_change_library#26fa1dd4 mode:(## 7) { mode <= 2 }
+  libref:LibRef = OutAction;
 
 out_list_node$_ prev:^Cell action:OutAction = OutListNode;
 //
@@ -505,6 +509,7 @@ _ (HashmapAugE 32 KeyExtBlkRef KeyMaxLt) = OldMcBlocksInfo;
 counters#_ last_updated:uint32 total:uint64 cnt2048:uint64 cnt65536:uint64 = Counters; 
 creator_info#4 mc_blocks:Counters shard_blocks:Counters = CreatorStats; 
 block_create_stats#17 counters:(HashmapE 256 CreatorStats) = BlockCreateStats;
+block_create_stats_ext#34 counters:(HashmapAugE 256 CreatorStats uint32) = BlockCreateStats;
 
 masterchain_state_extra#cc26
   shard_hashes:ShardHashes

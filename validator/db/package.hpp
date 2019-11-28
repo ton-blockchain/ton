@@ -11,6 +11,8 @@ class Package {
   static td::Result<Package> open(std::string path, bool read_only = false, bool create = false);
 
   Package(td::FileFd fd);
+  Package(Package &&p) = default;
+  ~Package();
 
   td::Status truncate(td::uint64 size);
 

@@ -51,7 +51,7 @@ void RootDb::store_block_data(BlockHandle handle, td::Ref<BlockData> block, td::
                           std::move(P));
 }
 
-void RootDb::get_block_data(BlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
+void RootDb::get_block_data(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
   if (!handle->received()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not in db"));
   } else {
@@ -88,7 +88,7 @@ void RootDb::store_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSe
                           data->serialize(), std::move(P));
 }
 
-void RootDb::get_block_signatures(BlockHandle handle, td::Promise<td::Ref<BlockSignatureSet>> promise) {
+void RootDb::get_block_signatures(ConstBlockHandle handle, td::Promise<td::Ref<BlockSignatureSet>> promise) {
   if (!handle->inited_signatures() || handle->moved_to_archive()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not in db"));
   } else {
@@ -124,7 +124,7 @@ void RootDb::store_block_proof(BlockHandle handle, td::Ref<Proof> proof, td::Pro
                           std::move(P));
 }
 
-void RootDb::get_block_proof(BlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
+void RootDb::get_block_proof(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   if (!handle->inited_proof()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not in db"));
   } else {
@@ -159,7 +159,7 @@ void RootDb::store_block_proof_link(BlockHandle handle, td::Ref<ProofLink> proof
                           proof->data(), std::move(P));
 }
 
-void RootDb::get_block_proof_link(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) {
+void RootDb::get_block_proof_link(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) {
   if (!handle->inited_proof_link()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not in db"));
   } else {
@@ -248,7 +248,7 @@ void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
   }
 }
 
-void RootDb::get_block_state(BlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
+void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
   if (handle->inited_state_boc()) {
     if (handle->deleted_state_boc()) {
       promise.set_error(td::Status::Error(ErrorCode::error, "state already gc'd"));
@@ -323,15 +323,15 @@ void RootDb::apply_block(BlockHandle handle, td::Promise<td::Unit> promise) {
       .release();
 }
 
-void RootDb::get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockHandle> promise) {
+void RootDb::get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::get_block_by_lt, account, lt, std::move(promise));
 }
 
-void RootDb::get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<BlockHandle> promise) {
+void RootDb::get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::get_block_by_unix_time, account, ts, std::move(promise));
 }
 
-void RootDb::get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<BlockHandle> promise) {
+void RootDb::get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::get_block_by_seqno, account, seqno, std::move(promise));
 }
 

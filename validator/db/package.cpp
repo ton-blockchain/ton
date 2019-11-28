@@ -170,4 +170,8 @@ void Package::iterate(std::function<bool(std::string, td::BufferSlice, td::uint6
   }
 }
 
+Package::~Package() {
+  fd_.close();
+}
+
 }  // namespace ton

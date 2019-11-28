@@ -110,7 +110,7 @@ void ValidateBroadcast::start_up() {
     } else if (key_block_seqno == last_masterchain_state_->get_seqno()) {
       got_key_block_handle(last_masterchain_block_handle_);
     } else {
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ConstBlockHandle> R) {
         if (R.is_error()) {
           td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
                                   R.move_as_error_prefix("cannot find reference key block id: "));
@@ -138,7 +138,7 @@ void ValidateBroadcast::got_key_block_id(BlockIdExt block_id) {
   td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, block_id, false, std::move(P));
 }
 
-void ValidateBroadcast::got_key_block_handle(BlockHandle handle) {
+void ValidateBroadcast::got_key_block_handle(ConstBlockHandle handle) {
   if (handle->id().seqno() == 0) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
@@ -183,7 +183,7 @@ void ValidateBroadcast::got_key_block_proof_link(td::Ref<ProofLink> key_proof_li
 
 void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
   zero_state_ = state;
-  auto confR = state->get_key_block_config();
+  auto confR = state->get_config_holder();
   if (confR.is_error()) {
     abort_query(confR.move_as_error_prefix("failed to extract config from zero state: "));
     return;

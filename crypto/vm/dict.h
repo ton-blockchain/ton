@@ -237,6 +237,11 @@ class DictionaryFixed : public DictionaryBase {
   Ref<CellSlice> get_minmax_key(T& key_buffer, bool fetch_max = false, bool invert_first = false) {
     return get_minmax_key(key_buffer.bits(), key_buffer.size(), fetch_max, invert_first);
   }
+  template <typename T>
+  Ref<CellSlice> lookup_nearest_key(T& key_buffer, bool fetch_next = false, bool allow_eq = false,
+                                    bool invert_first = false) {
+    return lookup_nearest_key(key_buffer.bits(), key_buffer.size(), fetch_next, allow_eq, invert_first);
+  }
 
  protected:
   virtual int label_mode() const {

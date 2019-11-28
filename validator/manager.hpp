@@ -385,22 +385,23 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) override;
 
-  void get_block_data_from_db(BlockHandle handle, td::Promise<td::Ref<BlockData>> promise) override;
+  void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) override;
   void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) override;
-  void get_shard_state_from_db(BlockHandle handle, td::Promise<td::Ref<ShardState>> promise) override;
+  void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) override;
   void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) override;
   void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                    td::Promise<BlockCandidate> promise) override;
-  void get_block_proof_from_db(BlockHandle handle, td::Promise<td::Ref<Proof>> promise) override;
+  void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_from_db_short(BlockIdExt id, td::Promise<td::Ref<Proof>> promise) override;
-  void get_block_proof_link_from_db(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) override;
+  void get_block_proof_link_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) override;
   void get_block_proof_link_from_db_short(BlockIdExt id, td::Promise<td::Ref<ProofLink>> promise) override;
 
-  void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt, td::Promise<BlockHandle> promise) override;
+  void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt,
+                               td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                      td::Promise<BlockHandle> promise) override;
+                                      td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                  td::Promise<BlockHandle> promise) override;
+                                  td::Promise<ConstBlockHandle> promise) override;
 
   // get block handle declared in parent class
   void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;

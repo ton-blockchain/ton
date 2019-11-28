@@ -1013,6 +1013,8 @@ x{FB00} @Defop SENDRAWMSG
 x{FB02} @Defop RAWRESERVE
 x{FB03} @Defop RAWRESERVEX
 x{FB04} @Defop SETCODE
+x{FB06} @Defop SETLIBCODE
+x{FB07} @Defop CHANGELIB
 
 //
 // debug primitives

@@ -35,16 +35,17 @@ class ArchiveSlice : public td::actor::Actor {
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void add_file(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise);
+  void get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise);
   void get_file(FileReference ref_id, td::Promise<td::BufferSlice> promise);
 
   /* from LTDB */
-  void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<BlockHandle> promise);
-  void get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt, td::Promise<BlockHandle> promise);
-  void get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno seqno, td::Promise<BlockHandle> promise);
+  void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
+  void get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt, td::Promise<ConstBlockHandle> promise);
+  void get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno seqno, td::Promise<ConstBlockHandle> promise);
   void get_block_common(AccountIdPrefixFull account_id,
                         std::function<td::int32(ton_api::db_lt_desc_value &)> compare_desc,
                         std::function<td::int32(ton_api::db_lt_el_value &)> compare, bool exact,
-                        td::Promise<BlockHandle> promise);
+                        td::Promise<ConstBlockHandle> promise);
 
   void get_slice(td::uint64 offset, td::uint32 limit, td::Promise<td::BufferSlice> promise);
 

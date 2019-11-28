@@ -107,6 +107,7 @@ struct BlockHandleInterface {
 };
 
 using BlockHandle = std::shared_ptr<BlockHandleInterface>;
+using ConstBlockHandle = std::shared_ptr<const BlockHandleInterface>;
 
 }  // namespace validator
 

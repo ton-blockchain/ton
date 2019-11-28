@@ -114,6 +114,8 @@ class LiteQuery : public td::actor::Actor {
   void perform_getBlockProof(BlockIdExt from, BlockIdExt to, int mode);
   void continue_getBlockProof(BlockIdExt from, BlockIdExt to, int mode, BlockIdExt baseblk,
                               Ref<MasterchainStateQ> state);
+  void perform_getValidatorStats(BlockIdExt blkid, int mode, int count, Bits256 start_after, UnixTime min_utime);
+  void continue_getValidatorStats(int mode, int limit, Bits256 start_after, UnixTime min_utime);
   bool construct_proof_chain(BlockIdExt id);
   bool construct_proof_link_forward(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::BlockIdExt next);

@@ -49,6 +49,12 @@
 #include "blockchain-explorer-http.hpp"
 #include "blockchain-explorer-query.hpp"
 
+#include "vm/boc.h"
+#include "vm/cellops.h"
+#include "vm/cells/MerkleProof.h"
+#include "vm/continuation.h"
+#include "vm/cp0.h"
+
 #include "auto/tl/lite_api.h"
 #include "ton/lite-tl.hpp"
 #include "tl-utils/lite-utils.hpp"
@@ -263,22 +269,80 @@ class CoreActor : public CoreActorInterface {
     return MHD_YES;
   }
 
+  struct HttpRequestExtra {
+    HttpRequestExtra(MHD_Connection* connection, bool is_post) {
+      if (is_post) {
+        postprocessor = MHD_create_post_processor(connection, 1 << 14, iterate_post, static_cast<void*>(this));
+      }
+    }
+    ~HttpRequestExtra() {
+      MHD_destroy_post_processor(postprocessor);
+    }
+    static int iterate_post(void* coninfo_cls, enum MHD_ValueKind kind, const char* key, const char* filename,
+                            const char* content_type, const char* transfer_encoding, const char* data, uint64_t off,
+                            size_t size) {
+      auto ptr = static_cast<HttpRequestExtra*>(coninfo_cls);
+      ptr->total_size += strlen(key) + size;
+      if (ptr->total_size > MAX_POST_SIZE) {
+        return MHD_NO;
+      }
+      std::string k = key;
+      if (ptr->opts[k].size() < off + size) {
+        ptr->opts[k].resize(off + size);
+      }
+      td::MutableSlice(ptr->opts[k]).remove_prefix(off).copy_from(td::Slice(data, size));
+      return MHD_YES;
+    }
+    MHD_PostProcessor* postprocessor;
+    std::map<std::string, std::string> opts;
+    td::uint64 total_size = 0;
+  };
+
+  static void request_completed(void* cls, struct MHD_Connection* connection, void** ptr,
+                                enum MHD_RequestTerminationCode toe) {
+    auto e = static_cast<HttpRequestExtra*>(*ptr);
+    if (e) {
+      delete e;
+    }
+  }
+
   static int process_http_request(void* cls, struct MHD_Connection* connection, const char* url, const char* method,
                                   const char* version, const char* upload_data, size_t* upload_data_size, void** ptr) {
-    static int dummy;
     struct MHD_Response* response = nullptr;
     int ret;
 
-    if (0 != std::strcmp(method, "GET"))
+    bool is_post = false;
+    if (std::strcmp(method, "GET") == 0) {
+      is_post = false;
+    } else if (std::strcmp(method, "POST") == 0) {
+      is_post = true;
+    } else {
       return MHD_NO; /* unexpected method */
-    if (&dummy != *ptr) {
-      /* The first time only the headers are valid,
-         do not respond in the first round... */
-      *ptr = &dummy;
-      return MHD_YES;
     }
-    if (0 != *upload_data_size)
-      return MHD_NO; /* upload data in a GET!? */
+    std::map<std::string, std::string> opts;
+    if (!is_post) {
+      if (!*ptr) {
+        *ptr = static_cast<void*>(new HttpRequestExtra{connection, false});
+        return MHD_YES;
+      }
+      if (0 != *upload_data_size)
+        return MHD_NO; /* upload data in a GET!? */
+    } else {
+      if (!*ptr) {
+        *ptr = static_cast<void*>(new HttpRequestExtra{connection, true});
+        return MHD_YES;
+      }
+      auto e = static_cast<HttpRequestExtra*>(*ptr);
+      if (0 != *upload_data_size) {
+        CHECK(e->postprocessor);
+        MHD_post_process(e->postprocessor, upload_data, *upload_data_size);
+        *upload_data_size = 0;
+        return MHD_YES;
+      }
+      for (auto& o : e->opts) {
+        opts[o.first] = std::move(o.second);
+      }
+    }
 
     std::string url_s = url;
 
@@ -295,7 +359,6 @@ class CoreActor : public CoreActorInterface {
       command = url_s.substr(pos + 1);
     }
 
-    std::map<std::string, std::string> opts;
     MHD_get_connection_values(connection, MHD_GET_ARGUMENT_KIND, get_arg_iterate, static_cast<void*>(&opts));
 
     if (command == "status") {
@@ -352,6 +415,26 @@ class CoreActor : public CoreActorInterface {
             .release();
       }};
       response = g.wait();
+    } else if (command == "config") {
+      HttpQueryRunner g{[&](td::Promise<MHD_Response*> promise) {
+        td::actor::create_actor<HttpQueryConfig>("getconfig", opts, prefix, std::move(promise)).release();
+      }};
+      response = g.wait();
+    } else if (command == "send") {
+      HttpQueryRunner g{[&](td::Promise<MHD_Response*> promise) {
+        td::actor::create_actor<HttpQuerySend>("send", opts, prefix, std::move(promise)).release();
+      }};
+      response = g.wait();
+    } else if (command == "sendform") {
+      HttpQueryRunner g{[&](td::Promise<MHD_Response*> promise) {
+        td::actor::create_actor<HttpQuerySendForm>("sendform", opts, prefix, std::move(promise)).release();
+      }};
+      response = g.wait();
+    } else if (command == "runmethod") {
+      HttpQueryRunner g{[&](td::Promise<MHD_Response*> promise) {
+        td::actor::create_actor<HttpQueryRunMethod>("runmethod", opts, prefix, std::move(promise)).release();
+      }};
+      response = g.wait();
     } else {
       ret = MHD_NO;
     }
@@ -394,7 +477,8 @@ class CoreActor : public CoreActorInterface {
                                                              remote_addr_, make_callback(0)));
     }
     daemon_ = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, static_cast<td::uint16>(http_port_), nullptr, nullptr,
-                               &process_http_request, nullptr, MHD_OPTION_THREAD_POOL_SIZE, 16, MHD_OPTION_END);
+                               &process_http_request, nullptr, MHD_OPTION_NOTIFY_COMPLETED, request_completed, nullptr,
+                               MHD_OPTION_THREAD_POOL_SIZE, 16, MHD_OPTION_END);
     CHECK(daemon_ != nullptr);
   }
 };
@@ -566,6 +650,8 @@ int main(int argc, char* argv[]) {
     return td::Status::OK();
   });
 #endif
+
+  vm::init_op_cp0();
 
   td::actor::Scheduler scheduler({2});
   scheduler_ptr = &scheduler;

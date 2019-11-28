@@ -708,6 +708,9 @@ int VmState::step() {
 }
 
 int VmState::run() {
+  if (code.is_null()) {
+    throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
+  }
   int res;
   Guard guard(this);
   do {

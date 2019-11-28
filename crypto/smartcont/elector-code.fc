@@ -796,7 +796,7 @@ _ participant_list() method_id {
 _ participant_list_extended() method_id {
   var elect = get_data().begin_parse().preload_dict();
   if (elect.null?()) {
-    return nil;
+    return (0, 0, 0, 0, nil, 0, 0);
   }
   var (elect_at, elect_close, min_stake, total_stake, members, failed, finished) = elect.unpack_elect();
   var l = nil;
@@ -809,7 +809,7 @@ _ participant_list_extended() method_id {
       l = cons(pair(id, tuple4(stake, max_factor, addr, adnl_addr)), l);
     }
   } until (~ f);
-  return l;
+  return (elect_at, elect_close, min_stake, total_stake, l, failed, finished);
 }
 
 ;; computes the return stake

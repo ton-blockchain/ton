@@ -1,12 +1,13 @@
 #!/usr/bin/fift -s
 "TonUtil.fif" include
 
-{ ."usage: " @' $0 type ." <filename-base>" cr
+{ ."usage: " $0 type ." <filename-base>" cr
   ."Shows the address of a simple wallet created by new-wallet.fif, with address in <filename-base>.addr "
   ."and private key in file <filename-base>.pk" cr 1 halt
 } : usage
-def? $# { @' $# 1 > ' usage if } if
-def? $1 { @' $1 } { "new-wallet" } cond constant file-base
+$# 1 > ' usage if
+1 :$1..n
+$1 dup null? { drop "new-wallet" } if =: file-base
 
 file-base +".addr" dup ."Loading wallet address from " type cr file>B 32 B| 
 dup Blen { 32 B>i@ } { drop Basechain } cond constant wallet_wc

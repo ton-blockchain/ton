@@ -27,11 +27,7 @@ namespace ton {
 namespace {
 const auto& get_map() {
   static auto map = [] {
-    class Cmp : public std::less<> {
-     public:
-      using is_transparent = void;
-    };
-    std::map<std::string, td::Ref<vm::Cell>, Cmp> map;
+    std::map<std::string, td::Ref<vm::Cell>, std::less<>> map;
     auto with_tvm_code = [&](auto name, td::Slice code_str) {
       map[name] = vm::std_boc_deserialize(td::base64_decode(code_str).move_as_ok()).move_as_ok();
     };

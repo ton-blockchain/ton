@@ -41,6 +41,7 @@ int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
   std::string db_root_ = "tmp-ee";
+  td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();
 
   td::set_default_failure_signal_handler().ensure();

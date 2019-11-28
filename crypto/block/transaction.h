@@ -65,10 +65,10 @@ struct NewOutMsg {
   NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans)
       : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)) {
   }
-  bool operator<(const NewOutMsg& other) const& {
+  bool operator<(const NewOutMsg& other) const & {
     return lt < other.lt || (lt == other.lt && msg->get_hash() < other.msg->get_hash());
   }
-  bool operator>(const NewOutMsg& other) const& {
+  bool operator>(const NewOutMsg& other) const & {
     return lt > other.lt || (lt == other.lt && other.msg->get_hash() < msg->get_hash());
   }
 };
@@ -371,6 +371,7 @@ struct Transaction {
   Ref<vm::Tuple> prepare_vm_c7(const ComputePhaseConfig& cfg) const;
   bool prepare_rand_seed(td::BitArray<256>& rand_seed, const ComputePhaseConfig& cfg) const;
   int try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
+  int try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   int try_action_send_msg(const vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg, int redoing = 0);
   int try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   bool check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const;

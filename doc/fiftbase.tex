@@ -1848,6 +1848,7 @@ For example, the active prefix word {\tt B\{}, used for defining {\em Bytes\/} l
 \item {\tt \$@?+} ($s$ $x$ -- $S$ $s'$ $-1$ or $s$ $0$), similar to {\tt \$@+}, but uses a flag to indicate failure instead of throwing an exception, cf.~\ptref{p:slice.ops}.
 \item {\tt \$cmp} ($S$ $S'$ -- $x$), returns $0$ if strings $S$ and $S'$ are equal, $-1$ if $S$ is lexicographically less than $S'$, and $1$ if $S$ is lexicographically greater than $S'$, cf.~\ptref{p:string.cmp.ops}.
 \item {\tt \$len} ($S$ -- $x$), computes the byte length (not the UTF-8 character length!) of a string, cf.~\ptref{p:string.ops}.
+\item {\tt \$pos} ($S$ $S'$ -- $x$ or $-1$), returns the position (byte offset)~$x$ of the first occurence of substring $S'$ in string~$S$ or $-1$.
 \item {\tt \$reverse} ($S$ -- $S'$), reverses the order of UTF-8 characters in {\em String\/}~$S$. If $S$ is not a valid UTF-8 string, the return value is undefined and may be also invalid.
 \item {\tt \%1<{<}} ($x$ $y$ -- $z$), computes $z:=x\bmod 2^y=x\&(2^y-1)$ for two {\em Integer\/}s $x$ and $0\leq y\leq 256$.
 \item {\tt \underline{'} $\langle\textit{word-name}\rangle$} ( -- $e$), returns the execution token equal to the current (compile-time) definition of $\langle\textit{word-name}\rangle$, cf.~\ptref{p:blocks}. If the specified word is not found, throws an exception.

@@ -35,6 +35,7 @@ set(TON_CRYPTO_SOURCE
   vm/debugops.cpp
   vm/tonops.cpp
   vm/boc.cpp
+  vm/utils.cpp
   tl/tlblib.cpp
 
   Ed25519.h
@@ -80,6 +81,7 @@ set(TON_CRYPTO_SOURCE
   vm/tupleops.h
   vm/tonops.h
   vm/vmstate.h
+  vm/utils.h
 
   vm/cells.h
   vm/cellslice.h

@@ -1098,6 +1098,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       case block::gen::OutAction::action_reserve_currency:
         err_code = try_action_reserve_currency(cs, ap, cfg);
         break;
+      case block::gen::OutAction::action_change_library:
+        err_code = try_action_change_library(cs, ap, cfg);
+        break;
     }
     if (err_code) {
       ap.result_code = (err_code == -1 ? 34 : err_code);
@@ -1144,6 +1147,56 @@ int Transaction::try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const A
   }
   ap.new_code = std::move(rec.new_code);
   ap.code_changed = true;
+  ap.spec_actions++;
+  return 0;
+}
+
+int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
+  block::gen::OutAction::Record_action_change_library rec;
+  if (!tlb::unpack_exact(cs, rec)) {
+    return -1;
+  }
+  // mode: +0 = remove library, +1 = add private library, +2 = add public library
+  Ref<vm::Cell> lib_ref = rec.libref->prefetch_ref();
+  ton::Bits256 hash;
+  if (lib_ref.not_null()) {
+    hash = lib_ref->get_hash().bits();
+  } else {
+    CHECK(rec.libref.write().fetch_ulong(1) == 0 && rec.libref.write().fetch_bits_to(hash));
+  }
+  try {
+    vm::Dictionary dict{new_library, 256};
+    if (!rec.mode) {
+      // remove library
+      dict.lookup_delete(hash);
+      LOG(DEBUG) << "removed " << ((rec.mode >> 1) ? "public" : "private") << " library with hash " << hash.to_hex();
+    } else {
+      auto val = dict.lookup(hash);
+      if (val.not_null()) {
+        bool is_public = val->prefetch_ulong(1);
+        auto ref = val->prefetch_ref();
+        if (hash == ref->get_hash().bits()) {
+          lib_ref = ref;
+          if (is_public == (rec.mode >> 1)) {
+            // library already in required state
+            ap.spec_actions++;
+            return 0;
+          }
+        }
+      }
+      if (lib_ref.is_null()) {
+        // library code not found
+        return 41;
+      }
+      vm::CellBuilder cb;
+      CHECK(cb.store_bool_bool(rec.mode >> 1) && cb.store_ref_bool(std::move(lib_ref)));
+      CHECK(dict.set_builder(hash, cb));
+      LOG(DEBUG) << "added " << ((rec.mode >> 1) ? "public" : "private") << " library with hash " << hash.to_hex();
+    }
+    new_library = std::move(dict).extract_root_cell();
+  } catch (vm::VmError& vme) {
+    return 42;
+  }
   ap.spec_actions++;
   return 0;
 }

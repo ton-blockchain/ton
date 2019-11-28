@@ -50,7 +50,7 @@ struct ValidatorDescr {
       : pubkey(_pubkey), weight(_weight), cum_weight(_cum_weight) {
     adnl_addr.set_zero();
   }
-  bool operator<(td::uint64 wt_pos) const& {
+  bool operator<(td::uint64 wt_pos) const & {
     return cum_weight < wt_pos;
   }
 };
@@ -558,6 +558,7 @@ class Config {
   const ValidatorSet* get_cur_validator_set() const {
     return cur_validators_.get();
   }
+  std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
   ton::ValidatorSessionConfig get_consensus_config() const;
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;
@@ -577,6 +578,7 @@ class Config {
   static td::Result<std::unique_ptr<Config>> unpack_config(Ref<vm::CellSlice> config_csr, int mode = 0);
   static td::Result<std::unique_ptr<Config>> extract_from_state(Ref<vm::Cell> mc_state_root, int mode = 0);
   static td::Result<std::unique_ptr<Config>> extract_from_key_block(Ref<vm::Cell> key_block_root, int mode = 0);
+  static td::Result<std::pair<ton::UnixTime, ton::UnixTime>> unpack_validator_set_start_stop(Ref<vm::Cell> root);
 
  protected:
   Config(int _mode) : mode(_mode) {

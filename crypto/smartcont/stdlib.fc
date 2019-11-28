@@ -40,6 +40,7 @@ cont get_c3() impure asm "c3 PUSH";
 cont bless(slice s) impure asm "BLESS";
 
 () accept_message() impure asm "ACCEPT";
+() set_gas_limit(int limit) impure asm "SETGASLIMIT";
 () commit() impure asm "COMMIT";
 
 int min(int x, int y) asm "MIN";

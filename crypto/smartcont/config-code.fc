@@ -9,10 +9,9 @@
 
 (cell, int, int, cell) load_data() inline {
   var cs = get_data().begin_parse();
-  var (cfg_dict, stored_seqno, public_key) = (cs~load_ref(), cs~load_uint(32), cs~load_uint(256));
-  var vote_dict = cs.slice_empty?() ? new_dict() : cs~load_dict(); 
+  var res = (cs~load_ref(), cs~load_uint(32), cs~load_uint(256), cs~load_dict());
   cs.end_parse();
-  return (cfg_dict, stored_seqno, public_key, vote_dict);
+  return res;
 }
 
 () store_data(cfg_dict, stored_seqno, public_key, vote_dict) impure inline {

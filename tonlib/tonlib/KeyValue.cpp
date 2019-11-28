@@ -106,11 +106,7 @@ class KeyValueInmemory : public KeyValue {
   }
 
  private:
-  class Cmp : public std::less<> {
-   public:
-    using is_transparent = void;
-  };
-  std::map<std::string, td::SecureString, Cmp> map_;
+  std::map<std::string, td::SecureString, std::less<>> map_;
 };
 }  // namespace detail
 
