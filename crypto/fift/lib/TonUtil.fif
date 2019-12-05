@@ -12,6 +12,8 @@ library TonUtil // TON Blockchain Fift Library
 
 { (number) 1- abort"integer expected" } : parse-int
 
+{ over null? ' swap if drop } : replace-if-null
+
 // Private key load/generate
 // ( fname -- pubkey privkey )
 { dup ."Loading private key from file " type cr 

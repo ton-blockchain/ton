@@ -218,6 +218,9 @@ class TLB {
     return cs_ref.not_null() ? as_string(*cs_ref, indent) : "<null>";
   }
   std::string as_string_ref(Ref<vm::Cell> cell_ref, int indent = 0) const;
+  static inline size_t nat_abs(int x) {
+    return (x > 1) * 2 + (x & 1);
+  }
 
  protected:
   bool validate_ref_internal(Ref<vm::Cell> cell_ref, bool weak = false) const;

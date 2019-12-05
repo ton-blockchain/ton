@@ -162,13 +162,13 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
-    return ts / 1024 != prev_ts / 1024;
+    return ts / (1 << 17) != prev_ts / (1 << 17);
   }
   static UnixTime persistent_state_ttl(UnixTime ts) {
-    auto x = ts / 1024;
+    auto x = ts / (1 << 17);
     CHECK(x > 0);
     auto b = td::count_trailing_zeroes32(x);
-    return ts + (2048 << b);
+    return ts + ((1 << 18) << b);
   }
 };
 

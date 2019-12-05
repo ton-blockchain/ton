@@ -284,7 +284,7 @@ struct BlockIdExt {
     BlockIdExt v;
     char rh[65];
     char fh[65];
-    auto r = sscanf(s.begin(), "(%d,%" SCNu64 ",%u):%64s:%64s", &v.id.workchain, &v.id.shard, &v.id.seqno, rh, fh);
+    auto r = sscanf(s.begin(), "(%d,%" SCNx64 ",%u):%64s:%64s", &v.id.workchain, &v.id.shard, &v.id.seqno, rh, fh);
     if (r < 5) {
       return td::Status::Error("failed to parse block id");
     }

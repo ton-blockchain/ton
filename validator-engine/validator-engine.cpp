@@ -927,7 +927,6 @@ void ValidatorEngine::alarm() {
       auto config = configR.move_as_ok();
       auto cur_t = config->get_validator_set_start_stop(0);
       CHECK(cur_t.first > 0);
-      LOG(ERROR) << "curt: " << cur_t.first << " " << cur_t.second;
 
       auto val_set = state_->get_total_validator_set(0);
       auto e = val_set->export_vector();

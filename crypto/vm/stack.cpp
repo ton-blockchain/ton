@@ -671,4 +671,91 @@ void Stack::push_maybe_cellslice(Ref<CellSlice> cs) {
   push_maybe(std::move(cs));
 }
 
+/*
+ *
+ *   SERIALIZE/DESERIALIZE STACK VALUES
+ *
+ */
+
+bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
+  switch (tp) {
+    case t_null:
+      return cb.store_long_bool(0, 8);  // vm_stk_null#00 = VmStackValue;
+    case t_int: {
+      auto val = as_int();
+      if (!val->is_valid()) {
+        // vm_stk_nan#02ff = VmStackValue;
+        return cb.store_long_bool(0x02ff, 16);
+      } else if (!(mode & 1) && val->signed_fits_bits(64)) {
+        // vm_stk_tinyint#01 value:int64 = VmStackValue;
+        return cb.store_long_bool(1, 8) && cb.store_int256_bool(std::move(val), 256);
+      } else {
+        // vm_stk_int#0201_ value:int257 = VmStackValue;
+        return cb.store_long_bool(0x0200 / 2, 15) && cb.store_int256_bool(std::move(val), 257);
+      }
+    }
+    case t_cell:
+      // vm_stk_cell#03 cell:^Cell = VmStackValue;
+      return cb.store_long_bool(3, 8) && cb.store_ref_bool(as_cell());
+    case t_slice: {
+      // _ cell:^Cell st_bits:(## 10) end_bits:(## 10) { st_bits <= end_bits }
+      // st_ref:(#<= 4) end_ref:(#<= 4) { st_ref <= end_ref } = VmCellSlice;
+      const auto& cs = *static_cast<Ref<CellSlice>>(ref);
+      return cb.store_long_bool(4, 8)                                  // vm_stk_slice#04 _:VmCellSlice = VmStackValue;
+             && cb.store_ref_bool(cs.get_base_cell())                  // _ cell:^Cell
+             && cb.store_long_bool(cs.cur_pos(), 10)                   // st_bits:(## 10)
+             && cb.store_long_bool(cs.cur_pos() + cs.size(), 10)       // end_bits:(## 10)
+             && cb.store_long_bool(cs.cur_ref(), 3)                    // st_ref:(#<= 4)
+             && cb.store_long_bool(cs.cur_ref() + cs.size_refs(), 3);  // end_ref:(#<= 4)
+    }
+    case t_builder:
+      // vm_stk_builder#05 cell:^Cell = VmStackValue;
+      return cb.store_long_bool(5, 8) && cb.store_ref_bool(as_builder()->finalize_copy());
+    case t_vmcont:
+      // vm_stk_cont#06 cont:VmCont = VmStackValue;
+      return !(mode & 2) && cb.store_long_bool(6, 8) && as_cont()->serialize(cb);
+    case t_tuple: {
+      const auto& tuple = *static_cast<Ref<Tuple>>(ref);
+      auto n = tuple.size();
+      // vm_stk_tuple#07 len:(## 16) data:(VmTuple len) = VmStackValue;
+      Ref<Cell> head, tail;
+      vm::CellBuilder cb2;
+      for (std::size_t i = 0; i < n; i++) {
+        std::swap(head, tail);
+        if (i > 1 &&
+            !(cb2.store_ref_bool(std::move(tail)) && cb2.store_ref_bool(std::move(head)) && cb2.finalize_to(head))) {
+          return false;
+        }
+        if (!(tuple[i].serialize(cb2, mode) && cb2.finalize_to(tail))) {
+          return false;
+        }
+      }
+      return cb.store_long_bool(7, 8) && cb.store_long_bool(n, 16) && (head.is_null() || cb.store_ref_bool(head)) &&
+             (tail.is_null() || cb.store_ref_bool(tail));
+    }
+    default:
+      return false;
+  }
+}
+
+bool Stack::serialize(vm::CellBuilder& cb, int mode) const {
+  // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
+  unsigned n = depth();
+  if (!cb.store_ulong_rchk_bool(n, 24)) {  // vm_stack#_ depth:(## 24)
+    return false;
+  }
+  if (!n) {
+    return true;
+  }
+  vm::CellBuilder cb2;
+  Ref<vm::Cell> rest = cb2.finalize();  // vm_stk_nil#_ = VmStackList 0;
+  for (unsigned i = 0; i < n - 1; i++) {
+    // vm_stk_cons#_ {n:#} rest:^(VmStackList n) tos:VmStackValue = VmStackList (n + 1);
+    if (!(cb2.store_ref_bool(std::move(rest)) && stack[i].serialize(cb2, mode) && cb2.finalize_to(rest))) {
+      return false;
+    }
+  }
+  return cb.store_ref_bool(std::move(rest)) && stack[n - 1].serialize(cb, mode);
+}
+
 }  // namespace vm

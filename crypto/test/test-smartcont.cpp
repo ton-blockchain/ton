@@ -226,7 +226,7 @@ TEST(Tonlib, Wallet) {
   auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
   fift_output =
       fift::mem_run_fift(std::move(fift_output.source_lookup),
-                         {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123", "321"})
+                         {"aba", "new-wallet", "-C", "TESTv2", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123", "321"})
           .move_as_ok();
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
   auto gift_message = ton::GenericAccount::create_ext_message(
@@ -275,7 +275,7 @@ TEST(Tonlib, WalletV3) {
   auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
   fift_output =
       fift::mem_run_fift(std::move(fift_output.source_lookup),
-                         {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "239", "123", "321"})
+                         {"aba", "new-wallet", "-C", "TESTv3", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "239", "123", "321"})
           .move_as_ok();
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
   auto gift_message = ton::GenericAccount::create_ext_message(

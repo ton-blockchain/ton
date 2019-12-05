@@ -135,6 +135,7 @@ struct ControlRegs {
   ControlRegs& operator&=(const ControlRegs& save);  // clears all c[i]'s which are present in save
   ControlRegs& operator^=(const ControlRegs& save);  // sets c[i]=save.c[i] for all save.c[i] != 0
   ControlRegs& operator^=(ControlRegs&& save);
+  bool serialize(CellBuilder& cb) const;
 };
 
 struct ControlData {
@@ -150,11 +151,12 @@ struct ControlData {
   }
   ControlData(int _cp, Ref<Stack> _stack, int _nargs = -1) : stack(std::move(_stack)), nargs(_nargs), cp(_cp) {
   }
+  bool serialize(CellBuilder& cb) const;
 };
 
 class Continuation : public td::CntObject {
  public:
-  virtual int jump(VmState* st) const& = 0;
+  virtual int jump(VmState* st) const & = 0;
   virtual int jump_w(VmState* st) &;
   virtual ControlData* get_cdata() {
     return 0;
@@ -162,6 +164,10 @@ class Continuation : public td::CntObject {
   virtual const ControlData* get_cdata() const {
     return 0;
   }
+  virtual bool serialize(CellBuilder& cb) const {
+    return false;
+  }
+  bool serialize_ref(CellBuilder& cb) const;
   bool has_c0() const;
   Continuation() {
   }
@@ -184,16 +190,18 @@ class QuitCont : public Continuation {
   QuitCont(int _code = 0) : exit_code(_code) {
   }
   ~QuitCont() override = default;
-  int jump(VmState* st) const& override {
+  int jump(VmState* st) const & override {
     return ~exit_code;
   }
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class ExcQuitCont : public Continuation {
  public:
   ExcQuitCont() = default;
   ~ExcQuitCont() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class PushIntCont : public Continuation {
@@ -204,8 +212,9 @@ class PushIntCont : public Continuation {
   PushIntCont(int val, Ref<Continuation> _next) : push_val(val), next(_next) {
   }
   ~PushIntCont() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class RepeatCont : public Continuation {
@@ -217,8 +226,9 @@ class RepeatCont : public Continuation {
       : body(std::move(_body)), after(std::move(_after)), count(_count) {
   }
   ~RepeatCont() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class AgainCont : public Continuation {
@@ -228,8 +238,9 @@ class AgainCont : public Continuation {
   AgainCont(Ref<Continuation> _body) : body(std::move(_body)) {
   }
   ~AgainCont() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class UntilCont : public Continuation {
@@ -239,8 +250,9 @@ class UntilCont : public Continuation {
   UntilCont(Ref<Continuation> _body, Ref<Continuation> _after) : body(std::move(_body)), after(std::move(_after)) {
   }
   ~UntilCont() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class WhileCont : public Continuation {
@@ -252,8 +264,9 @@ class WhileCont : public Continuation {
       : cond(std::move(_cond)), body(std::move(_body)), after(std::move(_after)), chkcond(_chk) {
   }
   ~WhileCont() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class ArgContExt : public Continuation {
@@ -268,7 +281,7 @@ class ArgContExt : public Continuation {
   ArgContExt(const ArgContExt&) = default;
   ArgContExt(ArgContExt&&) = default;
   ~ArgContExt() override = default;
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
   ControlData* get_cdata() override {
     return &data;
@@ -279,6 +292,7 @@ class ArgContExt : public Continuation {
   td::CntObject* make_copy() const override {
     return new ArgContExt{*this};
   }
+  bool serialize(CellBuilder& cb) const override;
 };
 
 class OrdCont : public Continuation {
@@ -303,7 +317,7 @@ class OrdCont : public Continuation {
   td::CntObject* make_copy() const override {
     return new OrdCont{*this};
   }
-  int jump(VmState* st) const& override;
+  int jump(VmState* st) const & override;
   int jump_w(VmState* st) & override;
 
   ControlData* get_cdata() override {
@@ -321,12 +335,13 @@ class OrdCont : public Continuation {
   Ref<Stack> get_stack_ref() const {
     return data.stack;
   }
-  Ref<OrdCont> copy_ord() const& {
+  Ref<OrdCont> copy_ord() const & {
     return Ref<OrdCont>{true, *this};
   }
   Ref<OrdCont> copy_ord() && {
     return Ref<OrdCont>{true, *this};
   }
+  bool serialize(CellBuilder& cb) const override;
 };
 
 struct GasLimits {

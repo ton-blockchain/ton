@@ -137,6 +137,7 @@ class CellSlice : public td::CntObject {
   }
   unsigned get_cell_level() const;
   unsigned get_level() const;
+  Ref<Cell> get_base_cell() const;  // be careful with this one!
   int fetch_octet();
   int prefetch_octet() const;
   unsigned long long prefetch_ulong_top(unsigned& bits) const;

@@ -7,7 +7,7 @@
 } : usage
 $# 1 > ' usage if
 1 :$1..n
-$1 dup null? { drop "new-wallet" } if =: file-base
+$1 "new-wallet" replace-if-null =: file-base
 
 file-base +".addr" dup ."Loading wallet address from " type cr file>B 32 B| 
 dup Blen { 32 B>i@ } { drop Basechain } cond constant wallet_wc

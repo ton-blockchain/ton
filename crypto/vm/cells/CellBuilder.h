@@ -85,6 +85,10 @@ class CellBuilder : public td::CntObject {
     return idx < refs_cnt ? refs[idx] : Ref<Cell>{};
   }
   void reset();
+  bool reset_bool() {
+    reset();
+    return true;
+  }
   CellBuilder& operator=(const CellBuilder&);
   CellBuilder& operator=(CellBuilder&&);
   CellBuilder& store_bytes(const char* str, std::size_t len);

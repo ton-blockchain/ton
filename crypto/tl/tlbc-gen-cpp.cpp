@@ -922,7 +922,7 @@ void CppTypeCode::generate_get_tag_param1(std::ostream& os, std::string nl, cons
       match_param_pattern(os, nl, A, 8, "# > 1 && (# & 1)", param_names[0])) {
     return;
   }
-  os << nl << "static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
+  os << nl << "// static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
   os << nl << "static signed char ctab[4] = { ";
   for (int i = 0; i < 4; i++) {
     if (i > 0) {
@@ -941,7 +941,7 @@ void CppTypeCode::generate_get_tag_param2(std::ostream& os, std::string nl, cons
       os << ' ' << (int)A[i][j];
     }
   }
-  os << nl << "static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
+  os << nl << "// static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
   os << nl << "static signed char ctab[4][4] = { ";
   for (int i = 0; i < 16; i++) {
     if (i > 0) {
@@ -964,7 +964,7 @@ void CppTypeCode::generate_get_tag_param3(std::ostream& os, std::string nl, cons
       }
     }
   }
-  os << nl << "static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
+  os << nl << "// static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
   os << nl << "static signed char ctab[4][4][4] = { ";
   for (int i = 0; i < 64; i++) {
     if (i > 0) {

@@ -166,6 +166,8 @@ class StackEntry {
   Type type() const {
     return tp;
   }
+  // mode: +1 = disable short ints, +2 = disable continuations
+  bool serialize(vm::CellBuilder& cb, int mode = 0) const;
 
  private:
   static bool is_list(const StackEntry* se);
@@ -508,6 +510,7 @@ class Stack : public td::CntObject {
   }
   // mode: +1 = add eoln, +2 = Lisp-style lists
   void dump(std::ostream& os, int mode = 1) const;
+  bool serialize(vm::CellBuilder& cb, int mode = 0) const;
 };
 
 }  // namespace vm

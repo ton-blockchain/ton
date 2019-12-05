@@ -107,6 +107,47 @@ ControlRegs& ControlRegs::operator&=(const ControlRegs& save) {
   return *this;
 }
 
+bool ControlRegs::serialize(CellBuilder& cb) const {
+  Dictionary dict{4};
+  CellBuilder cb2;
+  for (int i = 0; i < creg_num; i++) {
+    if (c[i].not_null() &&
+        !(StackEntry{c[i]}.serialize(cb2) && dict.set_builder(td::BitArray<4>(i), cb2) && cb2.reset_bool())) {
+      return false;
+    }
+  }
+  for (int i = 0; i < dreg_num; i++) {
+    if (d[i].not_null() && !(StackEntry{d[i]}.serialize(cb2) && dict.set_builder(td::BitArray<4>(dreg_idx + i), cb2) &&
+                             cb2.reset_bool())) {
+      return false;
+    }
+  }
+  return (c7.is_null() || (StackEntry{c7}.serialize(cb2) && dict.set_builder(td::BitArray<4>(7), cb2))) &&
+         std::move(dict).append_dict_to_bool(cb);
+}
+
+bool ControlData::serialize(CellBuilder& cb) const {
+  // vm_ctl_data$_ nargs:(Maybe int13) stack:(Maybe VmStack) save:VmSaveList
+  // cp:(Maybe int16) = VmControlData;
+  return cb.store_bool_bool(nargs >= 0)                   // vm_ctl_data$_ nargs:(Maybe ...
+         && (nargs < 0 || cb.store_long_bool(nargs, 13))  // ... int13)
+         && cb.store_bool_bool(stack.not_null())          // stack:(Maybe ...
+         && (stack.is_null() || stack->serialize(cb))     // ... VmStack)
+         && save.serialize(cb)                            // save:VmSaveList
+         && cb.store_bool_bool(cp != -1)                  // cp:(Maybe ...
+         && (cp == -1 || cb.store_long_bool(cp, 16));     // ... int16)
+}
+
+bool Continuation::serialize_ref(CellBuilder& cb) const {
+  vm::CellBuilder cb2;
+  return serialize(cb2) && cb.store_ref_bool(cb2.finalize());
+}
+
+bool QuitCont::serialize(CellBuilder& cb) const {
+  // vmc_quit$1000 exit_code:int32 = VmCont;
+  return cb.store_long_bool(8, 4) && cb.store_long_bool(exit_code, 32);
+}
+
 int ExcQuitCont::jump(VmState* st) const & {
   int n = 0;
   try {
@@ -116,6 +157,11 @@ int ExcQuitCont::jump(VmState* st) const & {
   }
   VM_LOG(st) << "default exception handler, terminating vm with exit code " << n;
   return ~n;
+}
+
+bool ExcQuitCont::serialize(CellBuilder& cb) const {
+  // vmc_quit_exc$1001 = VmCont;
+  return cb.store_long_bool(9, 4);
 }
 
 int PushIntCont::jump(VmState* st) const & {
@@ -128,6 +174,11 @@ int PushIntCont::jump_w(VmState* st) & {
   VM_LOG(st) << "execute implicit PUSH " << push_val;
   st->get_stack().push_smallint(push_val);
   return st->jump(std::move(next));
+}
+
+bool PushIntCont::serialize(CellBuilder& cb) const {
+  // vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
+  return cb.store_long_bool(15, 4) && cb.store_long_bool(push_val, 32) && next->serialize_ref(cb);
 }
 
 int ArgContExt::jump(VmState* st) const & {
@@ -144,6 +195,11 @@ int ArgContExt::jump_w(VmState* st) & {
     st->force_cp(data.cp);
   }
   return st->jump_to(std::move(ext));
+}
+
+bool ArgContExt::serialize(CellBuilder& cb) const {
+  // vmc_envelope$01 cdata:VmControlData next:^VmCont = VmCont;
+  return cb.store_long_bool(1, 2) && data.serialize(cb) && ext->serialize_ref(cb);
 }
 
 int RepeatCont::jump(VmState* st) const & {
@@ -174,6 +230,12 @@ int RepeatCont::jump_w(VmState* st) & {
   return st->jump(body);
 }
 
+bool RepeatCont::serialize(CellBuilder& cb) const {
+  // vmc_repeat$10100 count:uint63 body:^VmCont after:^VmCont = VmCont;
+  return cb.store_long_bool(0x14, 5) && cb.store_long_bool(count, 63) && body->serialize_ref(cb) &&
+         after->serialize_ref(cb);
+}
+
 int VmState::repeat(Ref<Continuation> body, Ref<Continuation> after, long long count) {
   if (count <= 0) {
     body.clear();
@@ -199,6 +261,11 @@ int AgainCont::jump_w(VmState* st) & {
   } else {
     return st->jump(std::move(body));
   }
+}
+
+bool AgainCont::serialize(CellBuilder& cb) const {
+  // vmc_again$110001 body:^VmCont = VmCont;
+  return cb.store_long_bool(0x31, 6) && body->serialize_ref(cb);
 }
 
 int VmState::again(Ref<Continuation> body) {
@@ -231,6 +298,11 @@ int UntilCont::jump_w(VmState* st) & {
     after.clear();
     return st->jump(std::move(body));
   }
+}
+
+bool UntilCont::serialize(CellBuilder& cb) const {
+  // vmc_until$110000 body:^VmCont after:^VmCont = VmCont;
+  return cb.store_long_bool(0x30, 6) && body->serialize_ref(cb) && after->serialize_ref(cb);
 }
 
 int VmState::until(Ref<Continuation> body, Ref<Continuation> after) {
@@ -292,6 +364,13 @@ int WhileCont::jump_w(VmState* st) & {
   }
 }
 
+bool WhileCont::serialize(CellBuilder& cb) const {
+  // vmc_while_cond$110010 cond:^VmCont body:^VmCont after:^VmCont = VmCont;
+  // vmc_while_body$110011 cond:^VmCont body:^VmCont after:^VmCont = VmCont;
+  return cb.store_long_bool(0x19, 5) && cb.store_bool_bool(!chkcond) && cond->serialize_ref(cb) &&
+         body->serialize_ref(cb) && after->serialize_ref(cb);
+}
+
 int VmState::loop_while(Ref<Continuation> cond, Ref<Continuation> body, Ref<Continuation> after) {
   if (!cond->has_c0()) {
     set_c0(Ref<WhileCont>{true, cond, std::move(body), std::move(after), true});
@@ -309,6 +388,11 @@ int OrdCont::jump_w(VmState* st) & {
   st->adjust_cr(std::move(data.save));
   st->set_code(std::move(code), data.cp);
   return 0;
+}
+
+bool OrdCont::serialize(CellBuilder& cb) const {
+  // vmc_std$00 cdata:VmControlData code:VmCellSlice = VmCont;
+  return cb.store_long_bool(1, 2) && data.serialize(cb) && StackEntry{code}.serialize(cb);
 }
 
 void VmState::init_cregs(bool same_c3, bool push_0) {

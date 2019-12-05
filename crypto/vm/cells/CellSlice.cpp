@@ -218,6 +218,17 @@ unsigned CellSlice::get_level() const {
   return l;
 }
 
+Ref<Cell> CellSlice::get_base_cell() const {
+  if (cell.is_null()) {
+    return {};
+  }
+  auto res = cell->virtualize(virt);
+  if (!tree_node.empty()) {
+    res = UsageCell::create(std::move(res), tree_node);
+  }
+  return res;
+}
+
 bool CellSlice::advance(unsigned bits) {
   if (have(bits)) {
     bits_st += bits;

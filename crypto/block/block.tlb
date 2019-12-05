@@ -683,3 +683,47 @@ top_block_descr#d5 proof_for:BlockIdExt signatures:(Maybe ^BlockSignatures)
 //  COLLATED DATA
 //
 top_block_descr_set#4ac789f3 collection:(HashmapE 96 ^TopBlockDescr) = TopBlockDescrSet;
+
+//
+//  TVM REFLECTION
+//
+vm_stk_null#00 = VmStackValue;
+vm_stk_tinyint#01 value:int64 = VmStackValue;
+vm_stk_int#0201_ value:int257 = VmStackValue;
+vm_stk_nan#02ff = VmStackValue;
+vm_stk_cell#03 cell:^Cell = VmStackValue;
+_ cell:^Cell st_bits:(## 10) end_bits:(## 10) { st_bits <= end_bits }
+  st_ref:(#<= 4) end_ref:(#<= 4) { st_ref <= end_ref } = VmCellSlice;
+vm_stk_slice#04 _:VmCellSlice = VmStackValue;
+vm_stk_builder#05 cell:^Cell = VmStackValue;
+vm_stk_cont#06 cont:VmCont = VmStackValue;
+vm_tupref_nil$_ = VmTupleRef 0;
+vm_tupref_single$_ entry:^VmStackValue = VmTupleRef 1;
+vm_tupref_any$_ {n:#} ref:^(VmTuple (n + 2)) = VmTupleRef (n + 2);
+vm_tuple_nil$_ = VmTuple 0;
+vm_tuple_tcons$_ {n:#} head:(VmTupleRef n) tail:^VmStackValue = VmTuple (n + 1);
+vm_stk_tuple#07 len:(## 16) data:(VmTuple len) = VmStackValue;
+
+vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
+vm_stk_cons#_ {n:#} rest:^(VmStackList n) tos:VmStackValue = VmStackList (n + 1);
+vm_stk_nil#_ = VmStackList 0;
+
+_ cregs:(HashmapE 4 VmStackValue) = VmSaveList;
+gas_limits#_ remaining:int64 _:^[ max_limit:int64 cur_limit:int64 credit:int64 ]
+  = VmGasLimits;
+_ libraries:(HashmapE 256 ^Cell) = VmLibraries;
+
+vm_ctl_data$_ nargs:int14 stack:(Maybe VmStack) save:VmSaveList
+cp:int16 = VmControlData;
+vmc_std$00 cdata:VmControlData code:VmCellSlice = VmCont;
+vmc_envelope$01 cdata:VmControlData next:^VmCont = VmCont;
+vmc_quit$1000 exit_code:int32 = VmCont;
+vmc_quit_exc$1001 = VmCont;
+vmc_repeat$10100 count:uint63 body:^VmCont after:^VmCont = VmCont; 
+vmc_until$110000 body:^VmCont after:^VmCont = VmCont;
+vmc_again$110001 body:^VmCont = VmCont;
+vmc_while_cond$110010 cond:^VmCont body:^VmCont
+after:^VmCont = VmCont;
+vmc_while_body$110011 cond:^VmCont body:^VmCont
+after:^VmCont = VmCont;
+vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
