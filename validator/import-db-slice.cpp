@@ -82,6 +82,10 @@ void ArchiveImporter::start_up() {
   }
 
   auto seqno = masterchain_blocks_.begin()->first;
+  if (seqno > state_->get_seqno() + 1) {
+    abort_query(td::Status::Error(ErrorCode::notready, "too big first masterchain seqno"));
+    return;
+  }
 
   check_masterchain_block(seqno);
 }
@@ -197,6 +201,9 @@ void ArchiveImporter::got_new_materchain_state(td::Ref<MasterchainState> state) 
 }
 
 void ArchiveImporter::checked_all_masterchain_blocks(BlockSeqno seqno) {
+  if (shard_client_seqno_ > seqno) {
+    shard_client_seqno_ = seqno;
+  }
   check_next_shard_client_seqno(shard_client_seqno_ + 1);
 }
 

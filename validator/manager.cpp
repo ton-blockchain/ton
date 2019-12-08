@@ -1484,8 +1484,9 @@ void ValidatorManagerImpl::download_next_archive() {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::downloaded_archive_slice, R.move_as_ok());
     }
   });
-  callback_->download_archive(shard_client_handle_->id().seqno() + 1, db_root_ + "/tmp/", td::Timestamp::in(3600.0),
-                              std::move(P));
+
+  auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
+  callback_->download_archive(seqno + 1, db_root_ + "/tmp/", td::Timestamp::in(3600.0), std::move(P));
 }
 
 void ValidatorManagerImpl::downloaded_archive_slice(std::string name) {
@@ -1500,8 +1501,10 @@ void ValidatorManagerImpl::downloaded_archive_slice(std::string name) {
     }
   });
 
-  td::actor::create_actor<ArchiveImporter>("archiveimport", name, last_masterchain_state_,
-                                           shard_client_handle_->id().seqno(), opts_, actor_id(this), std::move(P))
+  auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
+
+  td::actor::create_actor<ArchiveImporter>("archiveimport", name, last_masterchain_state_, seqno, opts_, actor_id(this),
+                                           std::move(P))
       .release();
 }
 
@@ -1509,7 +1512,7 @@ void ValidatorManagerImpl::checked_archive_slice(std::vector<BlockSeqno> seqno) 
   CHECK(seqno.size() == 2);
   LOG(INFO) << "checked downloaded archive slice: mc_top_seqno=" << seqno[0] << " shard_top_seqno_=" << seqno[1];
   CHECK(seqno[0] <= last_masterchain_seqno_);
-  CHECK(seqno[1] <= seqno[0]);
+  CHECK(seqno[1] <= last_masterchain_seqno_);
 
   BlockIdExt b;
   if (seqno[1] < last_masterchain_seqno_) {
