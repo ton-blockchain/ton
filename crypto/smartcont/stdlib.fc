@@ -21,6 +21,7 @@ forall X -> X null() asm "PUSHNULL";
 int now() asm "NOW";
 slice my_address() asm "MYADDR";
 tuple get_balance() asm "BALANCE";
+int get_random_seed() asm "RANDSEED";
 
 int cell_hash(cell c) asm "HASHCU";
 int slice_hash(slice s) asm "HASHSU";
