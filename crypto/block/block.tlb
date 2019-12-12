@@ -713,8 +713,8 @@ gas_limits#_ remaining:int64 _:^[ max_limit:int64 cur_limit:int64 credit:int64 ]
   = VmGasLimits;
 _ libraries:(HashmapE 256 ^Cell) = VmLibraries;
 
-vm_ctl_data$_ nargs:int14 stack:(Maybe VmStack) save:VmSaveList
-cp:int16 = VmControlData;
+vm_ctl_data$_ nargs:(Maybe uint13) stack:(Maybe VmStack) save:VmSaveList
+cp:(Maybe int16) = VmControlData;
 vmc_std$00 cdata:VmControlData code:VmCellSlice = VmCont;
 vmc_envelope$01 cdata:VmControlData next:^VmCont = VmCont;
 vmc_quit$1000 exit_code:int32 = VmCont;

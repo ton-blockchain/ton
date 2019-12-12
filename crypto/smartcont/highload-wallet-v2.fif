@@ -14,7 +14,7 @@ begin-options
     +"Creates a request with up to 254 orders loaded from <order-file> to high-load (sub)wallet created by new-highload-v2-wallet.fif, with private key loaded from file <filename-base>.pk "
     +"and address from <filename-base><subwallet-id>.addr, and saves it into <savefile>.boc ('wallet-query.boc' by default)" +cr 
     +"<order-file> is a text file with lines `SEND <dest-addr> <amount>`"
-    generic-help
+    disable-digit-options generic-help-setopt
   "n" "--no-bounce" { false =: allow-bounce } short-long-option
     "Clears bounce flag" option-help
   "b" "--force-bounce" { true =: force-bounce } short-long-option

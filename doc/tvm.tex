@@ -1505,7 +1505,7 @@ The general encoding of a {\tt DIV}, {\tt DIVMOD}, or {\tt MOD} operation is {\t
 \begin{itemize}
 \item $0\leq m\leq1$ --- Indicates whether there is pre-multiplication ({\tt MULDIV} operation and its variants), possibly replaced by a left shift.
 \item $0\leq s\leq2$ --- Indicates whether either the multiplication or the division have been replaced by shifts: $s=0$---no replacement, $s=1$---division replaced by a right shift, $s=2$---multiplication replaced by a left shift (possible only for $m=1$).
-\item $0\leq c\leq1$ --- Indicates whether there is a constant one-byte argument $tt$ for the shift operator (if $s\neq0$). For $s=0$, $c=0$. If $c=1$, then $0\leq tt\leq 255$, and the shift is performed by $tt+1$ bits.
+\item $0\leq c\leq1$ --- Indicates whether there is a constant one-byte argument $tt$ for the shift operator (if $s\neq0$). For $s=0$, $c=0$. If $c=1$, then $0\leq tt\leq 255$, and the shift is performed by $tt+1$ bits. If $s\neq0$ and $c=0$, then the shift amount is provided to the instruction as a top-of-stack {\em Integer\/} in range $0\ldots256$.
 \item $1\leq d\leq3$ --- Indicates which results of division are required: $1$---only the quotient, $2$---only the remainder, $3$---both.
 \item $0\leq f\leq2$ --- Rounding mode: $0$---floor, $1$---nearest integer, $2$---ceiling (cf.~\ptref{sp:div.round}).
 \end{itemize}
@@ -1524,6 +1524,14 @@ Examples:
 \item {\tt A938$tt$} --- {\tt MODPOW2 $tt+1$}: ($x$ -- $x\bmod 2^{tt+1}$).
 \item {\tt A985} --- {\tt MULDIVR} ($x$ $y$ $z$ -- $q'$), where $q'=\lfloor xy/z+1/2\rfloor$.
 \item {\tt A98C} --- {\tt MULDIVMOD} ($x$ $y$ $z$ -- $q$ $r$), where $q:=\lfloor x\cdot y/z\rfloor$, $r:=x\cdot y\bmod z$ (same as {\tt */MOD} in Forth).
+\item {\tt A9A4} --- {\tt MULRSHIFT} ($x$ $y$ $z$ -- $\lfloor xy\cdot2^{-z}\rfloor$) for $0\leq z\leq 256$.
+\item {\tt A9A5} --- {\tt MULRSHIFTR} ($x$ $y$ $z$ -- $\lfloor xy\cdot2^{-z}+1/2\rfloor$) for $0\leq z\leq 256$.
+\item {\tt A9B4$tt$} --- {\tt MULRSHIFT $tt+1$} ($x$ $y$ -- $\lfloor xy\cdot 2^{-tt-1}\rfloor$).
+\item {\tt A9B5$tt$} --- {\tt MULRSHIFTR $tt+1$} ($x$ $y$ -- $\lfloor xy\cdot 2^{-tt-1}+1/2\rfloor$).
+\item {\tt A9C4} --- {\tt LSHIFTDIV} ($x$ $y$ $z$ -- $\lfloor 2^zx/y\rfloor$) for $0\leq z\leq 256$.
+\item {\tt A9C5} --- {\tt LSHIFTDIVR} ($x$ $y$ $z$ -- $\lfloor 2^zx/y+1/2\rfloor$) for $0\leq z\leq 256$.
+\item {\tt A9D4$tt$} --- {\tt LSHIFTDIV $tt+1$} ($x$ $y$ -- $\lfloor 2^{tt+1}x/y\rfloor$).
+\item {\tt A9D5$tt$} --- {\tt LSHIFTDIVR $tt+1$} ($x$ $y$ -- $\lfloor 2^{tt+1}x/y+1/2\rfloor$).
 \end{itemize}
 
 The most useful of these operations are {\tt DIV}, {\tt DIVMOD}, {\tt MOD}, {\tt DIVR}, {\tt DIVC}, {\tt MODPOW2 $t$}, and {\tt RSHIFTR $t$} (for integer arithmetic); and {\tt MULDIVMOD}, {\tt MULDIV}, {\tt MULDIVR}, {\tt LSHIFTDIVR $t$}, and {\tt MULRSHIFTR $t$} (for fixed-point arithmetic).
@@ -2165,8 +2173,12 @@ Of the following primitives, only the first two are ``pure'' in the sense that t
 \end{itemize}
 
 \nxsubpoint\emb{Pseudo-random number generator primitives}
-The pseudo-random number generator uses the random seed and (sometimes) other data kept in {\tt c7}.
+The pseudo-random number generator uses the random seed (parameter \#6, cf.~\ptref{sp:prim.conf.param}), an unsigned 256-bit {\em Integer}, and (sometimes) other data kept in {\tt c7}. The initial value of the random seed before a smart contract is executed in TON Blockchain is a hash of the smart contract address and the global block random seed. If there are several runs of the same smart contract inside a block, then all of these runs will have the same random seed. This can be fixed, for example, by running {\tt LTIME; ADDRAND} before using the pseudo-random number generator for the first time.
 \begin{itemize}
+\item {\tt F810} --- {\tt RANDU256} ( -- $x$), generates a new pseudo-random unsigned 256-bit {\em Integer}~$x$. The algorithm is as follows: if $r$ is the old value of the random seed, considered as a 32-byte array (by constructing the big-endian representation of an unsigned 256-bit integer), then its $\opsc{sha512}(r)$ is computed; the first 32 bytes of this hash are stored as the new value $r'$ of the random seed, and the remaining 32 bytes are returned as the next random value~$x$.
+\item {\tt F811} --- {\tt RAND} ($y$ -- $z$), generates a new pseudo-random integer $z$ in the range $0\ldots y-1$ (or $y\ldots-1$, if $y<0$). More precisely, an unsigned random value $x$ is generated as in {\tt RAND256U}; then $z:=\lfloor xy/2^{256}\rfloor$ is computed. Equivalent to {\tt RANDU256; MULRSHIFT 256}.
+\item {\tt F814} --- {\tt SETRAND} ($x$ -- ), sets the random seed to unsigned 256-bit {\em Integer\/}~$x$.
+\item {\tt F815} --- {\tt ADDRAND} ($x$ -- ), mixes unsigned 256-bit {\em Integer\/}~$x$ into the random seed $r$ by setting the random seed to $\Sha$ of the concatenation of two 32-byte strings: the first with the big-endian representation of the old seed $r$, and the second with the big-endian representation of $x$.
 \item {\tt F810}--{\tt F81F} --- Reserved for pseudo-random number generator primitives.
 \end{itemize}
 
@@ -2177,8 +2189,8 @@ The following primitives read configuration data provided in the {\em Tuple\/} s
 \item {\tt F823} --- {\tt NOW} ( -- $x$), returns the current Unix time as an {\em Integer}. If it is impossible to recover the requested value starting from {\tt c7}, throws a type checking or range checking exception as appropriate. Equivalent to {\tt GETPARAM 3}.
 \item {\tt F824} --- {\tt BLOCKLT} ( -- $x$), returns the starting logical time of the current block. Equivalent to {\tt GETPARAM 4}.
 \item {\tt F825} --- {\tt LTIME} ( -- $x$), returns the logical time of the current transaction. Equivalent to {\tt GETPARAM 5}.
-\item {\tt F826} --- {\tt BALANCE} ( -- $t$), returns the remaining balance of the smart contract as a {\em Tuple\/} consisting of an {\em Integer} (the remaining Gram balance in nanograms) and a {\em Maybe Cell} (a dictionary with 32-bit keys representing the balance of ``extra currencies''). Equivalent to {\tt GETPARAM 6}. Note that {\tt RAW} primitives such as {\tt SENDRAWMSG} do not update this field. 
-\item {\tt F827} --- {\tt RANDSEED} ( -- $x$), returns the current random seed as an unsigned 256-bit {\em Integer}. Equivalent to {\tt GETPARAM 7}.
+\item {\tt F826} --- {\tt RANDSEED} ( -- $x$), returns the current random seed as an unsigned 256-bit {\em Integer}. Equivalent to {\tt GETPARAM 6}.
+\item {\tt F827} --- {\tt BALANCE} ( -- $t$), returns the remaining balance of the smart contract as a {\em Tuple\/} consisting of an {\em Integer} (the remaining Gram balance in nanograms) and a {\em Maybe Cell} (a dictionary with 32-bit keys representing the balance of ``extra currencies''). Equivalent to {\tt GETPARAM 7}. Note that {\tt RAW} primitives such as {\tt SENDRAWMSG} do not update this field. 
 \item {\tt F828} --- {\tt MYADDR} ( -- $s$), returns the internal address of the current smart contract as a {\em Slice\/} with a {\tt MsgAddressInt}. If necessary, it can be parsed further using primitives such as {\tt PARSESTDADDR} or {\tt REWRITESTDADDR}. Equivalent to {\tt GETPARAM 8}.
 \item {\tt F829} --- {\tt CONFIGROOT} ( -- $D$), returns the {\em Maybe Cell\/}~$D$ with the current global configuration dictionary. Equivalent to {\tt GETPARAM 9}.
 \item {\tt F830} --- {\tt CONFIGDICT} ( -- $D$ $32$), returns the global configuration dictionary along with its key length (32). Equivalent to {\tt CONFIGROOT}; {\tt PUSHINT 32}.

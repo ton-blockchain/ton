@@ -688,7 +688,7 @@ bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
         return cb.store_long_bool(0x02ff, 16);
       } else if (!(mode & 1) && val->signed_fits_bits(64)) {
         // vm_stk_tinyint#01 value:int64 = VmStackValue;
-        return cb.store_long_bool(1, 8) && cb.store_int256_bool(std::move(val), 256);
+        return cb.store_long_bool(1, 8) && cb.store_int256_bool(std::move(val), 64);
       } else {
         // vm_stk_int#0201_ value:int257 = VmStackValue;
         return cb.store_long_bool(0x0200 / 2, 15) && cb.store_int256_bool(std::move(val), 257);
@@ -701,7 +701,7 @@ bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
       // _ cell:^Cell st_bits:(## 10) end_bits:(## 10) { st_bits <= end_bits }
       // st_ref:(#<= 4) end_ref:(#<= 4) { st_ref <= end_ref } = VmCellSlice;
       const auto& cs = *static_cast<Ref<CellSlice>>(ref);
-      return cb.store_long_bool(4, 8)                                  // vm_stk_slice#04 _:VmCellSlice = VmStackValue;
+      return ((mode & 0x1000) || cb.store_long_bool(4, 8))             // vm_stk_slice#04 _:VmCellSlice = VmStackValue;
              && cb.store_ref_bool(cs.get_base_cell())                  // _ cell:^Cell
              && cb.store_long_bool(cs.cur_pos(), 10)                   // st_bits:(## 10)
              && cb.store_long_bool(cs.cur_pos() + cs.size(), 10)       // end_bits:(## 10)
@@ -738,6 +738,110 @@ bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
   }
 }
 
+bool StackEntry::deserialize(CellSlice& cs, int mode) {
+  clear();
+  int t = (mode & 0xf000) ? ((mode >> 12) & 15) : (int)cs.prefetch_ulong(8);
+  switch (t) {
+    case 0:
+      // vm_stk_null#00 = VmStackValue;
+      return cs.advance(8);
+    case 1: {
+      // vm_stk_tinyint#01 value:int64 = VmStackValue;
+      td::RefInt256 val;
+      return !(mode & 1) && cs.advance(8) && cs.fetch_int256_to(64, val) && set_int(std::move(val));
+    }
+    case 2: {
+      t = (int)cs.prefetch_ulong(16) & 0x1ff;
+      if (t == 0xff) {
+        // vm_stk_nan#02ff = VmStackValue;
+        return cs.advance(16) && set_int(td::RefInt256{true});
+      } else {
+        // vm_stk_int#0201_ value:int257 = VmStackValue;
+        td::RefInt256 val;
+        return cs.fetch_ulong(15) == 0x0200 / 2 && cs.fetch_int256_to(257, val) && set_int(std::move(val));
+      }
+    }
+    case 3: {
+      // vm_stk_cell#03 cell:^Cell = VmStackValue;
+      return cs.have_refs() && cs.advance(8) && set(t_cell, cs.fetch_ref());
+    }
+    case 4: {
+      // _ cell:^Cell st_bits:(## 10) end_bits:(## 10) { st_bits <= end_bits }
+      //   st_ref:(#<= 4) end_ref:(#<= 4) { st_ref <= end_ref } = VmCellSlice;
+      // vm_stk_slice#04 _:VmCellSlice = VmStackValue;
+      unsigned st_bits, end_bits, st_ref, end_ref;
+      Ref<Cell> cell;
+      Ref<CellSlice> csr;
+      return ((mode & 0xf000) || cs.advance(8))                          // vm_stk_slice#04
+             && cs.fetch_ref_to(cell)                                    // cell:^Cell
+             && cs.fetch_uint_to(10, st_bits)                            // st_bits:(## 10)
+             && cs.fetch_uint_to(10, end_bits)                           // end_bits:(## 10)
+             && st_bits <= end_bits                                      // { st_bits <= end_bits }
+             && cs.fetch_uint_to(3, st_ref)                              // st_ref:(#<= 4)
+             && cs.fetch_uint_to(3, end_ref)                             // end_ref:(#<= 4)
+             && st_ref <= end_ref && end_ref <= 4                        // { st_ref <= end_ref }
+             && (csr = load_cell_slice_ref(std::move(cell))).not_null()  // load cell slice
+             && csr->have(end_bits, end_ref) &&
+             csr.write().skip_last(csr->size() - end_bits, csr->size_refs() - end_ref) &&
+             csr.write().skip_first(st_bits, st_ref) && set(t_slice, std::move(csr));
+    }
+    case 5: {
+      // vm_stk_builder#05 cell:^Cell = VmStackValue;
+      Ref<Cell> cell;
+      Ref<CellSlice> csr;
+      Ref<CellBuilder> cb{true};
+      return cs.advance(8) && cs.fetch_ref_to(cell) && (csr = load_cell_slice_ref(std::move(cell))).not_null() &&
+             cb.write().append_cellslice_bool(std::move(csr)) && set(t_builder, std::move(cb));
+    }
+    case 6: {
+      // vm_stk_cont#06 cont:VmCont = VmStackValue;
+      Ref<Continuation> cont;
+      return !(mode & 2) && cs.advance(8) && Continuation::deserialize_to(cs, cont, mode) &&
+             set(t_vmcont, std::move(cont));
+    }
+    case 7: {
+      // vm_stk_tuple#07 len:(## 16) data:(VmTuple len) = VmStackValue;
+      int n;
+      if (!(cs.advance(8) && cs.fetch_uint_to(16, n))) {
+        return false;
+      }
+      Ref<Tuple> tuple{true, n};
+      auto& t = tuple.write();
+      if (n > 1) {
+        Ref<Cell> head, tail;
+        n--;
+        if (!(cs.fetch_ref_to(head) && cs.fetch_ref_to(tail) && t[n].deserialize(std::move(tail), mode))) {
+          return false;
+        }
+        vm::CellSlice cs2;
+        while (--n > 0) {
+          if (!(cs2.load(std::move(head)) && cs2.fetch_ref_to(head) && cs2.fetch_ref_to(tail) && cs2.empty_ext() &&
+                t[n].deserialize(std::move(tail), mode))) {
+            return false;
+          }
+        }
+        if (!t[0].deserialize(std::move(head), mode)) {
+          return false;
+        }
+      } else if (n == 1) {
+        return cs.have_refs() && t[0].deserialize(cs.fetch_ref(), mode);
+      }
+      return set(t_tuple, std::move(tuple));
+    }
+    default:
+      return false;
+  }
+}
+
+bool StackEntry::deserialize(Ref<Cell> cell, int mode) {
+  if (cell.is_null()) {
+    clear();
+    return false;
+  }
+  CellSlice cs = load_cell_slice(std::move(cell));
+  return deserialize(cs, mode) && cs.empty_ext();
+}
+
 bool Stack::serialize(vm::CellBuilder& cb, int mode) const {
   // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
   unsigned n = depth();
@@ -756,6 +860,47 @@ bool Stack::serialize(vm::CellBuilder& cb, int mode) const {
     }
   }
   return cb.store_ref_bool(std::move(rest)) && stack[n - 1].serialize(cb, mode);
+}
+
+bool Stack::deserialize(vm::CellSlice& cs, int mode) {
+  clear();
+  // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
+  int n;
+  if (!cs.fetch_uint_to(24, n)) {
+    return false;
+  }
+  if (!n) {
+    return true;
+  }
+  stack.resize(n);
+  Ref<Cell> rest;
+  if (!(cs.fetch_ref_to(rest) && stack[n - 1].deserialize(cs, mode))) {
+    clear();
+    return false;
+  }
+  for (int i = n - 2; i >= 0; --i) {
+    // vm_stk_cons#_ {n:#} rest:^(VmStackList n) tos:VmStackValue = VmStackList (n + 1);
+    vm::CellSlice cs2 = load_cell_slice(std::move(rest));
+    if (!(cs2.fetch_ref_to(rest) && stack[i].deserialize(cs2, mode) && cs2.empty_ext())) {
+      clear();
+      return false;
+    }
+  }
+  if (!load_cell_slice(std::move(rest)).empty_ext()) {
+    clear();
+    return false;
+  }
+  return true;
+}
+
+bool Stack::deserialize_to(vm::CellSlice& cs, Ref<Stack>& stack, int mode) {
+  stack = Ref<Stack>{true};
+  if (stack.unique_write().deserialize(cs, mode)) {
+    return true;
+  } else {
+    stack.clear();
+    return false;
+  }
 }
 
 }  // namespace vm

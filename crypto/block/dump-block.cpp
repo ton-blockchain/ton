@@ -199,10 +199,13 @@ void usage() {
 int main(int argc, char* const argv[]) {
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  bool dump_state = false;
+  bool dump_state = false, dump_vmcont = false;
   auto zerostate = std::make_unique<block::ZerostateInfo>();
-  while ((i = getopt(argc, argv, "Shv:")) != -1) {
+  while ((i = getopt(argc, argv, "CShv:")) != -1) {
     switch (i) {
+      case 'C':
+        dump_vmcont = true;
+        break;
       case 'S':
         dump_state = true;
         break;
@@ -230,12 +233,13 @@ int main(int argc, char* const argv[]) {
         vm::CellSlice cs{vm::NoVm(), boc};
         cs.print_rec(std::cout);
         std::cout << std::endl;
-        auto& type = dump_state ? (const tlb::TLB&)block::gen::t_ShardStateUnsplit : block::gen::t_Block;
-        std::string type_name = dump_state ? "ShardState" : "Block";
+        auto& type = !dump_vmcont
+                         ? (dump_state ? (const tlb::TLB&)block::gen::t_ShardStateUnsplit : block::gen::t_Block)
+                         : block::gen::t_VmCont;
         type.print_ref(std::cout, boc);
         std::cout << std::endl;
         bool ok = type.validate_ref(boc);
-        std::cout << "(" << (ok ? "" : "in") << "valid " << type_name << ")" << std::endl;
+        std::cout << "(" << (ok ? "" : "in") << "valid " << type << ")" << std::endl;
       }
     }
     if (!done) {

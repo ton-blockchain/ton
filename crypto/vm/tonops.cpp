@@ -165,6 +165,8 @@ int exec_set_global_common(VmState* st, unsigned idx) {
   if (idx >= 255) {
     throw VmError{Excno::range_chk, "tuple index out of range"};
   }
+  static auto empty_tuple = Ref<Tuple>{true};
+  st->set_c7(empty_tuple);  // optimization; use only if no exception can be thrown until true set_c7()
   auto tpay = tuple_extend_set_index(tuple, idx, std::move(x));
   if (tpay > 0) {
     st->consume_tuple_gas(tpay);
@@ -193,7 +195,8 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf823, 16, "NOW", std::bind(exec_get_param, _1, 3, "NOW")))
       .insert(OpcodeInstr::mksimple(0xf824, 16, "BLOCKLT", std::bind(exec_get_param, _1, 4, "BLOCKLT")))
       .insert(OpcodeInstr::mksimple(0xf825, 16, "LTIME", std::bind(exec_get_param, _1, 5, "LTIME")))
-      .insert(OpcodeInstr::mkfixedrange(0xf826, 0xf828, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
+      .insert(OpcodeInstr::mksimple(0xf826, 16, "RANDSEED", std::bind(exec_get_param, _1, 6, "RANDSEED")))
+      .insert(OpcodeInstr::mksimple(0xf827, 16, "BALANCE", std::bind(exec_get_param, _1, 7, "BALANCE")))
       .insert(OpcodeInstr::mksimple(0xf828, 16, "MYADDR", std::bind(exec_get_param, _1, 8, "MYADDR")))
       .insert(OpcodeInstr::mksimple(0xf829, 16, "CONFIGROOT", std::bind(exec_get_param, _1, 9, "CONFIGROOT")))
       .insert(OpcodeInstr::mkfixedrange(0xf82a, 0xf830, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
@@ -204,6 +207,112 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global));
+}
+
+static constexpr int randseed_idx = 6;
+
+td::RefInt256 generate_randu256(VmState* st) {
+  auto tuple = st->get_c7();
+  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  if (t1.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  auto seedv = tuple_index(*t1, randseed_idx).as_int();
+  if (seedv.is_null()) {
+    throw VmError{Excno::type_chk, "random seed is not an integer"};
+  }
+  unsigned char seed[32];
+  if (!seedv->export_bytes(seed, 32, false)) {
+    throw VmError{Excno::range_chk, "random seed out of range"};
+  }
+  unsigned char hash[64];
+  digest::hash_str<digest::SHA512>(hash, seed, 32);
+  if (!seedv.write().import_bytes(hash, 32, false)) {
+    throw VmError{Excno::range_chk, "cannot store new random seed"};
+  }
+  td::RefInt256 res{true};
+  if (!res.write().import_bytes(hash + 32, 32, false)) {
+    throw VmError{Excno::range_chk, "cannot store new random number"};
+  }
+  static auto empty_tuple = Ref<Tuple>{true};
+  st->set_c7(empty_tuple);  // optimization; use only if no exception can be thrown until true set_c7()
+  tuple.write()[0].clear();
+  t1.write().at(randseed_idx) = std::move(seedv);
+  st->consume_tuple_gas(t1);
+  tuple.write().at(0) = std::move(t1);
+  st->consume_tuple_gas(tuple);
+  st->set_c7(std::move(tuple));
+  return res;
+}
+
+int exec_randu256(VmState* st) {
+  VM_LOG(st) << "execute RANDU256";
+  st->get_stack().push_int(generate_randu256(st));
+  return 0;
+}
+
+int exec_rand_int(VmState* st) {
+  VM_LOG(st) << "execute RAND";
+  auto& stack = st->get_stack();
+  stack.check_underflow(1);
+  auto x = stack.pop_int_finite();
+  auto y = generate_randu256(st);
+  typename td::BigInt256::DoubleInt tmp{0};
+  tmp.add_mul(*x, *y);
+  tmp.rshift(256, -1).normalize();
+  stack.push_int(td::RefInt256{true, tmp});
+  return 0;
+}
+
+int exec_set_rand(VmState* st, bool mix) {
+  VM_LOG(st) << "execute " << (mix ? "ADDRAND" : "SETRAND");
+  auto& stack = st->get_stack();
+  stack.check_underflow(1);
+  auto x = stack.pop_int_finite();
+  if (!x->unsigned_fits_bits(256)) {
+    throw VmError{Excno::range_chk, "new random seed out of range"};
+  }
+  auto tuple = st->get_c7();
+  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  if (t1.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  if (mix) {
+    auto seedv = tuple_index(*t1, randseed_idx).as_int();
+    if (seedv.is_null()) {
+      throw VmError{Excno::type_chk, "random seed is not an integer"};
+    }
+    unsigned char buffer[64], hash[32];
+    if (!std::move(seedv)->export_bytes(buffer, 32, false)) {
+      throw VmError{Excno::range_chk, "random seed out of range"};
+    }
+    if (!x->export_bytes(buffer + 32, 32, false)) {
+      throw VmError{Excno::range_chk, "mixed seed value out of range"};
+    }
+    digest::hash_str<digest::SHA256>(hash, buffer, 64);
+    if (!x.write().import_bytes(hash, 32, false)) {
+      throw VmError{Excno::range_chk, "new random seed value out of range"};
+    }
+  }
+  static auto empty_tuple = Ref<Tuple>{true};
+  st->set_c7(empty_tuple);  // optimization; use only if no exception can be thrown until true set_c7()
+  tuple.write()[0].clear();
+  auto tpay = tuple_extend_set_index(t1, randseed_idx, std::move(x));
+  if (tpay > 0) {
+    st->consume_tuple_gas(tpay);
+  }
+  tuple.unique_write()[0] = std::move(t1);
+  st->consume_tuple_gas(tuple);
+  st->set_c7(std::move(tuple));
+  return 0;
+}
+
+void register_prng_ops(OpcodeTable& cp0) {
+  using namespace std::placeholders;
+  cp0.insert(OpcodeInstr::mksimple(0xf810, 16, "RANDU256", exec_randu256))
+      .insert(OpcodeInstr::mksimple(0xf811, 16, "RAND", exec_rand_int))
+      .insert(OpcodeInstr::mksimple(0xf814, 16, "SETRAND", std::bind(exec_set_rand, _1, false)))
+      .insert(OpcodeInstr::mksimple(0xf815, 16, "ADDRAND", std::bind(exec_set_rand, _1, true)));
 }
 
 int exec_compute_hash(VmState* st, int mode) {
@@ -677,7 +786,7 @@ int exec_set_lib_code(VmState* st) {
   }
   return install_output_action(st, cb.finalize());
 }
-  
+
 int exec_change_lib(VmState* st) {
   VM_LOG(st) << "execute CHANGELIB";
   Stack& stack = st->get_stack();
@@ -688,9 +797,9 @@ int exec_change_lib(VmState* st) {
     throw VmError{Excno::range_chk, "library hash must be non-negative"};
   }
   CellBuilder cb;
-  if (!(cb.store_ref_bool(get_actions(st))         // out_list$_ {n:#} prev:^(OutList n)
-        && cb.store_long_bool(0x26fa1dd4, 32)      // action_change_library#26fa1dd4
-        && cb.store_long_bool(mode * 2, 8)         // mode:(## 7) { mode <= 2 }
+  if (!(cb.store_ref_bool(get_actions(st))             // out_list$_ {n:#} prev:^(OutList n)
+        && cb.store_long_bool(0x26fa1dd4, 32)          // action_change_library#26fa1dd4
+        && cb.store_long_bool(mode * 2, 8)             // mode:(## 7) { mode <= 2 }
         && cb.store_int256_bool(hash, 256, false))) {  // libref:LibRef = OutAction;
     throw VmError{Excno::cell_ov, "cannot serialize library hash into an output action cell"};
   }
@@ -710,6 +819,7 @@ void register_ton_message_ops(OpcodeTable& cp0) {
 void register_ton_ops(OpcodeTable& cp0) {
   register_basic_gas_ops(cp0);
   register_ton_gas_ops(cp0);
+  register_prng_ops(cp0);
   register_ton_config_ops(cp0);
   register_ton_crypto_ops(cp0);
   register_ton_currency_address_ops(cp0);

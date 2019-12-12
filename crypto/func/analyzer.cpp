@@ -431,26 +431,25 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     }
     case _While: {
       // while (block0 || left) block1;
-      // ... { block0 left block1 } block0 left next
-      VarDescrList after_cond_first{next_var_info};
-      after_cond_first += left;
-      code.compute_used_code_vars(block0, after_cond_first, false);
-      VarDescrList new_var_info{block0->var_info};
+      // ... block0 left { block1 block0 left } next
+      VarDescrList new_var_info{next_var_info};
       bool changes = false;
       do {
-        code.compute_used_code_vars(block1, block0->var_info, changes);
-        VarDescrList after_cond{block1->var_info};
+        VarDescrList after_cond{new_var_info};
         after_cond += left;
         code.compute_used_code_vars(block0, after_cond, changes);
+        code.compute_used_code_vars(block1, block0->var_info, changes);
         std::size_t n = new_var_info.size();
-        new_var_info += block0->var_info;
+        new_var_info += block1->var_info;
         new_var_info.clear_last();
         if (changes) {
           break;
         }
         changes = (new_var_info.size() == n);
       } while (changes <= edit);
-      return set_var_info(std::move(new_var_info));
+      new_var_info += left;
+      code.compute_used_code_vars(block0, new_var_info, edit);
+      return set_var_info(block0->var_info);
     }
     case _Until: {
       // until (block0 || left);

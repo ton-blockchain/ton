@@ -13,7 +13,7 @@ begin-options
      " <filename-base> <dest-addr> <seqno> <amount> [-n|-b] [-B <body-boc>] [-C <comment>] [<savefile>]" +cr +tab
     +"Creates a request to simple wallet created by new-wallet.fif, with private key loaded from file <filename-base>.pk "
     +"and address from <filename-base>.addr, and saves it into <savefile>.boc ('wallet-query.boc' by default)"
-    generic-help
+    disable-digit-options generic-help-setopt
   "n" "--no-bounce" { false =: allow-bounce } short-long-option
     "Clears bounce flag" option-help
   "b" "--force-bounce" { true =: force-bounce } short-long-option

@@ -26,9 +26,14 @@ recursive list-delete-range {
 } : $pfx?
 // ( s -- ? )  checks whether s is an option (a string beginning with '-')
 { dup $len 1 > { "-" $pfx? } { drop false } cond } : is-opt?
+// ( s -- ? )  checks whether s is a digit option
+{ 2 $| drop 1 $| nip $>B 8 B>u@ dup 57 <= swap 48 >= and } : is-digit-opt?
+0 box constant disable-digit-opts
 // ( l -- s i or 0 )  finds first string in l beginning with '-'
 { 0 { 1+ over null? { 2drop 0 true } {
-  swap uncons over is-opt? { drop swap true } { nip swap false } cond
+  swap uncons over is-opt?
+  { disable-digit-opts @ { over is-digit-opt? not } { true } cond } { false } cond
+  { drop swap true } { nip swap false } cond
   } cond } until
 } : list-find-opt
 // ( -- s i or 0 )  finds first option in cmdline args
@@ -51,11 +56,15 @@ recursive list-delete-range {
 // ( s -- s' null or s' s'' )  Splits long option --opt=arg at '='
 { dup "=" $pos 1+ ?dup { tuck $| swap rot 1- $| drop swap } { null } cond
 } : split-longopt
+// ( l -- f or 0 )  Extracts global option flags from first entry of l
+{ dup null? { drop 0 } { car get-opt-flags -256 and } cond
+} : get-global-option-flags
 variable options-list
 // ( l -- i or 0 ) 
 // parses command line arguments according to option description list l
 // and returns index i of first incorrect option
-{ options-list !
+{ dup options-list ! get-global-option-flags
+  256 and disable-digit-opts !
   { first-opt dup 0= { true } {
     swap dup "--" $pfx? {  // i s
       dup $len 2 = { drop dup 1 $*del.. 0 true } {
@@ -116,5 +125,7 @@ anon constant opt-list-marker
 { 6 2swap 4 tuple } : short-long-option-?arg
 // ( o s -- s' )  Adds help message to option
 ' , : option-help
-// ( s -- o )  Creates a generic help message
-{ 'nop 8 "" 3 roll 4 tuple } : generic-help
+// ( s f -- o )  Creates a generic help message
+{ swap 'nop rot "" 3 roll 4 tuple } : generic-help-setopt
+{ 0 generic-help-setopt } : generic-help
+256 constant disable-digit-options

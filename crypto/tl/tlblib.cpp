@@ -33,6 +33,12 @@ const NatWidth t_Nat{32};
 const Anything t_Anything;
 const RefAnything t_RefCell;
 
+std::string TLB::get_type_name() const {
+  std::ostringstream os;
+  print_type(os);
+  return os.str();
+}
+
 bool Bool::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
   int t = get_tag(cs);
   return cs.advance(1) && pp.out(t ? "bool_true" : "bool_false");

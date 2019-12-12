@@ -196,6 +196,7 @@ class TLB {
   virtual std::ostream& print_type(std::ostream& os) const {
     return os << "<unknown-TLB-type>";
   }
+  std::string get_type_name() const;
   virtual bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const;
   virtual bool print(PrettyPrinter& pp, const vm::CellSlice& cs) const {
     vm::CellSlice cs_copy{cs};

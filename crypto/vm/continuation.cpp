@@ -32,6 +32,17 @@ bool Continuation::has_c0() const {
   return cont_data && cont_data->save.c[0].not_null();
 }
 
+bool ControlRegs::clear() {
+  for (unsigned i = 0; i < creg_num; i++) {
+    c[i].clear();
+  }
+  for (unsigned i = 0; i < dreg_num; i++) {
+    d[i].clear();
+  }
+  c7.clear();
+  return true;
+}
+
 StackEntry ControlRegs::get(unsigned idx) const {
   if (idx < creg_num) {
     return get_c(idx);
@@ -108,6 +119,7 @@ ControlRegs& ControlRegs::operator&=(const ControlRegs& save) {
 }
 
 bool ControlRegs::serialize(CellBuilder& cb) const {
+  // _ cregs:(HashmapE 4 VmStackValue) = VmSaveList;
   Dictionary dict{4};
   CellBuilder cb2;
   for (int i = 0; i < creg_num; i++) {
@@ -126,8 +138,34 @@ bool ControlRegs::serialize(CellBuilder& cb) const {
          std::move(dict).append_dict_to_bool(cb);
 }
 
+bool ControlRegs::deserialize(CellSlice& cs, int mode) {
+  // _ cregs:(HashmapE 4 VmStackValue) = VmSaveList;
+  Ref<Cell> root;
+  return cs.fetch_maybe_ref(root) && deserialize(std::move(root), mode);
+}
+
+bool ControlRegs::deserialize(Ref<Cell> root, int mode) {
+  try {
+    clear();
+    Dictionary dict{std::move(root), 4};
+    return dict.check_for_each([this, mode](Ref<CellSlice> val, td::ConstBitPtr key, int n) {
+      StackEntry value;
+      return value.deserialize(val.write(), mode) && val->empty_ext() && set((int)key.get_uint(4), std::move(value));
+    });
+  } catch (VmError&) {
+    return false;
+  }
+}
+
+bool ControlData::clear() {
+  stack.clear();
+  save.clear();
+  nargs = cp = -1;
+  return true;
+}
+
 bool ControlData::serialize(CellBuilder& cb) const {
-  // vm_ctl_data$_ nargs:(Maybe int13) stack:(Maybe VmStack) save:VmSaveList
+  // vm_ctl_data$_ nargs:(Maybe uint13) stack:(Maybe VmStack) save:VmSaveList
   // cp:(Maybe int16) = VmControlData;
   return cb.store_bool_bool(nargs >= 0)                   // vm_ctl_data$_ nargs:(Maybe ...
          && (nargs < 0 || cb.store_long_bool(nargs, 13))  // ... int13)
@@ -138,14 +176,86 @@ bool ControlData::serialize(CellBuilder& cb) const {
          && (cp == -1 || cb.store_long_bool(cp, 16));     // ... int16)
 }
 
+bool ControlData::deserialize(CellSlice& cs, int mode) {
+  // vm_ctl_data$_ nargs:(Maybe uint13) stack:(Maybe VmStack) save:VmSaveList
+  // cp:(Maybe int16) = VmControlData;
+  nargs = cp = -1;
+  stack.clear();
+  bool f;
+  return cs.fetch_bool_to(f) && (!f || cs.fetch_uint_to(13, nargs))                // nargs:(Maybe uint13)
+         && cs.fetch_bool_to(f) && (!f || Stack::deserialize_to(cs, stack, mode))  // stack:(Maybe VmStack)
+         && save.deserialize(cs, mode)                                             // save:VmSaveList
+         && cs.fetch_bool_to(f) && (!f || (cs.fetch_int_to(16, cp) && cp != -1));  // cp:(Maybe int16)
+}
+
 bool Continuation::serialize_ref(CellBuilder& cb) const {
   vm::CellBuilder cb2;
   return serialize(cb2) && cb.store_ref_bool(cb2.finalize());
 }
 
+Ref<Continuation> Continuation::deserialize(CellSlice& cs, int mode) {
+  if (mode & 0x1002) {
+    return {};
+  }
+  mode |= 0x1000;
+  switch (cs.bselect_ext(6, 0x100f011100010001ULL)) {
+    case 0:
+      // vmc_std$00 cdata:VmControlData code:VmCellSlice = VmCont;
+      return OrdCont::deserialize(cs, mode);
+    case 1:
+      // vmc_envelope$01 cdata:VmControlData next:^VmCont = VmCont;
+      return ArgContExt::deserialize(cs, mode);
+    case 2:
+      // vmc_quit$1000 exit_code:int32 = VmCont;
+      return QuitCont::deserialize(cs, mode);
+    case 3:
+      // vmc_quit_exc$1001 = VmCont;
+      return ExcQuitCont::deserialize(cs, mode);
+    case 4:
+      // vmc_repeat$10100 count:uint63 body:^VmCont after:^VmCont = VmCont;
+      return RepeatCont::deserialize(cs, mode);
+    case 5:
+      // vmc_until$110000 body:^VmCont after:^VmCont = VmCont;
+      return UntilCont::deserialize(cs, mode);
+    case 6:
+      // vmc_again$110001 body:^VmCont = VmCont;
+      return AgainCont::deserialize(cs, mode);
+    case 7:
+      // vmc_while_cond$110010 cond:^VmCont body:^VmCont after:^VmCont = VmCont;
+      return WhileCont::deserialize(cs, mode | 0x2000);
+    case 8:
+      // vmc_while_body$110011 cond:^VmCont body:^VmCont after:^VmCont = VmCont;
+      return WhileCont::deserialize(cs, mode & ~0x2000);
+    case 9:
+      // vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
+      return PushIntCont::deserialize(cs, mode);
+    default:
+      return {};
+  }
+}
+
+bool Continuation::deserialize_to(Ref<Cell> cell, Ref<Continuation>& cont, int mode) {
+  if (cell.is_null()) {
+    cont.clear();
+    return false;
+  }
+  CellSlice cs = load_cell_slice(std::move(cell));
+  return deserialize_to(cs, cont, mode & ~0x1000) && cs.empty_ext();
+}
+
 bool QuitCont::serialize(CellBuilder& cb) const {
   // vmc_quit$1000 exit_code:int32 = VmCont;
   return cb.store_long_bool(8, 4) && cb.store_long_bool(exit_code, 32);
+}
+
+Ref<QuitCont> QuitCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_quit$1000 exit_code:int32 = VmCont;
+  int exit_code;
+  if (cs.fetch_ulong(4) == 8 && cs.fetch_int_to(32, exit_code)) {
+    return Ref<QuitCont>{true, exit_code};
+  } else {
+    return {};
+  }
 }
 
 int ExcQuitCont::jump(VmState* st) const & {
@@ -164,6 +274,11 @@ bool ExcQuitCont::serialize(CellBuilder& cb) const {
   return cb.store_long_bool(9, 4);
 }
 
+Ref<ExcQuitCont> ExcQuitCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_quit_exc$1001 = VmCont;
+  return cs.fetch_ulong(4) == 9 ? Ref<ExcQuitCont>{true} : Ref<ExcQuitCont>{};
+}
+
 int PushIntCont::jump(VmState* st) const & {
   VM_LOG(st) << "execute implicit PUSH " << push_val << " (slow)";
   st->get_stack().push_smallint(push_val);
@@ -179,6 +294,19 @@ int PushIntCont::jump_w(VmState* st) & {
 bool PushIntCont::serialize(CellBuilder& cb) const {
   // vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
   return cb.store_long_bool(15, 4) && cb.store_long_bool(push_val, 32) && next->serialize_ref(cb);
+}
+
+Ref<PushIntCont> PushIntCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
+  int value;
+  Ref<Cell> ref;
+  Ref<Continuation> next;
+  if (cs.fetch_ulong(4) == 15 && cs.fetch_int_to(32, value) && cs.fetch_ref_to(ref) &&
+      deserialize_to(std::move(ref), next, mode)) {
+    return Ref<PushIntCont>{true, value, std::move(next)};
+  } else {
+    return {};
+  }
 }
 
 int ArgContExt::jump(VmState* st) const & {
@@ -200,6 +328,18 @@ int ArgContExt::jump_w(VmState* st) & {
 bool ArgContExt::serialize(CellBuilder& cb) const {
   // vmc_envelope$01 cdata:VmControlData next:^VmCont = VmCont;
   return cb.store_long_bool(1, 2) && data.serialize(cb) && ext->serialize_ref(cb);
+}
+
+Ref<ArgContExt> ArgContExt::deserialize(CellSlice& cs, int mode) {
+  // vmc_envelope$01 cdata:VmControlData next:^VmCont = VmCont;
+  ControlData cdata;
+  Ref<Cell> ref;
+  Ref<Continuation> next;
+  mode &= ~0x1000;
+  return cs.fetch_ulong(2) == 1 && cdata.deserialize(cs, mode) && cs.fetch_ref_to(ref) &&
+                 deserialize_to(std::move(ref), next, mode)
+             ? Ref<ArgContExt>{true, std::move(next), std::move(cdata)}
+             : Ref<ArgContExt>{};
 }
 
 int RepeatCont::jump(VmState* st) const & {
@@ -236,6 +376,20 @@ bool RepeatCont::serialize(CellBuilder& cb) const {
          after->serialize_ref(cb);
 }
 
+Ref<RepeatCont> RepeatCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_repeat$10100 count:uint63 body:^VmCont after:^VmCont = VmCont;
+  long long count;
+  Ref<Cell> ref;
+  Ref<Continuation> body, after;
+  if (cs.fetch_ulong(5) == 0x14 && cs.fetch_uint_to(63, count) && cs.fetch_ref_to(ref) &&
+      deserialize_to(std::move(ref), body, mode) && cs.fetch_ref_to(ref) &&
+      deserialize_to(std::move(ref), after, mode)) {
+    return Ref<RepeatCont>{true, std::move(body), std::move(after), count};
+  } else {
+    return {};
+  }
+}
+
 int VmState::repeat(Ref<Continuation> body, Ref<Continuation> after, long long count) {
   if (count <= 0) {
     body.clear();
@@ -266,6 +420,17 @@ int AgainCont::jump_w(VmState* st) & {
 bool AgainCont::serialize(CellBuilder& cb) const {
   // vmc_again$110001 body:^VmCont = VmCont;
   return cb.store_long_bool(0x31, 6) && body->serialize_ref(cb);
+}
+
+Ref<AgainCont> AgainCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_again$110001 body:^VmCont = VmCont;
+  Ref<Cell> ref;
+  Ref<Continuation> body;
+  if (cs.fetch_ulong(6) == 0x31 && cs.fetch_ref_to(ref) && deserialize_to(std::move(ref), body, mode)) {
+    return Ref<AgainCont>{true, std::move(body)};
+  } else {
+    return {};
+  }
 }
 
 int VmState::again(Ref<Continuation> body) {
@@ -303,6 +468,18 @@ int UntilCont::jump_w(VmState* st) & {
 bool UntilCont::serialize(CellBuilder& cb) const {
   // vmc_until$110000 body:^VmCont after:^VmCont = VmCont;
   return cb.store_long_bool(0x30, 6) && body->serialize_ref(cb) && after->serialize_ref(cb);
+}
+
+Ref<UntilCont> UntilCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_until$110000 body:^VmCont after:^VmCont = VmCont;
+  Ref<Cell> ref;
+  Ref<Continuation> body, after;
+  if (cs.fetch_ulong(6) == 0x30 && cs.fetch_ref_to(ref) && deserialize_to(std::move(ref), body, mode) &&
+      cs.fetch_ref_to(ref) && deserialize_to(std::move(ref), after, mode)) {
+    return Ref<UntilCont>{true, std::move(body), std::move(after)};
+  } else {
+    return {};
+  }
 }
 
 int VmState::until(Ref<Continuation> body, Ref<Continuation> after) {
@@ -371,6 +548,22 @@ bool WhileCont::serialize(CellBuilder& cb) const {
          body->serialize_ref(cb) && after->serialize_ref(cb);
 }
 
+Ref<WhileCont> WhileCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_while_cond$110010 cond:^VmCont body:^VmCont after:^VmCont = VmCont;
+  // vmc_while_body$110011 cond:^VmCont body:^VmCont after:^VmCont = VmCont;
+  bool at_body;
+  Ref<Cell> ref;
+  Ref<Continuation> cond, body, after;
+  if (cs.fetch_ulong(5) == 0x19 && cs.fetch_bool_to(at_body) && cs.fetch_ref_to(ref) &&
+      deserialize_to(std::move(ref), cond, mode) && cs.fetch_ref_to(ref) &&
+      deserialize_to(std::move(ref), body, mode) && cs.fetch_ref_to(ref) &&
+      deserialize_to(std::move(ref), after, mode)) {
+    return Ref<WhileCont>{true, std::move(cond), std::move(body), std::move(after), !at_body};
+  } else {
+    return {};
+  }
+}
+
 int VmState::loop_while(Ref<Continuation> cond, Ref<Continuation> body, Ref<Continuation> after) {
   if (!cond->has_c0()) {
     set_c0(Ref<WhileCont>{true, cond, std::move(body), std::move(after), true});
@@ -392,7 +585,18 @@ int OrdCont::jump_w(VmState* st) & {
 
 bool OrdCont::serialize(CellBuilder& cb) const {
   // vmc_std$00 cdata:VmControlData code:VmCellSlice = VmCont;
-  return cb.store_long_bool(1, 2) && data.serialize(cb) && StackEntry{code}.serialize(cb);
+  return cb.store_long_bool(0, 2) && data.serialize(cb) && StackEntry{code}.serialize(cb, 0x1000);
+}
+
+Ref<OrdCont> OrdCont::deserialize(CellSlice& cs, int mode) {
+  // vmc_std$00 cdata:VmControlData code:VmCellSlice = VmCont;
+  ControlData cdata;
+  StackEntry val;
+  mode &= ~0x1000;
+  return cs.fetch_ulong(2) == 0 && cdata.deserialize(cs, mode) && val.deserialize(cs, 0x4000) &&
+                 val.is(StackEntry::t_slice)
+             ? Ref<OrdCont>{true, std::move(val).as_slice(), std::move(cdata)}
+             : Ref<OrdCont>{};
 }
 
 void VmState::init_cregs(bool same_c3, bool push_0) {

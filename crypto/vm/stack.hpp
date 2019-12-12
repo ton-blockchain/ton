@@ -135,6 +135,9 @@ class StackEntry {
     tp = t_null;
     return *this;
   }
+  bool set_int(td::RefInt256 value) {
+    return set(t_int, std::move(value));
+  }
   bool empty() const {
     return tp == t_null;
   }
@@ -168,6 +171,8 @@ class StackEntry {
   }
   // mode: +1 = disable short ints, +2 = disable continuations
   bool serialize(vm::CellBuilder& cb, int mode = 0) const;
+  bool deserialize(vm::CellSlice& cs, int mode = 0);
+  bool deserialize(Ref<Cell> cell, int mode = 0);
 
  private:
   static bool is_list(const StackEntry* se);
@@ -194,6 +199,11 @@ class StackEntry {
   template <typename T, Type tag>
   Ref<T> move_as() & {
     return tp == tag ? Ref<T>{td::static_cast_ref(), std::move(ref)} : td::Ref<T>{};
+  }
+  bool set(Type _tp, RefAny _ref) {
+    tp = _tp;
+    ref = std::move(_ref);
+    return ref.not_null() || tp == t_null;
   }
 
  public:
@@ -511,6 +521,8 @@ class Stack : public td::CntObject {
   // mode: +1 = add eoln, +2 = Lisp-style lists
   void dump(std::ostream& os, int mode = 1) const;
   bool serialize(vm::CellBuilder& cb, int mode = 0) const;
+  bool deserialize(vm::CellSlice& cs, int mode = 0);
+  static bool deserialize_to(vm::CellSlice& cs, Ref<Stack>& stack, int mode = 0);
 };
 
 }  // namespace vm

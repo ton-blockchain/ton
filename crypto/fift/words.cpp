@@ -2356,6 +2356,25 @@ void interpret_db_run_vm_parallel(IntCtx& ctx) {
   do_interpret_db_run_vm_parallel(ctx.error_stream, ctx.stack, ctx.ton_db, threads_n, tasks_n);
 }
 
+void interpret_store_vm_cont(vm::Stack& stack) {
+  auto vmcont = stack.pop_cont();
+  auto cb = stack.pop_builder();
+  if (!vmcont->serialize(cb.write())) {
+    throw IntError{"cannot serialize vm continuation"};
+  }
+  stack.push_builder(std::move(cb));
+}
+
+void interpret_fetch_vm_cont(vm::Stack& stack) {
+  auto cs = stack.pop_cellslice();
+  auto vmcont = vm::Continuation::deserialize(cs.write());
+  if (vmcont.is_null()) {
+    throw IntError{"cannot deserialize vm continuation"};
+  }
+  stack.push_cellslice(std::move(cs));
+  stack.push_cont(std::move(vmcont));
+}
+
 Ref<vm::Box> cmdline_args{true};
 
 void interpret_get_fixed_cmdline_arg(vm::Stack& stack, int n) {
@@ -2858,6 +2877,8 @@ void init_words_vm(Dictionary& d) {
   d.def_ctx_word("gasrunvmctx ", std::bind(interpret_run_vm_c7, _1, true));
   d.def_ctx_word("dbrunvm ", interpret_db_run_vm);
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
+  d.def_stack_word("vmcont, ", interpret_store_vm_cont);
+  d.def_stack_word("vmcont@ ", interpret_fetch_vm_cont);
 }
 
 void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* const argv[]) {
