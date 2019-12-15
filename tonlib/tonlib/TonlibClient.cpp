@@ -1058,8 +1058,8 @@ td::Result<block::PublicKey> get_public_key(td::Slice public_key) {
 }
 
 td::Result<block::StdAddress> get_account_address(const tonlib_api::raw_initialAccountState& raw_state) {
-  TRY_RESULT_PREFIX(code, vm::std_boc_deserialize(raw_state.code_), TonlibError::InvalidBagOfCells("raw_state.code"));
-  TRY_RESULT_PREFIX(data, vm::std_boc_deserialize(raw_state.data_), TonlibError::InvalidBagOfCells("raw_state.data"));
+  TRY_RESULT_PREFIX(code, vm::std_boc_deserialize(td::BufferSlice(raw_state.code_).as_slice()), TonlibError::InvalidBagOfCells("raw_state.code"));
+  TRY_RESULT_PREFIX(data, vm::std_boc_deserialize(td::BufferSlice(raw_state.data_).as_slice()), TonlibError::InvalidBagOfCells("raw_state.data"));
   return ton::GenericAccount::get_address(0 /*zerochain*/,
                                           ton::GenericAccount::get_init_state(std::move(code), std::move(data)));
 }
