@@ -2248,6 +2248,24 @@ void interpret_run_vm_c7(IntCtx& ctx, bool with_gas) {
   }
 }
 
+void interpret_run_vm_c7_c5(IntCtx& ctx, bool with_gas, bool silent) {
+  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  auto c7 = ctx.stack.pop_tuple();
+  auto data = ctx.stack.pop_cell();
+  auto cs = ctx.stack.pop_cellslice();
+  td::Ref<vm::Cell> c5 = td::Ref<vm::CellBuilder>{true}->finalize_copy(false);
+  OstreamLogger ostream_logger(ctx.error_stream);
+  auto log = create_vm_log((!!ctx.error_stream && !silent) ? &ostream_logger : nullptr);
+  vm::GasLimits gas{gas_limit};
+  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7), &c5);
+  ctx.stack.push_smallint(res);
+  ctx.stack.push_cell(std::move(data));
+  ctx.stack.push_cell(std::move(c5));
+  if (with_gas) {
+    ctx.stack.push_smallint(gas.gas_consumed());
+  }
+}
+
 void do_interpret_db_run_vm_parallel(std::ostream* stream, vm::Stack& stack, vm::TonDb* ton_db_ptr, int threads_n,
                                      int tasks_n) {
   if (!ton_db_ptr || !*ton_db_ptr) {
@@ -2875,6 +2893,10 @@ void init_words_vm(Dictionary& d) {
   d.def_ctx_word("gasrunvm ", std::bind(interpret_run_vm, _1, true));
   d.def_ctx_word("runvmctx ", std::bind(interpret_run_vm_c7, _1, false));
   d.def_ctx_word("gasrunvmctx ", std::bind(interpret_run_vm_c7, _1, true));
+  d.def_ctx_word("runvmctxact ", std::bind(interpret_run_vm_c7_c5, _1, false, false));
+  d.def_ctx_word("gasrunvmctxact ", std::bind(interpret_run_vm_c7_c5, _1, true, false));
+  d.def_ctx_word("runvmctxactq ", std::bind(interpret_run_vm_c7_c5, _1, false, true));
+  d.def_ctx_word("gasrunvmctxactq ", std::bind(interpret_run_vm_c7_c5, _1, true, true));
   d.def_ctx_word("dbrunvm ", interpret_db_run_vm);
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
   d.def_stack_word("vmcont, ", interpret_store_vm_cont);

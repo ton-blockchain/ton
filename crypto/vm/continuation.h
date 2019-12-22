@@ -646,10 +646,10 @@ class VmState final : public VmStateInterface {
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = 0, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {});
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* c5_ptr = 0);
 int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* data_ptr = 0, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {});
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* c5_ptr = 0);
 
 ControlData* force_cdata(Ref<Continuation>& cont);
 ControlRegs* force_cregs(Ref<Continuation>& cont);
