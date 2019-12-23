@@ -1072,6 +1072,12 @@ int run_vm_code(Ref<CellSlice> code, Ref<Stack>& stack, int flags, Ref<Cell>* da
   if (res == -1 && c5_ptr) {
     *c5_ptr = vm.get_d(5);
   }
+  if (vm.committed() && data_ptr) {
+    *data_ptr = vm.get_committed_state().c4;
+  }
+  if (vm.committed() && c5_ptr) {
+    *c5_ptr = vm.get_committed_state().c5;
+  }
   if (steps) {
     *steps = vm.get_steps_count();
   }
