@@ -35,6 +35,7 @@ namespace funC {
 
 extern int verbosity;
 extern bool op_rewrite_comments;
+extern bool warn_disabled;
 
 constexpr int optimize_depth = 12;
 

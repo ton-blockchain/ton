@@ -296,6 +296,15 @@ bool Op::generate_code_step(Stack& stack) {
       assert(left.size() == 1);
       auto p = next_var_info[left[0]];
       if (!p || p->is_unused() || disabled()) {
+        if (!!p && funC::warn_disabled) {
+          if (!p) {
+            stack.o << AsmOp::Comment("Warning: omitted GlobVar " + fun_ref->name());
+          } if (p->is_unused()) {
+            stack.o << AsmOp::Comment("Warning: unused GlobVar " + fun_ref->name());
+          } else if (disabled()) {
+            stack.o << AsmOp::Comment("Warning: disabled GlobVar " + fun_ref->name());
+          }
+         }
         return true;
       }
       auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
@@ -355,6 +364,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Call:
     case _CallInd: {
       if (disabled()) {
+        if (funC::warn_disabled) {
+          where.show(std::cerr); 
+          std::cerr << "\tWarning: disabled ";
+          if (cl == _Call)
+            std::cerr << "Call";
+          else
+            std::cerr << "CallInd";
+          std::cerr << " to " << fun_ref->name() << "\n";
+          where.show_context(std::cerr);
+        }
         return true;
       }
       SymValFunc* func = (fun_ref ? dynamic_cast<SymValFunc*>(fun_ref->value) : nullptr);
