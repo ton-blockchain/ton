@@ -110,3 +110,7 @@ TEST(Fift, test_sort) {
 TEST(Fift, test_sort2) {
   run_fift("sort2.fif");
 }
+
+TEST(Fift, test_dict_slice) {
+  run_fift("testdictslice.fif");
+}

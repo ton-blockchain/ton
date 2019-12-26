@@ -1547,6 +1547,39 @@ void interpret_dict_get_u(vm::Stack& stack, bool sgnd) {
   }
 }
 
+void interpret_dict_add_s(vm::Stack& stack, vm::Dictionary::SetMode mode, bool add_builder) {
+  int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
+  vm::Dictionary dict{stack.pop_maybe_cell(), n};
+  vm::BitSlice key = stack.pop_cellslice()->prefetch_bits(n);
+  if (!key.is_valid()) {
+    throw IntError{"not enough bits for a dictionary key"};
+  }
+  bool res;
+  if (add_builder) {
+    res = dict.set_builder(std::move(key), stack.pop_builder(), mode);
+  } else {
+    res = dict.set(std::move(key), stack.pop_cellslice(), mode);
+  }
+  stack.push_maybe_cell(std::move(dict).extract_root_cell());
+  stack.push_bool(res);
+}
+
+void interpret_dict_get_s(vm::Stack& stack) {
+  int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
+  vm::Dictionary dict{stack.pop_maybe_cell(), n};
+  vm::BitSlice key = stack.pop_cellslice()->prefetch_bits(n);
+  if (!key.is_valid()) {
+    throw IntError{"not enough bits for a dictionary key"};
+  }
+  auto res = dict.lookup(std::move(key));
+  if (res.not_null()) {
+    stack.push_cellslice(std::move(res));
+    stack.push_bool(true);
+  } else {
+    stack.push_bool(false);
+  }
+}
+
 void interpret_dict_map(IntCtx& ctx) {
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
@@ -2787,6 +2820,11 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("b>idict!+ ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Add, true, true));
   d.def_stack_word("b>idict! ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Set, true, true));
   d.def_stack_word("idict@ ", std::bind(interpret_dict_get_u, _1, true));
+  d.def_stack_word("sdict!+ ", std::bind(interpret_dict_add_s, _1, vm::Dictionary::SetMode::Add, false));
+  d.def_stack_word("sdict! ", std::bind(interpret_dict_add_s, _1, vm::Dictionary::SetMode::Set, false));
+  d.def_stack_word("b>sdict!+ ", std::bind(interpret_dict_add_s, _1, vm::Dictionary::SetMode::Add, true));
+  d.def_stack_word("b>sdict! ", std::bind(interpret_dict_add_s, _1, vm::Dictionary::SetMode::Set, true));
+  d.def_stack_word("sdict@ ", std::bind(interpret_dict_get_s, _1));
   d.def_stack_word("pfxdict!+ ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Add, false));
   d.def_stack_word("pfxdict! ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Set, false));
   d.def_stack_word("pfxdict@ ", interpret_pfx_dict_get);

@@ -1,0 +1,45 @@
+// Testing configuration
+    <b "test" $, b> <s =: Value
+            0xABC12DEF =: Key
+                    64 =: KeyLen
+<b Key KeyLen u, b> <s =: KeySlice
+  Value shash 256 B>u@ =: ValueHash
+             
+// Create dictionary and push
+dictnew =: Dict
+Value Key Dict KeyLen udict! not abort"udict! failed" =: Dict
+
+// Test FIFT udict@
+Key Dict KeyLen udict@ not abort"udict@ failed" 
+	shash 256 B>u@ ValueHash <> abort"wrong value retreived"
+
+// Test VM DICTUGET
+Key Dict KeyLen
+	/* <{ DICTUGET }>s */ x{F40E} runvmcode
+abort"VM failed" not abort"DICTUGET failed" 
+	shash 256 B>u@ ValueHash <> abort"wrong value retreived"
+	
+// Test FIFT sdict@ (new!)
+KeySlice Dict KeyLen sdict@ not abort"sdict@ failed"
+	shash 256 B>u@ ValueHash <> abort"wrong value retreived"
+	
+// Test VM DICTGET
+KeySlice Dict KeyLen
+	/* <{ DICTGET }>s */ x{F40A} runvmcode
+abort"VM failed" not abort"DICTGET failed"
+	shash 256 B>u@ ValueHash <> abort"wrong value retreived"
+
+// Test 1011-bit key (anything larger and: handling exception code 8: cannot store a label into a dictionary cell)
+dictnew =: LargeDict
+<b <b Value s, b> ref, b> <s =: RefValue
+<b 0x12345678 256 u, 0xABCDEF 256 u, 0x11223344 256 u, 0xAABBCCDDEEFF 244 u, b> <s =: BigKey
+RefValue BigKey LargeDict 1011 sdict! not abort"sdict! failed" =: LargeDict
+
+BigKey LargeDict 1011 sdict@ not abort"sdict@ failed"
+	shash 256 B>u@ RefValue shash 256 B>u@ <> abort"wrong value retreived"
+	
+// Test VM DICTGET
+BigKey LargeDict 1011
+	/* <{ DICTGET }>s */ x{F40A} runvmcode
+abort"VM failed" not abort"DICTGET failed"
+	shash 256 B>u@ RefValue shash 256 B>u@ <> abort"wrong value retreived"
