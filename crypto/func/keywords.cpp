@@ -113,6 +113,7 @@ void define_keywords() {
       .add_keyword("forall", Kw::_Forall);
 
   sym::symbols.add_keyword("extern", Kw::_Extern)
+      .add_keyword("global", Kw::_Global)
       .add_keyword("asm", Kw::_Asm)
       .add_keyword("impure", Kw::_Impure)
       .add_keyword("inline", Kw::_Inline)

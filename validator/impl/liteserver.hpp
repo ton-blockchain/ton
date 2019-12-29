@@ -37,6 +37,7 @@ class LiteQuery : public td::actor::Actor {
   td::Timestamp timeout_;
   td::Promise<td::BufferSlice> promise_;
   int pending_{0};
+  int mode_{0};
   WorkchainId acc_workchain_;
   StdSmcAddress acc_addr_;
   LogicalTime trans_lt_;
@@ -55,6 +56,7 @@ class LiteQuery : public td::actor::Actor {
   std::vector<Ref<td::CntObject>> aux_objs_;
   std::vector<ton::BlockIdExt> blk_ids_;
   std::unique_ptr<block::BlockProofChain> chain_;
+  Ref<vm::Stack> stack_;
 
  public:
   enum {
@@ -91,10 +93,13 @@ class LiteQuery : public td::actor::Actor {
   void continue_getState(BlockIdExt blkid, Ref<ShardState> state);
   void continue_getZeroState(BlockIdExt blkid, td::BufferSlice state);
   void perform_sendMessage(td::BufferSlice ext_msg);
-  void perform_getAccountState(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr);
+  void perform_getAccountState(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode);
   void continue_getAccountState_0(Ref<MasterchainState> mc_state, BlockIdExt blkid);
   void continue_getAccountState();
   void finish_getAccountState(td::BufferSlice shard_proof);
+  void perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode, int method_id,
+                            td::BufferSlice params);
+  void finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root);
   void perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt);
   void continue_getOneTransaction();
   void perform_getTransactions(WorkchainId workchain, StdSmcAddress addr, LogicalTime lt, Bits256 hash, unsigned count);

@@ -346,3 +346,24 @@ bool PrettyPrinter::fetch_uint256_field(vm::CellSlice& cs, int n, std::string na
 }
 
 }  // namespace tlb
+
+namespace tlb {
+
+bool TypenameLookup::register_types(typename TypenameLookup::register_func_t func) {
+  return func([this](const char* name, const TLB* tp) { return register_type(name, tp); });
+}
+
+bool TypenameLookup::register_type(const char* name, const TLB* tp) {
+  if (!name || !tp) {
+    return false;
+  }
+  auto res = types.emplace(name, tp);
+  return res.second;
+}
+
+const TLB* TypenameLookup::lookup(std::string str) const {
+  auto it = types.find(str);
+  return it != types.end() ? it->second : nullptr;
+}
+
+}  // namespace tlb

@@ -18,6 +18,7 @@
 */
 #pragma once
 #include <iostream>
+#include <map>
 #include "vm/cellslice.h"
 
 namespace tlb {
@@ -268,6 +269,30 @@ struct TLB_Complex : TLB {
   }
 };
 
+class TlbTypeHolder : public td::CntObject {
+  const TLB* type{nullptr};
+  char* data{nullptr};
+
+ public:
+  TlbTypeHolder() = default;
+  TlbTypeHolder(const TLB* _type) : type(_type), data(nullptr) {
+  }
+  TlbTypeHolder(const TLB* _type, char* _data) : type(_type), data(_data) {
+  }
+  ~TlbTypeHolder() override {
+    free(data);
+  }
+  const TLB* get() const {
+    return type;
+  }
+  const TLB& operator*() const {
+    return *type;
+  }
+  const TLB* operator->() const {
+    return type;
+  }
+};
+
 static inline bool add_chk(int x, int y, int z) {
   return x + y == z && z >= 0;
 }
@@ -502,6 +527,25 @@ struct PrettyPrinter {
     os << value;
     return *this;
   }
+};
+
+}  // namespace tlb
+
+namespace tlb {
+
+class TypenameLookup {
+  std::map<std::string, const TLB*> types;
+
+ public:
+  typedef std::function<bool(const char*, const TLB*)> simple_register_func_t;
+  typedef std::function<bool(simple_register_func_t)> register_func_t;
+  TypenameLookup() = default;
+  TypenameLookup(register_func_t func) {
+    register_types(func);
+  }
+  bool register_type(const char* name, const TLB* tp);
+  bool register_types(register_func_t func);
+  const TLB* lookup(std::string str) const;
 };
 
 }  // namespace tlb

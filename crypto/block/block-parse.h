@@ -285,6 +285,8 @@ struct MsgAddressInt final : TLB_Complex {
                            bool rewrite = true) const;
   bool extract_std_address(vm::CellSlice& cs, ton::WorkchainId& workchain, ton::StdSmcAddress& addr,
                            bool rewrite = true) const;
+  bool store_std_address(vm::CellBuilder& cb, ton::WorkchainId workchain, const ton::StdSmcAddress& addr) const;
+  Ref<vm::CellSlice> pack_std_address(ton::WorkchainId workchain, const ton::StdSmcAddress& addr) const;
 };
 
 extern const MsgAddressInt t_MsgAddressInt;

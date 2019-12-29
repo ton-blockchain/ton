@@ -97,6 +97,7 @@ enum Keyword {
   _Forall,
   _Asm,
   _Impure,
+  _Global,
   _Extern,
   _Inline,
   _InlineRef,
@@ -180,6 +181,9 @@ struct TypeExpr {
   }
   bool is_var() const {
     return constr == te_Var;
+  }
+  bool is_map() const {
+    return constr == te_Map;
   }
   bool has_fixed_width() const {
     return minw == maxw;
@@ -498,6 +502,7 @@ struct Op {
     _Let,
     _IntConst,
     _GlobVar,
+    _SetGlob,
     _Import,
     _Return,
     _If,
@@ -694,6 +699,7 @@ struct SymVal : sym::SymValBase {
   TypeExpr* sym_type;
   td::RefInt256 method_id;
   bool impure;
+  bool auto_apply{false};
   short flags;  // +1 = inline, +2 = inline_ref
   SymVal(int _type, int _idx, TypeExpr* _stype = nullptr, bool _impure = false)
       : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure), flags(0) {
@@ -745,8 +751,20 @@ struct SymValType : sym::SymValBase {
   }
 };
 
-extern int glob_func_cnt, undef_func_cnt;
-extern std::vector<SymDef*> glob_func;
+struct SymValGlobVar : sym::SymValBase {
+  TypeExpr* sym_type;
+  int out_idx{0};
+  SymValGlobVar(int val, TypeExpr* gvtype, int oidx = 0)
+      : sym::SymValBase(_GlobVar, val), sym_type(gvtype), out_idx(oidx) {
+  }
+  ~SymValGlobVar() override = default;
+  TypeExpr* get_type() const {
+    return sym_type;
+  }
+};
+
+extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
+extern std::vector<SymDef*> glob_func, glob_vars;
 
 /*
  * 
@@ -775,6 +793,7 @@ struct Expr {
     _Const,
     _Var,
     _Glob,
+    _GlobVar,
     _Letop,
     _LetFirst,
     _Hole,
@@ -1155,6 +1174,7 @@ struct StackTransform {
   bool apply_push(int i);
   bool apply_pop(int i = 0);
   bool apply_push_newconst();
+  bool apply_blkpop(int k);
   bool apply(const StackTransform& other);     // this = this * other
   bool preapply(const StackTransform& other);  // this = other * this
   // c := a * b
@@ -1246,6 +1266,11 @@ struct StackTransform {
   bool is_nip_seq(int i, int j = 0) const;
   bool is_nip_seq(int* i) const;
   bool is_nip_seq(int* i, int* j) const;
+  bool is_pop_blkdrop(int i, int k) const;
+  bool is_pop_blkdrop(int* i, int* k) const;
+  bool is_2pop_blkdrop(int i, int j, int k) const;
+  bool is_2pop_blkdrop(int* i, int* j, int* k) const;
+  bool is_const_rot() const;
 
   void show(std::ostream& os, int mode = 0) const;
 
@@ -1306,13 +1331,19 @@ struct Optimizer {
   bool rewrite_const_push_swap();
   bool is_const_push_xchgs();
   bool rewrite_const_push_xchgs();
+  bool is_const_rot() const;
+  bool rewrite_const_rot();
   bool simple_rewrite(int p, AsmOp&& new_op);
   bool simple_rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2);
+  bool simple_rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3);
   bool simple_rewrite(AsmOp&& new_op) {
     return simple_rewrite(p_, std::move(new_op));
   }
   bool simple_rewrite(AsmOp&& new_op1, AsmOp&& new_op2) {
     return simple_rewrite(p_, std::move(new_op1), std::move(new_op2));
+  }
+  bool simple_rewrite(AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3) {
+    return simple_rewrite(p_, std::move(new_op1), std::move(new_op2), std::move(new_op3));
   }
   bool simple_rewrite_nop();
   bool is_pred(const std::function<bool(const StackTransform&)>& pred, int min_p = 2);
@@ -1345,6 +1376,8 @@ struct Optimizer {
   bool is_blkdrop(int* i);
   bool is_reverse(int* i, int* j);
   bool is_nip_seq(int* i, int* j);
+  bool is_pop_blkdrop(int* i, int* k);
+  bool is_2pop_blkdrop(int* i, int* j, int* k);
   AsmOpConsList extract_code();
 };
 
@@ -1355,7 +1388,7 @@ void optimize_code(AsmOpList& ops);
 struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
-  enum { _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _Shown = 256, _Garbage = -0x10000 };
+  enum { _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _Garbage = -0x10000 };
   int mode;
   Stack(AsmOpList& _o, int _mode = 0) : o(_o), mode(_mode) {
   }
@@ -1380,6 +1413,15 @@ struct Stack {
   }
   var_const_idx_t get(int i) const {
     return at(i);
+  }
+  bool output_disabled() const {
+    return mode & _DisableOut;
+  }
+  bool output_enabled() const {
+    return !output_disabled();
+  }
+  void disable_output() {
+    mode |= _DisableOut;
   }
   StackLayout vars() const;
   int find(var_idx_t var, int from = 0) const;
@@ -1470,7 +1512,7 @@ struct SymValAsmFunc : SymValFunc {
                 std::initializer_list<int> ret_order = {}, bool impure = false)
       : SymValFunc(-1, ft, arg_order, ret_order, impure), ext_compile(std::move(_compile)) {
   }
-  bool compile(AsmOpList& dest, std::vector<VarDescr>& in, std::vector<VarDescr>& out) const;
+  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in) const;
 };
 
 // defined in builtins.cpp
@@ -1478,6 +1520,7 @@ AsmOp exec_arg_op(std::string op, long long arg);
 AsmOp exec_arg_op(std::string op, long long arg, int args, int retv = 1);
 AsmOp exec_arg_op(std::string op, td::RefInt256 arg);
 AsmOp exec_arg_op(std::string op, td::RefInt256 arg, int args, int retv = 1);
+AsmOp exec_arg2_op(std::string op, long long imm1, long long imm2, int args, int retv = 1);
 AsmOp push_const(td::RefInt256 x);
 
 void define_builtins();

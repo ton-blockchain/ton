@@ -116,3 +116,15 @@ variable base
 { 9 hold } : +tab
 { "" swap { 0 word 2dup $cmp } { rot swap $+ +cr swap } while 2drop } : scan-until-word
 { 0 word -trailing scan-until-word 1 'nop } ::_ $<<
+{ 0x40 runvmx } : runvmcode
+{ 0x48 runvmx } : gasrunvmcode
+{ 0x43 runvmx } : runvmdict
+{ 0x4b runvmx } : gasrunvmdict
+{ 0x45 runvmx } : runvm
+{ 0x4d runvmx } : gasrunvm
+{ 0x55 runvmx } : runvmctx
+{ 0x5d runvmx } : gasrunvmctx
+{ 0x75 runvmx } : runvmctxact
+{ 0x7d runvmx } : gasrunvmctxact
+{ 0x35 runvmx } : runvmctxactq
+{ 0x3d runvmx } : gasrunvmctxactq

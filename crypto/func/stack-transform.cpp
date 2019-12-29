@@ -334,6 +334,13 @@ bool StackTransform::apply_pop(int i) {
   }
 }
 
+bool StackTransform::apply_blkpop(int k) {
+  if (!is_valid() || k < 0) {
+    return invalidate();
+  }
+  return !k || (touch(k - 1) && shift(k));
+}
+
 bool StackTransform::equal(const StackTransform &other, bool relaxed) const {
   if (!is_valid() || !other.is_valid()) {
     return false;
@@ -798,6 +805,49 @@ bool StackTransform::is_nip_seq(int *i, int *j) const {
   } else {
     return false;
   }
+}
+
+// POP s(i); BLKDROP k  (usually for i >= k >= 0)
+bool StackTransform::is_pop_blkdrop(int i, int k) const {
+  StackTransform t;
+  return is_valid() && d == k + 1 && t.apply_pop(i) && t.apply_blkpop(k) && t <= *this;
+}
+
+// POP s(i); BLKDROP k == XCHG s0,s(i); BLKDROP k+1  for i >= k >= 0
+// k+1 k+2 .. i-1 0 i+1 ..
+bool StackTransform::is_pop_blkdrop(int *i, int *k) const {
+  if (is_valid() && n == 1 && d > 0 && !A[0].second) {
+    *k = d - 1;
+    *i = A[0].first;
+    return is_pop_blkdrop(*i, *k);
+  } else {
+    return false;
+  }
+}
+
+// POP s(i); POP s(j); BLKDROP k  (usually for i<>j >= k >= 0)
+bool StackTransform::is_2pop_blkdrop(int i, int j, int k) const {
+  StackTransform t;
+  return is_valid() && d == k + 2 && t.apply_pop(i) && t.apply_pop(j) && t.apply_blkpop(k) && t <= *this;
+}
+
+// POP s(i); POP s(j); BLKDROP k == XCHG s0,s(i); XCHG s1,s(j+1); BLKDROP k+2 (usually for i<>j >= k >= 2)
+// k+2 k+3 .. i-1 0 i+1 ... j 1 j+2 ...
+bool StackTransform::is_2pop_blkdrop(int *i, int *j, int *k) const {
+  if (is_valid() && n == 2 && d >= 2 && A[0].second + A[1].second == 1) {
+    *k = d - 2;
+    int t = (A[0].second > 0);
+    *i = A[t].first;
+    *j = A[1 - t].first - 1;
+    return is_2pop_blkdrop(*i, *j, *k);
+  } else {
+    return false;
+  }
+}
+
+// PUSHCONST c ; ROT == 1 -1000 0 2 3
+bool StackTransform::is_const_rot() const {
+  return is_valid() && d == -1 && is_trivial_after(3) && get(0) == 1 && get(1) <= c_start && get(2) == 0;
 }
 
 void StackTransform::show(std::ostream &os, int mode) const {

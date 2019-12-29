@@ -481,6 +481,18 @@ class Stack : public td::CntObject {
   Ref<Atom> pop_atom();
   std::string pop_string();
   std::string pop_bytes();
+  template <typename T>
+  Ref<T> pop_object() {
+    return pop_chk().as_object<T>();
+  }
+  template <typename T>
+  Ref<T> pop_object_type_chk() {
+    auto res = pop_object<T>();
+    if (!res) {
+      throw VmError{Excno::type_chk, "not an object of required type"};
+    }
+    return res;
+  }
   void push_null();
   void push_int(td::RefInt256 val);
   void push_int_quiet(td::RefInt256 val, bool quiet = true);

@@ -85,6 +85,7 @@ class ValidatorEngineConsole : public td::actor::Actor {
   void add_cmd(td::BufferSlice data) {
     ex_mode_ = true;
     ex_queries_.push_back(std::move(data));
+    set_readline_enabled(false);
   }
   void set_fail_timeout(td::Timestamp ts) {
     fail_timeout_ = ts;

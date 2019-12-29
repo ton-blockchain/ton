@@ -644,12 +644,12 @@ class VmState final : public VmStateInterface {
   void init_cregs(bool same_c3 = false, bool push_0 = true);
 };
 
-int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = 0, VmLog log = {},
+int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {});
-int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* data_ptr = 0, VmLog log = {},
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr);
+int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {});
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr);
 
 ControlData* force_cdata(Ref<Continuation>& cont);
 ControlRegs* force_cregs(Ref<Continuation>& cont);

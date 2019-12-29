@@ -1512,11 +1512,12 @@ void interpret_store_dict(vm::Stack& stack) {
 }
 
 // val key dict keylen -- dict' ?
-void interpret_dict_add_u(vm::Stack& stack, vm::Dictionary::SetMode mode, bool add_builder, bool sgnd) {
+void interpret_dict_add(vm::Stack& stack, vm::Dictionary::SetMode mode, bool add_builder, int sgnd) {
   int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{stack.pop_maybe_cell(), n};
   unsigned char buffer[vm::Dictionary::max_key_bytes];
-  vm::BitSlice key = dict.integer_key(stack.pop_int(), n, sgnd, buffer);
+  vm::BitSlice key =
+      (sgnd >= 0) ? dict.integer_key(stack.pop_int(), n, sgnd, buffer) : stack.pop_cellslice()->prefetch_bits(n);
   if (!key.is_valid()) {
     throw IntError{"not enough bits for a dictionary key"};
   }
@@ -1530,11 +1531,12 @@ void interpret_dict_add_u(vm::Stack& stack, vm::Dictionary::SetMode mode, bool a
   stack.push_bool(res);
 }
 
-void interpret_dict_get_u(vm::Stack& stack, bool sgnd) {
+void interpret_dict_get(vm::Stack& stack, int sgnd) {
   int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{stack.pop_maybe_cell(), n};
   unsigned char buffer[vm::Dictionary::max_key_bytes];
-  vm::BitSlice key = dict.integer_key(stack.pop_int(), n, sgnd, buffer);
+  vm::BitSlice key =
+      (sgnd >= 0) ? dict.integer_key(stack.pop_int(), n, sgnd, buffer) : stack.pop_cellslice()->prefetch_bits(n);
   if (!key.is_valid()) {
     throw IntError{"not enough bits for a dictionary key"};
   }
@@ -2169,6 +2171,7 @@ class StringLogger : public td::LogInterface {
   }
   std::string res;
 };
+
 class OstreamLogger : public td::LogInterface {
  public:
   explicit OstreamLogger(std::ostream* stream) : stream_(stream) {
@@ -2191,59 +2194,42 @@ std::vector<Ref<vm::Cell>> get_vm_libraries() {
   }
 }
 
-void interpret_run_vm_code(IntCtx& ctx, bool with_gas) {
-  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
-  auto cs = ctx.stack.pop_cellslice();
-  OstreamLogger ostream_logger(ctx.error_stream);
-  auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 0, nullptr, log, nullptr, &gas, get_vm_libraries());
-  ctx.stack.push_smallint(res);
-  if (with_gas) {
-    ctx.stack.push_smallint(gas.gas_consumed());
+// mode: -1 = pop from stack
+// +1 = same_c3 (set c3 to code)
+// +2 = push_0 (push an implicit 0 before running the code)
+// +4 = load c4 (persistent data) from stack and return its final value
+// +8 = load gas limit from stack and return consumed gas
+// +16 = load c7 (smart-contract context)
+// +32 = return c5 (actions)
+// +64 = log vm ops to stderr
+void interpret_run_vm(IntCtx& ctx, int mode) {
+  if (mode < 0) {
+    mode = ctx.stack.pop_smallint_range(0xff);
   }
-}
-
-void interpret_run_vm_dict(IntCtx& ctx, bool with_gas) {
-  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
-  auto cs = ctx.stack.pop_cellslice();
-  OstreamLogger ostream_logger(ctx.error_stream);
-  auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 3, nullptr, log, nullptr, &gas, get_vm_libraries());
-  ctx.stack.push_smallint(res);
-  if (with_gas) {
-    ctx.stack.push_smallint(gas.gas_consumed());
+  bool with_data = mode & 4;
+  Ref<vm::Tuple> c7;
+  Ref<vm::Cell> data, actions;
+  long long gas_limit = (mode & 8) ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  if (mode & 16) {
+    c7 = ctx.stack.pop_tuple();
   }
-}
-
-void interpret_run_vm(IntCtx& ctx, bool with_gas) {
-  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
-  auto data = ctx.stack.pop_cell();
-  auto cs = ctx.stack.pop_cellslice();
-  OstreamLogger ostream_logger(ctx.error_stream);
-  auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries());
-  ctx.stack.push_smallint(res);
-  ctx.stack.push_cell(std::move(data));
-  if (with_gas) {
-    ctx.stack.push_smallint(gas.gas_consumed());
+  if (with_data) {
+    data = ctx.stack.pop_cell();
   }
-}
-
-void interpret_run_vm_c7(IntCtx& ctx, bool with_gas) {
-  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
-  auto c7 = ctx.stack.pop_tuple();
-  auto data = ctx.stack.pop_cell();
   auto cs = ctx.stack.pop_cellslice();
   OstreamLogger ostream_logger(ctx.error_stream);
-  auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
+  auto log = create_vm_log((mode & 64) && ctx.error_stream ? &ostream_logger : nullptr);
   vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7));
+  int res =
+      vm::run_vm_code(cs, ctx.stack, mode & 3, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7), &actions);
   ctx.stack.push_smallint(res);
-  ctx.stack.push_cell(std::move(data));
-  if (with_gas) {
+  if (with_data) {
+    ctx.stack.push_cell(std::move(data));
+  }
+  if (mode & 32) {
+    ctx.stack.push_cell(std::move(actions));
+  }
+  if (mode & 8) {
     ctx.stack.push_smallint(gas.gas_consumed());
   }
 }
@@ -2759,16 +2745,21 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("dict, ", interpret_store_dict);
   d.def_stack_word("dict@ ", std::bind(interpret_load_dict, _1, false));
   d.def_stack_word("dict@+ ", std::bind(interpret_load_dict, _1, true));
-  d.def_stack_word("udict!+ ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Add, false, false));
-  d.def_stack_word("udict! ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Set, false, false));
-  d.def_stack_word("b>udict!+ ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Add, true, false));
-  d.def_stack_word("b>udict! ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Set, true, false));
-  d.def_stack_word("udict@ ", std::bind(interpret_dict_get_u, _1, false));
-  d.def_stack_word("idict!+ ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Add, false, true));
-  d.def_stack_word("idict! ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Set, false, true));
-  d.def_stack_word("b>idict!+ ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Add, true, true));
-  d.def_stack_word("b>idict! ", std::bind(interpret_dict_add_u, _1, vm::Dictionary::SetMode::Set, true, true));
-  d.def_stack_word("idict@ ", std::bind(interpret_dict_get_u, _1, true));
+  d.def_stack_word("sdict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, false, -1));
+  d.def_stack_word("sdict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, false, -1));
+  d.def_stack_word("b>sdict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, true, -1));
+  d.def_stack_word("b>sdict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, true, -1));
+  d.def_stack_word("sdict@ ", std::bind(interpret_dict_get, _1, -1));
+  d.def_stack_word("udict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, false, 0));
+  d.def_stack_word("udict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, false, 0));
+  d.def_stack_word("b>udict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, true, 0));
+  d.def_stack_word("b>udict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, true, 0));
+  d.def_stack_word("udict@ ", std::bind(interpret_dict_get, _1, 0));
+  d.def_stack_word("idict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, false, 1));
+  d.def_stack_word("idict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, false, 1));
+  d.def_stack_word("b>idict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, true, 1));
+  d.def_stack_word("b>idict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, true, 1));
+  d.def_stack_word("idict@ ", std::bind(interpret_dict_get, _1, 1));
   d.def_stack_word("pfxdict!+ ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Add, false));
   d.def_stack_word("pfxdict! ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Set, false));
   d.def_stack_word("pfxdict@ ", interpret_pfx_dict_get);
@@ -2867,14 +2858,9 @@ void init_words_vm(Dictionary& d) {
   vm::init_op_cp0();
   // vm run
   d.def_stack_word("vmlibs ", std::bind(interpret_literal, _1, vm::StackEntry{vm_libraries}));
-  d.def_ctx_word("runvmcode ", std::bind(interpret_run_vm_code, _1, false));
-  d.def_ctx_word("gasrunvmcode ", std::bind(interpret_run_vm_code, _1, true));
-  d.def_ctx_word("runvmdict ", std::bind(interpret_run_vm_dict, _1, false));
-  d.def_ctx_word("gasrunvmdict ", std::bind(interpret_run_vm_dict, _1, true));
-  d.def_ctx_word("runvm ", std::bind(interpret_run_vm, _1, false));
-  d.def_ctx_word("gasrunvm ", std::bind(interpret_run_vm, _1, true));
-  d.def_ctx_word("runvmctx ", std::bind(interpret_run_vm_c7, _1, false));
-  d.def_ctx_word("gasrunvmctx ", std::bind(interpret_run_vm_c7, _1, true));
+  // d.def_ctx_word("runvmcode ", std::bind(interpret_run_vm, _1, 0x40));
+  // d.def_ctx_word("runvm ", std::bind(interpret_run_vm, _1, 0x45));
+  d.def_ctx_word("runvmx ", std::bind(interpret_run_vm, _1, -1));
   d.def_ctx_word("dbrunvm ", interpret_db_run_vm);
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
   d.def_stack_word("vmcont, ", interpret_store_vm_cont);

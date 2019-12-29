@@ -282,15 +282,22 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code) const {
       code.emplace_back(here, Op::_IntConst, rvect, intval);
       return rvect;
     }
-    case _Glob: {
+    case _Glob:
+    case _GlobVar: {
       auto rvect = new_tmp_vect(code);
       code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);
       return rvect;
     }
     case _Letop: {
       auto right = args[1]->pre_compile(code);
-      auto left = args[0]->pre_compile(code);
-      code.emplace_back(here, Op::_Let, std::move(left), right);
+      if (args[0]->cls == Expr::_GlobVar) {
+        assert(args[0]->sym);
+        auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, right, args[0]->sym);
+        op.flags |= Op::_Impure;
+      } else {
+        auto left = args[0]->pre_compile(code);
+        code.emplace_back(here, Op::_Let, std::move(left), right);
+      }
       return right;
     }
     case _LetFirst: {
