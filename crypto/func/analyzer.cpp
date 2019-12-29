@@ -365,6 +365,13 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       }
       return std_compute_used_vars();
     }
+    case _SetGlob: {
+      // GLOB = right
+      if (right.empty() && edit) {
+        disable();
+      }
+      return std_compute_used_vars(right.empty());
+    }
     case _Let: {
       // left = right
       std::size_t cnt = next_var_info.count_used(left);
@@ -531,6 +538,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
   switch (op.cl) {
     case Op::_IntConst:
     case Op::_GlobVar:
+    case Op::_SetGlob:
     case Op::_Call:
     case Op::_CallInd:
     case Op::_Import:
@@ -694,7 +702,6 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       values.add_newval(left[0]).set_const(int_const);
       break;
     }
-    case _GlobVar:
     case _Call: {
       prepare_args(values);
       auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
@@ -717,12 +724,15 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       }
       break;
     }
+    case _GlobVar:
     case _CallInd: {
       for (var_idx_t i : left) {
         values.add_newval(i);
       }
       break;
     }
+    case _SetGlob:
+      break;
     case _Let: {
       std::vector<VarDescr> old_val;
       assert(left.size() == right.size());
@@ -832,6 +842,7 @@ bool Op::mark_noreturn() {
     case _Import:
     case _IntConst:
     case _Let:
+    case _SetGlob:
     case _GlobVar:
     case _CallInd:
     case _Call:

@@ -1064,19 +1064,23 @@ x{FFF0} @Defop SETCPX
 variable @proccnt
 variable @proclist
 variable @procdict
+variable @gvarcnt
 19 constant @procdictkeylen
 { @proclist @ cons @proclist ! } : @proclistadd
 { dup @procdictkeylen fits not abort"procedure index out of range"
   1 'nop does swap dup @proclistadd 0 (create)
 } : @declproc
+{ 1 'nop does swap 0 (create) } : @declglobvar
 { @proccnt @ 1+ dup @proccnt ! @declproc } : @newproc
-{ 0 =: main  @proclist null!  @proccnt 0!
+{ @gvarcnt @ 1+ dup @gvarcnt ! @declglobvar } : @newglobvar
+{ 0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
   { bl word @newproc } : NEWPROC
   { bl word dup (def?) ' drop ' @newproc cond } : DECLPROC
   { bl word dup find
     { nip execute <> abort"method redefined with different id" }
     { swap @declproc }
   cond } : DECLMETHOD
+  { bl word @newglobvar } : DECLGLOBVAR
   "main" @proclistadd
   dictnew @procdict !
 } : PROGRAM{

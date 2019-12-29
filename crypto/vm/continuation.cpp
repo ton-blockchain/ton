@@ -1055,7 +1055,7 @@ ControlRegs* force_cregs(Ref<Continuation>& cont) {
 }
 
 int run_vm_code(Ref<CellSlice> code, Ref<Stack>& stack, int flags, Ref<Cell>* data_ptr, VmLog log, long long* steps,
-                GasLimits* gas_limits, std::vector<Ref<Cell>> libraries, Ref<Tuple> init_c7, Ref<Cell>* c5_ptr) {
+                GasLimits* gas_limits, std::vector<Ref<Cell>> libraries, Ref<Tuple> init_c7, Ref<Cell>* actions_ptr) {
   VmState vm{code,
              std::move(stack),
              gas_limits ? *gas_limits : GasLimits{},
@@ -1066,8 +1066,11 @@ int run_vm_code(Ref<CellSlice> code, Ref<Stack>& stack, int flags, Ref<Cell>* da
              std::move(init_c7)};
   int res = vm.run();
   stack = vm.get_stack_ref();
-  if (res == -1 && data_ptr) {
-    *data_ptr = vm.get_c4();
+  if (vm.committed() && data_ptr) {
+    *data_ptr = vm.get_committed_state().c4;
+  }
+  if (vm.committed() && actions_ptr) {
+    *actions_ptr = vm.get_committed_state().c5;
   }
   if (res == -1 && c5_ptr) {
     *c5_ptr = vm.get_d(5);
@@ -1099,11 +1102,12 @@ int run_vm_code(Ref<CellSlice> code, Ref<Stack>& stack, int flags, Ref<Cell>* da
 }
 
 int run_vm_code(Ref<CellSlice> code, Stack& stack, int flags, Ref<Cell>* data_ptr, VmLog log, long long* steps,
-                GasLimits* gas_limits, std::vector<Ref<Cell>> libraries, Ref<Tuple> init_c7, Ref<Cell>* c5_ptr) {
+                GasLimits* gas_limits, std::vector<Ref<Cell>> libraries, Ref<Tuple> init_c7, Ref<Cell>* actions_ptr) {
   Ref<Stack> stk{true};
   stk.unique_write().set_contents(std::move(stack));
   stack.clear();
-  int res = run_vm_code(code, stk, flags, data_ptr, log, steps, gas_limits, std::move(libraries), std::move(init_c7), c5_ptr);
+  int res = run_vm_code(code, stk, flags, data_ptr, log, steps, gas_limits, std::move(libraries), std::move(init_c7),
+                        actions_ptr);
   CHECK(stack.is_unique());
   if (stk.is_null()) {
     stack.clear();

@@ -129,7 +129,7 @@ void LiteQuery::start_up() {
           [&](lite_api::liteServer_getState& q) { this->perform_getState(ton::create_block_id(q.id_)); },
           [&](lite_api::liteServer_getAccountState& q) {
             this->perform_getAccountState(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
-                                          q.account_->id_);
+                                          q.account_->id_, 0);
           },
           [&](lite_api::liteServer_getOneTransaction& q) {
             this->perform_getOneTransaction(ton::create_block_id(q.id_),
@@ -171,6 +171,10 @@ void LiteQuery::start_up() {
             this->perform_getValidatorStats(ton::create_block_id(q.id_), q.mode_, q.limit_,
                                             q.mode_ & 1 ? q.start_after_ : td::Bits256::zero(),
                                             q.mode_ & 4 ? q.modified_after_ : 0);
+          },
+          [&](lite_api::liteServer_runSmcMethod& q) {
+            this->perform_runSmcMethod(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
+                                       q.account_->id_, q.mode_, q.method_id_, std::move(q.params_));
           },
           [&](auto& obj) { this->abort_query(td::Status::Error(ErrorCode::protoviolation, "unknown query")); }));
 }
@@ -604,9 +608,9 @@ bool LiteQuery::request_zero_state(BlockIdExt blkid) {
   return true;
 }
 
-void LiteQuery::perform_getAccountState(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr) {
-  LOG(INFO) << "started a getAccountState(" << blkid.to_str() << ", " << workchain << ", " << addr.to_hex()
-            << ") liteserver query";
+void LiteQuery::perform_getAccountState(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode) {
+  LOG(INFO) << "started a getAccountState(" << blkid.to_str() << ", " << workchain << ", " << addr.to_hex() << ", "
+            << mode << ") liteserver query";
   if (blkid.id.workchain != masterchainId && blkid.id.workchain != workchain) {
     fatal_error("reference block for a getAccountState() must belong to the masterchain");
     return;
@@ -626,6 +630,7 @@ void LiteQuery::perform_getAccountState(BlockIdExt blkid, WorkchainId workchain,
   }
   acc_workchain_ = workchain;
   acc_addr_ = addr;
+  mode_ = mode;
   if (blkid.id.workchain != masterchainId) {
     base_blk_id_ = blkid;
     set_continuation([&]() -> void { finish_getAccountState({}); });
@@ -657,6 +662,45 @@ void LiteQuery::continue_getAccountState_0(Ref<ton::validator::MasterchainState>
   CHECK(mc_state_.not_null());
   set_continuation([&]() -> void { continue_getAccountState(); });
   request_mc_block_data(blkid);
+}
+
+void LiteQuery::perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode,
+                                     int method_id, td::BufferSlice params) {
+  LOG(INFO) << "started a runSmcMethod(" << blkid.to_str() << ", " << workchain << ", " << addr.to_hex() << ", "
+            << method_id << ", " << mode << ") liteserver query with " << params.size() << " parameter bytes";
+  if (params.size() >= 65536) {
+    fatal_error("more than 64k parameter bytes passed");
+    return;
+  }
+  if (mode & ~0xf) {
+    fatal_error("unsupported mode in runSmcMethod");
+    return;
+  }
+  stack_.clear();
+  try {
+    if (params.size()) {
+      auto res = vm::std_boc_deserialize(std::move(params));
+      if (res.is_error()) {
+        fatal_error("cannot deserialize parameter list boc: "s + res.move_as_error().to_string());
+        return;
+      }
+      auto cs = vm::load_cell_slice(res.move_as_ok());
+      if (!(vm::Stack::deserialize_to(cs, stack_, 0) && cs.empty_ext())) {
+        fatal_error("parameter list boc cannot be deserialized as a VmStack");
+        return;
+      }
+    } else {
+      stack_ = td::make_ref<vm::Stack>();
+    }
+    stack_.write().push_smallint(method_id);
+  } catch (vm::VmError& vme) {
+    fatal_error("error deserializing parameter list: "s + vme.get_msg());
+    return;
+  } catch (vm::VmVirtError& vme) {
+    fatal_error("virtualization error while deserializing parameter list: "s + vme.get_msg());
+    return;
+  }
+  perform_getAccountState(blkid, workchain, addr, mode | 0x10000);
 }
 
 void LiteQuery::perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt) {
@@ -934,8 +978,13 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
     acc_root = acc_csr->prefetch_ref();
   }
   auto proof = vm::std_boc_serialize_multi({std::move(proof1), pb.extract_proof()});
+  pb.clear();
   if (proof.is_error()) {
     fatal_error(proof.move_as_error());
+    return;
+  }
+  if (mode_ & 0x10000) {
+    finish_runSmcMethod(std::move(shard_proof), proof.move_as_ok(), std::move(acc_root));
     return;
   }
   td::BufferSlice data;
@@ -952,6 +1001,13 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
       ton::create_tl_lite_block_id(base_blk_id_), ton::create_tl_lite_block_id(blk_id_), std::move(shard_proof),
       proof.move_as_ok(), std::move(data));
   finish_query(std::move(b));
+}
+
+void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root) {
+  LOG(INFO) << "completing runSmcMethod() query";
+  // ... TODO ...
+  fatal_error("runSmcMethod not implemented");
+  return;
 }
 
 void LiteQuery::continue_getOneTransaction() {

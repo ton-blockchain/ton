@@ -241,6 +241,28 @@ bool MsgAddressInt::extract_std_address(vm::CellSlice& cs, ton::WorkchainId& wor
   return false;
 }
 
+bool MsgAddressInt::store_std_address(vm::CellBuilder& cb, ton::WorkchainId workchain,
+                                      const ton::StdSmcAddress& addr) const {
+  if (workchain >= -128 && workchain < 128) {
+    return cb.store_long_bool(4, 3)             // addr_std$10 anycast:(Maybe Anycast)
+           && cb.store_long_bool(workchain, 8)  // workchain_id:int8
+           && cb.store_bits_bool(addr);         // address:bits256 = MsgAddressInt;
+  } else {
+    return cb.store_long_bool(0xd00, 12)         // addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9)
+           && cb.store_long_bool(workchain, 32)  // workchain_id:int32
+           && cb.store_bits_bool(addr);          // address:(bits addr_len) = MsgAddressInt;
+  }
+}
+
+Ref<vm::CellSlice> MsgAddressInt::pack_std_address(ton::WorkchainId workchain, const ton::StdSmcAddress& addr) const {
+  vm::CellBuilder cb;
+  if (store_std_address(cb, workchain, addr)) {
+    return vm::load_cell_slice_ref(cb.finalize());
+  } else {
+    return {};
+  }
+}
+
 const MsgAddressInt t_MsgAddressInt;
 
 bool MsgAddress::validate_skip(vm::CellSlice& cs, bool weak) const {

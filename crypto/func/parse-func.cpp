@@ -174,6 +174,53 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
   return std::make_tuple(arg_type, new_sym_def, loc);
 }
 
+void parse_global_var_decl(Lexer& lex) {
+  TypeExpr* var_type = 0;
+  SrcLocation loc = lex.cur().loc;
+  if (lex.tp() == '_') {
+    lex.next();
+    var_type = TypeExpr::new_hole();
+    loc = lex.cur().loc;
+  } else if (lex.tp() != _Ident) {
+    var_type = parse_type(lex);
+  } else {
+    auto sym = sym::lookup_symbol(lex.cur().val);
+    if (sym && dynamic_cast<SymValType*>(sym->value)) {
+      auto val = dynamic_cast<SymValType*>(sym->value);
+      lex.next();
+      var_type = val->get_type();
+    } else {
+      var_type = TypeExpr::new_hole();
+    }
+  }
+  if (lex.tp() != _Ident) {
+    lex.expect(_Ident, "global variable name");
+  }
+  loc = lex.cur().loc;
+  SymDef* sym_def = sym::define_global_symbol(lex.cur().val, false, loc);
+  if (!sym_def) {
+    lex.cur().error_at("cannot define global symbol `", "`");
+  }
+  if (sym_def->value) {
+    auto val = dynamic_cast<SymValGlobVar*>(sym_def->value);
+    if (!val) {
+      lex.cur().error_at("symbol `", "` cannot be redefined as a global variable");
+    }
+    try {
+      unify(var_type, val->sym_type);
+    } catch (UnifyError& ue) {
+      std::ostringstream os;
+      os << "cannot unify new type " << var_type << " of global variable `" << sym_def->name()
+         << "` with its previous type " << val->sym_type << ": " << ue;
+      lex.cur().error(os.str());
+    }
+  } else {
+    sym_def->value = new SymValGlobVar{glob_var_cnt++, var_type};
+    glob_vars.push_back(sym_def);
+  }
+  lex.next();
+}
+
 FormalArgList parse_formal_args(Lexer& lex) {
   FormalArgList args;
   lex.expect('(', "formal argument list");
@@ -203,6 +250,18 @@ TypeExpr* extract_total_arg_type(const FormalArgList& arg_list) {
     type_list.push_back(std::get<0>(x));
   }
   return TypeExpr::new_tensor(std::move(type_list));
+}
+
+void parse_global_var_decls(Lexer& lex) {
+  lex.expect(_Global);
+  while (true) {
+    parse_global_var_decl(lex);
+    if (lex.tp() != ',') {
+      break;
+    }
+    lex.expect(',');
+  }
+  lex.expect(';');
 }
 
 SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false) {
@@ -237,6 +296,22 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
   } else {
     return true;
   }
+}
+
+Expr* make_func_apply(Expr* fun, Expr* x) {
+  Expr* res;
+  if (fun->cls == Expr::_Glob) {
+    if (x->cls == Expr::_Tuple) {
+      res = new Expr{Expr::_Apply, fun->sym, x->args};
+    } else {
+      res = new Expr{Expr::_Apply, fun->sym, {x}};
+    }
+    res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
+  } else {
+    res = new Expr{Expr::_VarApply, {fun, x}};
+    res->flags = Expr::_IsRvalue;
+  }
+  return res;
 }
 
 Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
@@ -323,6 +398,16 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       lex.next();
       return res;
     }
+    if (sym && dynamic_cast<SymValGlobVar*>(sym->value)) {
+      auto val = dynamic_cast<SymValGlobVar*>(sym->value);
+      Expr* res = new Expr{Expr::_GlobVar, lex.cur().loc};
+      res->e_type = val->get_type();
+      res->sym = sym;
+      res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImpure;
+      lex.next();
+      return res;
+    }
+    bool auto_apply = false;
     Expr* res = new Expr{Expr::_Var, lex.cur().loc};
     if (nv) {
       res->val = ~lex.cur().val;
@@ -344,6 +429,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       } else if (val->type == SymVal::_Func) {
         res->e_type = val->get_type();
         res->cls = Expr::_Glob;
+        auto_apply = val->auto_apply;
       } else if (val->idx < 0) {
         lex.cur().error_at("accessing variable `", "` being defined");
       } else {
@@ -354,28 +440,18 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
       res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
     }
+    if (auto_apply) {
+      int impure = res->flags & Expr::_IsImpure;
+      delete res;
+      res = new Expr{Expr::_Apply, sym, {}};
+      res->flags = Expr::_IsRvalue | impure;
+    }
     res->deduce_type(lex.cur());
     lex.next();
     return res;
   }
   lex.expect(Lexem::Ident);
   return nullptr;
-}
-
-Expr* make_func_apply(Expr* fun, Expr* x) {
-  Expr* res;
-  if (fun->cls == Expr::_Glob) {
-    if (x->cls == Expr::_Tuple) {
-      res = new Expr{Expr::_Apply, fun->sym, x->args};
-    } else {
-      res = new Expr{Expr::_Apply, fun->sym, {x}};
-    }
-    res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
-  } else {
-    res = new Expr{Expr::_VarApply, {fun, x}};
-    res->flags = Expr::_IsRvalue;
-  }
-  return res;
 }
 
 // parse E { E }
@@ -1193,7 +1269,11 @@ bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
   Lexer lex{reader, true};
   while (lex.tp() != _Eof) {
-    parse_func_def(lex);
+    if (lex.tp() == _Global) {
+      parse_global_var_decls(lex);
+    } else {
+      parse_func_def(lex);
+    }
   }
   return true;
 }

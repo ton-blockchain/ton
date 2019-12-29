@@ -191,7 +191,8 @@ void test2(vm::CellSlice& cs) {
 }
 
 void usage() {
-  std::cout << "usage: dump-block [-S][<boc-file>]\n\tor dump-block -h\n\tDumps specified blockchain block or state "
+  std::cout << "usage: dump-block [-t<typename>][-S][<boc-file>]\n\tor dump-block -h\n\tDumps specified blockchain "
+               "block or state "
                "from <boc-file>, or runs some tests\n\t-S\tDump a blockchain state instead of a block\n";
   std::exit(2);
 }
@@ -199,15 +200,20 @@ void usage() {
 int main(int argc, char* const argv[]) {
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  bool dump_state = false, dump_vmcont = false;
+  const char* tname = nullptr;
+  const tlb::TLB* type = &block::gen::t_Block;
   auto zerostate = std::make_unique<block::ZerostateInfo>();
-  while ((i = getopt(argc, argv, "CShv:")) != -1) {
+  while ((i = getopt(argc, argv, "CSt:hv:")) != -1) {
     switch (i) {
       case 'C':
-        dump_vmcont = true;
+        type = &block::gen::t_VmCont;
         break;
       case 'S':
-        dump_state = true;
+        type = &block::gen::t_ShardStateUnsplit;
+        break;
+      case 't':
+        tname = optarg;
+        type = nullptr;
         break;
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
@@ -233,13 +239,18 @@ int main(int argc, char* const argv[]) {
         vm::CellSlice cs{vm::NoVm(), boc};
         cs.print_rec(std::cout);
         std::cout << std::endl;
-        auto& type = !dump_vmcont
-                         ? (dump_state ? (const tlb::TLB&)block::gen::t_ShardStateUnsplit : block::gen::t_Block)
-                         : block::gen::t_VmCont;
-        type.print_ref(std::cout, boc);
+        if (!type) {
+          tlb::TypenameLookup dict(block::gen::register_simple_types);
+          type = dict.lookup(tname);
+          if (!type) {
+            std::cerr << "unknown TL-B type " << tname << std::endl;
+            std::exit(3);
+          }
+        }
+        type->print_ref(std::cout, boc);
         std::cout << std::endl;
-        bool ok = type.validate_ref(boc);
-        std::cout << "(" << (ok ? "" : "in") << "valid " << type << ")" << std::endl;
+        bool ok = type->validate_ref(boc);
+        std::cout << "(" << (ok ? "" : "in") << "valid " << *type << ")" << std::endl;
       }
     }
     if (!done) {

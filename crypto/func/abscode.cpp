@@ -343,6 +343,12 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
       show_var_list(os, left, vars);
       os << " := " << (fun_ref ? fun_ref->name() : "(null)") << std::endl;
       break;
+    case _SetGlob:
+      os << pfx << dis << "SETGLOB ";
+      os << (fun_ref ? fun_ref->name() : "(null)") << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
     case _Repeat:
       os << pfx << dis << "REPEAT ";
       show_var_list(os, left, vars);

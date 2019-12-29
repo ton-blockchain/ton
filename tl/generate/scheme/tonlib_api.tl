@@ -79,8 +79,8 @@ fees in_fwd_fee:int53 storage_fee:int53 gas_fee:int53 fwd_fee:int53= Fees;
 query.fees source_fees:fees destination_fees:fees = query.Fees;
 query.info id:int53 valid_until:int53 body_hash:bytes  = query.Info;
 
-tvm.slice bytes:string = tvm.Slice;
-tvm.cell bytes:string = tvm.Cell;
+tvm.slice bytes:bytes = tvm.Slice;
+tvm.cell bytes:bytes = tvm.Cell;
 tvm.numberDecimal number:string = tvm.Number;
 tvm.tuple elements:vector<tvm.StackEntry> = tvm.Tuple;
 tvm.list elements:vector<tvm.StackEntry> = tvm.List;

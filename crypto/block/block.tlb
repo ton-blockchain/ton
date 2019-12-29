@@ -727,3 +727,33 @@ after:^VmCont = VmCont;
 vmc_while_body$110011 cond:^VmCont body:^VmCont
 after:^VmCont = VmCont;
 vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
+
+//
+//  DNS RECORDS
+//
+_ (HashmapE 16 ^DNSRecord) = DNS_RecordSet;
+
+chunk_ref$_ {n:#} ref:^(TextChunks (n + 1)) = TextChunkRef (n + 1);
+chunk_ref_empty$_ = TextChunkRef 0;
+text_chunk$_ {n:#} len:(## 8) data:(bits (len * 8)) next:(TextChunkRef n) = TextChunks (n + 1);
+text_chunk_empty$_ = TextChunks 0;
+text$_ chunks:(## 8) rest:(TextChunks chunks) = Text;
+dns_text#1eda _:Text = DNSRecord;
+
+dns_next_resolver#ba93 resolver:MsgAddressInt = DNSRecord;  // usually in record #-1
+
+dns_adnl_address#ad01 adnl_addr:bits256 flags:(## 8) { flags <= 1 }
+  proto_list:flags . 0?ProtoList = DNSRecord;  // often in record #2
+proto_list_nil$0 = ProtoList;
+proto_list_next$1 head:Protocol tail:ProtoList = ProtoList;
+proto_http#4854 = Protocol;
+
+dns_smc_address#9fd3 smc_addr:MsgAddressInt flags:(## 8) { flags <= 1 }
+  cap_list:flags . 0?SmcCapList = DNSRecord;   // often in record #1
+cap_list_nil$0 = SmcCapList;
+cap_list_next$1 head:SmcCapability tail:SmcCapList = SmcCapList;
+cap_method_seqno#5371 = SmcCapability;
+cap_method_pubkey#71f4 = SmcCapability;
+cap_is_wallet#2177 = SmcCapability;
+cap_name#ff name:Text = SmcCapability;
+
