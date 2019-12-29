@@ -1549,39 +1549,6 @@ void interpret_dict_get(vm::Stack& stack, int sgnd) {
   }
 }
 
-void interpret_dict_add_s(vm::Stack& stack, vm::Dictionary::SetMode mode, bool add_builder) {
-  int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
-  vm::Dictionary dict{stack.pop_maybe_cell(), n};
-  vm::BitSlice key = stack.pop_cellslice()->prefetch_bits(n);
-  if (!key.is_valid()) {
-    throw IntError{"not enough bits for a dictionary key"};
-  }
-  bool res;
-  if (add_builder) {
-    res = dict.set_builder(std::move(key), stack.pop_builder(), mode);
-  } else {
-    res = dict.set(std::move(key), stack.pop_cellslice(), mode);
-  }
-  stack.push_maybe_cell(std::move(dict).extract_root_cell());
-  stack.push_bool(res);
-}
-
-void interpret_dict_get_s(vm::Stack& stack) {
-  int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
-  vm::Dictionary dict{stack.pop_maybe_cell(), n};
-  vm::BitSlice key = stack.pop_cellslice()->prefetch_bits(n);
-  if (!key.is_valid()) {
-    throw IntError{"not enough bits for a dictionary key"};
-  }
-  auto res = dict.lookup(std::move(key));
-  if (res.not_null()) {
-    stack.push_cellslice(std::move(res));
-    stack.push_bool(true);
-  } else {
-    stack.push_bool(false);
-  }
-}
-
 void interpret_dict_map(IntCtx& ctx) {
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
@@ -2263,24 +2230,6 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
     ctx.stack.push_cell(std::move(actions));
   }
   if (mode & 8) {
-    ctx.stack.push_smallint(gas.gas_consumed());
-  }
-}
-
-void interpret_run_vm_c7_c5(IntCtx& ctx, bool with_gas, bool silent) {
-  long long gas_limit = with_gas ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
-  auto c7 = ctx.stack.pop_tuple();
-  auto data = ctx.stack.pop_cell();
-  auto cs = ctx.stack.pop_cellslice();
-  td::Ref<vm::Cell> c5 = td::Ref<vm::CellBuilder>{true}->finalize_copy(false);
-  OstreamLogger ostream_logger(ctx.error_stream);
-  auto log = create_vm_log((!!ctx.error_stream && !silent) ? &ostream_logger : nullptr);
-  vm::GasLimits gas{gas_limit};
-  int res = vm::run_vm_code(cs, ctx.stack, 1, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7), &c5);
-  ctx.stack.push_smallint(res);
-  ctx.stack.push_cell(std::move(data));
-  ctx.stack.push_cell(std::move(c5));
-  if (with_gas) {
     ctx.stack.push_smallint(gas.gas_consumed());
   }
 }
