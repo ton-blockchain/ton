@@ -27,7 +27,7 @@ using namespace std::literals::string_literals;
  * 
  */
 
-int glob_func_cnt, undef_func_cnt, glob_var_cnt;
+int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
 std::vector<SymDef*> glob_func, glob_vars;
 
 SymDef* predefine_builtin_func(std::string name, TypeExpr* func_type) {
