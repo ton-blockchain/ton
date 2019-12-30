@@ -1330,13 +1330,17 @@ void parse_func_def(Lexer& lex) {
   sym::close_scope(lex);
 }
 
-void parse_include(Lexer& lex) {
+void parse_include(Lexer& lex, const src::FileDescr* fdescr) {
   lex.next();
   SrcLocation loc = lex.cur().loc;
   if (lex.tp() != _String) {
     lex.expect(_String, "source file name");
   }
   std::string val = lex.cur().str;
+  std::string parent_dir = fdescr->filename;
+  if (parent_dir.rfind('/') != std::string::npos) {
+    val = parent_dir.substr(0, parent_dir.rfind('/') + 1) + val;
+  }
   lex.next();
   lex.expect(';');
   if (!parse_source_file(val.c_str())) {
@@ -1354,7 +1358,7 @@ bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
     } else if (lex.tp() == _Const) {
       parse_const_decls(lex);
     } else if (lex.tp() == _Include) {
-      parse_include(lex);
+      parse_include(lex, fdescr);
     } else {
       parse_func_def(lex);
     }
