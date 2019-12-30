@@ -1330,6 +1330,21 @@ void parse_func_def(Lexer& lex) {
   sym::close_scope(lex);
 }
 
+void parse_include(Lexer& lex) {
+  lex.next();
+  SrcLocation loc = lex.cur().loc;
+  if (lex.tp() != _String) {
+    lex.expect(_String, "source file name");
+  }
+  std::string val = lex.cur().str;
+  lex.next();
+  lex.expect(';');
+  if (!parse_source_file(val.c_str())) {
+    throw src::Fatal{std::string{"failed parsing included file `"} + val + "`"};
+  }
+  funC::generated_from += std::string{"incl:`"} + val + "` ";
+}
+
 bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
   Lexer lex{reader, true};
@@ -1338,6 +1353,8 @@ bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
       parse_global_var_decls(lex);
     } else if (lex.tp() == _Const) {
       parse_const_decls(lex);
+    } else if (lex.tp() == _Include) {
+      parse_include(lex);
     } else {
       parse_func_def(lex);
     }

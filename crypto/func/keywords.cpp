@@ -124,6 +124,8 @@ void define_keywords() {
       .add_keyword("infix", Kw::_Infix)
       .add_keyword("infixl", Kw::_Infixl)
       .add_keyword("infixr", Kw::_Infixr);
+
+    sym::symbols.add_keyword("include", Kw::_Include);
 }
 
 }  // namespace funC
