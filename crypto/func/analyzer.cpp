@@ -189,7 +189,7 @@ std::size_t VarDescrList::count_unreplaced(const std::vector<var_idx_t> idx_list
   std::size_t res = 0;
   for (var_idx_t idx : idx_list) {
     auto v = operator[](idx);
-    if (v && !v->is_replaced()) {
+    if (!v || !v->is_replaced()) {
       ++res;
     }
   }
