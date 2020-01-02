@@ -35,7 +35,7 @@ namespace funC {
 
 extern int verbosity;
 extern bool op_rewrite_comments;
-extern bool warn_disabled;
+extern int warn_unused;
 extern std::string generated_from;
 
 constexpr int optimize_depth = 12;
@@ -294,7 +294,7 @@ struct TmpVar {
 
 struct VarDescr {
   var_idx_t idx;
-  enum { _Last = 1, _Unused = 2 };
+  enum { _Last = 1, _Unused = 2, _Replaced = 4 };
   int flags;
   enum {
     _Const = 16,
@@ -328,6 +328,9 @@ struct VarDescr {
   }
   bool is_unused() const {
     return flags & _Unused;
+  }
+  bool is_replaced() const {
+    return flags & _Replaced;
   }
   bool is_last() const {
     return flags & _Last;
@@ -386,8 +389,16 @@ struct VarDescr {
   void unused() {
     flags |= _Unused;
   }
+  void replaced() {
+    unused(); // replaced var is always unused
+    flags |= _Replaced;
+  }
   void clear_unused() {
     flags &= ~_Unused;
+    clear_replaced();
+  }
+  void clear_replaced() {
+    flags &= ~_Replaced;
   }
   void set_const(long long value);
   void set_const(td::RefInt256 value);
@@ -437,12 +448,13 @@ struct VarDescrList {
   VarDescrList& operator+=(const std::vector<var_idx_t>& idx_list) {
     return add_vars(idx_list);
   }
-  VarDescrList& add_var(var_idx_t idx, bool unused = false);
-  VarDescrList& add_vars(const std::vector<var_idx_t>& idx_list, bool unused = false);
+  VarDescrList& add_var(var_idx_t idx, bool unused = false, bool replaced = false);
+  VarDescrList& add_vars(const std::vector<var_idx_t>& idx_list, bool unused = false, bool replaced = false);
   VarDescrList& operator-=(const std::vector<var_idx_t>& idx_list);
   VarDescrList& operator-=(var_idx_t idx);
   std::size_t count(const std::vector<var_idx_t> idx_list) const;
   std::size_t count_used(const std::vector<var_idx_t> idx_list) const;
+  std::size_t count_unreplaced(const std::vector<var_idx_t> idx_list) const;
   VarDescr& add(var_idx_t idx);
   VarDescr& add_newval(var_idx_t idx);
   VarDescrList& operator&=(const VarDescrList& values);
@@ -516,7 +528,7 @@ struct Op {
     _Again
   };
   int cl;
-  enum { _Disabled = 1, _Reachable = 2, _NoReturn = 4, _ImpureR = 8, _ImpureW = 16, _Impure = 24 };
+  enum { _Disabled = 1, _Reachable = 2, _NoReturn = 4, _ImpureR = 8, _ImpureW = 16, _Impure = 24, _Replaced = 32 };
   int flags;
   std::unique_ptr<Op> next;
   SymDef* fun_ref;
@@ -548,11 +560,18 @@ struct Op {
   bool disabled() const {
     return flags & _Disabled;
   }
+  bool replaced() const {
+    return flags & _Replaced;
+  }
   bool enabled() const {
     return !disabled();
   }
   void disable() {
     flags |= _Disabled;
+  }
+  void replace() {
+    disable();
+    flags |= _Replaced;
   }
   bool unreachable() {
     return !(flags & _Reachable);
@@ -566,7 +585,7 @@ struct Op {
   void split_vars(const std::vector<TmpVar>& vars);
   static void split_var_list(std::vector<var_idx_t>& var_list, const std::vector<TmpVar>& vars);
   bool compute_used_vars(const CodeBlob& code, bool edit);
-  bool std_compute_used_vars(bool disabled = false);
+  bool std_compute_used_vars(bool disabled = false, bool replaced = false);
   bool set_var_info(const VarDescrList& new_var_info);
   bool set_var_info(VarDescrList&& new_var_info);
   bool set_var_info_except(const VarDescrList& new_var_info, const std::vector<var_idx_t>& var_list);

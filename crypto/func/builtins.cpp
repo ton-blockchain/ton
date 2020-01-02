@@ -351,13 +351,13 @@ AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const + y.int_const);
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return push_const(r.int_const);
   }
   r.val = emulate_add(x.val, y.val);
   if (y.is_int_const() && y.int_const->signed_fits_bits(8)) {
-    y.unused();
+    y.replaced();
     if (y.always_zero()) {
       return AsmOp::Nop();
     }
@@ -370,7 +370,7 @@ AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
     return exec_arg_op("ADDCONST", y.int_const, 1);
   }
   if (x.is_int_const() && x.int_const->signed_fits_bits(8)) {
-    x.unused();
+    x.replaced();
     if (x.always_zero()) {
       return AsmOp::Nop();
     }
@@ -390,13 +390,13 @@ AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const - y.int_const);
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return push_const(r.int_const);
   }
   r.val = emulate_sub(x.val, y.val);
   if (y.is_int_const() && (-y.int_const)->signed_fits_bits(8)) {
-    y.unused();
+    y.replaced();
     if (y.always_zero()) {
       return {};
     }
@@ -409,7 +409,7 @@ AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
     return exec_arg_op("ADDCONST", -y.int_const, 1);
   }
   if (x.always_zero()) {
-    x.unused();
+    x.replaced();
     return exec_op("NEGATE", 1);
   }
   return exec_op("SUB", 2);
@@ -420,7 +420,7 @@ AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(-x.int_const);
-    x.unused();
+    x.replaced();
     return push_const(r.int_const);
   }
   r.val = emulate_negate(x.val);
@@ -432,15 +432,15 @@ AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const * y.int_const);
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return push_const(r.int_const);
   }
   r.val = emulate_mul(x.val, y.val);
   if (y.is_int_const()) {
     int k = is_pos_pow2(y.int_const);
     if (y.int_const->signed_fits_bits(8) && k < 0) {
-      y.unused();
+      y.replaced();
       if (y.always_zero() && x.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(y.int_const);
@@ -455,18 +455,18 @@ AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
       return exec_arg_op("MULCONST", y.int_const, 1);
     }
     if (k > 0) {
-      y.unused();
+      y.replaced();
       return exec_arg_op("LSHIFT#", k, 1);
     }
     if (k == 0) {
-      y.unused();
+      y.replaced();
       return AsmOp::Nop();
     }
   }
   if (x.is_int_const()) {
     int k = is_pos_pow2(x.int_const);
     if (x.int_const->signed_fits_bits(8) && k < 0) {
-      x.unused();
+      x.replaced();
       if (x.always_zero() && y.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(x.int_const);
@@ -481,11 +481,11 @@ AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
       return exec_arg_op("MULCONST", x.int_const, 1);
     }
     if (k > 0) {
-      x.unused();
+      x.replaced();
       return exec_arg_op("LSHIFT#", k, 1);
     }
     if (k == 0) {
-      x.unused();
+      x.replaced();
       return AsmOp::Nop();
     }
   }
@@ -499,13 +499,13 @@ AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
       r.set_const_nan();
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       return push_const(r.int_const);
     } else if (x.is_int_const()) {
       r.set_const(x.int_const << (int)yv);
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       return push_const(r.int_const);
     }
   }
@@ -514,20 +514,20 @@ AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
     int k = (int)(y.int_const->to_long());
     if (!k /* && x.always_finite() */) {
       // dubious optimization: what if x=NaN ?
-      y.unused();
+      y.replaced();
       return AsmOp::Nop();
     }
-    y.unused();
+    y.replaced();
     return exec_arg_op("LSHIFT#", k, 1);
   }
   if (x.is_int_const()) {
     auto xv = x.int_const->to_long();
     if (xv == 1) {
-      x.unused();
+      x.replaced();
       return exec_op("POW2", 1);
     }
     if (xv == -1) {
-      x.unused();
+      x.replaced();
       return exec_op("NEGPOW2", 1);
     }
   }
@@ -541,13 +541,13 @@ AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, in
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
       r.set_const_nan();
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       return push_const(r.int_const);
     } else if (x.is_int_const()) {
       r.set_const(td::rshift(x.int_const, (int)yv, round_mode));
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       return push_const(r.int_const);
     }
   }
@@ -557,10 +557,10 @@ AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, in
     int k = (int)(y.int_const->to_long());
     if (!k /* && x.always_finite() */) {
       // dubious optimization: what if x=NaN ?
-      y.unused();
+      y.replaced();
       return AsmOp::Nop();
     }
-    y.unused();
+    y.replaced();
     return exec_arg_op(rshift + "#", k, 1);
   }
   return exec_op(rshift, 2);
@@ -571,29 +571,29 @@ AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(div(x.int_const, y.int_const, round_mode));
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return push_const(r.int_const);
   }
   r.val = emulate_div(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       r.set_const(div(y.int_const, y.int_const));
       return push_const(r.int_const);
     }
     if (*y.int_const == 1 && x.always_finite()) {
-      y.unused();
+      y.replaced();
       return AsmOp::Nop();
     }
     if (*y.int_const == -1) {
-      y.unused();
+      y.replaced();
       return exec_op("NEGATE", 1);
     }
     int k = is_pos_pow2(y.int_const);
     if (k > 0) {
-      y.unused();
+      y.replaced();
       std::string op = "RSHIFT";
       if (round_mode >= 0) {
         op += (round_mode > 0 ? 'C' : 'R');
@@ -613,27 +613,27 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(mod(x.int_const, y.int_const, round_mode));
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return push_const(r.int_const);
   }
   r.val = emulate_mod(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       r.set_const(mod(y.int_const, y.int_const));
       return push_const(r.int_const);
     }
     if ((*y.int_const == 1 || *y.int_const == -1) && x.always_finite()) {
-      x.unused();
-      y.unused();
+      x.replaced();
+      y.replaced();
       r.set_const(td::RefInt256{true, 0});
       return push_const(r.int_const);
     }
     int k = is_pos_pow2(y.int_const);
     if (k > 0) {
-      y.unused();
+      y.replaced();
       std::string op = "MODPOW2";
       if (round_mode >= 0) {
         op += (round_mode > 0 ? 'C' : 'R');
@@ -696,8 +696,8 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   if (x.is_int_const() && y.is_int_const()) {
     int v = compute_compare(x.int_const, y.int_const, mode);
     r.set_const(v);
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return mode == 7 ? push_const(r.int_const) : AsmOp::BoolConst(v != 0);
   }
   int v = compute_compare(x, y, mode);
@@ -705,8 +705,8 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   assert(v);
   if (!(v & (v - 1))) {
     r.set_const(v - (v >> 2) - 2);
-    x.unused();
-    y.unused();
+    x.replaced();
+    y.replaced();
     return mode == 7 ? push_const(r.int_const) : AsmOp::BoolConst(v & 1);
   }
   r.val = ~0;
@@ -725,11 +725,11 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   static int cmp_int_delta[] = {0, 0, 0, -1, 0, 0, 1};
   if (mode != 7) {
     if (y.is_int_const() && y.int_const >= -128 && y.int_const <= 127) {
-      y.unused();
+      y.replaced();
       return exec_arg_op(cmp_int_names[mode], y.int_const + cmp_int_delta[mode], 1);
     }
     if (x.is_int_const() && x.int_const >= -128 && x.int_const <= 127) {
-      x.unused();
+      x.replaced();
       mode = ((mode & 4) >> 2) | (mode & 2) | ((mode & 1) << 2);
       return exec_arg_op(cmp_int_names[mode], x.int_const + cmp_int_delta[mode], 1);
     }
@@ -741,7 +741,7 @@ AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
-    x.unused();
+    x.replaced();
     return exec_arg_op("THROW", x.int_const, 0, 0);
   } else {
     return exec_op("THROWANY", 1, 0);
@@ -754,15 +754,15 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   std::string suff = (mode ? "IF" : "IFNOT");
   bool skip_cond = false;
   if (y.always_true() || y.always_false()) {
-    y.unused();
+    y.replaced();
     skip_cond = true;
     if (y.always_true() != mode) {
-      x.unused();
+      x.replaced();
       return AsmOp::Nop();
     }
   }
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
-    x.unused();
+    x.replaced();
     return skip_cond ? exec_arg_op("THROW", x.int_const, 0, 0) : exec_arg_op("THROW"s + suff, x.int_const, 1, 0);
   } else {
     return skip_cond ? exec_op("THROWANY", 1, 0) : exec_arg_op("THROWANY"s + suff, 2, 0);
@@ -794,7 +794,7 @@ AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
       r.val = (sgnd ? VarDescr::ValBool : VarDescr::ValBit);
     }
     if (v > 0) {
-      y.unused();
+      y.replaced();
       return exec_arg_op((fetch ? "LD"s : "PLD"s) + (sgnd ? 'I' : 'U'), v, 1, 1 + (unsigned)fetch);
     }
   }
@@ -807,7 +807,7 @@ AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
   assert(args.size() == 3 && res.size() == 1);
   auto& z = args[2];
   if (z.is_int_const() && z.int_const > 0 && z.int_const <= 256) {
-    z.unused();
+    z.replaced();
     return exec_arg_op("ST"s + (sgnd ? 'I' : 'U'), z.int_const, 2, 1);
   }
   return exec_op("ST"s + (sgnd ? "IX" : "UX"), 3, 1);
@@ -820,7 +820,7 @@ AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
   if (y.is_int_const() && y.int_const > 0 && y.int_const <= 256) {
     v = (int)y.int_const->to_long();
     if (v > 0) {
-      y.unused();
+      y.replaced();
       return exec_arg_op(fetch ? "LDSLICE" : "PLDSLICE", v, 1, 1 + (unsigned)fetch);
     }
   }
@@ -832,7 +832,7 @@ AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args) 
   assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
-    y.unused();
+    y.replaced();
     return exec_arg_op("INDEX", y.int_const, 1, 1);
   }
   return exec_op("INDEXVAR", 2, 1);
@@ -843,7 +843,7 @@ AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   assert(args.size() == 1 && res.size() == 1);
   auto &x = args[0], &r = res[0];
   if (x.always_null() || x.always_not_null()) {
-    x.unused();
+    x.replaced();
     r.set_const(x.always_null() ? -1 : 0);
     return push_const(r.int_const);
   }
@@ -856,7 +856,7 @@ bool compile_run_method(AsmOpList& code, std::vector<VarDescr>& res, std::vector
   assert(args.size() == (unsigned)n + 1 && res.size() == (unsigned)has_value);
   auto& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(14)) {
-    x.unused();
+    x.replaced();
     code << exec_arg_op("PREPAREDICT", x.int_const, 0, 2);
   } else {
     code << exec_op("c3 PUSH", 0, 1);

@@ -35,7 +35,8 @@
 namespace funC {
 
 int verbosity, indent, opt_level = 2;
-bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, warn_disabled;
+bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
+int warn_unused;
 std::ostream* outs = &std::cout;
 std::string generated_from, boc_output_filename;
 
@@ -172,7 +173,7 @@ void usage(const char* progname) {
          "-R\tInclude operation rewrite comments in the output code\n"
          "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
          "-A and -P.\n"
-         "-d\tEnable warnings about optimized out calls\n";
+         "-u\tEnable warnings about unused calls and variables (once for assigns, twice for also calls)\n";
   std::exit(2);
 }
 
@@ -181,13 +182,10 @@ std::string output_filename;
 int main(int argc, char* const argv[]) {
   int i;
   bool interactive = false;
-  while ((i = getopt(argc, argv, "Adhi:Io:O:PRSvW:")) != -1) {
+  while ((i = getopt(argc, argv, "Ahi:Io:O:PRSuvW:")) != -1) {
     switch (i) {
       case 'A':
         funC::asm_preamble = true;
-        break;
-      case 'd':
-        funC::warn_disabled = true;
         break;
       case 'I':
         interactive = true;
@@ -209,6 +207,9 @@ int main(int argc, char* const argv[]) {
         break;
       case 'S':
         funC::stack_layout_comments = true;
+        break;
+      case 'u':
+        ++funC::warn_unused;
         break;
       case 'v':
         ++funC::verbosity;
