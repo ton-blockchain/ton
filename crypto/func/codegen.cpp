@@ -411,8 +411,8 @@ bool Op::generate_code_step(Stack& stack) {
     }
     case _Call:
     case _CallInd: {
-      if (disabled() && !replaced()) {
-        if (funC::warn_unused >= 2) {
+      if (disabled()) {
+        if (funC::warn_unused >= 2 && !replaced()) {
           where.show(std::cerr); 
           std::cerr << "\tWarning: unused ";
           if (cl == _Call)

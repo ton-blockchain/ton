@@ -214,7 +214,8 @@ VarDescrList& VarDescrList::operator-=(const std::vector<var_idx_t>& idx_list) {
 VarDescrList& VarDescrList::add_var(var_idx_t idx, bool unused, bool replaced) {
   auto it = std::lower_bound(list.begin(), list.end(), idx);
   if (it == list.end() || it->idx != idx) {
-    list.emplace(it, idx, VarDescr::_Last | (unused ? VarDescr::_Unused : 0) | (replaced ? VarDescr::_Replaced : 0));
+    list.emplace(it, idx, VarDescr::_Last | (unused ? VarDescr::_Unused : 0) 
+      | (replaced ? (VarDescr::_Unused | VarDescr::_Replaced) : 0));
   } else if (it->is_unused() && !unused) {
     it->clear_unused();
   } else if (it->is_replaced() && !replaced) {
@@ -371,7 +372,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       // left = EXEC right;
       if (!next_var_info.count_used(left) && is_pure()) {
         // all variables in `left` are not needed
-        bool repl = !next_var_info.count_unreplaced(left);
+        bool repl = left.size() && !next_var_info.count_unreplaced(left);
         if (edit) {
           disable();
           if (repl)
@@ -413,7 +414,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       if (!cnt && edit) {
         // all variables in `left` are not needed
         disable();
-        if (!unr)
+        if (left.size() && !unr)
           replaced();
       }
       return set_var_info(std::move(new_var_info));
