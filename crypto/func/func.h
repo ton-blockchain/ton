@@ -98,6 +98,7 @@ enum Keyword {
   _Asm,
   _Impure,
   _Global,
+  _Const,
   _Extern,
   _Inline,
   _InlineRef,
@@ -763,7 +764,18 @@ struct SymValGlobVar : sym::SymValBase {
   }
 };
 
-extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
+struct SymValConst : sym::SymValBase {
+  td::RefInt256 intval;
+  SymValConst(int idx, td::RefInt256 value)
+      : sym::SymValBase(_Const, idx), intval(value) {
+  }
+  ~SymValConst() override = default;
+  td::RefInt256 get_value() const {
+    return intval;
+  }
+};
+
+extern int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
 extern std::vector<SymDef*> glob_func, glob_vars;
 
 /*

@@ -221,6 +221,49 @@ void parse_global_var_decl(Lexer& lex) {
   lex.next();
 }
 
+void parse_const_decl(Lexer& lex) {
+  SrcLocation loc = lex.cur().loc;
+  if (lex.tp() != _Ident) {
+    lex.expect(_Ident, "constant name");
+  }
+  loc = lex.cur().loc;
+  SymDef* sym_def = sym::define_global_symbol(lex.cur().val, false, loc);
+  if (!sym_def) {
+    lex.cur().error_at("cannot define global symbol `", "`");
+  }
+  if (sym_def->value) {
+    lex.cur().error_at("global symbol `", "` already exists");
+  }
+  lex.next();
+  if (lex.tp() != '=') {
+    lex.cur().error_at("expected = instead of ", "");
+  }
+  lex.next();
+  td::RefInt256 value;
+  if (lex.tp() == _Ident) {
+    auto sym = sym::lookup_symbol(lex.cur().val);
+    if (sym) {
+      if (dynamic_cast<SymValConst*>(sym->value)) {
+        auto val = dynamic_cast<SymValConst*>(sym->value);
+        value = val->get_value();
+      } else {
+        lex.cur().error_at("identifier `", "` is not an integer constant");
+      }
+    } else {
+      lex.cur().error_at("undefined identifier `", "`");
+    }
+  } else if (lex.tp() == _Number) {
+    value = td::string_to_int256(lex.cur().str);
+    if (value.is_null()) {
+      lex.cur().error_at("invalid integer constant `", "`");
+    }
+  } else {
+    lex.cur().error_at("expected integer constant instead of `", "`");
+  }
+  sym_def->value = new SymValConst{const_cnt++, value};
+  lex.next();
+}
+
 FormalArgList parse_formal_args(Lexer& lex) {
   FormalArgList args;
   lex.expect('(', "formal argument list");
@@ -236,6 +279,18 @@ FormalArgList parse_formal_args(Lexer& lex) {
   }
   lex.expect(')');
   return args;
+}
+
+void parse_const_decls(Lexer& lex) {
+  lex.expect(_Const);
+  while (true) {
+    parse_const_decl(lex);
+    if (lex.tp() != ',') {
+      break;
+    }
+    lex.expect(',');
+  }
+  lex.expect(';');
 }
 
 TypeExpr* extract_total_arg_type(const FormalArgList& arg_list) {
@@ -404,6 +459,16 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       res->e_type = val->get_type();
       res->sym = sym;
       res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImpure;
+      lex.next();
+      return res;
+    }
+    if (sym && dynamic_cast<SymValConst*>(sym->value)) {
+      // Integer constant emulates Lexem::Number as close as possible
+      auto val = dynamic_cast<SymValConst*>(sym->value);
+      Expr* res = new Expr{Expr::_Const, lex.cur().loc};
+      res->flags = Expr::_IsRvalue;
+      res->intval = val->get_value();
+      res->e_type = TypeExpr::new_atomic(_Int);
       lex.next();
       return res;
     }
@@ -1271,6 +1336,8 @@ bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
   while (lex.tp() != _Eof) {
     if (lex.tp() == _Global) {
       parse_global_var_decls(lex);
+    } else if (lex.tp() == _Const) {
+      parse_const_decls(lex);
     } else {
       parse_func_def(lex);
     }
