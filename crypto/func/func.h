@@ -35,6 +35,7 @@ namespace funC {
 
 extern int verbosity;
 extern bool op_rewrite_comments;
+extern std::string generated_from;
 
 constexpr int optimize_depth = 12;
 
@@ -105,7 +106,8 @@ enum Keyword {
   _Operator,
   _Infix,
   _Infixl,
-  _Infixr
+  _Infixr,
+  _Include
 };
 
 void define_keywords();
