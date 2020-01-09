@@ -69,6 +69,7 @@ struct IntCtx {
   int include_depth{0};
   int line_no{0};
   bool need_line{true};
+  bool trace_errors{false};
   std::string filename;
   std::string currentd_dir;
   std::istream* input_stream{nullptr};
@@ -122,6 +123,14 @@ struct IntCtx {
   }
 
   bool is_sb() const;
+
+  void enable_error_trace() { 
+    trace_errors = true; 
+  }
+
+  bool tracing_errors() const {
+    return trace_errors;
+  }
 
   void clear() {
     state = 0;

@@ -2022,13 +2022,25 @@ Ref<WordDef> interpret_ifnot(IntCtx& ctx) {
   }
 }
 
-Ref<WordDef> interpret_cond(IntCtx& ctx) {
+void interpret_cond(IntCtx& ctx) {
   auto false_ref = pop_exec_token(ctx);
   auto true_ref = pop_exec_token(ctx);
   if (ctx.stack.pop_bool()) {
-    return true_ref;
+    try {
+      true_ref->run(ctx);
+    } catch (...) {
+      if (ctx.tracing_errors())
+        LOG(INFO) << "Backtrace: conditional true execution";
+      throw;
+    }
   } else {
-    return false_ref;
+    try {
+      false_ref->run(ctx);
+    } catch (...) {
+      if (ctx.tracing_errors())
+        LOG(INFO) << "Backtrace: conditional false execution";
+      throw;
+    }
   }
 }
 
@@ -2036,11 +2048,23 @@ void interpret_while(IntCtx& ctx) {
   auto body_ref = pop_exec_token(ctx);
   auto cond_ref = pop_exec_token(ctx);
   while (true) {
-    cond_ref->run(ctx);
+    try {
+      cond_ref->run(ctx);
+    } catch (...) {
+      if (ctx.tracing_errors())
+        LOG(INFO) << "Backtrace: while condition execution";
+      throw;
+    }
     if (!ctx.stack.pop_bool()) {
       break;
     }
-    body_ref->run(ctx);
+    try {
+      body_ref->run(ctx);
+    } catch (...) {
+      if (ctx.tracing_errors())
+        LOG(INFO) << "Backtrace: while body execution";
+      throw;
+    }
   }
 }
 
@@ -2802,7 +2826,7 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_tail_word("times ", interpret_execute_times);
   d.def_ctx_tail_word("if ", interpret_if);
   d.def_ctx_tail_word("ifnot ", interpret_ifnot);
-  d.def_ctx_tail_word("cond ", interpret_cond);
+  d.def_ctx_word("cond ", interpret_cond);
   d.def_ctx_word("while ", interpret_while);
   d.def_ctx_word("until ", interpret_until);
   // compiler control
@@ -2940,7 +2964,13 @@ int funny_interpret_loop(IntCtx& ctx) {
       try {
         if (entry) {
           if (entry->is_active()) {
-            (*entry)(ctx);
+            try {
+              (*entry)(ctx);
+            } catch(...) {
+              if (ctx.tracing_errors())
+                LOG(WARNING) << "Backtrace: " << Word << " (active word)";
+              throw;
+            }
           } else {
             ctx.stack.push_smallint(0);
             ctx.stack.push({vm::from_object, entry->get_def()});
@@ -2956,9 +2986,21 @@ int funny_interpret_loop(IntCtx& ctx) {
           }
         }
         if (ctx.state > 0) {
-          interpret_compile_internal(ctx.stack);
+          try {
+            interpret_compile_internal(ctx.stack);
+          } catch (...) {
+            if (ctx.tracing_errors())
+              LOG(WARNING) << "Backtrace: " << Word << " (internal compilation)";
+            throw;
+          }
         } else {
-          interpret_execute_internal(ctx);
+          try {
+            interpret_execute_internal(ctx);
+          } catch (...) {
+            if (ctx.tracing_errors())
+              LOG(WARNING) << "Backtrace: " << Word << " (internal execution)";
+            throw;
+          }
         }
       } catch (IntError& ab) {
         errs << ctx << Word << ": " << ab.msg;

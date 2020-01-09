@@ -24,9 +24,30 @@ namespace fift {
 // WordDef
 //
 void WordDef::run(IntCtx& ctx) const {
-  auto next = run_tail(ctx);
-  while (next.not_null()) {
-    next = next->run_tail(ctx);
+  bool loop_provoked = false;
+  try {
+    auto next = run_tail(ctx);
+    while (next.not_null()) {
+      auto curr = next;
+      try {
+        next = next->run_tail(ctx);
+      } catch (...) {
+        if (ctx.tracing_errors()) {
+          LOG(INFO) << "Backtrace: "
+            << ctx.dictionary->reverse_lookup(curr.get()) 
+            << "(word execution)";
+          loop_provoked = true;
+        }
+        throw;
+      }
+    }
+  } catch (...) {
+    if (ctx.tracing_errors() && !loop_provoked) {
+      LOG(INFO) << "Backtrace: "
+        << ctx.dictionary->reverse_lookup(this) 
+        << "(word execution)";
+    }
+    throw;
   }
 }
 
@@ -78,7 +99,29 @@ Ref<WordDef> WordList::run_tail(IntCtx& ctx) const {
   }
   auto it = list.cbegin(), it2 = list.cend() - 1;
   while (it < it2) {
-    (*it)->run(ctx);
+    try {
+      (*it)->run(ctx);
+    } catch (...) {
+        if (ctx.tracing_errors()) {
+          std::ostringstream wl;
+          std::streampos offset = 0;
+          std::size_t offlen = 0;
+          auto iit = list.cbegin();
+          while (iit != list.cend()) {
+            if (iit == it) offset = wl.tellp();
+            std::string name = ctx.dictionary->reverse_lookup(iit->get());
+            wl << name;
+            if (iit == it) offlen = name.length() - 1;
+            ++iit;
+          }
+          auto current = ctx.dictionary->reverse_lookup(this);
+          auto spaces = std::string(current.size() + 4 + offset, ' ');
+          LOG(WARNING) << "Backtrace (word list execution):"
+            << "\n\t" << current << ": { " << wl.str() << "}"
+            << "\n\t" << spaces + std::string(std::max(offlen, 1ul), '^');
+        }
+        throw;
+    }
     ++it;
   }
   return *it;
@@ -134,6 +177,25 @@ WordRef* Dictionary::lookup(td::Slice name) {
     return nullptr;
   }
   return &it->second;
+}
+
+std::string Dictionary::reverse_lookup(const WordDef* ref) {
+  auto it = words_.crbegin();
+  while (it != words_.crend()) {
+    if (it->second.get_def().get() == ref)
+      return it->first;
+    ++it;
+  }
+  auto base_addr = (long long)(words_.crbegin()->second.get_def().get());
+  std::ostringstream os;
+  auto addr = (long long) ref;
+  //if (ref->inner_addr())
+  //  addr = ref->inner_addr();
+  os << "{" << std::hex 
+     << ((addr - base_addr) / 0x10 % 0x10000) 
+     << "} ";
+  std::string str = os.str();
+  return str;
 }
 
 void Dictionary::def_ctx_word(std::string name, CtxWordFunc func) {

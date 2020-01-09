@@ -49,6 +49,9 @@ class WordDef : public td::CntObject {
   virtual const std::vector<Ref<WordDef>>* get_list() const {
     return nullptr;
   }
+  virtual long long inner_addr() const {
+    return 0;
+  }
 };
 
 class StackWord : public WordDef {
@@ -59,6 +62,9 @@ class StackWord : public WordDef {
   }
   ~StackWord() override = default;
   Ref<WordDef> run_tail(IntCtx& ctx) const override;
+  long long inner_addr() const override {
+    return (long long) &f;
+  }
 };
 
 class CtxWord : public WordDef {
@@ -69,6 +75,9 @@ class CtxWord : public WordDef {
   }
   ~CtxWord() override = default;
   Ref<WordDef> run_tail(IntCtx& ctx) const override;
+  long long inner_addr() const override {
+    return (long long) &f;
+  }
 };
 
 typedef std::function<Ref<WordDef>(IntCtx&)> CtxTailWordFunc;
@@ -81,6 +90,9 @@ class CtxTailWord : public WordDef {
   }
   ~CtxTailWord() override = default;
   Ref<WordDef> run_tail(IntCtx& ctx) const override;
+  long long inner_addr() const override {
+    return (long long) &f;
+  }
 };
 
 class WordList : public WordDef {
@@ -150,6 +162,7 @@ WordRef::WordRef(std::vector<Ref<WordDef>>&& word_list) : def(Ref<WordList>{true
 class Dictionary {
  public:
   WordRef* lookup(td::Slice name);
+  std::string reverse_lookup(const WordDef* ref);
   void def_ctx_word(std::string name, CtxWordFunc func);
   void def_ctx_tail_word(std::string name, CtxTailWordFunc func);
   void def_active_word(std::string name, CtxWordFunc func);

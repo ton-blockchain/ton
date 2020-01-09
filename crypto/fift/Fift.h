@@ -36,6 +36,7 @@ struct Fift {
     fift::Dictionary dictionary;
     std::ostream* output_stream{&std::cout};
     std::ostream* error_stream{&std::cerr};
+    bool trace_errors{false};
   };
   // Fift must own ton_db and dictionary, no concurrent access is allowed
   explicit Fift(Config config);
