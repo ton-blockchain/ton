@@ -2964,11 +2964,21 @@ int funny_interpret_loop(IntCtx& ctx) {
       try {
         if (entry) {
           if (entry->is_active()) {
+            auto stkcpy = ctx.tracing_stack() ? 
+              vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
             try {
               (*entry)(ctx);
             } catch(...) {
-              if (ctx.tracing_errors())
-                LOG(WARNING) << "Backtrace: " << Word << " (active word)";
+              if (ctx.tracing_errors()) {
+                std::ostringstream stko;
+                if (ctx.tracing_stack()) {
+                  stko << "\n\tStack dump: ";
+                  for (int i = stkcpy.depth(); i > 0; i--) {
+                    stkcpy[i - 1].dump(stko); stko << ' ';
+                  }
+                }
+                LOG(WARNING) << "Backtrace: " << Word << " (active word)" << stko.str();
+              }
               throw;
             }
           } else {
@@ -2986,19 +2996,39 @@ int funny_interpret_loop(IntCtx& ctx) {
           }
         }
         if (ctx.state > 0) {
+          auto stkcpy = ctx.tracing_stack() ? 
+            vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
           try {
             interpret_compile_internal(ctx.stack);
           } catch (...) {
-            if (ctx.tracing_errors())
-              LOG(WARNING) << "Backtrace: " << Word << " (internal compilation)";
+            if (ctx.tracing_errors()) {
+              std::ostringstream stko;
+              if (ctx.tracing_stack()) {
+                stko << "\n\tStack dump: ";
+                for (int i = stkcpy.depth(); i > 0; i--) {
+                  stkcpy[i - 1].dump(stko); stko << ' ';
+                }
+              }
+              LOG(WARNING) << "Backtrace: " << Word << " (internal compilation)" << stko.str();
+            }
             throw;
           }
         } else {
+          auto stkcpy = ctx.tracing_stack() ? 
+            vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
           try {
             interpret_execute_internal(ctx);
           } catch (...) {
-            if (ctx.tracing_errors())
-              LOG(WARNING) << "Backtrace: " << Word << " (internal execution)";
+            if (ctx.tracing_errors()) {
+              std::ostringstream stko;
+              if (ctx.tracing_stack()) {
+                stko << "\n\tStack dump: ";
+                for (int i = stkcpy.depth(); i > 0; i--) {
+                  stkcpy[i - 1].dump(stko); stko << ' ';
+                }
+              }
+              LOG(WARNING) << "Backtrace: " << Word << " (internal execution)" << stko.str();
+            }
             throw;
           }
         }

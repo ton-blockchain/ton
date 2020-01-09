@@ -66,7 +66,7 @@ void usage(const char* progname) {
                "\t-d<ton-db-path>\tUse a ton database\n"
                "\t-s\tScript mode: use first argument as a fift source file and import remaining arguments as $n)\n"
                "\t-v<verbosity-level>\tSet verbosity level\n"
-               "\t-t\tEnables detailed error stack trace on exception\n";
+               "\t-t\tEnables detailed error backtrace on exception (twice for stack dumps)\n";
   std::exit(2);
 }
 
@@ -86,6 +86,7 @@ int main(int argc, char* const argv[]) {
   bool fift_preload = true, no_env = false;
   bool script_mode = false;
   bool trace_errors = false;
+  bool trace_stack = false;
   std::vector<std::string> library_source_files, source_list;
   std::vector<std::string> source_include_path;
   std::string ton_db_path;
@@ -119,6 +120,8 @@ int main(int argc, char* const argv[]) {
         new_verbosity_level = VERBOSITY_NAME(FATAL) + td::to_integer<int>(td::Slice(optarg));
         break;
       case 't':
+        if (trace_errors)
+          trace_stack = true;
         trace_errors = true;
         break;
       case 'h':
@@ -170,6 +173,7 @@ int main(int argc, char* const argv[]) {
   }
 
   config.trace_errors = trace_errors;
+  config.trace_stack = trace_stack;
 
   fift::Fift fift(std::move(config));
 

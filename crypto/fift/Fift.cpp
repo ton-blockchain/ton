@@ -62,6 +62,7 @@ td::Result<int> Fift::do_interpret(IntCtx& ctx) {
   ctx.output_stream = config_.output_stream;
   ctx.error_stream = config_.error_stream;
   if (config_.trace_errors) ctx.enable_error_trace();
+  if (config_.trace_stack) ctx.enable_stack_trace();
   if (!ctx.output_stream) {
     return td::Status::Error("Cannot run interpreter without output_stream");
   }

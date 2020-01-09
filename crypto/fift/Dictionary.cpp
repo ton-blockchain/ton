@@ -25,17 +25,28 @@ namespace fift {
 //
 void WordDef::run(IntCtx& ctx) const {
   bool loop_provoked = false;
+  auto stkcpy = ctx.tracing_stack() ? 
+        vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
   try {
     auto next = run_tail(ctx);
     while (next.not_null()) {
       auto curr = next;
+      auto stkcpy_ = ctx.tracing_stack() ? 
+        vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
       try {
         next = next->run_tail(ctx);
       } catch (...) {
         if (ctx.tracing_errors()) {
+          std::ostringstream stko;
+          if (ctx.tracing_stack()) {
+            stko << "\n\tStack dump: ";
+            for (int i = stkcpy_.depth(); i > 0; i--) {
+              stkcpy_[i - 1].dump(stko); stko << ' ';
+            }
+          }
           LOG(INFO) << "Backtrace: "
             << ctx.dictionary->reverse_lookup(curr.get()) 
-            << "(word execution)";
+            << "(word execution)" << stko.str();
           loop_provoked = true;
         }
         throw;
@@ -43,9 +54,16 @@ void WordDef::run(IntCtx& ctx) const {
     }
   } catch (...) {
     if (ctx.tracing_errors() && !loop_provoked) {
+      std::ostringstream stko;
+      if (ctx.tracing_stack()) {
+        stko << "\n\tStack dump: ";
+        for (int i = stkcpy.depth(); i > 0; i--) {
+          stkcpy[i - 1].dump(stko); stko << ' ';
+        }
+      }
       LOG(INFO) << "Backtrace: "
         << ctx.dictionary->reverse_lookup(this) 
-        << "(word execution)";
+        << "(word execution)" << stko.str();
     }
     throw;
   }
@@ -99,6 +117,8 @@ Ref<WordDef> WordList::run_tail(IntCtx& ctx) const {
   }
   auto it = list.cbegin(), it2 = list.cend() - 1;
   while (it < it2) {
+    auto stkcpy = ctx.tracing_stack() ? 
+        vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
     try {
       (*it)->run(ctx);
     } catch (...) {
@@ -114,11 +134,18 @@ Ref<WordDef> WordList::run_tail(IntCtx& ctx) const {
             if (iit == it) offlen = name.length() - 1;
             ++iit;
           }
+          std::ostringstream stko;
+          if (ctx.tracing_stack()) {
+            stko << "\n\tStack dump: ";
+            for (int i = stkcpy.depth(); i > 0; i--) {
+              stkcpy[i - 1].dump(stko); stko << ' ';
+            }
+          }
           auto current = ctx.dictionary->reverse_lookup(this);
           auto spaces = std::string(current.size() + 4 + offset, ' ');
           LOG(WARNING) << "Backtrace (word list execution):"
             << "\n\t" << current << ": { " << wl.str() << "}"
-            << "\n\t" << spaces + std::string(std::max(offlen, 1ul), '^');
+            << "\n\t" << spaces + std::string(std::max(offlen, 1ul), '^') << stko.str();
         }
         throw;
     }

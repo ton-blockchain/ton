@@ -70,6 +70,7 @@ struct IntCtx {
   int line_no{0};
   bool need_line{true};
   bool trace_errors{false};
+  bool trace_stack{false};
   std::string filename;
   std::string currentd_dir;
   std::istream* input_stream{nullptr};
@@ -128,8 +129,16 @@ struct IntCtx {
     trace_errors = true; 
   }
 
+  void enable_stack_trace() {
+    trace_stack = true;
+  }
+
   bool tracing_errors() const {
     return trace_errors;
+  }
+
+  bool tracing_stack() const {
+    return trace_stack;
   }
 
   void clear() {
