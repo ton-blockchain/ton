@@ -264,8 +264,8 @@ void parse_global_var_decls(Lexer& lex) {
   lex.expect(';');
 }
 
-SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false) {
-  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, impure};
+SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false, bool implicit = false) {
+  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, impure, implicit};
   func_sym->value = res;
   glob_func.push_back(func_sym);
   glob_func_cnt++;
@@ -520,13 +520,17 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
       lex.cur().error_at("undefined method identifier `", "`");
     }
     lex.next();
-    auto x = parse_expr100(lex, code, false);
-    x->chk_rvalue(lex.cur());
-    if (x->cls == Expr::_Tuple) {
+    if (val->implicit)
       res = new Expr{Expr::_Apply, name, {obj}};
-      res->args.insert(res->args.end(), x->args.begin(), x->args.end());
-    } else {
-      res = new Expr{Expr::_Apply, name, {obj, x}};
+    else {
+      auto x = parse_expr100(lex, code, false);
+      x->chk_rvalue(lex.cur());
+      if (x->cls == Expr::_Tuple) {
+        res = new Expr{Expr::_Apply, name, {obj}};
+        res->args.insert(res->args.end(), x->args.begin(), x->args.end());
+      } else {
+        res = new Expr{Expr::_Apply, name, {obj, x}};
+      }
     }
     res->here = loc;
     res->flags = Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
@@ -975,7 +979,7 @@ CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type
 }
 
 SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const FormalArgList& arg_list, TypeExpr* ret_type,
-                                   bool impure = false) {
+                                   bool impure = false, bool implicit = false) {
   auto loc = lex.cur().loc;
   lex.expect(_Asm);
   int cnt = (int)arg_list.size();
@@ -1058,7 +1062,7 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
     throw src::ParseError{lex.cur().loc, "string with assembler instruction expected"};
   }
   lex.expect(';');
-  auto res = new SymValAsmFunc{func_type, asm_ops, impure};
+  auto res = new SymValAsmFunc{func_type, asm_ops, impure, implicit};
   res->arg_order = std::move(arg_order);
   res->ret_order = std::move(ret_order);
   return res;
@@ -1141,6 +1145,10 @@ void parse_func_def(Lexer& lex) {
   Lexem func_name = lex.cur();
   lex.next();
   FormalArgList arg_list = parse_formal_args(lex);
+  bool implicit = (lex.tp() == _Implicit);
+  if (implicit) {
+    lex.next();
+  }
   bool impure = (lex.tp() == _Impure);
   if (impure) {
     lex.next();
@@ -1202,7 +1210,7 @@ void parse_func_def(Lexer& lex) {
     }
   }
   if (lex.tp() == ';') {
-    make_new_glob_func(func_sym, func_type, impure);
+    make_new_glob_func(func_sym, func_type, impure, implicit);
     lex.next();
   } else if (lex.tp() == '{') {
     if (dynamic_cast<SymValAsmFunc*>(func_sym_val)) {
@@ -1215,7 +1223,7 @@ void parse_func_def(Lexer& lex) {
         lex.cur().error("function `"s + func_name.str + "` has been already defined in an yet-unknown way");
       }
     } else {
-      func_sym_code = make_new_glob_func(func_sym, func_type, impure);
+      func_sym_code = make_new_glob_func(func_sym, func_type, impure, implicit);
     }
     if (func_sym_code->code) {
       lex.cur().error("redefinition of function `"s + func_name.str + "`");
@@ -1235,7 +1243,7 @@ void parse_func_def(Lexer& lex) {
       }
       lex.cur().error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
     }
-    func_sym->value = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
+    func_sym->value = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure, implicit);
   }
   if (method_id.not_null()) {
     auto val = dynamic_cast<SymVal*>(func_sym->value);
