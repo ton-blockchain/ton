@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/stack.hpp"
 #include "vm/continuation.h"
@@ -824,7 +824,7 @@ bool StackEntry::deserialize(CellSlice& cs, int mode) {
           return false;
         }
       } else if (n == 1) {
-        return cs.have_refs() && t[0].deserialize(cs.fetch_ref(), mode);
+        return cs.have_refs() && t[0].deserialize(cs.fetch_ref(), mode) && set(t_tuple, std::move(tuple));
       }
       return set(t_tuple, std::move(tuple));
     }

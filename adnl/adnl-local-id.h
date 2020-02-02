@@ -54,7 +54,7 @@ class AdnlLocalId : public td::actor::Actor {
   void decrypt_message(td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void deliver(AdnlNodeIdShort src, td::BufferSlice data);
   void deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
-  void receive(td::BufferSlice data);
+  void receive(td::IPAddress addr, td::BufferSlice data);
 
   void subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback);
   void unsubscribe(std::string prefix);

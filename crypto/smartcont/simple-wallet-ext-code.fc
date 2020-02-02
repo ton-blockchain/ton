@@ -45,6 +45,11 @@ int seqno() method_id {
   return get_data().begin_parse().preload_uint(32);
 }
 
+int get_public_key() method_id {
+  var (seqno, public_key) = load_state();
+  return public_key;
+}
+
 cell create_init_state(int public_key) method_id {
   return create_state(0, public_key);
 }

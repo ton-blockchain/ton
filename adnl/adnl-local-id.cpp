@@ -40,13 +40,15 @@ AdnlAddressList AdnlLocalId::get_addr_list() const {
   return addr_list_;
 }
 
-void AdnlLocalId::receive(td::BufferSlice data) {
+void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
   auto P = td::PromiseCreator::lambda(
-      [peer_table = peer_table_, dst = short_id_, id = print_id()](td::Result<AdnlPacket> R) {
+      [peer_table = peer_table_, dst = short_id_, addr, id = print_id()](td::Result<AdnlPacket> R) {
         if (R.is_error()) {
           VLOG(ADNL_WARNING) << id << ": dropping IN message: cannot decrypt: " << R.move_as_error();
         } else {
-          td::actor::send_closure(peer_table, &AdnlPeerTable::receive_decrypted_packet, dst, R.move_as_ok());
+          auto packet = R.move_as_ok();
+          packet.set_remote_addr(addr);
+          td::actor::send_closure(peer_table, &AdnlPeerTable::receive_decrypted_packet, dst, std::move(packet));
         }
       });
 
@@ -117,7 +119,7 @@ void AdnlLocalId::update_address_list(AdnlAddressList addr_list) {
 }
 
 void AdnlLocalId::publish_address_list() {
-  if (dht_node_.empty() || addr_list_.empty()) {
+  if (dht_node_.empty() || addr_list_.empty() || addr_list_.size() == 0) {
     VLOG(ADNL_NOTICE) << this << ": skipping public addr list, because localid (or dht node) not fully initialized";
     return;
   }
@@ -178,7 +180,8 @@ AdnlLocalId::AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::actor
   id_ = std::move(id);
   short_id_ = id_.compute_short_id();
   addr_list_ = std::move(addr_list);
-  if (addr_list_.addrs().size() > 0) {
+  if (!addr_list_.empty()) {
+    addr_list_.set_reinit_date(Adnl::adnl_start_time());
     addr_list_.set_version(static_cast<td::int32>(td::Clocks::system()));
   }
   peer_table_ = peer_table;

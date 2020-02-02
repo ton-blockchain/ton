@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/dict.h"
 #include "vm/cells.h"
@@ -179,7 +179,7 @@ bool DictionaryBase::append_dict_to_bool(CellBuilder& cb) && {
   return cb.store_maybe_ref(std::move(root_cell));
 }
 
-bool DictionaryBase::append_dict_to_bool(CellBuilder& cb) const& {
+bool DictionaryBase::append_dict_to_bool(CellBuilder& cb) const & {
   return is_valid() && cb.store_maybe_ref(root_cell);
 }
 
@@ -2240,7 +2240,7 @@ Ref<CellSlice> AugmentedDictionary::extract_root() && {
   return std::move(root);
 }
 
-bool AugmentedDictionary::append_dict_to_bool(CellBuilder& cb) const& {
+bool AugmentedDictionary::append_dict_to_bool(CellBuilder& cb) const & {
   if (!is_valid()) {
     return false;
   }
@@ -2535,7 +2535,7 @@ bool AugmentedDictionary::set(td::ConstBitPtr key, int key_len, const CellSlice&
   }
   auto res = dict_set(get_root_cell(), key, key_len, value, mode);
   if (res.second) {
-    //vm::CellSlice cs{vm::NoVm{}, res.first};
+    //vm::CellSlice cs{vm::NoVmOrd(), res.first};
     //std::cerr << "new augmented dictionary root is:\n";
     //cs.print_rec(std::cerr);
     set_root_cell(std::move(res.first));

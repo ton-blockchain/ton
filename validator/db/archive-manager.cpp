@@ -504,6 +504,13 @@ void ArchiveManager::load_package(PackageId id) {
     return;
   }
 
+  std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
+  auto f = td::FileFd::open(prefix + ".pack", td::FileFd::Read);
+  if (f.is_error()) {
+    x->deleted_ = true;
+    return;
+  }
+
   FileDescription desc{id, false};
   if (!id.temp) {
     for (auto &e : x->firstblocks_) {
@@ -512,7 +519,6 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
   desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.key, id.temp, prefix);
 
   get_file_map(id).emplace(id, std::move(desc));

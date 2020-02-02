@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "liteserver.hpp"
 #include "td/utils/Slice.h"
@@ -26,6 +26,7 @@
 #include "adnl/utils.hpp"
 #include "ton/lite-tl.hpp"
 #include "tl-utils/lite-utils.hpp"
+#include "td/utils/Random.h"
 #include "vm/boc.h"
 #include "tl/tlblib.hpp"
 #include "block/block.h"
@@ -33,6 +34,7 @@
 #include "block/block-auto.h"
 #include "vm/dict.h"
 #include "vm/cells/MerkleProof.h"
+#include "vm/continuation.h"
 #include "shard.hpp"
 #include "validator-set.hpp"
 #include "signature-set.hpp"
@@ -665,14 +667,14 @@ void LiteQuery::continue_getAccountState_0(Ref<ton::validator::MasterchainState>
 }
 
 void LiteQuery::perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode,
-                                     int method_id, td::BufferSlice params) {
+                                     td::int64 method_id, td::BufferSlice params) {
   LOG(INFO) << "started a runSmcMethod(" << blkid.to_str() << ", " << workchain << ", " << addr.to_hex() << ", "
             << method_id << ", " << mode << ") liteserver query with " << params.size() << " parameter bytes";
   if (params.size() >= 65536) {
     fatal_error("more than 64k parameter bytes passed");
     return;
   }
-  if (mode & ~0xf) {
+  if (mode & ~0x1f) {
     fatal_error("unsupported mode in runSmcMethod");
     return;
   }
@@ -984,7 +986,8 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
     return;
   }
   if (mode_ & 0x10000) {
-    finish_runSmcMethod(std::move(shard_proof), proof.move_as_ok(), std::move(acc_root));
+    finish_runSmcMethod(std::move(shard_proof), proof.move_as_ok(), std::move(acc_root), sstate.gen_utime,
+                        sstate.gen_lt);
     return;
   }
   td::BufferSlice data;
@@ -1003,11 +1006,112 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   finish_query(std::move(b));
 }
 
-void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root) {
+// same as in lite-client/lite-client-common.cpp
+static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, td::Ref<vm::CellSlice> my_addr,
+                                        const block::CurrencyCollection& balance) {
+  td::BitArray<256> rand_seed;
+  td::RefInt256 rand_seed_int{true};
+  td::Random::secure_bytes(rand_seed.as_slice());
+  if (!rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false)) {
+    return {};
+  }
+  auto tuple = vm::make_tuple_ref(td::make_refint(0x076ef1ea),  // [ magic:0x076ef1ea
+                                  td::make_refint(0),           //   actions:Integer
+                                  td::make_refint(0),           //   msgs_sent:Integer
+                                  td::make_refint(now),         //   unixtime:Integer
+                                  td::make_refint(lt),          //   block_lt:Integer
+                                  td::make_refint(lt),          //   trans_lt:Integer
+                                  std::move(rand_seed_int),     //   rand_seed:Integer
+                                  balance.as_vm_tuple(),        //   balance_remaining:[Integer (Maybe Cell)]
+                                  my_addr,                      //  myself:MsgAddressInt
+                                  vm::StackEntry());            //  global_config:(Maybe Cell) ] = SmartContractInfo;
+  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
+  return vm::make_tuple_ref(std::move(tuple));
+}
+
+void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root,
+                                    UnixTime gen_utime, LogicalTime gen_lt) {
   LOG(INFO) << "completing runSmcMethod() query";
-  // ... TODO ...
-  fatal_error("runSmcMethod not implemented");
-  return;
+  int mode = mode_ & 0xffff;
+  if (acc_root.is_null()) {
+    // no such account
+    LOG(INFO) << "runSmcMethod(" << acc_workchain_ << ":" << acc_addr_.to_hex()
+              << ") query completed: account state is empty";
+    auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_runMethodResult>(
+        mode, ton::create_tl_lite_block_id(base_blk_id_), ton::create_tl_lite_block_id(blk_id_), std::move(shard_proof),
+        std::move(state_proof), td::BufferSlice(), td::BufferSlice(), td::BufferSlice(), -0x100, td::BufferSlice());
+    finish_query(std::move(b));
+    return;
+  }
+  vm::MerkleProofBuilder pb{std::move(acc_root)};
+  block::gen::Account::Record_account acc;
+  block::gen::AccountStorage::Record store;
+  block::CurrencyCollection balance;
+  block::gen::StateInit::Record state_init;
+  if (!(tlb::unpack_cell(pb.root(), acc) && tlb::csr_unpack(std::move(acc.storage), store) &&
+        balance.validate_unpack(store.balance) && store.state->prefetch_ulong(1) == 1 &&
+        store.state.write().advance(1) && tlb::csr_unpack(std::move(store.state), state_init))) {
+    LOG(INFO) << "error unpacking account state, or account is frozen or uninitialized";
+    auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_runMethodResult>(
+        mode, ton::create_tl_lite_block_id(base_blk_id_), ton::create_tl_lite_block_id(blk_id_), std::move(shard_proof),
+        std::move(state_proof), mode & 2 ? pb.extract_proof_boc().move_as_ok() : td::BufferSlice(), td::BufferSlice(),
+        td::BufferSlice(), -0x100, td::BufferSlice());
+    finish_query(std::move(b));
+    return;
+  }
+  auto code = state_init.code->prefetch_ref();
+  auto data = state_init.data->prefetch_ref();
+  long long gas_limit = client_method_gas_limit;
+  LOG(DEBUG) << "creating VM with gas limit " << gas_limit;
+  // **** INIT VM ****
+  vm::GasLimits gas{gas_limit};
+  vm::VmState vm{std::move(code), std::move(stack_), gas, 1, std::move(data), vm::VmLog::Null()};
+  auto c7 = prepare_vm_c7(gen_utime, gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()), balance);
+  vm.set_c7(c7);  // tuple with SmartContractInfo
+  // vm.incr_stack_trace(1);    // enable stack dump after each step
+  LOG(INFO) << "starting VM to run GET-method of smart contract " << acc_workchain_ << ":" << acc_addr_.to_hex();
+  // **** RUN VM ****
+  int exit_code = ~vm.run();
+  LOG(DEBUG) << "VM terminated with exit code " << exit_code;
+  stack_ = vm.get_stack_ref();
+  LOG(INFO) << "runSmcMethod(" << acc_workchain_ << ":" << acc_addr_.to_hex() << ") query completed: exit code is "
+            << exit_code;
+  Ref<vm::Cell> cell;
+  td::BufferSlice c7_info, result;
+  if (mode & 8) {
+    // serialize c7
+    vm::CellBuilder cb;
+    if (!(vm::StackEntry{std::move(c7)}.serialize(cb) && cb.finalize_to(cell))) {
+      fatal_error("cannot serialize c7");
+      return;
+    }
+    auto res = vm::std_boc_serialize(std::move(cell));
+    if (res.is_error()) {
+      fatal_error("cannot serialize c7 : "s + res.move_as_error().to_string());
+      return;
+    }
+    c7_info = res.move_as_ok();
+  }
+  // pre-serialize stack always (to visit all data cells referred from the result)
+  vm::CellBuilder cb;
+  if (!(stack_->serialize(cb) && cb.finalize_to(cell))) {
+    fatal_error("cannot serialize resulting stack");
+    return;
+  }
+  if (mode & 4) {
+    // serialize stack if required
+    auto res = vm::std_boc_serialize(std::move(cell));
+    if (res.is_error()) {
+      fatal_error("cannot serialize resulting stack : "s + res.move_as_error().to_string());
+      return;
+    }
+    result = res.move_as_ok();
+  }
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_runMethodResult>(
+      mode, ton::create_tl_lite_block_id(base_blk_id_), ton::create_tl_lite_block_id(blk_id_), std::move(shard_proof),
+      std::move(state_proof), mode & 2 ? pb.extract_proof_boc().move_as_ok() : td::BufferSlice(), std::move(c7_info),
+      td::BufferSlice(), exit_code, std::move(result));
+  finish_query(std::move(b));
 }
 
 void LiteQuery::continue_getOneTransaction() {

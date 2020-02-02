@@ -965,6 +965,11 @@ x{F4B5} @Defop SUBDICTRPGET
 x{F4B6} @Defop SUBDICTIRPGET
 x{F4B7} @Defop SUBDICTURPGET
 
+x{F4BC} @Defop DICTIGETJMPZ
+x{F4BD} @Defop DICTUGETJMPZ
+x{F4BE} @Defop DICTIGETEXECZ
+x{F4BF} @Defop DICTUGETEXECZ
+
 //
 // blockchain-specific primitives
 
@@ -1117,7 +1122,7 @@ variable @gvarcnt
   @procdict dup @ swap null!
 } : }END
 forget @proclist  forget @proccnt
-{ }END <{ SETCP0 swap @procdictkeylen DICTPUSHCONST DICTIGETJMP 11 THROWARG }> } : }END>
+{ }END <{ SETCP0 swap @procdictkeylen DICTPUSHCONST DICTIGETJMPZ 11 THROWARG }> } : }END>
 { }END> b> } : }END>c
 { }END>c <s } : }END>s
 

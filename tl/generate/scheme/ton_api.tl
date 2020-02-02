@@ -614,3 +614,25 @@ engine.validator.createElectionBid election_date:int election_addr:string wallet
 engine.validator.checkDhtServers id:int256 = engine.validator.DhtServersStatus;
 
 engine.validator.controlQuery data:bytes = Object;
+
+
+---types---
+
+http.header name:string value:string = http.Header;
+http.payloadPart data:bytes trailer:(vector http.header) last:Bool = http.PayloadPart;
+http.response http_version:string status_code:int reason:string headers:(vector http.header) = http.Response;
+
+---functions---
+
+http.request id:int256 method:string url:string http_version:string headers:(vector http.header) = http.Response;
+http.getNextPayloadPart id:int256 seqno:int max_chunk_size:int = http.PayloadPart;
+
+---types---
+
+
+http.server.dnsEntry domain:string addr:adnl.id.short = http.server.DnsEntry;
+http.server.host domains:(vector string) ip:int port:int adnl_id:adnl.id.short = http.server.Host;
+
+http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.server.host) = http.server.Config;
+
+---functions---

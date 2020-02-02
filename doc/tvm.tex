@@ -2140,6 +2140,10 @@ These primitives are completely similar to their non-prefix code counterparts {\
 \item {\tt F4AA} --- {\tt PFXDICTGETJMP} ($s$ $D$ $n$ -- $s'$ $s''$ or $s$), similar to {\tt PFXDICTGETQ}, but on success {\tt BLESS}es the value $x$ into a {\em Continuation\/} and transfers control to it as if by a {\tt JMPX}. On failure, returns $s$ unchanged and continues execution.
 \item {\tt F4AB} --- {\tt PFXDICTGETEXEC} ($s$ $D$ $n$ -- $s'$ $s''$), similar to {\tt PFXDICTGETJMP}, but {\tt EXEC}utes the continuation found instead of jumping to it. On failure, throws a cell deserialization exception.
 \item {\tt F4AE\_$n$} --- {\tt PFXDICTCONSTGETJMP $n$} or {\tt PFXDICTSWITCH $n$} ($s$ -- $s'$ $s''$ or $s$), combines {\tt DICTPUSHCONST $n$} for $0\leq n\leq 1023$ with {\tt PFXDICTGETJMP}.
+\item {\tt F4BC} --- {\tt DICTIGETJMPZ} ($i$ $D$ $n$ -- $i$ or nothing), a variant of {\tt DICTIGETJMP} that returns index $i$ on failure.
+\item {\tt F4BD} --- {\tt DICTUGETJMPZ} ($i$ $D$ $n$ -- $i$ or nothing), a variant of {\tt DICTUGETJMP} that returns index $i$ on failure.
+\item {\tt F4BE} --- {\tt DICTIGETEXECZ} ($i$ $D$ $n$ -- $i$ or nothing), a variant of {\tt DICTIGETEXEC} that returns index $i$ on failure.
+\item {\tt F4BF} --- {\tt DICTUGETEXECZ} ($i$ $D$ $n$ -- $i$ or nothing), a variant of {\tt DICTUGETEXEC} that returns index $i$ on failure.
 \end{itemize}
 
 \nxsubpoint\label{sp:prim.dict.get}\emb{{\sc SubDict} dictionary operations}
@@ -2150,6 +2154,7 @@ These primitives are completely similar to their non-prefix code counterparts {\
 \item {\tt F4B5} --- {\tt SUBDICTRPGET} ($k$ $l$ $D$ $n$ -- $D'$), similar to {\tt SUBDICTGET}, but removes the common prefix $k$ from all keys of the new dictionary $D'$, which becomes of type $\HashmapE(n-l,X)$.
 \item {\tt F4B6} --- {\tt SUBDICTIRPGET} ($x$ $l$ $D$ $n$ -- $D'$), variant of {\tt SUBDICTRPGET} with the prefix represented by a signed big-endian $l$-bit {\em Integer\/}~$x$, where necessarily $l\leq257$.
 \item {\tt F4B7} --- {\tt SUBDICTURPGET} ($x$ $l$ $D$ $n$ -- $D'$), variant of {\tt SUBDICTRPGET} with the prefix represented by an unsigned big-endian $l$-bit {\em Integer\/}~$x$, where necessarily $l\leq256$.
+\item {\tt F4BC}--{\tt F4BF} --- used by {\tt DICT\dots Z} primitives in \ptref{sp:prim.dict.get.spec}.
 \end{itemize}
 
 \mysubsection{Application-specific primitives}\label{p:prim.app}

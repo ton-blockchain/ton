@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/as.h"
 #include "td/utils/base64.h"
@@ -570,6 +570,10 @@ static void test_full_split(Slice str, vector<Slice> expected) {
   ASSERT_EQ(expected, td::full_split(str));
 }
 
+static void test_full_split(Slice str, char c, size_t max_parts, vector<Slice> expected) {
+  ASSERT_EQ(expected, td::full_split(str, c, max_parts));
+}
+
 TEST(Misc, full_split) {
   test_full_split("", {});
   test_full_split(" ", {"", ""});
@@ -585,6 +589,7 @@ TEST(Misc, full_split) {
   test_full_split(" abcdef ", {"", "abcdef", ""});
   test_full_split(" ab cd ef ", {"", "ab", "cd", "ef", ""});
   test_full_split("  ab  cd  ef  ", {"", "", "ab", "", "cd", "", "ef", "", ""});
+  test_full_split("ab cd ef gh", ' ', 3, {"ab", "cd", "ef gh"});
 }
 
 TEST(Misc, StringBuilder) {

@@ -35,7 +35,7 @@ liteServer.blockState id:tonNode.blockIdExt root_hash:int256 file_hash:int256 da
 liteServer.blockHeader id:tonNode.blockIdExt mode:# header_proof:bytes = liteServer.BlockHeader;
 liteServer.sendMsgStatus status:int = liteServer.SendMsgStatus;
 liteServer.accountState id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:bytes proof:bytes state:bytes = liteServer.AccountState;
-liteServer.runMethodResult mode:# id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:bytes proof:bytes state_proof:bytes init_c7:bytes lib_extras:bytes exit_code:int result:bytes = liteServer.RunMethodResult;
+liteServer.runMethodResult mode:# id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:mode.0?bytes proof:mode.0?bytes state_proof:mode.1?bytes init_c7:mode.3?bytes lib_extras:mode.4?bytes exit_code:int result:mode.2?bytes = liteServer.RunMethodResult;
 liteServer.shardInfo id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:bytes shard_descr:bytes = liteServer.ShardInfo;
 liteServer.allShardsInfo id:tonNode.blockIdExt proof:bytes data:bytes = liteServer.AllShardsInfo;
 liteServer.transactionInfo id:tonNode.blockIdExt proof:bytes transaction:bytes = liteServer.TransactionInfo;
@@ -64,7 +64,7 @@ liteServer.getState id:tonNode.blockIdExt = liteServer.BlockState;
 liteServer.getBlockHeader id:tonNode.blockIdExt mode:# = liteServer.BlockHeader;
 liteServer.sendMessage body:bytes = liteServer.SendMsgStatus;
 liteServer.getAccountState id:tonNode.blockIdExt account:liteServer.accountId = liteServer.AccountState;
-liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountId method_id:int params:bytes = liteServer.RunMethodResult;
+liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountId method_id:long params:bytes = liteServer.RunMethodResult;
 liteServer.getShardInfo id:tonNode.blockIdExt workchain:int shard:long exact:Bool = liteServer.ShardInfo;
 liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo;
 liteServer.getOneTransaction id:tonNode.blockIdExt account:liteServer.accountId lt:long = liteServer.TransactionInfo;

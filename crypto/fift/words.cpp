@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "words.h"
 
@@ -1007,8 +1007,8 @@ void interpret_store_end(vm::Stack& stack, bool special) {
 
 void interpret_from_cell(vm::Stack& stack) {
   auto cell = stack.pop_cell();
-  Ref<vm::CellSlice> cs{true};
-  if (!cs.unique_write().load(vm::NoVmOrd(), std::move(cell))) {
+  Ref<vm::CellSlice> cs{true, vm::NoVmOrd(), std::move(cell)};
+  if (!cs->is_valid()) {
     throw IntError{"deserializing a special cell as ordinary"};
   }
   stack.push(cs);
@@ -1117,7 +1117,10 @@ void interpret_fetch_ref(vm::Stack& stack, int mode) {
       stack.push(std::move(cs));
     }
     if (mode & 1) {
-      Ref<vm::CellSlice> new_cs{true, vm::NoVm(), std::move(cell)};
+      Ref<vm::CellSlice> new_cs{true, vm::NoVmOrd(), std::move(cell)};
+      if (!new_cs->is_valid()) {
+        throw IntError{"cannot load ordinary cell"};
+      }
       stack.push(std::move(new_cs));
     } else {
       stack.push_cell(std::move(cell));

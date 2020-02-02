@@ -46,8 +46,14 @@ td::uint64 Package::append(std::string filename, td::Slice data, bool sync) {
   size += 8;
   CHECK(fd_.pwrite(filename, size).move_as_ok() == filename.size());
   size += filename.size();
-  CHECK(fd_.pwrite(data, size).move_as_ok() == data.size());
-  size += data.size();
+  while (data.size() != 0) {
+    auto R = fd_.pwrite(data, size);
+    R.ensure();
+    auto x = R.move_as_ok();
+    CHECK(x > 0);
+    size += x;
+    data.remove_prefix(x);
+  }
   if (sync) {
     fd_.sync().ensure();
   }

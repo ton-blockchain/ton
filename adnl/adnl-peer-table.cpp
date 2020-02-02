@@ -49,7 +49,7 @@ td::actor::ActorOwn<Adnl> Adnl::create(std::string db, td::actor::ActorId<keyrin
   return td::actor::ActorOwn<Adnl>(td::actor::create_actor<AdnlPeerTableImpl>("PeerTable", db, keyring));
 }
 
-void AdnlPeerTableImpl::receive_packet(td::BufferSlice data) {
+void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, td::BufferSlice data) {
   if (data.size() < 32) {
     VLOG(ADNL_WARNING) << this << ": dropping IN message [?->?]: message too short: len=" << data.size();
     return;
@@ -60,14 +60,14 @@ void AdnlPeerTableImpl::receive_packet(td::BufferSlice data) {
 
   auto it = local_ids_own_.find(dst);
   if (it != local_ids_own_.end()) {
-    td::actor::send_closure(it->second, &AdnlLocalId::receive, std::move(data));
+    td::actor::send_closure(it->second, &AdnlLocalId::receive, addr, std::move(data));
     return;
   }
 
   AdnlChannelIdShort dst_chan_id{dst.pubkey_hash()};
   auto it2 = channels_.find(dst_chan_id);
   if (it2 != channels_.end()) {
-    td::actor::send_closure(it2->second, &AdnlChannel::receive, std::move(data));
+    td::actor::send_closure(it2->second, &AdnlChannel::receive, addr, std::move(data));
     return;
   }
 
@@ -237,7 +237,7 @@ void AdnlPeerTableImpl::register_network_manager(td::actor::ActorId<AdnlNetworkM
   class Cb : public AdnlNetworkManager::Callback {
    public:
     void receive_packet(td::IPAddress addr, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &AdnlPeerTableImpl::receive_packet, std::move(data));
+      td::actor::send_closure(id_, &AdnlPeerTableImpl::receive_packet, addr, std::move(data));
     }
     Cb(td::actor::ActorId<AdnlPeerTableImpl> id) : id_(id) {
     }

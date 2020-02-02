@@ -59,7 +59,7 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message) {
   }
   received_messages_++;
   if (received_messages_ % 64 == 0) {
-    VLOG(ADNL_DEBUG) << this << ": received " << received_messages_ << "udp messages";
+    VLOG(ADNL_DEBUG) << this << ": received " << received_messages_ << " udp messages";
   }
 
   VLOG(ADNL_EXTRA_DEBUG) << this << ": received message of size " << message.data.size();

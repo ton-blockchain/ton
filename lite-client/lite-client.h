@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "adnl/adnl-ext-client.h"
@@ -117,11 +117,12 @@ class TestNode : public td::actor::Actor {
                          td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
                          ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string filename, int mode);
   bool parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                        std::string method_name);
-  void run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
+                        std::string method_name, bool ext_mode);
+  void run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
                       td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
                       ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string method,
-                      std::vector<vm::StackEntry> params);
+                      std::vector<vm::StackEntry> params, td::BufferSlice remote_c7, td::BufferSlice remote_libs,
+                      td::BufferSlice remote_result, int remote_exit_code);
   bool get_all_shards(bool use_last = true, ton::BlockIdExt blkid = {});
   void got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::BufferSlice data);
   bool get_config_params(ton::BlockIdExt blkid, int mode = 0, std::string filename = "");
@@ -181,6 +182,7 @@ class TestNode : public td::actor::Actor {
   static bool convert_uint32(td::Slice word, td::uint32& val);
   static bool convert_int32(td::Slice word, td::int32& val);
   static bool convert_shard_id(td::Slice str, ton::ShardIdFull& shard);
+  static td::int64 compute_method_id(std::string method);
   bool parse_hash(ton::Bits256& hash);
   bool parse_lt(ton::LogicalTime& lt);
   bool parse_uint32(td::uint32& val);

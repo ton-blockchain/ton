@@ -34,6 +34,8 @@
 
 #define MAX_POST_SIZE (64 << 10)
 
+extern bool local_scripts_;
+
 class CoreActorInterface : public td::actor::Actor {
  public:
   struct RemoteNodeStatus {

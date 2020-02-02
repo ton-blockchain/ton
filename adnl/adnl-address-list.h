@@ -88,6 +88,7 @@ class AdnlAddressList {
   void add_addr(AdnlAddress addr) {
     addrs_.push_back(addr);
   }
+  void update(td::IPAddress addr);
   bool public_only() const;
   td::uint32 size() const {
     return static_cast<td::uint32>(addrs_.size());
@@ -98,6 +99,7 @@ class AdnlAddressList {
   }
 
   static td::Result<AdnlAddressList> create(const tl_object_ptr<ton_api::adnl_addressList> &addr_list);
+  td::Status add_udp_address(td::IPAddress addr);
 };
 
 }  // namespace adnl

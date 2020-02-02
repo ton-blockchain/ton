@@ -639,6 +639,10 @@ int main(int argc, char* argv[]) {
     td::actor::send_closure(x, &CoreActor::set_http_port, td::to_integer<td::uint32>(arg));
     return td::Status::OK();
   });
+  p.add_option('L', "local-scripts", "use local copy of ajax/bootstrap/... JS", [&]() {
+    local_scripts = true;
+    return td::Status::OK();
+  });
 #if TD_DARWIN || TD_LINUX
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     auto FileLog = td::FileFd::open(td::CSlice(fname.str().c_str()),

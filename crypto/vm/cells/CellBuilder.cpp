@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells/CellBuilder.h"
 
@@ -460,6 +460,16 @@ bool CellBuilder::append_cellslice_chk(Ref<CellSlice> cs_ref, unsigned size_ext)
   return cs_ref.not_null() && append_cellslice_chk(*cs_ref, size_ext);
 }
 
+CellSlice CellSlice::clone() const {
+  CellBuilder cb;
+  Ref<Cell> cell;
+  if (cb.append_cellslice_bool(*this) && cb.finalize_to(cell)) {
+    return CellSlice{NoVmOrd(), std::move(cell)};
+  } else {
+    return {};
+  }
+}
+
 bool CellBuilder::append_bitstring(const td::BitString& bs) {
   return store_bits_bool(bs.cbits(), bs.size());
 }
@@ -536,11 +546,11 @@ CellBuilder* CellBuilder::make_copy() const {
   return c;
 }
 
-CellSlice CellBuilder::as_cellslice() const& {
+CellSlice CellBuilder::as_cellslice() const & {
   return CellSlice{finalize_copy()};
 }
 
-Ref<CellSlice> CellBuilder::as_cellslice_ref() const& {
+Ref<CellSlice> CellBuilder::as_cellslice_ref() const & {
   return Ref<CellSlice>{true, finalize_copy()};
 }
 

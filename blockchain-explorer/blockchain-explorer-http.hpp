@@ -33,6 +33,8 @@
 #include "td/utils/Random.h"
 #include "block/block.h"
 
+extern bool local_scripts;
+
 class HttpAnswer {
  public:
   struct MessageCell {

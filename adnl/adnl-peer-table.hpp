@@ -43,7 +43,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) override;
   void add_static_nodes_from_config(AdnlNodesList nodes) override;
 
-  void receive_packet(td::BufferSlice data) override;
+  void receive_packet(td::IPAddress addr, td::BufferSlice data) override;
   void receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket data) override;
   void send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message) override;
   void send_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override {

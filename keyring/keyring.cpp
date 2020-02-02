@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "keyring.hpp"
 #include "common/errorcode.h"
@@ -28,13 +28,19 @@ namespace ton {
 namespace keyring {
 
 void KeyringImpl::start_up() {
-  td::mkdir(db_root_).ensure();
+  if (db_root_.size() > 0) {
+    td::mkdir(db_root_).ensure();
+  }
 }
 
 td::Result<KeyringImpl::PrivateKeyDescr *> KeyringImpl::load_key(PublicKeyHash key_hash) {
   auto it = map_.find(key_hash);
   if (it != map_.end()) {
     return it->second.get();
+  }
+
+  if (db_root_.size() == 0) {
+    return td::Status::Error(ErrorCode::notready, "key not in db");
   }
 
   auto name = db_root_ + "/" + key_hash.bits256_value().to_hex();
@@ -66,6 +72,9 @@ void KeyringImpl::add_key(PrivateKey key, bool is_temp, td::Promise<td::Unit> pr
     LOG(WARNING) << "duplicate key " << short_id;
     promise.set_value(td::Unit());
     return;
+  }
+  if (db_root_.size() == 0) {
+    CHECK(is_temp);
   }
   auto D = key.create_decryptor_async();
   D.ensure();
@@ -103,6 +112,9 @@ void KeyringImpl::add_key_short(PublicKeyHash key_hash, td::Promise<PublicKey> p
 
 void KeyringImpl::del_key(PublicKeyHash key_hash, td::Promise<td::Unit> promise) {
   map_.erase(key_hash);
+  if (db_root_.size() == 0) {
+    return promise.set_value(td::Unit());
+  }
   auto name = db_root_ + "/" + key_hash.bits256_value().to_hex();
   td::BufferSlice d{256};
   td::Random::secure_bytes(d.as_slice());

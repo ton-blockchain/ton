@@ -28,6 +28,7 @@ class PackageReader : public td::actor::Actor {
   }
   void start_up() {
     promise_.set_result(package_->read(offset_));
+    stop();
   }
 
  private:

@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "blockchain-explorer-http.hpp"
 #include "block/block-db.h"
@@ -35,6 +35,8 @@
 #include "vm/cells/MerkleProof.h"
 #include "block/mc-config.h"
 #include "ton/ton-shard.h"
+
+bool local_scripts{false};
 
 HttpAnswer& HttpAnswer::operator<<(AddressCell addr_c) {
   ton::WorkchainId wc;
@@ -425,7 +427,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
 
 HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
   *this << "<div>";
-  vm::CellSlice cs{vm::NoVm{}, head_c.root};
+  vm::CellSlice cs{vm::NoVm(), head_c.root};
   auto block_id = head_c.block_id;
   try {
     auto virt_root = vm::MerkleProof::virtualize(head_c.root, 1);
@@ -676,13 +678,17 @@ std::string HttpAnswer::header() {
            "maximum-scale=1.0, user-scalable=no\" />\n"
         << "<meta name=\"format-detection\" content=\"telephone=no\" />\n"
         << "<!-- Latest compiled and minified CSS -->\n"
-        << "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
+        << "<link rel=\"stylesheet\" href=\"" << (local_scripts ? "/" : "https://")
+        << "maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
         << "<!-- jQuery library -->"
-        << "<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js\"></script>\n"
         << "<!-- Popper JS -->\n"
-        << "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js\"></script>\n"
         << "<!-- Latest compiled JavaScript -->\n"
-        << "<script src=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js\"></script>\n"
         << "</head><body>\n"
         << "<div class=\"container-fluid\">\n"
         << "<nav class=\"navbar navbar-expand px-0 mt-1 flex-wrap\">\n"

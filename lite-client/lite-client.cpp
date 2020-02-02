@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "lite-client.h"
 
@@ -800,7 +800,7 @@ bool TestNode::show_help(std::string command) {
          "saveaccount[code|data] <filename> <addr> [<block-id-ext>]\tSaves into specified file the most recent state "
          "(StateInit) or just the code or data of specified account; <addr> is in "
          "[<workchain>:]<hex-or-base64-addr> format\n"
-         "runmethod <addr> [<block-id-ext>] <method-id> <params>...\tRuns GET method <method-id> of account <addr> "
+         "runmethod[x] <addr> [<block-id-ext>] <method-id> <params>...\tRuns GET method <method-id> of account <addr> "
          "with specified parameters\n"
          "allshards [<block-id-ext>]\tShows shard configuration from the most recent masterchain "
          "state or from masterchain state corresponding to <block-id-ext>\n"
@@ -871,11 +871,11 @@ bool TestNode::do_parse_line() {
            (seekeoln()
                 ? get_account_state(workchain, addr, mc_last_id_, filename, mode)
                 : parse_block_id_ext(blkid) && seekeoln() && get_account_state(workchain, addr, blkid, filename, mode));
-  } else if (word == "runmethod") {
+  } else if (word == "runmethod" || word == "runmethodx") {
     std::string method;
     return parse_account_addr(workchain, addr) && get_word_to(method) &&
            (parse_block_id_ext(method, blkid) ? get_word_to(method) : (blkid = mc_last_id_).is_valid()) &&
-           parse_run_method(workchain, addr, blkid, method);
+           parse_run_method(workchain, addr, blkid, method, word.size() > 9);
   } else if (word == "allshards") {
     return eoln() ? get_all_shards() : (parse_block_id_ext(blkid) && seekeoln() && get_all_shards(false, blkid));
   } else if (word == "saveconfig") {
@@ -1015,8 +1015,16 @@ bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress 
   });
 }
 
+td::int64 TestNode::compute_method_id(std::string method) {
+  td::int64 method_id;
+  if (!convert_int64(method, method_id)) {
+    method_id = (td::crc16(td::Slice{method}) & 0xffff) | 0x10000;
+  }
+  return method_id;
+}
+
 bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                                std::string method_name) {
+                                std::string method_name, bool ext_mode) {
   auto R = vm::parse_stack_entries(td::Slice(parse_ptr_, parse_end_));
   if (R.is_error()) {
     return set_error(R.move_as_error().to_string());
@@ -1030,28 +1038,69 @@ bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress a
     return set_error("server connection not ready");
   }
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(workchain, addr);
-  auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
-                                        ton::create_tl_lite_block_id(ref_blkid), std::move(a)),
-                                    true);
-  LOG(INFO) << "requesting account state for " << workchain << ":" << addr.to_hex() << " with respect to "
-            << ref_blkid.to_str() << " to run method " << method_name << " with " << params.size() << " parameters";
-  return envelope_send_query(
-      std::move(b), [ Self = actor_id(this), workchain, addr, ref_blkid, method_name,
-                      params = std::move(params) ](td::Result<td::BufferSlice> R) mutable {
-        if (R.is_error()) {
-          return;
-        }
-        auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
-        if (F.is_error()) {
-          LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
-        } else {
-          auto f = F.move_as_ok();
-          td::actor::send_closure_later(Self, &TestNode::run_smc_method, ref_blkid, ton::create_block_id(f->id_),
-                                        ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
-                                        std::move(f->proof_), std::move(f->state_), workchain, addr, method_name,
-                                        std::move(params));
-        }
-      });
+  int mode = (ext_mode ? 0x1f : 0);
+  if (!mode) {
+    auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
+                                          ton::create_tl_lite_block_id(ref_blkid), std::move(a)),
+                                      true);
+    LOG(INFO) << "requesting account state for " << workchain << ":" << addr.to_hex() << " with respect to "
+              << ref_blkid.to_str() << " to run method " << method_name << " with " << params.size() << " parameters";
+    return envelope_send_query(
+        std::move(b), [ Self = actor_id(this), workchain, addr, ref_blkid, method_name,
+                        params = std::move(params) ](td::Result<td::BufferSlice> R) mutable {
+          if (R.is_error()) {
+            return;
+          }
+          auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
+          if (F.is_error()) {
+            LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
+          } else {
+            auto f = F.move_as_ok();
+            td::actor::send_closure_later(Self, &TestNode::run_smc_method, 0, ref_blkid, ton::create_block_id(f->id_),
+                                          ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
+                                          std::move(f->proof_), std::move(f->state_), workchain, addr, method_name,
+                                          std::move(params), td::BufferSlice(), td::BufferSlice(), td::BufferSlice(),
+                                          -0x10000);
+          }
+        });
+  } else {
+    td::int64 method_id = compute_method_id(method_name);
+    // serialize parameters
+    vm::CellBuilder cb;
+    Ref<vm::Cell> cell;
+    if (!(vm::Stack{params}.serialize(cb) && cb.finalize_to(cell))) {
+      return set_error("cannot serialize stack with get-method parameters");
+    }
+    auto stk = vm::std_boc_serialize(std::move(cell));
+    if (stk.is_error()) {
+      return set_error("cannot serialize stack with get-method parameters : "s + stk.move_as_error().to_string());
+    }
+    auto b = ton::serialize_tl_object(
+        ton::create_tl_object<ton::lite_api::liteServer_runSmcMethod>(mode, ton::create_tl_lite_block_id(ref_blkid),
+                                                                      std::move(a), method_id, stk.move_as_ok()),
+        true);
+    LOG(INFO) << "requesting remote get-method execution for " << workchain << ":" << addr.to_hex()
+              << " with respect to " << ref_blkid.to_str() << " to run method " << method_name << " with "
+              << params.size() << " parameters";
+    return envelope_send_query(std::move(b), [
+      Self = actor_id(this), workchain, addr, ref_blkid, method_name, mode, params = std::move(params)
+    ](td::Result<td::BufferSlice> R) mutable {
+      if (R.is_error()) {
+        return;
+      }
+      auto F = ton::fetch_tl_object<ton::lite_api::liteServer_runMethodResult>(R.move_as_ok(), true);
+      if (F.is_error()) {
+        LOG(ERROR) << "cannot parse answer to liteServer.runSmcMethod";
+      } else {
+        auto f = F.move_as_ok();
+        td::actor::send_closure_later(Self, &TestNode::run_smc_method, mode, ref_blkid, ton::create_block_id(f->id_),
+                                      ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
+                                      std::move(f->proof_), std::move(f->state_proof_), workchain, addr, method_name,
+                                      std::move(params), std::move(f->init_c7_), std::move(f->lib_extras_),
+                                      std::move(f->result_), f->exit_code_);
+      }
+    });
+  }
 }
 
 bool TestNode::get_one_transaction(ton::BlockIdExt blkid, ton::WorkchainId workchain, ton::StdSmcAddress addr,
@@ -1212,87 +1261,147 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
   }
 }
 
-void TestNode::run_smc_method(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
+void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
                               td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
                               ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string method,
-                              std::vector<vm::StackEntry> params) {
-  LOG(INFO) << "got account state for " << workchain << ":" << addr.to_hex() << " with respect to blocks "
-            << blk.to_str() << (shard_blk == blk ? "" : std::string{" and "} + shard_blk.to_str());
-  block::AccountState account_state;
-  account_state.blk = blk;
-  account_state.shard_blk = shard_blk;
-  account_state.shard_proof = std::move(shard_proof);
-  account_state.proof = std::move(proof);
-  account_state.state = std::move(state);
-  auto r_info = account_state.validate(ref_blk, block::StdAddress(workchain, addr));
-  if (r_info.is_error()) {
-    LOG(ERROR) << r_info.error().message();
-    return;
-  }
+                              std::vector<vm::StackEntry> params, td::BufferSlice remote_c7,
+                              td::BufferSlice remote_libs, td::BufferSlice remote_result, int remote_exit_code) {
+  LOG(INFO) << "got (partial) account state with mode=" << mode << " for " << workchain << ":" << addr.to_hex()
+            << " with respect to blocks " << blk.to_str()
+            << (shard_blk == blk ? "" : std::string{" and "} + shard_blk.to_str());
   auto out = td::TerminalIO::out();
-  auto info = r_info.move_as_ok();
-  if (info.root.is_null()) {
-    LOG(ERROR) << "account state of " << workchain << ":" << addr.to_hex() << " is empty (cannot run method `" << method
-               << "`)";
-    return;
-  }
-  block::gen::Account::Record_account acc;
-  block::gen::AccountStorage::Record store;
-  block::CurrencyCollection balance;
-  if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) &&
-        balance.validate_unpack(store.balance))) {
-    LOG(ERROR) << "error unpacking account state";
-    return;
-  }
-  int tag = block::gen::t_AccountState.get_tag(*store.state);
-  switch (tag) {
-    case block::gen::AccountState::account_uninit:
-      LOG(ERROR) << "account " << workchain << ":" << addr.to_hex() << " not initialized yet (cannot run any methods)";
+  try {
+    block::AccountState account_state;
+    account_state.blk = blk;
+    account_state.shard_blk = shard_blk;
+    account_state.shard_proof = std::move(shard_proof);
+    account_state.proof = std::move(proof);
+    LOG(DEBUG) << "serialized state is " << state.size() << " bytes";
+    LOG(DEBUG) << "serialized remote c7 is " << remote_c7.size() << " bytes";
+    account_state.state = std::move(state);
+    account_state.is_virtualized = (mode > 0);
+    auto r_info = account_state.validate(ref_blk, block::StdAddress(workchain, addr));
+    if (r_info.is_error()) {
+      LOG(ERROR) << r_info.error().message();
       return;
-    case block::gen::AccountState::account_frozen:
-      LOG(ERROR) << "account " << workchain << ":" << addr.to_hex() << " frozen (cannot run any methods)";
+    }
+    auto out = td::TerminalIO::out();
+    auto info = r_info.move_as_ok();
+    if (info.root.is_null()) {
+      LOG(ERROR) << "account state of " << workchain << ":" << addr.to_hex() << " is empty (cannot run method `"
+                 << method << "`)";
       return;
-  }
-  CHECK(store.state.write().fetch_ulong(1) == 1);  // account_init$1 _:StateInit = AccountState;
-  block::gen::StateInit::Record state_init;
-  CHECK(tlb::csr_unpack(store.state, state_init));
-  auto code = state_init.code->prefetch_ref();
-  auto data = state_init.data->prefetch_ref();
-  auto stack = td::make_ref<vm::Stack>(std::move(params));
-  td::int64 method_id;
-  if (!convert_int64(method, method_id)) {
-    method_id = (td::crc16(td::Slice{method}) & 0xffff) | 0x10000;
-  }
-  stack.write().push_smallint(method_id);
-  {
-    std::ostringstream os;
-    os << "arguments: ";
-    stack->dump(os, 3);
-    out << os.str();
-  }
-  long long gas_limit = vm::GasLimits::infty;
-  // OstreamLogger ostream_logger(ctx.error_stream);
-  // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{gas_limit};
-  LOG(DEBUG) << "creating VM";
-  vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
-  vm.set_c7(liteclient::prepare_vm_c7(info.gen_utime, info.gen_lt, acc.addr, balance));  // tuple with SmartContractInfo
-  // vm.incr_stack_trace(1);    // enable stack dump after each step
-  LOG(INFO) << "starting VM to run method `" << method << "` (" << method_id << ") of smart contract " << workchain
-            << ":" << addr.to_hex();
-  int exit_code = ~vm.run();
-  LOG(DEBUG) << "VM terminated with exit code " << exit_code;
-  if (exit_code != 0) {
-    LOG(ERROR) << "VM terminated with error code " << exit_code;
-    out << "result: error " << exit_code << std::endl;
-    return;
-  }
-  stack = vm.get_stack_ref();
-  {
-    std::ostringstream os;
-    os << "result: ";
-    stack->dump(os, 3);
-    out << os.str();
+    }
+    if (false) {
+      // DEBUG (dump state)
+      std::ostringstream os;
+      vm::CellSlice{vm::NoVm(), info.true_root}.print_rec(os);
+      out << "dump of account state (proof): " << os.str() << std::endl;
+    }
+    if (false && remote_c7.size()) {
+      // DEBUG (dump remote_c7)
+      auto r_c7 = vm::std_boc_deserialize(remote_c7).move_as_ok();
+      std::ostringstream os;
+      vm::StackEntry val;
+      bool ok = val.deserialize(r_c7);
+      val.dump(os);
+      // os << std::endl;
+      // block::gen::t_VmStackValue.print_ref(os, r_c7);
+      // os << std::endl;
+      // vm::CellSlice{vm::NoVmOrd(), r_c7}.print_rec(os);
+      out << "remote_c7 (deserialized=" << ok << "): " << os.str() << std::endl;
+    }
+    block::gen::Account::Record_account acc;
+    block::gen::AccountStorage::Record store;
+    block::CurrencyCollection balance;
+    if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) &&
+          balance.validate_unpack(store.balance))) {
+      LOG(ERROR) << "error unpacking account state";
+      return;
+    }
+    int tag = block::gen::t_AccountState.get_tag(*store.state);
+    switch (tag) {
+      case block::gen::AccountState::account_uninit:
+        LOG(ERROR) << "account " << workchain << ":" << addr.to_hex()
+                   << " not initialized yet (cannot run any methods)";
+        return;
+      case block::gen::AccountState::account_frozen:
+        LOG(ERROR) << "account " << workchain << ":" << addr.to_hex() << " frozen (cannot run any methods)";
+        return;
+    }
+    CHECK(store.state.write().fetch_ulong(1) == 1);  // account_init$1 _:StateInit = AccountState;
+    block::gen::StateInit::Record state_init;
+    CHECK(tlb::csr_unpack(store.state, state_init));
+    auto code = state_init.code->prefetch_ref();
+    auto data = state_init.data->prefetch_ref();
+    auto stack = td::make_ref<vm::Stack>(std::move(params));
+    td::int64 method_id = compute_method_id(method);
+    stack.write().push_smallint(method_id);
+    {
+      std::ostringstream os;
+      os << "arguments: ";
+      stack->dump(os, 3);
+      out << os.str();
+    }
+    long long gas_limit = vm::GasLimits::infty;
+    // OstreamLogger ostream_logger(ctx.error_stream);
+    // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
+    vm::GasLimits gas{gas_limit};
+    LOG(DEBUG) << "creating VM";
+    vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
+    vm.set_c7(liteclient::prepare_vm_c7(info.gen_utime, info.gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()),
+                                        balance));  // tuple with SmartContractInfo
+    // vm.incr_stack_trace(1);    // enable stack dump after each step
+    LOG(INFO) << "starting VM to run method `" << method << "` (" << method_id << ") of smart contract " << workchain
+              << ":" << addr.to_hex();
+    int exit_code = ~vm.run();
+    LOG(DEBUG) << "VM terminated with exit code " << exit_code;
+    if (mode > 0) {
+      LOG(DEBUG) << "remote VM exit code is " << remote_exit_code;
+    }
+    if (exit_code != 0) {
+      LOG(ERROR) << "VM terminated with error code " << exit_code;
+      out << "result: error " << exit_code << std::endl;
+      return;
+    }
+    stack = vm.get_stack_ref();
+    {
+      std::ostringstream os;
+      os << "result: ";
+      stack->dump(os, 3);
+      out << os.str();
+    }
+    if (mode & 4) {
+      if (remote_result.empty()) {
+        out << "remote result: <none>, exit code " << remote_exit_code;
+      } else {
+        auto res = vm::std_boc_deserialize(std::move(remote_result));
+        if (res.is_error()) {
+          LOG(ERROR) << "cannot deserialize remote VM result boc: " << res.move_as_error();
+          return;
+        }
+        auto cs = vm::load_cell_slice(res.move_as_ok());
+        Ref<vm::Stack> remote_stack;
+        if (!(vm::Stack::deserialize_to(cs, remote_stack, 0) && cs.empty_ext())) {
+          LOG(ERROR) << "remote VM result boc cannot be deserialized as a VmStack";
+          return;
+        }
+        std::ostringstream os;
+        os << "remote result (not to be trusted): ";
+        remote_stack->dump(os, 3);
+        out << os.str();
+      }
+    }
+    if (0) {  // DEBUG
+      std::ostringstream os;
+      LOG(DEBUG) << "dumping constructed proof";
+      //vm::CellSlice{vm::NoVm(), pb.extract_proof()}.print_rec(os);
+      out << "constructed state proof: " << os.str();
+    }
+  } catch (vm::VmVirtError& err) {
+    out << "virtualization error while parsing runSmcMethod result: " << err.get_msg();
+  } catch (vm::VmError& err) {
+    out << "error while parsing runSmcMethod result: " << err.get_msg();
   }
 }
 
@@ -2062,7 +2171,7 @@ void TestNode::got_block_header(ton::BlockIdExt blkid, td::BufferSlice data, int
   }
   auto root = res.move_as_ok();
   std::ostringstream outp;
-  vm::CellSlice cs{vm::NoVm{}, root};
+  vm::CellSlice cs{vm::NoVm(), root};
   cs.print_rec(outp);
   td::TerminalIO::out() << outp.str();
   try {

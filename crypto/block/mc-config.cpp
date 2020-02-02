@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "mc-config.h"
 #include "block/block.h"
@@ -752,8 +752,8 @@ Ref<McShardDescr> McShardDescr::from_block(Ref<vm::Cell> block_root, Ref<vm::Cel
     return {};
   }
   // TODO: use a suitable vm::MerkleUpdate method here
-  vm::CellSlice cs(vm::NoVm(), rec.state_update);
-  if (cs.special_type() != vm::Cell::SpecialType::MerkleUpdate) {
+  vm::CellSlice cs(vm::NoVmSpec(), rec.state_update);
+  if (!cs.is_valid() || cs.special_type() != vm::Cell::SpecialType::MerkleUpdate) {
     LOG(ERROR) << "state update in a block is not a Merkle update";
     return {};
   }
@@ -870,7 +870,7 @@ bool ShardConfig::get_shard_hash_raw_from(vm::Dictionary& dict, vm::CellSlice& c
   unsigned long long z = id.shard, m = std::numeric_limits<unsigned long long>::max();
   int len = id.pfx_len();
   while (true) {
-    cs.load(vm::NoVmOrd{}, leaf ? root : std::move(root));
+    cs.load(vm::NoVmOrd(), leaf ? root : std::move(root));
     int t = (int)cs.fetch_ulong(1);
     if (t < 0) {
       return false;  // throw DictError ?
@@ -1108,7 +1108,7 @@ std::vector<ton::BlockId> ShardConfig::get_shard_hash_ids(
             std::stack<std::pair<Ref<vm::Cell>, unsigned long long>> stack;
             stack.emplace(cs_ref->prefetch_ref(), ton::shardIdAll);
             while (!stack.empty()) {
-              vm::CellSlice cs{vm::NoVm{}, std::move(stack.top().first)};
+              vm::CellSlice cs{vm::NoVmOrd(), std::move(stack.top().first)};
               unsigned long long shard = stack.top().second;
               stack.pop();
               int t = (int)cs.fetch_ulong(1);

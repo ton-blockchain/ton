@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "ton/ton-types.h"
@@ -60,13 +60,14 @@ class LiteQuery : public td::actor::Actor {
 
  public:
   enum {
-    default_timeout_msec = 4500,  // 4.5 seconds
-    max_transaction_count = 16    // fetch at most 16 transactions in one query
+    default_timeout_msec = 4500,      // 4.5 seconds
+    max_transaction_count = 16,       // fetch at most 16 transactions in one query
+    client_method_gas_limit = 100000  // gas limit for liteServer.runSmcMethod
   };
   enum {
     ls_version = 0x101,
-    ls_capabilities = 3
-  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt
+    ls_capabilities = 7
+  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::Promise<td::BufferSlice> promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
@@ -97,9 +98,10 @@ class LiteQuery : public td::actor::Actor {
   void continue_getAccountState_0(Ref<MasterchainState> mc_state, BlockIdExt blkid);
   void continue_getAccountState();
   void finish_getAccountState(td::BufferSlice shard_proof);
-  void perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode, int method_id,
+  void perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode, td::int64 method_id,
                             td::BufferSlice params);
-  void finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root);
+  void finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root,
+                           UnixTime gen_utime, LogicalTime gen_lt);
   void perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt);
   void continue_getOneTransaction();
   void perform_getTransactions(WorkchainId workchain, StdSmcAddress addr, LogicalTime lt, Bits256 hash, unsigned count);

@@ -155,6 +155,16 @@ td::Result<AdnlAddressList> AdnlAddressList::create(const tl_object_ptr<ton_api:
   return A;
 }
 
+td::Status AdnlAddressList::add_udp_address(td::IPAddress addr) {
+  if (addr.is_ipv4()) {
+    auto r = td::make_ref<AdnlAddressUdp>(addr.get_ipv4(), static_cast<td::uint16>(addr.get_port()));
+    addrs_.push_back(std::move(r));
+    return td::Status::OK();
+  } else {
+    return td::Status::Error(ErrorCode::protoviolation, "only works with ipv4");
+  }
+}
+
 }  // namespace adnl
 
 }  // namespace ton
