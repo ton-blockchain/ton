@@ -12,7 +12,7 @@ $1 "new-wallet" replace-if-null =: file-base
 file-base +".addr" dup ."Loading wallet address from " type cr file>B 32 B| 
 dup Blen { 32 B>i@ } { drop Basechain } cond constant wallet_wc
 256 B>u@ dup constant wallet_addr
-."Source wallet address = " wallet_wc ._ .":" x. cr
+."Source wallet address = " wallet_wc ._ .":" 64 0x. cr
 wallet_wc wallet_addr 2dup 7 smca>$ ."Non-bounceable address (for init only): " type cr
 6 smca>$ ."Bounceable address (for later access): " type cr
 
