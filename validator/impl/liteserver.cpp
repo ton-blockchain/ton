@@ -34,7 +34,7 @@
 #include "block/block-auto.h"
 #include "vm/dict.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/continuation.h"
+#include "vm/vm.h"
 #include "shard.hpp"
 #include "validator-set.hpp"
 #include "signature-set.hpp"

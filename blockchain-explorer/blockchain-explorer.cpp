@@ -23,7 +23,7 @@
     from all source files in the program, then also delete it here.
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl-ext-client.h"
 #include "adnl/utils.hpp"
@@ -52,7 +52,6 @@
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/continuation.h"
 #include "vm/cp0.h"
 
 #include "auto/tl/lite_api.h"

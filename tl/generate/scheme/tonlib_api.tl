@@ -8,6 +8,9 @@ bytes = Bytes;
 secureString = SecureString;
 secureBytes = SecureBytes;
 
+object ? = Object;
+function ? = Function;
+
 boolFalse = Bool;
 boolTrue = Bool;
 
@@ -22,7 +25,7 @@ keyStoreTypeInMemory = KeyStoreType;
 config config:string blockchain_name:string use_callbacks_for_network:Bool ignore_cache:Bool = Config;
 
 options config:config keystore_type:KeyStoreType = Options;
-options.configInfo default_wallet_id:int53 = options.ConfigInfo;
+options.configInfo default_wallet_id:int64 = options.ConfigInfo;
 options.info config_info:options.configInfo = options.Info;
 
 key public_key:string secret:secureBytes = Key;
@@ -35,48 +38,83 @@ exportedEncryptedKey data:secureBytes = ExportedEncryptedKey;
 bip39Hints words:vector<string> = Bip39Hints;
 
 accountAddress account_address:string = AccountAddress;
+accountRevisionList revisions:vector<int32> = AccountRevisionList;
 
 unpackedAccountAddress workchain_id:int32 bounceable:Bool testnet:Bool addr:bytes = UnpackedAccountAddress;
 
 internal.transactionId lt:int64 hash:bytes = internal.TransactionId;
 
-raw.initialAccountState code:bytes data:bytes = raw.InitialAccountState;
-raw.accountState balance:int64 code:bytes data:bytes last_transaction_id:internal.transactionId frozen_hash:bytes sync_utime:int53 = raw.AccountState;
+ton.blockId workchain:int32 shard:int64 seqno:int32 = internal.BlockId;
+ton.blockIdExt workchain:int32 shard:int64 seqno:int32 root_hash:bytes file_hash:bytes = ton.BlockIdExt;
+
+raw.fullAccountState balance:int64 code:bytes data:bytes last_transaction_id:internal.transactionId block_id:ton.blockIdExt frozen_hash:bytes sync_utime:int53 = raw.FullAccountState;
 raw.message source:string destination:string value:int64 fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes message:bytes = raw.Message;
 raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
-testWallet.initialAccountState public_key:string = testWallet.InitialAccountState;
-testWallet.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53 = testWallet.AccountState;
+raw.initialAccountState code:bytes data:bytes = InitialAccountState;
+testGiver.initialAccountState = InitialAccountState;
+testWallet.initialAccountState public_key:string = InitialAccountState;
+wallet.initialAccountState public_key:string = InitialAccountState;
+wallet.v3.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
+wallet.highload.v1.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
+wallet.highload.v2.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
+dns.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
 
-wallet.initialAccountState public_key:string = wallet.InitialAccountState;
-wallet.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53 = wallet.AccountState;
+raw.accountState code:bytes data:bytes frozen_hash:bytes = AccountState;
+testWallet.accountState seqno:int32 = AccountState;
+wallet.accountState seqno:int32 = AccountState;
+wallet.v3.accountState wallet_id:int64 seqno:int32 = AccountState;
+wallet.highload.v1.accountState wallet_id:int64 seqno:int32 = AccountState;
+wallet.highload.v2.accountState wallet_id:int64 = AccountState;
+testGiver.accountState seqno:int32 = AccountState;
+dns.accountState wallet_id:int64 = AccountState;
+uninited.accountState frozen_hash:bytes = AccountState;
 
-wallet.v3.initialAccountState public_key:string wallet_id:int53 = wallet.v3.InitialAccountState;
-wallet.v3.accountState balance:int64 wallet_id:int53 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53 = wallet.v3.AccountState;
-
-testGiver.accountState balance:int64 seqno:int32 last_transaction_id:internal.transactionId sync_utime:int53= testGiver.AccountState;
-
-uninited.accountState balance:int64 last_transaction_id:internal.transactionId frozen_hash:bytes sync_utime:int53 = uninited.AccountState;
-
-//generic.initialAccountStateRaw initital_account_state:raw.initialAccountState = generic.InitialAccountState;
-//generic.initialAccountStateTestWallet initital_account_state:testWallet.initialAccountState = generic.InitialAccountState;
-//generic.initialAccountStateWallet initital_account_state:wallet.initialAccountState = generic.InitialAccountState;
-
-generic.accountStateRaw account_state:raw.accountState = generic.AccountState;
-generic.accountStateTestWallet account_state:testWallet.accountState = generic.AccountState;
-generic.accountStateWallet account_state:wallet.accountState = generic.AccountState;
-generic.accountStateWalletV3 account_state:wallet.v3.accountState = generic.AccountState;
-generic.accountStateTestGiver account_state:testGiver.accountState = generic.AccountState;
-generic.accountStateUninited account_state:uninited.accountState = generic.AccountState;
-
-sendGramsResult sent_until:int53 body_hash:bytes = SendGramsResult;
+fullAccountState balance:int64 last_transaction_id:internal.transactionId block_id:ton.blockIdExt sync_utime:int53 account_state:AccountState = FullAccountState;
 
 syncStateDone = SyncState;
 syncStateInProgress from_seqno:int32 to_seqno:int32 current_seqno:int32 = SyncState;
 
-fees in_fwd_fee:int53 storage_fee:int53 gas_fee:int53 fwd_fee:int53= Fees;
-query.fees source_fees:fees destination_fees:fees = query.Fees;
+//
+// MSG
+//
+
+msg.dataText text:string = msg.Data;
+msg.dataEncryptedText text:string = msg.Data;
+msg.message destination:accountAddress amount:int64 data:msg.Data = msg.Message;
+
+//
+// DNS
+//
+
+dns.entryDataUnknown bytes:bytes = dns.EntryData;
+dns.entryDataText text:string = dns.EntryData;
+dns.entryDataNextResolver resolver:AccountAddress = dns.EntryData;
+dns.entryDataSmcAddress smc_address:AccountAddress = dns.EntryData;
+//TODO: other entry types
+
+dns.entry name:string category:int32 entry:dns.EntryData = dns.Entry;
+
+dns.actionDeleteAll = dns.Action;
+// use category = 0 to delete all entries
+dns.actionDelete name:string category:int32 = dns.Action;
+dns.actionSet entry:dns.entry = dns.Action;
+
+dns.resolved entries:vector<dns.entry> = dns.Resolved;
+
+//
+// Actions
+//
+
+actionNoop  = Action;
+actionMsg messages:vector<msg.Message> allow_send_to_uninited:Bool = Action;
+actionDns actions:vector<dns.Action> = Action;
+//actionMultisig actions:vector<multisig.order> = Action;
+
+fees in_fwd_fee:int53 storage_fee:int53 gas_fee:int53 fwd_fee:int53 = Fees;
+query.fees source_fees:fees destination_fees:vector<fees> = query.Fees;
+// query.emulationResult exit_code:int32 fees:fees = query.EmulationResult;
 query.info id:int53 valid_until:int53 body_hash:bytes  = query.Info;
 
 tvm.slice bytes:bytes = tvm.Slice;
@@ -152,50 +190,40 @@ packAccountAddress account_address:unpackedAccountAddress = AccountAddress;
 getBip39Hints prefix:string = Bip39Hints;
 
 //raw.init initial_account_state:raw.initialAccountState = Ok;
-raw.getAccountAddress initital_account_state:raw.initialAccountState = AccountAddress;
-raw.getAccountState account_address:accountAddress = raw.AccountState;
-raw.getTransactions account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
+raw.getAccountState account_address:accountAddress = raw.FullAccountState;
+raw.getTransactions private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
 raw.sendMessage body:bytes  = Ok;
 raw.createAndSendMessage destination:accountAddress initial_account_state:bytes data:bytes = Ok;
 raw.createQuery destination:accountAddress init_code:bytes init_data:bytes body:bytes = query.Info;
 
-testWallet.init private_key:InputKey = Ok;
-testWallet.getAccountAddress initital_account_state:testWallet.initialAccountState = AccountAddress;
-testWallet.getAccountState account_address:accountAddress = testWallet.AccountState;
-testWallet.sendGrams private_key:InputKey destination:accountAddress seqno:int32 amount:int64 message:bytes = SendGramsResult;
+sync = ton.BlockIdExt;
 
-wallet.init private_key:InputKey = Ok;
-wallet.getAccountAddress initital_account_state:wallet.initialAccountState = AccountAddress;
-wallet.getAccountState account_address:accountAddress = wallet.AccountState;
-wallet.sendGrams private_key:InputKey destination:accountAddress seqno:int32 valid_until:int53 amount:int64 message:bytes = SendGramsResult;
-
-wallet.v3.getAccountAddress initital_account_state:wallet.v3.initialAccountState = AccountAddress;
-
-testGiver.getAccountState = testGiver.AccountState;
-testGiver.getAccountAddress = AccountAddress;
-testGiver.sendGrams destination:accountAddress seqno:int32 amount:int64 message:bytes = SendGramsResult;
-
-sync = Ok;
-
-//generic.getAccountAddress initital_account_state:generic.InitialAccountState = AccountAddress;
-generic.getAccountState account_address:accountAddress = generic.AccountState;
-generic.sendGrams private_key:InputKey source:accountAddress destination:accountAddress amount:int64 timeout:int32 allow_send_to_uninited:Bool message:bytes = SendGramsResult;
-
-generic.createSendGramsQuery private_key:InputKey source:accountAddress destination:accountAddress amount:int64 timeout:int32 allow_send_to_uninited:Bool message:bytes = query.Info;
+// revision = 0 -- use default revision
+// revision = x (x > 0) -- use revision x
+getAccountAddress initial_account_state:InitialAccountState revision:int32 = AccountAddress;
+// guessAccountRevision initial_account_state:InitialAccountState = AccountRevisionList;
+getAccountState account_address:accountAddress = FullAccountState;
+createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action = query.Info;
 
 query.send id:int53 = Ok;
 query.forget id:int53 = Ok;
 query.estimateFees id:int53 ignore_chksig:Bool = query.Fees;
+// query.emulate id:int53 ignore_chksig:Bool = query.EmulationResult;
 query.getInfo id:int53 = query.Info;
 
 smc.load account_address:accountAddress = smc.Info;
+//smc.forget id:int53 = Ok;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
+dns.resolve account_address:accountAddress name:string category:int32 = dns.Resolved;
+
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;
+
+withBlock id:ton.blockIdExt function:Function = Object;
 
 runTests dir:string = Ok;
 

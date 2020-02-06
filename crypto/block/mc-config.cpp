@@ -567,6 +567,21 @@ td::Result<GasLimitsPrices> Config::do_get_gas_limits_prices(td::Ref<vm::Cell> c
   }
   return res;
 }
+
+td::Result<ton::StdSmcAddress> Config::get_dns_root_addr() const {
+  auto cell = get_config_param(4);
+  if (cell.is_null()) {
+    return td::Status::Error(PSLICE() << "configuration parameter " << 4 << " with dns root address is absent");
+  }
+  auto cs = vm::load_cell_slice(std::move(cell));
+  if (cs.size() != 0x100) {
+    return td::Status::Error(PSLICE() << "configuration parameter " << 4 << " with dns root address has wrong size");
+  }
+  ton::StdSmcAddress res;
+  CHECK(cs.fetch_bits_to(res));
+  return res;
+}
+
 td::Result<GasLimitsPrices> Config::get_gas_limits_prices(bool is_masterchain) const {
   auto id = is_masterchain ? 20 : 21;
   auto cell = get_config_param(id);

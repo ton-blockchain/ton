@@ -17,10 +17,10 @@ dup dup 31 boc+>B dup Bx. cr
 dup "basestate0" +suffix +".boc" tuck B>file
 ."(Initial basechain state saved to file " type .")" cr
 Bhashu dup =: basestate0_fhash
-."file hash=" dup x. space 256 u>B dup B>base64url type cr
+."file hash=" dup 64x. space 256 u>B dup B>base64url type cr
 "basestate0" +suffix +".fhash" B>file
 hashu dup =: basestate0_rhash
-."root hash=" dup x. space 256 u>B dup B>base64url type cr
+."root hash=" dup 64x. space 256 u>B dup B>base64url type cr
 "basestate0" +suffix +".rhash" B>file
 
 basestate0_rhash basestate0_fhash now 0 2 32 0 add-std-workchain
@@ -128,7 +128,7 @@ GR$666 // balance
 2 // mode: create
 register_smc
 dup make_special dup constant smc3_addr
-."address = " x. cr
+."address = " 64x. cr
 
 /*
  *
@@ -160,7 +160,7 @@ Masterchain swap
 // 9 4 1 config.validator_num!
 1000 100 13 config.validator_num!
 // min-stake max-stake min-total-stake max-factor
-GR$10000 GR$10000000 GR$500000 sg~10 config.validator_stake_limits!
+GR$10000 GR$10000000 GR$500000 sg~3 config.validator_stake_limits!
 // elected-for elect-start-before elect-end-before stakes-frozen-for
 // 400000 200000 4000 400000 config.election_params!
 // 4000 2000 500 1000 config.election_params!  // DEBUG

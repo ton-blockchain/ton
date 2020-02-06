@@ -55,7 +55,7 @@
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/continuation.h"
+#include "vm/vm.h"
 #include "vm/cp0.h"
 #include "ton/ton-shard.h"
 #include "openssl/rand.hpp"

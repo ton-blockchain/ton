@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -213,6 +213,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
   void new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) override;
+  void new_block_cont(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise);
   void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) override;
   void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override;
   void get_top_masterchain_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;

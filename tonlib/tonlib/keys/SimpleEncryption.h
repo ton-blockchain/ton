@@ -14,13 +14,14 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/utils/crypto.h"
 #include "td/utils/Slice.h"
 #include "td/utils/SharedSlice.h"
+#include "crypto/Ed25519.h"
 
 namespace tonlib {
 class SimpleEncryption {
@@ -29,6 +30,11 @@ class SimpleEncryption {
   static td::Result<td::SecureString> decrypt_data(td::Slice encrypted_data, td::Slice secret);
   static td::SecureString combine_secrets(td::Slice a, td::Slice b);
   static td::SecureString kdf(td::Slice secret, td::Slice password, int iterations);
+
+  static td::Result<td::SecureString> encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key);
+  static td::Result<td::SecureString> decrypt_data(td::Slice data, const td::Ed25519::PrivateKey &private_key);
+  static td::Result<td::SecureString> encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key,
+                                                   const td::Ed25519::PrivateKey &private_key);
 
  private:
   static td::AesCbcState calc_aes_cbc_state_hash(td::Slice hash);

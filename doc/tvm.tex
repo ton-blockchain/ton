@@ -1295,15 +1295,18 @@ We list the instructions in lexicographical opcode order. However, the opcode sp
 We use hexadecimal notation (cf. ~\ptref{p:bitstring.hex}) for bitstrings. Stack registers {\tt s$(i)$} usually have $0\leq i\leq 15$, and $i$ is encoded in a 4-bit field (or, on a few rare occasions, in an 8-bit field). Other immediate parameters are usually 4-bit, 8-bit, or variable length.
 
 The stack notation described in~\ptref{sp:stack.notat} is extensively used throughout this appendix.
+
 \mysubsection{Gas prices}
 \def\gas#1{{\em ($#1$)}}
  The gas price for most primitives equals the {\em basic gas price}, computed as $P_b:=10+b+5r$, where $b$ is the instruction length in bits and $r$ is the number of cell references included in the instruction. When the gas price of an instruction differs from this basic price, it is indicated in parentheses after its mnemonics, either as \gas{x}, meaning that the total gas price equals $x$, or as \gas{+x}, meaning $P_b+x$. Apart from integer constants, the following expressions may appear:
 \begin{itemize}
-\item $C_r$ --- The total price of ``reading'' cells (i.e., transforming cell references into cell slices). Currently equal to 20 gas units per cell.
+\item $C_r$ --- The total price of ``reading'' cells (i.e., transforming cell references into cell slices). Currently equal to 100 or 25 gas units per cell depending on whether it is the first time a cell with this hash is being ``read'' during the current run of the VM or not.
 \item $L$ --- The total price of loading cells. Depends on the loading action required.
-\item $B_w$ --- The total price of creating new {\em Builder}s. Currently equal to 100 gas units per builder.
-\item $C_w$ --- The total price of creating new {\em Cell}s from {\em Builder}s). Currently equal to 100 gas units per cell.
+\item $B_w$ --- The total price of creating new {\em Builder\/}s. Currently equal to 0 gas units per builder.
+\item $C_w$ --- The total price of creating new {\em Cell\/}s from {\em Builder\/}s. Currently equal to 500 gas units per cell.
 \end{itemize}
+By default, the gas price of an instruction equals $P:=P_b+C_r+L+B_w+C_w$.
+
 \mysubsection{Stack manipulation primitives}
 
 This section includes both the basic (cf.~\ptref{sp:stack.basic}) and the compound (cf.~\ptref{sp:stack.comp}) stack manipulation primitives, as well as some ``unsystematic'' ones. Some compound stack manipulation primitives, such as {\tt XCPU} or {\tt XCHG2}, turn out to have the same length as an equivalent sequence of simpler operations. We have included these primitives regardless, so that they can easily be allocated shorter opcodes in a future revision of TVM---or removed for good.
@@ -2220,7 +2223,16 @@ The ``global variables'' may be helpful in implementing some high-level smart-co
 \item {\tt F902} --- {\tt SHA256U} ($s$ -- $x$), computes $\Sha$ of the data bits of~{\em Slice\/}~$s$. If the bit length of $s$ is not divisible by eight, throws a cell underflow exception. The hash value is returned as a 256-bit unsigned integer~$x$.
 \item {\tt F910} --- {\tt CHKSIGNU} ($h$ $s$ $k$ -- $?$), checks the Ed25519-signature $s$ of a hash $h$ (a 256-bit unsigned integer, usually computed as the hash of some data) using public key $k$ (also represented by a 256-bit unsigned integer). The signature $s$ must be a {\em Slice\/} containing at least 512 data bits; only the first 512 bits are used. The result is $-1$ if the signature is valid, $0$ otherwise. Notice that {\tt CHKSIGNU} is equivalent to {\tt ROT}; {\tt NEWB}; {\tt STU 256}; {\tt ENDB}; {\tt NEWC}; {\tt ROTREV}; {\tt CHKSIGNS}, i.e., to {\tt CHKSIGNS} with the first argument $d$ set to 256-bit {\em Slice} containing~$h$. Therefore, if $h$ is computed as the hash of some data, these data are hashed {\em twice}, the second hashing occurring inside {\tt CHKSIGNS}. 
 \item {\tt F911} --- {\tt CHKSIGNS} ($d$ $s$ $k$ -- $?$), checks whether $s$ is a valid Ed25519-signature of the data portion of {\em Slice\/}~$d$ using public key~$k$, similarly to {\tt CHKSIGNU}. If the bit length of {\em Slice\/}~$d$ is not divisible by eight, throws a cell underflow exception. The verification of Ed25519 signatures is the standard one, with $\Sha$ used to reduce $d$ to the 256-bit number that is actually signed. 
-\item {\tt F902}--{\tt F93F} --- Reserved for hashing and cryptography primitives.
+\item {\tt F912}--{\tt F93F} --- Reserved for hashing and cryptography primitives.
+\end{itemize}
+
+\nxsubpoint\emb{Miscellaneous primitives}
+\begin{itemize}
+\item {\tt F940} --- {\tt CDATASIZEQ} ($c$ $n$ -- $x$ $y$ $z$ $-1$ or $0$), recursively computes the count of distinct cells $x$, data bits $y$, and cell references $z$ in the dag rooted at {\em Cell\/} $c$, effectively returning the total storage used by this dag taking into account the identification of equal cells. The values of $x$, $y$, and $z$ are computed by a depth-first traversal of this dag, with a hash table of visited cell hashes used to prevent visits of already-visited cells. The total count of visited cells $x$ cannot exceed non-negative {\em Integer\/}~$n$; otherwise the computation is aborted before visiting the $(n+1)$-st cell and a zero is returned to indicate failure. If $c$ is {\em Null}, returns $x=y=z=0$.
+\item {\tt F941} --- {\tt CDATASIZE} ($c$ $n$ -- $x$ $y$ $z$), a non-quiet version of {\tt CDATASIZEQ} that throws a cell overflow exception (8) on failure.
+\item {\tt F942} --- {\tt SDATASIZEQ} ($s$ $n$ -- $x$ $y$ $z$ $-1$ or $0$), similar to {\tt CDATASIZEQ}, but accepting a {\em Slice\/}~$s$ instead of a {\em Cell\/}. The returned value of $x$ does not take into account the cell that contains the slice~$s$ itself; however, the data bits and the cell references of $s$ are accounted for in $y$ and~$z$.
+\item {\tt F943} --- {\tt SDATASIZE} ($s$ $n$ -- $x$ $y$ $z$), a non-quiet version of {\tt SDATASIZEQ} that throws a cell overflow exception (8) on failure.
+\item {\tt F944}--{\tt F97F} --- Reserved for miscellaneous TON-specific primitives that do not fall into any other specific category.
 \end{itemize}
 
 \nxsubpoint\emb{Currency manipulation primitives}

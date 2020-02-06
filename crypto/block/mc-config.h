@@ -14,7 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -534,6 +534,7 @@ class Config {
   bool create_stats_enabled() const {
     return has_capability(ton::capCreateStatsEnabled);
   }
+  td::Result<ton::StdSmcAddress> get_dns_root_addr() const;
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;

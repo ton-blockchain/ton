@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "manager-disk.hpp"
 #include "validator-group.hpp"
@@ -765,7 +765,8 @@ void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit
   td::actor::send_closure(db_, &Db::store_block_handle, std::move(handle), std::move(promise));
 }
 
-void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState> state,
+                                          td::Promise<td::Unit> promise) {
   handle->set_processed();
   if (state->get_shard().is_masterchain() && handle->id().id.seqno > last_masterchain_seqno_) {
     CHECK(handle->id().id.seqno == last_masterchain_seqno_ + 1);
@@ -780,6 +781,23 @@ void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> sta
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(promise));
   } else {
     promise.set_value(td::Unit());
+  }
+}
+
+void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
+  if (handle->is_applied()) {
+    return new_block_cont(std::move(handle), std::move(state), std::move(promise));
+  } else {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle, state = std::move(state),
+                                         promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+      if (R.is_error()) {
+        promise.set_error(R.move_as_error());
+      } else {
+        td::actor::send_closure(SelfId, &ValidatorManagerImpl::new_block_cont, std::move(handle), std::move(state),
+                                std::move(promise));
+      }
+    });
+    td::actor::send_closure(db_, &Db::apply_block, handle, std::move(P));
   }
 }
 

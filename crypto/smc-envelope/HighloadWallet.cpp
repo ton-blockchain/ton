@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "HighloadWallet.h"
 #include "GenericAccount.h"
@@ -51,7 +51,7 @@ td::Ref<vm::Cell> HighloadWallet::get_init_message(const td::Ed25519::PrivateKey
 td::Ref<vm::Cell> HighloadWallet::make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 wallet_id,
                                                       td::uint32 seqno, td::uint32 valid_until,
                                                       td::Span<Gift> gifts) noexcept {
-  CHECK(gifts.size() <= 254);
+  CHECK(gifts.size() <= max_gifts_size);
   vm::Dictionary messages(16);
   for (size_t i = 0; i < gifts.size(); i++) {
     auto& gift = gifts[i];
@@ -64,7 +64,7 @@ td::Ref<vm::Cell> HighloadWallet::make_a_gift_message(const td::Ed25519::Private
     vm::CellBuilder cb;
     GenericAccount::store_int_message(cb, gift.destination, gramms);
     cb.store_bytes("\0\0\0\0", 4);
-    //vm::CellString::store(cb, gift.message, 35 * 8).ensure();
+    vm::CellString::store(cb, gift.message, 35 * 8).ensure();
     auto message_inner = cb.finalize();
     cb = {};
     cb.store_long(send_mode, 8).store_ref(message_inner);
@@ -121,6 +121,22 @@ td::Result<td::uint32> HighloadWallet::get_wallet_id_or_throw() const {
   auto cs = vm::load_cell_slice(state_.data);
   cs.skip_first(32);
   return static_cast<td::uint32>(cs.fetch_ulong(32));
+}
+
+td::Result<td::Ed25519::PublicKey> HighloadWallet::get_public_key() const {
+  return TRY_VM(get_public_key_or_throw());
+}
+
+td::Result<td::Ed25519::PublicKey> HighloadWallet::get_public_key_or_throw() const {
+  if (state_.data.is_null()) {
+    return td::Status::Error("data is null");
+  }
+  //FIXME use get method
+  auto cs = vm::load_cell_slice(state_.data);
+  cs.skip_first(64);
+  td::SecureString res(td::Ed25519::PublicKey::LENGTH);
+  cs.fetch_bytes(res.as_mutable_slice().ubegin(), td::narrow_cast<td::int32>(res.size()));
+  return td::Ed25519::PublicKey(std::move(res));
 }
 
 }  // namespace ton

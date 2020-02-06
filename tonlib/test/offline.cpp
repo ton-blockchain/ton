@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 
 #include "block/block.h"
@@ -55,6 +55,23 @@ TEST(Tonlib, CellString) {
       vm::CellString::store(cb, str, head).ensure();
       auto cs = vm::load_cell_slice(cb.finalize());
       auto got_str = vm::CellString::load(cs, head).move_as_ok();
+      ASSERT_EQ(str, got_str);
+    }
+  }
+};
+
+TEST(Tonlib, Text) {
+  for (unsigned size :
+       {0, 1, 7, 8, 35, 127, 128, 255, 256, (int)vm::CellText::max_bytes - 1, (int)vm::CellText::max_bytes}) {
+    auto str = td::rand_string('a', 'z', size);
+    for (unsigned head : {16, 17, 127, 35 * 8, 127 * 8, 1023, 1024}) {
+      vm::CellBuilder cb;
+      vm::CellText::store(cb, str, head).ensure();
+      auto cs = vm::load_cell_slice(cb.finalize());
+      auto cs2 = cs;
+      cs.print_rec(std::cerr);
+      CHECK(block::gen::t_Text.validate_exact(cs2));
+      auto got_str = vm::CellText::load(cs).move_as_ok();
       ASSERT_EQ(str, got_str);
     }
   }
@@ -126,7 +143,11 @@ TEST(Tonlib, InitClose) {
 )abc";
 
     sync_send(client, make_object<tonlib_api::options_setConfig>(cfg(bad_config.str()))).ensure_error();
-    sync_send(client, make_object<tonlib_api::testGiver_getAccountState>()).ensure_error();
+    auto address =
+        sync_send(client,
+                  make_object<tonlib_api::getAccountAddress>(make_object<tonlib_api::testGiver_initialAccountState>(), 0))
+            .move_as_ok();
+    sync_send(client, make_object<tonlib_api::getAccountState>(std::move(address))).ensure_error();
     sync_send(client, make_object<tonlib_api::close>()).ensure();
     sync_send(client, make_object<tonlib_api::close>()).ensure_error();
     sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(nullptr, dir("."))))
@@ -156,6 +177,38 @@ TEST(Tonlib, SimpleEncryption) {
     auto encrypted_data = SimpleEncryption::encrypt_data(data, secret);
     auto decrypted_data = SimpleEncryption::decrypt_data(encrypted_data, secret).move_as_ok();
     CHECK(data == decrypted_data);
+  }
+}
+
+TEST(Tonlib, SimpleEncryptionAsym) {
+  auto private_key = td::Ed25519::generate_private_key().move_as_ok();
+  auto public_key = private_key.get_public_key().move_as_ok();
+  auto other_private_key = td::Ed25519::generate_private_key().move_as_ok();
+  auto other_public_key = private_key.get_public_key().move_as_ok();
+  auto wrong_private_key = td::Ed25519::generate_private_key().move_as_ok();
+  {
+    std::string data = "some private data";
+    auto encrypted_data = SimpleEncryption::encrypt_data(data, public_key, other_private_key).move_as_ok();
+    LOG(ERROR) << encrypted_data.size();
+    auto decrypted_data = SimpleEncryption::decrypt_data(encrypted_data, private_key).move_as_ok();
+    CHECK(data == decrypted_data);
+    auto decrypted_data2 = SimpleEncryption::decrypt_data(encrypted_data, other_private_key).move_as_ok();
+    CHECK(data == decrypted_data2);
+    SimpleEncryption::decrypt_data(encrypted_data, wrong_private_key).ensure_error();
+    SimpleEncryption::decrypt_data("", private_key).ensure_error();
+    SimpleEncryption::decrypt_data(std::string(32, 'a'), private_key).ensure_error();
+    SimpleEncryption::decrypt_data(std::string(33, 'a'), private_key).ensure_error();
+    SimpleEncryption::decrypt_data(std::string(64, 'a'), private_key).ensure_error();
+    SimpleEncryption::decrypt_data(std::string(128, 'a'), private_key).ensure_error();
+  }
+
+  for (size_t i = 0; i < 255; i++) {
+    auto data = td::rand_string('a', 'z', static_cast<int>(i));
+    auto encrypted_data = SimpleEncryption::encrypt_data(data, public_key, other_private_key).move_as_ok();
+    auto decrypted_data = SimpleEncryption::decrypt_data(encrypted_data, private_key).move_as_ok();
+    CHECK(data == decrypted_data);
+    auto decrypted_data2 = SimpleEncryption::decrypt_data(encrypted_data, other_private_key).move_as_ok();
+    CHECK(data == decrypted_data2);
   }
 }
 

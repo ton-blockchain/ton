@@ -14,15 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
 #include "vm/tonops.h"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/continuation.h"
 #include "vm/excno.hpp"
+#include "vm/vm.h"
 #include "vm/dict.h"
 #include "Ed25519.h"
 
@@ -395,6 +395,83 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf902, 16, "SHA256U", exec_compute_sha256))
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)));
+}
+
+struct VmStorageStat {
+  td::uint64 cells{0}, bits{0}, refs{0}, limit;
+  td::HashSet<CellHash> visited;
+  VmStorageStat(td::uint64 _limit) : limit(_limit) {
+  }
+  bool add_storage(Ref<Cell> cell);
+  bool add_storage(const CellSlice& cs);
+  bool check_visited(const CellHash& cell_hash) {
+    return visited.insert(cell_hash).second;
+  }
+  bool check_visited(const Ref<Cell>& cell) {
+    return check_visited(cell->get_hash());
+  }
+};
+
+bool VmStorageStat::add_storage(Ref<Cell> cell) {
+  if (cell.is_null() || !check_visited(cell)) {
+    return true;
+  }
+  if (cells >= limit) {
+    return false;
+  }
+  ++cells;
+  bool special;
+  auto cs = load_cell_slice_special(std::move(cell), special);
+  return cs.is_valid() && add_storage(std::move(cs));
+}
+
+bool VmStorageStat::add_storage(const CellSlice& cs) {
+  bits += cs.size();
+  refs += cs.size_refs();
+  for (unsigned i = 0; i < cs.size_refs(); i++) {
+    if (!add_storage(cs.prefetch_ref(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+int exec_compute_data_size(VmState* st, int mode) {
+  VM_LOG(st) << (mode & 2 ? 'S' : 'C') << "DATASIZE" << (mode & 1 ? "Q" : "");
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto bound = stack.pop_int();
+  Ref<Cell> cell;
+  Ref<CellSlice> cs;
+  if (mode & 2) {
+    cs = stack.pop_cellslice();
+  } else {
+    cell = stack.pop_maybe_cell();
+  }
+  if (!bound->is_valid() || bound->sgn() < 0) {
+    throw VmError{Excno::range_chk, "finite non-negative integer expected"};
+  }
+  VmStorageStat stat{bound->unsigned_fits_bits(63) ? bound->to_long() : (1ULL << 63) - 1};
+  bool ok = (mode & 2 ? stat.add_storage(cs.write()) : stat.add_storage(std::move(cell)));
+  if (ok) {
+    stack.push_smallint(stat.cells);
+    stack.push_smallint(stat.bits);
+    stack.push_smallint(stat.refs);
+  } else if (!(mode & 1)) {
+    throw VmError{Excno::cell_ov, "scanned too many cells"};
+  }
+  if (mode & 1) {
+    stack.push_bool(ok);
+  }
+  return 0;
+}
+
+void register_ton_misc_ops(OpcodeTable& cp0) {
+  using namespace std::placeholders;
+  cp0.insert(OpcodeInstr::mksimple(0xf940, 16, "CDATASIZEQ", std::bind(exec_compute_data_size, _1, 1)))
+      .insert(OpcodeInstr::mksimple(0xf941, 16, "CDATASIZE", std::bind(exec_compute_data_size, _1, 0)))
+      .insert(OpcodeInstr::mksimple(0xf942, 16, "SDATASIZEQ", std::bind(exec_compute_data_size, _1, 3)))
+      .insert(OpcodeInstr::mksimple(0xf943, 16, "SDATASIZE", std::bind(exec_compute_data_size, _1, 2)));
 }
 
 int exec_load_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
@@ -822,6 +899,7 @@ void register_ton_ops(OpcodeTable& cp0) {
   register_prng_ops(cp0);
   register_ton_config_ops(cp0);
   register_ton_crypto_ops(cp0);
+  register_ton_misc_ops(cp0);
   register_ton_currency_address_ops(cp0);
   register_ton_message_ops(cp0);
 }

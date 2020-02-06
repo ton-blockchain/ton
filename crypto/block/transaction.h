@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -130,6 +130,11 @@ struct ComputePhaseConfig {
   }
   bool parse_GasLimitsPrices(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
   bool parse_GasLimitsPrices(Ref<vm::Cell> cell, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
+
+ private:
+  bool parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit,
+                                      td::RefInt256& delete_due_limit, td::uint64 flat_gas_limit = 0,
+                                      td::uint64 flat_gas_price = 0);
 };
 
 struct ActionPhaseConfig {

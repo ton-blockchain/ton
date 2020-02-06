@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells.h"
 
@@ -23,9 +23,12 @@ class SmartContractCode {
  public:
   static td::Result<td::Ref<vm::Cell>> load(td::Slice name);
   static td::Ref<vm::Cell> multisig();
-  static td::Ref<vm::Cell> wallet();
-  static td::Ref<vm::Cell> simple_wallet();
+  static td::Ref<vm::Cell> wallet3(int revision = 0);
+  static td::Ref<vm::Cell> wallet(int revision = 0);
+  static td::Ref<vm::Cell> simple_wallet(int revision = 0);
   static td::Ref<vm::Cell> simple_wallet_ext();
-  static td::Ref<vm::Cell> highload_wallet();
+  static td::Ref<vm::Cell> highload_wallet(int revision = 0);
+  static td::Ref<vm::Cell> highload_wallet_v2(int revision = 0);
+  static td::Ref<vm::Cell> dns_manual();
 };
 }  // namespace ton

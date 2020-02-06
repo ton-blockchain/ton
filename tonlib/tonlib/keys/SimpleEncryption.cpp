@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "SimpleEncryption.h"
 
@@ -36,6 +36,7 @@ td::AesCbcState SimpleEncryption::calc_aes_cbc_state_sha512(td::Slice seed) {
   sha512(seed, hash.as_mutable_slice());
   return calc_aes_cbc_state_hash(hash.as_slice());
 }
+
 td::SecureString SimpleEncryption::gen_random_prefix(td::int64 data_size) {
   td::SecureString buff(td::narrow_cast<size_t>(((32 + 15 + data_size) & -16) - data_size), 0);
   td::Random::secure_bytes(buff.as_mutable_slice());
@@ -103,5 +104,47 @@ td::Result<td::SecureString> SimpleEncryption::decrypt_data(td::Slice encrypted_
   }
 
   return td::SecureString(decrypted_data.as_slice().substr(prefix_size));
+}
+
+td::Result<td::SecureString> SimpleEncryption::encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key) {
+  TRY_RESULT(tmp_private_key, td::Ed25519::generate_private_key());
+  return encrypt_data(data, public_key, tmp_private_key);
+}
+
+namespace {
+td::SecureString secure_xor(td::Slice a, td::Slice b) {
+  CHECK(a.size() == b.size());
+  td::SecureString res(a.size());
+  for (size_t i = 0; i < res.size(); i++) {
+    res.as_mutable_slice()[i] = a[i] ^ b[i];
+  }
+  return res;
+}
+}  // namespace
+
+td::Result<td::SecureString> SimpleEncryption::encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key,
+                                                            const td::Ed25519::PrivateKey &private_key) {
+  TRY_RESULT(shared_secret, td::Ed25519::compute_shared_secret(public_key, private_key));
+  auto encrypted = encrypt_data(data, shared_secret.as_slice());
+  TRY_RESULT(tmp_public_key, private_key.get_public_key());
+  td::SecureString prefixed_encrypted(tmp_public_key.LENGTH + encrypted.size());
+  prefixed_encrypted.as_mutable_slice().copy_from(tmp_public_key.as_octet_string());
+  auto xored_keys = secure_xor(public_key.as_octet_string().as_slice(), tmp_public_key.as_octet_string().as_slice());
+  prefixed_encrypted.as_mutable_slice().copy_from(xored_keys.as_slice());
+  prefixed_encrypted.as_mutable_slice().substr(xored_keys.size()).copy_from(encrypted);
+  return std::move(prefixed_encrypted);
+}
+
+td::Result<td::SecureString> SimpleEncryption::decrypt_data(td::Slice data,
+                                                            const td::Ed25519::PrivateKey &private_key) {
+  if (data.size() < td::Ed25519::PublicKey::LENGTH) {
+    return td::Status::Error("Failed to decrypte: data is too small");
+  }
+  TRY_RESULT(public_key, private_key.get_public_key());
+  auto tmp_public_key =
+      td::Ed25519::PublicKey(secure_xor(data.substr(0, td::Ed25519::PublicKey::LENGTH), public_key.as_octet_string()));
+  TRY_RESULT(shared_secret, td::Ed25519::compute_shared_secret(tmp_public_key, private_key));
+  TRY_RESULT(decrypted, decrypt_data(data.substr(td::Ed25519::PublicKey::LENGTH), shared_secret.as_slice()));
+  return std::move(decrypted);
 }
 }  // namespace tonlib

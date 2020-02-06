@@ -1,0 +1,381 @@
+{-
+  Originally created by:
+  /------------------------------------------------------------------------\
+  | Created for: Telegram (Open Network) Blockchain Contest                |
+  |      Task 3: DNS Resolver (Manually controlled)                        |
+  >------------------------------------------------------------------------<
+  | Author: Oleksandr Murzin (tg: @skydev / em: alexhacker64@gmail.com)    |
+  |         October 2019                                                   |
+  \------------------------------------------------------------------------/
+-}
+
+;;===========================================================================;;
+;; Custom ASM instructions                                                   ;;
+;;===========================================================================;;
+
+;; Args: s D n | Success: s' x s'' -1 | Failure: s 0 -> s N N 0
+(slice, slice, slice, int) pfxdict_get?(cell dict, int key_len, slice key) 
+    asm(key dict key_len) "PFXDICTGETQ" "NULLSWAPIFNOT" "NULLSWAPIFNOT";
+
+;; Args: x k D n | Success: D' -1 | Failure: D 0
+(cell, int) pfxdict_set?(cell dict, int key_len, slice key, slice value) 
+    asm(value key dict key_len) "PFXDICTSET";
+
+;; Args: k D n | Success: D' -1 | Failure: D 0
+(cell, int) pfxdict_delete?(cell dict, int key_len, slice key) 
+    asm(key dict key_len) "PFXDICTDEL";
+
+slice slice_last(slice s, int len) asm "SDCUTLAST";
+
+;; Actually, equivalent to dictionaries, provided for clarity
+(slice, cell) load_maybe_ref(slice s) asm( -> 1 0) "LDOPTREF";
+builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
+
+(cell, ()) pfxdict_set_ref(cell dict, int key_len, slice key, cell value)  {
+  throw_unless(33, dict~pfxdict_set?(key_len, key, begin_cell().store_maybe_ref(value).end_cell().begin_parse()));
+  return (dict, ());
+}
+
+(slice, cell, slice, int) pfxdict_get_ref(cell dict, int key_len, slice key)  {
+  (slice pfx, slice val, slice tail, int succ) = dict.pfxdict_get?(key_len, key);
+  cell res = null();
+  if (succ) {
+    res = val~load_maybe_ref();
+  }
+  return (pfx, res, tail, succ);
+}
+
+;;===========================================================================;;
+;; Utility functions                                                         ;;
+;;===========================================================================;;
+
+(int, int, int, cell, cell) load_data() {
+  slice cs = get_data().begin_parse();
+  var res = (cs~load_uint(32), cs~load_uint(64), cs~load_uint(256), cs~load_dict(), cs~load_dict());
+  cs.end_parse();
+  return res;
+}
+
+() store_data(int subwallet, int last_cleaned, int public_key, cell root, old_queries) impure {
+  set_data(begin_cell()
+      .store_uint(subwallet, 32)
+      .store_uint(last_cleaned, 64)
+      .store_uint(public_key, 256)
+      .store_dict(root)
+      .store_dict(old_queries)
+      .end_cell());
+}
+
+;;===========================================================================;;
+;; Internal message handler (Code 0)                                         ;;
+;;===========================================================================;;
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+  ;; not interested at all
+}
+
+;;===========================================================================;;
+;; External message handler (Code -1)                                        ;;
+;;===========================================================================;;
+
+{-
+  External message structure:
+    [Bytes<512b>:signature] [UInt<32b>:seqno] [UInt<6b>:operation]
+    [Either b0: inline name (<= 58-x Bytes) or b1: reference-stored name)
+                                   x depends on operation
+    Use of 6-bit op instead of 32-bit allows to save 4 bytes for inline name
+  Inline [Name] structure: [UInt<6b>:length] [Bytes<lengthB>:data]
+  Operations (continuation of message):
+  00 Contract initialization message (only if seqno = 0) (x=-)
+  11 VSet: set specified value to specified subdomain->category (x=2)
+    [Int<16b>:category] [Name<?>:subdomain] [Cell<1r>:value]
+  12 VDel: delete specified subdomain->category (x=2)
+    [Int<16b>:category] [Name<?>:subdomain]
+  21 DSet: replace entire category dictionary of domain with provided (x=0)
+    [Name<?>:subdomain] [Cell<1r>:new_cat_table]
+  22 DDel: delete entire category dictionary of specified domain (x=0)
+    [Name<?>:subdomain]
+  31 TSet: replace ENTIRE DOMAIN TABLE with the provided tree root cell (x=-)
+    [Cell<1r>:new_domains_table]
+  32 TDel: nullify ENTIRE DOMAIN TABLE (x=-)
+  51 OSet: replace owner public key with a new one (x=-)
+    [UInt<256b>:new_public_key]
+-}
+
+(cell, slice) process_op(cell root, slice ops) {
+  int op = ops~load_uint(6);
+  int is_name_ref = (ops~load_uint(1) == 1);
+
+  ;; lets assume at this point that special operations 00..09 are handled
+  throw_if(45, op < 10);
+  slice name = ops; ;; anything! better do not begin or it costs much gas
+  cell cat_table = null();
+  int cat = 0;
+  if (op < 20) {
+    ;; for operations with codes 10..19 category is required
+    cat = ops~load_int(16);
+  }
+  int zeros = 0;
+  if (op < 30) {
+    ;; for operations with codes 10..29 name is required
+    if (is_name_ref) {
+      ;; name is stored in separate referenced cell
+      name = ops~load_ref().begin_parse();
+    } else {
+      ;; name is stored inline
+      int name_len = ops~load_uint(6) * 8;
+      name = ops~load_bits(name_len);
+    }
+    ;; at least one character not counting \0
+    throw_unless(38, name.slice_bits() >= 16);
+    ;; name shall end with \0
+    (_, int name_last_byte) = name.slice_last(8).load_uint(8);
+    throw_unless(40, name_last_byte == 0);
+    
+    ;; Multiple zero characters seem to be allowed as per github issue response
+    ;; Lets change the tactics!
+    
+    int loop = -1;
+    slice cname = name;
+    ;; better safe then sorry, dont want to catch any of loop bugs
+    while (loop) {
+      int lval = cname~load_uint(8);
+      if (lval == 0) { zeros += 1; }
+      if (cname.slice_bits() == 0) { loop = 0; }
+    }
+    ;; throw_unless(39, zeros == 1);
+  }
+  ;; operation with codes 10..19 manipulate category dict
+  ;; lets try to find it and store into a variable
+  ;; operations with codes 20..29 replace / delete dict, no need
+  name = begin_cell().store_uint(zeros, 7).store_slice(name).end_cell().begin_parse();
+  if (op < 20) {
+    ;; lets resolve the name here so as not to duplicate the code
+    (slice pfx, cell val, slice tail, int succ) = 
+      root.pfxdict_get_ref(1023, name);
+    if (succ) {
+      ;; must match EXACTLY to prevent accident changes
+      throw_unless(35, tail.slice_empty?()); 
+      cat_table = val;
+    }
+    ;; otherwise cat_table is null which is reasonable for actions
+  }
+  ;; 11 VSet: set specified value to specified subdomain->category
+  if (op == 11) {
+    cell new_value = ops~load_maybe_ref();
+    if (new_value.cell_null?()) {
+      cat_table~idict_delete?(16, cat);
+    } else {
+      cat_table~idict_set_ref(16, cat, new_value);
+    }
+    root~pfxdict_set_ref(1023, name, cat_table);
+    return (root, ops);
+  }
+  ;; 12 VDel: delete specified subdomain->category value
+  if (op == 12) {
+    ifnot (cat_table.dict_empty?()) {
+       cat_table~idict_delete?(16, cat);
+       root~pfxdict_set_ref(1023, name, cat_table);      
+    }
+    return (root, ops);
+  }
+  ;; 21 DSet: replace entire category dictionary of domain with provided
+  if (op == 21) {
+    cell new_cat_table = ops~load_maybe_ref();
+    root~pfxdict_set_ref(1023, name, new_cat_table);
+    return (root, ops);
+  }
+  ;; 22 DDel: delete entire category dictionary of specified domain
+  if (op == 22) {
+    root~pfxdict_delete?(1023, name);
+    return (root, ops);
+  }
+  ;; 31 TSet: replace ENTIRE DOMAIN TABLE with the provided tree root cell
+  if (op == 31) {
+    cell new_tree_root = ops~load_maybe_ref();
+    ;; no sanity checks cause they would cost immense gas
+    return (new_tree_root, ops);
+  }
+  ;; 32 TDel: nullify ENTIRE DOMAIN TABLE
+  if (op == 32) {
+                return (null(), ops);
+  }
+  throw(44); ;; invalid operation
+        return (root, ops);
+}
+
+cell process_ops(cell root, slice ops) {
+  int f = -1;
+  while (f) {
+    (root, ops) = process_op(root, ops);
+    if (ops.slice_refs_empty?()) {
+      f = 0;
+    } else {
+      ops = ops~load_ref().begin_parse();
+    }
+  } 
+  return root;
+}
+
+() recv_external(slice in_msg) impure {
+  ;; Load data
+  (int stored_subwalet, int last_cleaned, int public_key, cell root, cell old_queries) = load_data();
+
+  ;; validate signature and seqno
+  slice signature = in_msg~load_bits(512);
+  int shash = slice_hash(in_msg);
+  var (subwallet_id, query_id) = (in_msg~load_uint(32), in_msg~load_uint(64));
+  var bound = (now() << 32);
+  throw_if(35, query_id < bound);
+  (_, var found?) = old_queries.udict_get?(64, query_id);
+  throw_if(32, found?);
+  throw_unless(34, check_signature(shash, signature, public_key));
+  accept_message(); ;; message is signed by owner, sanity not guaranteed yet
+
+
+  int op = in_msg.preload_uint(6);
+  ;; 00 Contract initialization message (only if seqno = 0)
+  if (op == 0) {
+    ;; noop
+  } else { if (op == 51) {
+    in_msg~skip_bits(6);
+    public_key = in_msg~load_uint(256);
+  } else {
+    root = process_ops(root, in_msg);
+  } }
+
+  bound -= (64 << 32);   ;; clean up records expired more than 64 seconds ago
+  old_queries~udict_set_builder(64, query_id, begin_cell());
+  var queries = old_queries;
+  do {
+    var (old_queries', i, _, f) = old_queries.udict_delete_get_min(64);
+    f~touch();
+    if (f) {
+      f = (i < bound);
+    }
+    if (f) {
+      old_queries = old_queries';
+      last_cleaned = i;
+    }
+  } until (~ f);
+
+  store_data(subwallet_id, last_cleaned, public_key, root, old_queries);
+}
+
+{-
+  Data structure:
+  Root cell: [UInt<32b>:seqno] [UInt<256b>:owner_public_key] 
+         [OptRef<1b+1r?>:Hashmap<PfxDict:Slice->CatTable>:domains]
+  <CatTable> := HashmapE 16 ^DNSRecord
+  <DNSRecord> := arbitary? not defined anywhere in documentation or internet!
+  
+  STORED DOMAIN NAME SLICE FORMAT: (#ZeroChars<7b>) (Domain name value)
+  #Zeros allows to simultaneously store, for example, com\0 and com\0google\0
+  That will be stored as \1com\0 and \2com\0google\0 (pfx tree has restricitons)
+  This will allow to resolve more specific requests to subdomains, and resort
+      to parent domain next resolver lookup if subdomain is not found
+  com\0goo\0 lookup will, for example look up \2com\0goo\0 and then
+      \1com\0goo\0 which will return \1com\0 (as per pfx tree) with -1 cat
+-}
+
+;;===========================================================================;;
+;; Getter methods                                                            ;;
+;;===========================================================================;;
+
+int get_seqno() method_id { ;; Retrieve sequence number
+  return get_data().begin_parse().preload_uint(32);
+}
+
+;;8m  dns-record-value
+(int, cell) dnsresolve(slice subdomain, int category) method_id {
+  cell Null = null(); ;; pseudo-alias
+  throw_if(30, subdomain.slice_bits() % 8 != 0); ;; malformed input (~ 8n-bit)
+  if (subdomain.slice_bits() == 0) { return (0, Null); } ;; zero-length input
+  {- ;; Logic thrown away: return only first ZB-delimited subdomain,
+        appends \0 if neccessary (not required for pfx, \0 can be ap more eff)
+  builder b_name = begin_cell();
+  slice remaining = subdomain;
+  int char = remaining~load_uint(8); ;; seems to be the most optimal way
+  do {
+    b_name~store_uint(char, 8);
+    char = remaining~load_uint(8);
+  } until ((remaining.slice_bits() == 0) | (char == 0));
+  if (char == 0) { category = -1; }
+  if ((remaining.slice_bits() == 0) & (char != 0)) {
+    b_name~store_uint(0, 8); ;; string was not terminated with zero byte
+  }
+  cell c_name = b_name.end_cell();
+  slice s_name = c_name.begin_parse();
+  -}
+  (_, int name_last_byte) = subdomain.slice_last(8).load_uint(8);
+  if ((name_last_byte == 0) & (subdomain.slice_bits() == 8)) {
+    return (0, Null); ;; zero-length input, but with zero byte
+  }
+  slice s_name = subdomain;
+  if (name_last_byte != 0) {
+    s_name = begin_cell().store_slice(subdomain) ;; append zero byte
+                         .store_uint(0, 8).end_cell().begin_parse();
+  }
+  (_, _, _, cell root, _) = load_data();
+  
+  ;; Multiple zero characters seem to be allowed as per github issue response
+  ;; Lets change the tactics!
+    
+  int zeros = 0;
+  int loop = -1;
+  slice cname = s_name;
+  ;; better safe then sorry, dont want to catch any of loop bugs
+  while (loop) {
+    int lval = cname~load_uint(8);
+    if (lval == 0) { zeros += 1; }
+    if (cname.slice_bits() == 0) { loop = 0; }
+  }
+  
+  ;; can't move below, will cause errors!
+  slice pfx = cname; cell val = null(); 
+  slice tail = cname; int succ = 0;
+    
+  while (zeros > 0) {
+    slice pfname = begin_cell().store_uint(zeros, 7)
+      .store_slice(s_name).end_cell().begin_parse();
+    (pfx, val, tail, succ) = root.pfxdict_get_ref(1023, pfname);
+    if (succ) { zeros = 1; } ;; break
+    zeros -= 1;
+  }
+  
+  
+  zeros = pfx.preload_uint(7);
+    
+  if (~ succ) { 
+    return (0, Null); ;; failed to find entry in prefix dictionary
+  }
+  if (~ tail.slice_empty?()) { ;; if we have tail then len(pfx) < len(subdomain)
+    category = -1; ;; incomplete subdomain found, must return next resolver (-1)
+  }
+  int pfx_bits = pfx.slice_bits() - 7;
+  cell cat_table = val;
+  ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain 
+  ;;   COUNTING for the zero byte (if structurally correct: no multiple-ZB keys)
+  ;;   which corresponds to "8m, m=one plus the number of bytes in the subdomain found)
+  if (category == 0) {
+    return (pfx_bits, cat_table); ;; return cell with entire dictionary for 0
+  } else {
+    cell cat_found = cat_table.idict_get_ref(16, category);
+    {- it seems that if subdomain is found but cat is not need to return (8m, Null)
+    if (cat_found.cell_null?()) {
+      pfx_bits = 0; ;; to return (0, Null) instead of (8m, Null)
+      ;; my thoughts about this requirement are in next block comment
+    } -}
+    return (pfx_bits, cat_found); ;; no need to unslice and cellize the poor cat now
+    {- Old logic garbage, replaced with ref functions discovered
+    ;; dictionary category lookup
+    (slice cat_value, int cat_found) = cat_table.idict_get?(16, category);
+    if (~ cat_found) {
+      ;; we have failed to find the cat :(
+      return (0, Null); 
+    }
+    ;; cat is found, turn it's slices into cells
+    return (pfx.slice_bits(), begin_cell().store_slice(cat_value).end_cell());
+    -}
+  }
+}

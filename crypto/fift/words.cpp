@@ -32,7 +32,7 @@
 
 #include "vm/cells.h"
 #include "vm/cellslice.h"
-#include "vm/continuation.h"
+#include "vm/vm.h"
 #include "vm/cp0.h"
 #include "vm/dict.h"
 #include "vm/boc.h"
@@ -1534,7 +1534,7 @@ void interpret_dict_add(vm::Stack& stack, vm::Dictionary::SetMode mode, bool add
   stack.push_bool(res);
 }
 
-void interpret_dict_get(vm::Stack& stack, int sgnd) {
+void interpret_dict_get(vm::Stack& stack, int sgnd, int mode) {
   int n = stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{stack.pop_maybe_cell(), n};
   unsigned char buffer[vm::Dictionary::max_key_bytes];
@@ -1543,12 +1543,16 @@ void interpret_dict_get(vm::Stack& stack, int sgnd) {
   if (!key.is_valid()) {
     throw IntError{"not enough bits for a dictionary key"};
   }
-  auto res = dict.lookup(std::move(key));
-  if (res.not_null()) {
+  auto res = (mode & 4 ? dict.lookup_delete(std::move(key)) : dict.lookup(std::move(key)));
+  if (mode & 4) {
+    stack.push_maybe_cell(std::move(dict).extract_root_cell());
+  }
+  bool found = res.not_null();
+  if (found && (mode & 2)) {
     stack.push_cellslice(std::move(res));
-    stack.push_bool(true);
-  } else {
-    stack.push_bool(false);
+  }
+  if (mode & 1) {
+    stack.push_bool(found);
   }
 }
 
@@ -1572,15 +1576,15 @@ void interpret_dict_map(IntCtx& ctx) {
   ctx.stack.push_maybe_cell(std::move(dict).extract_root_cell());
 }
 
-void interpret_dict_map_ext(IntCtx& ctx) {
+void interpret_dict_map_ext(IntCtx& ctx, bool sgnd) {
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::map_func_t map_func = [&ctx, func](vm::CellBuilder& cb, Ref<vm::CellSlice> cs_ref,
-                                                     td::ConstBitPtr key, int key_len) -> bool {
+  vm::Dictionary::map_func_t map_func = [&ctx, func, sgnd](vm::CellBuilder& cb, Ref<vm::CellSlice> cs_ref,
+                                                           td::ConstBitPtr key, int key_len) -> bool {
     ctx.stack.push_builder(Ref<vm::CellBuilder>(cb));
     td::RefInt256 x{true};
-    x.unique_write().import_bits(key, key_len, false);
+    x.unique_write().import_bits(key, key_len, sgnd);
     ctx.stack.push_int(std::move(x));
     ctx.stack.push_cellslice(std::move(cs_ref));
     func->run(ctx);
@@ -1596,20 +1600,20 @@ void interpret_dict_map_ext(IntCtx& ctx) {
   ctx.stack.push_maybe_cell(std::move(dict).extract_root_cell());
 }
 
-void interpret_dict_foreach(IntCtx& ctx) {
+void interpret_dict_foreach(IntCtx& ctx, bool sgnd) {
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::foreach_func_t foreach_func = [&ctx, func](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key,
-                                                             int key_len) -> bool {
+  vm::Dictionary::foreach_func_t foreach_func = [&ctx, func, sgnd](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key,
+                                                                   int key_len) -> bool {
     td::RefInt256 x{true};
-    x.unique_write().import_bits(key, key_len, false);
+    x.unique_write().import_bits(key, key_len, sgnd);
     ctx.stack.push_int(std::move(x));
     ctx.stack.push_cellslice(std::move(cs_ref));
     func->run(ctx);
     return ctx.stack.pop_bool();
   };
-  ctx.stack.push_bool(dict.check_for_each(std::move(foreach_func)));
+  ctx.stack.push_bool(dict.check_for_each(std::move(foreach_func), sgnd));
 }
 
 void interpret_dict_merge(IntCtx& ctx) {
@@ -2752,23 +2756,31 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("sdict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, false, -1));
   d.def_stack_word("b>sdict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, true, -1));
   d.def_stack_word("b>sdict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, true, -1));
-  d.def_stack_word("sdict@ ", std::bind(interpret_dict_get, _1, -1));
+  d.def_stack_word("sdict@ ", std::bind(interpret_dict_get, _1, -1, 3));
+  d.def_stack_word("sdict@- ", std::bind(interpret_dict_get, _1, -1, 7));
+  d.def_stack_word("sdict- ", std::bind(interpret_dict_get, _1, -1, 5));
   d.def_stack_word("udict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, false, 0));
   d.def_stack_word("udict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, false, 0));
   d.def_stack_word("b>udict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, true, 0));
   d.def_stack_word("b>udict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, true, 0));
-  d.def_stack_word("udict@ ", std::bind(interpret_dict_get, _1, 0));
+  d.def_stack_word("udict@ ", std::bind(interpret_dict_get, _1, 0, 3));
+  d.def_stack_word("udict@- ", std::bind(interpret_dict_get, _1, 0, 7));
+  d.def_stack_word("udict- ", std::bind(interpret_dict_get, _1, 0, 5));
   d.def_stack_word("idict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, false, 1));
   d.def_stack_word("idict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, false, 1));
   d.def_stack_word("b>idict!+ ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Add, true, 1));
   d.def_stack_word("b>idict! ", std::bind(interpret_dict_add, _1, vm::Dictionary::SetMode::Set, true, 1));
-  d.def_stack_word("idict@ ", std::bind(interpret_dict_get, _1, 1));
+  d.def_stack_word("idict@ ", std::bind(interpret_dict_get, _1, 1, 3));
+  d.def_stack_word("idict@- ", std::bind(interpret_dict_get, _1, 1, 7));
+  d.def_stack_word("idict- ", std::bind(interpret_dict_get, _1, 1, 5));
   d.def_stack_word("pfxdict!+ ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Add, false));
   d.def_stack_word("pfxdict! ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Set, false));
   d.def_stack_word("pfxdict@ ", interpret_pfx_dict_get);
   d.def_ctx_word("dictmap ", interpret_dict_map);
-  d.def_ctx_word("dictmapext ", interpret_dict_map_ext);
-  d.def_ctx_word("dictforeach ", interpret_dict_foreach);
+  d.def_ctx_word("dictmapext ", std::bind(interpret_dict_map_ext, _1, false));
+  d.def_ctx_word("idictmapext ", std::bind(interpret_dict_map_ext, _1, true));
+  d.def_ctx_word("dictforeach ", std::bind(interpret_dict_foreach, _1, false));
+  d.def_ctx_word("idictforeach ", std::bind(interpret_dict_foreach, _1, true));
   d.def_ctx_word("dictmerge ", interpret_dict_merge);
   d.def_ctx_word("dictdiff ", interpret_dict_diff);
   // slice/bitstring constants

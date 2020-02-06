@@ -31,6 +31,9 @@ int string_hash(slice s) asm "SHA256U";
 int check_signature(int hash, slice signature, int public_key) asm "CHKSIGNU";
 int check_data_signature(slice data, slice signature, int public_key) asm "CHKSIGNS";
 
+(int, int, int) compute_data_size(cell c, int max_cells) asm "CDATASIZE";
+(int, int, int) slice_compute_data_size(slice s, int max_cells) asm "SDATASIZE";
+
 ;; () throw_if(int excno, int cond) impure asm "THROWARGIF";
 
 () dump_stack() impure asm "DUMPSTK";

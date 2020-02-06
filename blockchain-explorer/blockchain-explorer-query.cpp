@@ -24,7 +24,7 @@
     from all source files in the program, then also delete it here.
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "blockchain-explorer-query.hpp"
 #include "blockchain-explorer-http.hpp"
@@ -47,7 +47,7 @@
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/continuation.h"
+#include "vm/vm.h"
 #include "vm/cp0.h"
 
 namespace {
@@ -198,8 +198,9 @@ void HttpQueryCommon::abort_query(td::Status error) {
     HttpAnswer A{"error", prefix_};
     A.abort(std::move(error));
     auto page = A.finish();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -291,8 +292,9 @@ void HttpQueryBlockView::finish_query() {
       A << HttpAnswer::RawData<block::gen::Block>{root};
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -488,8 +490,9 @@ void HttpQueryBlockInfo::finish_query() {
 
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -709,8 +712,9 @@ void HttpQueryBlockSearch::finish_query() {
 
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -795,8 +799,9 @@ void HttpQueryViewAccount::finish_query() {
       A << HttpAnswer::AccountCell{addr_, res_block_id_, root, Q_roots};
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -893,8 +898,9 @@ void HttpQueryViewTransaction::finish_query() {
       }
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -974,8 +980,9 @@ void HttpQueryViewTransaction2::finish_query() {
       A << HttpAnswer::TransactionCell{addr_, block_id_, list};
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -1178,8 +1185,9 @@ void HttpQueryConfig::finish_query() {
       }
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -1209,8 +1217,9 @@ void HttpQuerySendForm::finish_query() {
         << "</div></form></div>";
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -1270,8 +1279,9 @@ void HttpQuerySend::finish_query() {
       }
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -1434,8 +1444,9 @@ void HttpQueryRunMethod::finish_query() {
 
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
@@ -1511,8 +1522,9 @@ void HttpQueryStatus::finish_query() {
       A << "</table></div>";
       return A.finish();
     }();
-    promise_.set_value(
-        MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY));
+    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+    MHD_add_response_header(R, "Content-Type", "text/html");
+    promise_.set_value(std::move(R));
   }
   stop();
 }
