@@ -1437,6 +1437,10 @@ The following primitives work with (the only) value~$\bot$ of type {\em Null}, u
 \item {\tt 6FA1} --- {\tt NULLSWAPIFNOT} ($x$ -- $x$ or $\bot$ $x$), pushes a {\em Null\/} under the topmost {\em Integer\/}~$x$, but only if $x=0$. May be used for stack alignment after quiet primitives such as {\tt PLDUXQ}.
 \item {\tt 6FA2} --- {\tt NULLROTRIF} ($x$ $y$ -- $x$ $y$ or $\bot$ $x$ $y$), pushes a {\em Null\/} under the second stack entry from the top, but only if the topmost {\em Integer\/} $y$ is non-zero.
 \item {\tt 6FA3} --- {\tt NULLROTRIFNOT} ($x$ $y$ -- $x$ $y$ or $\bot$ $x$ $y$), pushes a {\em Null\/} under the second stack entry from the top, but only if the topmost {\em Integer\/} $y$ is zero. May be used for stack alignment after quiet primitives such as {\tt LDUXQ}.
+\item {\tt 6FA4} --- {\tt NULLSWAPIF2} ($x$ -- $x$ or $\bot$ $\bot$ $x$), pushes two {\em Null\/}s under the topmost {\em Integer\/}~$x$, but only if $x\neq0$. Equivalent to {\tt NULLSWAPIF}; {\tt NULLSWAPIF}.
+\item {\tt 6FA5} --- {\tt NULLSWAPIFNOT2} ($x$ -- $x$ or $\bot$ $\bot$ $x$), pushes two {\em Null\/}s under the topmost {\em Integer\/}~$x$, but only if $x=0$. Equivalent to {\tt NULLSWAPIFNOT}; {\tt NULLSWAPIFNOT}.
+\item {\tt 6FA6} --- {\tt NULLROTRIF2} ($x$ $y$ -- $x$ $y$ or $\bot$ $\bot$ $x$ $y$), pushes two {\em Null\/}s under the second stack entry from the top, but only if the topmost {\em Integer\/} $y$ is non-zero. Equivalent to {\tt NULLROTRIF}; {\tt NULLROTRIF}.
+\item {\tt 6FA7} --- {\tt NULLROTRIFNOT2} ($x$ $y$ -- $x$ $y$ or $\bot$ $\bot$ $x$ $y$), pushes two {\em Null\/}s under the second stack entry from the top, but only if the topmost {\em Integer\/} $y$ is zero. Equivalent to {\tt NULLROTRIFNOT}; {\tt NULLROTRIFNOT}.
 \item {\tt 6FB$ij$} --- {\tt INDEX2 $i$,$j$} ($t$ -- $x$), recovers $x=(t_{i+1})_{j+1}$ for $0\leq i,j\leq 3$. Equivalent to {\tt INDEX $i$}; {\tt INDEX $j$}.
 \item {\tt 6FB4} --- {\tt CADR} ($t$ -- $x$), recovers $x=(t_2)_1$.
 \item {\tt 6FB5} --- {\tt CDDR} ($t$ -- $x$), recovers $x=(t_2)_2$.

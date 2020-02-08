@@ -57,6 +57,7 @@
 #include "vm/cells/MerkleProof.h"
 #include "vm/vm.h"
 #include "vm/cp0.h"
+#include "vm/memo.h"
 #include "ton/ton-shard.h"
 #include "openssl/rand.hpp"
 #include "crypto/vm/utils.h"
@@ -1065,6 +1066,9 @@ bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress a
         });
   } else {
     td::int64 method_id = compute_method_id(method_name);
+    // set serialization limits
+    vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+    vm::VmStateInterface::Guard guard(&fstate);
     // serialize parameters
     vm::CellBuilder cb;
     Ref<vm::Cell> cell;
@@ -1298,6 +1302,9 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
       vm::CellSlice{vm::NoVm(), info.true_root}.print_rec(os);
       out << "dump of account state (proof): " << os.str() << std::endl;
     }
+    // set deserialization limits
+    vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+    vm::VmStateInterface::Guard guard(&fstate);
     if (false && remote_c7.size()) {
       // DEBUG (dump remote_c7)
       auto r_c7 = vm::std_boc_deserialize(remote_c7).move_as_ok();
@@ -1391,12 +1398,6 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
         remote_stack->dump(os, 3);
         out << os.str();
       }
-    }
-    if (0) {  // DEBUG
-      std::ostringstream os;
-      LOG(DEBUG) << "dumping constructed proof";
-      //vm::CellSlice{vm::NoVm(), pb.extract_proof()}.print_rec(os);
-      out << "constructed state proof: " << os.str();
     }
   } catch (vm::VmVirtError& err) {
     out << "virtualization error while parsing runSmcMethod result: " << err.get_msg();
@@ -2456,7 +2457,7 @@ int main(int argc, char* argv[]) {
   });
 #endif
 
-  vm::init_op_cp0();
+  vm::init_op_cp0(true);  // enable vm debug
 
   td::actor::Scheduler scheduler({2});
 

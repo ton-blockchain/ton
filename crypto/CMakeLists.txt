@@ -23,6 +23,7 @@ set(TON_CRYPTO_SOURCE
   vm/atom.cpp
   vm/continuation.cpp
   vm/dict.cpp
+  vm/memo.cpp
   vm/dispatch.cpp
   vm/opctable.cpp
   vm/cp0.cpp
@@ -76,6 +77,7 @@ set(TON_CRYPTO_SOURCE
   vm/excno.hpp
   vm/fmt.hpp
   vm/log.h
+  vm/memo.h
   vm/opctable.h
   vm/stack.hpp
   vm/stackops.h
@@ -354,7 +356,7 @@ if (NOT CMAKE_CROSSCOMPILING)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMAND fift -Ifift/lib:smartcont -s asm-to-cpp.fif ${ARG_DEST_FIF} ${ARG_DEST_CPP} ${ARG_NAME}
       MAIN_DEPENDENCY ${ARG_SOURCE}
-      DEPENDS fift ${ARG_DEST_FIF} smartcont/asm-to-cpp.fif
+      DEPENDS fift ${ARG_DEST_FIF} smartcont/asm-to-cpp.fif fift/lib/Asm.fif
       OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST_CPP}
     )
     add_custom_target(gen_fif_${ID} DEPENDS ${ARG_DEST_FIF} ${ARG_DEST_CPP})

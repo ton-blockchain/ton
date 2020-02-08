@@ -82,21 +82,7 @@ class DnsInterface {
     bool operator==(const EntryData& other) const {
       return data == other.data;
     }
-    friend td::StringBuilder& operator<<(td::StringBuilder& sb, const EntryData& data) {
-      switch (data.type) {
-        case Type::Empty:
-          return sb << "<empty>";
-        case Type::Text:
-          return sb << "text{" << data.data.get<EntryDataText>().text << "}";
-        case Type::NextResolver:
-          return sb << "next{" << data.data.get<EntryDataNextResolver>().resolver.rserialize() << "}";
-        case Type::AdnlAddress:
-          return sb << "adnl{" << data.data.get<EntryDataAdnlAddress>().adnl_address.to_hex() << "}";
-        case Type::SmcAddress:
-          return sb << "smc{" << data.data.get<EntryDataSmcAddress>().smc_address.rserialize() << "}";
-      }
-      return sb << "<unknown>";
-    }
+    friend td::StringBuilder& operator<<(td::StringBuilder& sb, const EntryData& data);
 
     td::Result<td::Ref<vm::Cell>> as_cell() const;
     static td::Result<EntryData> from_cellslice(vm::CellSlice& cs);

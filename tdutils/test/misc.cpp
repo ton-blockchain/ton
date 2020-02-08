@@ -220,6 +220,26 @@ TEST(Misc, base64) {
               "Ojo7ISUiOw==");
 }
 
+TEST(Misc, base32) {
+  ASSERT_EQ("", base32_encode(""));
+  ASSERT_EQ("me", base32_encode("a"));
+  base32_decode("me").ensure();
+  ASSERT_EQ("mfra", base32_encode("ab"));
+  ASSERT_EQ("mfrgg", base32_encode("abc"));
+  ASSERT_EQ("mfrggza", base32_encode("abcd"));
+  ASSERT_EQ("mfrggzdg", base32_encode("abcdf"));
+  ASSERT_EQ("mfrggzdgm4", base32_encode("abcdfg"));
+  for (int l = 0; l < 300000; l += l / 20 + l / 1000 * 500 + 1) {
+    for (int t = 0; t < 10; t++) {
+      string s = rand_string(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), l);
+      auto encoded = base32_encode(s);
+      auto decoded = base32_decode(encoded);
+      ASSERT_TRUE(decoded.is_ok());
+      ASSERT_TRUE(decoded.ok() == s);
+    }
+  }
+}
+
 TEST(Misc, to_integer) {
   ASSERT_EQ(to_integer<int32>("-1234567"), -1234567);
   ASSERT_EQ(to_integer<int64>("-1234567"), -1234567);

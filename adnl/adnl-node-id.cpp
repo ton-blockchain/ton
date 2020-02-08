@@ -16,13 +16,20 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#pragma once
-#include "vm/dispatch.h"
 
-namespace vm {
+#include "adnl-node-id.hpp"
 
-class OpcodeTable;
+#include "common/util.h"
 
-const OpcodeTable* init_op_cp0(bool debug_enabled = false);
+namespace ton {
+namespace adnl {
+td::Result<AdnlNodeIdShort> AdnlNodeIdShort::parse(td::Slice id) {
+  TRY_RESULT(str, td::adnl_id_decode(id));
+  return AdnlNodeIdShort(str);
+}
 
-}  // namespace vm
+std::string AdnlNodeIdShort::serialize() {
+  return adnl_id_encode(hash_.as_slice()).move_as_ok();
+}
+}  // namespace adnl
+}  // namespace ton

@@ -54,6 +54,8 @@
 #include "td/utils/tests.h"
 #include "td/utils/port/path.h"
 
+#include "common/util.h"
+
 namespace tonlib {
 namespace int_api {
 struct GetAccountState {
@@ -1310,6 +1312,12 @@ td::Result<block::StdAddress> get_account_address(td::Slice account_address) {
   return address;
 }
 
+td::Result<td::Bits256> get_adnl_address(td::Slice adnl_address) {
+  TRY_RESULT_PREFIX(address, td::adnl_id_decode(adnl_address),
+                    TonlibError::InvalidField("adnl_address", "can't decode"));
+  return address;
+}
+
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::getAccountAddress& request) {
   if (!request.initial_account_state_) {
@@ -1859,6 +1867,36 @@ td::Status TonlibClient::do_request(const tonlib_api::getAccountState& request,
   return td::Status::OK();
 }
 
+td::Result<ton::ManualDns::EntryData> to_dns_entry_data(tonlib_api::dns_EntryData& entry_data) {
+  using R = td::Result<ton::ManualDns::EntryData>;
+  return downcast_call2<R>(
+      entry_data,
+      td::overloaded(
+          [&](tonlib_api::dns_entryDataUnknown& unknown) -> R { return ton::ManualDns::EntryData(); },
+          [&](tonlib_api::dns_entryDataNextResolver& next_resolver) -> R {
+            if (!next_resolver.resolver_) {
+              return TonlibError::EmptyField("resolver");
+            }
+            TRY_RESULT(resolver, get_account_address(next_resolver.resolver_->account_address_));
+            return ton::ManualDns::EntryData::next_resolver(std::move(resolver));
+          },
+          [&](tonlib_api::dns_entryDataSmcAddress& smc_address) -> R {
+            if (!smc_address.smc_address_) {
+              return TonlibError::EmptyField("smc_address");
+            }
+            TRY_RESULT(address, get_account_address(smc_address.smc_address_->account_address_));
+            return ton::ManualDns::EntryData::smc_address(std::move(address));
+          },
+          [&](tonlib_api::dns_entryDataAdnlAddress& adnl_address) -> R {
+            if (!adnl_address.adnl_address_) {
+              return TonlibError::EmptyField("adnl_address");
+            }
+            TRY_RESULT(address, get_adnl_address(adnl_address.adnl_address_->adnl_address_));
+            return ton::ManualDns::EntryData::adnl_address(std::move(address));
+          },
+          [&](tonlib_api::dns_entryDataText& text) -> R { return ton::ManualDns::EntryData::text(text.text_); }));
+}
+
 class GenericCreateSendGrams : public TonlibQueryActor {
  public:
   GenericCreateSendGrams(td::actor::ActorShared<TonlibClient> client, tonlib_api::createQuery query,
@@ -1945,29 +1983,6 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                                                        }));
     TRY_STATUS(std::move(status));
     return res;
-  }
-
-  td::Result<ton::ManualDns::EntryData> to_dns_entry_data(tonlib_api::dns_EntryData& entry_data) {
-    using R = td::Result<ton::ManualDns::EntryData>;
-    return downcast_call2<R>(
-        entry_data,
-        td::overloaded(
-            [&](tonlib_api::dns_entryDataUnknown& unknown) -> R { return ton::ManualDns::EntryData(); },
-            [&](tonlib_api::dns_entryDataNextResolver& next_resolver) -> R {
-              if (!next_resolver.resolver_) {
-                return TonlibError::EmptyField("resolver");
-              }
-              TRY_RESULT(resolver, get_account_address(next_resolver.resolver_->account_address_));
-              return ton::ManualDns::EntryData::next_resolver(std::move(resolver));
-            },
-            [&](tonlib_api::dns_entryDataSmcAddress& smc_address) -> R {
-              if (!smc_address.smc_address_) {
-                return TonlibError::EmptyField("smc_address");
-              }
-              TRY_RESULT(address, get_account_address(smc_address.smc_address_->account_address_));
-              return ton::ManualDns::EntryData::smc_address(std::move(address));
-            },
-            [&](tonlib_api::dns_entryDataText& text) -> R { return ton::ManualDns::EntryData::text(text.text_); }));
   }
 
   td::Result<ton::ManualDns::Action> to_dns_action(tonlib_api::dns_Action& action) {
@@ -2566,7 +2581,11 @@ td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
         res = tonlib_api::make_object<tonlib_api::dns_entryDataNextResolver>(
             tonlib_api::make_object<tonlib_api::accountAddress>(resolver.resolver.rserialize(true)));
       },
-      [&](const ton::ManualDns::EntryDataAdnlAddress& adnl_address) { res = td::Status::Error("TODO"); },
+      [&](const ton::ManualDns::EntryDataAdnlAddress& adnl_address) {
+        res = tonlib_api::make_object<tonlib_api::dns_entryDataAdnlAddress>(
+            tonlib_api::make_object<tonlib_api::adnlAddress>(
+                td::adnl_id_encode(adnl_address.adnl_address.as_slice()).move_as_ok()));
+      },
       [&](const ton::ManualDns::EntryDataSmcAddress& smc_address) {
         res = tonlib_api::make_object<tonlib_api::dns_entryDataSmcAddress>(
             tonlib_api::make_object<tonlib_api::accountAddress>(smc_address.smc_address.rserialize(true)));

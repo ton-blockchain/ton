@@ -15,7 +15,7 @@
 
 ;; Args: s D n | Success: s' x s'' -1 | Failure: s 0 -> s N N 0
 (slice, slice, slice, int) pfxdict_get?(cell dict, int key_len, slice key) 
-    asm(key dict key_len) "PFXDICTGETQ" "NULLSWAPIFNOT" "NULLSWAPIFNOT";
+    asm(key dict key_len) "PFXDICTGETQ" "NULLSWAPIFNOT2";
 
 ;; Args: x k D n | Success: D' -1 | Failure: D 0
 (cell, int) pfxdict_set?(cell dict, int key_len, slice key, slice value) 
@@ -36,12 +36,9 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
   return (dict, ());
 }
 
-(slice, cell, slice, int) pfxdict_get_ref(cell dict, int key_len, slice key)  {
+(slice, cell, slice, int) pfxdict_get_ref(cell dict, int key_len, slice key) inline_ref {
   (slice pfx, slice val, slice tail, int succ) = dict.pfxdict_get?(key_len, key);
-  cell res = null();
-  if (succ) {
-    res = val~load_maybe_ref();
-  }
+  cell res = succ ? val~load_maybe_ref() : null();
   return (pfx, res, tail, succ);
 }
 
@@ -49,16 +46,16 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
 ;; Utility functions                                                         ;;
 ;;===========================================================================;;
 
-(int, int, int, cell, cell) load_data() {
+(int, int, int, cell, cell) load_data() inline_ref {
   slice cs = get_data().begin_parse();
   var res = (cs~load_uint(32), cs~load_uint(64), cs~load_uint(256), cs~load_dict(), cs~load_dict());
   cs.end_parse();
   return res;
 }
 
-() store_data(int subwallet, int last_cleaned, int public_key, cell root, old_queries) impure {
+() store_data(int contract_id, int last_cleaned, int public_key, cell root, old_queries) impure {
   set_data(begin_cell()
-      .store_uint(subwallet, 32)
+      .store_uint(contract_id, 32)
       .store_uint(last_cleaned, 64)
       .store_uint(public_key, 256)
       .store_dict(root)
@@ -102,7 +99,7 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
     [UInt<256b>:new_public_key]
 -}
 
-(cell, slice) process_op(cell root, slice ops) {
+(cell, slice) process_op(cell root, slice ops) inline_ref {
   int op = ops~load_uint(6);
   int is_name_ref = (ops~load_uint(1) == 1);
 
@@ -129,19 +126,13 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
     ;; at least one character not counting \0
     throw_unless(38, name.slice_bits() >= 16);
     ;; name shall end with \0
-    (_, int name_last_byte) = name.slice_last(8).load_uint(8);
-    throw_unless(40, name_last_byte == 0);
-    
-    ;; Multiple zero characters seem to be allowed as per github issue response
-    ;; Lets change the tactics!
-    
-    int loop = -1;
+    int name_last_byte = name.slice_last(8).preload_uint(8);
+    throw_if(40, name_last_byte);
+    ;; count zero separators
     slice cname = name;
-    ;; better safe then sorry, dont want to catch any of loop bugs
-    while (loop) {
-      int lval = cname~load_uint(8);
-      if (lval == 0) { zeros += 1; }
-      if (cname.slice_bits() == 0) { loop = 0; }
+    repeat (cname.slice_bits() ^>> 3) {
+      int c = cname~load_uint(8);
+      zeros -= (c == 0);
     }
     ;; throw_unless(39, zeros == 1);
   }
@@ -163,18 +154,13 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
   ;; 11 VSet: set specified value to specified subdomain->category
   if (op == 11) {
     cell new_value = ops~load_maybe_ref();
-    if (new_value.cell_null?()) {
-      cat_table~idict_delete?(16, cat);
-    } else {
-      cat_table~idict_set_ref(16, cat, new_value);
-    }
+    cat_table~idict_set_get_ref(16, cat, new_value);
     root~pfxdict_set_ref(1023, name, cat_table);
     return (root, ops);
   }
   ;; 12 VDel: delete specified subdomain->category value
   if (op == 12) {
-    ifnot (cat_table.dict_empty?()) {
-       cat_table~idict_delete?(16, cat);
+    if (cat_table~idict_delete?(16, cat)) {
        root~pfxdict_set_ref(1023, name, cat_table);      
     }
     return (root, ops);
@@ -198,22 +184,22 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
   }
   ;; 32 TDel: nullify ENTIRE DOMAIN TABLE
   if (op == 32) {
-                return (null(), ops);
+    return (null(), ops);
   }
   throw(44); ;; invalid operation
-        return (root, ops);
+  return (root, ops);
 }
 
-cell process_ops(cell root, slice ops) {
-  int f = -1;
-  while (f) {
+cell process_ops(cell root, slice ops) inline_ref {
+  var stop = false;
+  do {
     (root, ops) = process_op(root, ops);
     if (ops.slice_refs_empty?()) {
-      f = 0;
+      stop = true;
     } else {
       ops = ops~load_ref().begin_parse();
     }
-  } 
+  } until (stop);
   return root;
 }
 
@@ -224,7 +210,7 @@ cell process_ops(cell root, slice ops) {
   ;; validate signature and seqno
   slice signature = in_msg~load_bits(512);
   int shash = slice_hash(in_msg);
-  var (subwallet_id, query_id) = (in_msg~load_uint(32), in_msg~load_uint(64));
+  var (contract_id, query_id) = (in_msg~load_uint(32), in_msg~load_uint(64));
   var bound = (now() << 32);
   throw_if(35, query_id < bound);
   (_, var found?) = old_queries.udict_get?(64, query_id);
@@ -232,17 +218,13 @@ cell process_ops(cell root, slice ops) {
   throw_unless(34, check_signature(shash, signature, public_key));
   accept_message(); ;; message is signed by owner, sanity not guaranteed yet
 
-
   int op = in_msg.preload_uint(6);
-  ;; 00 Contract initialization message (only if seqno = 0)
-  if (op == 0) {
-    ;; noop
-  } else { if (op == 51) {
+  if (op == 51) {
     in_msg~skip_bits(6);
     public_key = in_msg~load_uint(256);
-  } else {
+  } elseif (op) {    ;; 00 Contract initialization message
     root = process_ops(root, in_msg);
-  } }
+  }
 
   bound -= (64 << 32);   ;; clean up records expired more than 64 seconds ago
   old_queries~udict_set_builder(64, query_id, begin_cell());
@@ -259,7 +241,7 @@ cell process_ops(cell root, slice ops) {
     }
   } until (~ f);
 
-  store_data(subwallet_id, last_cleaned, public_key, root, old_queries);
+  store_data(contract_id, last_cleaned, public_key, root, old_queries);
 }
 
 {-
@@ -267,7 +249,6 @@ cell process_ops(cell root, slice ops) {
   Root cell: [UInt<32b>:seqno] [UInt<256b>:owner_public_key] 
          [OptRef<1b+1r?>:Hashmap<PfxDict:Slice->CatTable>:domains]
   <CatTable> := HashmapE 16 ^DNSRecord
-  <DNSRecord> := arbitary? not defined anywhere in documentation or internet!
   
   STORED DOMAIN NAME SLICE FORMAT: (#ZeroChars<7b>) (Domain name value)
   #Zeros allows to simultaneously store, for example, com\0 and com\0google\0
@@ -282,100 +263,67 @@ cell process_ops(cell root, slice ops) {
 ;; Getter methods                                                            ;;
 ;;===========================================================================;;
 
-int get_seqno() method_id { ;; Retrieve sequence number
+;; Retrieve contract id (in case several contracts are managed with the same private key)
+int get_contract_id() method_id {
   return get_data().begin_parse().preload_uint(32);
 }
 
 ;;8m  dns-record-value
 (int, cell) dnsresolve(slice subdomain, int category) method_id {
-  cell Null = null(); ;; pseudo-alias
-  throw_if(30, subdomain.slice_bits() % 8 != 0); ;; malformed input (~ 8n-bit)
-  if (subdomain.slice_bits() == 0) { return (0, Null); } ;; zero-length input
-  {- ;; Logic thrown away: return only first ZB-delimited subdomain,
-        appends \0 if neccessary (not required for pfx, \0 can be ap more eff)
-  builder b_name = begin_cell();
-  slice remaining = subdomain;
-  int char = remaining~load_uint(8); ;; seems to be the most optimal way
-  do {
-    b_name~store_uint(char, 8);
-    char = remaining~load_uint(8);
-  } until ((remaining.slice_bits() == 0) | (char == 0));
-  if (char == 0) { category = -1; }
-  if ((remaining.slice_bits() == 0) & (char != 0)) {
-    b_name~store_uint(0, 8); ;; string was not terminated with zero byte
+  int bits = subdomain.slice_bits();
+  ifnot (bits) {
+    return (0, null());  ;; zero-length input
   }
-  cell c_name = b_name.end_cell();
-  slice s_name = c_name.begin_parse();
-  -}
-  (_, int name_last_byte) = subdomain.slice_last(8).load_uint(8);
-  if ((name_last_byte == 0) & (subdomain.slice_bits() == 8)) {
-    return (0, Null); ;; zero-length input, but with zero byte
+  throw_if(30, bits & 7); ;; malformed input (~ 8n-bit)
+
+  int name_last_byte = subdomain.slice_last(8).preload_uint(8);
+  if (name_last_byte) {
+    subdomain = begin_cell().store_slice(subdomain) ;; append zero byte
+                            .store_uint(0, 8).end_cell().begin_parse();
+    bits += 8;
   }
-  slice s_name = subdomain;
-  if (name_last_byte != 0) {
-    s_name = begin_cell().store_slice(subdomain) ;; append zero byte
-                         .store_uint(0, 8).end_cell().begin_parse();
+  if (bits == 8) {
+    return (0, null()); ;; zero-length input, but with zero byte
   }
   (_, _, _, cell root, _) = load_data();
   
-  ;; Multiple zero characters seem to be allowed as per github issue response
-  ;; Lets change the tactics!
-    
+  slice cname = subdomain;
   int zeros = 0;
-  int loop = -1;
-  slice cname = s_name;
-  ;; better safe then sorry, dont want to catch any of loop bugs
-  while (loop) {
-    int lval = cname~load_uint(8);
-    if (lval == 0) { zeros += 1; }
-    if (cname.slice_bits() == 0) { loop = 0; }
+  repeat (bits >> 3) {
+    int c = cname~load_uint(8);
+    zeros -= (c == 0);
   }
-  
-  ;; can't move below, will cause errors!
-  slice pfx = cname; cell val = null(); 
-  slice tail = cname; int succ = 0;
-    
-  while (zeros > 0) {
-    slice pfname = begin_cell().store_uint(zeros, 7)
-      .store_slice(s_name).end_cell().begin_parse();
-    (pfx, val, tail, succ) = root.pfxdict_get_ref(1023, pfname);
-    if (succ) { zeros = 1; } ;; break
-    zeros -= 1;
+
+  ;; can't move these declarations lower, will cause errors!
+  slice pfx = cname;
+  cell val = null();
+  slice tail = cname;
+
+  do {
+    slice pfxname = begin_cell().store_uint(zeros, 7)
+      .store_slice(subdomain).end_cell().begin_parse();
+    (pfx, val, tail, int succ) = root.pfxdict_get_ref(1023, pfxname);
+    zeros = succ ^ (zeros - 1);   ;; break on success
+  } until (zeros <= 0);
+
+  ifnot (zeros) {
+    return (0, null()); ;; failed to find entry in prefix dictionary
   }
-  
-  
-  zeros = pfx.preload_uint(7);
-    
-  if (~ succ) { 
-    return (0, Null); ;; failed to find entry in prefix dictionary
-  }
-  if (~ tail.slice_empty?()) { ;; if we have tail then len(pfx) < len(subdomain)
+
+  zeros = - zeros;
+
+  ifnot (tail.slice_empty?()) { ;; if we have tail then len(pfx) < len(subdomain)
     category = -1; ;; incomplete subdomain found, must return next resolver (-1)
   }
   int pfx_bits = pfx.slice_bits() - 7;
   cell cat_table = val;
   ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain 
-  ;;   COUNTING for the zero byte (if structurally correct: no multiple-ZB keys)
-  ;;   which corresponds to "8m, m=one plus the number of bytes in the subdomain found)
+  ;;   COUNTING the zero byte (if structurally correct: no multiple-ZB keys)
+  ;;   which corresponds to 8m, m=one plus the number of bytes in the subdomain found)
   if (category == 0) {
     return (pfx_bits, cat_table); ;; return cell with entire dictionary for 0
   } else {
     cell cat_found = cat_table.idict_get_ref(16, category);
-    {- it seems that if subdomain is found but cat is not need to return (8m, Null)
-    if (cat_found.cell_null?()) {
-      pfx_bits = 0; ;; to return (0, Null) instead of (8m, Null)
-      ;; my thoughts about this requirement are in next block comment
-    } -}
-    return (pfx_bits, cat_found); ;; no need to unslice and cellize the poor cat now
-    {- Old logic garbage, replaced with ref functions discovered
-    ;; dictionary category lookup
-    (slice cat_value, int cat_found) = cat_table.idict_get?(16, category);
-    if (~ cat_found) {
-      ;; we have failed to find the cat :(
-      return (0, Null); 
-    }
-    ;; cat is found, turn it's slices into cells
-    return (pfx.slice_bits(), begin_cell().store_slice(cat_value).end_cell());
-    -}
+    return (pfx_bits, cat_found);
   }
 }

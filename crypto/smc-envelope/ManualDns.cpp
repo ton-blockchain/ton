@@ -30,7 +30,26 @@
 #include "block/block-auto.h"
 #include "block/block-parse.h"
 
+#include "common/util.h"
+
 namespace ton {
+td::StringBuilder& operator<<(td::StringBuilder& sb, const ManualDns::EntryData& data) {
+  switch (data.type) {
+    case ManualDns::EntryData::Type::Empty:
+      return sb << "DELETED";
+    case ManualDns::EntryData::Type::Text:
+      return sb << "TEXT:" << data.data.get<ManualDns::EntryDataText>().text;
+    case ManualDns::EntryData::Type::NextResolver:
+      return sb << "NEXT:" << data.data.get<ManualDns::EntryDataNextResolver>().resolver.rserialize();
+    case ManualDns::EntryData::Type::AdnlAddress:
+      return sb << "ADNL:"
+                << td::adnl_id_encode(data.data.get<ManualDns::EntryDataAdnlAddress>().adnl_address.as_slice())
+                       .move_as_ok();
+    case ManualDns::EntryData::Type::SmcAddress:
+      return sb << "SMC:" << data.data.get<ManualDns::EntryDataSmcAddress>().smc_address.rserialize();
+  }
+  return sb << "<unknown>";
+}
 
 //proto_list_nil$0 = ProtoList;
 //proto_list_next$1 head:Protocol tail:ProtoList = ProtoList;
@@ -486,10 +505,19 @@ td::Result<td::optional<ManualDns::EntryData>> ManualDns::parse_data(td::Slice c
   td::ConstParser parser(cmd);
   parser.skip_whitespaces();
   auto type = parser.read_till(':');
-  parser.advance(1);
+  parser.skip(':');
   if (type == "TEXT") {
     return ManualDns::EntryData::text(parser.read_all().str());
-  } else if (type == "DELETED") {
+  } else if (type == "ADNL") {
+    TRY_RESULT(address, td::adnl_id_decode(parser.read_all()));
+    return ManualDns::EntryData::adnl_address(address);
+  } else if (type == "SMC") {
+    TRY_RESULT(address, block::StdAddress::parse(parser.read_all()));
+    return ManualDns::EntryData::smc_address(address);
+  } else if (type == "NEXT") {
+    TRY_RESULT(address, block::StdAddress::parse(parser.read_all()));
+    return ManualDns::EntryData::next_resolver(address);
+  } else if (parser.data() == "DELETED") {
     return {};
   }
   return td::Status::Error(PSLICE() << "Unknown entry type: " << type);
@@ -502,6 +530,9 @@ td::Result<ManualDns::ActionExt> ManualDns::parse_line(td::Slice cmd) {
   //   delete.all
   // data =
   //   TEXT:<text> |
+  //   SMC:<smartcontract address> |
+  //   NEXT:<smartcontract address> |
+  //   ADNL:<adnl address>
   //   DELETED
   td::ConstParser parser(cmd);
   auto type = parser.read_word();

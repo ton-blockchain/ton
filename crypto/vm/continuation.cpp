@@ -21,6 +21,7 @@
 #include "vm/dict.h"
 #include "vm/log.h"
 #include "vm/vm.h"
+#include "vm/vmstate.h"
 
 namespace vm {
 
@@ -190,6 +191,10 @@ bool ControlData::deserialize(CellSlice& cs, int mode) {
 }
 
 bool Continuation::serialize_ref(CellBuilder& cb) const {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   vm::CellBuilder cb2;
   return serialize(cb2) && cb.store_ref_bool(cb2.finalize());
 }
@@ -198,6 +203,11 @@ Ref<Continuation> Continuation::deserialize(CellSlice& cs, int mode) {
   if (mode & 0x1002) {
     return {};
   }
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return {};
+  }
+
   mode |= 0x1000;
   switch (cs.bselect_ext(6, 0x100f011100010001ULL)) {
     case 0:

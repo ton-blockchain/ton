@@ -2868,9 +2868,9 @@ void init_words_ton(Dictionary& d) {
   d.def_stack_word("base64url>B ", std::bind(interpret_base64_to_bytes, _1, true, false));
 }
 
-void init_words_vm(Dictionary& d) {
+void init_words_vm(Dictionary& d, bool enable_debug) {
   using namespace std::placeholders;
-  vm::init_op_cp0();
+  vm::init_op_cp0(enable_debug);
   // vm run
   d.def_stack_word("vmlibs ", std::bind(interpret_literal, _1, vm::StackEntry{vm_libraries}));
   // d.def_ctx_word("runvmcode ", std::bind(interpret_run_vm, _1, 0x40));

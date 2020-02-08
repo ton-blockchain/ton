@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -765,7 +765,7 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
     x.unused();
     return skip_cond ? exec_arg_op("THROW", x.int_const, 0, 0) : exec_arg_op("THROW"s + suff, x.int_const, 1, 0);
   } else {
-    return skip_cond ? exec_op("THROWANY", 1, 0) : exec_arg_op("THROWANY"s + suff, 2, 0);
+    return skip_cond ? exec_op("THROWANY", 1, 0) : exec_op("THROWANY"s + suff, 2, 0);
   }
 }
 

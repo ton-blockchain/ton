@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl.h"
@@ -40,6 +40,13 @@
 
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
+
+  {
+    auto id_str = td::Slice("WQUA224U42HFSKN63K6NU23X42VK4IJRLFGG65CU62JAOL6U47HRCHD");
+    auto id = ton::adnl::AdnlNodeIdShort::parse(id_str).move_as_ok();
+    CHECK(td::hex_decode("a1406b5ca73472c94df6d5e6d35bbf355571098aca637ba2a7b490397ea73e78").ok() == id.as_slice());
+    CHECK(id.serialize() == td::to_lower(id_str));
+  }
 
   std::string db_root_ = "tmp-ee";
   td::rmrf(db_root_).ignore();

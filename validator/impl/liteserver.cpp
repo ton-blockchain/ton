@@ -35,6 +35,7 @@
 #include "vm/dict.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/vm.h"
+#include "vm/memo.h"
 #include "shard.hpp"
 #include "validator-set.hpp"
 #include "signature-set.hpp"
@@ -686,6 +687,8 @@ void LiteQuery::perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, St
         fatal_error("cannot deserialize parameter list boc: "s + res.move_as_error().to_string());
         return;
       }
+      vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+      vm::VmStateInterface::Guard guard(&fstate);
       auto cs = vm::load_cell_slice(res.move_as_ok());
       if (!(vm::Stack::deserialize_to(cs, stack_, 0) && cs.empty_ext())) {
         fatal_error("parameter list boc cannot be deserialized as a VmStack");
@@ -1076,6 +1079,8 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   stack_ = vm.get_stack_ref();
   LOG(INFO) << "runSmcMethod(" << acc_workchain_ << ":" << acc_addr_.to_hex() << ") query completed: exit code is "
             << exit_code;
+  vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
   Ref<vm::Cell> cell;
   td::BufferSlice c7_info, result;
   if (mode & 8) {

@@ -434,7 +434,11 @@ class TonlibCli : public td::actor::Actor {
       return;
     }
     if (resolved->entries_[0]->name_ == name) {
-      td::TerminalIO::out() << "Done: " << to_string(resolved);
+      td::TerminalIO::out() << "Done\n";
+      for (auto& entry : resolved->entries_) {
+        td::TerminalIO::out() << "  " << entry->name_ << " " << entry->category_ << " "
+                              << tonlib::to_dns_entry_data(*entry->entry_).move_as_ok() << "\n";
+      }
       promise.set_value(td::Unit());
       return;
     }
@@ -484,22 +488,14 @@ class TonlibCli : public td::actor::Actor {
         td::TerminalIO::out() << "Delete all dns enties with name and category: " << action.name << ":"
                               << action.category << "\n";
       } else {
-        tonlib_api::object_ptr<tonlib_api::dns_EntryData> data;
         td::StringBuilder sb;
 
         td::Status error;
         if (action.data.value().data.empty()) {
           TRY_STATUS_PROMISE(promise, td::Status::Error("Empty entry data is not supported"));
         }
-        action.data.value().data.visit(td::overloaded(
-            [&](const ton::ManualDns::EntryDataText& text) {
-              data = tonlib_api::make_object<tonlib_api::dns_entryDataText>(text.text);
-              sb << "TEXT:" << text.text;
-            },
-            [&](const ton::ManualDns::EntryDataNextResolver& resolver) { error = td::Status::Error("TODO"); },
-            [&](const ton::ManualDns::EntryDataAdnlAddress& adnl_address) { error = td::Status::Error("TODO"); },
-            [&](const ton::ManualDns::EntryDataSmcAddress& text) { error = td::Status::Error("TODO"); }));
-        ;
+        TRY_RESULT_PROMISE(promise, data, tonlib::to_tonlib_api(action.data.value()));
+        sb << action.data.value();
         TRY_STATUS_PROMISE(promise, std::move(error));
         td::TerminalIO::out() << "Set dns entry: " << action.name << ":" << action.category << " " << sb.as_cslice()
                               << "\n";

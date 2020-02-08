@@ -216,6 +216,10 @@ x{6FA0} @Defop NULLSWAPIF
 x{6FA1} @Defop NULLSWAPIFNOT
 x{6FA2} @Defop NULLROTRIF
 x{6FA3} @Defop NULLROTRIFNOT
+x{6FA4} @Defop NULLSWAPIF2
+x{6FA5} @Defop NULLSWAPIFNOT2
+x{6FA6} @Defop NULLROTRIF2
+x{6FA7} @Defop NULLROTRIFNOT2
 { <b x{6FB} s, rot 2 u, swap 2 u, @addopb } : INDEX2
 x{6FB4} @Defop CADR
 x{6FB5} @Defop CDDR
@@ -305,7 +309,9 @@ x{A90C} @Defop DIVMOD
 x{A90D} @Defop DIVMODR
 x{A90E} @Defop DIVMODC
 x{A925} @Defop RSHIFTR
+x{A926} @Defop RSHIFTC
 x{A935} @Defop(8u+1) RSHIFTR#
+x{A936} @Defop(8u+1) RSHIFTC#
 x{A938} @Defop(8u+1) MODPOW2#
 x{A984} @Defop MULDIV
 x{A985} @Defop MULDIVR
@@ -1074,56 +1080,83 @@ x{FFF0} @Defop SETCPX
 variable @proccnt
 variable @proclist
 variable @procdict
+variable @procinfo
 variable @gvarcnt
 19 constant @procdictkeylen
-{ @proclist @ cons @proclist ! } : @proclistadd
-{ dup @procdictkeylen fits not abort"procedure index out of range"
-  1 'nop does swap dup @proclistadd 0 (create)
+32 constant @zcount
+{ pair @proclist @ cons @proclist ! } : @proclistadd
+{ @procinfo @ @procdictkeylen idict@ { 16 i@ } { 0 } cond } : @procinfo@
+{ <b rot 16 i, swap @procinfo @ @procdictkeylen b>idict!
+  not abort"cannot add key to procedure info dictionary"
+  @procinfo !
+} : @procinfo!
+// ( x v1 v2 -- )
+{ not 2 pick @procinfo@ and xor swap @procinfo! } : @procinfo~!
+// ( s i f -- )
+{ over @procdictkeylen fits not abort"procedure index out of range"
+  over swap dup @procinfo~!  2dup @proclistadd
+  1 'nop does swap 0 (create)
 } : @declproc
 { 1 'nop does swap 0 (create) } : @declglobvar
-{ @proccnt @ 1+ dup @proccnt ! @declproc } : @newproc
+{ @proccnt @ 1+ dup @proccnt ! 1 @declproc } : @newproc
 { @gvarcnt @ 1+ dup @gvarcnt ! @declglobvar } : @newglobvar
 { 0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
   { bl word @newproc } : NEWPROC
   { bl word dup (def?) ' drop ' @newproc cond } : DECLPROC
   { bl word dup find
     { nip execute <> abort"method redefined with different id" }
-    { swap @declproc }
+    { swap 17 @declproc }
   cond } : DECLMETHOD
   { bl word @newglobvar } : DECLGLOBVAR
-  "main" @proclistadd
-  dictnew @procdict !
+  "main" 0 @proclistadd
+  dictnew dup @procdict !
+  @procinfo !  16 0 @procinfo!
 } : PROGRAM{
 { over sbits < { s>c <b swap ref, b> <s } if } : @adj-long-proc
 { // i s l
-  @adj-long-proc swap @procdict @ @procdictkeylen
+  @adj-long-proc over @procdict @ @procdictkeylen
   idict!+ not abort"cannot define procedure, redefined?"
-  @procdict !
+  @procdict !  2 2 @procinfo~!
 } : @def-proc
+{ @procinfo @ null? not } : @have-procinfo?
+{ @have-procinfo? { 4 4 @procinfo~! } { drop } cond } : @proc-inlined
+{ @have-procinfo? { 8 8 @procinfo~! } { drop } cond } : @proc-called
 { 1000 @def-proc } : PROC
 { 0 @def-proc } : PROCREF
 { @procdict @ @procdictkeylen idict@ abort"procedure already defined"
 } : @fail-ifdef
+{ u@?+ { swap abort"first bits are not zeroes" } if } : @cut-zeroes
 { over @fail-ifdef
-  2 { rot @normal? rot b> <s swap @def-proc drop } does
-  null swap @doafter<{
+  2 { rot @normal? rot b> <s @zcount @cut-zeroes swap @def-proc drop } does
+  null swap @doafter<{ 0 @zcount u,
 } : @PROC:<{
 { 1000 @PROC:<{ } : PROC:<{
 { 0 @PROC:<{ } : PROCREF:<{
+{ dup @proc-called CALLDICT } dup : CALL : CALLDICT
+{ dup @proc-called JMPDICT } dup : JMP : JMPDICT
+{ dup @proc-called PREPAREDICT } dup : PREPARE : PREPAREDICT
 { dup @procdict @ @procdictkeylen idict@
-  { nip INLINE } { CALLDICT } cond
+  { swap @proc-inlined INLINE } { CALLDICT } cond
 } dup : INLINECALL : INLINECALLDICT
 { 0 @procdict @ @procdictkeylen idict@ not abort"`main` procedure not defined" drop
 } : @chkmaindef
+{ @procdict @ @procdictkeylen idict- drop @procdict ! } : @remove-proc
+{ ."Procedure `" over type ."` index=" 2 pick . ." flags=0x" dup x. cr } : @showprocinfo
+// ( proc_name proc_idx f -- )  f:+1=declared, +2=defined, +4=inlined, +8=called, +16=method
+{ // @showprocinfo
+  dup 0x1a and 2 = { 2 pick @remove-proc  // over ."Removing " type cr
+  } if  // remove unused procs
+  drop 2drop
+} : @chkprocdef
 { @chkmaindef
   @proclist @ { dup null? not } {
-    uncons swap dup find not
-    { +": undefined procedure name in list" abort } if
-    execute @procdict @ @procdictkeylen idict@ not
+    uncons swap unpair over find not
+    { drop +": undefined procedure name in list" abort } if
+    drop tuck @procdict @ @procdictkeylen idict@ not
     { +": procedure declared but left undefined" abort } if
-    drop (forget)
+    drop swap 2dup @procinfo@ @chkprocdef (forget)
   } while
-  drop @proclist null! @proccnt 0!
+  drop @proclist null! @procinfo null! @proccnt 0!
   @procdict dup @ swap null!
 } : }END
 forget @proclist  forget @proccnt

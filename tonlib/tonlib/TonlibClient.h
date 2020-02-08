@@ -32,6 +32,8 @@
 #include "td/utils/CancellationToken.h"
 #include "td/utils/optional.h"
 
+#include "smc-envelope/ManualDns.h"
+
 #include <map>
 
 namespace tonlib {
@@ -46,6 +48,10 @@ inline std::string to_string(const int_api::SendMessage&) {
 }  // namespace int_api
 class AccountState;
 class Query;
+
+td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
+    const ton::ManualDns::EntryData& entry_data);
+td::Result<ton::ManualDns::EntryData> to_dns_entry_data(tonlib_api::dns_EntryData& entry_data);
 
 class TonlibClient : public td::actor::Actor {
  public:

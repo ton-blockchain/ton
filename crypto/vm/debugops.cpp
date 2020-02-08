@@ -28,6 +28,10 @@ namespace vm {
 
 bool vm_debug_enabled = true;
 
+void set_debug_enabled(bool enable_debug) {
+  vm_debug_enabled = enable_debug;
+}
+
 int exec_dummy_debug(VmState* st, int args) {
   VM_LOG(st) << "execute DEBUG " << (args & 0xff);
   return 0;
@@ -66,6 +70,9 @@ int compute_len_debug_str(const CellSlice& cs, unsigned args, int pfx_bits) {
 
 int exec_dump_stack(VmState* st) {
   VM_LOG(st) << "execute DUMPSTK";
+  if (!vm_debug_enabled) {
+    return 0;
+  }
   Stack& stack = st->get_stack();
   int d = stack.depth();
   std::cerr << "#DEBUG#: stack(" << d << " values) : ";
@@ -84,6 +91,9 @@ int exec_dump_stack(VmState* st) {
 int exec_dump_value(VmState* st, unsigned arg) {
   arg &= 15;
   VM_LOG(st) << "execute DUMP s" << arg;
+  if (!vm_debug_enabled) {
+    return 0;
+  }
   Stack& stack = st->get_stack();
   if ((int)arg < stack.depth()) {
     std::cerr << "#DEBUG#: s" << arg << " = ";

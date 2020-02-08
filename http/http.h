@@ -119,6 +119,12 @@ class HttpPayload {
   bool high_watermark_reached() const {
     return ready_bytes_ > high_watermark_;
   }
+  bool is_error() const {
+    return error_;
+  }
+  void set_error() {
+    error_ = true;
+  }
   PayloadType payload_type() const {
     return type_;
   }
@@ -152,6 +158,7 @@ class HttpPayload {
   size_t chunk_size_ = 1 << 14;
   bool written_zero_chunk_ = false;
   bool written_trailer_ = false;
+  bool error_ = false;
 
   std::list<std::unique_ptr<Callback>> callbacks_;
 

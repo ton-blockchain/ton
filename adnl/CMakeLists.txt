@@ -42,6 +42,7 @@ set(ADNL_SOURCE
   adnl-message.cpp
   adnl-network-manager.cpp
   adnl-node.cpp
+  adnl-node-id.cpp
   adnl-packet.cpp
   adnl-peer-table.cpp
   adnl-peer.cpp

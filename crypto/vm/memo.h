@@ -14,15 +14,24 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2020 Telegram Systems LLP
+    Copyright 2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/dispatch.h"
+#include "common/refcnt.hpp"
+#include "vm/cells.h"
+#include "vm/vmstate.h"
 
 namespace vm {
+using td::Ref;
 
-class OpcodeTable;
+class FakeVmStateLimits : public VmStateInterface {
+  long long ops_remaining;
+  bool quiet;
 
-const OpcodeTable* init_op_cp0(bool debug_enabled = false);
+ public:
+  FakeVmStateLimits(long long max_ops = 1LL << 62, bool _quiet = true) : ops_remaining(max_ops), quiet(_quiet) {
+  }
+  bool register_op(int op_units = 1) override;
+};
 
 }  // namespace vm

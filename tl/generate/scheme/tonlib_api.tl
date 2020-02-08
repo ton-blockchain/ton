@@ -37,6 +37,8 @@ exportedEncryptedKey data:secureBytes = ExportedEncryptedKey;
 
 bip39Hints words:vector<string> = Bip39Hints;
 
+adnlAddress adnl_address:string = AdnlAddress;
+
 accountAddress account_address:string = AccountAddress;
 accountRevisionList revisions:vector<int32> = AccountRevisionList;
 
@@ -92,7 +94,7 @@ dns.entryDataUnknown bytes:bytes = dns.EntryData;
 dns.entryDataText text:string = dns.EntryData;
 dns.entryDataNextResolver resolver:AccountAddress = dns.EntryData;
 dns.entryDataSmcAddress smc_address:AccountAddress = dns.EntryData;
-//TODO: other entry types
+dns.entryDataAdnlAddress adnl_address:AdnlAddress = dns.EntryData;
 
 dns.entry name:string category:int32 entry:dns.EntryData = dns.Entry;
 

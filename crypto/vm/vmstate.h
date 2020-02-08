@@ -28,12 +28,16 @@ using td::Ref;
 class VmStateInterface : public td::Context<VmStateInterface> {
  public:
   virtual ~VmStateInterface() = default;
-  virtual Ref<vm::Cell> load_library(
+  virtual Ref<Cell> load_library(
       td::ConstBitPtr hash) {  // may throw a dictionary exception; returns nullptr if library is not found
     return {};
   }
   virtual void register_cell_load(const CellHash& cell_hash){};
   virtual void register_cell_create(){};
+  virtual void register_new_cell(Ref<DataCell>& cell){};
+  virtual bool register_op(int op_units = 1) {
+    return true;
+  };
 };
 
 }  // namespace vm

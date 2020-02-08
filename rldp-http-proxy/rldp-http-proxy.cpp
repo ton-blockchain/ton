@@ -210,6 +210,9 @@ class HttpRldpPayloadReceiver : public td::actor::Actor {
 
   void abort_query(td::Status error) {
     LOG(INFO) << "failed to receive HTTP payload: " << error;
+    if (payload_) {
+      payload_->set_error();
+    }
     stop();
   }
 
@@ -303,6 +306,9 @@ class HttpRldpPayloadSender : public td::actor::Actor {
 
   void try_answer_query() {
     if (!cur_query_promise_) {
+      return;
+    }
+    if (payload_->is_error()) {
       return;
     }
     if (payload_->parse_completed() || payload_->ready_bytes() >= ton::http::HttpRequest::low_watermark()) {

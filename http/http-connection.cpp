@@ -149,6 +149,10 @@ void HttpConnection::continue_payload_write() {
   if (!writing_payload_) {
     return;
   }
+  if (writing_payload_->is_error()) {
+    stop();
+    return;
+  }
 
   auto t = writing_payload_->payload_type();
   if (t == HttpPayload::PayloadType::pt_eof) {
@@ -233,7 +237,11 @@ td::Status HttpConnection::continue_payload_read(td::ChainBufferReader &input) {
       return td::Status::OK();
     }
     auto s = input.size();
-    TRY_STATUS(reading_payload_->parse(input));
+    auto R = reading_payload_->parse(input);
+    if (R.is_error()) {
+      reading_payload_->set_error();
+      return R.move_as_error();
+    }
     if (input.size() == s) {
       return td::Status::OK();
     }

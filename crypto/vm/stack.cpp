@@ -20,6 +20,7 @@
 #include "vm/continuation.h"
 #include "vm/box.hpp"
 #include "vm/atom.h"
+#include "vm/vmstate.h"
 
 namespace td {
 template class td::Cnt<std::string>;
@@ -678,6 +679,10 @@ void Stack::push_maybe_cellslice(Ref<CellSlice> cs) {
  */
 
 bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   switch (tp) {
     case t_null:
       return cb.store_long_bool(0, 8);  // vm_stk_null#00 = VmStackValue;
@@ -739,6 +744,10 @@ bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
 }
 
 bool StackEntry::deserialize(CellSlice& cs, int mode) {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   clear();
   int t = (mode & 0xf000) ? ((mode >> 12) & 15) : (int)cs.prefetch_ulong(8);
   switch (t) {
@@ -843,6 +852,10 @@ bool StackEntry::deserialize(Ref<Cell> cell, int mode) {
 }
 
 bool Stack::serialize(vm::CellBuilder& cb, int mode) const {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
   unsigned n = depth();
   if (!cb.store_ulong_rchk_bool(n, 24)) {  // vm_stack#_ depth:(## 24)
@@ -863,6 +876,10 @@ bool Stack::serialize(vm::CellBuilder& cb, int mode) const {
 }
 
 bool Stack::deserialize(vm::CellSlice& cs, int mode) {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   clear();
   // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
   int n;

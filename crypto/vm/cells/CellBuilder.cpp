@@ -55,8 +55,16 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
     LOG(ERROR) << res.error();
     throw CellWriteError{};
   }
-  CHECK(res.ok().not_null());
-  return res.move_as_ok();
+  auto cell = res.move_as_ok();
+  CHECK(cell.not_null());
+  if (vm_state_interface) {
+    vm_state_interface->register_new_cell(cell);
+    if (cell.is_null()) {
+      LOG(ERROR) << "cannot register new data cell";
+      throw CellWriteError{};
+    }
+  }
+  return cell;
 }
 
 Ref<DataCell> CellBuilder::finalize_novm(bool special) {
@@ -72,10 +80,17 @@ Ref<DataCell> CellBuilder::finalize_novm(bool special) {
 
 Ref<DataCell> CellBuilder::finalize(bool special) {
   auto* vm_state_interface = VmStateInterface::get();
-  if (vm_state_interface) {
-    vm_state_interface->register_cell_create();
+  if (!vm_state_interface) {
+    return finalize_novm(special);
   }
-  return finalize_novm(special);
+  vm_state_interface->register_cell_create();
+  auto cell = finalize_novm(special);
+  vm_state_interface->register_new_cell(cell);
+  if (cell.is_null()) {
+    LOG(ERROR) << "cannot register new data cell";
+    throw CellWriteError{};
+  }
+  return cell;
 }
 
 Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
