@@ -13,7 +13,7 @@ The RLDP-HTTP Proxy is a special utility specially designed for accessing and cr
 
 in the build directory. Alternatively, you may want to build just the Proxy instead of building all TON Blockchain projects. This can be done by invoking
 
-    cmake . --build  --target rldp-http-proxy
+    cmake . --build .  --target rldp-http-proxy
 
 in the build directory.
 
