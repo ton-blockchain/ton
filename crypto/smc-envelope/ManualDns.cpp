@@ -202,13 +202,13 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::int16 cat
   vm::CellBuilder cb;
   cb.store_long(11, 6);
   if (name.size() <= 58 - 2) {
-    cb.store_long(0, 1);
     cb.store_long(category, 16);
+    cb.store_long(0, 1);
     cb.store_long(name.size(), 6);
     cb.store_bytes(name);
   } else {
-    cb.store_long(1, 1);
     cb.store_long(category, 16);
+    cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
   cb.store_maybe_ref(std::move(data));
@@ -220,16 +220,15 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_value_unsigned(td::int16 
   vm::CellBuilder cb;
   cb.store_long(12, 6);
   if (name.size() <= 58 - 2) {
-    cb.store_long(0, 1);
     cb.store_long(category, 16);
+    cb.store_long(0, 1);
     cb.store_long(name.size(), 6);
     cb.store_bytes(name);
   } else {
-    cb.store_long(1, 1);
     cb.store_long(category, 16);
+    cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
-  cb.store_long(0, 1);
   return cb.finalize();
 }
 
@@ -237,7 +236,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_all_unsigned() const {
   // 32 TDel: nullify ENTIRE DOMAIN TABLE (x=-)
   vm::CellBuilder cb;
   cb.store_long(32, 6);
-  cb.store_long(0, 1);
   return cb.finalize();
 }
 
@@ -269,7 +267,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
 
   vm::CellBuilder cb;
   cb.store_long(31, 6);
-  cb.store_long(1, 1);
 
   cb.store_maybe_ref(pdict.get_root_cell());
 
@@ -291,7 +288,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_name_unsigned(td::Slice n
     cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
-  cb.store_long(0, 1);
   return cb.finalize();
 }
 td::Result<td::Ref<vm::Cell>> ManualDns::create_set_name_unsigned(td::Slice name, td::Span<Action> entries) const {
@@ -344,7 +340,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_init_query(const td::Ed25519::Pr
                                                            td::uint32 valid_until) const {
   vm::CellBuilder cb;
   cb.store_long(0, 6);
-  cb.store_long(0, 1);
 
   TRY_RESULT(prepared, prepare(cb.finalize(), valid_until));
   return sign(private_key, std::move(prepared));

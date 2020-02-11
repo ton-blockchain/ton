@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <iostream>
 #include <iomanip>
@@ -51,11 +51,11 @@ int main(int argc, char *argv[]) {
 
   std::string name = "id_ton";
 
-  p.add_option('m', "mode", "sets mode id/adnl/dht/keys", [&](td::Slice key) {
+  p.add_option('m', "mode", "sets mode (one of id/adnl/dht/keys/adnlid)", [&](td::Slice key) {
     mode = key.str();
     return td::Status::OK();
   });
-  p.add_option('h', "help", "prints_help", [&]() {
+  p.add_option('h', "help", "prints this help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
     sb << p;
@@ -63,11 +63,11 @@ int main(int argc, char *argv[]) {
     std::exit(2);
     return td::Status::OK();
   });
-  p.add_option('n', "name", "name to keys", [&](td::Slice arg) {
+  p.add_option('n', "name", "path to save private keys to", [&](td::Slice arg) {
     name = arg.str();
     return td::Status::OK();
   });
-  p.add_option('k', "key", "private key to import", [&](td::Slice key) {
+  p.add_option('k', "key", "path to private key to import", [&](td::Slice key) {
     if (!pk.empty()) {
       return td::Status::Error("duplicate '-k' option");
     }
@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (mode.size() == 0) {
-    std::cerr << "'-m' option missing" << std::endl;
+    std::cerr << "'--mode' option missing" << std::endl;
     return 2;
   }
 
@@ -143,6 +143,12 @@ int main(int argc, char *argv[]) {
     td::write_file(name + ".pub", pub_key.export_as_slice().as_slice()).ensure();
 
     std::cout << short_key.bits256_value().to_hex() << " " << td::base64_encode(short_key.as_slice()) << std::endl;
+  } else if (mode == "adnlid") {
+    auto n = pk.compute_short_id();
+    name = n.bits256_value().to_hex();
+    td::write_file(name, pk.export_as_slice()).ensure();
+
+    std::cout << name << " " << ton::adnl::AdnlNodeIdShort{n}.serialize() << std::endl;
   } else {
     std::cerr << "unknown mode " << mode;
     return 2;

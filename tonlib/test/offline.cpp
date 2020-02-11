@@ -143,10 +143,9 @@ TEST(Tonlib, InitClose) {
 )abc";
 
     sync_send(client, make_object<tonlib_api::options_setConfig>(cfg(bad_config.str()))).ensure_error();
-    auto address =
-        sync_send(client,
-                  make_object<tonlib_api::getAccountAddress>(make_object<tonlib_api::testGiver_initialAccountState>(), 0))
-            .move_as_ok();
+    auto address = sync_send(client, make_object<tonlib_api::getAccountAddress>(
+                                         make_object<tonlib_api::testGiver_initialAccountState>(), 0))
+                       .move_as_ok();
     sync_send(client, make_object<tonlib_api::getAccountState>(std::move(address))).ensure_error();
     sync_send(client, make_object<tonlib_api::close>()).ensure();
     sync_send(client, make_object<tonlib_api::close>()).ensure_error();
@@ -490,6 +489,21 @@ TEST(Tonlib, KeysApi) {
                               .move_as_ok();
   CHECK(new_imported_key->public_key_ == key->public_key_);
   CHECK(new_imported_key->secret_ != key->secret_);
+
+  auto exported_raw_key =
+      sync_send(client, make_object<tonlib_api::exportUnencryptedKey>(make_object<tonlib_api::inputKeyRegular>(
+                            make_object<tonlib_api::key>(key->public_key_, new_imported_key->secret_.copy()),
+                            new_local_password.copy())))
+          .move_as_ok();
+  sync_send(client, make_object<tonlib_api::deleteKey>(
+                        make_object<tonlib_api::key>(new_imported_key->public_key_, new_imported_key->secret_.copy())))
+      .move_as_ok();
+  auto raw_imported_key = sync_send(client, make_object<tonlib_api::importUnencryptedKey>(new_local_password.copy(),
+                                                                                          std::move(exported_raw_key)))
+                              .move_as_ok();
+
+  CHECK(raw_imported_key->public_key_ == key->public_key_);
+  CHECK(raw_imported_key->secret_ != key->secret_);
 }
 
 TEST(Tonlib, ConfigCache) {

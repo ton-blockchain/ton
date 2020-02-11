@@ -79,12 +79,15 @@ variable base
 { char ) word "$" swap $+ 1 { find 0= abort"undefined parameter" execute } } ::_ $(
 // b s -- ?
 { sbitrefs rot brembitrefs rot >= -rot <= and } : s-fits?
+// b s x -- ?
+{ swap sbitrefs -rot + rot brembitrefs -rot <= -rot <= and } : s-fits-with?
 { 0 swap ! } : 0!
 { tuck @ + swap ! } : +!
 { tuck @ swap - swap ! } : -!
 { 1 swap +! } : 1+!
 { -1 swap +! } : 1-!
 { null swap ! } : null!
+{ not 2 pick @ and xor swap ! } : ~!
 0 tuple constant nil
 { 1 tuple } : single
 { 2 tuple } : pair

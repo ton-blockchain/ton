@@ -34,6 +34,7 @@ inputKeyFake = InputKey;
 exportedKey word_list:vector<secureString> = ExportedKey;
 exportedPemKey pem:secureString = ExportedPemKey;
 exportedEncryptedKey data:secureBytes = ExportedEncryptedKey;
+exportedUnencryptedKey data:secureBytes = ExportedUnencryptedKey;
 
 bip39Hints words:vector<string> = Bip39Hints;
 
@@ -178,9 +179,11 @@ deleteAllKeys = Ok;
 exportKey input_key:InputKey = ExportedKey;
 exportPemKey input_key:InputKey key_password:secureBytes = ExportedPemKey;
 exportEncryptedKey input_key:InputKey key_password:secureBytes = ExportedEncryptedKey;
+exportUnencryptedKey input_key:InputKey = ExportedUnencryptedKey;
 importKey local_password:secureBytes mnemonic_password:secureBytes exported_key:exportedKey = Key;
 importPemKey local_password:secureBytes key_password:secureBytes exported_key:exportedPemKey = Key;
 importEncryptedKey local_password:secureBytes key_password:secureBytes exported_encrypted_key:exportedEncryptedKey = Key;
+importUnencryptedKey local_password:secureBytes  exported_unencrypted_key:exportedUnencryptedKey = Key;
 changeLocalPassword input_key:InputKey new_local_password:secureBytes = Key;
 
 encrypt decrypted_data:secureBytes secret:secureBytes = Data;
@@ -220,7 +223,7 @@ smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
-dns.resolve account_address:accountAddress name:string category:int32 = dns.Resolved;
+dns.resolve account_address:accountAddress name:string category:int32 ttl:int32 = dns.Resolved;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;

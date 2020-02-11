@@ -353,6 +353,10 @@ class AccountState {
     return raw_.info.gen_utime;
   }
 
+  ton::BlockIdExt get_block_id() const {
+    return raw_.block_id;
+  }
+
   td::int64 get_balance() const {
     return raw_.balance;
   }
@@ -2593,13 +2597,21 @@ td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
   return res;
 }
 
-void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::unique_ptr<AccountState> smc,
+void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl,
+                                      td::optional<ton::BlockIdExt> block_id, td::unique_ptr<AccountState> smc,
                                       td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
   if (smc->get_wallet_type() != AccountState::WalletType::ManualDns) {
     return promise.set_error(TonlibError::AccountTypeUnexpected("ManualDns"));
   }
+  block_id = smc->get_block_id();
   auto dns = ton::ManualDns::create(smc->get_smc_state());
   TRY_RESULT_PROMISE(promise, entries, dns->resolve(name, category));
+
+  if (entries.size() == 1 && entries[0].category == -1 && entries[0].name != name && ttl > 0 &&
+      entries[0].data.type == ton::ManualDns::EntryData::Type::NextResolver) {
+    auto address = entries[0].data.data.get<ton::ManualDns::EntryDataNextResolver>().resolver;
+    return do_dns_request(name, category, ttl - 1, std::move(block_id), address, std::move(promise));
+  }
 
   std::vector<tonlib_api::object_ptr<tonlib_api::dns_entry>> api_entries;
   for (auto& entry : entries) {
@@ -2610,21 +2622,27 @@ void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::
   promise.set_value(tonlib_api::make_object<tonlib_api::dns_resolved>(std::move(api_entries)));
 }
 
-void TonlibClient::do_dns_request(std::string name, td::int32 category, block::StdAddress address,
+void TonlibClient::do_dns_request(std::string name, td::int32 category, td::int32 ttl,
+                                  td::optional<ton::BlockIdExt> block_id, block::StdAddress address,
                                   td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
-  make_request(int_api::GetAccountState{address, query_context_.block_id.copy()},
-               promise.send_closure(actor_id(this), &TonlibClient::finish_dns_resolve, name, category));
+  auto block_id_copy = block_id.copy();
+  make_request(int_api::GetAccountState{address, std::move(block_id_copy)},
+               promise.send_closure(actor_id(this), &TonlibClient::finish_dns_resolve, name, category, ttl,
+                                    std::move(block_id)));
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::dns_resolve& request,
                                     td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
+  auto block_id = query_context_.block_id.copy();
   if (!request.account_address_) {
     make_request(int_api::GetDnsResolver{},
-                 promise.send_closure(actor_id(this), &TonlibClient::do_dns_request, request.name_, request.category_));
+                 promise.send_closure(actor_id(this), &TonlibClient::do_dns_request, request.name_, request.category_,
+                                      request.ttl_, std::move(block_id)));
     return td::Status::OK();
   }
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
-  do_dns_request(request.name_, request.category_, account_address, std::move(promise));
+  do_dns_request(request.name_, request.category_, request.ttl_, std::move(block_id), account_address,
+                 std::move(promise));
   return td::Status::OK();
 }
 
@@ -2741,6 +2759,28 @@ td::Status TonlibClient::do_request(const tonlib_api::importEncryptedKey& reques
   TRY_RESULT(key, key_storage_.import_encrypted_key(
                       std::move(request.local_password_), std::move(request.key_password_),
                       KeyStorage::ExportedEncryptedKey{std::move(request.exported_encrypted_key_->data_)}));
+  TRY_RESULT(key_bytes, public_key_from_bytes(key.public_key.as_slice()));
+  promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(true), std::move(key.secret)));
+  return td::Status::OK();
+}
+td::Status TonlibClient::do_request(const tonlib_api::exportUnencryptedKey& request,
+                                    td::Promise<object_ptr<tonlib_api::exportedUnencryptedKey>>&& promise) {
+  if (!request.input_key_) {
+    return TonlibError::EmptyField("input_key");
+  }
+  TRY_RESULT(input_key, from_tonlib(*request.input_key_));
+  TRY_RESULT(exported_key, key_storage_.export_unencrypted_key(std::move(input_key)));
+  promise.set_value(tonlib_api::make_object<tonlib_api::exportedUnencryptedKey>(std::move(exported_key.data)));
+  return td::Status::OK();
+}
+td::Status TonlibClient::do_request(const tonlib_api::importUnencryptedKey& request,
+                                    td::Promise<object_ptr<tonlib_api::key>>&& promise) {
+  if (!request.exported_unencrypted_key_) {
+    return TonlibError::EmptyField("exported_encrypted_key");
+  }
+  TRY_RESULT(key, key_storage_.import_unencrypted_key(
+                      std::move(request.local_password_),
+                      KeyStorage::ExportedUnencryptedKey{std::move(request.exported_unencrypted_key_->data_)}));
   TRY_RESULT(key_bytes, public_key_from_bytes(key.public_key.as_slice()));
   promise.set_value(tonlib_api::make_object<tonlib_api::key>(key_bytes.serialize(true), std::move(key.secret)));
   return td::Status::OK();

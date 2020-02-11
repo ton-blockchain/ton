@@ -18,6 +18,7 @@
 */
 #include "func.h"
 #include "td/utils/crypto.h"
+#include "common/refint.h"
 #include <fstream>
 
 namespace sym {
@@ -1244,8 +1245,9 @@ void parse_func_def(Lexer& lex) {
     }
     if (val->method_id.is_null()) {
       val->method_id = std::move(method_id);
-    } else if (val->method_id != method_id) {
-      lex.cur().error("integer method identifier for `"s + func_name.str + "` changed to a different value");
+    } else if (td::cmp(val->method_id, method_id) != 0) {
+      lex.cur().error("integer method identifier for `"s + func_name.str + "` changed from " +
+                      val->method_id->to_dec_string() + " to a different value " + method_id->to_dec_string());
     }
   }
   if (f) {

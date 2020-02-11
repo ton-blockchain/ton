@@ -27,25 +27,31 @@ void HttpInboundConnection::send_client_error() {
   static const auto s =
       "HTTP/1.0 400 Bad Request\r\n"
       "Connection: Close\r\n"
+      "Content-length: 0\r\n"
       "\r\n";
   buffered_fd_.output_buffer().append(td::Slice(s, strlen(s)));
   close_after_write_ = true;
+  loop();
 }
 
 void HttpInboundConnection::send_server_error() {
   static const auto s =
       "HTTP/1.1 502 Bad Gateway\r\n"
       "Connection: keep-alive\r\n"
+      "Content-length: 0\r\n"
       "\r\n";
   buffered_fd_.output_buffer().append(td::Slice(s, strlen(s)));
+  loop();
 }
 
 void HttpInboundConnection::send_proxy_error() {
   static const auto s =
       "HTTP/1.1 502 Bad Gateway\r\n"
       "Connection: keep-alive\r\n"
+      "Content-length: 0\r\n"
       "\r\n";
   buffered_fd_.output_buffer().append(td::Slice(s, strlen(s)));
+  loop();
 }
 
 td::Status HttpInboundConnection::receive(td::ChainBufferReader &input) {

@@ -245,6 +245,11 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::importEncryptedKey& request,
                         td::Promise<object_ptr<tonlib_api::key>>&& promise);
 
+  td::Status do_request(const tonlib_api::exportUnencryptedKey& request,
+                        td::Promise<object_ptr<tonlib_api::exportedUnencryptedKey>>&& promise);
+  td::Status do_request(const tonlib_api::importUnencryptedKey& request,
+                        td::Promise<object_ptr<tonlib_api::key>>&& promise);
+
   td::Status do_request(const tonlib_api::changeLocalPassword& request,
                         td::Promise<object_ptr<tonlib_api::key>>&& promise);
 
@@ -290,9 +295,10 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::dns_resolve& request,
                         td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
-  void do_dns_request(std::string name, td::int32 category, block::StdAddress address,
-                      td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
-  void finish_dns_resolve(std::string name, td::int32 category, td::unique_ptr<AccountState> smc,
+  void do_dns_request(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
+                      block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
+  void finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
+                          td::unique_ptr<AccountState> smc,
                           td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
   td::Status do_request(int_api::GetAccountState request, td::Promise<td::unique_ptr<AccountState>>&&);

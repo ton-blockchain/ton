@@ -99,22 +99,44 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
     [UInt<256b>:new_public_key]
 -}
 
+() after_code_upgrade(cell root, slice ops, cont old_code) impure method_id(1666);
+
 (cell, slice) process_op(cell root, slice ops) inline_ref {
   int op = ops~load_uint(6);
-  int is_name_ref = (ops~load_uint(1) == 1);
-
-  ;; lets assume at this point that special operations 00..09 are handled
-  throw_if(45, op < 10);
-  slice name = ops; ;; anything! better do not begin or it costs much gas
-  cell cat_table = null();
+  if (op < 10) {
+    ifnot (op) {
+      ;; 00 Noop: No operation
+      return (root, ops);
+    }
+    if (op == 1) {
+      ;; 01 SMsg: Send Message
+      var mode = ops~load_uint(8);
+      send_raw_message(ops~load_ref(), mode);
+      return (root, ops);
+    }
+    if (op == 9) {
+      ;; 09 CodeUpgrade
+      var new_code = ops~load_ref();
+      set_code(new_code);
+      var old_code = get_c3();
+      set_c3(new_code.begin_parse().bless());
+      after_code_upgrade(root, ops, old_code);
+      throw(0);
+      return (root, ops);
+    }
+    throw(45);
+    return (root, ops);
+  }
   int cat = 0;
   if (op < 20) {
     ;; for operations with codes 10..19 category is required
     cat = ops~load_int(16);
   }
-  int zeros = 0;
+  slice name = null();   ;; any slice value
+  cell cat_table = null();
   if (op < 30) {
     ;; for operations with codes 10..29 name is required
+    int is_name_ref = (ops~load_uint(1) == 1);
     if (is_name_ref) {
       ;; name is stored in separate referenced cell
       name = ops~load_ref().begin_parse();
@@ -129,17 +151,18 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
     int name_last_byte = name.slice_last(8).preload_uint(8);
     throw_if(40, name_last_byte);
     ;; count zero separators
+    int zeros = 0;
     slice cname = name;
     repeat (cname.slice_bits() ^>> 3) {
       int c = cname~load_uint(8);
       zeros -= (c == 0);
     }
     ;; throw_unless(39, zeros == 1);
+    name = begin_cell().store_uint(zeros, 7).store_slice(name).end_cell().begin_parse();
   }
   ;; operation with codes 10..19 manipulate category dict
   ;; lets try to find it and store into a variable
   ;; operations with codes 20..29 replace / delete dict, no need
-  name = begin_cell().store_uint(zeros, 7).store_slice(name).end_cell().begin_parse();
   if (op < 20) {
     ;; lets resolve the name here so as not to duplicate the code
     (slice pfx, cell val, slice tail, int succ) = 
@@ -187,17 +210,21 @@ builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
     return (null(), ops);
   }
   throw(44); ;; invalid operation
-  return (root, ops);
+  return (null(), ops);
 }
 
 cell process_ops(cell root, slice ops) inline_ref {
   var stop = false;
+  root~touch();
+  ops~touch();
   do {
     (root, ops) = process_op(root, ops);
-    if (ops.slice_refs_empty?()) {
-      stop = true;
-    } else {
-      ops = ops~load_ref().begin_parse();
+    if (ops.slice_data_empty?()) {
+      if (ops.slice_refs()) {
+        ops = ops~load_ref().begin_parse();
+      } else {
+        stop = true;
+      }
     }
   } until (stop);
   return root;
@@ -205,24 +232,25 @@ cell process_ops(cell root, slice ops) inline_ref {
 
 () recv_external(slice in_msg) impure {
   ;; Load data
-  (int stored_subwalet, int last_cleaned, int public_key, cell root, cell old_queries) = load_data();
+  (int contract_id, int last_cleaned, int public_key, cell root, cell old_queries) = load_data();
 
   ;; validate signature and seqno
   slice signature = in_msg~load_bits(512);
   int shash = slice_hash(in_msg);
-  var (contract_id, query_id) = (in_msg~load_uint(32), in_msg~load_uint(64));
+  var (query_contract, query_id) = (in_msg~load_uint(32), in_msg~load_uint(64));
   var bound = (now() << 32);
   throw_if(35, query_id < bound);
   (_, var found?) = old_queries.udict_get?(64, query_id);
   throw_if(32, found?);
-  throw_unless(34, check_signature(shash, signature, public_key));
+  throw_unless(34, contract_id == query_contract);
+  throw_unless(35, check_signature(shash, signature, public_key));
   accept_message(); ;; message is signed by owner, sanity not guaranteed yet
 
   int op = in_msg.preload_uint(6);
   if (op == 51) {
     in_msg~skip_bits(6);
     public_key = in_msg~load_uint(256);
-  } elseif (op) {    ;; 00 Contract initialization message
+  } else {
     root = process_ops(root, in_msg);
   }
 
@@ -242,6 +270,9 @@ cell process_ops(cell root, slice ops) inline_ref {
   } until (~ f);
 
   store_data(contract_id, last_cleaned, public_key, root, old_queries);
+}
+
+() after_code_upgrade(cell root, slice ops, cont old_code) impure method_id(1666) {
 }
 
 {-
@@ -266,6 +297,12 @@ cell process_ops(cell root, slice ops) inline_ref {
 ;; Retrieve contract id (in case several contracts are managed with the same private key)
 int get_contract_id() method_id {
   return get_data().begin_parse().preload_uint(32);
+}
+
+int get_public_key() method_id {
+  var cs = get_data().begin_parse();
+  cs~load_uint(32 + 64);
+  return cs.preload_uint(256);
 }
 
 ;;8m  dns-record-value

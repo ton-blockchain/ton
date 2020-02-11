@@ -5,7 +5,7 @@ if (NOT OPENSSL_FOUND)
 endif()
 
 add_executable(generate-random-id generate-random-id.cpp )
-target_link_libraries(generate-random-id tl_api ton_crypto keys)
+target_link_libraries(generate-random-id tl_api ton_crypto keys adnl)
 
 target_include_directories(generate-random-id PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..)

@@ -1082,6 +1082,7 @@ variable @proclist
 variable @procdict
 variable @procinfo
 variable @gvarcnt
+variable asm-mode  1 asm-mode !
 19 constant @procdictkeylen
 32 constant @zcount
 { pair @proclist @ cons @proclist ! } : @proclistadd
@@ -1144,8 +1145,18 @@ variable @gvarcnt
 { ."Procedure `" over type ."` index=" 2 pick . ." flags=0x" dup x. cr } : @showprocinfo
 // ( proc_name proc_idx f -- )  f:+1=declared, +2=defined, +4=inlined, +8=called, +16=method
 { // @showprocinfo
-  dup 0x1a and 2 = { 2 pick @remove-proc  // over ."Removing " type cr
+  dup 0x1a and 2 = asm-mode @ 3 and and ?dup {
+    2 and {
+      over ."Warning: removing (inlined) procedure `" type ."` from call dictionary" cr
+    } if
+    2 pick @remove-proc
   } if  // remove unused procs
+  dup 0xc and 0xc = asm-mode @ 4 and and {
+    over ."Warning: inline procedure `" type ."` is not always inlined" cr
+  } if
+  dup 0x1e and 2 = asm-mode @ 8 and and {
+    over ."Warning: procedure `" type ."` defined but not used" cr
+  } if
   drop 2drop
 } : @chkprocdef
 { @chkmaindef
@@ -1169,6 +1180,14 @@ forget @proclist  forget @proccnt
 -2 constant run_ticktock
 -3 constant split_prepare
 -4 constant split_install
+
+{ asm-mode 0 3 ~! } : asm-no-remove-unused
+{ asm-mode 1 1 ~! } : asm-remove-unused   // enabled by default
+{ asm-mode 3 3 ~! } : asm-warn-remove-unused
+{ asm-mode 4 4 ~! } : asm-warn-inline-mix
+{ asm-mode 0 4 ~! } : asm-no-warn-inline-mix  // disabled by default
+{ asm-mode 8 8 ~! } : asm-warn-unused
+{ asm-mode 0 8 ~! } : asm-no-warn-unused  // disabled by default
 
 // ( c -- )   add vm library for later use with runvmcode
 { <b over ref, b> <s swap hash vmlibs @ 256 udict! not abort"cannot add library" vmlibs ! } : add-lib

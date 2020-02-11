@@ -552,7 +552,7 @@ void dns_resolve(Client& client, const Wallet& dns, std::string name) {
   auto address = dns.get_address();
   while (true) {
     auto resolved =
-        sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(std::move(address), name, 1)).move_as_ok();
+        sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(std::move(address), name, 1, 0)).move_as_ok();
     CHECK(resolved->entries_.size() == 1);
     LOG(INFO) << to_string(resolved);
     if (resolved->entries_[0]->category_ == -1) {

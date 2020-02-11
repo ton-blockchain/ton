@@ -26,7 +26,7 @@
 
 namespace vm {
 
-bool vm_debug_enabled = true;
+bool vm_debug_enabled = false;
 
 void set_debug_enabled(bool enable_debug) {
   vm_debug_enabled = enable_debug;

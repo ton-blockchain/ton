@@ -133,6 +133,7 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
     // unsubscribe from socket updates
     // nb: interface will be changed
     td::actor::SchedulerContext::get()->get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
+    buffered_fd_.close();
   }
 };
 

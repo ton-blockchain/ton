@@ -33,6 +33,7 @@ class HttpInboundConnection : public HttpConnection {
   }
 
   td::Status receive_eof() override {
+    found_eof_ = true;
     if (reading_payload_) {
       if (reading_payload_->payload_type() != HttpPayload::PayloadType::pt_eof) {
         return td::Status::Error("unexpected EOF");
@@ -42,6 +43,10 @@ class HttpInboundConnection : public HttpConnection {
         return td::Status::OK();
       }
     } else {
+      if (read_next_request_) {
+        stop();
+        return td::Status::OK();
+      }
       return td::Status::OK();
     }
   }
@@ -54,6 +59,10 @@ class HttpInboundConnection : public HttpConnection {
     writing_payload_ = nullptr;
     if (!close_after_write_) {
       read_next_request_ = true;
+      if (found_eof_) {
+        stop();
+        return;
+      }
     }
   }
   void payload_read() override {

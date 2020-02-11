@@ -69,6 +69,9 @@ library TonUtil // TON Blockchain Fift Library
 
 // ( b wc addr -- b' )  Serializes address into Builder b
 { -rot 8 i, swap 256 u, } : addr, 
+{ over 8 fits { rot b{100} s, -rot addr, } {
+  rot b{110} s, 256 9 u, rot 32 i, swap 256 u, } cond
+} : Addr,
 
 // Gram utilities
 1000000000 constant Gram
@@ -171,3 +174,24 @@ recursive append-long-bytes {
 { dup $len 55 <> abort"not 55 alphanumeric characters" "F" swap $+ Base32>B
   33 B| 16 B>u@ over crc16 <> abort"crc16 checksum mismatch"
   8 B>u@+ 0x2D <> abort"not a valid adnl address" 256 B>u@ } : $>adnl
+
+{ 65 - dup 0>= { -33 and 10 + dup 16 < } { 17 + dup 0>= over 10 < and } cond ?dup nip } : hex-digit?
+// ( S -- x -1 or 0 )  Parses a hexadecimal integer
+{ dup $len {
+    0 {
+      4 << swap 1 $| -rot (char) hex-digit?  // S a d -1 or S a 0
+      { + over $len 0= } { drop -1 true } cond
+    } until
+    dup 0< { 2drop false } { nip true } cond
+  } { drop false } cond
+} : hex$>u?
+// ( S -- x )
+{ hex$>u? not abort"not a hexadecimal number" } : hex$>u
+
+{ dup $len 64 = { hex$>u } {
+  dup $len 55 = { $>adnl } {
+    true abort"invalid adnl address"
+  } cond } cond
+} : parse-adnl-addr
+{ adnl>$ type } : .adnl
+{ bl word parse-adnl-addr 1 'nop } ::_ adnl:
