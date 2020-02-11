@@ -105,7 +105,8 @@ enum Keyword {
   _Operator,
   _Infix,
   _Infixl,
-  _Infixr
+  _Infixr,
+  _Implicit
 };
 
 void define_keywords();
@@ -699,10 +700,11 @@ struct SymVal : sym::SymValBase {
   TypeExpr* sym_type;
   td::RefInt256 method_id;
   bool impure;
-  bool auto_apply{false};
+  bool auto_apply;
   short flags;  // +1 = inline, +2 = inline_ref
-  SymVal(int _type, int _idx, TypeExpr* _stype = nullptr, bool _impure = false)
-      : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure), flags(0) {
+  bool implicit;
+  SymVal(int _type, int _idx, TypeExpr* _stype = nullptr, bool _impure = false, bool _implicit = false)
+      : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure), auto_apply{_implicit}, flags(0), implicit(_implicit) {
   }
   ~SymVal() override = default;
   TypeExpr* get_type() const {
@@ -719,11 +721,12 @@ struct SymVal : sym::SymValBase {
 struct SymValFunc : SymVal {
   std::vector<int> arg_order, ret_order;
   ~SymValFunc() override = default;
-  SymValFunc(int val, TypeExpr* _ft, bool _impure = false) : SymVal(_Func, val, _ft, _impure) {
+  SymValFunc(int val, TypeExpr* _ft, bool _impure = false, bool _implicit = false) 
+      : SymVal(_Func, val, _ft, _impure, _implicit) {
   }
   SymValFunc(int val, TypeExpr* _ft, std::initializer_list<int> _arg_order, std::initializer_list<int> _ret_order = {},
-             bool _impure = false)
-      : SymVal(_Func, val, _ft, _impure), arg_order(_arg_order), ret_order(_ret_order) {
+             bool _impure = false, bool _implicit = false)
+      : SymVal(_Func, val, _ft, _impure, _implicit), arg_order(_arg_order), ret_order(_ret_order) {
   }
 
   const std::vector<int>* get_arg_order() const override {
@@ -737,7 +740,8 @@ struct SymValFunc : SymVal {
 struct SymValCodeFunc : SymValFunc {
   CodeBlob* code;
   ~SymValCodeFunc() override = default;
-  SymValCodeFunc(int val, TypeExpr* _ft, bool _impure = false) : SymValFunc(val, _ft, _impure), code(nullptr) {
+  SymValCodeFunc(int val, TypeExpr* _ft, bool _impure = false, bool _implicit = false) 
+      : SymValFunc(val, _ft, _impure, _implicit), code(nullptr) {
   }
 };
 
@@ -1492,25 +1496,25 @@ struct SymValAsmFunc : SymValFunc {
   simple_compile_func_t simple_compile;
   compile_func_t ext_compile;
   ~SymValAsmFunc() override = default;
-  SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool impure = false)
-      : SymValFunc(-1, ft, impure), simple_compile(make_simple_compile(_macro)) {
+  SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool impure = false, bool implicit = false)
+      : SymValFunc(-1, ft, impure, implicit), simple_compile(make_simple_compile(_macro)) {
   }
-  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp> _macro, bool impure = false)
-      : SymValFunc(-1, ft, impure), ext_compile(make_ext_compile(std::move(_macro))) {
+  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp> _macro, bool impure = false, bool implicit = false)
+      : SymValFunc(-1, ft, impure, implicit), ext_compile(make_ext_compile(std::move(_macro))) {
   }
-  SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool impure = false)
-      : SymValFunc(-1, ft, impure), simple_compile(std::move(_compile)) {
+  SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool impure = false, bool implicit = false)
+      : SymValFunc(-1, ft, impure, implicit), simple_compile(std::move(_compile)) {
   }
-  SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, bool impure = false)
-      : SymValFunc(-1, ft, impure), ext_compile(std::move(_compile)) {
+  SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, bool impure = false, bool implicit = false)
+      : SymValFunc(-1, ft, impure, implicit), ext_compile(std::move(_compile)) {
   }
   SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, std::initializer_list<int> arg_order,
-                std::initializer_list<int> ret_order = {}, bool impure = false)
-      : SymValFunc(-1, ft, arg_order, ret_order, impure), simple_compile(std::move(_compile)) {
+                std::initializer_list<int> ret_order = {}, bool impure = false, bool implicit = false)
+      : SymValFunc(-1, ft, arg_order, ret_order, impure, implicit), simple_compile(std::move(_compile)) {
   }
   SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, std::initializer_list<int> arg_order,
-                std::initializer_list<int> ret_order = {}, bool impure = false)
-      : SymValFunc(-1, ft, arg_order, ret_order, impure), ext_compile(std::move(_compile)) {
+                std::initializer_list<int> ret_order = {}, bool impure = false, bool implicit = false)
+      : SymValFunc(-1, ft, arg_order, ret_order, impure, implicit), ext_compile(std::move(_compile)) {
   }
   bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in) const;
 };
