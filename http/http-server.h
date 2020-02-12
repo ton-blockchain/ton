@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
+#include "tdactor/td/actor/actor.h"
 #include "http.h"
 
-#include "td/net/TcpListener.h"
+#include "tdactor/td/net/TcpListener.h"
 
 namespace ton {
 

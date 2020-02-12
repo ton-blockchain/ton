@@ -17,7 +17,7 @@
     Copyright 2017-2019 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/core/Actor.h"
+#include "core/Actor.h"
 #include "td/actor/core/ActorSignals.h"
 #include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/SchedulerContext.h"

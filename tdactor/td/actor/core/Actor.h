@@ -17,7 +17,7 @@
     Copyright 2017-2019 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/core/ActorInfo.h"
+#include "ActorInfo.h"
 
 #include "td/utils/SharedObjectPool.h"
 

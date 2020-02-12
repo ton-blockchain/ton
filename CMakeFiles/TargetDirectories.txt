@@ -1,0 +1,3 @@
+/home/egor/ton/CMakeFiles/rebuild_cache.dir
+/home/egor/ton/CMakeFiles/rldp-http-proxy.dir
+/home/egor/ton/CMakeFiles/edit_cache.dir
