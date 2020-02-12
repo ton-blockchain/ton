@@ -18,7 +18,7 @@
 */
 #pragma once
 
-#include "td/utils/port/platform.h"
+#include "platform.h"
 
 // clang-format off
 
