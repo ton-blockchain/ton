@@ -18,7 +18,7 @@
 */
 #pragma once
 
-#include "td/actor/core/ActorState.h"
+#include "ActorState.h"
 #include "td/actor/core/ActorMailbox.h"
 
 #include "td/utils/Heap.h"

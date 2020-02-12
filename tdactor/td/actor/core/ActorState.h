@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/actor/core/ActorSignals.h"
+#include "ActorSignals.h"
 #include "td/actor/core/SchedulerId.h"
 
-#include "td/utils/common.h"
+#include "utils/common.h"
 #include "td/utils/format.h"
 
 #include <atomic>
