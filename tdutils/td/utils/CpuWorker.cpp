@@ -16,44 +16,32 @@
 
     Copyright 2017-2019 Telegram Systems LLP
 */
-#pragma once
+#include "td/actor/core/CpuWorker.h"
 
-#include "td/utils/port/thread_local.h"
+#include "td/actor/core/ActorExecutor.h"
+#include "td/actor/core/SchedulerContext.h"
 
 namespace td {
 namespace actor {
 namespace core {
-template <class Impl>
-class Context {
- public:
-  static Impl *get() {
-    return context_;
+void CpuWorker::run() {
+  auto thread_id = get_thread_id();
+  auto &dispatcher = *SchedulerContext::get();
+
+  int yields = 0;
+  while (true) {
+    SchedulerMessage message;
+    if (queue_.try_pop(message, thread_id)) {
+      if (!message) {
+        return;
+      }
+      ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue());
+      yields = waiter_.stop_wait(yields, thread_id);
+    } else {
+      yields = waiter_.wait(yields, thread_id);
+    }
   }
-  class Guard {
-   public:
-    explicit Guard(Impl *new_context) {
-      old_context_ = context_;
-      context_ = new_context;
-    }
-    ~Guard() {
-      context_ = old_context_;
-    }
-    Guard(const Guard &) = delete;
-    Guard &operator=(const Guard &) = delete;
-    Guard(Guard &&) = delete;
-    Guard &operator=(Guard &&) = delete;
-
-   private:
-    Impl *old_context_;
-  };
-
- private:
-  static TD_THREAD_LOCAL Impl *context_;
-};
-
-template <class Impl>
-TD_THREAD_LOCAL Impl *Context<Impl>::context_;
-
+}
 }  // namespace core
 }  // namespace actor
 }  // namespace td

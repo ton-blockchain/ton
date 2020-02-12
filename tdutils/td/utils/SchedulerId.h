@@ -18,42 +18,32 @@
 */
 #pragma once
 
-#include "td/utils/port/thread_local.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
 
 namespace td {
 namespace actor {
 namespace core {
-template <class Impl>
-class Context {
+class SchedulerId {
  public:
-  static Impl *get() {
-    return context_;
+  SchedulerId() : id_(-1) {
   }
-  class Guard {
-   public:
-    explicit Guard(Impl *new_context) {
-      old_context_ = context_;
-      context_ = new_context;
-    }
-    ~Guard() {
-      context_ = old_context_;
-    }
-    Guard(const Guard &) = delete;
-    Guard &operator=(const Guard &) = delete;
-    Guard(Guard &&) = delete;
-    Guard &operator=(Guard &&) = delete;
-
-   private:
-    Impl *old_context_;
-  };
+  explicit SchedulerId(uint8 id) : id_(id) {
+  }
+  bool is_valid() const {
+    return id_ >= 0;
+  }
+  uint8 value() const {
+    CHECK(is_valid());
+    return static_cast<uint8>(id_);
+  }
+  bool operator==(SchedulerId scheduler_id) const {
+    return id_ == scheduler_id.id_;
+  }
 
  private:
-  static TD_THREAD_LOCAL Impl *context_;
+  int32 id_{0};
 };
-
-template <class Impl>
-TD_THREAD_LOCAL Impl *Context<Impl>::context_;
-
 }  // namespace core
 }  // namespace actor
 }  // namespace td

@@ -18,42 +18,51 @@
 */
 #pragma once
 
-#include "td/utils/port/thread_local.h"
+#include "td/actor/core/ActorMessage.h"
+#include "td/utils/MpscLinkQueue.h"
 
 namespace td {
 namespace actor {
 namespace core {
-template <class Impl>
-class Context {
+class ActorMailbox {
  public:
-  static Impl *get() {
-    return context_;
+  ActorMailbox() = default;
+  ActorMailbox(const ActorMailbox &) = delete;
+  ActorMailbox &operator=(const ActorMailbox &) = delete;
+  ActorMailbox(ActorMailbox &&other) = delete;
+  ActorMailbox &operator=(ActorMailbox &&other) = delete;
+  ~ActorMailbox() {
+    clear();
   }
-  class Guard {
-   public:
-    explicit Guard(Impl *new_context) {
-      old_context_ = context_;
-      context_ = new_context;
-    }
-    ~Guard() {
-      context_ = old_context_;
-    }
-    Guard(const Guard &) = delete;
-    Guard &operator=(const Guard &) = delete;
-    Guard(Guard &&) = delete;
-    Guard &operator=(Guard &&) = delete;
+  void push(ActorMessage message) {
+    queue_.push(std::move(message));
+  }
+  void push_unsafe(ActorMessage message) {
+    queue_.push_unsafe(std::move(message));
+  }
 
-   private:
-    Impl *old_context_;
-  };
+  td::MpscLinkQueue<ActorMessage>::Reader &reader() {
+    return reader_;
+  }
+
+  void pop_all() {
+    queue_.pop_all(reader_);
+  }
+  void pop_all_unsafe() {
+    queue_.pop_all_unsafe(reader_);
+  }
+
+  void clear() {
+    pop_all();
+    while (reader_.read()) {
+      // skip
+    }
+  }
 
  private:
-  static TD_THREAD_LOCAL Impl *context_;
+  td::MpscLinkQueue<ActorMessage> queue_;
+  td::MpscLinkQueue<ActorMessage>::Reader reader_;
 };
-
-template <class Impl>
-TD_THREAD_LOCAL Impl *Context<Impl>::context_;
-
 }  // namespace core
 }  // namespace actor
 }  // namespace td

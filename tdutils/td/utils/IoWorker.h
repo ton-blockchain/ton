@@ -18,42 +18,26 @@
 */
 #pragma once
 
-#include "td/utils/port/thread_local.h"
+#include "td/actor/core/SchedulerContext.h"
+#include "td/actor/core/SchedulerMessage.h"
+#include "td/utils/MpscPollableQueue.h"
 
 namespace td {
 namespace actor {
 namespace core {
-template <class Impl>
-class Context {
+class IoWorker {
  public:
-  static Impl *get() {
-    return context_;
+  explicit IoWorker(MpscPollableQueue<SchedulerMessage> &queue) : queue_(queue) {
   }
-  class Guard {
-   public:
-    explicit Guard(Impl *new_context) {
-      old_context_ = context_;
-      context_ = new_context;
-    }
-    ~Guard() {
-      context_ = old_context_;
-    }
-    Guard(const Guard &) = delete;
-    Guard &operator=(const Guard &) = delete;
-    Guard(Guard &&) = delete;
-    Guard &operator=(Guard &&) = delete;
 
-   private:
-    Impl *old_context_;
-  };
+  void start_up();
+  void tear_down();
+
+  bool run_once(double timeout);
 
  private:
-  static TD_THREAD_LOCAL Impl *context_;
+  MpscPollableQueue<SchedulerMessage> &queue_;
 };
-
-template <class Impl>
-TD_THREAD_LOCAL Impl *Context<Impl>::context_;
-
 }  // namespace core
 }  // namespace actor
 }  // namespace td
