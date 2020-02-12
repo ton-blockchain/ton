@@ -17,7 +17,7 @@
     Copyright 2017-2019 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/common.h"
+#include "common.h"
 #include "td/actor/ActorId.h"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/ActorShared.h"
