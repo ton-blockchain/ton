@@ -165,6 +165,8 @@ x{68} @Defop DEPTH
 x{69} @Defop CHKDEPTH
 x{6A} @Defop ONLYTOPX
 x{6B} @Defop ONLYX
+{ over 0= abort"first argument must be non-zero"
+  <b x{6C} s, rot 4 u, swap 4 u, @addopb } : BLKDROP2
 
 // null primitives
 x{6D} dup @Defop NULL @Defop PUSHNULL

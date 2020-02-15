@@ -95,6 +95,9 @@ struct TonlibError {
   static td::Status DangerousTransaction(td::Slice reason) {
     return td::Status::Error(400, PSLICE() << "DANGEROUS_TRANSACTION: " << reason);
   }
+  static td::Status MessageEncryption(td::Slice reason) {
+    return td::Status::Error(400, PSLICE() << "MESSAGE_ENCRYPTION: " << reason);
+  }
   static td::Status AccountNotInited() {
     return td::Status::Error(400, "ACCOUNT_NOT_INITED");
   }

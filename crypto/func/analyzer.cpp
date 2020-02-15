@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -29,6 +29,7 @@ namespace funC {
 void CodeBlob::simplify_var_types() {
   for (TmpVar& var : vars) {
     TypeExpr::remove_indirect(var.v_type);
+    var.v_type->recompute_width();
   }
 }
 
@@ -354,7 +355,9 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     case _IntConst:
     case _GlobVar:
     case _Call:
-    case _CallInd: {
+    case _CallInd:
+    case _Tuple:
+    case _UnTuple: {
       // left = EXEC right;
       if (!next_var_info.count_used(left) && is_pure()) {
         // all variables in `left` are not needed
@@ -541,6 +544,8 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
     case Op::_SetGlob:
     case Op::_Call:
     case Op::_CallInd:
+    case Op::_Tuple:
+    case Op::_UnTuple:
     case Op::_Import:
       reach = true;
       break;
@@ -724,6 +729,8 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       }
       break;
     }
+    case _Tuple:
+    case _UnTuple:
     case _GlobVar:
     case _CallInd: {
       for (var_idx_t i : left) {
@@ -842,6 +849,8 @@ bool Op::mark_noreturn() {
     case _Import:
     case _IntConst:
     case _Let:
+    case _Tuple:
+    case _UnTuple:
     case _SetGlob:
     case _GlobVar:
     case _CallInd:

@@ -124,6 +124,12 @@ std::string TD_TL_writer::gen_class_name(std::string name) const {
   if (name == "Object") {
     //assert(false);
   }
+  if (name == "function") {
+    return "Function";
+  }
+  if (name == "object") {
+    return "Object";
+  }
   if (name == "#") {
     return "std::int32_t";
   }

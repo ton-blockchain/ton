@@ -180,13 +180,17 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
   static td::Ref<ManualDns> create(State state) {
     return td::Ref<ManualDns>(true, std::move(state));
   }
-  static td::Ref<ManualDns> create(td::Ref<vm::Cell> data = {});
-  static td::Ref<ManualDns> create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id);
+  static td::Ref<ManualDns> create(td::Ref<vm::Cell> data = {}, int revision = 0);
+  static td::Ref<ManualDns> create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id, int revision = 0);
 
   static std::string serialize_data(const EntryData& data);
   static td::Result<td::optional<ManualDns::EntryData>> parse_data(td::Slice cmd);
   static td::Result<ManualDns::ActionExt> parse_line(td::Slice cmd);
   static td::Result<std::vector<ManualDns::ActionExt>> parse(td::Slice cmd);
+
+  static td::optional<td::int32> guess_revision(const vm::Cell::Hash& code_hash);
+  static td::optional<td::int32> guess_revision(const block::StdAddress& address,
+                                                const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id);
 
   td::Ref<vm::Cell> create_init_data(const td::Ed25519::PublicKey& public_key, td::uint32 valid_until) const {
     return create_init_data_fast(public_key, valid_until);

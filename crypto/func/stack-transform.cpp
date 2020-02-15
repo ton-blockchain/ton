@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -742,6 +742,28 @@ bool StackTransform::is_blkdrop(int *i) const {
   return false;
 }
 
+// 0 1 .. j-1 j+i j+i+1 ...
+bool StackTransform::is_blkdrop2(int i, int j) const {
+  if (!is_valid() || d != i || i <= 0 || j < 0 || dp < i + j || n != j || !is_trivial_after(j)) {
+    return false;
+  }
+  for (int s = 0; s < j; s++) {
+    if (get(s) != s) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool StackTransform::is_blkdrop2(int *i, int *j) const {
+  if (is_valid() && is_blkdrop2(d, n)) {
+    *i = d;
+    *j = n;
+    return true;
+  }
+  return false;
+}
+
 // equivalent to i times PUSH s(j)
 bool StackTransform::is_blkpush(int *i, int *j) const {
   if (!is_valid() || d >= 0) {
@@ -846,8 +868,27 @@ bool StackTransform::is_2pop_blkdrop(int *i, int *j, int *k) const {
 }
 
 // PUSHCONST c ; ROT == 1 -1000 0 2 3
-bool StackTransform::is_const_rot() const {
-  return is_valid() && d == -1 && is_trivial_after(3) && get(0) == 1 && get(1) <= c_start && get(2) == 0;
+bool StackTransform::is_const_rot(int c) const {
+  return is_valid() && d == -1 && is_trivial_after(3) && get(0) == 1 && c <= c_start && get(1) == c && get(2) == 0;
+}
+
+bool StackTransform::is_const_rot(int *c) const {
+  return is_valid() && (*c = get(1)) <= c_start && is_const_rot(*c);
+}
+
+// PUSHCONST c ; POP s(i) == 0 1 .. i-1 -1000 i+1 ...
+bool StackTransform::is_const_pop(int c, int i) const {
+  return is_valid() && !d && n == 1 && i > 0 && c <= c_start && get(i - 1) == c;
+}
+
+bool StackTransform::is_const_pop(int *c, int *i) const {
+  if (is_valid() && !d && n == 1 && A[0].second <= c_start) {
+    *i = A[0].first + 1;
+    *c = A[0].second;
+    return is_const_pop(*c, *i);
+  } else {
+    return false;
+  }
 }
 
 void StackTransform::show(std::ostream &os, int mode) const {

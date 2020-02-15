@@ -811,26 +811,24 @@ bool store_grams(CellBuilder& cb, td::RefInt256 value) {
 }
 
 int exec_reserve_raw(VmState* st, int mode) {
-  VM_LOG(st) << "execute RESERVERAW" << (mode & 1 ? "X" : "");
+  VM_LOG(st) << "execute RAWRESERVE" << (mode & 1 ? "X" : "");
   Stack& stack = st->get_stack();
-  stack.check_underflow(2);
-  int f = stack.pop_smallint_range(3);
-  td::RefInt256 x;
-  Ref<CellSlice> csr;
+  stack.check_underflow(2 + (mode & 1));
+  int f = stack.pop_smallint_range(15);
+  Ref<Cell> y;
   if (mode & 1) {
-    csr = stack.pop_cellslice();
-  } else {
-    x = stack.pop_int_finite();
-    if (td::sgn(x) < 0) {
-      throw VmError{Excno::range_chk, "amount of nanograms must be non-negative"};
-    }
+    y = stack.pop_maybe_cell();
+  }
+  auto x = stack.pop_int_finite();
+  if (td::sgn(x) < 0) {
+    throw VmError{Excno::range_chk, "amount of nanograms must be non-negative"};
   }
   CellBuilder cb;
   if (!(cb.store_ref_bool(get_actions(st))     // out_list$_ {n:#} prev:^(OutList n)
         && cb.store_long_bool(0x36e6b809, 32)  // action_reserve_currency#36e6b809
         && cb.store_long_bool(f, 8)            // mode:(## 8)
-        && (mode & 1 ? cb.append_cellslice_bool(std::move(csr))
-                     : (store_grams(cb, std::move(x)) && cb.store_bool_bool(false))))) {
+        && store_grams(cb, std::move(x))       //
+        && cb.store_maybe_ref(std::move(y)))) {
     throw VmError{Excno::cell_ov, "cannot serialize raw reserved currency amount into an output action cell"};
   }
   return install_output_action(st, cb.finalize());
@@ -886,8 +884,8 @@ int exec_change_lib(VmState* st) {
 void register_ton_message_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xfb00, 16, "SENDRAWMSG", exec_send_raw_message))
-      .insert(OpcodeInstr::mksimple(0xfb02, 16, "RESERVERAW", std::bind(exec_reserve_raw, _1, 0)))
-      .insert(OpcodeInstr::mksimple(0xfb03, 16, "RESERVERAWX", std::bind(exec_reserve_raw, _1, 1)))
+      .insert(OpcodeInstr::mksimple(0xfb02, 16, "RAWRESERVE", std::bind(exec_reserve_raw, _1, 0)))
+      .insert(OpcodeInstr::mksimple(0xfb03, 16, "RAWRESERVEX", std::bind(exec_reserve_raw, _1, 1)))
       .insert(OpcodeInstr::mksimple(0xfb04, 16, "SETCODE", exec_set_code))
       .insert(OpcodeInstr::mksimple(0xfb06, 16, "SETLIBCODE", exec_set_lib_code))
       .insert(OpcodeInstr::mksimple(0xfb07, 16, "CHANGELIB", exec_change_lib));

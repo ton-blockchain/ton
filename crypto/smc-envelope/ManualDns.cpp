@@ -177,11 +177,30 @@ td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice nam
 		[UInt<256b>:new_public_key]
 */
 // creation
-td::Ref<ManualDns> ManualDns::create(td::Ref<vm::Cell> data) {
-  return td::Ref<ManualDns>(true, State{ton::SmartContractCode::dns_manual(), std::move(data)});
+td::Ref<ManualDns> ManualDns::create(td::Ref<vm::Cell> data, int revision) {
+  return td::Ref<ManualDns>(true, State{ton::SmartContractCode::dns_manual(revision), std::move(data)});
 }
-td::Ref<ManualDns> ManualDns::create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id) {
-  return create(create_init_data_fast(public_key, wallet_id));
+td::Ref<ManualDns> ManualDns::create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id, int revision) {
+  return create(create_init_data_fast(public_key, wallet_id), revision);
+}
+
+td::optional<td::int32> ManualDns::guess_revision(const vm::Cell::Hash& code_hash) {
+  for (auto i : {-1, 1}) {
+    if (ton::SmartContractCode::dns_manual(i)->get_hash() == code_hash) {
+      return i;
+    }
+  }
+  return {};
+}
+td::optional<td::int32> ManualDns::guess_revision(const block::StdAddress& address,
+                                                  const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id) {
+  for (auto i : {-1, 1}) {
+    auto dns = ton::ManualDns::create(public_key, wallet_id, i);
+    if (dns->get_address() == address) {
+      return i;
+    }
+  }
+  return {};
 }
 
 td::Result<td::uint32> ManualDns::get_wallet_id() const {

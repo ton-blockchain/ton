@@ -6,21 +6,26 @@ forall X -> (X, tuple) uncons(tuple list) asm "UNCONS";
 forall X -> (tuple, X) list_next(tuple list) asm( -> 1 0) "UNCONS";
 forall X -> X car(tuple list) asm "CAR";
 tuple cdr(tuple list) asm "CDR";
-forall X, Y -> tuple pair(X x, Y y) asm "PAIR";
-forall X, Y -> (X, Y) unpair(tuple t) asm "UNPAIR";
-forall X, Y, Z -> tuple triple(X x, Y y, Z z) asm "TRIPLE";
-forall X, Y, Z -> (X, Y, Z) untriple(tuple t) asm "UNTRIPLE";
-forall X, Y, Z, W -> tuple tuple4(X x, Y y, Z z, W w) asm "4 TUPLE";
-forall X, Y, Z, W -> (X, Y, Z, W) untuple4(tuple t) asm "4 UNTUPLE";
+forall X, Y -> [X, Y] pair(X x, Y y) asm "PAIR";
+forall X, Y -> (X, Y) unpair([X, Y] t) asm "UNPAIR";
+forall X, Y, Z -> [X, Y, Z] triple(X x, Y y, Z z) asm "TRIPLE";
+forall X, Y, Z -> (X, Y, Z) untriple([X, Y, Z] t) asm "UNTRIPLE";
+forall X, Y, Z, W -> [X, Y, Z, W] tuple4(X x, Y y, Z z, W w) asm "4 TUPLE";
+forall X, Y, Z, W -> (X, Y, Z, W) untuple4([X, Y, Z, W] t) asm "4 UNTUPLE";
 forall X -> X first(tuple t) asm "FIRST";
 forall X -> X second(tuple t) asm "SECOND";
 forall X -> X third(tuple t) asm "THIRD";
 forall X -> X fourth(tuple t) asm "3 INDEX";
+forall X, Y -> X pair_first([X, Y] p) asm "FIRST";
+forall X, Y -> Y pair_second([X, Y] p) asm "SECOND";
+forall X, Y, Z -> X triple_first([X, Y, Z] p) asm "FIRST";
+forall X, Y, Z -> Y triple_second([X, Y, Z] p) asm "SECOND";
+forall X, Y, Z -> Z triple_third([X, Y, Z] p) asm "THIRD";
 forall X -> X null() asm "PUSHNULL";
 
 int now() asm "NOW";
 slice my_address() asm "MYADDR";
-tuple get_balance() asm "BALANCE";
+[int, cell] get_balance() asm "BALANCE";
 int cur_lt() asm "LTIME";
 int block_lt() asm "BLOCKLT";
 
@@ -47,6 +52,7 @@ cont bless(slice s) impure asm "BLESS";
 () accept_message() impure asm "ACCEPT";
 () set_gas_limit(int limit) impure asm "SETGASLIMIT";
 () commit() impure asm "COMMIT";
+() buy_gas(int gram) impure asm "BUYGAS";
 
 int min(int x, int y) asm "MIN";
 int max(int x, int y) asm "MAX";
@@ -67,9 +73,15 @@ slice skip_bits(slice s, int len) asm "SDSKIPFIRST";
 slice first_bits(slice s, int len) asm "SDCUTFIRST";
 slice skip_last_bits(slice s, int len) asm "SDSKIPLAST";
 (slice, ()) ~skip_last_bits(slice s, int len) asm "SDSKIPLAST";
+slice slice_last(slice s, int len) asm "SDCUTLAST";
 (slice, cell) load_dict(slice s) asm( -> 1 0) "LDDICT";
 cell preload_dict(slice s) asm "PLDDICT";
 slice skip_dict(slice s) asm "SKIPDICT";
+
+(slice, cell) load_maybe_ref(slice s) asm( -> 1 0) "LDOPTREF";
+cell preload_maybe_ref(slice s) asm "PLDOPTREF";
+builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
+
 
 int slice_refs(slice s) asm "SREFS";
 int slice_bits(slice s) asm "SBITS";
@@ -77,6 +89,9 @@ int slice_bits(slice s) asm "SBITS";
 int slice_empty?(slice s) asm "SEMPTY";
 int slice_data_empty?(slice s) asm "SDEMPTY";
 int slice_refs_empty?(slice s) asm "SREMPTY";
+
+int builder_refs(builder b) asm "BREFS";
+int builder_bits(builder b) asm "BBITS";
 
 builder begin_cell() asm "NEWC";
 cell end_cell(builder b) asm "ENDC";
@@ -159,11 +174,15 @@ cell dict_set_builder(cell dict, int key_len, slice index, builder value) asm(va
 cell new_dict() asm "NEWDICT";
 int dict_empty?(cell c) asm "DICTEMPTY";
 
+(slice, slice, slice, int) pfxdict_get?(cell dict, int key_len, slice key) asm(key dict key_len) "PFXDICTGETQ" "NULLSWAPIFNOT2";
+(cell, int) pfxdict_set?(cell dict, int key_len, slice key, slice value) asm(value key dict key_len) "PFXDICTSET";
+(cell, int) pfxdict_delete?(cell dict, int key_len, slice key) asm(key dict key_len) "PFXDICTDEL";
+
 cell config_param(int x) asm "CONFIGOPTPARAM";
 int cell_null?(cell c) asm "ISNULL";
 
 () raw_reserve(int amount, int mode) impure asm "RAWRESERVE";
-() raw_reserve_extra(slice currencies, int mode) impure asm "RAWRESERVEX";
+() raw_reserve_extra(int amount, cell extra_amount, int mode) impure asm "RAWRESERVEX";
 () send_raw_message(cell msg, int mode) impure asm "SENDRAWMSG";
 () set_code(cell new_code) impure asm "SETCODE";
 

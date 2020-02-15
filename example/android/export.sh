@@ -2,8 +2,8 @@
 pushd .
 mkdir -p build_native
 cd build_native
-cmake .. || exit 1
-cmake --build . --target prepare_cross_compiling || exit 1
+cmake -DTON_ONLY_TONLIB=ON .. || exit 1
+cmake --build . --target prepare_cross_compiling || exit 2
 #cmake --build . --target tl_generate_java || exit 1
 popd
 php AddIntDef.php src/drinkless/org/ton/TonApi.java || exit 1

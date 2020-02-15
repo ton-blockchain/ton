@@ -93,8 +93,8 @@ file-base +"-dns" +contractid +".addr" load-address
 } : subdomain>s
 // ( b V -- b' )
 { dup first
-  dup `smc eq? { drop untriple rot nip rot x{9fd3} s, -rot Addr, 0 8 u, } {
-  dup `next eq? { drop untriple rot nip rot x{ba93} s, -rot Addr, 0 8 u, } {
+  dup `smc eq? { drop untriple 2swap drop x{9fd3} s, -rot Addr, 0 8 u, } {
+  dup `next eq? { drop untriple 2swap drop x{ba93} s, -rot Addr, 0 8 u, } {
   dup `adnl eq? { drop second swap x{ad01} s, swap 256 u, } {
   dup `text eq? { drop second swap x{1eda01} s, over $len 8 u, swap $, } { 
     abort"unknown value type"

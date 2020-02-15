@@ -194,10 +194,6 @@ struct ActionPhase {
   Ref<vm::Cell> new_code;
   td::BitArray<256> action_list_hash;
   block::CurrencyCollection remaining_balance, reserved_balance;
-  // td::RefInt256 remaining_balance;
-  // Ref<vm::Cell> remaining_extra;
-  // td::RefInt256 reserved_balance;
-  // Ref<vm::Cell> reserved_extra;
   std::vector<Ref<vm::Cell>> action_list;  // processed in reverse order
   std::vector<Ref<vm::Cell>> out_msgs;
   ton::LogicalTime end_lt;
@@ -319,7 +315,7 @@ struct Transaction {
   const Account& account;                     // only `commit` method modifies the account
   Ref<vm::CellSlice> my_addr, my_addr_exact;  // almost the same as in account.*
   ton::LogicalTime start_lt, end_lt;
-  block::CurrencyCollection balance;
+  block::CurrencyCollection balance, original_balance;
   block::CurrencyCollection msg_balance_remaining;
   td::RefInt256 due_payment;
   td::RefInt256 in_fwd_fee, msg_fwd_fees;

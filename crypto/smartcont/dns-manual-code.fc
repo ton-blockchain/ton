@@ -13,25 +13,7 @@
 ;; Custom ASM instructions                                                   ;;
 ;;===========================================================================;;
 
-;; Args: s D n | Success: s' x s'' -1 | Failure: s 0 -> s N N 0
-(slice, slice, slice, int) pfxdict_get?(cell dict, int key_len, slice key) 
-    asm(key dict key_len) "PFXDICTGETQ" "NULLSWAPIFNOT2";
-
-;; Args: x k D n | Success: D' -1 | Failure: D 0
-(cell, int) pfxdict_set?(cell dict, int key_len, slice key, slice value) 
-    asm(value key dict key_len) "PFXDICTSET";
-
-;; Args: k D n | Success: D' -1 | Failure: D 0
-(cell, int) pfxdict_delete?(cell dict, int key_len, slice key) 
-    asm(key dict key_len) "PFXDICTDEL";
-
-slice slice_last(slice s, int len) asm "SDCUTLAST";
-
-;; Actually, equivalent to dictionaries, provided for clarity
-(slice, cell) load_maybe_ref(slice s) asm( -> 1 0) "LDOPTREF";
-builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
-
-(cell, ()) pfxdict_set_ref(cell dict, int key_len, slice key, cell value)  {
+(cell, ()) pfxdict_set_ref(cell dict, int key_len, slice key, cell value) {
   throw_unless(33, dict~pfxdict_set?(key_len, key, begin_cell().store_maybe_ref(value).end_cell().begin_parse()));
   return (dict, ());
 }

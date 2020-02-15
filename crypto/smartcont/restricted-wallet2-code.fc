@@ -66,7 +66,7 @@ int balance() method_id {
   var rdict = ds~load_dict();
   ds.end_parse();
   var ts = days_passed();
-  var balance = get_balance().first();
+  var balance = get_balance().pair_first();
   var (_, value, found) = rdict.idict_get_preveq?(16, ts);
   if (found) {
     balance = max(balance - value~load_grams(), 0);

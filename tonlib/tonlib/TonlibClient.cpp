@@ -386,6 +386,15 @@ class AccountState {
           {ton::HighloadWalletV2::get_init_code(wallet_revision_), ton::WalletV3::get_init_data(key, wallet_id_)});
       return wallet_type_;
     }
+    o_revision = ton::ManualDns::guess_revision(address_, key, wallet_id_);
+    if (o_revision) {
+      wallet_type_ = WalletType::ManualDns;
+      wallet_revision_ = o_revision.value();
+      LOG(ERROR) << "!!!" << wallet_revision_;
+      auto dns = ton::ManualDns::create(key, wallet_id_, wallet_revision_);
+      set_new_state(dns->get_state());
+      return wallet_type_;
+    }
     if (ton::GenericAccount::get_address(address_.workchain, ton::TestWallet::get_init_state(key)).addr ==
         address_.addr) {
       set_new_state({ton::TestWallet::get_init_code(), ton::TestWallet::get_init_data(key)});
@@ -399,12 +408,6 @@ class AccountState {
                    .addr == address_.addr) {
       set_new_state({ton::HighloadWallet::get_init_code(), ton::HighloadWallet::get_init_data(key, wallet_id_)});
       wallet_type_ = WalletType::HighloadWalletV1;
-    } else {
-      auto dns = ton::ManualDns::create(key, wallet_id_);
-      if (dns->get_address().addr == address_.addr) {
-        set_new_state(dns->get_state());
-        wallet_type_ = WalletType::ManualDns;
-      }
     }
     return wallet_type_;
   }
@@ -466,6 +469,12 @@ class AccountState {
       wallet_revision_ = o_revision.value();
       return wallet_type_;
     }
+    o_revision = ton::ManualDns::guess_revision(code_hash);
+    if (o_revision) {
+      wallet_type_ = WalletType::ManualDns;
+      wallet_revision_ = o_revision.value();
+      return wallet_type_;
+    }
 
     if (code_hash == ton::TestGiver::get_init_code_hash()) {
       wallet_type_ = WalletType::Giver;
@@ -475,8 +484,6 @@ class AccountState {
       wallet_type_ = WalletType::Wallet;
     } else if (code_hash == ton::HighloadWallet::get_init_code_hash()) {
       wallet_type_ = WalletType::HighloadWalletV1;
-    } else if (code_hash == ton::SmartContractCode::dns_manual()->get_hash()) {
-      wallet_type_ = WalletType::ManualDns;
     } else {
       LOG(WARNING) << "Unknown code hash: " << td::base64_encode(code_hash.as_slice());
       wallet_type_ = WalletType::Unknown;
@@ -1308,7 +1315,7 @@ td::Result<block::StdAddress> get_account_address(const tonlib_api::dns_initialA
                                                   td::int32 revision) {
   TRY_RESULT(key_bytes, get_public_key(dns_state.public_key_));
   auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  return ton::ManualDns::create(key, static_cast<td::uint32>(dns_state.wallet_id_))->get_address();
+  return ton::ManualDns::create(key, static_cast<td::uint32>(dns_state.wallet_id_), revision)->get_address();
 }
 
 td::Result<block::StdAddress> get_account_address(td::Slice account_address) {
@@ -1621,6 +1628,7 @@ struct ToRawTransactions {
         }
         auto body_hash = vm::CellBuilder().append_cellslice(*body).finalize()->get_hash().as_slice().str();
         std::string body_message;
+        bool is_encrypted = false;
         if (body->size() >= 32 && body->prefetch_long(32) <= 1) {
           auto type = body.write().fetch_long(32);
           auto r_body_message = vm::CellString::load(body.write());
@@ -1631,7 +1639,8 @@ struct ToRawTransactions {
               if (!private_key_) {
                 return TonlibError::EmptyField("private_key");
               }
-              TRY_RESULT(decrypted, SimpleEncryption::decrypt_data(message, private_key_.value()));
+              TRY_RESULT(decrypted, SimpleEncryptionV2::decrypt_data(message, private_key_.value()));
+              is_encrypted = true;
               return decrypted.as_slice().str();
             }();
           }
@@ -1644,7 +1653,7 @@ struct ToRawTransactions {
 
         return tonlib_api::make_object<tonlib_api::raw_message>(std::move(src), std::move(dest), balance, fwd_fee,
                                                                 ihr_fee, created_lt, std::move(body_hash),
-                                                                std::move(body_message));
+                                                                std::move(body_message), is_encrypted);
       }
       case block::gen::CommonMsgInfo::ext_in_msg_info: {
         block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
@@ -1661,7 +1670,7 @@ struct ToRawTransactions {
         }
         auto body_hash = vm::CellBuilder().append_cellslice(*body).finalize()->get_hash().as_slice().str();
         return tonlib_api::make_object<tonlib_api::raw_message>("", std::move(dest), 0, 0, 0, 0, std::move(body_hash),
-                                                                "");
+                                                                "", false);
       }
       case block::gen::CommonMsgInfo::ext_out_msg_info: {
         block::gen::CommonMsgInfo::Record_ext_out_msg_info msg_info;
@@ -1669,7 +1678,7 @@ struct ToRawTransactions {
           return td::Status::Error("Failed to unpack CommonMsgInfo::ext_out_msg_info");
         }
         TRY_RESULT(src, to_std_address(msg_info.src));
-        return tonlib_api::make_object<tonlib_api::raw_message>(std::move(src), "", 0, 0, 0, 0, "", "");
+        return tonlib_api::make_object<tonlib_api::raw_message>(std::move(src), "", 0, 0, 0, 0, "", "", false);
       }
     }
 
@@ -2207,13 +2216,13 @@ class GenericCreateSendGrams : public TonlibQueryActor {
           return TonlibError::EmptyField("private_key");
         }
         if (!destination->is_wallet()) {
-          return TonlibError::AccountActionUnsupported("Get public key (in destination)");
+          return TonlibError::MessageEncryption("Get public key (in destination)");
         }
         auto wallet = destination->get_wallet();
         TRY_RESULT_PREFIX(public_key, wallet->get_public_key(),
                           TonlibError::AccountActionUnsupported("Get public key (in destination)"));
         TRY_RESULT_PREFIX(encrypted_message,
-                          SimpleEncryption::encrypt_data(action.message, public_key, private_key_.value()),
+                          SimpleEncryptionV2::encrypt_data(action.message, public_key, private_key_.value()),
                           TonlibError::Internal());
         gift.message = encrypted_message.as_slice().str();
         gift.is_encrypted = true;

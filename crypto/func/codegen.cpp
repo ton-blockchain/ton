@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -318,7 +318,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << AsmOp::Custom(name + " GETGLOB", 0, 1);
         if (left.size() != 1) {
           assert(left.size() <= 15);
-          stack.o << exec_arg_op("UNTUPLE", (int)left.size(), 1, (int)left.size());
+          stack.o << AsmOp::UnTuple((int)left.size());
         }
         for (auto i : left) {
           stack.push_new_var(i);
@@ -393,6 +393,32 @@ bool Op::generate_code_step(Stack& stack) {
         if (active[k]) {
           stack.assign_var(left[k], --i);
         }
+      }
+      return true;
+    }
+    case _Tuple:
+    case _UnTuple: {
+      if (disabled()) {
+        return true;
+      }
+      std::vector<bool> last;
+      for (var_idx_t x : right) {
+        last.push_back(var_info[x] && var_info[x]->is_last());
+      }
+      stack.rearrange_top(right, std::move(last));
+      stack.opt_show();
+      int k = (int)stack.depth() - (int)right.size();
+      assert(k >= 0);
+      if (cl == _Tuple) {
+        stack.o << AsmOp::Tuple((int)right.size());
+        assert(left.size() == 1);
+      } else {
+        stack.o << AsmOp::UnTuple((int)left.size());
+        assert(right.size() == 1);
+      }
+      stack.s.resize(k);
+      for (int i = 0; i < (int)left.size(); i++) {
+        stack.push_new_var(left.at(i));
       }
       return true;
     }
@@ -483,7 +509,7 @@ bool Op::generate_code_step(Stack& stack) {
         assert(stack.s[k + i].first == right[i]);
       }
       if (right.size() > 1) {
-        stack.o << exec_arg_op("TUPLE", (int)right.size(), (int)right.size(), 1);
+        stack.o << AsmOp::Tuple((int)right.size());
       }
       if (!right.empty()) {
         std::string name = sym::symbols.get_name(fun_ref->sym_idx);

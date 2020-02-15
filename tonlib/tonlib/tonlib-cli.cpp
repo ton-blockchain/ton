@@ -1356,7 +1356,50 @@ class TonlibCli : public td::actor::Actor {
                    std::move(input_key), ton::move_tl_object_as<tonlib_api::accountAddress>(std::move(address.address)),
                    std::move(state->last_transaction_id_)),
                promise.wrap([](auto res) {
-                 td::TerminalIO::out() << to_string(res) << "\n";
+                 td::StringBuilder sb;
+                 for (tonlib_api::object_ptr<tonlib_api::raw_transaction>& t : res->transactions_) {
+                   td::int64 balance = 0;
+                   balance += t->in_msg_->value_;
+                   for (auto& ot : t->out_msgs_) {
+                     balance -= ot->value_;
+                   }
+                   if (balance >= 0) {
+                     sb << Grams{td::uint64(balance)};
+                   } else {
+                     sb << "-" << Grams{td::uint64(-balance)};
+                   }
+                   sb << " Fee: " << Grams{td::uint64(t->fee_)};
+                   if (t->in_msg_->source_.empty()) {
+                     sb << " External ";
+                   } else {
+                     sb << " From " << t->in_msg_->source_;
+                   }
+                   if (!t->in_msg_->message_.empty()) {
+                     sb << " ";
+                     if (t->in_msg_->is_message_encrypted_) {
+                       sb << "e";
+                     }
+                     sb << "msg{" << t->in_msg_->message_ << "}";
+                   }
+                   for (auto& ot : t->out_msgs_) {
+                     sb << "\n\t";
+                     if (ot->destination_.empty()) {
+                       sb << " External ";
+                     } else {
+                       sb << " To " << ot->destination_;
+                     }
+                     sb << " " << Grams{td::uint64(ot->value_)};
+                     if (!ot->message_.empty()) {
+                       sb << " ";
+                       if (ot->is_message_encrypted_) {
+                         sb << "e";
+                       }
+                       sb << "msg{" << ot->message_ << "}";
+                     }
+                   }
+                   sb << "\n";
+                 }
+                 td::TerminalIO::out() << sb.as_cslice() << "\n";
                  return td::Unit();
                }));
   }
@@ -1364,6 +1407,7 @@ class TonlibCli : public td::actor::Actor {
   void transfer(td::ConstParser& parser, td::Slice cmd, td::Promise<td::Unit> cmd_promise) {
     bool from_file = false;
     bool force = false;
+    bool use_encryption = false;
     if (cmd != "init") {
       td::ConstParser cmd_parser(cmd);
       cmd_parser.advance(td::Slice("transfer").size());
@@ -1374,6 +1418,8 @@ class TonlibCli : public td::actor::Actor {
           from_file = true;
         } else if (c == 'f') {
           force = true;
+        } else if (c == 'e') {
+          use_encryption = true;
         } else {
           cmd_promise.set_error(td::Status::Error(PSLICE() << "Unknown suffix '" << c << "'"));
           return;
@@ -1394,13 +1440,21 @@ class TonlibCli : public td::actor::Actor {
     auto add_message = [&](td::ConstParser& parser) {
       auto to = parser.read_word();
       auto grams = parser.read_word();
-      auto message = parser.read_word();
+      parser.skip_whitespaces();
+      auto message = parser.read_all();
 
       Message res;
       TRY_RESULT(address, to_account_address(to, false));
       TRY_RESULT(amount, parse_grams(grams));
-      messages.push_back(tonlib_api::make_object<tonlib_api::msg_message>(
-          std::move(address.address), amount.nano, tonlib_api::make_object<tonlib_api::msg_dataText>(message.str())));
+      tonlib_api::object_ptr<tonlib_api::msg_Data> data;
+
+      if (use_encryption) {
+        data = tonlib_api::make_object<tonlib_api::msg_dataEncryptedText>(message.str());
+      } else {
+        data = tonlib_api::make_object<tonlib_api::msg_dataText>(message.str());
+      }
+      messages.push_back(
+          tonlib_api::make_object<tonlib_api::msg_message>(std::move(address.address), amount.nano, std::move(data)));
       return td::Status::OK();
     };
 

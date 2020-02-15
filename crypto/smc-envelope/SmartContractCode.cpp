@@ -30,6 +30,7 @@ constexpr static int WALLET2_REVISION = 2;
 constexpr static int WALLET3_REVISION = 2;
 constexpr static int HIGHLOAD_WALLET_REVISION = 2;
 constexpr static int HIGHLOAD_WALLET2_REVISION = 2;
+constexpr static int DNS_REVISION = 1;
 const auto& get_map() {
   static auto map = [] {
     std::map<std::string, td::Ref<vm::Cell>, std::less<>> map;
@@ -80,15 +81,30 @@ const auto& get_map() {
     with_tvm_code("wallet3-r2",
                   "te6ccgEBAQEAcQAA3v8AIN0gggFMl7ohggEznLqxn3Gw7UTQ0x/THzHXC//jBOCk8mCDCNcYINMf0x/TH/gjE7vyY+1E0NMf0x/"
                   "T/9FRMrryoVFEuvKiBPkBVBBV+RDyo/gAkyDXSpbTB9QC+wDo0QGkyMsfyx/L/8ntVA==");
-    auto check_revision = [&](td::Slice name, td::int32 default_revision) {
-      auto it = map.find(name);
-      CHECK(it != map.end());
-      auto other_it = map.find(PSLICE() << name << "-r" << default_revision);
-      CHECK(other_it != map.end());
-      CHECK(it->second->get_hash() == other_it->second->get_hash());
-    };
-    check_revision("highload-wallet", HIGHLOAD_WALLET_REVISION);
-    check_revision("highload-wallet-v2", HIGHLOAD_WALLET2_REVISION);
+    with_tvm_code(
+        "dns-manual-r1",
+        "te6ccgECGAEAAtAAART/APSkE/S88sgLAQIBIAIDAgFIBAUC7PLbPAWDCNcYIPkBAdMf0z/"
+        "4I6ofUyC58mNTKoBA9A5voTHyYFKUuvKiVBNG+RDyo/gAItcLBcAzmDQBdtch0/"
+        "8wjoVa2zxAA+"
+        "IDgyWhyEAHgED0Q44aIIBA9JZvpTJREJQwUwe53iCTMzUBkjIw4rPmNVUD8AQREgICxQYHAgEgDA0CAc8ICQAIqoJfAwIBSAoLACHWQK5Y+"
+        "J5Z/l//oAegBk9qpAAFF8DgABcyPQAydBBM/Rw8qGAAF72c52omhpr5jrhf/"
+        "AIBIA4PABG7Nz7UTQ1wsfgD+"
+        "7owwh10kglF8DcG3hIHew8l4ieNci1wsHnnDIUATPFhPLB8nQAqYI3iDACJRfA3Bt4Ns8FF8EI3ADqwKY0wcBwAAToQLkIG2OnF8DIcjLBiTPF"
+        "snQhAlUQgHbPAWlFbIgwQEVQzDmMzUilF8FcG3hMgHHAJMxfwHfAtdJpvmBEVEAAYIcAAkjEB4AKAEPRqABztRNDTH9M/0//"
+        "0BPQE0QE2cFmOlNs8IMcBnCDXSpPUMNCTMn8C4t4i5jAxEwT20wUhwQqOLCGRMeEhwAGXMdMH1AL7AOABwAmOFNQh+wTtQwLQ7R7tU1RiA/"
+        "EGgvIA4PIt4HAiwRSUMNIPAd5tbSTBHoreJMEUjpElhAkj2zwzApUyxwDyo5Fb4t4kwAuOEzQC9ARQJIAQ9G4wECOECVnwAQHgJMAMiuAwFBUW"
+        "FwCEMQLTAAHAAZPUAdCY0wUBqgLXGAHiINdJwg/"
+        "ypiB41yLXCwfyaHBTEddJqTYCmNMHAcAAEqEB5DDIywYBzxbJ0FADACBZ9KhvpSCUAvQEMJIybeICACg0A4AQ9FqZECOECUBE8AEBkjAx4gBmM"
+        "SLAFZwy9AQQI4QJUELwAQHgIsAWmDIChAn0czAB4DAyIMAfkzD0BODAIJJtAeDyLG0B");
+    //auto check_revision = [&](td::Slice name, td::int32 default_revision) {
+    //auto it = map.find(name);
+    //CHECK(it != map.end());
+    //auto other_it = map.find(PSLICE() << name << "-r" << default_revision);
+    //CHECK(other_it != map.end());
+    //CHECK(it->second->get_hash() == other_it->second->get_hash());
+    //};
+    //check_revision("highload-wallet", HIGHLOAD_WALLET_REVISION);
+    //check_revision("highload-wallet-v2", HIGHLOAD_WALLET2_REVISION);
 
     //check_revision("simple-wallet", WALLET_REVISION);
     //check_revision("wallet", WALLET2_REVISION);
@@ -137,21 +153,30 @@ td::Ref<vm::Cell> SmartContractCode::simple_wallet_ext() {
   return res;
 }
 td::Ref<vm::Cell> SmartContractCode::highload_wallet(int revision) {
+  if (revision == -1) {
+    return load("highload-wallet").move_as_ok();
+  }
   if (revision == 0) {
     revision = HIGHLOAD_WALLET_REVISION;
   }
-  auto res = load(PSLICE() << "highload-wallet-r" << revision).move_as_ok();
-  return res;
+  return load(PSLICE() << "highload-wallet-r" << revision).move_as_ok();
 }
 td::Ref<vm::Cell> SmartContractCode::highload_wallet_v2(int revision) {
+  if (revision == -1) {
+    return load("highload-wallet-v2").move_as_ok();
+  }
   if (revision == 0) {
     revision = HIGHLOAD_WALLET2_REVISION;
   }
-  auto res = load(PSLICE() << "highload-wallet-v2-r" << revision).move_as_ok();
-  return res;
+  return load(PSLICE() << "highload-wallet-v2-r" << revision).move_as_ok();
 }
-td::Ref<vm::Cell> SmartContractCode::dns_manual() {
-  static auto res = load("dns-manual").move_as_ok();
-  return res;
+td::Ref<vm::Cell> SmartContractCode::dns_manual(int revision) {
+  if (revision == -1) {
+    return load("dns-manual").move_as_ok();
+  }
+  if (revision == 0) {
+    revision = DNS_REVISION;
+  }
+  return load(PSLICE() << "dns-manual-r" << revision).move_as_ok();
 }
 }  // namespace ton

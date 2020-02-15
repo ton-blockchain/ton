@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -134,6 +134,16 @@ bool Optimizer::say(std::string str) const {
   return true;
 }
 
+bool Optimizer::find_const_op(int* op_idx, int cst) {
+  for (int i = 0; i < l2_; i++) {
+    if (op_[i]->is_gconst() && tr_[i].get(0) == cst) {
+      *op_idx = i;
+      return true;
+    }
+  }
+  return false;
+}
+
 bool Optimizer::is_const_push_swap() const {
   return l_ >= 3 && op_[0]->is_gconst() && op_[1]->is_push() && op_[1]->a >= 1 && op_[2]->is_swap();
 }
@@ -150,17 +160,40 @@ bool Optimizer::rewrite_const_push_swap() {
   return true;
 }
 
-bool Optimizer::is_const_rot() const {
-  return pb_ >= 3 && pb_ <= l2_ && op_[0]->is_gconst() && tr_[pb_ - 1].is_const_rot();
+bool Optimizer::is_const_rot(int* c) const {
+  return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_const_rot(c);
 }
 
-bool Optimizer::rewrite_const_rot() {
+bool Optimizer::rewrite_const_rot(int c) {
   p_ = pb_;
   q_ = 2;
+  int idx = -1;
+  if (!(p_ >= 2 && find_const_op(&idx, c) && idx < p_)) {
+    return false;
+  }
   show_left();
-  oq_[0] = std::move(op_[0]);
-  oq_[1] = std::move(op_[1]);
+  oq_[0] = std::move(op_[idx]);
+  oq_[1] = std::move(op_[idx ? 0 : 1]);
   *oq_[1] = AsmOp::Custom("ROT", 3, 3);
+  show_right();
+  return true;
+}
+
+bool Optimizer::is_const_pop(int* c, int* i) const {
+  return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_const_pop(c, i);
+}
+
+bool Optimizer::rewrite_const_pop(int c, int i) {
+  p_ = pb_;
+  q_ = 2;
+  int idx = -1;
+  if (!(p_ >= 2 && find_const_op(&idx, c) && idx < p_)) {
+    return false;
+  }
+  show_left();
+  oq_[0] = std::move(op_[idx]);
+  oq_[1] = std::move(op_[idx ? 0 : 1]);
+  *oq_[1] = AsmOp::Pop(i);
   show_right();
   return true;
 }
@@ -424,6 +457,10 @@ bool Optimizer::is_blkdrop(int* i) {
   return is_pred([i](const auto& t) { return t.is_blkdrop(i) && *i > 0 && *i < 16; });
 }
 
+bool Optimizer::is_blkdrop2(int* i, int* j) {
+  return is_pred([i, j](const auto& t) { return t.is_blkdrop2(i, j) && *i > 0 && *i < 16 && *j > 0 && *j < 16; });
+}
+
 bool Optimizer::is_reverse(int* i, int* j) {
   return is_pred([i, j](const auto& t) { return t.is_reverse(i, j) && *i >= 2 && *i <= 17 && *j < 16; });
 }
@@ -488,38 +525,42 @@ bool Optimizer::find_at_least(int pb) {
   p_ = q_ = 0;
   pb_ = pb;
   // show_stack_transforms();
-  int i = -100, j = -100, k = -100;
+  int i = -100, j = -100, k = -100, c = 0;
   return (is_const_push_swap() && 3 >= pb && rewrite_const_push_swap()) || (is_nop() && simple_rewrite_nop()) ||
-         (is_const_rot() && rewrite_const_rot()) || (is_const_push_xchgs() && rewrite_const_push_xchgs()) ||
+         (!(mode_ & 1) && is_const_rot(&c) && rewrite_const_rot(c)) ||
+         (is_const_push_xchgs() && rewrite_const_push_xchgs()) || (is_const_pop(&c, &i) && rewrite_const_pop(c, i)) ||
          (is_xchg(&i, &j) && simple_rewrite(AsmOp::Xchg(i, j))) || (is_push(&i) && simple_rewrite(AsmOp::Push(i))) ||
-         (is_pop(&i) && simple_rewrite(AsmOp::Pop(i))) || (is_rot() && simple_rewrite(AsmOp::Custom("ROT", 3, 3))) ||
-         (is_rotrev() && simple_rewrite(AsmOp::Custom("-ROT", 3, 3))) ||
-         (is_2dup() && simple_rewrite(AsmOp::Custom("2DUP", 2, 4))) ||
-         (is_2swap() && simple_rewrite(AsmOp::Custom("2SWAP", 2, 4))) ||
-         (is_2over() && simple_rewrite(AsmOp::Custom("2OVER", 2, 4))) ||
-         (is_tuck() && simple_rewrite(AsmOp::Custom("TUCK", 2, 3))) ||
-         (is_2drop() && simple_rewrite(AsmOp::Custom("2DROP", 2, 0))) ||
-         (is_xchg2(&i, &j) && simple_rewrite(AsmOp::Xchg2(i, j))) ||
-         (is_xcpu(&i, &j) && simple_rewrite(AsmOp::XcPu(i, j))) ||
-         (is_puxc(&i, &j) && simple_rewrite(AsmOp::PuXc(i, j))) ||
-         (is_push2(&i, &j) && simple_rewrite(AsmOp::Push2(i, j))) ||
-         (is_blkswap(&i, &j) && simple_rewrite(AsmOp::BlkSwap(i, j))) ||
-         (is_blkpush(&i, &j) && simple_rewrite(AsmOp::BlkPush(i, j))) ||
-         (is_blkdrop(&i) && simple_rewrite(AsmOp::BlkDrop(i))) ||
-         (is_reverse(&i, &j) && simple_rewrite(AsmOp::BlkReverse(i, j))) ||
-         (is_nip_seq(&i, &j) && simple_rewrite(AsmOp::Xchg(i, j), AsmOp::BlkDrop(i))) ||
-         (is_pop_blkdrop(&i, &k) && simple_rewrite(AsmOp::Pop(i), AsmOp::BlkDrop(k))) ||
-         (is_2pop_blkdrop(&i, &j, &k) && (k >= 3 && k <= 13 && i != j + 1 && i <= 15 && j <= 14
-                                              ? simple_rewrite(AsmOp::Xchg2(j + 1, i), AsmOp::BlkDrop(k + 2))
-                                              : simple_rewrite(AsmOp::Pop(i), AsmOp::Pop(j), AsmOp::BlkDrop(k)))) ||
-         (is_xchg3(&i, &j, &k) && simple_rewrite(AsmOp::Xchg3(i, j, k))) ||
-         (is_xc2pu(&i, &j, &k) && simple_rewrite(AsmOp::Xc2Pu(i, j, k))) ||
-         (is_xcpuxc(&i, &j, &k) && simple_rewrite(AsmOp::XcPuXc(i, j, k))) ||
-         (is_xcpu2(&i, &j, &k) && simple_rewrite(AsmOp::XcPu2(i, j, k))) ||
-         (is_puxc2(&i, &j, &k) && simple_rewrite(AsmOp::PuXc2(i, j, k))) ||
-         (is_puxcpu(&i, &j, &k) && simple_rewrite(AsmOp::PuXcPu(i, j, k))) ||
-         (is_pu2xc(&i, &j, &k) && simple_rewrite(AsmOp::Pu2Xc(i, j, k))) ||
-         (is_push3(&i, &j, &k) && simple_rewrite(AsmOp::Push3(i, j, k)));
+         (is_pop(&i) && simple_rewrite(AsmOp::Pop(i))) ||
+         (!(mode_ & 1) &&
+          ((is_rot() && simple_rewrite(AsmOp::Custom("ROT", 3, 3))) ||
+           (is_rotrev() && simple_rewrite(AsmOp::Custom("-ROT", 3, 3))) ||
+           (is_2dup() && simple_rewrite(AsmOp::Custom("2DUP", 2, 4))) ||
+           (is_2swap() && simple_rewrite(AsmOp::Custom("2SWAP", 2, 4))) ||
+           (is_2over() && simple_rewrite(AsmOp::Custom("2OVER", 2, 4))) ||
+           (is_tuck() && simple_rewrite(AsmOp::Custom("TUCK", 2, 3))) ||
+           (is_2drop() && simple_rewrite(AsmOp::Custom("2DROP", 2, 0))) ||
+           (is_xchg2(&i, &j) && simple_rewrite(AsmOp::Xchg2(i, j))) ||
+           (is_xcpu(&i, &j) && simple_rewrite(AsmOp::XcPu(i, j))) ||
+           (is_puxc(&i, &j) && simple_rewrite(AsmOp::PuXc(i, j))) ||
+           (is_push2(&i, &j) && simple_rewrite(AsmOp::Push2(i, j))) ||
+           (is_blkswap(&i, &j) && simple_rewrite(AsmOp::BlkSwap(i, j))) ||
+           (is_blkpush(&i, &j) && simple_rewrite(AsmOp::BlkPush(i, j))) ||
+           (is_blkdrop(&i) && simple_rewrite(AsmOp::BlkDrop(i))) ||
+           (is_reverse(&i, &j) && simple_rewrite(AsmOp::BlkReverse(i, j))) ||
+           (is_nip_seq(&i, &j) && simple_rewrite(AsmOp::Xchg(i, j), AsmOp::BlkDrop(i))) ||
+           (is_pop_blkdrop(&i, &k) && simple_rewrite(AsmOp::Pop(i), AsmOp::BlkDrop(k))) ||
+           (is_blkdrop2(&i, &j) && simple_rewrite(AsmOp::BlkDrop2(i, j))) ||
+           (is_2pop_blkdrop(&i, &j, &k) && (k >= 3 && k <= 13 && i != j + 1 && i <= 15 && j <= 14
+                                                ? simple_rewrite(AsmOp::Xchg2(j + 1, i), AsmOp::BlkDrop(k + 2))
+                                                : simple_rewrite(AsmOp::Pop(i), AsmOp::Pop(j), AsmOp::BlkDrop(k)))) ||
+           (is_xchg3(&i, &j, &k) && simple_rewrite(AsmOp::Xchg3(i, j, k))) ||
+           (is_xc2pu(&i, &j, &k) && simple_rewrite(AsmOp::Xc2Pu(i, j, k))) ||
+           (is_xcpuxc(&i, &j, &k) && simple_rewrite(AsmOp::XcPuXc(i, j, k))) ||
+           (is_xcpu2(&i, &j, &k) && simple_rewrite(AsmOp::XcPu2(i, j, k))) ||
+           (is_puxc2(&i, &j, &k) && simple_rewrite(AsmOp::PuXc2(i, j, k))) ||
+           (is_puxcpu(&i, &j, &k) && simple_rewrite(AsmOp::PuXcPu(i, j, k))) ||
+           (is_pu2xc(&i, &j, &k) && simple_rewrite(AsmOp::Pu2Xc(i, j, k))) ||
+           (is_push3(&i, &j, &k) && simple_rewrite(AsmOp::Push3(i, j, k)))));
 }
 
 bool Optimizer::find() {
@@ -544,17 +585,17 @@ bool Optimizer::optimize() {
   return f;
 }
 
-AsmOpConsList optimize_code_head(AsmOpConsList op_list) {
-  Optimizer opt(std::move(op_list), op_rewrite_comments);
+AsmOpConsList optimize_code_head(AsmOpConsList op_list, int mode) {
+  Optimizer opt(std::move(op_list), op_rewrite_comments, mode);
   opt.optimize();
   return opt.extract_code();
 }
 
-AsmOpConsList optimize_code(AsmOpConsList op_list) {
+AsmOpConsList optimize_code(AsmOpConsList op_list, int mode) {
   std::vector<std::unique_ptr<AsmOp>> v;
   while (op_list) {
     if (!op_list->car->is_comment()) {
-      op_list = optimize_code_head(std::move(op_list));
+      op_list = optimize_code_head(std::move(op_list), mode);
     }
     if (op_list) {
       v.push_back(std::move(op_list->car));
@@ -568,11 +609,14 @@ AsmOpConsList optimize_code(AsmOpConsList op_list) {
 }
 
 void optimize_code(AsmOpList& ops) {
-  std::unique_ptr<AsmOpCons> op_list;
+  AsmOpConsList op_list;
   for (auto it = ops.list_.rbegin(); it < ops.list_.rend(); ++it) {
     op_list = AsmOpCons::cons(std::make_unique<AsmOp>(std::move(*it)), std::move(op_list));
   }
-  op_list = optimize_code(std::move(op_list));
+  op_list = optimize_code(std::move(op_list), 1);
+  op_list = optimize_code(std::move(op_list), 1);
+  op_list = optimize_code(std::move(op_list), 0);
+  op_list = optimize_code(std::move(op_list), 0);
   ops.list_.clear();
   while (op_list) {
     ops.list_.push_back(std::move(*(op_list->car)));

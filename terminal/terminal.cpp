@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "terminal.hpp"
 #include "td/utils/port/StdStreams.h"
@@ -42,7 +42,7 @@ void TerminalLogInterface::append(CSlice slice, int log_level) {
     } else {
       color = TC_GREEN;
     }
-    td::TsCerr() << color << slice << TC_EMPTY;
+    std::cerr << color << slice.c_str() << TC_EMPTY;
     instance_->reactivate_readline();
     if (log_level == VERBOSITY_NAME(FATAL)) {
       process_fatal_error(slice);
@@ -79,6 +79,16 @@ void TerminalIOImpl::reactivate_readline() {
 void TerminalIOImpl::output_line(std::string line) {
   deactivate_readline();
   Stdout().write(line).ensure();
+  reactivate_readline();
+}
+
+void TerminalIOImpl::output_line_stderr(std::string line) {
+  deactivate_readline();
+  if (use_readline_) {
+    Stdout().write(line).ensure();
+  } else {
+    Stderr().write(line).ensure();
+  }
   reactivate_readline();
 }
 
@@ -246,7 +256,7 @@ void TerminalIO::output(std::string line) {
     std::cout << line;
   } else {
     instance_->deactivate_readline();
-    td::TsCerr() << line;
+    std::cout << line;
     instance_->reactivate_readline();
   }
 }
@@ -254,10 +264,40 @@ void TerminalIO::output(std::string line) {
 void TerminalIO::output(td::Slice line) {
   auto instance_ = TerminalIOImpl::instance();
   if (!instance_) {
-    td::TsCerr() << line;
+    std::cout.write(line.begin(), line.size());
   } else {
     instance_->deactivate_readline();
-    td::TsCerr() << line;
+    std::cout.write(line.begin(), line.size());
+    instance_->reactivate_readline();
+  }
+}
+
+void TerminalIO::output_stderr(std::string line) {
+  auto instance_ = TerminalIOImpl::instance();
+  if (!instance_) {
+    std::cout << line;
+  } else {
+    instance_->deactivate_readline();
+    if (instance_->readline_used()) {
+      std::cout << line;
+    } else {
+      std::cerr << line;
+    }
+    instance_->reactivate_readline();
+  }
+}
+
+void TerminalIO::output_stderr(td::Slice line) {
+  auto instance_ = TerminalIOImpl::instance();
+  if (!instance_) {
+    std::cerr.write(line.begin(), line.size());
+  } else {
+    instance_->deactivate_readline();
+    if (instance_->readline_used()) {
+      std::cout.write(line.begin(), line.size());
+    } else {
+      std::cerr.write(line.begin(), line.size());
+    }
     instance_->reactivate_readline();
   }
 }
@@ -265,7 +305,11 @@ void TerminalIO::output(td::Slice line) {
 TerminalIOOutputter::~TerminalIOOutputter() {
   if (buffer_) {
     CHECK(sb_);
-    TerminalIO::output(sb_->as_cslice());
+    if (is_err_) {
+      TerminalIO::output_stderr(sb_->as_cslice());
+    } else {
+      TerminalIO::output(sb_->as_cslice());
+    }
     delete[] buffer_;
   }
 }

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 #include "td/utils/crypto.h"
@@ -100,14 +100,21 @@ TypeExpr* parse_type1(Lexer& lex) {
       lex.cur().error_at("`", "` is not a type identifier");
     }
   }
-  lex.expect('(');
-  if (lex.tp() == ')') {
+  int c;
+  if (lex.tp() == '[') {
     lex.next();
-    return TypeExpr::new_unit();
+    c = ']';
+  } else {
+    lex.expect('(');
+    c = ')';
+  }
+  if (lex.tp() == c) {
+    lex.next();
+    return c == ')' ? TypeExpr::new_unit() : TypeExpr::new_tuple({});
   }
   auto t1 = parse_type(lex);
   if (lex.tp() != ',') {
-    lex.expect(')');
+    lex.expect(c);
     return t1;
   }
   std::vector<TypeExpr*> tlist{1, t1};
@@ -115,8 +122,8 @@ TypeExpr* parse_type1(Lexer& lex) {
     lex.next();
     tlist.push_back(parse_type(lex));
   }
-  lex.expect(')');
-  return TypeExpr::new_tensor(std::move(tlist));
+  lex.expect(c);
+  return c == ')' ? TypeExpr::new_tensor(std::move(tlist)) : TypeExpr::new_tuple(std::move(tlist));
 }
 
 TypeExpr* parse_type(Lexer& lex) {
@@ -302,7 +309,7 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
 Expr* make_func_apply(Expr* fun, Expr* x) {
   Expr* res;
   if (fun->cls == Expr::_Glob) {
-    if (x->cls == Expr::_Tuple) {
+    if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, fun->sym, x->args};
     } else {
       res = new Expr{Expr::_Apply, fun->sym, {x}};
@@ -317,28 +324,36 @@ Expr* make_func_apply(Expr* fun, Expr* x) {
 
 Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
 
-// parse ( E { , E } ) | () | id | num | _
+// parse ( E { , E } ) | () | [ E { , E } ] | [] | id | num | _
 Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
-  if (lex.tp() == '(') {
+  if (lex.tp() == '(' || lex.tp() == '[') {
+    bool tf = (lex.tp() == '[');
+    int clbr = (tf ? ']' : ')');
     SrcLocation loc{lex.cur().loc};
     lex.next();
-    if (lex.tp() == ')') {
+    if (lex.tp() == clbr) {
       lex.next();
-      Expr* res = new Expr{Expr::_Tuple, {}};
+      Expr* res = new Expr{Expr::_Tensor, {}};
       res->flags = Expr::_IsRvalue;
       res->here = loc;
       res->e_type = TypeExpr::new_unit();
+      if (tf) {
+        res = new Expr{Expr::_MkTuple, {res}};
+        res->flags = Expr::_IsRvalue;
+        res->here = loc;
+        res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+      }
       return res;
     }
     Expr* res = parse_expr(lex, code, nv);
     if (lex.tp() != ',') {
-      lex.expect(')');
+      lex.expect(clbr);
       return res;
     }
     std::vector<TypeExpr*> type_list;
     type_list.push_back(res->e_type);
     int f = res->flags;
-    res = new Expr{Expr::_Tuple, {res}};
+    res = new Expr{Expr::_Tensor, {res}};
     while (lex.tp() == ',') {
       lex.next();
       auto x = parse_expr(lex, code, nv);
@@ -351,8 +366,14 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     }
     res->here = loc;
     res->flags = f;
-    res->e_type = TypeExpr::new_tensor(std::move(type_list));
-    lex.expect(')');
+    res->e_type = TypeExpr::new_tensor(std::move(type_list), !tf);
+    if (tf) {
+      res = new Expr{Expr::_MkTuple, {res}};
+      res->flags = f;
+      res->here = loc;
+      res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+    }
+    lex.expect(clbr);
     return res;
   }
   int t = lex.tp();
@@ -382,7 +403,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     return res;
   }
-  if (t == _Int || t == _Cell || t == _Slice || t == _Builder || t == _Cont || t == _Type) {
+  if (t == _Int || t == _Cell || t == _Slice || t == _Builder || t == _Cont || t == _Type || t == _Tuple) {
     Expr* res = new Expr{Expr::_Type, lex.cur().loc};
     res->flags = Expr::_IsType;
     res->e_type = TypeExpr::new_atomic(t);
@@ -458,7 +479,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
 // parse E { E }
 Expr* parse_expr90(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr100(lex, code, nv);
-  while (lex.tp() == '(' || (lex.tp() == _Ident && !is_special_ident(lex.cur().val))) {
+  while (lex.tp() == '(' || lex.tp() == '[' || (lex.tp() == _Ident && !is_special_ident(lex.cur().val))) {
     if (res->is_type()) {
       Expr* x = parse_expr100(lex, code, true);
       x->chk_lvalue(lex.cur());  // chk_lrvalue() ?
@@ -523,7 +544,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     auto x = parse_expr100(lex, code, false);
     x->chk_rvalue(lex.cur());
-    if (x->cls == Expr::_Tuple) {
+    if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, name, {obj}};
       res->args.insert(res->args.end(), x->args.begin(), x->args.end());
     } else {
@@ -1269,7 +1290,7 @@ void parse_func_def(Lexer& lex) {
 
 bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
-  Lexer lex{reader, true};
+  Lexer lex{reader, true, ";,()[] ~."};
   while (lex.tp() != _Eof) {
     if (lex.tp() == _Global) {
       parse_global_var_decls(lex);

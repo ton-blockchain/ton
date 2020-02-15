@@ -69,5 +69,5 @@ int get_public_key() method_id {
 }
 
 int balance() method_id {
-  return restricted?() ? 0 : get_balance().first();
+  return restricted?() ? 0 : get_balance().pair_first();
 }

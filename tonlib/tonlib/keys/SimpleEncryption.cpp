@@ -37,8 +37,8 @@ td::AesCbcState SimpleEncryption::calc_aes_cbc_state_sha512(td::Slice seed) {
   return calc_aes_cbc_state_hash(hash.as_slice());
 }
 
-td::SecureString SimpleEncryption::gen_random_prefix(td::int64 data_size) {
-  td::SecureString buff(td::narrow_cast<size_t>(((32 + 15 + data_size) & -16) - data_size), 0);
+td::SecureString SimpleEncryption::gen_random_prefix(td::int64 data_size, td::int64 min_padding) {
+  td::SecureString buff(td::narrow_cast<size_t>(((min_padding + 15 + data_size) & -16) - data_size), 0);
   td::Random::secure_bytes(buff.as_mutable_slice());
   buff.as_mutable_slice()[0] = td::narrow_cast<td::uint8>(buff.size());
   CHECK((buff.size() + data_size) % 16 == 0);
@@ -72,7 +72,7 @@ td::SecureString SimpleEncryption::encrypt_data_with_prefix(td::Slice data, td::
 }
 
 td::SecureString SimpleEncryption::encrypt_data(td::Slice data, td::Slice secret) {
-  auto prefix = gen_random_prefix(data.size());
+  auto prefix = gen_random_prefix(data.size(), 32);
   td::SecureString combined(prefix.size() + data.size());
   combined.as_mutable_slice().copy_from(prefix);
   combined.as_mutable_slice().substr(prefix.size()).copy_from(data);
@@ -106,7 +106,8 @@ td::Result<td::SecureString> SimpleEncryption::decrypt_data(td::Slice encrypted_
   return td::SecureString(decrypted_data.as_slice().substr(prefix_size));
 }
 
-td::Result<td::SecureString> SimpleEncryption::encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key) {
+td::Result<td::SecureString> SimpleEncryptionV2::encrypt_data(td::Slice data,
+                                                              const td::Ed25519::PublicKey &public_key) {
   TRY_RESULT(tmp_private_key, td::Ed25519::generate_private_key());
   return encrypt_data(data, public_key, tmp_private_key);
 }
@@ -122,8 +123,8 @@ td::SecureString secure_xor(td::Slice a, td::Slice b) {
 }
 }  // namespace
 
-td::Result<td::SecureString> SimpleEncryption::encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key,
-                                                            const td::Ed25519::PrivateKey &private_key) {
+td::Result<td::SecureString> SimpleEncryptionV2::encrypt_data(td::Slice data, const td::Ed25519::PublicKey &public_key,
+                                                              const td::Ed25519::PrivateKey &private_key) {
   TRY_RESULT(shared_secret, td::Ed25519::compute_shared_secret(public_key, private_key));
   auto encrypted = encrypt_data(data, shared_secret.as_slice());
   TRY_RESULT(tmp_public_key, private_key.get_public_key());
@@ -135,8 +136,8 @@ td::Result<td::SecureString> SimpleEncryption::encrypt_data(td::Slice data, cons
   return std::move(prefixed_encrypted);
 }
 
-td::Result<td::SecureString> SimpleEncryption::decrypt_data(td::Slice data,
-                                                            const td::Ed25519::PrivateKey &private_key) {
+td::Result<td::SecureString> SimpleEncryptionV2::decrypt_data(td::Slice data,
+                                                              const td::Ed25519::PrivateKey &private_key) {
   if (data.size() < td::Ed25519::PublicKey::LENGTH) {
     return td::Status::Error("Failed to decrypte: data is too small");
   }
@@ -146,5 +147,54 @@ td::Result<td::SecureString> SimpleEncryption::decrypt_data(td::Slice data,
   TRY_RESULT(shared_secret, td::Ed25519::compute_shared_secret(tmp_public_key, private_key));
   TRY_RESULT(decrypted, decrypt_data(data.substr(td::Ed25519::PublicKey::LENGTH), shared_secret.as_slice()));
   return std::move(decrypted);
+}
+td::SecureString SimpleEncryptionV2::encrypt_data(td::Slice data, td::Slice secret) {
+  auto prefix = SimpleEncryption::gen_random_prefix(data.size(), 16);
+  td::SecureString combined(prefix.size() + data.size());
+  combined.as_mutable_slice().copy_from(prefix);
+  combined.as_mutable_slice().substr(prefix.size()).copy_from(data);
+  return encrypt_data_with_prefix(combined.as_slice(), secret);
+}
+td::Result<td::SecureString> SimpleEncryptionV2::decrypt_data(td::Slice encrypted_data, td::Slice secret) {
+  if (encrypted_data.size() < 17) {
+    return td::Status::Error("Failed to decrypt: data is too small");
+  }
+  if (encrypted_data.size() % 16 != 0) {
+    return td::Status::Error("Failed to decrypt: data size is not divisible by 16");
+  }
+  auto msg_key = encrypted_data.substr(0, 16);
+  encrypted_data = encrypted_data.substr(16);
+
+  auto cbc_state = SimpleEncryption::calc_aes_cbc_state_hash(SimpleEncryption::combine_secrets(secret, msg_key));
+  td::SecureString decrypted_data(encrypted_data.size(), 0);
+  cbc_state.decrypt(encrypted_data, decrypted_data.as_mutable_slice());
+
+  auto data_hash = SimpleEncryption::combine_secrets(decrypted_data, secret);
+  auto got_msg_key = data_hash.as_slice().substr(0, 16);
+  // check hash
+  if (msg_key != got_msg_key) {
+    return td::Status::Error("Failed to decrypt: hash mismatch");
+  }
+
+  td::uint8 prefix_size = static_cast<td::uint8>(decrypted_data[0]);
+  if (prefix_size > decrypted_data.size() || prefix_size < 16) {
+    return td::Status::Error("Failed to decrypt: invalid prefix size");
+  }
+
+  return td::SecureString(decrypted_data.as_slice().substr(prefix_size));
+}
+td::SecureString SimpleEncryptionV2::encrypt_data_with_prefix(td::Slice data, td::Slice secret) {
+  CHECK(data.size() % 16 == 0);
+  auto data_hash = SimpleEncryption::combine_secrets(data, secret);
+  auto msg_key = data_hash.as_slice().substr(0, 16);
+
+  td::SecureString res_buf(data.size() + 16, 0);
+  auto res = res_buf.as_mutable_slice();
+  res.copy_from(msg_key);
+
+  auto cbc_state = SimpleEncryption::calc_aes_cbc_state_hash(SimpleEncryption::combine_secrets(secret, msg_key));
+  cbc_state.encrypt(data, res.substr(16));
+
+  return res_buf;
 }
 }  // namespace tonlib

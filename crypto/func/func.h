@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include <vector>
@@ -36,7 +36,7 @@ namespace funC {
 extern int verbosity;
 extern bool op_rewrite_comments;
 
-constexpr int optimize_depth = 12;
+constexpr int optimize_depth = 20;
 
 enum Keyword {
   _Eof = -1,
@@ -101,6 +101,7 @@ enum Keyword {
   _Extern,
   _Inline,
   _InlineRef,
+  _AutoApply,
   _MethodId,
   _Operator,
   _Infix,
@@ -134,7 +135,7 @@ class IdSc {
  */
 
 struct TypeExpr {
-  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Map, te_Type, te_ForAll } constr;
+  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_Type, te_ForAll } constr;
   enum {
     _Int = Keyword::_Int,
     _Cell = Keyword::_Cell,
@@ -158,6 +159,9 @@ struct TypeExpr {
   }
   TypeExpr(te_type _constr, std::initializer_list<TypeExpr*> list)
       : constr(_constr), value((int)list.size()), args(std::move(list)) {
+    compute_width();
+  }
+  TypeExpr(te_type _constr, TypeExpr* elem0) : constr(_constr), value(1), args{elem0} {
     compute_width();
   }
   TypeExpr(te_type _constr, TypeExpr* elem0, std::vector<TypeExpr*> list)
@@ -184,6 +188,9 @@ struct TypeExpr {
   }
   bool is_map() const {
     return constr == te_Map;
+  }
+  bool is_tuple() const {
+    return constr == te_Tuple;
   }
   bool has_fixed_width() const {
     return minw == maxw;
@@ -225,6 +232,15 @@ struct TypeExpr {
   }
   static TypeExpr* new_tensor(TypeExpr* te1, TypeExpr* te2, TypeExpr* te3) {
     return new_tensor({te1, te2, te3});
+  }
+  static TypeExpr* new_tuple(TypeExpr* arg0) {
+    return new TypeExpr{te_Tuple, arg0};
+  }
+  static TypeExpr* new_tuple(std::vector<TypeExpr*> list, bool red = false) {
+    return new_tuple(new_tensor(std::move(list), red));
+  }
+  static TypeExpr* new_tuple(std::initializer_list<TypeExpr*> list) {
+    return new_tuple(new_tensor(std::move(list)));
   }
   static TypeExpr* new_var() {
     return new TypeExpr{te_Var, --type_vars, 1};
@@ -505,6 +521,8 @@ struct Op {
     _SetGlob,
     _Import,
     _Return,
+    _Tuple,
+    _UnTuple,
     _If,
     _While,
     _Until,
@@ -789,7 +807,8 @@ struct Expr {
     _Apply,
     _VarApply,
     _TypeApply,
-    _Tuple,
+    _MkTuple,
+    _Tensor,
     _Const,
     _Var,
     _Glob,
@@ -843,6 +862,12 @@ struct Expr {
   bool is_type() const {
     return flags & _IsType;
   }
+  bool is_type_apply() const {
+    return cls == _TypeApply;
+  }
+  bool is_mktuple() const {
+    return cls == _MkTuple;
+  }
   void chk_rvalue(const Lexem& lem) const;
   void chk_lvalue(const Lexem& lem) const;
   void chk_type(const Lexem& lem) const;
@@ -855,7 +880,8 @@ struct Expr {
   }
   int define_new_vars(CodeBlob& code);
   int predefine_vars();
-  std::vector<var_idx_t> pre_compile(CodeBlob& code) const;
+  std::vector<var_idx_t> pre_compile(CodeBlob& code, bool lval = false) const;
+  static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here);
   var_idx_t new_tmp(CodeBlob& code) const;
   std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
     return {new_tmp(code)};
@@ -1004,6 +1030,7 @@ struct AsmOp {
   static AsmOp BlkSwap(int a, int b);
   static AsmOp BlkPush(int a, int b);
   static AsmOp BlkDrop(int a);
+  static AsmOp BlkDrop2(int a, int b);
   static AsmOp BlkReverse(int a, int b);
   static AsmOp make_stk2(int a, int b, const char* str, int delta);
   static AsmOp make_stk3(int a, int b, int c, const char* str, int delta);
@@ -1024,6 +1051,8 @@ struct AsmOp {
     return AsmOp(a_custom, args, retv, custom_op);
   }
   static AsmOp Parse(std::string custom_op, int args, int retv = 1);
+  static AsmOp Tuple(int a);
+  static AsmOp UnTuple(int a);
 };
 
 inline std::ostream& operator<<(std::ostream& os, const AsmOp& op) {
@@ -1261,6 +1290,8 @@ struct StackTransform {
   bool is_blkpush(int i, int j) const;
   bool is_blkpush(int* i, int* j) const;
   bool is_blkdrop(int* i) const;
+  bool is_blkdrop2(int i, int j) const;
+  bool is_blkdrop2(int* i, int* j) const;
   bool is_reverse(int i, int j) const;
   bool is_reverse(int* i, int* j) const;
   bool is_nip_seq(int i, int j = 0) const;
@@ -1270,7 +1301,10 @@ struct StackTransform {
   bool is_pop_blkdrop(int* i, int* k) const;
   bool is_2pop_blkdrop(int i, int j, int k) const;
   bool is_2pop_blkdrop(int* i, int* j, int* k) const;
-  bool is_const_rot() const;
+  bool is_const_rot(int c) const;
+  bool is_const_rot(int* c) const;
+  bool is_const_pop(int c, int i) const;
+  bool is_const_pop(int* c, int* i) const;
 
   void show(std::ostream& os, int mode = 0) const;
 
@@ -1307,11 +1341,12 @@ struct Optimizer {
   AsmOpCons* op_cons_[n];
   int offs_[n];
   StackTransform tr_[n];
+  int mode_{0};
   Optimizer() {
   }
-  Optimizer(bool debug) : debug_(debug) {
+  Optimizer(bool debug, int mode = 0) : debug_(debug), mode_(mode) {
   }
-  Optimizer(AsmOpConsList code, bool debug = false) : Optimizer(debug) {
+  Optimizer(AsmOpConsList code, bool debug = false, int mode = 0) : Optimizer(debug, mode) {
     set_code(std::move(code));
   }
   void set_code(AsmOpConsList code_);
@@ -1327,12 +1362,15 @@ struct Optimizer {
   void show_head() const;
   void show_left() const;
   void show_right() const;
+  bool find_const_op(int* op_idx, int cst);
   bool is_const_push_swap() const;
   bool rewrite_const_push_swap();
   bool is_const_push_xchgs();
   bool rewrite_const_push_xchgs();
-  bool is_const_rot() const;
-  bool rewrite_const_rot();
+  bool is_const_rot(int* c) const;
+  bool rewrite_const_rot(int c);
+  bool is_const_pop(int* c, int* i) const;
+  bool rewrite_const_pop(int c, int i);
   bool simple_rewrite(int p, AsmOp&& new_op);
   bool simple_rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2);
   bool simple_rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3);
@@ -1374,6 +1412,7 @@ struct Optimizer {
   bool is_blkswap(int* i, int* j);
   bool is_blkpush(int* i, int* j);
   bool is_blkdrop(int* i);
+  bool is_blkdrop2(int* i, int* j);
   bool is_reverse(int* i, int* j);
   bool is_nip_seq(int* i, int* j);
   bool is_pop_blkdrop(int* i, int* k);
@@ -1381,8 +1420,8 @@ struct Optimizer {
   AsmOpConsList extract_code();
 };
 
-AsmOpConsList optimize_code_head(AsmOpConsList op_list);
-AsmOpConsList optimize_code(AsmOpConsList op_list);
+AsmOpConsList optimize_code_head(AsmOpConsList op_list, int mode = 0);
+AsmOpConsList optimize_code(AsmOpConsList op_list, int mode);
 void optimize_code(AsmOpList& ops);
 
 struct Stack {

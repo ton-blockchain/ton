@@ -1,5 +1,5 @@
 #include "rlimit.h"
-#if TD_LINUX
+#if TD_LINUX || TD_ANDROID
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/time.h>

@@ -463,6 +463,7 @@ Transaction::Transaction(const Account& _account, int ttype, ton::LogicalTime re
     , my_addr(_account.my_addr)
     , my_addr_exact(_account.my_addr_exact)
     , balance(_account.balance)
+    , original_balance(_account.balance)
     , due_payment(_account.due_payment)
     , last_paid(_account.last_paid)
     , new_code(_account.code)
@@ -912,6 +913,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   // ...
   compute_phase = std::make_unique<ComputePhase>();
   ComputePhase& cp = *(compute_phase.get());
+  original_balance -= total_fees;
   if (td::sgn(balance.grams) <= 0) {
     // no gas
     cp.skip_reason = ComputePhase::sk_no_gas;
@@ -1650,7 +1652,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
 int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
   block::gen::OutAction::Record_action_reserve_currency rec;
-  if (!tlb::unpack_exact(cs, rec) || (rec.mode & ~3)) {
+  if (!tlb::unpack_exact(cs, rec) || (rec.mode & ~15)) {
     return -1;
   }
   int mode = rec.mode;
@@ -1661,7 +1663,21 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     return -1;
   }
   LOG(DEBUG) << "action_reserve_currency: mode=" << mode << ", reserve=" << reserve.to_str()
-             << ", balance=" << ap.remaining_balance.to_str();
+             << ", balance=" << ap.remaining_balance.to_str() << ", original balance=" << original_balance.to_str();
+  if (mode & 4) {
+    if (mode & 8) {
+      reserve = original_balance - reserve;
+    } else {
+      reserve += original_balance;
+    }
+  } else if (mode & 8) {
+    LOG(DEBUG) << "invalid reserve mode " << mode;
+    return -1;
+  }
+  if (!reserve.is_valid() || td::sgn(reserve.grams) < 0) {
+    LOG(DEBUG) << "cannot reserve a negative amount: " << reserve.to_str();
+    return -1;
+  }
   if (reserve.grams > ap.remaining_balance.grams) {
     if (mode & 2) {
       reserve.grams = ap.remaining_balance.grams;

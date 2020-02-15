@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -318,6 +318,20 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
       break;
     case _Let:
       os << pfx << dis << "LET ";
+      show_var_list(os, left, vars);
+      os << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
+    case _Tuple:
+      os << pfx << dis << "MKTUPLE ";
+      show_var_list(os, left, vars);
+      os << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
+    case _UnTuple:
+      os << pfx << dis << "UNTUPLE ";
       show_var_list(os, left, vars);
       os << " := ";
       show_var_list(os, right, vars);
