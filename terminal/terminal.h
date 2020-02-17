@@ -80,6 +80,7 @@ class TerminalIO : public actor::Actor {
   static void output(td::Slice slice);
   static void output_stderr(std::string line);
   static void output_stderr(td::Slice slice);
+  static void output_stdout(td::Slice line);
   static TerminalIOOutputter out() {
     return TerminalIOOutputter{false};
   }

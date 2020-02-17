@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "common/refint.h"
 #include <utility>
@@ -213,10 +213,16 @@ int sgn(RefInt256 x) {
   return x->sgn();
 }
 
-extern RefInt256 make_refint(long long x) {
+RefInt256 make_refint(long long x) {
   auto xx = td::RefInt256{true, x};
   xx.unique_write().normalize();
   return xx;
+}
+
+RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd) {
+  td::RefInt256 x{true};
+  x.unique_write().import_bits(bits, n, sgnd);
+  return x;
 }
 
 std::string dec_string(RefInt256 x) {

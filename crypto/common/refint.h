@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -101,6 +101,7 @@ extern int cmp(RefInt256 x, long long y);
 extern int sgn(RefInt256 x);
 
 extern RefInt256 make_refint(long long x);
+extern RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd = false);
 
 extern std::string dec_string(RefInt256 x);
 extern std::string dec_string2(RefInt256&& x);

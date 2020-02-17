@@ -905,6 +905,7 @@ struct AsmOp {
   int t{a_none};
   int indent{0};
   int a, b, c;
+  bool gconst{false};
   std::string op;
   struct SReg {
     int idx;
@@ -923,6 +924,7 @@ struct AsmOp {
   AsmOp(int _t, int _a, int _b) : t(_t), a(_a), b(_b) {
   }
   AsmOp(int _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
+    compute_gconst();
   }
   AsmOp(int _t, int _a, int _b, int _c) : t(_t), a(_a), b(_b), c(_c) {
   }
@@ -931,6 +933,9 @@ struct AsmOp {
   void out(std::ostream& os) const;
   void out_indent_nl(std::ostream& os, bool no_nl = false) const;
   std::string to_string() const;
+  void compute_gconst() {
+    gconst = (is_custom() && (op == "PUSHNULL" || op == "NEWC"));
+  }
   bool is_nop() const {
     return t == a_none && op.empty();
   }
@@ -977,7 +982,7 @@ struct AsmOp {
     return t == a_const && !a && b == 1;
   }
   bool is_gconst() const {
-    return (t == a_const || t == a_custom) && !a && b == 1;
+    return !a && b == 1 && (t == a_const || gconst);
   }
   static AsmOp Nop() {
     return AsmOp(a_none);
@@ -1305,6 +1310,8 @@ struct StackTransform {
   bool is_const_rot(int* c) const;
   bool is_const_pop(int c, int i) const;
   bool is_const_pop(int* c, int* i) const;
+  bool is_push_const(int i, int c) const;
+  bool is_push_const(int* i, int* c) const;
 
   void show(std::ostream& os, int mode = 0) const;
 
@@ -1363,27 +1370,27 @@ struct Optimizer {
   void show_left() const;
   void show_right() const;
   bool find_const_op(int* op_idx, int cst);
-  bool is_const_push_swap() const;
-  bool rewrite_const_push_swap();
+  bool is_push_const(int* i, int* c) const;
+  bool rewrite_push_const(int i, int c);
   bool is_const_push_xchgs();
   bool rewrite_const_push_xchgs();
   bool is_const_rot(int* c) const;
   bool rewrite_const_rot(int c);
   bool is_const_pop(int* c, int* i) const;
   bool rewrite_const_pop(int c, int i);
-  bool simple_rewrite(int p, AsmOp&& new_op);
-  bool simple_rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2);
-  bool simple_rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3);
-  bool simple_rewrite(AsmOp&& new_op) {
-    return simple_rewrite(p_, std::move(new_op));
+  bool rewrite(int p, AsmOp&& new_op);
+  bool rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2);
+  bool rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3);
+  bool rewrite(AsmOp&& new_op) {
+    return rewrite(p_, std::move(new_op));
   }
-  bool simple_rewrite(AsmOp&& new_op1, AsmOp&& new_op2) {
-    return simple_rewrite(p_, std::move(new_op1), std::move(new_op2));
+  bool rewrite(AsmOp&& new_op1, AsmOp&& new_op2) {
+    return rewrite(p_, std::move(new_op1), std::move(new_op2));
   }
-  bool simple_rewrite(AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3) {
-    return simple_rewrite(p_, std::move(new_op1), std::move(new_op2), std::move(new_op3));
+  bool rewrite(AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3) {
+    return rewrite(p_, std::move(new_op1), std::move(new_op2), std::move(new_op3));
   }
-  bool simple_rewrite_nop();
+  bool rewrite_nop();
   bool is_pred(const std::function<bool(const StackTransform&)>& pred, int min_p = 2);
   bool is_same_as(const StackTransform& trans, int min_p = 2);
   bool is_rot();

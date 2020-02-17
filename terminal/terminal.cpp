@@ -29,11 +29,11 @@
 namespace td {
 
 void TerminalLogInterface::append(CSlice slice, int log_level) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
+  auto instance = TerminalIOImpl::instance();
+  if (!instance) {
     default_log_interface->append(slice, log_level);
   } else {
-    instance_->deactivate_readline();
+    instance->deactivate_readline();
     std::string color;
     if (log_level == 0 || log_level == 1) {
       color = TC_RED;
@@ -42,8 +42,8 @@ void TerminalLogInterface::append(CSlice slice, int log_level) {
     } else {
       color = TC_GREEN;
     }
-    std::cerr << color << slice.c_str() << TC_EMPTY;
-    instance_->reactivate_readline();
+    td::TsCerr() << color << slice << TC_EMPTY;
+    instance->reactivate_readline();
     if (log_level == VERBOSITY_NAME(FATAL)) {
       process_fatal_error(slice);
     }
@@ -216,17 +216,17 @@ void TerminalIOImpl::s_line(char *line) {
     LOG(FATAL) << "Closed";
     return;
   }
-  CHECK(instance_);
+  CHECK(instance);
   if (*line) {
     add_history(line);
   }
-  instance_->line_cb(line);
+  instance()->line_cb(line);
   rl_free(line);
 #endif
 }
 
 int TerminalIOImpl::s_stdin_getc(FILE *) {
-  return instance_->stdin_getc();
+  return instance()->stdin_getc();
 }
 
 void TerminalIOImpl::set_log_interface() {
@@ -250,55 +250,60 @@ void TerminalIOImpl::line_cb(std::string cmd) {
   cmd_queue_.push(td::BufferSlice{std::move(cmd)});
 }
 
-void TerminalIO::output(std::string line) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
-    std::cout << line;
-  } else {
-    instance_->deactivate_readline();
-    std::cout << line;
-    instance_->reactivate_readline();
+void TerminalIO::output_stdout(td::Slice slice) {
+  auto &fd = td::Stdout();
+  if (fd.empty()) {
+    return;
+  }
+  double end_time = 0;
+  while (!slice.empty()) {
+    auto res = fd.write(slice);
+    if (res.is_error()) {
+      if (res.error().code() == EPIPE) {
+        break;
+      }
+      // Resource temporary unavailable
+      if (end_time == 0) {
+        end_time = Time::now() + 0.01;
+      } else if (Time::now() > end_time) {
+        break;
+      }
+      continue;
+    }
+    slice.remove_prefix(res.ok());
   }
 }
 
+void TerminalIO::output(std::string line) {
+  output(td::Slice(line));
+}
+
 void TerminalIO::output(td::Slice line) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
-    std::cout.write(line.begin(), line.size());
+  auto instance = TerminalIOImpl::instance();
+  if (!instance) {
+    output_stdout(line);
   } else {
-    instance_->deactivate_readline();
-    std::cout.write(line.begin(), line.size());
-    instance_->reactivate_readline();
+    instance->deactivate_readline();
+    output_stdout(line);
+    instance->reactivate_readline();
   }
 }
 
 void TerminalIO::output_stderr(std::string line) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
-    std::cout << line;
-  } else {
-    instance_->deactivate_readline();
-    if (instance_->readline_used()) {
-      std::cout << line;
-    } else {
-      std::cerr << line;
-    }
-    instance_->reactivate_readline();
-  }
+  output_stderr(td::Slice(line));
 }
 
 void TerminalIO::output_stderr(td::Slice line) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
-    std::cerr.write(line.begin(), line.size());
+  auto instance = TerminalIOImpl::instance();
+  if (!instance) {
+    td::TsCerr() << line;
   } else {
-    instance_->deactivate_readline();
-    if (instance_->readline_used()) {
-      std::cout.write(line.begin(), line.size());
+    instance->deactivate_readline();
+    if (instance->readline_used()) {
+      output_stdout(line);
     } else {
-      std::cerr.write(line.begin(), line.size());
+      td::TsCerr() << line;
     }
-    instance_->reactivate_readline();
   }
 }
 

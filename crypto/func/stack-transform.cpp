@@ -891,6 +891,15 @@ bool StackTransform::is_const_pop(int *c, int *i) const {
   }
 }
 
+// PUSH i ; PUSHCONST c == c i 0 1 2 ...
+bool StackTransform::is_push_const(int i, int c) const {
+  return is_valid() && d == -2 && c <= c_start && i >= 0 && is_trivial_after(2) && get(0) == c && get(1) == i;
+}
+
+bool StackTransform::is_push_const(int *i, int *c) const {
+  return is_valid() && d == -2 && n == 2 && is_push_const(*i = get(1), *c = get(0));
+}
+
 void StackTransform::show(std::ostream &os, int mode) const {
   if (!is_valid()) {
     os << "<invalid>";

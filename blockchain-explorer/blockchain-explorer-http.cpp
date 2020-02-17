@@ -388,7 +388,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
         << "<input type=\"text\" class=\"form-control mr-2\" name=\"method\" placeholder=\"method\">"
         << "</div>\n"
         << "<div class=\"form-group col-lg-4 col-md-6\">"
-        << "<input type=\"text\" class=\"form-control mr-2\" name=\"params\" placeholder=\"paramerers\"></div>"
+        << "<input type=\"text\" class=\"form-control mr-2\" name=\"params\" placeholder=\"parameters\"></div>"
         << "<input type=\"hidden\" name=\"account\" value=\"" << acc_c.addr.rserialize(true) << "\">"
         << "<input type=\"hidden\" name=\"workchain\" value=\"" << block_id.id.workchain << "\">"
         << "<input type=\"hidden\" name=\"shard\" value=\"" << ton::shard_to_str(block_id.id.shard) << "\">"

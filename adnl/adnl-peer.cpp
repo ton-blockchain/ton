@@ -164,7 +164,9 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
   // accepted
   // delivering
 
-  add_received_packet(static_cast<td::uint32>(packet.seqno()));
+  if (packet.seqno() > 0) {
+    add_received_packet(static_cast<td::uint32>(packet.seqno()));
+  }
 
   if (packet.confirm_seqno() > ack_seqno_) {
     ack_seqno_ = packet.confirm_seqno();

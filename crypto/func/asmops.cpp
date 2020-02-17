@@ -362,6 +362,8 @@ bool apply_op(StackTransform& trans, const AsmOp& op) {
       return trans.apply_pop(op.a);
     case AsmOp::a_const:
       return !op.a && op.b == 1 && trans.apply_push_newconst();
+    case AsmOp::a_custom:
+      return op.is_gconst() && trans.apply_push_newconst();
     default:
       return false;
   }
