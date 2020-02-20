@@ -48,7 +48,8 @@ td::Ref<vm::Cell> MultisigWallet::QueryBuilder::create(td::int32 id, td::Ed25519
 }
 
 td::Ref<MultisigWallet> MultisigWallet::create(td::Ref<vm::Cell> data) {
-  return td::Ref<MultisigWallet>(true, State{ton::SmartContractCode::multisig(), std::move(data)});
+  return td::Ref<MultisigWallet>(
+      true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::Multisig), std::move(data)});
 }
 
 int MultisigWallet::processed(td::uint64 query_id) const {

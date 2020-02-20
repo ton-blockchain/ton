@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <tl/tlblib.hpp>
 
@@ -138,21 +138,22 @@ bool TLB::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
     return pp.fail("invalid value");
   }
   pp.raw_nl();
-  cs_copy.print_rec(pp.os, pp.indent);
-  return pp.mkindent() && pp.close();
+  return cs_copy.print_rec(pp.os, &pp.limit, pp.indent) && pp.mkindent() && pp.close();
 }
 
 bool TLB::print_special(PrettyPrinter& pp, vm::CellSlice& cs) const {
   pp.open("raw@");
   pp << *this << ' ';
   pp.raw_nl();
-  cs.print_rec(pp.os, pp.indent);
-  return pp.mkindent() && pp.close();
+  return cs.print_rec(pp.os, &pp.limit, pp.indent) && pp.mkindent() && pp.close();
 }
 
 bool TLB::print_ref(PrettyPrinter& pp, Ref<vm::Cell> cell_ref) const {
   if (cell_ref.is_null()) {
     return pp.fail("null cell reference");
+  }
+  if (!pp.register_recursive_call()) {
+    return pp.fail("too many recursive calls while printing a TL-B value");
   }
   bool is_special;
   auto cs = load_cell_slice_special(std::move(cell_ref), is_special);
@@ -163,18 +164,21 @@ bool TLB::print_ref(PrettyPrinter& pp, Ref<vm::Cell> cell_ref) const {
   }
 }
 
-bool TLB::print_skip(std::ostream& os, vm::CellSlice& cs, int indent) const {
+bool TLB::print_skip(std::ostream& os, vm::CellSlice& cs, int indent, int rec_limit) const {
   PrettyPrinter pp{os, indent};
+  pp.set_limit(rec_limit);
   return pp.fail_unless(print_skip(pp, cs));
 }
 
-bool TLB::print(std::ostream& os, const vm::CellSlice& cs, int indent) const {
+bool TLB::print(std::ostream& os, const vm::CellSlice& cs, int indent, int rec_limit) const {
   PrettyPrinter pp{os, indent};
+  pp.set_limit(rec_limit);
   return pp.fail_unless(print(pp, cs));
 }
 
-bool TLB::print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent) const {
+bool TLB::print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent, int rec_limit) const {
   PrettyPrinter pp{os, indent};
+  pp.set_limit(rec_limit);
   return pp.fail_unless(print_ref(pp, std::move(cell_ref)));
 }
 

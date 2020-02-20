@@ -80,7 +80,7 @@ td::Ref<vm::Cell> WalletV3::make_a_gift_message(const td::Ed25519::PrivateKey& p
 }
 
 td::Ref<vm::Cell> WalletV3::get_init_code(td::int32 revision) noexcept {
-  return SmartContractCode::wallet3(revision);
+  return SmartContractCode::get_code(ton::SmartContractCode::WalletV3, revision);
 }
 
 vm::CellHash WalletV3::get_init_code_hash() noexcept {

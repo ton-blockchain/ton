@@ -776,6 +776,14 @@ bool CellSlice::fetch_maybe_ref(Ref<vm::Cell>& res) {
   }
 }
 
+td::uint16 CellSlice::get_depth() const {
+  int d = 0;
+  for (unsigned i = 0; i < size_refs(); ++i) {
+    d = std::max(d, prefetch_ref(i)->get_depth() + 1);
+  }
+  return static_cast<td::uint16>(d);
+}
+
 bool CellSlice::begins_with(unsigned bits, unsigned long long value) const {
   return have(bits) && !((prefetch_ulong(bits) ^ value) & ((1ULL << bits) - 1));
 }
@@ -980,13 +988,18 @@ void CellSlice::dump_hex(std::ostream& os, int mode, bool endl) const {
   }
 }
 
-void CellSlice::print_rec(std::ostream& os, int indent) const {
+bool CellSlice::print_rec(std::ostream& os, int* limit, int indent) const {
   for (int i = 0; i < indent; i++) {
     os << ' ';
   }
+  if (!limit || *limit <= 0) {
+    os << "<cell output limit reached>" << std::endl;
+    return false;
+  }
+  --*limit;
   if (cell.is_null()) {
     os << "NULL" << std::endl;
-    return;
+    return true;
   }
   if (is_special()) {
     os << "SPECIAL ";
@@ -994,8 +1007,20 @@ void CellSlice::print_rec(std::ostream& os, int indent) const {
   os << "x{" << as_bitslice().to_hex() << '}' << std::endl;
   for (unsigned i = 0; i < size_refs(); i++) {
     CellSlice cs{NoVm(), prefetch_ref(i)};
-    cs.print_rec(os, indent + 1);
+    if (!cs.print_rec(os, limit, indent + 1)) {
+      return false;
+    }
   }
+  return true;
+}
+
+bool CellSlice::print_rec(std::ostream& os, int indent) const {
+  int limit = default_recursive_print_limit;
+  return print_rec(os, &limit, indent);
+}
+
+bool CellSlice::print_rec(int limit, std::ostream& os, int indent) const {
+  return print_rec(os, &limit, indent);
 }
 
 td::StringBuilder& operator<<(td::StringBuilder& sb, const CellSlice& cs) {

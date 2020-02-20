@@ -44,6 +44,7 @@ class CellSlice : public td::CntObject {
  public:
   static constexpr long long fetch_long_eof = (static_cast<unsigned long long>(-1LL) << 63);
   static constexpr unsigned long long fetch_ulong_eof = (unsigned long long)-1LL;
+  enum { default_recursive_print_limit = 100 };
   struct CellReadError {};
 
   CellSlice(NoVm, Ref<Cell> cell_ref);
@@ -129,6 +130,7 @@ class CellSlice : public td::CntObject {
   const unsigned char* data() const {
     return cell->get_data();
   }
+  td::uint16 get_depth() const;
   td::ConstBitPtr data_bits() const {
     return td::ConstBitPtr{data(), (int)cur_pos()};
   }
@@ -252,7 +254,9 @@ class CellSlice : public td::CntObject {
   bool contents_equal(const CellSlice& cs2) const;
   void dump(std::ostream& os, int level = 0, bool endl = true) const;
   void dump_hex(std::ostream& os, int mode = 0, bool endl = false) const;
-  void print_rec(std::ostream& os, int indent = 0) const;
+  bool print_rec(std::ostream& os, int indent = 0) const;
+  bool print_rec(std::ostream& os, int* limit, int indent = 0) const;
+  bool print_rec(int limit, std::ostream& os, int indent = 0) const;
   void error() const {
     throw CellReadError{};
   }

@@ -195,3 +195,6 @@ recursive append-long-bytes {
 } : parse-adnl-addr
 { adnl>$ type } : .adnl
 { bl word parse-adnl-addr 1 'nop } ::_ adnl:
+
+// ( x a b -- a<=x<=b )
+{ 2 pick >= -rot >= and } : in-range?

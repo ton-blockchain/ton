@@ -32,6 +32,7 @@
 // INVALID_ACCOUNT_ADDRESS
 // INVALID_CONFIG
 // INVALID_PEM_KEY
+// INVALID_REVISION
 // MESSAGE_TOO_LONG
 // EMPTY_FIELD
 // INVALID_FIELD
@@ -79,6 +80,9 @@ struct TonlibError {
   }
   static td::Status InvalidPemKey() {
     return td::Status::Error(400, "INVALID_PEM_KEY");
+  }
+  static td::Status InvalidRevision() {
+    return td::Status::Error(400, "INVALID_REVISION");
   }
   static td::Status NeedConfig() {
     return td::Status::Error(400, "NeedConfig");

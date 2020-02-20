@@ -18,17 +18,16 @@
 */
 #include "vm/cells.h"
 
+#include "td/utils/Span.h"
+
 namespace ton {
 class SmartContractCode {
  public:
   static td::Result<td::Ref<vm::Cell>> load(td::Slice name);
-  static td::Ref<vm::Cell> multisig();
-  static td::Ref<vm::Cell> wallet3(int revision = 0);
-  static td::Ref<vm::Cell> wallet(int revision = 0);
-  static td::Ref<vm::Cell> simple_wallet(int revision = 0);
-  static td::Ref<vm::Cell> simple_wallet_ext();
-  static td::Ref<vm::Cell> highload_wallet(int revision = 0);
-  static td::Ref<vm::Cell> highload_wallet_v2(int revision = 0);
-  static td::Ref<vm::Cell> dns_manual(int revision = 0);
+
+  enum Type { WalletV1 = 1, WalletV1Ext, WalletV2, WalletV3, HighloadWalletV1, HighloadWalletV2, ManualDns, Multisig };
+  static td::Span<int> get_revisions(Type type);
+  static td::Result<int> validate_revision(Type type, int revision);
+  static td::Ref<vm::Cell> get_code(Type type, int revision = 0);
 };
 }  // namespace ton

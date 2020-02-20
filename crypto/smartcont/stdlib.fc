@@ -82,6 +82,7 @@ slice skip_dict(slice s) asm "SKIPDICT";
 cell preload_maybe_ref(slice s) asm "PLDOPTREF";
 builder store_maybe_ref(builder b, cell c) asm(c b) "STOPTREF";
 
+int cell_depth(cell c) asm "CDEPTH";
 
 int slice_refs(slice s) asm "SREFS";
 int slice_bits(slice s) asm "SBITS";
@@ -89,9 +90,11 @@ int slice_bits(slice s) asm "SBITS";
 int slice_empty?(slice s) asm "SEMPTY";
 int slice_data_empty?(slice s) asm "SDEMPTY";
 int slice_refs_empty?(slice s) asm "SREMPTY";
+int slice_depth(slice s) asm "SDEPTH";
 
 int builder_refs(builder b) asm "BREFS";
 int builder_bits(builder b) asm "BBITS";
+int builder_depth(builder b) asm "BDEPTH";
 
 builder begin_cell() asm "NEWC";
 cell end_cell(builder b) asm "ENDC";

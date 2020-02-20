@@ -1845,7 +1845,7 @@ bool Transaction::compute_state() {
       // code:(Maybe ^Cell) data:(Maybe ^Cell) library:(HashmapE 256 SimpleLib)
       auto frozen_state = cb2.finalize();
       frozen_hash = frozen_state->get_hash().bits();
-      if (verbosity >= 3 * 0) {  // !!!DEBUG!!!
+      if (verbosity >= 3 * 1) {  // !!!DEBUG!!!
         std::cerr << "freezing state of smart contract: ";
         block::gen::t_StateInit.print_ref(std::cerr, frozen_state);
         CHECK(block::gen::t_StateInit.validate_ref(frozen_state));

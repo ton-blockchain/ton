@@ -497,13 +497,16 @@ class SimpleWallet : public ton::SmartContract {
   }
 
   static td::Ref<SimpleWallet> create_empty() {
-    return td::Ref<SimpleWallet>(true, State{ton::SmartContractCode::simple_wallet_ext(), {}});
+    return td::Ref<SimpleWallet>(true,
+                                 State{ton::SmartContractCode::get_code(ton::SmartContractCode::WalletV1Ext), {}});
   }
   static td::Ref<SimpleWallet> create(td::Ref<vm::Cell> data) {
-    return td::Ref<SimpleWallet>(true, State{ton::SmartContractCode::simple_wallet_ext(), std::move(data)});
+    return td::Ref<SimpleWallet>(
+        true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::WalletV1Ext), std::move(data)});
   }
   static td::Ref<SimpleWallet> create_fast(td::Ref<vm::Cell> data) {
-    return td::Ref<SimpleWallet>(true, State{ton::SmartContractCode::simple_wallet(), std::move(data)});
+    return td::Ref<SimpleWallet>(
+        true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::WalletV1), std::move(data)});
   }
 
   td::int32 seqno() const {

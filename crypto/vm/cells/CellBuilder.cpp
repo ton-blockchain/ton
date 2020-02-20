@@ -52,7 +52,7 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
   }
   auto res = DataCell::create(data, size(), td::span(refs.data(), size_refs()), special);
   if (res.is_error()) {
-    LOG(ERROR) << res.error();
+    LOG(DEBUG) << res.error();
     throw CellWriteError{};
   }
   auto cell = res.move_as_ok();
@@ -60,7 +60,7 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
   if (vm_state_interface) {
     vm_state_interface->register_new_cell(cell);
     if (cell.is_null()) {
-      LOG(ERROR) << "cannot register new data cell";
+      LOG(DEBUG) << "cannot register new data cell";
       throw CellWriteError{};
     }
   }
@@ -71,7 +71,7 @@ Ref<DataCell> CellBuilder::finalize_novm(bool special) {
   auto res = DataCell::create(data, size(), td::mutable_span(refs.data(), size_refs()), special);
   bits = refs_cnt = 0;
   if (res.is_error()) {
-    LOG(ERROR) << res.error();
+    LOG(DEBUG) << res.error();
     throw CellWriteError{};
   }
   CHECK(res.ok().not_null());
@@ -87,7 +87,7 @@ Ref<DataCell> CellBuilder::finalize(bool special) {
   auto cell = finalize_novm(special);
   vm_state_interface->register_new_cell(cell);
   if (cell.is_null()) {
-    LOG(ERROR) << "cannot register new data cell";
+    LOG(DEBUG) << "cannot register new data cell";
     throw CellWriteError{};
   }
   return cell;
@@ -102,6 +102,7 @@ Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level
   }
   return do_create_pruned_branch(std::move(cell), new_level, virt_level);
 }
+
 Ref<DataCell> CellBuilder::do_create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
   auto level_mask = cell->get_level_mask().apply(virt_level);
   auto level = level_mask.get_level();
@@ -384,6 +385,14 @@ bool CellBuilder::store_ref_bool(Ref<Cell> ref) {
 
 CellBuilder& CellBuilder::store_ref(Ref<Cell> ref) {
   return ensure_pass(store_ref_bool(std::move(ref)));
+}
+
+td::uint16 CellBuilder::get_depth() const {
+  int d = 0;
+  for (unsigned i = 0; i < refs_cnt; i++) {
+    d = std::max(d, 1 + refs[i]->get_depth());
+  }
+  return static_cast<td::uint16>(d);
 }
 
 bool CellBuilder::append_data_cell_bool(const DataCell& cell) {

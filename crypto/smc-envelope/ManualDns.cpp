@@ -178,15 +178,17 @@ td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice nam
 */
 // creation
 td::Ref<ManualDns> ManualDns::create(td::Ref<vm::Cell> data, int revision) {
-  return td::Ref<ManualDns>(true, State{ton::SmartContractCode::dns_manual(revision), std::move(data)});
+  return td::Ref<ManualDns>(
+      true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::ManualDns, revision), std::move(data)});
 }
+
 td::Ref<ManualDns> ManualDns::create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id, int revision) {
   return create(create_init_data_fast(public_key, wallet_id), revision);
 }
 
 td::optional<td::int32> ManualDns::guess_revision(const vm::Cell::Hash& code_hash) {
-  for (auto i : {-1, 1}) {
-    if (ton::SmartContractCode::dns_manual(i)->get_hash() == code_hash) {
+  for (auto i : ton::SmartContractCode::get_revisions(ton::SmartContractCode::ManualDns)) {
+    if (ton::SmartContractCode::get_code(ton::SmartContractCode::ManualDns, i)->get_hash() == code_hash) {
       return i;
     }
   }

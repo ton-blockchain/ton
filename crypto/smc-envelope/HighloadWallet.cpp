@@ -81,7 +81,7 @@ td::Ref<vm::Cell> HighloadWallet::make_a_gift_message(const td::Ed25519::Private
 }
 
 td::Ref<vm::Cell> HighloadWallet::get_init_code() noexcept {
-  return SmartContractCode::highload_wallet();
+  return SmartContractCode::get_code(SmartContractCode::HighloadWalletV1);
 }
 
 vm::CellHash HighloadWallet::get_init_code_hash() noexcept {

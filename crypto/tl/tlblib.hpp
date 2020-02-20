@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include <iostream>
@@ -208,12 +208,12 @@ class TLB {
   bool print(PrettyPrinter& pp, Ref<vm::CellSlice> cs_ref) const {
     return print(pp, *cs_ref);
   }
-  bool print_skip(std::ostream& os, vm::CellSlice& cs, int indent = 0) const;
-  bool print(std::ostream& os, const vm::CellSlice& cs, int indent = 0) const;
-  bool print(std::ostream& os, Ref<vm::CellSlice> cs_ref, int indent = 0) const {
-    return print(os, *cs_ref, indent);
+  bool print_skip(std::ostream& os, vm::CellSlice& cs, int indent = 0, int rec_limit = 0) const;
+  bool print(std::ostream& os, const vm::CellSlice& cs, int indent = 0, int rec_limit = 0) const;
+  bool print(std::ostream& os, Ref<vm::CellSlice> cs_ref, int indent = 0, int rec_limit = 0) const {
+    return print(os, *cs_ref, indent, rec_limit);
   }
-  bool print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent = 0) const;
+  bool print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent = 0, int rec_limit = 0) const;
   std::string as_string_skip(vm::CellSlice& cs, int indent = 0) const;
   std::string as_string(const vm::CellSlice& cs, int indent = 0) const;
   std::string as_string(Ref<vm::CellSlice> cs_ref, int indent = 0) const {
@@ -456,14 +456,19 @@ bool store_from(vm::CellBuilder& cb, const T& tlb_type, Ref<vm::CellSlice> field
 namespace tlb {
 
 struct PrettyPrinter {
+  enum { default_print_limit = 4096 };
   std::ostream& os;
   int indent;
   int level;
   bool failed;
   bool nl_used;
   int mode;
+  int limit{default_print_limit};
   PrettyPrinter(std::ostream& _os, int _indent = 0, int _mode = 1)
       : os(_os), indent(_indent), level(0), failed(false), nl_used(false), mode(_mode) {
+  }
+  PrettyPrinter(int _limit, std::ostream& _os, int _indent = 0, int _mode = 1)
+      : os(_os), indent(_indent), level(0), failed(false), nl_used(false), mode(_mode), limit(_limit) {
   }
   ~PrettyPrinter();
   bool ok() const {
@@ -489,6 +494,14 @@ struct PrettyPrinter {
   bool field_int(long long value, std::string name);
   bool field_uint(unsigned long long value);
   bool field_uint(unsigned long long value, std::string name);
+  bool register_recursive_call() {
+    return limit--;
+  }
+  void set_limit(int new_limit) {
+    if (new_limit > 0) {
+      limit = new_limit;
+    }
+  }
   bool out(std::string str) {
     os << str;
     return true;

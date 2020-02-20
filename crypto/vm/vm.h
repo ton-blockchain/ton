@@ -103,7 +103,8 @@ class VmState final : public VmStateInterface {
     cell_reload_gas_price = 25,
     cell_create_gas_price = 500,
     exception_gas_price = 50,
-    tuple_entry_gas_price = 1
+    tuple_entry_gas_price = 1,
+    max_data_depth = 512
   };
   VmState();
   VmState(Ref<CellSlice> _code);
@@ -291,11 +292,8 @@ class VmState final : public VmStateInterface {
     return cont->is_unique() ? cont.unique_write().jump_w(this) : cont->jump(this);
   }
   static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell);
-  void commit() {
-    cstate.c4 = cr.d[0];
-    cstate.c5 = cr.d[1];
-    cstate.committed = true;
-  }
+  bool try_commit();
+  void force_commit();
 
   void set_chksig_always_succeed(bool flag) {
     chksig_always_succeed = flag;

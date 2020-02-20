@@ -401,6 +401,19 @@ bool Optimizer::is_pop(int* i) {
   return is_pred([i](const auto& t) { return t.is_pop(i) && *i < 256; });
 }
 
+bool Optimizer::is_push_rot(int* i) {
+  return is_pred([i](const auto& t) { return t.is_push_rot(i) && *i < 16; }, 3);
+}
+
+bool Optimizer::is_push_rotrev(int* i) {
+  return is_pred([i](const auto& t) { return t.is_push_rotrev(i) && *i < 16; }, 3);
+}
+
+bool Optimizer::is_push_xchg(int* i, int* j, int* k) {
+  return is_pred([i, j, k](const auto& t) { return t.is_push_xchg(i, j, k) && *i < 16 && *j < 16 && *k < 16; }) &&
+         !(p_ == 2 && op_[0]->is_push() && op_[1]->is_xchg());
+}
+
 bool Optimizer::is_xchg2(int* i, int* j) {
   return is_pred([i, j](const auto& t) { return t.is_xchg2(i, j) && *i < 16 && *j < 16; });
 }
@@ -434,7 +447,8 @@ bool Optimizer::is_xcpu2(int* i, int* j, int* k) {
 }
 
 bool Optimizer::is_puxc2(int* i, int* j, int* k) {
-  return is_pred([i, j, k](const auto& t) { return t.is_puxc2(i, j, k) && *i < 16 && *j < 15 && *k < 15; });
+  return is_pred(
+      [i, j, k](const auto& t) { return t.is_puxc2(i, j, k) && *i < 16 && *j < 15 && *k < 15 && *j + *k != -1; });
 }
 
 bool Optimizer::is_puxcpu(int* i, int* j, int* k) {
@@ -545,6 +559,9 @@ bool Optimizer::find_at_least(int pb) {
            (is_xcpu(&i, &j) && rewrite(AsmOp::XcPu(i, j))) || (is_puxc(&i, &j) && rewrite(AsmOp::PuXc(i, j))) ||
            (is_push2(&i, &j) && rewrite(AsmOp::Push2(i, j))) || (is_blkswap(&i, &j) && rewrite(AsmOp::BlkSwap(i, j))) ||
            (is_blkpush(&i, &j) && rewrite(AsmOp::BlkPush(i, j))) || (is_blkdrop(&i) && rewrite(AsmOp::BlkDrop(i))) ||
+           (is_push_rot(&i) && rewrite(AsmOp::Push(i), AsmOp::Custom("ROT"))) ||
+           (is_push_rotrev(&i) && rewrite(AsmOp::Push(i), AsmOp::Custom("-ROT"))) ||
+           (is_push_xchg(&i, &j, &k) && rewrite(AsmOp::Push(i), AsmOp::Xchg(j, k))) ||
            (is_reverse(&i, &j) && rewrite(AsmOp::BlkReverse(i, j))) ||
            (is_nip_seq(&i, &j) && rewrite(AsmOp::Xchg(i, j), AsmOp::BlkDrop(i))) ||
            (is_pop_blkdrop(&i, &k) && rewrite(AsmOp::Pop(i), AsmOp::BlkDrop(k))) ||

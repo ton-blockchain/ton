@@ -77,7 +77,7 @@ int exec_set_gas_limit(VmState* st) {
 
 int exec_commit(VmState* st) {
   VM_LOG(st) << "execute COMMIT";
-  st->commit();
+  st->force_commit();
   return 0;
 }
 

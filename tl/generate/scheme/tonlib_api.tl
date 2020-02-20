@@ -206,7 +206,7 @@ sync = ton.BlockIdExt;
 // revision = 0 -- use default revision
 // revision = x (x > 0) -- use revision x
 getAccountAddress initial_account_state:InitialAccountState revision:int32 = AccountAddress;
-// guessAccountRevision initial_account_state:InitialAccountState = AccountRevisionList;
+guessAccountRevision initial_account_state:InitialAccountState = AccountRevisionList;
 getAccountState account_address:accountAddress = FullAccountState;
 createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action = query.Info;
 

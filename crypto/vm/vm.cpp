@@ -434,10 +434,31 @@ int VmState::run() {
     }
   } while (!res);
   // LOG(INFO) << "[EN] data cells: " << DataCell::get_total_data_cells();
-  if ((res | 1) == -1) {
-    commit();
+  if ((res | 1) == -1 && !try_commit()) {
+    VM_LOG(this) << "automatic commit failed (new data or action cells too deep)";
+    get_stack().clear();
+    get_stack().push_smallint(0);
+    return ~(int)Excno::cell_ov;
   }
   return res;
+}
+
+bool VmState::try_commit() {
+  if (cr.d[0].not_null() && cr.d[1].not_null() && cr.d[0]->get_depth() <= max_data_depth &&
+      cr.d[1]->get_depth() <= max_data_depth) {
+    cstate.c4 = cr.d[0];
+    cstate.c5 = cr.d[1];
+    cstate.committed = true;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void VmState::force_commit() {
+  if (!try_commit()) {
+    throw VmError{Excno::cell_ov, "cannot commit too deep cells as new data/actions"};
+  }
 }
 
 ControlData* force_cdata(Ref<Continuation>& cont) {

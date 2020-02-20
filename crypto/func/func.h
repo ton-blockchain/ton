@@ -1271,6 +1271,12 @@ struct StackTransform {
   bool is_pop(int* i) const;
   bool is_rot() const;
   bool is_rotrev() const;
+  bool is_push_rot(int i) const;
+  bool is_push_rot(int* i) const;
+  bool is_push_rotrev(int i) const;
+  bool is_push_rotrev(int* i) const;
+  bool is_push_xchg(int i, int j, int k) const;
+  bool is_push_xchg(int* i, int* j, int* k) const;
   bool is_xchg2(int i, int j) const;
   bool is_xchg2(int* i, int* j) const;
   bool is_xcpu(int i, int j) const;
@@ -1404,6 +1410,9 @@ struct Optimizer {
   bool is_push(int* i);
   bool is_pop(int* i);
   bool is_nop();
+  bool is_push_rot(int* i);
+  bool is_push_rotrev(int* i);
+  bool is_push_xchg(int* i, int* j, int* k);
   bool is_xchg2(int* i, int* j);
   bool is_xcpu(int* i, int* j);
   bool is_puxc(int* i, int* j);

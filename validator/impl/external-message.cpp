@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "external-message.hpp"
 #include "vm/boc.h"
@@ -47,6 +47,9 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   auto ext_msg = boc.get_root_cell();
   if (ext_msg->get_level() != 0) {
     return td::Status::Error("external message must have zero level");
+  }
+  if (ext_msg->get_depth() >= max_ext_msg_depth) {
+    return td::Status::Error("external message is too deep");
   }
   vm::CellSlice cs{vm::NoVmOrd{}, ext_msg};
   if (cs.prefetch_ulong(2) != 2) {  // ext_in_msg_info$10

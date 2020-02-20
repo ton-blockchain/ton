@@ -466,6 +466,7 @@ x{CF28} @Defop STILE4
 x{CF29} @Defop STULE4
 x{CF2A} @Defop STILE8
 x{CF2B} @Defop STULE8
+x{CF30} @Defop BDEPTH
 x{CF31} @Defop BBITS
 x{CF32} @Defop BREFS
 x{CF33} @Defop BBITREFS
@@ -493,6 +494,7 @@ x{CF42} @Defop STSAME
 } : STSLICECONST
 x{CF81} @Defop STZERO
 x{CF83} @Defop STONE
+
 // cell deserialization (CellSlice primitives)
 x{D0} @Defop CTOS
 x{D1} @Defop ENDS
@@ -593,6 +595,8 @@ x{D75F} @Defop PLDULE8Q
 x{D760} @Defop LDZEROES
 x{D761} @Defop LDONES
 x{D762} @Defop LDSAME
+x{D764} @Defop SDEPTH
+x{D765} @Defop CDEPTH
 //
 // continuation / flow control primitives
 x{D8} dup @Defop EXECUTE @Defop CALLX

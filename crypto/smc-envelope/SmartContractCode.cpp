@@ -96,19 +96,6 @@ const auto& get_map() {
         "FwCEMQLTAAHAAZPUAdCY0wUBqgLXGAHiINdJwg/"
         "ypiB41yLXCwfyaHBTEddJqTYCmNMHAcAAEqEB5DDIywYBzxbJ0FADACBZ9KhvpSCUAvQEMJIybeICACg0A4AQ9FqZECOECUBE8AEBkjAx4gBmM"
         "SLAFZwy9AQQI4QJUELwAQHgIsAWmDIChAn0czAB4DAyIMAfkzD0BODAIJJtAeDyLG0B");
-    //auto check_revision = [&](td::Slice name, td::int32 default_revision) {
-    //auto it = map.find(name);
-    //CHECK(it != map.end());
-    //auto other_it = map.find(PSLICE() << name << "-r" << default_revision);
-    //CHECK(other_it != map.end());
-    //CHECK(it->second->get_hash() == other_it->second->get_hash());
-    //};
-    //check_revision("highload-wallet", HIGHLOAD_WALLET_REVISION);
-    //check_revision("highload-wallet-v2", HIGHLOAD_WALLET2_REVISION);
-
-    //check_revision("simple-wallet", WALLET_REVISION);
-    //check_revision("wallet", WALLET2_REVISION);
-    //check_revision("wallet3", WALLET3_REVISION);
     return map;
   }();
   return map;
@@ -123,60 +110,93 @@ td::Result<td::Ref<vm::Cell>> SmartContractCode::load(td::Slice name) {
   }
   return it->second;
 }
-td::Ref<vm::Cell> SmartContractCode::multisig() {
-  auto res = load("multisig").move_as_ok();
-  return res;
-}
-td::Ref<vm::Cell> SmartContractCode::wallet3(int revision) {
-  if (revision == 0) {
-    revision = WALLET3_REVISION;
+
+td::Span<int> SmartContractCode::get_revisions(Type type) {
+  switch (type) {
+    case Type::WalletV1: {
+      static int res[] = {1, 2};
+      return res;
+    }
+    case Type::WalletV2: {
+      static int res[] = {1, 2};
+      return res;
+    }
+    case Type::WalletV3: {
+      static int res[] = {1, 2};
+      return res;
+    }
+    case Type::WalletV1Ext: {
+      static int res[] = {-1};
+      return res;
+    }
+    case Type::HighloadWalletV1: {
+      static int res[] = {-1, 1, 2};
+      return res;
+    }
+    case Type::HighloadWalletV2: {
+      static int res[] = {-1, 1, 2};
+      return res;
+    }
+    case Type::Multisig: {
+      static int res[] = {-1};
+      return res;
+    }
+    case Type::ManualDns: {
+      static int res[] = {-1, 1};
+      return res;
+    }
   }
-  auto res = load(PSLICE() << "wallet3-r" << revision).move_as_ok();
-  return res;
+  UNREACHABLE();
+  return {};
 }
-td::Ref<vm::Cell> SmartContractCode::wallet(int revision) {
-  if (revision == 0) {
-    revision = WALLET2_REVISION;
-  }
-  auto res = load(PSLICE() << "wallet-r" << revision).move_as_ok();
-  return res;
-}
-td::Ref<vm::Cell> SmartContractCode::simple_wallet(int revision) {
-  if (revision == 0) {
-    revision = WALLET_REVISION;
-  }
-  auto res = load(PSLICE() << "simple-wallet-r" << revision).move_as_ok();
-  return res;
-}
-td::Ref<vm::Cell> SmartContractCode::simple_wallet_ext() {
-  static auto res = load("simple-wallet-ext").move_as_ok();
-  return res;
-}
-td::Ref<vm::Cell> SmartContractCode::highload_wallet(int revision) {
+
+td::Result<int> SmartContractCode::validate_revision(Type type, int revision) {
+  auto revisions = get_revisions(type);
   if (revision == -1) {
-    return load("highload-wallet").move_as_ok();
+    if (revisions[0] == -1) {
+      return -1;
+    }
+    return revisions[revisions.size() - 1];
   }
   if (revision == 0) {
-    revision = HIGHLOAD_WALLET_REVISION;
+    return revisions[revisions.size() - 1];
   }
-  return load(PSLICE() << "highload-wallet-r" << revision).move_as_ok();
+  for (auto x : revisions) {
+    if (x == revision) {
+      return revision;
+    }
+  }
+  return td::Status::Error("No such revision");
 }
-td::Ref<vm::Cell> SmartContractCode::highload_wallet_v2(int revision) {
+
+td::Ref<vm::Cell> SmartContractCode::get_code(Type type, int ext_revision) {
+  auto revision = validate_revision(type, ext_revision).move_as_ok();
+  auto basename = [](Type type) -> td::Slice {
+    switch (type) {
+      case Type::WalletV1:
+        return "simple-wallet";
+      case Type::WalletV2:
+        return "wallet";
+      case Type::WalletV3:
+        return "wallet3";
+      case Type::WalletV1Ext:
+        return "simple-wallet-ext";
+      case Type::HighloadWalletV1:
+        return "highload-wallet";
+      case Type::HighloadWalletV2:
+        return "highload-wallet-v2";
+      case Type::Multisig:
+        return "multisig";
+      case Type::ManualDns:
+        return "dns-manual";
+    }
+    UNREACHABLE();
+    return "";
+  }(type);
   if (revision == -1) {
-    return load("highload-wallet-v2").move_as_ok();
+    return load(basename).move_as_ok();
   }
-  if (revision == 0) {
-    revision = HIGHLOAD_WALLET2_REVISION;
-  }
-  return load(PSLICE() << "highload-wallet-v2-r" << revision).move_as_ok();
+  return load(PSLICE() << basename << "-r" << revision).move_as_ok();
 }
-td::Ref<vm::Cell> SmartContractCode::dns_manual(int revision) {
-  if (revision == -1) {
-    return load("dns-manual").move_as_ok();
-  }
-  if (revision == 0) {
-    revision = DNS_REVISION;
-  }
-  return load(PSLICE() << "dns-manual-r" << revision).move_as_ok();
-}
+
 }  // namespace ton

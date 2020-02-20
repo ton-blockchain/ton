@@ -1329,10 +1329,35 @@ td::Result<td::Bits256> get_adnl_address(td::Slice adnl_address) {
   return address;
 }
 
+static td::optional<ton::SmartContractCode::Type> get_wallet_type(tonlib_api::InitialAccountState& state) {
+  return downcast_call2<td::optional<ton::SmartContractCode::Type>>(
+      state,
+      td::overloaded(
+          [](const tonlib_api::raw_initialAccountState&) { return td::optional<ton::SmartContractCode::Type>(); },
+          [](const tonlib_api::testGiver_initialAccountState&) { return td::optional<ton::SmartContractCode::Type>(); },
+          [](const tonlib_api::testWallet_initialAccountState&) { return ton::SmartContractCode::WalletV1; },
+          [](const tonlib_api::wallet_initialAccountState&) { return ton::SmartContractCode::WalletV2; },
+          [](const tonlib_api::wallet_v3_initialAccountState&) { return ton::SmartContractCode::WalletV3; },
+          [](const tonlib_api::wallet_highload_v1_initialAccountState&) {
+            return ton::SmartContractCode::HighloadWalletV1;
+          },
+          [](const tonlib_api::wallet_highload_v2_initialAccountState&) {
+            return ton::SmartContractCode::HighloadWalletV2;
+          },
+          [](const tonlib_api::dns_initialAccountState&) { return ton::SmartContractCode::ManualDns; }));
+}
+
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     const tonlib_api::getAccountAddress& request) {
   if (!request.initial_account_state_) {
     return status_to_tonlib_api(TonlibError::EmptyField("initial_account_state"));
+  }
+  auto o_type = get_wallet_type(*request.initial_account_state_);
+  if (o_type) {
+    auto status = ton::SmartContractCode::validate_revision(o_type.value(), request.revision_);
+    if (status.is_error()) {
+      return status_to_tonlib_api(TonlibError::InvalidRevision());
+    }
   }
   auto r_account_address = downcast_call2<td::Result<block::StdAddress>>(
       *request.initial_account_state_,
@@ -1341,6 +1366,72 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     return status_to_tonlib_api(r_account_address.error());
   }
   return tonlib_api::make_object<tonlib_api::accountAddress>(r_account_address.ok().rserialize(true));
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::guessAccountRevision& request,
+                                    td::Promise<object_ptr<tonlib_api::accountRevisionList>>&& promise) {
+  if (!request.initial_account_state_) {
+    return TonlibError::EmptyField("initial_account_state");
+  }
+  auto o_type = get_wallet_type(*request.initial_account_state_);
+  if (!o_type) {
+    promise.set_value(tonlib_api::make_object<tonlib_api::accountRevisionList>(std::vector<td::int32>{0}));
+    return td::Status::OK();
+  }
+  auto revisions = ton::SmartContractCode::get_revisions(o_type.value());
+
+  std::vector<std::pair<int, block::StdAddress>> addresses;
+  TRY_STATUS(downcast_call2<td::Status>(*request.initial_account_state_, [&revisions, &addresses](const auto& state) {
+    for (auto revision : revisions) {
+      TRY_RESULT(address, get_account_address(state, revision));
+      addresses.push_back(std::make_pair(revision, address));
+    }
+    return td::Status::OK();
+  }));
+
+  auto actor_id = actor_id_++;
+  class GuessRevisions : public TonlibQueryActor {
+   public:
+    GuessRevisions(td::actor::ActorShared<TonlibClient> client, td::optional<ton::BlockIdExt> block_id,
+                   std::vector<std::pair<int, block::StdAddress>> addresses, td::Promise<std::vector<int>> promise)
+        : TonlibQueryActor(std::move(client))
+        , block_id_(std::move(block_id))
+        , addresses_(std::move(addresses))
+        , promise_(std::move(promise)) {
+    }
+
+   private:
+    td::optional<ton::BlockIdExt> block_id_;
+    std::vector<std::pair<int, block::StdAddress>> addresses_;
+    td::Promise<std::vector<int>> promise_;
+
+    size_t left_{0};
+    std::vector<int> res;
+
+    void start_up() {
+      left_ += addresses_.size();
+      for (auto& p : addresses_) {
+        send_query(int_api::GetAccountState{p.second, block_id_.copy()},
+                   promise_send_closure(td::actor::actor_id(this), &GuessRevisions::on_account_state, p.first));
+      }
+    }
+    void on_account_state(int revision, td::Result<td::unique_ptr<AccountState>> r_state) {
+      if (r_state.is_ok() && r_state.ok()->get_wallet_type() != AccountState::WalletType::Empty) {
+        res.push_back(revision);
+      }
+      left_--;
+      if (left_ == 0) {
+        promise_.set_value(std::move(res));
+        stop();
+      }
+    }
+  };
+
+  actors_[actor_id] = td::actor::create_actor<GuessRevisions>(
+      "GuessRevisions", actor_shared(this, actor_id), query_context_.block_id.copy(), std::move(addresses),
+      promise.wrap(
+          [](auto&& x) mutable { return tonlib_api::make_object<tonlib_api::accountRevisionList>(std::move(x)); }));
+  return td::Status::OK();
 }
 
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(

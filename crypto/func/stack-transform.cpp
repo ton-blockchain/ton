@@ -454,6 +454,53 @@ bool StackTransform::is_rotrev() const {
   return equal(rot_rev, true);
 }
 
+// PUSH i ; ROT == 1 i 0 2 3
+bool StackTransform::is_push_rot(int i) const {
+  return is_valid() && d == -1 && i >= 0 && is_trivial_after(3) && get(0) == 1 && get(1) == i && get(2) == 0;
+}
+
+bool StackTransform::is_push_rot(int *i) const {
+  return is_valid() && (*i = get(1)) >= 0 && is_push_rot(*i);
+}
+
+// PUSH i ; -ROT == 0 1 i 2 3
+bool StackTransform::is_push_rotrev(int i) const {
+  return is_valid() && d == -1 && i >= 0 && is_trivial_after(3) && get(0) == 0 && get(1) == 1 && get(2) == i;
+}
+
+bool StackTransform::is_push_rotrev(int *i) const {
+  return is_valid() && (*i = get(2)) >= 0 && is_push_rotrev(*i);
+}
+
+// PUSH s(i) ; XCHG s(j),s(k) --> i 0 1 .. i ..
+// PUSH s(i) ; XCHG s(0),s(k) --> k-1 0 1 .. k-2 i k ..
+bool StackTransform::is_push_xchg(int i, int j, int k) const {
+  StackTransform t;
+  return is_valid() && d == -1 && n <= 3 && t.apply_push(i) && t.apply_xchg(j, k) && t <= *this;
+}
+
+bool StackTransform::is_push_xchg(int *i, int *j, int *k) const {
+  if (!(is_valid() && d == -1 && n <= 3 && n > 0)) {
+    return false;
+  }
+  int s = get(0);
+  if (s < 0) {
+    return false;
+  }
+  *i = s;
+  *j = 0;
+  if (n == 1) {
+    *k = 0;
+  } else if (n == 2) {
+    *k = s + 1;
+    *i = get(s + 1);
+  } else {
+    *j = A[1].first + 1;
+    *k = A[2].first + 1;
+  }
+  return is_push_xchg(*i, *j, *k);
+}
+
 // XCHG s1,s(i) ; XCHG s0,s(j)
 bool StackTransform::is_xchg2(int i, int j) const {
   StackTransform t;
