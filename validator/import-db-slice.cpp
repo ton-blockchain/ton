@@ -201,19 +201,13 @@ void ArchiveImporter::got_new_materchain_state(td::Ref<MasterchainState> state) 
 }
 
 void ArchiveImporter::checked_all_masterchain_blocks(BlockSeqno seqno) {
-  if (shard_client_seqno_ > seqno) {
-    shard_client_seqno_ = seqno;
-  }
   check_next_shard_client_seqno(shard_client_seqno_ + 1);
 }
 
 void ArchiveImporter::check_next_shard_client_seqno(BlockSeqno seqno) {
   if (seqno > state_->get_seqno()) {
     finish_query();
-    return;
-  }
-
-  if (seqno == state_->get_seqno()) {
+  } else if (seqno == state_->get_seqno()) {
     got_masterchain_state(state_);
   } else {
     BlockIdExt b;
@@ -368,7 +362,8 @@ void ArchiveImporter::abort_query(td::Status error) {
 }
 void ArchiveImporter::finish_query() {
   if (promise_) {
-    promise_.set_value(std::vector<BlockSeqno>{state_->get_seqno(), shard_client_seqno_});
+    promise_.set_value(
+        std::vector<BlockSeqno>{state_->get_seqno(), std::min<BlockSeqno>(state_->get_seqno(), shard_client_seqno_)});
     td::unlink(path_).ensure();
   }
   stop();
