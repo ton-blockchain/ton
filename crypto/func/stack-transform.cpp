@@ -401,6 +401,57 @@ bool StackTransform::is_xchg(int *i, int *j) const {
   return true;
 }
 
+bool StackTransform::is_xchg_xchg(int i, int j, int k, int l) const {
+  if (is_valid() && !d && n <= 4 && (i | j | k | l) >= 0) {
+    StackTransform t;
+    return t.apply_xchg(i, j) && t.apply_xchg(k, l) && t <= *this;
+  } else {
+    return false;
+  }
+}
+
+bool StackTransform::is_xchg_xchg(int *i, int *j, int *k, int *l) const {
+  if (!is_valid() || d || n > 4 || !dp || !is_permutation()) {
+    return false;
+  }
+  if (!n) {
+    *i = *j = *k = *l = 0;
+    return true;
+  }
+  if (n <= 2) {
+    *k = *l = 0;
+    return is_xchg(i, j);
+  }
+  if (n == 3) {
+    // rotation: a -> b -> c -> a
+    int a = A[0].first;
+    int b = A[0].second;
+    int s = (b == A[2].first ? 2 : 1);
+    int c = A[s].second;
+    if (b != A[s].first || c != A[3 - s].first || a != A[3 - s].second) {
+      return false;
+    }
+    // implement as XCHG s(a),s(c) ; XCHG s(a),s(b)
+    *i = *k = a;
+    *j = c;
+    *l = b;
+    return is_xchg_xchg(*i, *j, *k, *l);
+  }
+  *i = A[0].first;
+  *j = A[0].second;
+  if (get(*j) != *i) {
+    return false;
+  }
+  for (int s = 1; s < 4; s++) {
+    if (A[s].first != *j) {
+      *k = A[s].first;
+      *l = A[s].second;
+      return get(*l) == *k && is_xchg_xchg(*i, *j, *k, *l);
+    }
+  }
+  return false;
+}
+
 bool StackTransform::is_push(int i) const {
   return is_valid() && d == -1 && n == 1 && A[0].first == -1 && A[0].second == i;
 }
@@ -418,6 +469,7 @@ bool StackTransform::is_push(int *i) const {
 // 0 2 3 4 .. = pop1
 // 1 0 3 4 .. = pop2
 // 1 2 0 4 .. = pop3
+// POP s(i) : 1 2 ... i-1 0 i+1 ... ; d=1, n=1, {(i,0)}
 bool StackTransform::is_pop(int i) const {
   if (!is_valid() || d != 1 || n > 1 || i < 0) {
     return false;
@@ -441,6 +493,38 @@ bool StackTransform::is_pop(int *i) const {
     return true;
   }
   return false;
+}
+
+// POP s(i) ; POP s(j) : 2 ... i-1 0 i+1 ... j 1 j+2 ... ; d=2, n=2, {(i,0),(j+1,1)} if i <> j+1
+bool StackTransform::is_pop_pop(int i, int j) const {
+  if (is_valid() && d == 2 && n <= 2 && i >= 0 && j >= 0) {
+    StackTransform t;
+    return t.apply_pop(i) && t.apply_pop(j) && t <= *this;
+  } else {
+    return false;
+  }
+}
+
+bool StackTransform::is_pop_pop(int *i, int *j) const {
+  if (!is_valid() || d != 2 || n > 2) {
+    return false;
+  }
+  if (!n) {
+    *i = *j = 0;  // 2DROP
+  } else if (n == 2) {
+    *i = A[0].first - A[0].second;
+    *j = A[1].first - A[1].second;
+    if (A[0].second > A[1].second) {
+      std::swap(*i, *j);
+    }
+  } else if (!A[0].second) {
+    *i = A[0].first;
+    *j = 0;
+  } else {
+    *i = 0;
+    *j = A[0].first - 1;
+  }
+  return is_pop_pop(*i, *j);
 }
 
 const StackTransform StackTransform::rot{2, 0, 1, 3};
@@ -519,10 +603,9 @@ bool StackTransform::is_xchg2(int *i, int *j) const {
   if (*i < 0 || *j < 0) {
     return false;
   }
-  if (n != 3) {
-    return is_xchg2(*i, *j);
-  }
-  if (*i) {
+  if (n == 2 && !*i) {
+    *j = *i;  // XCHG s0,s1 = XCHG2 s0,s0
+  } else if (n == 3 && *i) {
     // XCHG2 s(i),s(i) = XCHG s1,s(i) ; XCHG s0,s(i) : 0->1, 1->i
     *j = *i;
   }  // XCHG2 s0,s(i) = XCHG s0,s1 ; XCHG s0,s(i) : 0->i, 1->0

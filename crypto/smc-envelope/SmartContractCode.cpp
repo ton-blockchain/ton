@@ -25,12 +25,12 @@
 
 namespace ton {
 namespace {
-constexpr static int WALLET_REVISION = 2;
-constexpr static int WALLET2_REVISION = 2;
-constexpr static int WALLET3_REVISION = 2;
-constexpr static int HIGHLOAD_WALLET_REVISION = 2;
-constexpr static int HIGHLOAD_WALLET2_REVISION = 2;
-constexpr static int DNS_REVISION = 1;
+// WALLET_REVISION = 2;
+// WALLET2_REVISION = 2;
+// WALLET3_REVISION = 2;
+// HIGHLOAD_WALLET_REVISION = 2;
+// HIGHLOAD_WALLET2_REVISION = 2;
+// DNS_REVISION = 1;
 const auto& get_map() {
   static auto map = [] {
     std::map<std::string, td::Ref<vm::Cell>, std::less<>> map;

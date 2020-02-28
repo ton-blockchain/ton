@@ -138,7 +138,7 @@ void VarDescr::show(std::ostream& os, const char* name) const {
 }
 
 void VarDescr::set_const(long long value) {
-  return set_const(td::RefInt256{true, value});
+  return set_const(td::make_refint(value));
 }
 
 void VarDescr::set_const(td::RefInt256 value) {
@@ -169,7 +169,7 @@ void VarDescr::set_const(td::RefInt256 value) {
 }
 
 void VarDescr::set_const_nan() {
-  set_const(td::RefInt256{true});
+  set_const(td::make_refint());
 }
 
 void VarDescr::operator|=(const VarDescr& y) {

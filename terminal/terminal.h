@@ -32,7 +32,7 @@ class TerminalIOOutputter {
   TerminalIOOutputter(bool is_err)
       : buffer_(new char[BUFFER_SIZE])
       , is_err_(is_err)
-      , sb_(std::make_unique<StringBuilder>(td::MutableSlice{buffer_, BUFFER_SIZE})) {
+      , sb_(std::make_unique<StringBuilder>(td::MutableSlice{buffer_, BUFFER_SIZE}, true)) {
   }
   TerminalIOOutputter(TerminalIOOutputter &&X) = default;
 
@@ -56,6 +56,7 @@ class TerminalIOOutputter {
   bool is_error() const {
     return sb_->is_error();
   }
+  void flush();
   ~TerminalIOOutputter();
 
  private:
@@ -80,7 +81,7 @@ class TerminalIO : public actor::Actor {
   static void output(td::Slice slice);
   static void output_stderr(std::string line);
   static void output_stderr(td::Slice slice);
-  static void output_stdout(td::Slice line);
+  static void output_stdout(td::Slice line, double max_wait);
   static TerminalIOOutputter out() {
     return TerminalIOOutputter{false};
   }

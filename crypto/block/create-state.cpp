@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <cassert>
 #include <algorithm>
@@ -697,7 +697,7 @@ void interpret_tlb_skip(vm::Stack& stack) {
 void interpret_tlb_validate_skip(vm::Stack& stack) {
   auto tp = pop_tlb_type(stack);
   auto cs = stack.pop_cellslice();
-  bool ok = (*tp)->validate_skip(cs.write());
+  bool ok = (*tp)->validate_skip_upto(1048576, cs.write());
   if (ok) {
     stack.push(std::move(cs));
   }

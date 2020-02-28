@@ -24,19 +24,21 @@
 #include "block/block-auto.h"
 #include "vm/cellslice.h"
 #include "vm/cp0.h"
+#include "vm/memo.h"
 #include "vm/vm.h"
 
 #include "td/utils/crypto.h"
 
 namespace ton {
 namespace {
+
 td::Ref<vm::Stack> prepare_vm_stack(td::Ref<vm::CellSlice> body) {
   td::Ref<vm::Stack> stack_ref{true};
   td::RefInt256 acc_addr{true};
   //CHECK(acc_addr.write().import_bits(account.addr.cbits(), 256));
   vm::Stack& stack = stack_ref.write();
-  stack.push_int(td::RefInt256{true, 10000000000});
-  stack.push_int(td::RefInt256{true, 10000000000});
+  stack.push_int(td::make_refint(10000000000));
+  stack.push_int(td::make_refint(10000000000));
   stack.push_cell(vm::CellBuilder().finalize());
   stack.push_cellslice(std::move(body));
   return stack_ref;
@@ -90,6 +92,11 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   }
 
   SmartContract::Answer res;
+  if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
+    std::ostringstream os;
+    stack->dump(os, 2);
+    LOG(DEBUG) << "VM stack:\n" << os.str();
+  }
   vm::VmState vm{state.code, std::move(stack), gas, 1, state.data, log};
   vm.set_c7(std::move(c7));
   vm.set_chksig_always_succeed(ignore_chksig);
@@ -123,6 +130,21 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   return res;
 }
 }  // namespace
+
+td::Result<td::BufferSlice> SmartContract::Args::get_serialized_stack() {
+  if (!stack) {
+    return td::Status::Error("Args has no stack");
+  }
+  vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+  // serialize parameters
+  vm::CellBuilder cb;
+  td::Ref<vm::Cell> cell;
+  if (!(stack.value()->serialize(cb) && cb.finalize_to(cell))) {
+    return td::Status::Error("Cannot serialize stack in args");
+  }
+  return vm::std_boc_serialize(std::move(cell));
+}
 
 td::Ref<vm::CellSlice> SmartContract::empty_slice() {
   return vm::load_cell_slice_ref(vm::CellBuilder().finalize());

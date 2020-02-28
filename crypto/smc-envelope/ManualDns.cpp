@@ -146,6 +146,23 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
   return td::Status::Error("Unknown entry data");
 }
 
+SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::int16 category) {
+  SmartContract::Args res;
+  res.set_method_id("dnsresolve");
+  res.set_stack(
+      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()), td::make_refint(category)});
+  return res;
+}
+
+td::Result<SmartContract::Args> DnsInterface::resolve_args(td::Slice name, td::int32 category_big) {
+  TRY_RESULT(category, td::narrow_cast_safe<td::int16>(category_big));
+  if (name.size() > get_default_max_name_size()) {
+    return td::Status::Error("Name is too long");
+  }
+  auto encoded_name = encode_name(name);
+  return resolve_args_raw(encoded_name, category);
+}
+
 td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice name, td::int32 category) const {
   TRY_RESULT(raw_entries, resolve_raw(name, category));
   std::vector<Entry> entries;
@@ -375,7 +392,7 @@ td::Ref<vm::Cell> ManualDns::create_init_data_fast(const td::Ed25519::PublicKey&
 }
 
 size_t ManualDns::get_max_name_size() const {
-  return 128;
+  return get_default_max_name_size();
 }
 
 td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw(td::Slice name, td::int32 category_big) const {
@@ -388,9 +405,7 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
     return td::Status::Error("Name is too long");
   }
   auto encoded_name = encode_name(name);
-  auto res = run_get_method(
-      "dnsresolve",
-      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()), td::make_refint(category)});
+  auto res = run_get_method(resolve_args_raw(encoded_name, category));
   if (!res.success) {
     return td::Status::Error("get method failed");
   }
@@ -471,7 +486,7 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(td::Ed25519::Privat
   return sign(pk, std::move(prepared));
 }
 
-std::string ManualDns::encode_name(td::Slice name) {
+std::string DnsInterface::encode_name(td::Slice name) {
   std::string res;
   while (!name.empty()) {
     auto pos = name.rfind('.');
@@ -487,7 +502,7 @@ std::string ManualDns::encode_name(td::Slice name) {
   return res;
 }
 
-std::string ManualDns::decode_name(td::Slice name) {
+std::string DnsInterface::decode_name(td::Slice name) {
   std::string res;
   if (!name.empty() && name.back() == 0) {
     name.remove_suffix(1);

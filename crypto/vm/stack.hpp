@@ -147,6 +147,15 @@ class StackEntry {
   bool is_atom() const {
     return tp == t_atom;
   }
+  bool is_int() const {
+    return tp == t_int;
+  }
+  bool is_cell() const {
+    return tp == t_cell;
+  }
+  bool is_null() const {
+    return tp == t_null;
+  }
   bool is(int wanted) const {
     return tp == wanted;
   }
@@ -432,6 +441,12 @@ class Stack : public td::CntObject {
       set_contents(*ref);
     }
     return *this;
+  }
+  std::vector<StackEntry> extract_contents() const & {
+    return stack;
+  }
+  std::vector<StackEntry> extract_contents() && {
+    return std::move(stack);
   }
   template <typename... Args>
   const Stack& check_underflow(Args... args) const {

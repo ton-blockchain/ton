@@ -1239,7 +1239,7 @@ bool ShardConfig::new_workchain(ton::WorkchainId workchain, ton::BlockSeqno reg_
          cb.store_zeroes_bool(
              1 + 5 +
              5)  // split_merge_at:FutureSplitMerge fees_collected:CurrencyCollection funds_created:CurrencyCollection
-         && cb.finalize_to(cell) && block::gen::t_BinTree_ShardDescr.validate_ref(cell) &&
+         && cb.finalize_to(cell) && block::gen::t_BinTree_ShardDescr.validate_ref(1024, cell) &&
          shard_hashes_dict_->set_ref(td::BitArray<32>{workchain}, std::move(cell), vm::Dictionary::SetMode::Add);
 }
 
@@ -1469,7 +1469,7 @@ static bool btree_set(Ref<vm::Cell>& root, ton::ShardId shard, Ref<vm::Cell> val
 }
 
 bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
-  if (!gen::t_BinTree_ShardDescr.validate_ref(value)) {
+  if (!gen::t_BinTree_ShardDescr.validate_ref(1024, value)) {
     LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position "
                << shard.to_str();
     gen::t_BinTree_ShardDescr.print_ref(std::cerr, value);

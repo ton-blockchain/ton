@@ -33,10 +33,13 @@ typedef Ref<CntInt256> RefInt256;
 
 extern RefInt256 operator+(RefInt256 x, RefInt256 y);
 extern RefInt256 operator+(RefInt256 x, long long y);
+extern RefInt256 operator+(RefInt256 x, const BigInt256& y);
 extern RefInt256 operator-(RefInt256 x, RefInt256 y);
 extern RefInt256 operator-(RefInt256 x, long long y);
+extern RefInt256 operator-(RefInt256 x, const BigInt256& y);
 extern RefInt256 operator*(RefInt256 x, RefInt256 y);
 extern RefInt256 operator*(RefInt256 x, long long y);
+extern RefInt256 operator*(RefInt256 x, const BigInt256& y);
 extern RefInt256 operator/(RefInt256 x, RefInt256 y);
 extern RefInt256 operator%(RefInt256 x, RefInt256 y);
 extern RefInt256 div(RefInt256 x, RefInt256 y, int round_mode = -1);
@@ -53,10 +56,13 @@ extern RefInt256 rshift(RefInt256 x, int y, int round_mode = -1);
 
 extern RefInt256& operator+=(RefInt256& x, RefInt256 y);
 extern RefInt256& operator+=(RefInt256& x, long long y);
+extern RefInt256& operator+=(RefInt256& x, const BigInt256& y);
 extern RefInt256& operator-=(RefInt256& x, RefInt256 y);
 extern RefInt256& operator-=(RefInt256& x, long long y);
+extern RefInt256& operator-=(RefInt256& x, const BigInt256& y);
 extern RefInt256& operator*=(RefInt256& x, RefInt256 y);
 extern RefInt256& operator*=(RefInt256& x, long long y);
+extern RefInt256& operator*=(RefInt256& x, const BigInt256& y);
 extern RefInt256& operator/=(RefInt256& x, RefInt256 y);
 extern RefInt256& operator%=(RefInt256& x, RefInt256 y);
 
@@ -100,7 +106,14 @@ extern int cmp(RefInt256 x, RefInt256 y);
 extern int cmp(RefInt256 x, long long y);
 extern int sgn(RefInt256 x);
 
+template <typename... Args>
+RefInt256 make_refint(Args&&... args) {
+  return td::RefInt256{true, std::forward<Args>(args)...};
+}
+
 extern RefInt256 make_refint(long long x);
+
+extern RefInt256 zero_refint();
 extern RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd = false);
 
 extern std::string dec_string(RefInt256 x);

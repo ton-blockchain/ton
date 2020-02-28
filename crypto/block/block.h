@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -323,8 +323,8 @@ struct CurrencyCollection {
     grams.clear();
     return false;
   }
-  bool validate() const;
-  bool validate_extra() const;
+  bool validate(int max_cells = 1024) const;
+  bool validate_extra(int max_cells = 1024) const;
   bool operator==(const CurrencyCollection& other) const;
   bool operator!=(const CurrencyCollection& other) const {
     return !operator==(other);
@@ -360,7 +360,7 @@ struct CurrencyCollection {
   bool fetch(vm::CellSlice& cs);
   bool fetch_exact(vm::CellSlice& cs);
   bool unpack(Ref<vm::CellSlice> csr);
-  bool validate_unpack(Ref<vm::CellSlice> csr);
+  bool validate_unpack(Ref<vm::CellSlice> csr, int max_cells = 1024);
   Ref<vm::CellSlice> pack() const;
   bool pack_to(Ref<vm::CellSlice>& csr) const {
     return (csr = pack()).not_null();

@@ -594,8 +594,7 @@ td::RefInt256 CellSlice::fetch_int256(unsigned bits, bool sgnd) {
   if (!have(bits)) {
     return {};
   } else if (bits < td::BigInt256::word_shift) {
-    long long val = sgnd ? fetch_long(bits) : fetch_ulong(bits);
-    return td::RefInt256{true, val};
+    return td::make_refint(sgnd ? fetch_long(bits) : fetch_ulong(bits));
   } else {
     td::RefInt256 res{true};
     res.unique_write().import_bits(data_bits(), bits, sgnd);
@@ -608,8 +607,7 @@ td::RefInt256 CellSlice::prefetch_int256(unsigned bits, bool sgnd) const {
   if (!have(bits)) {
     return {};
   } else if (bits < td::BigInt256::word_shift) {
-    long long val = sgnd ? prefetch_long(bits) : prefetch_ulong(bits);
-    return td::RefInt256{true, val};
+    return td::make_refint(sgnd ? prefetch_long(bits) : prefetch_ulong(bits));
   } else {
     td::RefInt256 res{true};
     res.unique_write().import_bits(data_bits(), bits, sgnd);
@@ -619,15 +617,15 @@ td::RefInt256 CellSlice::prefetch_int256(unsigned bits, bool sgnd) const {
 
 td::RefInt256 CellSlice::prefetch_int256_zeroext(unsigned bits, bool sgnd) const {
   if (bits > 256u + sgnd) {
-    return td::RefInt256{false};
+    return td::make_refint();
   } else {
     unsigned ld_bits = std::min(bits, size());
     if (bits < td::BigInt256::word_shift) {
       long long val = sgnd ? prefetch_long(ld_bits) : prefetch_ulong(ld_bits);
       val <<= bits - ld_bits;
-      return td::RefInt256{true, val};
+      return td::make_refint(val);
     } else {
-      td::RefInt256 res{true};
+      auto res = td::make_refint();
       res.unique_write().import_bits(data_bits(), ld_bits, sgnd);
       res <<= bits - ld_bits;
       return res;

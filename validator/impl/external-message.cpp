@@ -56,10 +56,10 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
     return td::Status::Error("external message must begin with ext_in_msg_info$10");
   }
   ton::Bits256 hash{ext_msg->get_hash().bits()};
-  if (!block::gen::t_Message_Any.validate_ref(ext_msg)) {
+  if (!block::gen::t_Message_Any.validate_ref(128, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to automated checks");
   }
-  if (!block::tlb::t_Message.validate_ref(ext_msg)) {
+  if (!block::tlb::t_Message.validate_ref(128, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;

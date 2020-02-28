@@ -51,7 +51,7 @@ ton.blockId workchain:int32 shard:int64 seqno:int32 = internal.BlockId;
 ton.blockIdExt workchain:int32 shard:int64 seqno:int32 root_hash:bytes file_hash:bytes = ton.BlockIdExt;
 
 raw.fullAccountState balance:int64 code:bytes data:bytes last_transaction_id:internal.transactionId block_id:ton.blockIdExt frozen_hash:bytes sync_utime:int53 = raw.FullAccountState;
-raw.message source:string destination:string value:int64 fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes message:bytes is_message_encrypted:Bool = raw.Message;
+raw.message source:string destination:string value:int64 fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes msg_data:msg.Data = raw.Message;
 raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
@@ -83,8 +83,13 @@ syncStateInProgress from_seqno:int32 to_seqno:int32 current_seqno:int32 = SyncSt
 // MSG
 //
 
-msg.dataText text:string = msg.Data;
-msg.dataEncryptedText text:string = msg.Data;
+msg.dataRaw body:bytes = msg.Data;
+msg.dataText text:bytes = msg.Data;
+msg.dataDecryptedText text:bytes = msg.Data;
+msg.dataEncryptedText text:bytes = msg.Data;
+
+msg.dataArray elements:vector<msg.Data> = msg.DataArray;
+
 msg.message destination:accountAddress amount:int64 data:msg.Data = msg.Message;
 
 //
@@ -111,7 +116,7 @@ dns.resolved entries:vector<dns.entry> = dns.Resolved;
 //
 
 actionNoop  = Action;
-actionMsg messages:vector<msg.Message> allow_send_to_uninited:Bool = Action;
+actionMsg messages:vector<msg.message> allow_send_to_uninited:Bool = Action;
 actionDns actions:vector<dns.Action> = Action;
 //actionMultisig actions:vector<multisig.order> = Action;
 
@@ -205,10 +210,13 @@ sync = ton.BlockIdExt;
 
 // revision = 0 -- use default revision
 // revision = x (x > 0) -- use revision x
+// revision = -1 -- use experimental (newest) revision. Only for debug purpose
 getAccountAddress initial_account_state:InitialAccountState revision:int32 = AccountAddress;
 guessAccountRevision initial_account_state:InitialAccountState = AccountRevisionList;
 getAccountState account_address:accountAddress = FullAccountState;
 createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action = query.Info;
+
+msg.decrypt input_key:InputKey data:msg.dataArray = msg.DataArray;
 
 query.send id:int53 = Ok;
 query.forget id:int53 = Ok;

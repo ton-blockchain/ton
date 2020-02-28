@@ -107,22 +107,24 @@ global var query_info;
   ;; no iterating and deleting all to not put too much gas gc
   ;;     burden on any random specific user request
   ;; over time it will do the garbage collection required
-  (int mkey, cell domain, int found?) = gc.udict_get_min_ref?(32 + 128);
+  (int mkey, _, int found?) = gc.udict_get_min?(256);
   while (found? & max_steps) { ;; no short circuit optimization, two nested ifs
-    nhk = (mkey >> 128);
+    nhk = (mkey >> (256 - 32));
     if (nhk < n) {
-      slice sdomain = domain.begin_parse();
-      (_, slice val, _, found?) = dd.pfxdict_get?(1023, sdomain);
+      int key = mkey % (1 << (256 - 32));
+      (slice val, found?) = dd.udict_get?(256 - 32, key);
       if (found?) {
         int exp = val.preload_uint(32);
         if (exp <= n) {
-          dd~pfxdict_delete?(1023, sdomain);
+          dd~udict_delete?(256 - 32, key);
         }
       }
-      gc~udict_delete?(32 + 128, mkey);
-      (mkey, domain, found?) = gc.udict_get_min_ref?(32 + 128);
-      nhk = (found? ? mkey >> 32 : 0xffffffff);
+      gc~udict_delete?(256, mkey);
+      (mkey, _, found?) = gc.udict_get_min?(256);
+      nhk = (found? ? mkey >> (256 - 32) : 0xffffffff);
       max_steps -= 1;
+    } else {
+      found? = false;
     }
   }
   store_data(ctl, dd, gc, prices, nhk, n);
@@ -134,16 +136,15 @@ int calcprice_internal(slice domain, cell data, ppc, ppb) inline_ref { ;; only f
   return ppc * (refs + 2) + ppb * bits;
 }
 
-int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
-  if (cat_table.null?()) { ;; domain not found: return notf | 2^31
+int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int strict) inline_ref {
+  if (strict & cat_table.null?()) { ;; domain not found: return notf | 2^31
     return 0xee6f7466;
   }
-  cell cown = cat_table.idict_get_ref(16, -2);
-  if (cown.null?()) { ;; no owner on this domain: no-2
-    return 0xee6f2d32;
+  if (owner_info.null?()) { ;; no owner on this domain: no-2 (in strict mode), ok else
+    return strict & 0xee6f2d32;
   }
   var ERR_BAD2 = 0xe2616432;
-  slice sown = cown.begin_parse();
+  slice sown = owner_info.begin_parse();
   if (sown.slice_bits() < 16 + 3 + 8 + 256) { ;; bad owner record: bad2
     return ERR_BAD2;
   }
@@ -272,38 +273,38 @@ int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
     return send_error(0xee6f5c30);
   }
     
-  int zeros = 0;
-  slice cdomain = domain;
-  repeat (cdomain.slice_bits() ^>> 3) {
-    int c = cdomain~load_uint(8);
-    zeros -= (c == 0);
-  }
-  
-  ;; if (zeros != 1) { ;; too much zero chars (overflow): ov\0
-  ;;  return send_error(0xef765c30); }
-  
-  domain = begin_cell().store_uint(zeros, 7).store_slice(domain).end_cell().begin_parse();
-  
-  (slice pfx, slice val, slice tail, int found?) = domdata.pfxdict_get?(1023, domain);
   int n = now();
-  cell cat_table = null();
-  int exp = 0;
-
-  if (found?) {
-    exp = val~load_uint(32);
-    if (n > exp) { ;; expired domains behave as not registered
-      found? = false;
-    } else {
-      cat_table = val.preload_ref();
+  cell cat_table = cell owner_info = null();
+  int key = int exp = int zeros = 0;
+  slice tail = domain;
+  repeat (tail.slice_bits() ^>> 3) {
+    cat_table = null();
+    int z = (tail~load_uint(8) == 0);
+    zeros -= z;
+    if (z) {
+      key = (string_hash(domain.skip_last_bits(tail.slice_bits())) >> 32);
+      var (val, found?) = domdata.udict_get?(256 - 32, key);
+      if (found?) {
+        exp = val~load_uint(32);
+        if (exp >= n) {  ;; entry not expired
+          cell cat_table = val~load_ref();
+          val.end_parse();
+          var (cown, ok) = cat_table.idict_get_ref?(16, -2);
+          if (ok) {
+            owner_info = cown;
+          }
+        }
+      }
     }
   }
   
+  if (zeros > 4) { ;; too much zero chars (overflow): ov\0
+    return send_error(0xef765c30);
+  }
+
   ;; ##########################################################################
   
-  int err = 0;
-  if (qt != 1) {  ;; not a "register", check that domain exists and is controlled by correct smc
-    err = check_owner(cat_table, src_wc, src_addr);
-  }
+  int err = check_owner(cat_table, owner_info, src_wc, src_addr, qt != 1);
   if (err) {
     return send_error(err);
   }
@@ -317,8 +318,14 @@ int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
     data = in_msg~load_ref();
     ;; basic integrity check of (client-provided) dictionary
     ifnot (data.dict_empty?()) { ;; 1000 gas!
-      (_, _, int minok) = idict_get_min?(data, 16);
-      (_, _, int maxok) = idict_get_max?(data, 16);
+      var (oinfo, ok) = data.idict_get_ref?(16, -2);
+      if (ok) {
+        var cs = oinfo.begin_parse();
+        throw_unless(31, cs.slice_bits() >= 16 + 3 + 8 + 256);
+        throw_unless(31, cs.preload_uint(19) == 0x9fd3 * 8 + 4);
+      }
+      (_, _, int minok) = data.idict_get_min?(16);
+      (_, _, int maxok) = data.idict_get_max?(16);
       throw_unless(31, minok & maxok);
     }
   } else {
@@ -345,17 +352,12 @@ int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
     if (exp > n + stdper) {  ;; does not expire soon, cannot prolong
       return send_error(0xf365726f);
     }
-    slice value = begin_cell().store_uint(exp + stdper, 32).store_ref(data).end_cell().begin_parse();
-       
-    ifnot (domdata~pfxdict_set?(1023, domain, value)) { ;; Set ERR | 2^31
-      return send_error(0xf3657272);
-    }
-      
-    int sh_low = domain.slice_hash() & ((1 << 128) - 1);
-    int gckeyO = (exp << 128) + sh_low;
-    int gckeyN = gckeyO + (stdper << 128);
-    gc~udict_delete?(32 + 128, gckeyO); ;; delete old gc entry, add new
-    gc~udict_set_ref(32 + 128, gckeyN, begin_cell().store_slice(domain).end_cell());
+    domdata~udict_set_builder(256 - 32, key, begin_cell().store_uint(exp + stdper, 32).store_ref(data));
+
+    int gckeyO = (exp << (256 - 32)) + key;
+    int gckeyN = gckeyO + (stdper << (256 - 32));
+    gc~udict_delete?(256, gckeyO); ;; delete old gc entry, add new
+    gc~udict_set_builder(256, gckeyN, begin_cell());
     
     housekeeping(ctl, domdata, gc, prices, nhk, lhk, 1);
     return send_ok(price);
@@ -363,29 +365,22 @@ int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
   
   ;; ##########################################################################
   if (qt == 1) { ;; 0x72656764 -> regd | register domain
-    if (found?) { ;; domain already exists: return alre | 2^31
+    ifnot (cat_table.null?()) { ;; domain already exists: return alre | 2^31
       return send_error(0xe16c7265);
     }
     int expires_at = n + stdper;
-    slice value = begin_cell().store_uint(expires_at, 32).store_ref(data).end_cell().begin_parse();
-    ifnot (domdata~pfxdict_set?(1023, domain, value)) { ;; Set ERR | 2^31
-      return send_error(0xf3657272);
-    }
-    int gckey = (expires_at << 128) | (domain.slice_hash() & ((1 << 128) - 1));
-    gc~udict_set_ref(32 + 128, gckey, begin_cell().store_slice(domain).end_cell());
-    ;; using ref requires additional cell, but using value (DICTUSET) may
-    ;;     cause problems with very long domains or complex dictionaries
+    domdata~udict_set_builder(256 - 32, key, begin_cell().store_uint(expires_at, 32).store_ref(data));
+
+    int gckey = (expires_at << (256 - 32)) | key;
+    gc~udict_set_builder(256, gckey, begin_cell());
+
     housekeeping(ctl, domdata, gc, prices, min(nhk, expires_at), lhk, 1);
     return send_ok(price);
   }
 
   ;; ##########################################################################
   if (qt == 4) { ;; 0x75706464 -> updd | update domain (data)
-    slice value = begin_cell().store_uint(exp, 32).store_ref(data).end_cell().begin_parse();
-       
-    ifnot (domdata~pfxdict_set?(1023, domain, value)) { ;; Set ERR | 2^31
-      return send_error(0xf3657272);
-    }
+    domdata~udict_set_builder(256 - 32, key, begin_cell().store_uint(exp, 32).store_ref(data));
     housekeeping(ctl, domdata, gc, prices, nhk, lhk, 1);
     return send_ok(price);
   }
@@ -412,54 +407,46 @@ int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
 ;;===========================================================================;;
 
 (int, cell, int, slice) dnsdictlookup(slice domain, int nowtime) inline_ref {
-  int bits = domain.slice_bits();
+  (int bits, int refs) = domain.slice_bits_refs();
+  throw_if(30, refs | (bits & 7)); ;; malformed input (~ 8n-bit)
   ifnot (bits) {
     return (0, null(), 0, null());  ;; zero-length input
   }
-  throw_if(30, bits & 7); ;; malformed input (~ 8n-bit)
 
   int domain_last_byte = domain.slice_last(8).preload_uint(8);
   if (domain_last_byte) {
     domain = begin_cell().store_slice(domain) ;; append zero byte
-                            .store_uint(0, 8).end_cell().begin_parse();
+                         .store_uint(0, 8).end_cell().begin_parse();
     bits += 8;
   }
   if (bits == 8) {
     return (0, null(), 0, null()); ;; zero-length input, but with zero byte
   }
-  (_, cell root) = get_data().begin_parse().load_dict();
+  var ds = get_data().begin_parse();
+  (_, cell root) = (ds~load_ref(), ds~load_dict());
   
-  slice sd_tail = domain;
-  int zeros = 0;
-  repeat (bits >> 3) {
-    int c = sd_tail~load_uint(8);
-    zeros -= (c == 0);
-  }
-
-  ;; can't move these declarations lower, will cause errors!
-  slice tail = slice pfx = sd_tail;
   slice val = null();
-  int exp = 0;
+  int tail_bits = -1;
+  slice tail = domain;
 
-  do {
-    slice pfxname = begin_cell().store_uint(zeros, 7)
-      .store_slice(domain).end_cell().begin_parse();
-    (pfx, val, tail, int succ) = root.pfxdict_get?(1023, pfxname);
-    if (succ) {
-      int exp = val~load_uint(32);
-      if (nowtime > exp) {  ;; entry expired, skip
-        succ = false;
+  repeat (bits >> 3) {
+    if (tail~load_uint(8) == 0) {
+      var key = (string_hash(domain.skip_last_bits(tail.slice_bits())) >> 32);
+      var (v, found?) = root.udict_get?(256 - 32, key);
+      if (found?) {
+        if (v.preload_uint(32) >= nowtime) {  ;; entry not expired
+          val = v;
+          tail_bits = tail.slice_bits();
+        }
       }
     }
-    zeros = succ ^ (zeros - 1);   ;; break on success
-  } until (zeros <= 0);
-
-  ifnot (zeros) {
-    return (0, null(), 0, null()); ;; failed to find entry in prefix dictionary
   }
 
-  zeros = - zeros;
-  return (exp, val.preload_ref(), tail.slice_empty?(), pfx);
+  if (val.null?()) {
+    return (0, null(), 0, null()); ;; failed to find entry in subdomain dictionary
+  }
+
+  return (val~load_uint(32), val~load_ref(), tail_bits == 0, domain.skip_last_bits(tail_bits));
 }
 
 ;;8m  dns-record-value
@@ -472,12 +459,12 @@ int check_owner(cell cat_table, int src_wc, int src_addr) inline_ref {
     category = -1;
   }
   
-  int pfx_bits = pfx.slice_bits() - 7;
+  int pfx_bits = pfx.slice_bits();
   
   ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain 
   ;;   COUNTING the zero byte (if structurally correct: no multiple-ZB keys)
   ;;   which corresponds to 8m, m=one plus the number of bytes in the subdomain found)
-  if (category == 0) {
+  ifnot (category) {
     return (pfx_bits, cat_table); ;; return cell with entire dictionary for 0
   } else {
     cell cat_found = cat_table.idict_get_ref(16, category);

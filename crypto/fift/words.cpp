@@ -180,9 +180,9 @@ void interpret_times_div(vm::Stack& stack, int round_mode) {
   auto z = stack.pop_int();
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0};
   tmp.add_mul(*x, *y);
-  auto q = td::RefInt256{true};
+  auto q = td::make_refint();
   tmp.mod_div(*z, q.unique_write(), round_mode);
   q.unique_write().normalize();
   stack.push_int(std::move(q));
@@ -192,26 +192,23 @@ void interpret_times_divmod(vm::Stack& stack, int round_mode) {
   auto z = stack.pop_int();
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0};
   tmp.add_mul(*x, *y);
-  auto q = td::RefInt256{true};
+  auto q = td::make_refint();
   tmp.mod_div(*z, q.unique_write(), round_mode);
   q.unique_write().normalize();
-  auto r = td::RefInt256{true, tmp};
   stack.push_int(std::move(q));
-  stack.push_int(std::move(r));
+  stack.push_int(td::make_refint(tmp));
 }
 
 void interpret_times_mod(vm::Stack& stack, int round_mode) {
   auto z = stack.pop_int();
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0}, q;
   tmp.add_mul(*x, *y);
-  td::BigIntG<257 * 2> q;
   tmp.mod_div(*z, q, round_mode);
-  auto r = td::RefInt256{true, tmp};
-  stack.push_int(std::move(r));
+  stack.push_int(td::make_refint(tmp));
 }
 
 void interpret_negate(vm::Stack& stack) {
@@ -253,21 +250,21 @@ void interpret_fits(vm::Stack& stack, bool sgnd) {
 
 void interpret_pow2(vm::Stack& stack) {
   int x = stack.pop_smallint_range(255);
-  auto r = td::RefInt256{true};
+  auto r = td::make_refint();
   r.unique_write().set_pow2(x);
   stack.push_int(r);
 }
 
 void interpret_neg_pow2(vm::Stack& stack) {
   int x = stack.pop_smallint_range(256);
-  auto r = td::RefInt256{true};
+  auto r = td::make_refint();
   r.unique_write().set_pow2(x).negate().normalize();
   stack.push_int(r);
 }
 
 void interpret_pow2_minus1(vm::Stack& stack) {
   int x = stack.pop_smallint_range(256);
-  auto r = td::RefInt256{true};
+  auto r = td::make_refint();
   r.unique_write().set_pow2(x).add_tiny(-1).normalize();
   stack.push_int(r);
 }
@@ -301,19 +298,18 @@ void interpret_times_rshift(vm::Stack& stack, int round_mode) {
   int z = stack.pop_smallint_range(256);
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0};
   tmp.add_mul(*x, *y).rshift(z, round_mode).normalize();
-  auto q = td::RefInt256{true, tmp};
-  stack.push_int(std::move(q));
+  stack.push_int(td::make_refint(tmp));
 }
 
 void interpret_lshift_div(vm::Stack& stack, int round_mode) {
   int z = stack.pop_smallint_range(256);
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{*x};
+  typename td::BigInt256::DoubleInt tmp{*x};
   tmp <<= z;
-  auto q = td::RefInt256{true};
+  auto q = td::make_refint();
   tmp.mod_div(*y, q.unique_write(), round_mode);
   q.unique_write().normalize();
   stack.push_int(std::move(q));
@@ -1932,7 +1928,7 @@ int parse_number(std::string s, td::RefInt256& num, td::RefInt256& denom, bool a
   const char* str = s.c_str();
   int len = (int)s.size();
   int frac = -1, base, *frac_ptr = allow_frac ? &frac : nullptr;
-  num = td::RefInt256{true};
+  num = td::make_refint();
   auto& x = num.unique_write();
   if (len >= 4 && str[0] == '-' && str[1] == '0' && (str[2] == 'x' || str[2] == 'b')) {
     if (str[2] == 'x') {
@@ -1974,7 +1970,7 @@ int parse_number(std::string s, td::RefInt256& num, td::RefInt256& denom, bool a
   if (frac < 0) {
     return 1;
   } else {
-    denom = td::RefInt256{true, 1};
+    denom = td::make_refint(1);
     while (frac-- > 0) {
       if (!denom.unique_write().mul_tiny(base).normalize_bool()) {
         if (throw_error) {

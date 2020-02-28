@@ -90,6 +90,14 @@ class SmartContract : public td::CntObject {
       this->ignore_chksig = ignore_chksig;
       return std::move(*this);
     }
+
+    td::Result<td::int32> get_method_id() const {
+      if (!method_id) {
+        return td::Status::Error("Args has no method id");
+      }
+      return method_id.value();
+    }
+    td::Result<td::BufferSlice> get_serialized_stack();
   };
 
   Answer run_method(Args args = {});

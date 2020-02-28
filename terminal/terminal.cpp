@@ -250,7 +250,7 @@ void TerminalIOImpl::line_cb(std::string cmd) {
   cmd_queue_.push(td::BufferSlice{std::move(cmd)});
 }
 
-void TerminalIO::output_stdout(td::Slice slice) {
+void TerminalIO::output_stdout(td::Slice slice, double max_wait) {
   auto &fd = td::Stdout();
   if (fd.empty()) {
     return;
@@ -264,7 +264,7 @@ void TerminalIO::output_stdout(td::Slice slice) {
       }
       // Resource temporary unavailable
       if (end_time == 0) {
-        end_time = Time::now() + 0.01;
+        end_time = Time::now() + max_wait;
       } else if (Time::now() > end_time) {
         break;
       }
@@ -281,10 +281,10 @@ void TerminalIO::output(std::string line) {
 void TerminalIO::output(td::Slice line) {
   auto instance = TerminalIOImpl::instance();
   if (!instance) {
-    output_stdout(line);
+    output_stdout(line, 10.0);
   } else {
     instance->deactivate_readline();
-    output_stdout(line);
+    output_stdout(line, 10.0);
     instance->reactivate_readline();
   }
 }
@@ -298,23 +298,33 @@ void TerminalIO::output_stderr(td::Slice line) {
   if (!instance) {
     td::TsCerr() << line;
   } else {
-    instance->deactivate_readline();
     if (instance->readline_used()) {
-      output_stdout(line);
+      instance->deactivate_readline();
+      output_stdout(line, 0.01);
+      instance->reactivate_readline();
     } else {
       td::TsCerr() << line;
     }
   }
 }
 
-TerminalIOOutputter::~TerminalIOOutputter() {
+void TerminalIOOutputter::flush() {
   if (buffer_) {
     CHECK(sb_);
-    if (is_err_) {
-      TerminalIO::output_stderr(sb_->as_cslice());
-    } else {
-      TerminalIO::output(sb_->as_cslice());
+    if (!sb_->as_cslice().empty()) {
+      if (is_err_) {
+        TerminalIO::output_stderr(sb_->as_cslice());
+      } else {
+        TerminalIO::output(sb_->as_cslice());
+      }
     }
+    sb_->clear();
+  }
+}
+
+TerminalIOOutputter::~TerminalIOOutputter() {
+  if (buffer_) {
+    flush();
     delete[] buffer_;
   }
 }

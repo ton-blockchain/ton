@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/bits.h"
 #include "block/block.h"
@@ -813,11 +813,11 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
     LOG(DEBUG) << "unpacking ProcessedUpto of our previous block " << id_.to_str();
     block::gen::t_ProcessedInfo.print(std::cerr, qinfo.proc_info);
   }
-  if (!block::gen::t_ProcessedInfo.validate_csr(qinfo.proc_info)) {
+  if (!block::gen::t_ProcessedInfo.validate_csr(1024, qinfo.proc_info)) {
     return td::Status::Error(
         -666, "ProcessedInfo in the state of "s + id_.to_str() + " is invalid according to automated validity checks");
   }
-  if (!block::gen::t_IhrPendingInfo.validate_csr(qinfo.ihr_pending)) {
+  if (!block::gen::t_IhrPendingInfo.validate_csr(1024, qinfo.ihr_pending)) {
     return td::Status::Error(
         -666, "IhrPendingInfo in the state of "s + id_.to_str() + " is invalid according to automated validity checks");
   }
@@ -1036,7 +1036,7 @@ td::Status ShardState::split(ton::ShardIdFull subshard) {
   LOG(DEBUG) << "splitting total_balance";
   auto old_total_balance = total_balance_;
   auto accounts_extra = account_dict_->get_root_extra();
-  if (!(accounts_extra.write().advance(5) && total_balance_.validate_unpack(accounts_extra))) {
+  if (!(accounts_extra.write().advance(5) && total_balance_.validate_unpack(accounts_extra, 1024))) {
     LOG(ERROR) << "cannot unpack CurrencyCollection from the root of newly-split accounts dictionary";
     return td::Status::Error(
         -666, "error splitting total balance in account dictionary of shardchain state "s + id_.to_str());
@@ -1085,16 +1085,16 @@ int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull ol
   });
 }
 
-bool CurrencyCollection::validate() const {
-  return is_valid() && td::sgn(grams) >= 0 && validate_extra();
+bool CurrencyCollection::validate(int max_cells) const {
+  return is_valid() && td::sgn(grams) >= 0 && validate_extra(max_cells);
 }
 
-bool CurrencyCollection::validate_extra() const {
+bool CurrencyCollection::validate_extra(int max_cells) const {
   if (extra.is_null()) {
     return true;
   }
   vm::CellBuilder cb;
-  return cb.store_maybe_ref(extra) && block::tlb::t_ExtraCurrencyCollection.validate_ref(cb.finalize());
+  return cb.store_maybe_ref(extra) && block::tlb::t_ExtraCurrencyCollection.validate_ref(max_cells, cb.finalize());
 }
 
 bool CurrencyCollection::add(const CurrencyCollection& a, const CurrencyCollection& b, CurrencyCollection& c) {
@@ -1265,8 +1265,8 @@ bool CurrencyCollection::unpack(Ref<vm::CellSlice> csr) {
   return unpack_CurrencyCollection(std::move(csr), grams, extra) || invalidate();
 }
 
-bool CurrencyCollection::validate_unpack(Ref<vm::CellSlice> csr) {
-  return (csr.not_null() && block::tlb::t_CurrencyCollection.validate(*csr) &&
+bool CurrencyCollection::validate_unpack(Ref<vm::CellSlice> csr, int max_cells) {
+  return (csr.not_null() && block::tlb::t_CurrencyCollection.validate_upto(max_cells, *csr) &&
           unpack_CurrencyCollection(std::move(csr), grams, extra)) ||
          invalidate();
 }
@@ -1593,7 +1593,7 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
   } else if (idx < 0) {
     return true;
   }
-  bool ok = block::gen::ConfigParam{idx}.validate_ref(std::move(cell));
+  bool ok = block::gen::ConfigParam{idx}.validate_ref(1024, std::move(cell));
   if (!ok) {
     LOG(ERROR) << "configuration parameter #" << idx << " is invalid";
   }

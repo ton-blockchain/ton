@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "apply-block.hpp"
 #include "adnl/utils.hpp"
@@ -79,8 +79,8 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
   }
 
   if (handle_->is_applied()) {
-    auto P =
-        td::PromiseCreator::lambda([SelfId = actor_id(this), seqno = handle_->id().id.seqno](td::Result<BlockIdExt> R) {
+    auto P = td::PromiseCreator::lambda(
+        [ SelfId = actor_id(this), seqno = handle_->id().id.seqno ](td::Result<BlockIdExt> R) {
           R.ensure();
           auto h = R.move_as_ok();
           if (h.id.seqno < seqno) {
@@ -119,14 +119,15 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
 
     td::actor::send_closure(manager_, &ValidatorManager::set_block_data, handle_, block_, std::move(P));
   } else {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Ref<BlockData>> R) {
-      CHECK(handle->received());
-      if (R.is_error()) {
-        td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
-      } else {
-        td::actor::send_closure(SelfId, &ApplyBlock::written_block_data);
-      }
-    });
+    auto P =
+        td::PromiseCreator::lambda([ SelfId = actor_id(this), handle = handle_ ](td::Result<td::Ref<BlockData>> R) {
+          CHECK(handle->received());
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
+          } else {
+            td::actor::send_closure(SelfId, &ApplyBlock::written_block_data);
+          }
+        });
 
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, apply_block_priority(), timeout_,
                             std::move(P));

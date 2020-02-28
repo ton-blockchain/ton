@@ -260,7 +260,7 @@ int exec_rand_int(VmState* st) {
   typename td::BigInt256::DoubleInt tmp{0};
   tmp.add_mul(*x, *y);
   tmp.rshift(256, -1).normalize();
-  stack.push_int(td::RefInt256{true, tmp});
+  stack.push_int(td::make_refint(tmp));
   return 0;
 }
 
@@ -607,15 +607,15 @@ bool parse_maybe_anycast(CellSlice& cs, StackEntry& res) {
 bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res) {
   res.clear();
   switch ((unsigned)cs.fetch_ulong(2)) {
-    case 0:                                      // addr_none$00 = MsgAddressExt;
-      res.emplace_back(td::RefInt256{true, 0});  // -> (0)
+    case 0:                                 // addr_none$00 = MsgAddressExt;
+      res.emplace_back(td::zero_refint());  // -> (0)
       return true;
     case 1: {  // addr_extern$01
       unsigned len;
       Ref<CellSlice> addr;
       if (cs.fetch_uint_to(9, len)               // len:(## 9)
           && cs.fetch_subslice_to(len, addr)) {  // external_address:(bits len) = MsgAddressExt;
-        res.emplace_back(td::RefInt256{true, 1});
+        res.emplace_back(td::make_refint(1));
         res.emplace_back(std::move(addr));
         return true;
       }
@@ -628,9 +628,9 @@ bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res) {
       if (parse_maybe_anycast(cs, v)             // anycast:(Maybe Anycast)
           && cs.fetch_int_to(8, workchain)       // workchain_id:int8
           && cs.fetch_subslice_to(256, addr)) {  // address:bits256  = MsgAddressInt;
-        res.emplace_back(td::RefInt256{true, 2});
+        res.emplace_back(td::make_refint(2));
         res.emplace_back(std::move(v));
-        res.emplace_back(td::RefInt256{true, workchain});
+        res.emplace_back(td::make_refint(workchain));
         res.emplace_back(std::move(addr));
         return true;
       }
@@ -644,9 +644,9 @@ bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res) {
           && cs.fetch_uint_to(9, len)            // addr_len:(## 9)
           && cs.fetch_int_to(32, workchain)      // workchain_id:int32
           && cs.fetch_subslice_to(len, addr)) {  // address:(bits addr_len) = MsgAddressInt;
-        res.emplace_back(td::RefInt256{true, 3});
+        res.emplace_back(td::make_refint(3));
         res.emplace_back(std::move(v));
-        res.emplace_back(td::RefInt256{true, workchain});
+        res.emplace_back(td::make_refint(workchain));
         res.emplace_back(std::move(addr));
         return true;
       }

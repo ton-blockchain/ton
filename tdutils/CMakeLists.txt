@@ -230,6 +230,7 @@ set(TDUTILS_SOURCE
   td/utils/SpinLock.h
   td/utils/StackAllocator.h
   td/utils/Status.h
+  td/utils/StealingQueue.h
   td/utils/Storer.h
   td/utils/StorerBase.h
   td/utils/StringBuilder.h
@@ -281,6 +282,7 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/pq.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedObjectPool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedSlice.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/StealingQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/variant.cpp
   PARENT_SCOPE
 )

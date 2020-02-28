@@ -385,11 +385,13 @@ int VmState::step() {
   if (code->size()) {
     return dispatch->dispatch(this, code.write());
   } else if (code->size_refs()) {
-    VM_LOG(this) << "execute implicit JMPREF\n";
+    VM_LOG(this) << "execute implicit JMPREF";
+    gas.consume_chk(implicit_jmpref_gas_price);
     Ref<Continuation> cont = Ref<OrdCont>{true, load_cell_slice_ref(code->prefetch_ref()), get_cp()};
     return jump(std::move(cont));
   } else {
-    VM_LOG(this) << "execute implicit RET\n";
+    VM_LOG(this) << "execute implicit RET";
+    gas.consume_chk(implicit_ret_gas_price);
     return ret();
   }
 }
@@ -404,25 +406,27 @@ int VmState::run() {
     // LOG(INFO) << "[BS] data cells: " << DataCell::get_total_data_cells();
     try {
       try {
-        res = step();
-        gas.check();
-      } catch (vm::CellBuilder::CellWriteError) {
-        throw VmError{Excno::cell_ov};
-      } catch (vm::CellBuilder::CellCreateError) {
-        throw VmError{Excno::cell_ov};
-      } catch (vm::CellSlice::CellReadError) {
-        throw VmError{Excno::cell_und};
-      }
-    } catch (const VmError& vme) {
-      VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
-      try {
-        // LOG(INFO) << "[EX] data cells: " << DataCell::get_total_data_cells();
-        ++steps;
-        res = throw_exception(vme.get_errno());
-      } catch (const VmError& vme2) {
-        VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
-        // LOG(INFO) << "[EXX] data cells: " << DataCell::get_total_data_cells();
-        return ~vme2.get_errno();
+        try {
+          res = step();
+          gas.check();
+        } catch (vm::CellBuilder::CellWriteError) {
+          throw VmError{Excno::cell_ov};
+        } catch (vm::CellBuilder::CellCreateError) {
+          throw VmError{Excno::cell_ov};
+        } catch (vm::CellSlice::CellReadError) {
+          throw VmError{Excno::cell_und};
+        }
+      } catch (const VmError& vme) {
+        VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
+        try {
+          // LOG(INFO) << "[EX] data cells: " << DataCell::get_total_data_cells();
+          ++steps;
+          res = throw_exception(vme.get_errno());
+        } catch (const VmError& vme2) {
+          VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
+          // LOG(INFO) << "[EXX] data cells: " << DataCell::get_total_data_cells();
+          return ~vme2.get_errno();
+        }
       }
     } catch (VmNoGas vmoog) {
       ++steps;

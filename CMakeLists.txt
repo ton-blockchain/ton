@@ -519,7 +519,7 @@ if (NOT TON_ONLY_TONLIB)
 add_test(test-adnl test-adnl)
 add_test(test-dht test-dht)
 add_test(test-rldp test-rldp)
-add_test(test-validator-session-state test-validator-session-state)
+#add_test(test-validator-session-state test-validator-session-state)
 add_test(test-catchain test-catchain)
 
 add_test(test-fec test-fec)

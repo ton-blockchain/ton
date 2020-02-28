@@ -556,7 +556,7 @@ void Stack::push_int_quiet(td::RefInt256 val, bool quiet) {
     if (!quiet) {
       throw VmError{Excno::int_ov};
     } else if (val->is_valid()) {
-      push(td::RefInt256{true});
+      push(td::make_refint());
       return;
     }
   }
@@ -592,7 +592,7 @@ void Stack::push_builder(Ref<CellBuilder> cb) {
 }
 
 void Stack::push_smallint(long long val) {
-  push(td::RefInt256{true, val});
+  push(td::make_refint(val));
 }
 
 void Stack::push_bool(bool val) {
@@ -763,7 +763,7 @@ bool StackEntry::deserialize(CellSlice& cs, int mode) {
       t = (int)cs.prefetch_ulong(16) & 0x1ff;
       if (t == 0xff) {
         // vm_stk_nan#02ff = VmStackValue;
-        return cs.advance(16) && set_int(td::RefInt256{true});
+        return cs.advance(16) && set_int(td::make_refint());
       } else {
         // vm_stk_int#0201_ value:int257 = VmStackValue;
         td::RefInt256 val;

@@ -104,6 +104,8 @@ class VmState final : public VmStateInterface {
     cell_create_gas_price = 500,
     exception_gas_price = 50,
     tuple_entry_gas_price = 1,
+    implicit_jmpref_gas_price = 10,
+    implicit_ret_gas_price = 5,
     max_data_depth = 512
   };
   VmState();

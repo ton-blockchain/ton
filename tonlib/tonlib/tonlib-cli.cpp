@@ -345,10 +345,14 @@ class TonlibCli : public td::actor::Actor {
       td::TerminalIO::out()
           << "gethistory <key_id> - get history fo simple wallet with requested key (last 10 transactions)\n";
       td::TerminalIO::out() << "init <key_id> - init simple wallet with requested key\n";
-      td::TerminalIO::out() << "transfer[f] <from_key_id> <to_key_id> <amount> - transfer <amount> of grams from "
-                               "<from_key_id> to <to_key_id>.\n"
-                            << "\t<from_key_id> could also be 'giver'\n"
-                            << "\t<to_key_id> could also be 'giver' or smartcontract address\n";
+      td::TerminalIO::out() << "transfer[f][F][e][k][c] <from_key_id> (<to_key_id> <value> <message>|<file_name>) - "
+                               "make transfer from <from_key_id>\n"
+                            << "\t 'f' modifier - allow send to uninited account\n"
+                            << "\t 'F' modifier - read list of messages from <file_name> (in same format <to_key_id> "
+                               "<value> <message>, one per line)\n"
+                            << "\t 'e' modifier - encrypt all messages\n"
+                            << "\t 'k' modifier - use fake key\n"
+                            << "\t 'c' modifier - just esmitate fees\n";
     } else if (cmd == "genkey") {
       generate_key();
     } else if (cmd == "exit" || cmd == "quit") {
@@ -445,15 +449,6 @@ class TonlibCli : public td::actor::Actor {
       promise.set_value(td::Unit());
       return;
     }
-    if (resolved->entries_[0]->name_ == name) {
-      td::TerminalIO::out() << "Done\n";
-      for (auto& entry : resolved->entries_) {
-        td::TerminalIO::out() << "  " << entry->name_ << " " << entry->category_ << " "
-                              << tonlib::to_dns_entry_data(*entry->entry_).move_as_ok() << "\n";
-      }
-      promise.set_value(td::Unit());
-      return;
-    }
     if (resolved->entries_[0]->entry_->get_id() == tonlib_api::dns_entryDataNextResolver::ID && ttl != 0) {
       td::TerminalIO::out() << "Redirect resolver\n";
       auto entry = tonlib_api::move_object_as<tonlib_api::dns_entryDataNextResolver>(resolved->entries_[0]->entry_);
@@ -461,7 +456,12 @@ class TonlibCli : public td::actor::Actor {
                  promise.send_closure(actor_id(this), &TonlibCli::do_dns_resolve, name, category, 0));
       return;
     }
-    promise.set_error(td::Status::Error("Failed to resolve"));
+    td::TerminalIO::out() << "Done\n";
+    for (auto& entry : resolved->entries_) {
+      td::TerminalIO::out() << "  " << entry->name_ << " " << entry->category_ << " "
+                            << tonlib::to_dns_entry_data(*entry->entry_).move_as_ok() << "\n";
+    }
+    promise.set_value(td::Unit());
   }
 
   void dns_resolve(td::ConstParser& parser, td::Promise<td::Unit> promise) {
@@ -531,7 +531,7 @@ class TonlibCli : public td::actor::Actor {
                                        : nullptr;
     send_query(tonlib_api::make_object<tonlib_api::createQuery>(std::move(key), std::move(address.address), 60,
                                                                 std::move(action)),
-               promise.send_closure(actor_id(this), &TonlibCli::transfer2));
+               promise.send_closure(actor_id(this), &TonlibCli::transfer2, false));
   }
 
   void remote_time(td::Promise<td::Unit> promise) {
@@ -1389,13 +1389,21 @@ class TonlibCli : public td::actor::Actor {
                    } else {
                      sb << " From " << t->in_msg_->source_;
                    }
-                   if (!t->in_msg_->message_.empty()) {
-                     sb << " ";
-                     if (t->in_msg_->is_message_encrypted_) {
-                       sb << "e";
+                   auto print_msg_data = [](td::StringBuilder& sb,
+                                            tonlib_api::object_ptr<tonlib_api::msg_Data>& msg_data) {
+                     if (!msg_data) {
+                       return;
                      }
-                     sb << "msg{" << t->in_msg_->message_ << "}";
-                   }
+                     sb << " ";
+                     downcast_call(*msg_data,
+                                   td::overloaded([&](tonlib_api::msg_dataRaw& raw) { sb << "<unknown message>"; },
+                                                  [&](tonlib_api::msg_dataText& raw) { sb << "{" << raw.text_ << "}"; },
+                                                  [&](tonlib_api::msg_dataEncryptedText& raw) { sb << "<encrypted>"; },
+                                                  [&](tonlib_api::msg_dataDecryptedText& raw) {
+                                                    sb << "decrypted{" << raw.text_ << "}";
+                                                  }));
+                   };
+                   print_msg_data(sb, t->in_msg_->msg_data_);
                    for (auto& ot : t->out_msgs_) {
                      sb << "\n\t";
                      if (ot->destination_.empty()) {
@@ -1404,13 +1412,7 @@ class TonlibCli : public td::actor::Actor {
                        sb << " To " << ot->destination_;
                      }
                      sb << " " << Grams{td::uint64(ot->value_)};
-                     if (!ot->message_.empty()) {
-                       sb << " ";
-                       if (ot->is_message_encrypted_) {
-                         sb << "e";
-                       }
-                       sb << "msg{" << ot->message_ << "}";
-                     }
+                     print_msg_data(sb, ot->msg_data_);
                    }
                    sb << "\n";
                  }
@@ -1423,6 +1425,8 @@ class TonlibCli : public td::actor::Actor {
     bool from_file = false;
     bool force = false;
     bool use_encryption = false;
+    bool use_fake_key = false;
+    bool estimate_fees = false;
     if (cmd != "init") {
       td::ConstParser cmd_parser(cmd);
       cmd_parser.advance(td::Slice("transfer").size());
@@ -1435,6 +1439,10 @@ class TonlibCli : public td::actor::Actor {
           force = true;
         } else if (c == 'e') {
           use_encryption = true;
+        } else if (c == 'k') {
+          use_fake_key = true;
+        } else if (c == 'c') {
+          estimate_fees = true;
         } else {
           cmd_promise.set_error(td::Status::Error(PSLICE() << "Unknown suffix '" << c << "'"));
           return;
@@ -1464,7 +1472,7 @@ class TonlibCli : public td::actor::Actor {
       tonlib_api::object_ptr<tonlib_api::msg_Data> data;
 
       if (use_encryption) {
-        data = tonlib_api::make_object<tonlib_api::msg_dataEncryptedText>(message.str());
+        data = tonlib_api::make_object<tonlib_api::msg_dataDecryptedText>(message.str());
       } else {
         data = tonlib_api::make_object<tonlib_api::msg_dataText>(message.str());
       }
@@ -1495,25 +1503,38 @@ class TonlibCli : public td::actor::Actor {
 
     td::Slice password;  // empty by default
     using tonlib_api::make_object;
-    auto key = !from_address.secret.empty()
-                   ? make_object<tonlib_api::inputKeyRegular>(
-                         make_object<tonlib_api::key>(from_address.public_key, from_address.secret.copy()),
-                         td::SecureString(password))
-                   : nullptr;
+    tonlib_api::object_ptr<tonlib_api::InputKey> key =
+        !from_address.secret.empty()
+            ? make_object<tonlib_api::inputKeyRegular>(
+                  make_object<tonlib_api::key>(from_address.public_key, from_address.secret.copy()),
+                  td::SecureString(password))
+            : nullptr;
+    if (use_fake_key) {
+      key = make_object<tonlib_api::inputKeyFake>();
+    }
 
     bool allow_send_to_uninited = force;
 
     send_query(make_object<tonlib_api::createQuery>(
                    std::move(key), std::move(from_address.address), 60,
                    make_object<tonlib_api::actionMsg>(std::move(messages), allow_send_to_uninited)),
-               cmd_promise.send_closure(actor_id(this), &TonlibCli::transfer2));
+               cmd_promise.send_closure(actor_id(this), &TonlibCli::transfer2, estimate_fees));
   }
 
-  void transfer2(td::Result<tonlib_api::object_ptr<tonlib_api::query_info>> r_info, td::Promise<td::Unit> cmd_promise) {
-    send_query(tonlib_api::make_object<tonlib_api::query_send>(r_info.ok()->id_), cmd_promise.wrap([](auto&& info) {
-      td::TerminalIO::out() << "Transfer sent!\n";
-      return td::Unit();
-    }));
+  void transfer2(bool estimate_fees, td::Result<tonlib_api::object_ptr<tonlib_api::query_info>> r_info,
+                 td::Promise<td::Unit> cmd_promise) {
+    if (estimate_fees) {
+      send_query(tonlib_api::make_object<tonlib_api::query_estimateFees>(r_info.ok()->id_, true),
+                 cmd_promise.wrap([](auto&& info) {
+                   td::TerminalIO::out() << "Extimated fees: " << to_string(info);
+                   return td::Unit();
+                 }));
+    } else {
+      send_query(tonlib_api::make_object<tonlib_api::query_send>(r_info.ok()->id_), cmd_promise.wrap([](auto&& info) {
+        td::TerminalIO::out() << "Transfer sent: " << to_string(info);
+        return td::Unit();
+      }));
+    }
   }
 
   void get_hints(td::Slice prefix) {

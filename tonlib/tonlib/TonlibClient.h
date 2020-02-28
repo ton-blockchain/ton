@@ -42,6 +42,9 @@ struct GetAccountState;
 struct GetPrivateKey;
 struct GetDnsResolver;
 struct SendMessage;
+struct RemoteRunSmcMethod;
+struct RemoteRunSmcMethodReturnType;
+
 inline std::string to_string(const int_api::SendMessage&) {
   return "Send message";
 }
@@ -278,6 +281,8 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(tonlib_api::createQuery& request, td::Promise<object_ptr<tonlib_api::query_info>>&& promise);
 
+  td::Status do_request(tonlib_api::msg_decrypt& request, td::Promise<object_ptr<tonlib_api::msg_dataArray>>&& promise);
+
   td::int64 next_smc_id_{0};
   std::map<td::int64, td::unique_ptr<AccountState>> smcs_;
 
@@ -299,13 +304,18 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
   void do_dns_request(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
                       block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
+  struct DnsFinishData {
+    ton::BlockIdExt block_id;
+    ton::SmartContract::State smc_state;
+  };
   void finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
-                          td::unique_ptr<AccountState> smc,
-                          td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
+                          DnsFinishData dns_finish_data, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
   td::Status do_request(int_api::GetAccountState request, td::Promise<td::unique_ptr<AccountState>>&&);
   td::Status do_request(int_api::GetPrivateKey request, td::Promise<KeyStorage::PrivateKey>&&);
   td::Status do_request(int_api::GetDnsResolver request, td::Promise<block::StdAddress>&&);
+  td::Status do_request(int_api::RemoteRunSmcMethod request,
+                        td::Promise<int_api::RemoteRunSmcMethodReturnType>&& promise);
   td::Status do_request(int_api::SendMessage request, td::Promise<td::Unit>&& promise);
 
   td::Status do_request(const tonlib_api::liteServer_getInfo& request,

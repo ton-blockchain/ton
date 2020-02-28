@@ -628,7 +628,7 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
     if ((*y.int_const == 1 || *y.int_const == -1) && x.always_finite()) {
       x.unused();
       y.unused();
-      r.set_const(td::RefInt256{true, 0});
+      r.set_const(td::zero_refint());
       return push_const(r.int_const);
     }
     int k = is_pos_pow2(y.int_const);

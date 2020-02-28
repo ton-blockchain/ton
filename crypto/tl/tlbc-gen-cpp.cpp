@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "tlbc-gen-cpp.h"
 #include "td/utils/bits.h"
@@ -94,6 +94,7 @@ void init_forbidden_cpp_idents() {
   l.insert("get_size");
   l.insert("pack");
   l.insert("unpack");
+  l.insert("ops");
   l.insert("cs");
   l.insert("cb");
   l.insert("cell_ref");
@@ -2014,7 +2015,7 @@ void CppTypeCode::generate_skip_field(const Constructor& constr, const Field& fi
       output_cpp_expr(ss, expr, 100, true);
       ss << '.';
     }
-    ss << (validating ? "validate_skip(cs, weak" : "skip(cs");
+    ss << (validating ? "validate_skip(ops, cs, weak" : "skip(cs");
     output_negative_type_arguments(ss, expr);
     ss << ")";
     actions += Action{std::move(ss)};
@@ -2054,7 +2055,7 @@ void CppTypeCode::generate_skip_field(const Constructor& constr, const Field& fi
       output_cpp_expr(ss, expr, 100);
       ss << '.';
     }
-    ss << (validating ? "validate_skip(cs, weak)" : "skip(cs)") << tail;
+    ss << (validating ? "validate_skip(ops, cs, weak)" : "skip(cs)") << tail;
     actions += Action{std::move(ss)};
     return;
   }
@@ -2074,7 +2075,7 @@ void CppTypeCode::generate_skip_field(const Constructor& constr, const Field& fi
     output_cpp_expr(ss, expr, 100);
     ss << '.';
   }
-  ss << "validate_skip_ref(cs, weak)" << tail;
+  ss << "validate_skip_ref(ops, cs, weak)" << tail;
   actions += Action{ss.str()};
 }
 
@@ -2101,8 +2102,8 @@ void CppTypeCode::generate_skip_cons_method(std::ostream& os, std::string nl, in
 void CppTypeCode::generate_skip_method(std::ostream& os, int options) {
   bool validate = options & 1;
   bool ret_ext = options & 2;
-  os << "\nbool " << cpp_type_class_name << "::" << (validate ? "validate_" : "") << "skip(vm::CellSlice& cs"
-     << (validate ? ", bool weak" : "");
+  os << "\nbool " << cpp_type_class_name
+     << "::" << (validate ? "validate_skip(int* ops, vm::CellSlice& cs, bool weak" : "skip(vm::CellSlice& cs");
   if (ret_ext) {
     os << skip_extra_args;
   }
@@ -2470,7 +2471,7 @@ void CppTypeCode::generate_unpack_field(const CppTypeCode::ConsField& fi, const 
       output_cpp_expr(ss, expr, 100, true);
       ss << '.';
     }
-    ss << (validating ? "validate_fetch_to(cs, weak, " : "fetch_to(cs, ") << field_vars.at(i);
+    ss << (validating ? "validate_fetch_to(ops, cs, weak, " : "fetch_to(cs, ") << field_vars.at(i);
     output_negative_type_arguments(ss, expr);
     ss << ")";
     actions += Action{std::move(ss)};
@@ -2514,8 +2515,8 @@ void CppTypeCode::generate_unpack_field(const CppTypeCode::ConsField& fi, const 
       output_cpp_expr(ss, expr, 100);
       ss << '.';
     }
-    ss << (validating ? "validate_" : "") << "fetch_" << (cvt == ct_enum ? "enum_" : "") << "to(cs, "
-       << (validating ? "weak, " : "") << field_vars.at(i) << ")" << tail;
+    ss << (validating ? "validate_" : "") << "fetch_" << (cvt == ct_enum ? "enum_" : "")
+       << (validating ? "to(ops, cs, weak, " : "to(cs, ") << field_vars.at(i) << ")" << tail;
     field_var_set[i] = true;
     actions += Action{std::move(ss)};
     return;
@@ -2540,7 +2541,7 @@ void CppTypeCode::generate_unpack_field(const CppTypeCode::ConsField& fi, const 
     output_cpp_expr(ss, expr, 100);
     ss << '.';
   }
-  ss << "validate_ref(" << field_vars.at(i) << "))" << tail;
+  ss << "validate_ref(ops, " << field_vars.at(i) << "))" << tail;
   actions += Action{ss.str()};
 }
 
@@ -2559,7 +2560,11 @@ void CppTypeCode::generate_unpack_method(std::ostream& os, CppTypeCode::ConsReco
        << "\n  auto cs = load_cell_slice(std::move(cell_ref));"
        << "\n  return " << (options & 1 ? "validate_" : "") << "unpack";
     if (!(options & 8)) {
-      os << "(cs, data";
+      os << "(";
+      if (options & 1) {
+        os << "ops, ";
+      }
+      os << "cs, data";
     } else {
       os << "_" << cons_enum_name.at(rec.cons_idx) << "(cs";
       for (const auto& f : rec.cpp_fields) {
@@ -2773,7 +2778,7 @@ void CppTypeCode::generate_pack_field(const CppTypeCode::ConsField& fi, const Co
     output_cpp_expr(ss, expr, 100);
     ss << '.';
   }
-  ss << "validate_ref(" << field_vars.at(i) << "))" << tail;
+  ss << "validate_ref(ops, " << field_vars.at(i) << "))" << tail;
   actions += Action{ss.str()};
 }
 
@@ -3093,7 +3098,7 @@ void CppTypeCode::generate_header(std::ostream& os, int options) {
   if (ret_params) {
     os << "  bool skip(vm::CellSlice& cs" << skip_extra_args << ") const;\n";
   }
-  os << "  bool validate_skip(vm::CellSlice& cs, bool weak = false) const override";
+  os << "  bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override";
   if (!inline_validate_skip) {
     os << ";\n";
   } else if (sz) {
@@ -3102,7 +3107,7 @@ void CppTypeCode::generate_header(std::ostream& os, int options) {
     os << " {\n    return true;\n  }\n";
   }
   if (ret_params) {
-    os << "  bool validate_skip(vm::CellSlice& cs, bool weak" << skip_extra_args << ") const;\n";
+    os << "  bool validate_skip(int *ops, vm::CellSlice& cs, bool weak" << skip_extra_args << ") const;\n";
     os << "  bool fetch_to(vm::CellSlice& cs, Ref<vm::CellSlice>& res" << skip_extra_args << ") const;\n";
   }
   if (type.is_simple_enum) {

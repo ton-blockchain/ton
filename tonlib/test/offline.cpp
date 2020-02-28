@@ -35,6 +35,7 @@
 #include "td/utils/benchmark.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/optional.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
 #include "td/utils/PathView.h"
 #include "td/utils/tests.h"
@@ -70,7 +71,7 @@ TEST(Tonlib, Text) {
       auto cs = vm::load_cell_slice(cb.finalize());
       auto cs2 = cs;
       cs.print_rec(std::cerr);
-      CHECK(block::gen::t_Text.validate_exact(cs2));
+      CHECK(block::gen::t_Text.validate_exact_upto(1024, cs2));
       auto got_str = vm::CellText::load(cs).move_as_ok();
       ASSERT_EQ(str, got_str);
     }
@@ -506,12 +507,32 @@ TEST(Tonlib, KeysApi) {
   sync_send(client, make_object<tonlib_api::deleteKey>(
                         make_object<tonlib_api::key>(new_imported_key->public_key_, new_imported_key->secret_.copy())))
       .move_as_ok();
+  td::Ed25519::PrivateKey pkey(exported_raw_key->data_.copy());
   auto raw_imported_key = sync_send(client, make_object<tonlib_api::importUnencryptedKey>(new_local_password.copy(),
                                                                                           std::move(exported_raw_key)))
                               .move_as_ok();
 
   CHECK(raw_imported_key->public_key_ == key->public_key_);
   CHECK(raw_imported_key->secret_ != key->secret_);
+
+  auto other_public_key = td::Ed25519::generate_private_key().move_as_ok().get_public_key().move_as_ok();
+  std::string text = "hello world";
+
+  std::vector<tonlib_api::object_ptr<tonlib_api::msg_Data>> elements;
+  elements.push_back(make_object<tonlib_api::msg_dataEncryptedText>(
+      SimpleEncryptionV2::encrypt_data(text, other_public_key, pkey).move_as_ok().as_slice().str()));
+
+  auto decrypted =
+      sync_send(client, make_object<tonlib_api::msg_decrypt>(
+                            make_object<tonlib_api::inputKeyRegular>(
+                                make_object<tonlib_api::key>(key->public_key_, raw_imported_key->secret_.copy()),
+                                new_local_password.copy()),
+                            make_object<tonlib_api::msg_dataArray>(std::move(elements))))
+          .move_as_ok();
+
+  downcast_call(*decrypted->elements_[0],
+                td::overloaded([](auto &) { UNREACHABLE(); },
+                               [&](tonlib_api::msg_dataDecryptedText &decrypted) { CHECK(decrypted.text_ == text); }));
 }
 
 TEST(Tonlib, ConfigCache) {

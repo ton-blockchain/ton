@@ -234,7 +234,7 @@ td::Result<QueryId> create_send_grams_query(Client& client, const Wallet& source
   std::vector<tonlib_api::object_ptr<tonlib_api::msg_message>> msgs;
   tonlib_api::object_ptr<tonlib_api::msg_Data> data;
   if (encrypted) {
-    data = tonlib_api::make_object<tonlib_api::msg_dataEncryptedText>(std::move(message));
+    data = tonlib_api::make_object<tonlib_api::msg_dataDecryptedText>(std::move(message));
   } else {
     data = tonlib_api::make_object<tonlib_api::msg_dataText>(std::move(message));
   }
@@ -310,6 +310,13 @@ td::Result<tonlib_api::object_ptr<tonlib_api::raw_transactions>> get_transaction
   return std::move(got_transactions);
 }
 
+std::string read_text(tonlib_api::msg_Data& data) {
+  std::string text;
+  downcast_call(data, td::overloaded([](auto& other) {}, [&](tonlib_api::msg_dataText& data) { text = data.text_; },
+                                     [&](tonlib_api::msg_dataDecryptedText& data) { text = data.text_; }));
+  return text;
+}
+
 td::Status transfer_grams(Client& client, const Wallet& wallet, std::string address, td::int64 amount,
                           bool fast = false) {
   auto src_state = get_account_state(client, wallet.address);
@@ -320,7 +327,7 @@ td::Status transfer_grams(Client& client, const Wallet& wallet, std::string addr
   bool encrypt = true;
   auto r_query_id = create_send_grams_query(client, wallet, address, amount, encrypt, message, fast);
   if (r_query_id.is_error()) {
-    LOG(INFO) << "Send query WITHOUT message encryption";
+    LOG(INFO) << "Send query WITHOUT message encryption " << r_query_id.error();
     encrypt = false;
     r_query_id = create_send_grams_query(client, wallet, address, amount, encrypt, message, fast);
   } else {
@@ -363,7 +370,7 @@ td::Status transfer_grams(Client& client, const Wallet& wallet, std::string addr
     const auto& txn = tr->transactions_[0];
     CHECK(txn->in_msg_->body_hash_ == query_info.body_hash);
     ASSERT_EQ(1u, txn->out_msgs_.size());
-    ASSERT_EQ(message, txn->out_msgs_[0]->message_);
+    ASSERT_EQ(message, read_text(*txn->out_msgs_[0]->msg_data_));
     lt = txn->out_msgs_[0]->created_lt_;
     auto fee_difference = fees.first.sum() - txn->fee_;
     first_fee = txn->fee_;
@@ -389,7 +396,7 @@ td::Status transfer_grams(Client& client, const Wallet& wallet, std::string addr
     }
     ASSERT_EQ(new_src_state.address, txn->in_msg_->source_);
     if (!encrypt) {
-      ASSERT_EQ(message, txn->in_msg_->message_);
+      ASSERT_EQ(message, read_text(*txn->in_msg_->msg_data_));
     }
     auto fee_difference = fees.second.sum() - txn->fee_;
     auto desc = PSTRING() << fee_difference << " storage:[" << fees.second.storage_fee << " vs " << txn->storage_fee_
@@ -550,19 +557,11 @@ void test_multisig(Client& client, const Wallet& giver_wallet) {
 void dns_resolve(Client& client, const Wallet& dns, std::string name) {
   using namespace ton::tonlib_api;
   auto address = dns.get_address();
-  while (true) {
-    auto resolved =
-        sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(std::move(address), name, 1, 0)).move_as_ok();
-    CHECK(resolved->entries_.size() == 1);
-    LOG(INFO) << to_string(resolved);
-    if (resolved->entries_[0]->category_ == -1) {
-      auto entry = ton::move_tl_object_as<dns_entryDataNextResolver>(resolved->entries_[0]->entry_);
-      address = std::move(entry->resolver_);
-      continue;
-    }
-    LOG(INFO) << "OK";
-    break;
-  }
+  auto resolved =
+      sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(std::move(address), name, 1, 4)).move_as_ok();
+  CHECK(resolved->entries_.size() == 1);
+  LOG(INFO) << to_string(resolved);
+  LOG(INFO) << "OK";
 }
 
 void test_dns(Client& client, const Wallet& giver_wallet) {
@@ -580,10 +579,10 @@ void test_dns(Client& client, const Wallet& giver_wallet) {
       make_object<dns_entry>("A", -1, make_object<dns_entryDataNextResolver>(A_B.get_address()))));
   auto init_A = create_update_dns_query(client, A, std::move(actions)).move_as_ok();
   actions.push_back(make_object<dns_actionSet>(
-      make_object<dns_entry>("B.A", -1, make_object<dns_entryDataNextResolver>(A_B_C.get_address()))));
+      make_object<dns_entry>("B", -1, make_object<dns_entryDataNextResolver>(A_B_C.get_address()))));
   auto init_A_B = create_update_dns_query(client, A_B, std::move(actions)).move_as_ok();
   actions.push_back(
-      make_object<dns_actionSet>(make_object<dns_entry>("C.B.A", 1, make_object<dns_entryDataText>("Hello dns"))));
+      make_object<dns_actionSet>(make_object<dns_entry>("C", 1, make_object<dns_entryDataText>("Hello dns"))));
   auto init_A_B_C = create_update_dns_query(client, A_B_C, std::move(actions)).move_as_ok();
 
   LOG(INFO) << "Send dns init queries";
