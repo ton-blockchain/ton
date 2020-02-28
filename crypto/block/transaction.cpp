@@ -1555,8 +1555,16 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     Ref<vm::Cell> new_extra;
 
     if (!block::sub_extra_currency(ap.remaining_balance.extra, req.extra, new_extra)) {
-      LOG(DEBUG) << "not enough extra currency to send with the message";
+      LOG(DEBUG) << "not enough extra currency to send with the message: "
+                 << block::CurrencyCollection{0, req.extra}.to_str() << " required, only "
+                 << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str() << " available";
       return skip_invalid ? 0 : 38;  // not enough (extra) funds
+    }
+    if (ap.remaining_balance.extra.not_null() || req.extra.not_null()) {
+      LOG(WARNING) << "subtracting extra currencies: "
+                   << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str() << " minus "
+                   << block::CurrencyCollection{0, req.extra}.to_str() << " equals "
+                   << block::CurrencyCollection{0, new_extra}.to_str();
     }
 
     auto fwd_fee_mine = msg_prices.get_first_part(fwd_fee);
@@ -1691,7 +1699,9 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     }
   }
   if (!block::sub_extra_currency(ap.remaining_balance.extra, reserve.extra, newc.extra)) {
-    LOG(DEBUG) << "not enough extra currency to reserve";
+    LOG(DEBUG) << "not enough extra currency to reserve: " << block::CurrencyCollection{0, reserve.extra}.to_str()
+               << " required, only " << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str()
+               << " available";
     if (mode & 2) {
       // TODO: process (mode & 2) correctly by setting res_extra := inf (reserve.extra, ap.remaining_balance.extra)
     }

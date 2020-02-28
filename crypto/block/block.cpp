@@ -1651,7 +1651,7 @@ bool sub_extra_currency(Ref<vm::Cell> extra1, Ref<vm::Cell> extra2, Ref<vm::Cell
     res.clear();
     return false;
   } else {
-    return block::tlb::t_ExtraCurrencyCollection.sub_values_ref(res, std::move(extra1), std::move(extra2));
+    return block::tlb::t_ExtraCurrencyCollection.sub_values_ref(res, std::move(extra1), std::move(extra2)) >= 0;
   }
 }
 

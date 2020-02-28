@@ -1628,7 +1628,7 @@ bool Collator::do_collate() {
     return fatal_error("cannot compute the value to be created / minted / recovered");
   }
   // 2. tick transactions
-  LOG(DEBUG) << "create tick transactions";
+  LOG(INFO) << "create tick transactions";
   if (!create_ticktock_transactions(2)) {
     return fatal_error("cannot generate tick transactions");
   }
@@ -1642,18 +1642,18 @@ bool Collator::do_collate() {
     // ...
   }
   // 4. import inbound internal messages, process or transit
-  LOG(DEBUG) << "process inbound internal messages";
+  LOG(INFO) << "process inbound internal messages";
   if (!process_inbound_internal_messages()) {
     return fatal_error("cannot process inbound internal messages");
   }
   // 5. import inbound external messages (if space&gas left)
-  LOG(DEBUG) << "process inbound external messages";
+  LOG(INFO) << "process inbound external messages";
   if (!process_inbound_external_messages()) {
     return fatal_error("cannot process inbound external messages");
   }
   // 6. process newly-generated messages (if space&gas left)
   //    (if we were unable to process all inbound messages, all new messages must be queued)
-  LOG(DEBUG) << "process newly-generated messages";
+  LOG(INFO) << "process newly-generated messages";
   if (!process_new_messages(!inbound_queues_empty_)) {
     return fatal_error("cannot process newly-generated outbound messages");
   }
@@ -1664,12 +1664,12 @@ bool Collator::do_collate() {
     // ...
   }
   // 8. tock transactions
-  LOG(DEBUG) << "create tock transactions";
+  LOG(INFO) << "create tock transactions";
   if (!create_ticktock_transactions(1)) {
     return fatal_error("cannot generate tock transactions");
   }
   // 9. process newly-generated messages (only by including them into output queue)
-  LOG(DEBUG) << "enqueue newly-generated messages";
+  LOG(INFO) << "enqueue newly-generated messages";
   if (!process_new_messages(true)) {
     return fatal_error("cannot process newly-generated outbound messages");
   }

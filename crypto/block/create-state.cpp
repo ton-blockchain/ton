@@ -616,6 +616,24 @@ void interpret_is_workchain_descr(vm::Stack& stack) {
   stack.push_bool(block::gen::t_WorkchainDescr.validate_ref(std::move(cell)));
 }
 
+void interpret_add_extra_currencies(vm::Stack& stack) {
+  Ref<vm::Cell> y = stack.pop_maybe_cell(), x = stack.pop_maybe_cell(), res;
+  bool ok = block::add_extra_currency(std::move(x), std::move(y), res);
+  if (ok) {
+    stack.push_maybe_cell(std::move(res));
+  }
+  stack.push_bool(ok);
+}
+
+void interpret_sub_extra_currencies(vm::Stack& stack) {
+  Ref<vm::Cell> y = stack.pop_maybe_cell(), x = stack.pop_maybe_cell(), res;
+  bool ok = block::sub_extra_currency(std::move(x), std::move(y), res);
+  if (ok) {
+    stack.push_maybe_cell(std::move(res));
+  }
+  stack.push_bool(ok);
+}
+
 void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("verb@ ", interpret_get_verbosity);
   d.def_stack_word("verb! ", interpret_set_verbosity);
@@ -631,6 +649,8 @@ void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("create_state ", interpret_create_state);
   d.def_stack_word("isShardState? ", interpret_is_shard_state);
   d.def_stack_word("isWorkchainDescr? ", interpret_is_workchain_descr);
+  d.def_stack_word("CC+? ", interpret_add_extra_currencies);
+  d.def_stack_word("CC-? ", interpret_sub_extra_currencies);
 }
 
 tlb::TypenameLookup tlb_dict;

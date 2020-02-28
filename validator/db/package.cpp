@@ -95,7 +95,8 @@ td::Result<std::pair<std::string, td::BufferSlice>> Package::read(td::uint64 off
     return td::Status::Error(ErrorCode::notready, "too short read");
   }
   if ((header[0] & 0xffff) != entry_header_magic()) {
-    return td::Status::Error(ErrorCode::notready, "bad entry magic");
+    return td::Status::Error(ErrorCode::notready,
+                             PSTRING() << "bad entry magic " << (header[0] & 0xffff) << " offset=" << offset);
   }
   offset += 8;
   auto fname_size = header[0] >> 16;
