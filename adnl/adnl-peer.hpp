@@ -123,7 +123,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   td::Result<td::actor::ActorId<AdnlNetworkConnection>> get_conn();
   void create_channel(pubkeys::Ed25519 pub, td::uint32 date);
 
-  bool received_packet(td::uint32 seqno) const {
+  bool received_packet(td::uint64 seqno) const {
     CHECK(seqno > 0);
     if (seqno + 64 <= in_seqno_) {
       return true;
@@ -134,7 +134,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
     return recv_seqno_mask_ & (1ull << (in_seqno_ - seqno));
   }
 
-  void add_received_packet(td::uint32 seqno) {
+  void add_received_packet(td::uint64 seqno) {
     CHECK(!received_packet(seqno));
     if (seqno <= in_seqno_) {
       recv_seqno_mask_ |= (1ull << (in_seqno_ - seqno));
