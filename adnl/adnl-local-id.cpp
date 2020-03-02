@@ -175,18 +175,20 @@ void AdnlLocalId::publish_address_list() {
                           std::move(P));
 }
 
-AdnlLocalId::AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::actor::ActorId<AdnlPeerTable> peer_table,
-                         td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<dht::Dht> dht_node) {
-  id_ = std::move(id);
+AdnlLocalId::AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode,
+                         td::actor::ActorId<AdnlPeerTable> peer_table, td::actor::ActorId<keyring::Keyring> keyring,
+                         td::actor::ActorId<dht::Dht> dht_node)
+    : peer_table_(std::move(peer_table))
+    , keyring_(std::move(keyring))
+    , dht_node_(std::move(dht_node))
+    , addr_list_(std::move(addr_list))
+    , id_(std::move(id))
+    , mode_(mode) {
   short_id_ = id_.compute_short_id();
-  addr_list_ = std::move(addr_list);
   if (!addr_list_.empty()) {
     addr_list_.set_reinit_date(Adnl::adnl_start_time());
     addr_list_.set_version(static_cast<td::int32>(td::Clocks::system()));
   }
-  peer_table_ = peer_table;
-  keyring_ = keyring;
-  dht_node_ = dht_node;
 
   VLOG(ADNL_INFO) << this << ": created local id " << short_id_;
 }

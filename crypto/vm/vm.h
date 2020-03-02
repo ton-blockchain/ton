@@ -106,6 +106,8 @@ class VmState final : public VmStateInterface {
     tuple_entry_gas_price = 1,
     implicit_jmpref_gas_price = 10,
     implicit_ret_gas_price = 5,
+    free_stack_depth = 32,
+    stack_entry_gas_price = 1,
     max_data_depth = 512
   };
   VmState();
@@ -141,9 +143,17 @@ class VmState final : public VmStateInterface {
   void consume_tuple_gas(unsigned tuple_len) {
     consume_gas(tuple_len * tuple_entry_gas_price);
   }
-  void consume_tuple_gas(const Ref<vm::Tuple>& tup) {
+  void consume_tuple_gas(const Ref<Tuple>& tup) {
     if (tup.not_null()) {
       consume_tuple_gas((unsigned)tup->size());
+    }
+  }
+  void consume_stack_gas(unsigned stack_depth) {
+    consume_gas((std::max(stack_depth, (unsigned)free_stack_depth) - free_stack_depth) * stack_entry_gas_price);
+  }
+  void consume_stack_gas(const Ref<Stack>& stk) {
+    if (stk.not_null()) {
+      consume_stack_gas((unsigned)stk->depth());
     }
   }
   GasLimits get_gas_limits() const {

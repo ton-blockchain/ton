@@ -724,7 +724,12 @@ void interpret_tlb_validate_skip(vm::Stack& stack) {
   stack.push_bool(ok);
 }
 
+void interpret_tlb_type_const(vm::Stack& stack, const tlb::TLB* ptr) {
+  stack.push_make_object<tlb::TlbTypeHolder>(ptr);
+}
+
 void init_words_tlb(fift::Dictionary& d) {
+  using namespace std::placeholders;
   tlb_dict.register_types(block::gen::register_simple_types);
   d.def_stack_word("tlb-type-lookup ", interpret_tlb_type_lookup);
   d.def_stack_word("tlb-type-name ", interpret_tlb_type_name);
@@ -733,6 +738,7 @@ void init_words_tlb(fift::Dictionary& d) {
   d.def_stack_word("(tlb-dump-str?) ", interpret_tlb_dump_to_str);
   d.def_stack_word("tlb-skip ", interpret_tlb_skip);
   d.def_stack_word("tlb-validate-skip ", interpret_tlb_validate_skip);
+  d.def_stack_word("ExtraCurrencyCollection", std::bind(interpret_tlb_type_const, _1, &block::tlb::t_ExtraCurrencyCollection));
 }
 
 void usage(const char* progname) {

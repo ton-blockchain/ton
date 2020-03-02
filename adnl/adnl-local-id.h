@@ -67,14 +67,19 @@ class AdnlLocalId : public td::actor::Actor {
   void sign_batch_async(std::vector<td::BufferSlice> data,
                         td::Promise<std::vector<td::Result<td::BufferSlice>>> promise);
 
-  AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::actor::ActorId<AdnlPeerTable> peer_table,
-              td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<dht::Dht> dht_node);
+  AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode,
+              td::actor::ActorId<AdnlPeerTable> peer_table, td::actor::ActorId<keyring::Keyring> keyring,
+              td::actor::ActorId<dht::Dht> dht_node);
 
   void start_up() override;
   void alarm() override;
 
   void update_packet(AdnlPacket packet, bool update_id, bool sign, td::int32 update_addr_list_if,
                      td::int32 update_priority_addr_list_if, td::Promise<AdnlPacket> promise);
+
+  td::uint32 get_mode() {
+    return mode_;
+  }
 
   struct PrintId {
     AdnlNodeIdShort id;
@@ -93,6 +98,8 @@ class AdnlLocalId : public td::actor::Actor {
   AdnlAddressList addr_list_;
   AdnlNodeIdFull id_;
   AdnlNodeIdShort short_id_;
+
+  td::uint32 mode_;
 
   void publish_address_list();
 };

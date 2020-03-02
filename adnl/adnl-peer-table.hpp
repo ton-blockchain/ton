@@ -61,7 +61,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
                      td::Timestamp timeout, td::BufferSlice data, td::uint64 max_answer_size) override {
     send_query(src, dst, name, std::move(promise), timeout, std::move(data));
   }
-  void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list) override;
+  void add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode) override;
   void del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) override;
   void subscribe(AdnlNodeIdShort dst, std::string prefix, std::unique_ptr<Callback> callback) override;
   void unsubscribe(AdnlNodeIdShort dst, std::string prefix) override;
@@ -111,7 +111,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void deliver_one_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message);
 
   std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlPeer>> peers_;
-  std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlLocalId>> local_ids_own_;
+  std::map<AdnlNodeIdShort, std::pair<td::actor::ActorOwn<AdnlLocalId>, td::uint32>> local_ids_;
   std::map<AdnlChannelIdShort, td::actor::ActorId<AdnlChannel>> channels_;
 
   td::actor::ActorOwn<AdnlDb> db_;

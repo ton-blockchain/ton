@@ -91,7 +91,7 @@ class AdnlAddressList {
   void update(td::IPAddress addr);
   bool public_only() const;
   td::uint32 size() const {
-    return static_cast<td::uint32>(addrs_.size());
+    return td::narrow_cast<td::uint32>(addrs_.size());
   }
   td::uint32 serialized_size() const;
   tl_object_ptr<ton_api::adnl_addressList> tl() const;

@@ -77,7 +77,8 @@ extern const VarUInteger t_VarUInteger_3, t_VarUInteger_7, t_VarUInteger_16, t_V
 
 struct VarUIntegerPos final : TLB_Complex {
   int n, ln;
-  VarUIntegerPos(int _n) : n(_n) {
+  bool store_pos_only;
+  VarUIntegerPos(int _n, bool relaxed = false) : n(_n), store_pos_only(!relaxed) {
     ln = 32 - td::count_leading_zeroes32(n - 1);
   }
   bool skip(vm::CellSlice& cs) const override;
@@ -90,7 +91,7 @@ struct VarUIntegerPos final : TLB_Complex {
   }
 };
 
-extern const VarUIntegerPos t_VarUIntegerPos_16, t_VarUIntegerPos_32;
+extern const VarUIntegerPos t_VarUIntegerPos_16, t_VarUIntegerPos_32, t_VarUIntegerPosRelaxed_32;
 
 struct VarInteger final : TLB_Complex {
   int n, ln;
@@ -325,7 +326,7 @@ extern const MsgAddress t_MsgAddress;
 
 struct ExtraCurrencyCollection final : TLB {
   HashmapE dict_type, dict_type2;
-  ExtraCurrencyCollection() : dict_type(32, t_VarUIntegerPos_32), dict_type2(32, t_VarUInteger_32) {
+  ExtraCurrencyCollection() : dict_type(32, t_VarUIntegerPos_32), dict_type2(32, t_VarUIntegerPosRelaxed_32) {
   }
   int get_size(const vm::CellSlice& cs) const override {
     return dict_type.get_size(cs);

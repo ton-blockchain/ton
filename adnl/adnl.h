@@ -34,6 +34,8 @@ class Dht;
 
 namespace adnl {
 
+enum class AdnlLocalIdMode : td::uint32 { direct_only = 1, drop_from_net = 2 };
+
 class AdnlNetworkManager;
 
 class AdnlExtServer : public td::actor::Actor {
@@ -81,7 +83,10 @@ class Adnl : public AdnlSenderInterface {
   virtual void add_static_nodes_from_config(AdnlNodesList nodes) = 0;
 
   // adds local id. After that you can send/receive messages from/to this id
-  virtual void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list) = 0;
+  void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list) {
+    add_id_ex(std::move(id), std::move(addr_list), 0);
+  }
+  virtual void add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode) = 0;
   virtual void del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) = 0;
 
   // subscribe to (some) messages(+queries) to this local id

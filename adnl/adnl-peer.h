@@ -60,7 +60,7 @@ class AdnlPeerPair : public td::actor::Actor {
   virtual void update_addr_list(AdnlAddressList addr_list) = 0;
 
   static td::actor::ActorOwn<AdnlPeerPair> create(td::actor::ActorId<AdnlNetworkManager> network_manager,
-                                                  td::actor::ActorId<AdnlPeerTable> peer_table,
+                                                  td::actor::ActorId<AdnlPeerTable> peer_table, td::uint32 local_mode,
                                                   td::actor::ActorId<AdnlLocalId> local_actor,
                                                   td::actor::ActorId<AdnlPeer> peer_actor,
                                                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
@@ -69,20 +69,24 @@ class AdnlPeerPair : public td::actor::Actor {
 
 class AdnlPeer : public td::actor::Actor {
  public:
-  virtual void receive_packet(AdnlNodeIdShort dst, td::actor::ActorId<AdnlLocalId> dst_actor, AdnlPacket message) = 0;
-  virtual void send_messages(AdnlNodeIdShort src, td::actor::ActorId<AdnlLocalId> src_actor,
+  virtual void receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
+                              AdnlPacket message) = 0;
+  virtual void send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
                              std::vector<AdnlMessage> messages) = 0;
-  virtual void send_query(AdnlNodeIdShort src, td::actor::ActorId<AdnlLocalId> src_actor, std::string name,
-                          td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) = 0;
-  void send_one_message(AdnlNodeIdShort src, td::actor::ActorId<AdnlLocalId> src_actor, AdnlMessage message) {
+  virtual void send_query(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
+                          std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
+                          td::BufferSlice data) = 0;
+  void send_one_message(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
+                        AdnlMessage message) {
     std::vector<AdnlMessage> vec;
     vec.push_back(std::move(message));
-    send_messages(src, src_actor, std::move(vec));
+    send_messages(src, src_mode, src_actor, std::move(vec));
   }
 
-  void send_message(AdnlNodeIdShort src, td::actor::ActorId<AdnlLocalId> src_actor, td::BufferSlice data) {
+  void send_message(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
+                    td::BufferSlice data) {
     auto M = AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}};
-    send_one_message(src, src_actor, std::move(M));
+    send_one_message(src, src_mode, src_actor, std::move(M));
   }
 
   static td::actor::ActorOwn<AdnlPeer> create(td::actor::ActorId<AdnlNetworkManager> network_manager,
@@ -91,8 +95,8 @@ class AdnlPeer : public td::actor::Actor {
 
   virtual void del_local_id(AdnlNodeIdShort local_id) = 0;
   virtual void update_id(AdnlNodeIdFull id) = 0;
-  virtual void update_addr_list(AdnlNodeIdShort local_id, td::actor::ActorId<AdnlLocalId> local_actor,
-                                AdnlAddressList addr_list) = 0;
+  virtual void update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_mode,
+                                td::actor::ActorId<AdnlLocalId> local_actor, AdnlAddressList addr_list) = 0;
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) = 0;
 };
 

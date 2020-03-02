@@ -77,9 +77,10 @@ library TonUtil // TON Blockchain Fift Library
 1000000000 constant Gram
 { Gram swap */r } : Gram*/
 { Gram * } : Gram*
+{ (number) dup { 1- ' Gram*/ ' Gram* cond true } if
+} : $>GR?
 // ( S -- nanograms )
-{ (number) ?dup 0= abort"not a valid Gram amount"
-1- ' Gram*/ ' Gram* cond
+{ $>GR? not abort"not a valid Gram amount"
 } : $>GR
 { bl word $>GR 1 'nop } ::_ GR$
 // ( nanograms -- S )
@@ -119,7 +120,7 @@ dictnew constant cc0   // zero currency collection
 { swap cc-key-bits { rot { ."+" } if .val ."*$" ._ true true } idictforeach drop } : (.cc)
 { false (.cc) { ."0" } ifnot } : .cc_
 { .cc_ space } : .cc
-{ true (.cc) } : .+cc_
+{ true (.cc) drop } : .+cc_
 { .+cc_ space } : .+cc
 { cc-key-bits { rot . ."-> " swap .val .val ."; " true } dictdiff drop cr } : show-cc-diff
 { cc-key-bits { val@ swap val@ + val, true } dictmerge } : cc+
@@ -141,13 +142,30 @@ forget val,  forget val@  forget .val
   } cond } cond } cond } cond
 } : cc-key-value?
 // ( S -- D -1 or 0 )  Parses an extra currency collection
+// e.g. "10000*$3+7777*$-11" means "10000 units of currency #3 and 7777 units of currency #-11"
 { dictnew {  // S D
     swap dup "+" $pos dup 0< { drop null -rot } { $| 1 $| nip -rot } cond
     cc-key-value? { +ccpair over null? dup { rot drop true } if } { 2drop false true } cond
   } until
+} : $>xcc?
+{ $>xcc? not abort"invalid extra currency collection" } : $>xcc
+{ char } word dup $len { $>xcc } { drop dictnew } cond 1 'nop } ::_ CX{
+
+// complete currency collections
+{ $>xcc? { true } { drop false } cond } : end-parse-cc
+// ( S -- x D -1 or 0 )  Parses a currency collection
+// e.g. "1.2+300*$2" means "1200000000ng plus 300 units of currency #2"
+{ 0 swap dup "+" $pos dup 0< { drop dup
+      $>GR? { nip nip dictnew true } { end-parse-cc } cond
+    } { over swap $| swap $>GR? { 2swap 2drop swap 1 $| nip } { drop
+  } cond end-parse-cc } cond
 } : $>cc?
-{ $>cc? not abort"invalid extra currency collection" } : $>cc
-{ char } word dup $len { $>cc } { drop dictnew } cond 1 'nop } ::_ CX{
+{ $>cc? not abort"invalid currency collection" } : $>cc
+{ char } word dup $len { $>cc } { drop 0 dictnew } cond 2 'nop } ::_ CC{
+// ( x D -- )
+{ swap ?dup { .GR_ .+cc_ } { .cc_ } cond } : .GR+cc_
+{ .GR+cc_ space } : .GR+cc
+{ -rot Gram, swap dict, } : Gram+cc,
 
 // Libraries
 // ( -- D )  New empty library collection

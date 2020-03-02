@@ -420,7 +420,7 @@ void AdnlPeerPairImpl::alarm_query(AdnlQueryId id) {
 }
 
 AdnlPeerPairImpl::AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager,
-                                   td::actor::ActorId<AdnlPeerTable> peer_table,
+                                   td::actor::ActorId<AdnlPeerTable> peer_table, td::uint32 local_mode,
                                    td::actor::ActorId<AdnlLocalId> local_actor, td::actor::ActorId<AdnlPeer> peer,
                                    td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
                                    AdnlNodeIdShort peer_id) {
@@ -429,6 +429,7 @@ AdnlPeerPairImpl::AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> networ
   local_actor_ = local_actor;
   peer_ = peer;
   dht_node_ = dht_node;
+  mode_ = local_mode;
 
   local_id_ = local_id;
   peer_id_short_ = peer_id;
@@ -683,17 +684,20 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
 
   const auto addrs = addr_list.addrs();
   std::vector<Conn> conns;
-  conns.resize(std::min(addr_list.size(), 3u));
   auto &old_conns = priority ? priority_conns_ : conns_;
 
-  for (size_t i = 0; i < conns.size(); i++) {
-    auto &addr = addrs[i];
-    auto hash = addr->get_hash();
-    if (i < old_conns.size() && old_conns[i].addr->get_hash() == hash) {
-      conns[i] = std::move(old_conns[i]);
-    } else {
-      conns[i] = Conn{addr, actor_id(this), network_manager_};
+  size_t idx = 0;
+  for (const auto &addr : addrs) {
+    if ((mode_ & static_cast<td::uint32>(AdnlLocalIdMode::direct_only)) && !addr->is_public()) {
+      continue;
     }
+    auto hash = addr->get_hash();
+    if (idx < old_conns.size() && old_conns[idx].addr->get_hash() == hash) {
+      conns.push_back(std::move(old_conns[idx]));
+    } else {
+      conns.push_back(Conn{addr, actor_id(this), network_manager_});
+    }
+    idx++;
   }
 
   old_conns = std::move(conns);
@@ -728,14 +732,12 @@ void AdnlPeerPairImpl::conn_change_state(AdnlConnectionIdShort id, bool ready) {
   }
 }
 
-td::actor::ActorOwn<AdnlPeerPair> AdnlPeerPair::create(td::actor::ActorId<AdnlNetworkManager> network_manager,
-                                                       td::actor::ActorId<AdnlPeerTable> peer_table,
-                                                       td::actor::ActorId<AdnlLocalId> local_actor,
-                                                       td::actor::ActorId<AdnlPeer> peer_actor,
-                                                       td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
-                                                       AdnlNodeIdShort peer_id) {
-  auto X = td::actor::create_actor<AdnlPeerPairImpl>("peerpair", network_manager, peer_table, local_actor, peer_actor,
-                                                     dht_node, local_id, peer_id);
+td::actor::ActorOwn<AdnlPeerPair> AdnlPeerPair::create(
+    td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
+    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor, td::actor::ActorId<AdnlPeer> peer_actor,
+    td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
+  auto X = td::actor::create_actor<AdnlPeerPairImpl>("peerpair", network_manager, peer_table, local_mode, local_actor,
+                                                     peer_actor, dht_node, local_id, peer_id);
   return td::actor::ActorOwn<AdnlPeerPair>(std::move(X));
 }
 
@@ -746,15 +748,16 @@ td::actor::ActorOwn<AdnlPeer> AdnlPeer::create(td::actor::ActorId<AdnlNetworkMan
   return td::actor::ActorOwn<AdnlPeer>(std::move(X));
 }
 
-void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::actor::ActorId<AdnlLocalId> dst_actor, AdnlPacket packet) {
+void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
+                                  AdnlPacket packet) {
   if (packet.inited_from()) {
     update_id(packet.from());
   }
 
   auto it = peer_pairs_.find(dst);
   if (it == peer_pairs_.end()) {
-    auto X =
-        AdnlPeerPair::create(network_manager_, peer_table_, dst_actor, actor_id(this), dht_node_, dst, peer_id_short_);
+    auto X = AdnlPeerPair::create(network_manager_, peer_table_, dst_mode, dst_actor, actor_id(this), dht_node_, dst,
+                                  peer_id_short_);
     peer_pairs_.emplace(dst, std::move(X));
     it = peer_pairs_.find(dst);
     CHECK(it != peer_pairs_.end());
@@ -767,12 +770,12 @@ void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::actor::ActorId<AdnlLo
   td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet_checked, std::move(packet));
 }
 
-void AdnlPeerImpl::send_messages(AdnlNodeIdShort src, td::actor::ActorId<AdnlLocalId> src_actor,
+void AdnlPeerImpl::send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
                                  std::vector<AdnlMessage> messages) {
   auto it = peer_pairs_.find(src);
   if (it == peer_pairs_.end()) {
-    auto X =
-        AdnlPeerPair::create(network_manager_, peer_table_, src_actor, actor_id(this), dht_node_, src, peer_id_short_);
+    auto X = AdnlPeerPair::create(network_manager_, peer_table_, src_mode, src_actor, actor_id(this), dht_node_, src,
+                                  peer_id_short_);
     peer_pairs_.emplace(src, std::move(X));
     it = peer_pairs_.find(src);
     CHECK(it != peer_pairs_.end());
@@ -785,12 +788,13 @@ void AdnlPeerImpl::send_messages(AdnlNodeIdShort src, td::actor::ActorId<AdnlLoc
   td::actor::send_closure(it->second, &AdnlPeerPair::send_messages, std::move(messages));
 }
 
-void AdnlPeerImpl::send_query(AdnlNodeIdShort src, td::actor::ActorId<AdnlLocalId> src_actor, std::string name,
-                              td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) {
+void AdnlPeerImpl::send_query(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
+                              std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
+                              td::BufferSlice data) {
   auto it = peer_pairs_.find(src);
   if (it == peer_pairs_.end()) {
-    auto X =
-        AdnlPeerPair::create(network_manager_, peer_table_, src_actor, actor_id(this), dht_node_, src, peer_id_short_);
+    auto X = AdnlPeerPair::create(network_manager_, peer_table_, src_mode, src_actor, actor_id(this), dht_node_, src,
+                                  peer_id_short_);
     peer_pairs_.emplace(src, std::move(X));
     it = peer_pairs_.find(src);
     CHECK(it != peer_pairs_.end());
@@ -814,12 +818,12 @@ void AdnlPeerImpl::update_dht_node(td::actor::ActorId<dht::Dht> dht_node) {
   }
 }
 
-void AdnlPeerImpl::update_addr_list(AdnlNodeIdShort local_id, td::actor::ActorId<AdnlLocalId> local_actor,
-                                    AdnlAddressList addr_list) {
+void AdnlPeerImpl::update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_mode,
+                                    td::actor::ActorId<AdnlLocalId> local_actor, AdnlAddressList addr_list) {
   auto it = peer_pairs_.find(local_id);
   if (it == peer_pairs_.end()) {
-    auto X = AdnlPeerPair::create(network_manager_, peer_table_, local_actor, actor_id(this), dht_node_, local_id,
-                                  peer_id_short_);
+    auto X = AdnlPeerPair::create(network_manager_, peer_table_, local_mode, local_actor, actor_id(this), dht_node_,
+                                  local_id, peer_id_short_);
     peer_pairs_.emplace(local_id, std::move(X));
     it = peer_pairs_.find(local_id);
     CHECK(it != peer_pairs_.end());

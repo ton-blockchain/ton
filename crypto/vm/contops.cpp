@@ -492,6 +492,7 @@ int exec_setcontargs_common(VmState* st, int copy, int more) {
       } else {
         cdata->stack.write().move_from_stack(stack, copy);
       }
+      st->consume_stack_gas(cdata->stack);
       if (cdata->nargs >= 0) {
         cdata->nargs -= copy;
       }
@@ -557,6 +558,7 @@ int exec_return_args_common(VmState* st, int count) {
     cdata->stack.write().move_from_stack(alt_stk.write(), copy);
     alt_stk.clear();
   }
+  st->consume_stack_gas(cdata->stack);
   if (cdata->nargs >= 0) {
     cdata->nargs -= copy;
   }
@@ -587,6 +589,7 @@ int exec_bless_args_common(VmState* st, int copy, int more) {
   stack.check_underflow(copy + 1);
   auto cs = stack.pop_cellslice();
   auto new_stk = stack.split_top(copy);
+  st->consume_stack_gas(new_stk);
   stack.push_cont(Ref<OrdCont>{true, std::move(cs), st->get_cp(), std::move(new_stk), more});
   return 0;
 }

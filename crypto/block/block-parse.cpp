@@ -344,11 +344,11 @@ unsigned long long VarUIntegerPos::as_uint(const vm::CellSlice& cs) const {
 
 bool VarUIntegerPos::store_integer_value(vm::CellBuilder& cb, const td::BigInt256& value) const {
   int k = value.bit_size(false);
-  return k <= (n - 1) * 8 && value.sgn() > 0 && cb.store_long_bool((k + 7) >> 3, ln) &&
+  return k <= (n - 1) * 8 && value.sgn() >= (int)store_pos_only && cb.store_long_bool((k + 7) >> 3, ln) &&
          cb.store_int256_bool(value, (k + 7) & -8, false);
 }
 
-const VarUIntegerPos t_VarUIntegerPos_16{16}, t_VarUIntegerPos_32{32};
+const VarUIntegerPos t_VarUIntegerPos_16{16}, t_VarUIntegerPos_32{32}, t_VarUIntegerPosRelaxed_32{32, true};
 
 static inline bool redundant_int(const vm::CellSlice& cs) {
   int t = (int)cs.prefetch_long(9);
