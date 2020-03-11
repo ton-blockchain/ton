@@ -1,5 +1,7 @@
+#!/usr/bin/create-state -s
 "TonUtil.fif" include
 "Asm.fif" include
+"Lists.fif" include
 
 def? $1 { @' $1 } { "" } cond constant suffix 
 { suffix $+ } : +suffix
@@ -198,6 +200,9 @@ GR$1.7 GR$1 config.block_create_fees!
 smc1_addr config.minter_smc!
 
 1000000000000 -17 of-cc 666666666666 239 of-cc cc+ config.to_mint!
+
+( 9 10 18 20 21 22 23 24 25 28 34 ) config.mandatory_params!
+( -1000 -1001 9 10 32 34 36 ) config.critical_params!
 
 "validator-keys" +suffix +".pub" file>B
 { dup Blen } { 32 B| swap dup ."Validator public key = " Bx. cr

@@ -91,7 +91,7 @@ class AdnlPeerTable : public Adnl {
 
   virtual void receive_packet(td::IPAddress addr, td::BufferSlice data) = 0;
   virtual void receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket packet) = 0;
-  virtual void send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message) = 0;
+  virtual void send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message, td::uint32 flags) = 0;
 
   virtual void register_channel(AdnlChannelIdShort id, td::actor::ActorId<AdnlChannel> channel) = 0;
   virtual void unregister_channel(AdnlChannelIdShort id) = 0;

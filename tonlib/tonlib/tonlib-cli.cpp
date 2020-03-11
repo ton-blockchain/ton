@@ -1476,8 +1476,8 @@ class TonlibCli : public td::actor::Actor {
       } else {
         data = tonlib_api::make_object<tonlib_api::msg_dataText>(message.str());
       }
-      messages.push_back(
-          tonlib_api::make_object<tonlib_api::msg_message>(std::move(address.address), amount.nano, std::move(data)));
+      messages.push_back(tonlib_api::make_object<tonlib_api::msg_message>(std::move(address.address), "", amount.nano,
+                                                                          std::move(data)));
       return td::Status::OK();
     };
 

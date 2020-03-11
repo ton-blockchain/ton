@@ -138,7 +138,8 @@ void AdnlPeerTableImpl::add_static_nodes_from_config(AdnlNodesList nodes) {
   }
 }
 
-void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message) {
+void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message,
+                                        td::uint32 flags) {
   auto it = peers_.find(dst);
 
   if (it == peers_.end()) {
@@ -152,7 +153,7 @@ void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst
   }
 
   td::actor::send_closure(it->second, &AdnlPeer::send_one_message, src, it2->second.second, it2->second.first.get(),
-                          std::move(message));
+                          OutboundAdnlMessage{std::move(message), flags});
 }
 
 void AdnlPeerTableImpl::answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id,
@@ -162,7 +163,7 @@ void AdnlPeerTableImpl::answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, A
                << "]: message too big: size=" << data.size();
     return;
   }
-  send_message_in(src, dst, adnlmessage::AdnlMessageAnswer{query_id, std::move(data)});
+  send_message_in(src, dst, adnlmessage::AdnlMessageAnswer{query_id, std::move(data)}, 0);
 }
 
 void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std::string name,
@@ -185,7 +186,7 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
   }
 
   td::actor::send_closure(it->second, &AdnlPeer::send_query, src, it2->second.second, it2->second.first.get(), name,
-                          std::move(promise), timeout, std::move(data));
+                          std::move(promise), timeout, std::move(data), 0);
 }
 
 void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode) {

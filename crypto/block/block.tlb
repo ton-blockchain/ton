@@ -572,6 +572,7 @@ _ to_mint:ExtraCurrencyCollection = ConfigParam 7;
 capabilities#c4 version:uint32 capabilities:uint64 = GlobalVersion;
 _ GlobalVersion = ConfigParam 8;  // all zero if absent
 _ mandatory_params:(Hashmap 32 True) = ConfigParam 9;
+_ critical_params:(Hashmap 32 True) = ConfigParam 10;
 
 wfmt_basic#1 vm_version:int32 vm_mode:uint64 = WorkchainFormat 1;
 wfmt_ext#0 min_addr_len:(## 12) max_addr_len:(## 12) addr_len_step:(## 12)

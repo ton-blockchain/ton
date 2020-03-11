@@ -728,6 +728,7 @@ bool ValidateQuery::try_unpack_mc_state() {
 
 // almost the same as in Collator
 bool ValidateQuery::fetch_config_params() {
+  old_mparams_ = config_->get_config_param(9);
   {
     auto res = config_->get_storage_prices();
     if (res.is_error()) {
@@ -4804,7 +4805,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
   Ref<vm::Cell> old_cfg_root, new_cfg_root;
   CHECK(block::gen::t_ConfigParams.unpack_cons1(old_conf_params.write(), old_cfg_addr, old_cfg_root) &&
         block::gen::t_ConfigParams.unpack_cons1(new_conf_params.write(), new_cfg_addr, new_cfg_root));
-  if (!block::valid_config_data(new_cfg_root, new_cfg_addr, true)) {
+  if (!block::valid_config_data(new_cfg_root, new_cfg_addr, true, false, old_mparams_)) {
     return reject_query(
         "new configuration parameters failed to pass per-parameter automated validity checks, or one of mandatory "
         "configuration parameters is missing");
@@ -4829,7 +4830,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
         "the new configuration is different from that stored in the persistent data of the (new) configuration smart contract "s +
         old_cfg_addr.to_hex());
   }
-  if (!block::valid_config_data(ocfg_root, old_cfg_addr, true, true)) {
+  if (!block::valid_config_data(ocfg_root, old_cfg_addr, true, true, old_mparams_)) {
     return reject_query("configuration extracted from (old) configuration smart contract "s + old_cfg_addr.to_hex() +
                         " failed to pass per-parameted validity checks, or one of mandatory parameters is missing");
   }
@@ -4883,7 +4884,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return true;
   }
   auto wcfg_root = wcfg_res.move_as_ok();
-  if (!block::valid_config_data(wcfg_root, want_cfg_addr, true)) {
+  if (!block::valid_config_data(wcfg_root, want_cfg_addr, true, false, old_mparams_)) {
     LOG(WARNING)
         << "switching of configuration smart contract did not happen because the configuration extracted from "
            "suggested new configuration smart contract "

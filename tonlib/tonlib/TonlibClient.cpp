@@ -1851,7 +1851,6 @@ struct ToRawTransactions {
 
       if (r_body_message.is_ok()) {
         if (type == 0) {
-          LOG(ERROR) << "OK " << r_body_message.ok();
           data = tonlib_api::make_object<tonlib_api::msg_dataText>(r_body_message.move_as_ok());
         } else {
           LOG(ERROR) << "TRY DECRYPT";
@@ -2177,6 +2176,8 @@ class GenericCreateSendGrams : public TonlibQueryActor {
     std::string message;
 
     td::Ref<vm::Cell> body;
+
+    td::optional<td::Ed25519::PublicKey> o_public_key;
   };
   bool allow_send_to_uninited_{false};
   std::vector<Action> actions_;
@@ -2210,6 +2211,11 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       return TonlibError::InvalidField("amount", "can't be negative");
     }
     res.amount = message.amount_;
+    if (!message.public_key_.empty()) {
+      TRY_RESULT(public_key, get_public_key(message.public_key_));
+      auto key = td::Ed25519::PublicKey(td::SecureString(public_key.key));
+      res.o_public_key = std::move(key);
+    }
     auto status =
         downcast_call2<td::Status>(*message.data_, td::overloaded(
                                                        [&](tonlib_api::msg_dataRaw& text) {
@@ -2243,7 +2249,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       return TonlibError::MessageTooLong();
     }
     TRY_STATUS(std::move(status));
-    return res;
+    return std::move(res);
   }
 
   td::Result<ton::ManualDns::Action> to_dns_action(tonlib_api::dns_Action& action) {
@@ -2465,15 +2471,30 @@ class GenericCreateSendGrams : public TonlibQueryActor {
         if (!private_key_) {
           return TonlibError::EmptyField("private_key");
         }
-        if (!destination->is_wallet()) {
+
+        auto o_public_key = std::move(action.o_public_key);
+        if (!o_public_key && destination->is_wallet()) {
+          auto wallet = destination->get_wallet();
+          auto r_public_key = wallet->get_public_key();
+          if (r_public_key.is_ok()) {
+            o_public_key = r_public_key.move_as_ok();
+          }
+        }
+
+        if (!o_public_key) {
+          auto smc = ton::SmartContract::create(destination->get_smc_state());
+          auto r_public_key = ton::GenericAccount::get_public_key(destination->get_smc_state());
+          if (r_public_key.is_ok()) {
+            o_public_key = r_public_key.move_as_ok();
+          }
+        }
+
+        if (!o_public_key) {
           return TonlibError::MessageEncryption("Get public key (in destination)");
         }
-        auto wallet = destination->get_wallet();
-        TRY_RESULT_PREFIX(public_key, wallet->get_public_key(),
-                          TonlibError::AccountActionUnsupported(PSLICE() << "Get public key (in destination) : "
-                                                                         << destination->get_wallet_type()));
+
         TRY_RESULT_PREFIX(encrypted_message,
-                          SimpleEncryptionV2::encrypt_data(action.message, public_key, private_key_.value()),
+                          SimpleEncryptionV2::encrypt_data(action.message, o_public_key.unwrap(), private_key_.value()),
                           TonlibError::Internal());
         gift.message = encrypted_message.as_slice().str();
         gift.is_encrypted = true;

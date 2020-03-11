@@ -45,14 +45,17 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   void receive_packet(td::IPAddress addr, td::BufferSlice data) override;
   void receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket data) override;
-  void send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message) override;
+  void send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message, td::uint32 flags) override;
   void send_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override {
+    send_message_ex(src, dst, std::move(data), 0);
+  }
+  void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) override {
     if (data.size() > huge_packet_max_size()) {
       VLOG(ADNL_WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
       VLOG(ADNL_WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
       return;
     }
-    send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}});
+    send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}}, flags);
   }
   void answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id, td::BufferSlice data) override;
   void send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std::string name, td::Promise<td::BufferSlice> promise,

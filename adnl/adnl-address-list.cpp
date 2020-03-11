@@ -21,6 +21,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "td/utils/overloaded.h"
 #include "td/net/UdpServer.h"
+#include "keys/encryptor.h"
 
 namespace ton {
 
@@ -50,6 +51,59 @@ class AdnlNetworkConnectionUdp : public AdnlNetworkConnection {
   std::unique_ptr<AdnlNetworkConnection::Callback> callback_;
 };
 
+class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
+ public:
+  void send(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::uint32 priority, td::BufferSlice message) override {
+    if (!encryptor_) {
+      VLOG(ADNL_INFO) << "tunnel: message [" << src << "->" << dst << "to bad tunnel. dropping";
+      return;
+    }
+    auto dataR = encryptor_->encrypt(message.as_slice());
+    if (dataR.is_error()) {
+      VLOG(ADNL_INFO) << "tunnel: message [" << src << "->" << dst << ": failed to encrypt: " << dataR.move_as_error();
+      return;
+    }
+    auto data = dataR.move_as_ok();
+    td::BufferSlice enc_message{data.size() + 32};
+    auto S = enc_message.as_slice();
+    S.copy_from(pub_key_hash_.as_slice());
+    S.remove_prefix(32);
+    S.copy_from(data.as_slice());
+    td::actor::send_closure(adnl_, &Adnl::send_message_ex, src, adnl_id_, std::move(enc_message),
+                            Adnl::SendFlags::direct_only);
+  }
+  bool is_alive() const override {
+    return ready_.load(std::memory_order_consume);
+  }
+  bool is_active() const override {
+    return ready_.load(std::memory_order_consume);
+  }
+  void start_up() override {
+    auto R = pub_key_.create_encryptor();
+    if (R.is_error()) {
+      VLOG(ADNL_INFO) << "tunnel: bad public key: " << R.move_as_error();
+      return;
+    }
+    encryptor_ = R.move_as_ok();
+    pub_key_hash_ = pub_key_.compute_short_id();
+    //ready_.store(true, std::memory_order_release);
+  }
+
+  AdnlNetworkConnectionTunnel(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
+                              adnl::AdnlNodeIdShort adnl_id, PublicKey pubkey,
+                              std::unique_ptr<AdnlNetworkConnection::Callback> callback);
+
+ private:
+  td::actor::ActorId<AdnlNetworkManager> network_manager_;
+  td::actor::ActorId<Adnl> adnl_;
+  AdnlNodeIdShort adnl_id_;
+  PublicKey pub_key_;
+  PublicKeyHash pub_key_hash_;
+  std::unique_ptr<Encryptor> encryptor_;
+  std::atomic<bool> ready_{false};
+  std::unique_ptr<AdnlNetworkConnection::Callback> callback_;
+};
+
 void AdnlNetworkConnectionUdp::send(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::uint32 priority,
                                     td::BufferSlice message) {
   LOG_CHECK(message.size() <= AdnlNetworkManager::get_mtu()) << "dst=" << addr_ << " size=" << message.size();
@@ -71,12 +125,23 @@ AdnlNetworkConnectionUdp::AdnlNetworkConnectionUdp(td::actor::ActorId<AdnlNetwor
   addr_.init_host_port(td::IPAddress::ipv6_to_str(ip.as_slice()), port).ensure();
 }
 
+AdnlNetworkConnectionTunnel::AdnlNetworkConnectionTunnel(td::actor::ActorId<AdnlNetworkManager> network_manager,
+                                                         td::actor::ActorId<Adnl> adnl, adnl::AdnlNodeIdShort adnl_id,
+                                                         PublicKey pubkey,
+                                                         std::unique_ptr<AdnlNetworkConnection::Callback> callback)
+    : network_manager_(std::move(network_manager))
+    , adnl_(std::move(adnl))
+    , adnl_id_(adnl_id)
+    , pub_key_(std::move(pubkey))
+    , callback_(std::move(callback)) {
+}
+
 AdnlAddressImpl::Hash AdnlAddressImpl::get_hash() const {
   return get_tl_object_sha_bits256(tl());
 }
 
 td::actor::ActorOwn<AdnlNetworkConnection> AdnlAddressUdp::create_connection(
-    td::actor::ActorId<AdnlNetworkManager> network_manager,
+    td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
     std::unique_ptr<AdnlNetworkConnection::Callback> callback) const {
   return td::actor::create_actor<AdnlNetworkConnectionUdp>("udpconn", network_manager, ip_, port_, std::move(callback));
 }
@@ -87,7 +152,7 @@ AdnlAddressUdp::AdnlAddressUdp(const ton_api::adnl_address_udp &obj) {
 }
 
 td::actor::ActorOwn<AdnlNetworkConnection> AdnlAddressUdp6::create_connection(
-    td::actor::ActorId<AdnlNetworkManager> network_manager,
+    td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
     std::unique_ptr<AdnlNetworkConnection::Callback> callback) const {
   return td::actor::create_actor<AdnlNetworkConnectionUdp>("udpconn", network_manager, ip_, port_, std::move(callback));
 }
@@ -97,16 +162,24 @@ AdnlAddressUdp6::AdnlAddressUdp6(const ton_api::adnl_address_udp6 &obj) {
   port_ = static_cast<td::uint16>(obj.port_);
 }
 
+td::actor::ActorOwn<AdnlNetworkConnection> AdnlAddressTunnel::create_connection(
+    td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
+    std::unique_ptr<AdnlNetworkConnection::Callback> callback) const {
+  return td::actor::create_actor<AdnlNetworkConnectionTunnel>("tunnelconn", network_manager, adnl, adnl_id_, pub_key_,
+                                                              std::move(callback));
+}
+AdnlAddressTunnel::AdnlAddressTunnel(const ton_api::adnl_address_tunnel &obj) {
+  adnl_id_ = AdnlNodeIdShort{obj.to_};
+  pub_key_ = ton::PublicKey{obj.pubkey_};
+}
+
 td::Ref<AdnlAddressImpl> AdnlAddressImpl::create(const tl_object_ptr<ton_api::adnl_Address> &addr) {
   td::Ref<AdnlAddressImpl> res = td::Ref<AdnlAddressImpl>{};
-  ton_api::downcast_call(*const_cast<ton_api::adnl_Address *>(addr.get()),
-                         td::overloaded(
-                             [&](const ton_api::adnl_address_udp &obj) {
-                               res = td::Ref<AdnlAddressUdp>{true, obj};
-                             },
-                             [&](const ton_api::adnl_address_udp6 &obj) {
-                               res = td::Ref<AdnlAddressUdp6>{true, obj};
-                             }));
+  ton_api::downcast_call(
+      *const_cast<ton_api::adnl_Address *>(addr.get()),
+      td::overloaded([&](const ton_api::adnl_address_udp &obj) { res = td::make_ref<AdnlAddressUdp>(obj); },
+                     [&](const ton_api::adnl_address_udp6 &obj) { res = td::make_ref<AdnlAddressUdp6>(obj); },
+                     [&](const ton_api::adnl_address_tunnel &obj) { res = td::make_ref<AdnlAddressTunnel>(obj); }));
   return res;
 }
 

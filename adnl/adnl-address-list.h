@@ -25,6 +25,8 @@ namespace ton {
 
 namespace adnl {
 
+class Adnl;
+
 class AdnlAddressImpl : public td::CntObject {
  public:
   using Hash = td::Bits256;
@@ -35,7 +37,7 @@ class AdnlAddressImpl : public td::CntObject {
   virtual td::uint32 serialized_size() const = 0;
   virtual tl_object_ptr<ton_api::adnl_Address> tl() const = 0;
   virtual td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
-      td::actor::ActorId<AdnlNetworkManager> network_manager,
+      td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const = 0;
 
   static td::Ref<AdnlAddressImpl> create(const tl_object_ptr<ton_api::adnl_Address> &addr);

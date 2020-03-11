@@ -75,6 +75,11 @@ class Adnl : public AdnlSenderInterface {
     return 1024 * 8;
   }
 
+  struct SendFlags {
+    enum Flags : td::uint32 { direct_only = 1 };
+  };
+  virtual void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) = 0;
+
   // adds node to peer table
   // used mostly from DHT to avoid loops
   virtual void add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) = 0;

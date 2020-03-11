@@ -161,6 +161,10 @@ TEST(VM, infinity_loop_2) {
   test_run_vm_raw("kpTt7ZLrig==");
 }
 
+TEST(VM, oom_1) {
+  test_run_vm_raw("bXflX/BvDw==");
+}
+
 TEST(VM, bigint) {
   td::StringBuilder sb({}, true);
 

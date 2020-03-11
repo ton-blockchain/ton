@@ -239,7 +239,7 @@ td::Result<QueryId> create_send_grams_query(Client& client, const Wallet& source
     data = tonlib_api::make_object<tonlib_api::msg_dataText>(std::move(message));
   }
   msgs.push_back(tonlib_api::make_object<tonlib_api::msg_message>(
-      tonlib_api::make_object<tonlib_api::accountAddress>(destination), amount, std::move(data)));
+      tonlib_api::make_object<tonlib_api::accountAddress>(destination), "", amount, std::move(data)));
 
   auto r_id =
       sync_send(client, tonlib_api::make_object<tonlib_api::createQuery>(

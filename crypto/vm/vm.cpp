@@ -72,6 +72,32 @@ VmState::VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& gas, 
   init_cregs(flags & 1, flags & 2);
 }
 
+void VmState::init_cregs(bool same_c3, bool push_0) {
+  cr.set_c0(quit0);
+  cr.set_c1(quit1);
+  cr.set_c2(Ref<ExcQuitCont>{true});
+  if (same_c3) {
+    cr.set_c3(Ref<OrdCont>{true, code, cp});
+    if (push_0) {
+      VM_LOG(this) << "implicit PUSH 0 at start\n";
+      get_stack().push_smallint(0);
+    }
+  } else {
+    cr.set_c3(Ref<QuitCont>{true, 11});
+  }
+  if (cr.d[0].is_null() || cr.d[1].is_null()) {
+    auto empty_cell = CellBuilder{}.finalize();
+    for (int i = 0; i < ControlRegs::dreg_num; i++) {
+      if (cr.d[i].is_null()) {
+        cr.d[i] = empty_cell;
+      }
+    }
+  }
+  if (cr.c7.is_null()) {
+    cr.set_c7(Ref<Tuple>{true});
+  }
+}
+
 Ref<CellSlice> VmState::convert_code_cell(Ref<Cell> code_cell) {
   if (code_cell.is_null()) {
     return {};
@@ -388,7 +414,7 @@ void VmState::change_gas_limit(long long new_limit) {
 }
 
 int VmState::step() {
-  assert(!code.is_null());
+  CHECK(code.not_null() && stack.not_null());
   //VM_LOG(st) << "stack:";  stack->dump(VM_LOG(st));
   //VM_LOG(st) << "; cr0.refcnt = " << get_c0()->get_refcnt() - 1 << std::endl;
   if (stack_trace) {
@@ -410,8 +436,9 @@ int VmState::step() {
 }
 
 int VmState::run() {
-  if (code.is_null()) {
-    throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
+  if (code.is_null() || stack.is_null()) {
+    // throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
+    return (int)Excno::fatal;  // no ~ for unhandled exceptions
   }
   int res;
   Guard guard(this);

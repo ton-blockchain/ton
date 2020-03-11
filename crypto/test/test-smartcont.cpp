@@ -306,6 +306,8 @@ TEST(Tonlib, WalletV3) {
   ASSERT_EQ(239u, wallet.get_wallet_id().ok());
   ASSERT_EQ(123u, wallet.get_seqno().ok());
   CHECK(priv_key.get_public_key().ok().as_octet_string() == wallet.get_public_key().ok().as_octet_string());
+  CHECK(priv_key.get_public_key().ok().as_octet_string() ==
+        ton::GenericAccount::get_public_key(wallet).ok().as_octet_string());
 
   auto gift_message = ton::GenericAccount::create_ext_message(
       address, {}, wallet.make_a_gift_message(priv_key, 60, {gift}).move_as_ok());
@@ -337,6 +339,7 @@ TEST(Tonlib, HighloadWallet) {
   ASSERT_EQ(239u, wallet.get_wallet_id().ok());
   ASSERT_EQ(0u, wallet.get_seqno().ok());
   CHECK(pub_key.as_octet_string() == wallet.get_public_key().ok().as_octet_string());
+  CHECK(pub_key.as_octet_string() == ton::GenericAccount::get_public_key(wallet).ok().as_octet_string());
 
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
 
@@ -417,6 +420,7 @@ TEST(Tonlib, HighloadWalletV2) {
       {ton::HighloadWalletV2::get_init_code(-1), ton::HighloadWalletV2::get_init_data(pub_key, 239)});
   ASSERT_EQ(239u, wallet.get_wallet_id().ok());
   CHECK(pub_key.as_octet_string() == wallet.get_public_key().ok().as_octet_string());
+  CHECK(pub_key.as_octet_string() == ton::GenericAccount::get_public_key(wallet).ok().as_octet_string());
 
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
 

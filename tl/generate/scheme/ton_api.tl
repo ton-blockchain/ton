@@ -67,7 +67,7 @@ adnl.address.udp6 ip:int128 port:int = adnl.Address;
 //adnl.address.tcp ip:int port:int = adnl.Address;
 //adnl.address.tcp6 ip:int128 port:int = adnl.Address;
 
-//adnl.address.tunnel to:adnl.Address tunid: = adnl.Address; 
+adnl.address.tunnel to:int256 pubkey:PublicKey = adnl.Address; 
 
 adnl.addressList addrs:(vector adnl.Address) version:int reinit_date:int priority:int expire_at:int = adnl.AddressList;
 

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -169,6 +169,7 @@ class ValidateQuery : public td::actor::Actor {
   std::unique_ptr<block::ShardConfig> new_shard_conf_;  // from shard_hashes_ in mc blocks
   Ref<block::WorkchainInfo> wc_info_;
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
+  Ref<vm::Cell> old_mparams_;
   bool accept_msgs_{true};
 
   ton::BlockSeqno min_shard_ref_mc_seqno_{~0U};

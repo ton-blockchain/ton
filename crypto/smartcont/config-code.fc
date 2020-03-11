@@ -217,6 +217,7 @@ builder pack_proposal(cell voters, int sum_weight, int vset_id, slice body) inli
   int msg_seqno = cs~load_uint(32);
   var valid_until = cs~load_uint(32);
   throw_if(35, valid_until < now());
+  throw_if(39, slice_depth(cs) > 64);
   var (cfg_dict, stored_seqno, public_key, vote_dict) = load_data();
   throw_unless(33, msg_seqno == stored_seqno);
   ifnot ((action - 0x566f7465) & -2) {
@@ -228,6 +229,7 @@ builder pack_proposal(cell voters, int sum_weight, int vset_id, slice body) inli
     stored_seqno += 1;
     store_data(cfg_dict, stored_seqno, public_key, vote_dict);
     commit();
+    var (_, bits, refs) = cs.slice_compute_data_size(1024);
     (vote_dict, var accepted) = register_vote(vote_dict, action, cs, idx, weight, total_weight, config_param(34).cell_hash());
     store_data(cfg_dict, stored_seqno, public_key, vote_dict);
     ifnot (accepted.null?()) {

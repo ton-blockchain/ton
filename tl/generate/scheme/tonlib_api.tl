@@ -90,7 +90,7 @@ msg.dataEncryptedText text:bytes = msg.Data;
 
 msg.dataArray elements:vector<msg.Data> = msg.DataArray;
 
-msg.message destination:accountAddress amount:int64 data:msg.Data = msg.Message;
+msg.message destination:accountAddress public_key:string amount:int64 data:msg.Data = msg.Message;
 
 //
 // DNS

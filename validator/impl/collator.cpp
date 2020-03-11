@@ -1457,6 +1457,7 @@ bool Collator::init_lt() {
 }
 
 bool Collator::fetch_config_params() {
+  old_mparams_ = config_->get_config_param(9);
   {
     auto res = config_->get_storage_prices();
     if (res.is_error()) {
@@ -2968,7 +2969,7 @@ bool Collator::create_mc_state_extra() {
   auto cfg_smc_config = cfg_res.move_as_ok();
   CHECK(cfg_smc_config.not_null());
   vm::Dictionary cfg_dict{cfg_smc_config, 32};
-  if (!block::valid_config_data(cfg_smc_config, config_addr, true, true)) {
+  if (!block::valid_config_data(cfg_smc_config, config_addr, true, true, old_mparams_)) {
     block::gen::t_Hashmap_32_Ref_Cell.print_ref(std::cerr, cfg_smc_config);
     return fatal_error("configuration smart contract "s + config_addr.to_hex() +
                        " contains an invalid configuration in its data");
@@ -3241,7 +3242,7 @@ bool Collator::try_fetch_new_config(const ton::StdSmcAddress& cfg_addr, Ref<vm::
     return false;
   }
   auto cfg = cfg_res.move_as_ok();
-  if (!block::valid_config_data(cfg, cfg_addr, true)) {
+  if (!block::valid_config_data(cfg, cfg_addr, true, false, old_mparams_)) {
     LOG(ERROR) << "new configuration smart contract " << cfg_addr.to_hex()
                << " contains a new configuration which is invalid, ignoring";
     return false;

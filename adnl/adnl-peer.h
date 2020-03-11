@@ -43,9 +43,9 @@ class AdnlPeerPair : public td::actor::Actor {
   virtual void receive_packet_checked(AdnlPacket packet) = 0;
   virtual void receive_packet(AdnlPacket packet) = 0;
 
-  virtual void send_messages(std::vector<AdnlMessage> message) = 0;
-  inline void send_message(AdnlMessage message) {
-    std::vector<AdnlMessage> vec;
+  virtual void send_messages(std::vector<OutboundAdnlMessage> message) = 0;
+  inline void send_message(OutboundAdnlMessage message) {
+    std::vector<OutboundAdnlMessage> vec;
     vec.push_back(std::move(message));
     send_messages(std::move(vec));
   }
@@ -53,7 +53,7 @@ class AdnlPeerPair : public td::actor::Actor {
     return Adnl::get_mtu() + 128;
   }
   virtual void send_query(std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                          td::BufferSlice data) = 0;
+                          td::BufferSlice data, td::uint32 flags) = 0;
   virtual void alarm_query(AdnlQueryId query_id) = 0;
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) = 0;
   virtual void update_peer_id(AdnlNodeIdFull id) = 0;
@@ -72,20 +72,20 @@ class AdnlPeer : public td::actor::Actor {
   virtual void receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
                               AdnlPacket message) = 0;
   virtual void send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
-                             std::vector<AdnlMessage> messages) = 0;
+                             std::vector<OutboundAdnlMessage> messages) = 0;
   virtual void send_query(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
                           std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                          td::BufferSlice data) = 0;
+                          td::BufferSlice data, td::uint32 flags) = 0;
   void send_one_message(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
-                        AdnlMessage message) {
-    std::vector<AdnlMessage> vec;
+                        OutboundAdnlMessage message) {
+    std::vector<OutboundAdnlMessage> vec;
     vec.push_back(std::move(message));
     send_messages(src, src_mode, src_actor, std::move(vec));
   }
 
   void send_message(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
-                    td::BufferSlice data) {
-    auto M = AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}};
+                    td::BufferSlice data, td::uint32 flags) {
+    auto M = OutboundAdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}, flags};
     send_one_message(src, src_mode, src_actor, std::move(M));
   }
 

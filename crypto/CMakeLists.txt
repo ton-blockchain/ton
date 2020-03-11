@@ -48,6 +48,7 @@ set(TON_CRYPTO_SOURCE
   common/refint.h
   common/bigexp.h
   common/util.h
+  common/linalloc.hpp
 
   ellcurve/Ed25519.h
   ellcurve/Fp25519.h

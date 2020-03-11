@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "interfaces/validator-manager.h"
@@ -124,6 +124,7 @@ class Collator final : public td::actor::Actor {
   Ref<vm::Cell> state_update;                            // Merkle update from prev_state_root to state_root
   std::shared_ptr<vm::CellUsageTree> state_usage_tree_;  // used to construct Merkle update
   Ref<vm::CellSlice> new_config_params_;
+  Ref<vm::Cell> old_mparams_;
   ton::LogicalTime prev_state_lt_;
   ton::LogicalTime shards_max_end_lt_{0};
   ton::UnixTime prev_state_utime_;
