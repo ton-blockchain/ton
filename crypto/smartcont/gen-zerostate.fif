@@ -204,6 +204,12 @@ smc1_addr config.minter_smc!
 ( 9 10 18 20 21 22 23 24 25 28 34 ) config.mandatory_params!
 ( -1000 -1001 9 10 32 34 36 ) config.critical_params!
 
+// [ min_tot_rounds max_tot_rounds min_wins max_losses min_store_sec max_store_sec bit_price cell_price ]
+// first for ordinary proposals, then for critical proposals
+_( 2 3 2 2 1000000 10000000 GR$.001 GR$.2 )
+_( 4 7 4 2 5000000 20000000 GR$.002 GR$.8 )
+config.param_proposals_setup!
+
 "validator-keys" +suffix +".pub" file>B
 { dup Blen } { 32 B| swap dup ."Validator public key = " Bx. cr
   17 add-validator } while drop

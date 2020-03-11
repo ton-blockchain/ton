@@ -97,6 +97,17 @@ adnl.packetContents
   rand2:bytes 
         = adnl.PacketContents;
 
+adnl.tunnelPacketContents 
+  rand1:bytes 
+  flags:# 
+  from_ip:flags.0?int
+  from_port:flags.0?int
+  message:flags.1?bytes 
+  statistics:flags.2?bytes
+  payment:flags.3?bytes
+  rand2:bytes 
+        = adnl.TunnelPacketContents;
+
 
 adnl.message.createChannel key:int256 date:int = adnl.Message;
 adnl.message.confirmChannel key:int256 peer_key:int256 date:int = adnl.Message;

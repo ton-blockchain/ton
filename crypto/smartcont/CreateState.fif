@@ -97,6 +97,12 @@ variable special-dict
 { param-list-to-dict 9 config! } : config.mandatory_params!
 { param-list-to-dict 10 config! } : config.critical_params!
 
+// min_tot_rounds max_tot_rounds min_wins max_losses min_store_sec max_store_sec bit_price cell_price --
+{ 8 untuple 8 0 reverse <b x{36} s, { swap 8 u, } 4 times { swap 32 u, } 4 times b> } : cfg-prop-setup
+// normal-prop-params critical-prop-params --
+{ swap cfg-prop-setup swap cfg-prop-setup <b x{91} s, rot ref, swap ref, b> } : make-proposals-setup
+{ make-proposals-setup 11 config! } : config.param_proposals_setup!
+
 // bit-pps cell-pps mc-bit-pps mc-cell-pps --
 { <b x{cc} s, 0 32 u, 4 roll 64 u, 3 roll 64 u, rot 64 u, swap 64 u,
   0 dictnew 32 b>udict! 0= abort"cannot create storage prices dictionary"
