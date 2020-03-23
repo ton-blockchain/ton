@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 #include "dht/dht.h"
@@ -40,7 +40,7 @@
 
 enum DhtServerPermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
-using AdnlCategory = td::int32;
+using AdnlCategory = td::int8;
 
 struct Config {
   struct Addr {
@@ -177,7 +177,7 @@ class DhtServer : public td::actor::Actor {
   void alarm() override;
   void run();
 
-  void add_adnl_node(ton::PublicKey pub, td::int32 cat, td::Promise<td::Unit> promise);
+  void add_adnl_node(ton::PublicKey pub, AdnlCategory cat, td::Promise<td::Unit> promise);
   void add_dht_node(ton::PublicKeyHash pub, td::Promise<td::Unit> promise);
   void add_control_interface(ton::PublicKeyHash id, td::int32 port, td::Promise<td::Unit> promise);
   void add_control_process(ton::PublicKeyHash id, td::int32 port, ton::PublicKeyHash pub, td::int32 permissions,
@@ -214,4 +214,3 @@ class DhtServer : public td::actor::Actor {
   void process_control_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                              td::Promise<td::BufferSlice> promise);
 };
-

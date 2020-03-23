@@ -1633,15 +1633,19 @@ bool valid_config_data(Ref<vm::Cell> cell, const td::BitArray<256>& addr, bool c
 bool config_params_present(vm::Dictionary& dict, Ref<vm::Cell> param_dict_root) {
   auto res = block::Config::unpack_param_dict(std::move(param_dict_root));
   if (res.is_error()) {
+    LOG(ERROR)
+        << "invalid mandatory parameters dictionary while checking existence of all mandatory configuration parameters";
     return false;
   }
   for (int x : res.move_as_ok()) {
+    // LOG(DEBUG) << "checking whether mandatory configuration parameter #" << x << " exists";
     if (!dict.int_key_exists(x)) {
       LOG(ERROR) << "configuration parameter #" << x
                  << " (declared as mandatory in configuration parameter #9) is missing";
       return false;
     }
   }
+  // LOG(DEBUG) << "all mandatory configuration parameters present";
   return true;
 }
 

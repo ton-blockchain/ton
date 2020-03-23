@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-test-loopback-implementation.h"
@@ -75,8 +75,10 @@ int main() {
 
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr);
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr);
+    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
+                            static_cast<td::uint8>(0));
+    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr,
+                            static_cast<td::uint8>(0));
     td::actor::send_closure(rldp, &ton::rldp::Rldp::add_id, src);
     td::actor::send_closure(rldp, &ton::rldp::Rldp::add_id, dst);
 

@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/actor.h"
 #include "td/utils/buffer.h"
@@ -170,7 +170,10 @@ int main(int argc, char *argv[]) {
 
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(addr.get_port()));
 
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, addr, 0);
+    ton::adnl::AdnlCategoryMask cat_mask;
+    cat_mask[0] = true;
+    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, addr, std::move(cat_mask),
+                            0);
 
     auto tladdr = ton::create_tl_object<ton::ton_api::adnl_address_udp>(addr.get_ipv4(), addr.get_port());
     auto addr_vec = std::vector<ton::tl_object_ptr<ton::ton_api::adnl_Address>>();
@@ -179,7 +182,8 @@ int main(int argc, char *argv[]) {
         std::move(addr_vec), ton::adnl::Adnl::adnl_start_time(), ton::adnl::Adnl::adnl_start_time(), 0, 2000000000);
     auto addrlist = ton::adnl::AdnlAddressList::create(tladdrlist).move_as_ok();
 
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, std::move(addrlist));
+    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, std::move(addrlist),
+                            static_cast<td::uint8>(0));
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, ton::adnl::AdnlNodeIdShort{pub.compute_short_id()},
                             ton::adnl::Adnl::int_to_bytestring(ton::ton_api::adnl_ping::ID),
                             std::make_unique<ton::adnl::Callback>());

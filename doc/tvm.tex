@@ -1843,7 +1843,7 @@ All these primitives first check whether there is enough space in the Builder, a
 \item {\tt E0} --- {\tt IFJMP} ($f$ $c$ -- ), jumps to $c$ (similarly to {\tt JMPX}), but only if $f$ is non-zero.
 \item {\tt E1} --- {\tt IFNOTJMP} ($f$ $c$ -- ), jumps to $c$ (similarly to {\tt JMPX}), but only if $f$ is zero.
 \item {\tt E2} --- {\tt IFELSE} ($f$ $c$ $c'$ -- ), if integer $f$ is non-zero, executes $c$, otherwise executes $c'$. Equivalent to {\tt CONDSELCHK}; {\tt EXECUTE}.
-\item {\tt E300} --- {\tt IFREF} ($f$ -- ), equivalent to {\tt PUSHREFCONT}; {\tt IF}.
+\item {\tt E300} --- {\tt IFREF} ($f$ -- ), equivalent to {\tt PUSHREFCONT}; {\tt IF}, with the optimization that the cell reference is not actually loaded into a {\em Slice} and then converted into an ordinary {\em Continuation\/} if $f=0$. Similar remarks apply to the next three primitives.
 \item {\tt E301} --- {\tt IFNOTREF} ($f$ -- ), equivalent to {\tt PUSHREFCONT}; {\tt IFNOT}.
 \item {\tt E302} --- {\tt IFJMPREF} ($f$ -- ), equivalent to {\tt PUSHREFCONT}; {\tt IFJMP}.
 \item {\tt E303} --- {\tt IFNOTJMPREF} ($f$ -- ), equivalent to {\tt PUSHREFCONT}; {\tt IFNOTJMP}.
@@ -1851,14 +1851,18 @@ All these primitives first check whether there is enough space in the Builder, a
 \item {\tt E305} --- {\tt CONDSELCHK} ($f$ $x$ $y$ -- $x$ or $y$), same as {\tt CONDSEL}, but first checks whether $x$ and $y$ have the same type.
 \item {\tt E308} --- {\tt IFRETALT} ($f$ --), performs {\tt RETALT} if integer $f\neq0$.
 \item {\tt E309} --- {\tt IFNOTRETALT} ($f$ --), performs {\tt RETALT} if integer $f=0$.
+\item {\tt E30D} --- {\tt IFREFELSE} ($f$ $c$ --), equivalent to {\tt PUSHREFCONT}; {\tt SWAP}; {\tt IFELSE}, with the optimization that the cell reference is not actually loaded into a {\em Slice} and then converted into an ordinary {\em Continuation\/} if $f=0$. Similar remarks apply to the next two primitives: {\em Cell\/}s are converted into {\em Continuation\/}s only when necessary.
+\item {\tt E30E} --- {\tt IFELSEREF} ($f$ $c$ --), equivalent to {\tt PUSHREFCONT}; {\tt IFELSE}.
+\item {\tt E30F} --- {\tt IFREFELSEREF} ($f$ --), equivalent to {\tt PUSHREFCONT}; {\tt PUSHREFCONT}; {\tt IFELSE}.
+\item {\tt E310}--{\tt E31F} --- reserved for loops with break operators, cf.~\ptref{sp:prim.loop} below.
 \item {\tt E39\_$n$} --- {\tt IFBITJMP $n$} ($x$ $c$ -- $x$), checks whether bit $0\leq n\leq 31$ is set in integer $x$, and if so, performs {\tt JMPX} to continuation~$c$. Value $x$ is left in the stack.
 \item {\tt E3B\_$n$} --- {\tt IFNBITJMP $n$} ($x$ $c$ -- $x$), jumps to $c$ if bit $0\leq n\leq 31$ is not set in integer~$x$.
 \item {\tt E3D\_$n$} --- {\tt IFBITJMPREF $n$} ($x$ -- $x$), performs a {\tt JMPREF} if bit $0\leq n\leq 31$ is set in integer~$x$.
 \item {\tt E3F\_$n$} --- {\tt IFNBITJMPREF $n$} ($x$ -- $x$), performs a {\tt JMPREF} if bit $0\leq n\leq 31$ is not set in integer~$x$.
 \end{itemize}
 
-\nxsubpoint\emb{Control flow primitives: loops}
-Most of the loop primitives listed below are implemented with the aid of extraordinary continuations, such as {\tt ec\_until} (cf.~\ptref{sp:extraord.cont}), with the loop body and the original current continuation {\tt cc} stored as the arguments to this extraordinary continuation. Typically a suitable extraordinary continuation is constructed, and then saved into the loop body continuation savelist as {\tt c0}; after that, the modified loop body continuation is loaded into {\tt cc} and executed in the usual fashion.
+\nxsubpoint\emb{Control flow primitives: loops}\label{sp:prim.loop}
+Most of the loop primitives listed below are implemented with the aid of extraordinary continuations, such as {\tt ec\_until} (cf.~\ptref{sp:extraord.cont}), with the loop body and the original current continuation {\tt cc} stored as the arguments to this extraordinary continuation. Typically a suitable extraordinary continuation is constructed, and then saved into the loop body continuation savelist as {\tt c0}; after that, the modified loop body continuation is loaded into {\tt cc} and executed in the usual fashion. All of these loop primitives have {\tt *BRK} versions, adapted for breaking out of a loop; they additionally set {\tt c1} to the original current continuation (or original {\tt c0} for {\tt *ENDBRK} versions), and save the old {\tt c1} into the savelist of the original current continuation (or of the original {\tt c0} for {\tt *ENDBRK} versions).
 \begin{itemize}
 \item {\tt E4} --- {\tt REPEAT} ($n$ $c$ -- ), executes continuation $c$ $n$ times, if integer $n$ is non-negative. If $n\geq2^{31}$ or $n<-2^{31}$, generates a range check exception. Notice that a {\tt RET} inside the code of $c$ works as a {\tt continue}, not as a {\tt break}. One should use either alternative (experimental) loops or alternative {\tt RETALT} (along with a {\tt SETEXITALT} before the loop) to {\tt break} out of a loop.
 \item {\tt E5} --- {\tt REPEATEND} ($n$ -- ), similar to {\tt REPEAT}, but it is applied to the current continuation {\tt cc}. 
@@ -1868,6 +1872,14 @@ Most of the loop primitives listed below are implemented with the aid of extraor
 \item {\tt E9} --- {\tt WHILEEND} ($c'$ -- ), similar to {\tt WHILE}, but uses the current continuation {\tt cc} as the loop body.
 \item {\tt EA} --- {\tt AGAIN} ($c$ -- ), similar to {\tt REPEAT}, but executes $c$ infinitely many times. A {\tt RET} only begins a new iteration of the infinite loop, which can be exited only by an exception, or a {\tt RETALT} (or an explicit {\tt JMPX}).
 \item {\tt EB} --- {\tt AGAINEND} ( -- ), similar to {\tt AGAIN}, but performed with respect to the current continuation {\tt cc}.
+\item {\tt E314} --- {\tt REPEATBRK} ($n$ $c$ -- ), similar to {\tt REPEAT}, but also sets {\tt c1} to the original {\tt cc} after saving the old value of {\tt c1} into the savelist of the original {\tt cc}. In this way {\tt RETALT} could be used to break out of the loop body.
+\item {\tt E315} --- {\tt REPEATENDBRK} ($n$ -- ), similar to {\tt REPEATEND}, but also sets {\tt c1} to the original {\tt c0} after saving the old value of {\tt c1} into the savelist of the original {\tt c0}. Equivalent to {\tt SAMEALTSAVE}; {\tt REPEATEND}.
+\item {\tt E316} --- {\tt UNTILBRK} ($c$ -- ), similar to {\tt UNTIL}, but also modifies {\tt c1} in the same way as {\tt REPEATBRK}.
+\item {\tt E317} --- {\tt UNTILENDBRK} ( -- ), equivalent to {\tt SAMEALTSAVE}; {\tt UNTILEND}.
+\item {\tt E318} --- {\tt WHILEBRK} ($c'$ $c$ -- ), similar to {\tt WHILE}, but also modifies {\tt c1} in the same way as {\tt REPEATBRK}.
+\item {\tt E319} --- {\tt WHILEENDBRK} ($c$ -- ), equivalent to {\tt SAMEALTSAVE}; {\tt WHILEEND}.
+\item {\tt E31A} --- {\tt AGAINBRK} ($c$ -- ), similar to {\tt AGAIN}, but also modifies {\tt c1} in the same way as {\tt REPEATBRK}.
+\item {\tt E31B} --- {\tt AGAINENDBRK} ( -- ), equivalent to {\tt SAMEALTSAVE}; {\tt AGAINEND}.
 \end{itemize}
 
 \nxsubpoint\label{sp:cont.stk.manip}\emb{Manipulating the stack of continuations}
@@ -1914,7 +1926,9 @@ Most of the loop primitives listed below are implemented with the aid of extraor
 \item {\tt EDF6} --- {\tt THENRET} ($c$ -- $c'$), computes $c':=c\circ_0{\tt c0}$
 \item {\tt EDF7} --- {\tt THENRETALT} ($c$ -- $c'$), computes $c':=c\circ_0{\tt c1}$
 \item {\tt EDF8} --- {\tt INVERT} ( -- ), interchanges {\tt c0} and {\tt c1}.
-\item {\tt EDF9} --- {\tt BOOLEVAL} ($c$ -- $?$), performs ${\tt cc}\leftarrow \bigl(c\circ_0(({\tt PUSH}\,-1)\circ_0{\tt cc})\bigr)\circ_1(({\tt PUSH}\,0)\circ_0{\tt cc})$. If $c$ represents a boolean circuit, the net effect is to evaluate it and push either $-1$ or $0$ into the stack before continuing. 
+\item {\tt EDF9} --- {\tt BOOLEVAL} ($c$ -- $?$), performs ${\tt cc}\leftarrow \bigl(c\circ_0(({\tt PUSH}\,-1)\circ_0{\tt cc})\bigr)\circ_1(({\tt PUSH}\,0)\circ_0{\tt cc})$. If $c$ represents a boolean circuit, the net effect is to evaluate it and push either $-1$ or $0$ into the stack before continuing.
+\item {\tt EDFA} --- {\tt SAMEALT} ( -- ), sets $c_1:=c_0$. Equivalent to {\tt PUSH c0}; {\tt POP c1}.
+\item {\tt EDFB} --- {\tt SAMEALTSAVE} ( -- ), sets $c_1:=c_0$, but first saves the old value of $c_1$ into the savelist of $c_0$. Equivalent to {\tt SAVE c1}; {\tt SAMEALT}.
 \item {\tt EE$rn$} --- {\tt BLESSARGS $r,n$} ($x_1$\dots$x_r$ $s$ -- $c$), described in~\ptref{sp:cont.stk.manip}.
 \end{itemize}
 

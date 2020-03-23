@@ -264,7 +264,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool out_of_sync();
   void prestart_sync();
   void download_next_archive();
-  void downloaded_archive_slice(std::string name);
+  void downloaded_archive_slice(std::string name, bool is_tmp);
   void checked_archive_slice(std::vector<BlockSeqno> seqno);
   void finish_prestart_sync();
   void completed_prestart_sync();
@@ -555,6 +555,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorId<overlay::Overlays> overlays_;
 
   td::actor::ActorOwn<AsyncStateSerializer> serializer_;
+
+  std::map<BlockSeqno, std::pair<std::string, bool>> to_import_;
 
  private:
   std::unique_ptr<Callback> callback_;

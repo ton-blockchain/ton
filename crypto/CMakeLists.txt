@@ -391,7 +391,7 @@ endif()
 add_executable(create-state block/create-state.cpp)
 target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(create-state wingetopt)
 endif()

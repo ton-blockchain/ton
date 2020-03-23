@@ -107,6 +107,10 @@ inline ErrorCtxSet ErrorCtx::set_guard(std::vector<std::string> str_list) {
  */
 
 class ValidateQuery : public td::actor::Actor {
+  static constexpr int supported_version = 1;
+  static constexpr long long supported_capabilities =
+      ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion;
+
  public:
   ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                 BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,

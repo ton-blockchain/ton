@@ -510,6 +510,7 @@ bool Collator::unpack_last_mc_state() {
   global_id_ = config_->get_global_blockchain_id();
   ihr_enabled_ = config_->ihr_enabled();
   create_stats_enabled_ = config_->create_stats_enabled();
+  report_version_ = config_->has_capability(ton::capReportVersion);
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -529,6 +530,16 @@ bool Collator::unpack_last_mc_state() {
              << ", " << block_limits_->bytes.hard() << "]";
   LOG(DEBUG) << "block limits: gas [" << block_limits_->gas.underload() << ", " << block_limits_->gas.soft() << ", "
              << block_limits_->gas.hard() << "]";
+  if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities)) {
+    LOG(ERROR) << "block generation capabilities " << config_->get_capabilities()
+               << " have been enabled in global configuration, but we support only " << supported_capabilities
+               << " (upgrade validator software?)";
+  }
+  if (config_->get_global_version() > supported_version) {
+    LOG(ERROR) << "block version " << config_->get_global_version()
+               << " have been enabled in global configuration, but we support only " << supported_version
+               << " (upgrade validator software?)";
+  }
   // TODO: extract start_lt and end_lt from prev_mc_block as well
   // std::cerr << "  block::gen::ShardState::print_ref(mc_state_root) = ";
   // block::gen::t_ShardState.print_ref(std::cerr, mc_state_root, 2);
@@ -1502,6 +1513,7 @@ bool Collator::fetch_config_params() {
         block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
+    action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
   }
   {
     // fetch block_grams_created
@@ -3571,7 +3583,7 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_bool_bool(want_split_)                         // want_split:Bool
          && cb.store_bool_bool(want_merge_)                         // want_merge:Bool
          && cb.store_bool_bool(is_key_block_)                       // key_block:Bool
-         && cb.store_long_bool(0, 9)                                // vert_seqno_incr:(## 1) flags:(## 8)
+         && cb.store_long_bool((int)report_version_, 9)             // vert_seqno_incr:(## 1) flags:(## 8)
          && cb.store_long_bool(new_block_seqno, 32)                 // seq_no:#
          && cb.store_long_bool(vert_seqno_, 32)                     // vert_seq_no:#
          && block::ShardId{shard}.serialize(cb)                     // shard:ShardIdent
@@ -3582,11 +3594,16 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_long_bool(cc_seqno, 32)                        // gen_catchain_seqno:uint32
          && cb.store_long_bool(min_ref_mc_seqno_, 32)               // min_ref_mc_seqno:uint32
          && cb.store_long_bool(prev_key_block_seqno_, 32)           // prev_key_block_seqno:uint32
+         && (!report_version_ || store_version(cb))                 // gen_software:flags . 0?GlobalVersion
          && (mc || (store_master_ref(cb2)                           // master_ref:not_master?
                     && cb.store_builder_ref_bool(std::move(cb2))))  // .. ^BlkMasterInfo
          && store_prev_blk_ref(cb2, after_merge_)                   // prev_ref:..
          && cb.store_builder_ref_bool(std::move(cb2))               // .. ^(PrevBlkInfo after_merge)
          && cb.finalize_to(block_info);
+}
+
+bool Collator::store_version(vm::CellBuilder& cb) const {
+  return block::gen::t_GlobalVersion.pack_capabilities(cb, supported_version, supported_capabilities);
 }
 
 bool Collator::store_zero_state_ref(vm::CellBuilder& cb) {

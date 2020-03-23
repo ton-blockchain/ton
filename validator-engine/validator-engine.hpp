@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -43,7 +43,7 @@
 
 enum ValidatorEnginePermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
-using AdnlCategory = td::int32;
+using AdnlCategory = td::uint8;
 
 struct Config {
   struct Addr {
@@ -201,8 +201,8 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_ = false;
 
  public:
-  static constexpr td::uint32 max_cat() {
-    return 256;
+  static constexpr td::uint8 max_cat() {
+    return 250;
   }
 
   void set_local_config(std::string str);
@@ -286,7 +286,7 @@ class ValidatorEngine : public td::actor::Actor {
   void alarm() override;
   void run();
 
-  void try_add_adnl_node(ton::PublicKeyHash pub, td::int32 cat, td::Promise<td::Unit> promise);
+  void try_add_adnl_node(ton::PublicKeyHash pub, AdnlCategory cat, td::Promise<td::Unit> promise);
   void try_add_dht_node(ton::PublicKeyHash pub, td::Promise<td::Unit> promise);
   void try_add_validator_permanent_key(ton::PublicKeyHash key_hash, td::uint32 election_date, td::uint32 ttl,
                                        td::Promise<td::Unit> promise);
@@ -385,4 +385,3 @@ class ValidatorEngine : public td::actor::Actor {
   void process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
                              td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 };
-

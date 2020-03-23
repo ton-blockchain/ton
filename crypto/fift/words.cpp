@@ -177,28 +177,15 @@ void interpret_divmod(vm::Stack& stack, int round_mode) {
 }
 
 void interpret_times_div(vm::Stack& stack, int round_mode) {
-  auto z = stack.pop_int();
-  auto y = stack.pop_int();
-  auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{0};
-  tmp.add_mul(*x, *y);
-  auto q = td::make_refint();
-  tmp.mod_div(*z, q.unique_write(), round_mode);
-  q.unique_write().normalize();
-  stack.push_int(std::move(q));
+  auto z = stack.pop_int(), y = stack.pop_int(), x = stack.pop_int();
+  stack.push_int(muldiv(std::move(x), std::move(y), std::move(z), round_mode));
 }
 
 void interpret_times_divmod(vm::Stack& stack, int round_mode) {
-  auto z = stack.pop_int();
-  auto y = stack.pop_int();
-  auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{0};
-  tmp.add_mul(*x, *y);
-  auto q = td::make_refint();
-  tmp.mod_div(*z, q.unique_write(), round_mode);
-  q.unique_write().normalize();
-  stack.push_int(std::move(q));
-  stack.push_int(td::make_refint(tmp));
+  auto z = stack.pop_int(), y = stack.pop_int(), x = stack.pop_int();
+  auto dm = muldivmod(std::move(x), std::move(y), std::move(z));
+  stack.push_int(std::move(dm.first));
+  stack.push_int(std::move(dm.second));
 }
 
 void interpret_times_mod(vm::Stack& stack, int round_mode) {

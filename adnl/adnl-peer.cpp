@@ -482,7 +482,8 @@ void AdnlPeerPairImpl::create_channel(pubkeys::Ed25519 pub, td::uint32 date) {
     channel_ = R.move_as_ok();
     channel_inited_ = true;
 
-    td::actor::send_closure_later(peer_table_, &AdnlPeerTable::register_channel, channel_in_id_, channel_.get());
+    td::actor::send_closure_later(peer_table_, &AdnlPeerTable::register_channel, channel_in_id_, local_id_,
+                                  channel_.get());
   } else {
     VLOG(ADNL_WARNING) << this << ": failed to create channel: " << R.move_as_error();
   }

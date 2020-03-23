@@ -679,6 +679,17 @@ bool ValidateQuery::try_unpack_mc_state() {
     config_->set_block_id_ext(mc_blkid_);
     ihr_enabled_ = config_->ihr_enabled();
     create_stats_enabled_ = config_->create_stats_enabled();
+    if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities)) {
+      LOG(ERROR) << "block generation capabilities " << config_->get_capabilities()
+                 << " have been enabled in global configuration, but we support only " << supported_capabilities
+                 << " (upgrade validator software?)";
+    }
+    if (config_->get_global_version() > supported_version) {
+      LOG(ERROR) << "block version " << config_->get_global_version()
+                 << " have been enabled in global configuration, but we support only " << supported_version
+                 << " (upgrade validator software?)";
+    }
+
     old_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
     if (!is_masterchain()) {
       new_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -772,6 +783,7 @@ bool ValidateQuery::fetch_config_params() {
         block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
+    action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
   }
   {
     // fetch block_grams_created
@@ -4832,7 +4844,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
   }
   if (!block::valid_config_data(ocfg_root, old_cfg_addr, true, true, old_mparams_)) {
     return reject_query("configuration extracted from (old) configuration smart contract "s + old_cfg_addr.to_hex() +
-                        " failed to pass per-parameted validity checks, or one of mandatory parameters is missing");
+                        " failed to pass per-parameter validity checks, or one of mandatory parameters is missing");
   }
   if (block::important_config_parameters_changed(new_cfg_root, old_cfg_root)) {
     // same as the check in Collator::create_mc_state_extra()

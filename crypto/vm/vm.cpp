@@ -333,6 +333,22 @@ int VmState::ret_alt(int ret_args) {
   return jump(std::move(cont), ret_args);
 }
 
+Ref<Continuation> VmState::c1_envelope(Ref<Continuation> cont, bool save) {
+  if (save) {
+    force_cregs(cont)->define_c1(cr.c[1]);
+    force_cregs(cont)->define_c0(cr.c[0]);
+  }
+  set_c1(cont);
+  return cont;
+}
+
+void VmState::c1_save_set(bool save) {
+  if (save) {
+    force_cregs(cr.c[0])->define_c1(cr.c[1]);
+  }
+  set_c1(cr.c[0]);
+}
+
 Ref<OrdCont> VmState::extract_cc(int save_cr, int stack_copy, int cc_args) {
   Ref<Stack> new_stk;
   if (stack_copy < 0 || stack_copy == stack->depth()) {

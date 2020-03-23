@@ -297,6 +297,11 @@ class VmState final : public VmStateInterface {
   int throw_exception(int excno, StackEntry&& arg);
   int throw_exception(int excno);
   Ref<OrdCont> extract_cc(int save_cr = 1, int stack_copy = -1, int cc_args = -1);
+  Ref<Continuation> c1_envelope(Ref<Continuation> cont, bool save = true);
+  Ref<Continuation> c1_envelope_if(bool cond, Ref<Continuation> cont, bool save = true) {
+    return cond ? c1_envelope(std::move(cont), save) : std::move(cont);
+  }
+  void c1_save_set(bool save = true);
   void fatal(void) const {
     throw VmFatal{};
   }
@@ -312,6 +317,9 @@ class VmState final : public VmStateInterface {
   }
   bool get_chksig_always_succeed() const {
     return chksig_always_succeed;
+  }
+  Ref<OrdCont> ref_to_cont(Ref<Cell> cell) const {
+    return td::make_ref<OrdCont>(load_cell_slice_ref(std::move(cell)), get_cp());
   }
 
  private:

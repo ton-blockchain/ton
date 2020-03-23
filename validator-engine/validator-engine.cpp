@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-engine.hpp"
 
@@ -86,8 +86,12 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
             [&](const ton::ton_api::engine_addr &obj) {
               in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
               out_ip = in_ip;
-              categories = obj.categories_;
-              priority_categories = obj.priority_categories_;
+              for (auto cat : obj.categories_) {
+                categories.push_back(td::narrow_cast<td::uint8>(cat));
+              }
+              for (auto cat : obj.priority_categories_) {
+                priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
+              }
             },
             [&](const ton::ton_api::engine_addrProxy &obj) {
               in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.in_ip_), static_cast<td::uint16>(obj.in_port_))
@@ -98,15 +102,19 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
                 auto R = ton::adnl::AdnlProxy::create(*obj.proxy_type_.get());
                 R.ensure();
                 proxy = R.move_as_ok();
-                categories = obj.categories_;
-                priority_categories = obj.priority_categories_;
+                for (auto cat : obj.categories_) {
+                  categories.push_back(td::narrow_cast<td::uint8>(cat));
+                }
+                for (auto cat : obj.priority_categories_) {
+                  priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
+                }
               }
             }));
 
     config_add_network_addr(in_ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
   }
   for (auto &adnl : config.adnl_) {
-    config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, adnl->category_).ensure();
+    config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, td::narrow_cast<td::uint8>(adnl->category_)).ensure();
   }
   for (auto &dht : config.dht_) {
     config_add_dht_node(ton::PublicKeyHash{dht->id_}).ensure();
@@ -1094,7 +1102,9 @@ void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int32>{0, 1, 2, 3}, std::vector<td::int32>{})
+    config_
+        .config_add_network_addr(addr, addr, nullptr, std::vector<AdnlCategory>{0, 1, 2, 3},
+                                 std::vector<AdnlCategory>{})
         .ensure();
   }
 
@@ -1156,7 +1166,9 @@ void ValidatorEngine::load_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int32>{0, 1, 2, 3}, std::vector<td::int32>{})
+    config_
+        .config_add_network_addr(addr, addr, nullptr, std::vector<AdnlCategory>{0, 1, 2, 3},
+                                 std::vector<AdnlCategory>{})
         .ensure();
   }
 
@@ -1378,18 +1390,25 @@ void ValidatorEngine::start_adnl() {
 }
 
 void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats &cats) {
+  ton::adnl::AdnlCategoryMask cat_mask;
+  for (auto cat : cats.cats) {
+    cat_mask[cat] = true;
+  }
+  for (auto cat : cats.priority_cats) {
+    cat_mask[cat] = true;
+  }
   if (!cats.proxy) {
     td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            cats.cats.size() ? 0 : 1);
+                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
   } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, addr.addr,
-                            cats.proxy, cats.cats.size() ? 0 : 1);
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
+                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
+                            cats.cats.size() ? 0 : 1);
   }
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());
 
   for (auto cat : cats.cats) {
-    CHECK(cat >= 0);
     ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
         ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
     addr_lists_[cat].add_addr(std::move(x));
@@ -1397,7 +1416,6 @@ void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats 
     addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
   for (auto cat : cats.priority_cats) {
-    CHECK(cat >= 0);
     ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
         ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
     prio_addr_lists_[cat].add_addr(std::move(x));
@@ -1408,7 +1426,7 @@ void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats 
 
 void ValidatorEngine::add_adnl(ton::PublicKeyHash id, AdnlCategory cat) {
   CHECK(keys_.count(id) > 0);
-  td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[id]}, addr_lists_[cat]);
+  td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[id]}, addr_lists_[cat], cat);
 }
 
 void ValidatorEngine::started_adnl() {
@@ -1526,7 +1544,7 @@ void ValidatorEngine::started_full_node() {
 
 void ValidatorEngine::add_lite_server(ton::PublicKeyHash id, td::uint16 port) {
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[id]},
-                          ton::adnl::AdnlAddressList{});
+                          ton::adnl::AdnlAddressList{}, static_cast<td::uint8>(255));
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_ext_server_id,
                           ton::adnl::AdnlNodeIdShort{id});
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_ext_server_port, port);
@@ -1565,7 +1583,7 @@ void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 po
   };
 
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[id]},
-                          ton::adnl::AdnlAddressList{});
+                          ton::adnl::AdnlAddressList{}, static_cast<td::uint8>(255));
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::subscribe, ton::adnl::AdnlNodeIdShort{id}, std::string(""),
                           std::make_unique<Callback>(actor_id(this), port));
   td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_local_id, ton::adnl::AdnlNodeIdShort{id});
@@ -1621,7 +1639,7 @@ void ValidatorEngine::started() {
 }
 
 void ValidatorEngine::try_add_adnl_node(ton::PublicKeyHash key, AdnlCategory cat, td::Promise<td::Unit> promise) {
-  if (cat < 0 || static_cast<td::uint32>(cat) > max_cat()) {
+  if (cat > max_cat()) {
     promise.set_error(td::Status::Error(ton::ErrorCode::protoviolation, "bad category value"));
     return;
   }
@@ -2136,23 +2154,24 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addAdnlId
   }
 
   auto id = ton::PublicKeyHash{query.key_hash_};
+  TRY_RESULT_PROMISE(promise, cat, td::narrow_cast_safe<td::uint8>(query.category_));
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id, cat = query.category_,
-                                       promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get public key: ")));
-      return;
-    }
-    auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to add adnl node: ")));
-      } else {
-        promise.set_value(
-            ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-      }
-    });
-    td::actor::send_closure(SelfId, &ValidatorEngine::try_add_adnl_node, id, cat, std::move(P));
-  });
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), id, cat, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get public key: ")));
+          return;
+        }
+        auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to add adnl node: ")));
+          } else {
+            promise.set_value(
+                ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+          }
+        });
+        td::actor::send_closure(SelfId, &ValidatorEngine::try_add_adnl_node, id, cat, std::move(P));
+      });
 
   check_key(id, std::move(P));
 }
@@ -2538,7 +2557,17 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addListen
     }
   });
 
-  try_add_listening_port(query.ip_, query.port_, query.categories_, query.priority_categories_, std::move(P));
+  std::vector<td::uint8> cats;
+  for (auto cat : query.categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    cats.push_back(c);
+  }
+  std::vector<td::uint8> prio_cats;
+  for (auto cat : query.priority_categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    prio_cats.push_back(c);
+  }
+  try_add_listening_port(query.ip_, query.port_, std::move(cats), std::move(prio_cats), std::move(P));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delListeningPort &query, td::BufferSlice data,
@@ -2561,7 +2590,17 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delListen
     }
   });
 
-  try_del_listening_port(query.ip_, query.port_, query.categories_, query.priority_categories_, std::move(P));
+  std::vector<td::uint8> cats;
+  for (auto cat : query.categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    cats.push_back(c);
+  }
+  std::vector<td::uint8> prio_cats;
+  for (auto cat : query.priority_categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    prio_cats.push_back(c);
+  }
+  try_del_listening_port(query.ip_, query.port_, std::move(cats), std::move(prio_cats), std::move(P));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addProxy &query, td::BufferSlice data,
@@ -2590,8 +2629,18 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addProxy 
     }
   });
 
-  try_add_proxy(query.in_ip_, query.in_port_, query.out_ip_, query.out_port_, R.move_as_ok(), query.categories_,
-                query.priority_categories_, std::move(P));
+  std::vector<td::uint8> cats;
+  for (auto cat : query.categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    cats.push_back(c);
+  }
+  std::vector<td::uint8> prio_cats;
+  for (auto cat : query.priority_categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    prio_cats.push_back(c);
+  }
+  try_add_proxy(query.in_ip_, query.in_port_, query.out_ip_, query.out_port_, R.move_as_ok(), std::move(cats),
+                std::move(prio_cats), std::move(P));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delProxy &query, td::BufferSlice data,
@@ -2614,7 +2663,18 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delProxy 
     }
   });
 
-  try_del_proxy(query.out_ip_, query.out_port_, query.categories_, query.priority_categories_, std::move(P));
+  std::vector<td::uint8> cats;
+  for (auto cat : query.categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    cats.push_back(c);
+  }
+  std::vector<td::uint8> prio_cats;
+  for (auto cat : query.priority_categories_) {
+    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    prio_cats.push_back(c);
+  }
+
+  try_del_proxy(query.out_ip_, query.out_port_, std::move(cats), std::move(prio_cats), std::move(P));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getConfig &query, td::BufferSlice data,

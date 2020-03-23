@@ -1393,6 +1393,39 @@ void ValidatorManagerImpl::start_up() {
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok());
   });
 
+  auto to_import_dir = db_root_ + "/import";
+  auto S = td::WalkPath::run(to_import_dir, [&](td::CSlice cfname, td::WalkPath::Type t) -> void {
+    auto fname = td::Slice(cfname);
+    if (t == td::WalkPath::Type::NotDir) {
+      auto d = fname.rfind('/');
+      if (d != td::Slice::npos) {
+        fname = fname.substr(d + 1);
+      }
+      if (fname.size() <= 13) {
+        return;
+      }
+      if (fname.substr(fname.size() - 5) != ".pack") {
+        return;
+      }
+      fname = fname.substr(0, fname.size() - 5);
+      if (fname.substr(0, 8) != "archive.") {
+        return;
+      }
+      fname = fname.substr(8);
+
+      auto v = td::to_integer_safe<BlockSeqno>(fname);
+      if (v.is_error()) {
+        return;
+      }
+      auto pos = v.move_as_ok();
+      LOG(INFO) << "found archive slice '" << cfname << "' for position " << pos;
+      to_import_[pos] = std::make_pair(cfname.str(), true);
+    }
+  });
+  if (S.is_error()) {
+    LOG(INFO) << "failed to load blocks from import dir: " << S;
+  }
+
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
 
   check_waiters_at_ = td::Timestamp::in(1.0);
@@ -1475,23 +1508,35 @@ void ValidatorManagerImpl::download_next_archive() {
     finish_prestart_sync();
     return;
   }
+
+  auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
+  auto it = to_import_.upper_bound(seqno);
+  if (it != to_import_.begin()) {
+    it--;
+    if (it->second.second) {
+      it->second.second = false;
+      downloaded_archive_slice(it->second.first, false);
+      return;
+    }
+  }
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::string> R) {
     if (R.is_error()) {
       LOG(INFO) << "failed to download archive slice: " << R.error();
       delay_action([SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive); },
                    td::Timestamp::in(2.0));
     } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::downloaded_archive_slice, R.move_as_ok());
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::downloaded_archive_slice, R.move_as_ok(), true);
     }
   });
-
-  auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
   callback_->download_archive(seqno + 1, db_root_ + "/tmp/", td::Timestamp::in(3600.0), std::move(P));
 }
 
-void ValidatorManagerImpl::downloaded_archive_slice(std::string name) {
+void ValidatorManagerImpl::downloaded_archive_slice(std::string name, bool is_tmp) {
   LOG(INFO) << "downloaded archive slice: " << name;
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<BlockSeqno>> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), name, is_tmp](td::Result<std::vector<BlockSeqno>> R) {
+    if (is_tmp) {
+      td::unlink(name).ensure();
+    }
     if (R.is_error()) {
       LOG(INFO) << "failed to check downloaded archive slice: " << R.error();
       delay_action([SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive); },
@@ -1539,6 +1584,8 @@ void ValidatorManagerImpl::checked_archive_slice(std::vector<BlockSeqno> seqno) 
 }
 
 void ValidatorManagerImpl::finish_prestart_sync() {
+  to_import_.clear();
+
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::completed_prestart_sync);
@@ -1665,6 +1712,16 @@ void ValidatorManagerImpl::update_shards() {
 
       if (!validator_id.is_zero()) {
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash);
+
+        // DIRTY. But we don't want to create hardfork now
+        // TODO! DELETE IT LATER
+        if (last_masterchain_seqno_ >= 2904932 && val_set->get_catchain_seqno() == 44896) {
+          if (opts_->zero_block_id().file_hash.to_hex() ==
+              "5E994FCF4D425C0A6CE6A792594B7173205F740A39CD56F537DEFD28B48A0F6E") {
+            val_group_id[0] = !val_group_id[0];
+          }
+        }
+
         VLOG(VALIDATOR_DEBUG) << "validating group " << val_group_id;
         auto it = validator_groups_.find(val_group_id);
         if (it != validator_groups_.end()) {

@@ -64,6 +64,8 @@ cont bless(slice s) impure asm "BLESS";
 
 int min(int x, int y) asm "MIN";
 int max(int x, int y) asm "MAX";
+(int, int) minmax(int x, int y) asm "MINMAX";
+int abs(int x) asm "ABS";
 
 slice begin_parse(cell c) asm "CTOS";
 () end_parse(slice s) impure asm "ENDS";

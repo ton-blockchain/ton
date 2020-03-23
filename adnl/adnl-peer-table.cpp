@@ -30,6 +30,7 @@
 #include "utils.hpp"
 #include "adnl-query.h"
 #include "adnl-ext-client.h"
+#include "adnl-tunnel.h"
 
 namespace ton {
 
@@ -49,7 +50,7 @@ td::actor::ActorOwn<Adnl> Adnl::create(std::string db, td::actor::ActorId<keyrin
   return td::actor::ActorOwn<Adnl>(td::actor::create_actor<AdnlPeerTableImpl>("PeerTable", db, keyring));
 }
 
-void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, td::BufferSlice data) {
+void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) {
   if (data.size() < 32) {
     VLOG(ADNL_WARNING) << this << ": dropping IN message [?->?]: message too short: len=" << data.size();
     return;
@@ -60,14 +61,22 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, td::BufferSlice data)
 
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.first, &AdnlLocalId::receive, addr, std::move(data));
+    if (!cat_mask.test(it->second.cat)) {
+      VLOG(ADNL_WARNING) << this << ": dropping IN message [?->" << dst << "]: category mismatch";
+      return;
+    }
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::receive, addr, std::move(data));
     return;
   }
 
   AdnlChannelIdShort dst_chan_id{dst.pubkey_hash()};
   auto it2 = channels_.find(dst_chan_id);
   if (it2 != channels_.end()) {
-    td::actor::send_closure(it2->second, &AdnlChannel::receive, addr, std::move(data));
+    if (!cat_mask.test(it2->second.second)) {
+      VLOG(ADNL_WARNING) << this << ": dropping IN message to channel [?->" << dst << "]: category mismatch";
+      return;
+    }
+    td::actor::send_closure(it2->second.first, &AdnlChannel::receive, addr, std::move(data));
     return;
   }
 
@@ -109,7 +118,7 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
                      << "]: unknown dst (but how did we decrypt message?)";
     return;
   }
-  td::actor::send_closure(it->second, &AdnlPeer::receive_packet, dst, it2->second.second, it2->second.first.get(),
+  td::actor::send_closure(it->second, &AdnlPeer::receive_packet, dst, it2->second.mode, it2->second.local_id.get(),
                           std::move(packet));
 }
 
@@ -127,8 +136,8 @@ void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, Ad
   }
   td::actor::send_closure(it->second, &AdnlPeer::update_id, std::move(id));
   if (!addr_list.empty()) {
-    td::actor::send_closure(it->second, &AdnlPeer::update_addr_list, local_id, it2->second.second,
-                            it2->second.first.get(), std::move(addr_list));
+    td::actor::send_closure(it->second, &AdnlPeer::update_addr_list, local_id, it2->second.mode,
+                            it2->second.local_id.get(), std::move(addr_list));
   }
 }
 
@@ -152,7 +161,7 @@ void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst
     return;
   }
 
-  td::actor::send_closure(it->second, &AdnlPeer::send_one_message, src, it2->second.second, it2->second.first.get(),
+  td::actor::send_closure(it->second, &AdnlPeer::send_one_message, src, it2->second.mode, it2->second.local_id.get(),
                           OutboundAdnlMessage{std::move(message), flags});
 }
 
@@ -185,23 +194,32 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
     return;
   }
 
-  td::actor::send_closure(it->second, &AdnlPeer::send_query, src, it2->second.second, it2->second.first.get(), name,
+  td::actor::send_closure(it->second, &AdnlPeer::send_query, src, it2->second.mode, it2->second.local_id.get(), name,
                           std::move(promise), timeout, std::move(data), 0);
 }
 
-void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode) {
+void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat, td::uint32 mode) {
   auto a = id.compute_short_id();
   VLOG(ADNL_INFO) << "adnl: adding local id " << a;
 
   auto it = local_ids_.find(a);
 
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.first, &AdnlLocalId::update_address_list, std::move(addr_list));
+    if (it->second.cat != cat) {
+      it->second.cat = cat;
+      if (!network_manager_.empty()) {
+        td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, a, cat);
+      }
+    }
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::update_address_list, std::move(addr_list));
   } else {
     local_ids_.emplace(
-        a, std::make_pair(td::actor::create_actor<AdnlLocalId>("localid", std::move(id), std::move(addr_list), mode,
-                                                               actor_id(this), keyring_, dht_node_),
-                          mode));
+        a, LocalIdInfo{td::actor::create_actor<AdnlLocalId>("localid", std::move(id), std::move(addr_list), mode,
+                                                            actor_id(this), keyring_, dht_node_),
+                       cat, mode});
+    if (!network_manager_.empty()) {
+      td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, a, cat);
+    }
   }
 }
 
@@ -215,14 +233,14 @@ void AdnlPeerTableImpl::subscribe(AdnlNodeIdShort dst, std::string prefix, std::
   auto it = local_ids_.find(dst);
   LOG_CHECK(it != local_ids_.end()) << "dst=" << dst;
 
-  td::actor::send_closure(it->second.first, &AdnlLocalId::subscribe, prefix, std::move(callback));
+  td::actor::send_closure(it->second.local_id, &AdnlLocalId::subscribe, prefix, std::move(callback));
 }
 
 void AdnlPeerTableImpl::unsubscribe(AdnlNodeIdShort dst, std::string prefix) {
   auto it = local_ids_.find(dst);
 
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.first, &AdnlLocalId::unsubscribe, prefix);
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::unsubscribe, prefix);
   }
 }
 
@@ -233,7 +251,7 @@ void AdnlPeerTableImpl::register_dht_node(td::actor::ActorId<dht::Dht> dht_node)
     td::actor::send_closure(peer.second, &AdnlPeer::update_dht_node, dht_node_);
   }
   for (auto &local_id : local_ids_) {
-    td::actor::send_closure(local_id.second.first, &AdnlLocalId::update_dht_node, dht_node_);
+    td::actor::send_closure(local_id.second.local_id, &AdnlLocalId::update_dht_node, dht_node_);
   }
 }
 
@@ -242,8 +260,8 @@ void AdnlPeerTableImpl::register_network_manager(td::actor::ActorId<AdnlNetworkM
 
   class Cb : public AdnlNetworkManager::Callback {
    public:
-    void receive_packet(td::IPAddress addr, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &AdnlPeerTableImpl::receive_packet, addr, std::move(data));
+    void receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) override {
+      td::actor::send_closure(id_, &AdnlPeerTableImpl::receive_packet, addr, std::move(cat_mask), std::move(data));
     }
     Cb(td::actor::ActorId<AdnlPeerTableImpl> id) : id_(id) {
     }
@@ -254,6 +272,10 @@ void AdnlPeerTableImpl::register_network_manager(td::actor::ActorId<AdnlNetworkM
 
   auto cb = std::make_unique<Cb>(actor_id(this));
   td::actor::send_closure(network_manager_, &AdnlNetworkManager::install_callback, std::move(cb));
+
+  for (auto &id : local_ids_) {
+    td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, id.first, id.second.cat);
+  }
 }
 
 void AdnlPeerTableImpl::get_addr_list(AdnlNodeIdShort id, td::Promise<AdnlAddressList> promise) {
@@ -262,7 +284,7 @@ void AdnlPeerTableImpl::get_addr_list(AdnlNodeIdShort id, td::Promise<AdnlAddres
     promise.set_error(td::Status::Error(ErrorCode::notready));
     return;
   }
-  td::actor::send_closure(it->second.first, &AdnlLocalId::get_addr_list_async, std::move(promise));
+  td::actor::send_closure(it->second.local_id, &AdnlLocalId::get_addr_list_async, std::move(promise));
 }
 
 void AdnlPeerTableImpl::get_self_node(AdnlNodeIdShort id, td::Promise<AdnlNode> promise) {
@@ -271,11 +293,14 @@ void AdnlPeerTableImpl::get_self_node(AdnlNodeIdShort id, td::Promise<AdnlNode> 
     promise.set_error(td::Status::Error(ErrorCode::notready));
     return;
   }
-  td::actor::send_closure(it->second.first, &AdnlLocalId::get_self_node, std::move(promise));
+  td::actor::send_closure(it->second.local_id, &AdnlLocalId::get_self_node, std::move(promise));
 }
 
-void AdnlPeerTableImpl::register_channel(AdnlChannelIdShort id, td::actor::ActorId<AdnlChannel> channel) {
-  auto success = channels_.emplace(id, channel).second;
+void AdnlPeerTableImpl::register_channel(AdnlChannelIdShort id, AdnlNodeIdShort local_id,
+                                         td::actor::ActorId<AdnlChannel> channel) {
+  auto it = local_ids_.find(local_id);
+  auto cat = (it != local_ids_.end()) ? it->second.cat : 255;
+  auto success = channels_.emplace(id, std::make_pair(channel, cat)).second;
   CHECK(success);
 }
 
@@ -317,14 +342,14 @@ AdnlPeerTableImpl::AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<key
 void AdnlPeerTableImpl::deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.first, &AdnlLocalId::deliver, src, std::move(data));
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::deliver, src, std::move(data));
   }
 }
 void AdnlPeerTableImpl::deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                                       td::Promise<td::BufferSlice> promise) {
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.first, &AdnlLocalId::deliver_query, src, std::move(data), std::move(promise));
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::deliver_query, src, std::move(data), std::move(promise));
   } else {
     LOG(WARNING) << "deliver query: unknown dst " << dst;
     promise.set_error(td::Status::Error(ErrorCode::notready, "cannot deliver: unknown DST"));
@@ -335,7 +360,7 @@ void AdnlPeerTableImpl::decrypt_message(AdnlNodeIdShort dst, td::BufferSlice dat
                                         td::Promise<td::BufferSlice> promise) {
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.first, &AdnlLocalId::decrypt_message, std::move(data), std::move(promise));
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::decrypt_message, std::move(data), std::move(promise));
   } else {
     LOG(WARNING) << "decrypt message: unknown dst " << dst;
     promise.set_error(td::Status::Error(ErrorCode::notready, "cannot decrypt: unknown DST"));
@@ -345,6 +370,10 @@ void AdnlPeerTableImpl::decrypt_message(AdnlNodeIdShort dst, td::BufferSlice dat
 void AdnlPeerTableImpl::create_ext_server(std::vector<AdnlNodeIdShort> ids, std::vector<td::uint16> ports,
                                           td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise) {
   promise.set_value(AdnlExtServerCreator::create(actor_id(this), std::move(ids), std::move(ports)));
+}
+
+void AdnlPeerTableImpl::create_tunnel(AdnlNodeIdShort dst, td::uint32 size,
+                                      td::Promise<std::pair<td::actor::ActorOwn<AdnlTunnel>, AdnlAddress>> promise) {
 }
 
 }  // namespace adnl

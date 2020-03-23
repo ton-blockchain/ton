@@ -69,7 +69,7 @@ class TonTest {
             val giverInputKey = TonApi.InputKeyRegular(giverKey, "local password".toByteArray())
             val giverAddress = client.send(TonApi.GetAccountAddress(TonApi.WalletV3InitialAccountState(giverKey.publicKey, info.configInfo.defaultWalletId), 1)) as TonApi.AccountAddress;
 
-            val queryInfo = client.send(TonApi.CreateQuery(giverInputKey, giverAddress, 60, TonApi.ActionMsg(arrayOf(TonApi.MsgMessage(walletAddress, 6660000000, TonApi.MsgDataText("Helo") )), true))) as TonApi.QueryInfo;
+            val queryInfo = client.send(TonApi.CreateQuery(giverInputKey, giverAddress, 60, TonApi.ActionMsg(arrayOf(TonApi.MsgMessage(walletAddress, inputKey.key.publicKey, 6660000000, TonApi.MsgDataDecryptedText("Helo".toByteArray()) )), true))) as TonApi.QueryInfo;
             client.send(TonApi.QuerySend(queryInfo.id)) as TonApi.Ok;
 
             while ((client.send(TonApi.GetAccountState(walletAddress)) as TonApi.FullAccountState).balance <= 0L) {

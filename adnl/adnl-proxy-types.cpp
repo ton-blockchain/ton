@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl-proxy-types.hpp"
 #include "tl-utils/tl-utils.hpp"
@@ -27,59 +27,84 @@ namespace ton {
 
 namespace adnl {
 
+td::Result<AdnlProxy::Packet> AdnlProxyNone::decrypt(td::BufferSlice packet) const {
+  if (packet.size() < 32) {
+    return td::Status::Error(ErrorCode::protoviolation, "bad signature");
+  }
+  if (packet.as_slice().truncate(32) != id_.as_slice()) {
+    return td::Status::Error(ErrorCode::protoviolation, "bad proxy id");
+  }
+  Packet p{};
+  p.flags = 0;
+  p.ip = 0;
+  p.port = 0;
+  p.adnl_start_time = 0;
+  p.seqno = 0;
+  p.date = 0;
+  p.data = std::move(packet);
+  p.data.confirm_read(32);
+  return std::move(p);
+}
+
 td::BufferSlice AdnlProxyFast::encrypt(Packet packet) const {
-  auto date = static_cast<td::uint32>(td::Clocks::system());
-  auto signature = create_hash_tl_object<ton_api::adnl_proxyToFastHash>(
-      packet.ip, packet.port, date, sha256_bits256(packet.data.as_slice()), shared_secret_);
-
-  auto obj = create_serialize_tl_object<ton_api::adnl_proxyToFast>(packet.ip, packet.port, date, signature);
-  td::BufferSlice res{32 + obj.size() + packet.data.size()};
-  auto S = res.as_slice();
-  S.copy_from(td::Bits256::zero().as_slice());
+  if (!packet.date) {
+    packet.date = static_cast<td::int32>(td::Clocks::system());
+    packet.flags |= 8;
+  }
+  auto obj = create_tl_object<ton_api::adnl_proxyPacketHeader>(id_, packet.flags, packet.ip, packet.port,
+                                                               packet.adnl_start_time, packet.seqno, packet.date,
+                                                               td::sha256_bits256(packet.data.as_slice()));
+  char data[64];
+  td::MutableSlice S{data, 64};
+  S.copy_from(get_tl_object_sha256(obj).as_slice());
   S.remove_prefix(32);
-  S.copy_from(obj.as_slice());
-  S.remove_prefix(obj.size());
-  S.copy_from(packet.data.as_slice());
+  S.copy_from(shared_secret_.as_slice());
 
-  return res;
+  obj->signature_ = td::sha256_bits256(td::Slice(data, 64));
+
+  return serialize_tl_object(obj, false, std::move(packet.data));
 }
 
 td::Result<AdnlProxy::Packet> AdnlProxyFast::decrypt(td::BufferSlice packet) const {
-  if (packet.size() < 36) {
-    return td::Status::Error(ErrorCode::protoviolation, "too short packet");
+  TRY_RESULT(obj, fetch_tl_prefix<ton_api::adnl_proxyPacketHeader>(packet, false));
+  if (obj->proxy_id_ != id_) {
+    return td::Status::Error(ErrorCode::protoviolation, "bad proxy id");
   }
 
-  td::Bits256 v;
-  v.as_slice().copy_from(packet.as_slice().truncate(32));
-  if (!v.is_zero()) {
-    return td::Status::Error(ErrorCode::protoviolation, "non-zero DST");
-  }
-  packet.confirm_read(32);
+  auto signature = std::move(obj->signature_);
+  obj->signature_ = td::sha256_bits256(packet.as_slice());
 
-  TRY_RESULT(R, fetch_tl_prefix<ton_api::adnl_proxyToFast>(packet, true));
+  char data[64];
+  td::MutableSlice S{data, 64};
+  S.copy_from(get_tl_object_sha256(obj).as_slice());
+  S.remove_prefix(32);
+  S.copy_from(shared_secret_.as_slice());
 
-  if (R->date_ < td::Clocks::system() - 8) {
-    return td::Status::Error(ErrorCode::protoviolation, "too old date");
-  }
-
-  auto signature = create_hash_tl_object<ton_api::adnl_proxyToFastHash>(
-      R->ip_, R->port_, R->date_, sha256_bits256(packet.as_slice()), shared_secret_);
-  if (signature != R->signature_) {
+  if (td::sha256_bits256(td::Slice(data, 64)) != signature) {
     return td::Status::Error(ErrorCode::protoviolation, "bad signature");
   }
 
-  return Packet{static_cast<td::uint32>(R->ip_), static_cast<td::uint16>(R->port_), std::move(packet)};
+  Packet p;
+  p.flags = obj->flags_;
+  p.ip = (p.flags & 1) ? obj->ip_ : 0;
+  p.port = (p.flags & 1) ? static_cast<td::uint16>(obj->port_) : 0;
+  p.adnl_start_time = (p.flags & 2) ? obj->adnl_start_time_ : 0;
+  p.seqno = (p.flags & 4) ? obj->seqno_ : 0;
+  p.date = (p.flags & 8) ? obj->date_ : 0;
+  p.data = std::move(packet);
+
+  return std::move(p);
 }
 
 td::Result<std::shared_ptr<AdnlProxy>> AdnlProxy::create(const ton_api::adnl_Proxy &proxy_type) {
   std::shared_ptr<AdnlProxy> R;
   ton_api::downcast_call(
       const_cast<ton_api::adnl_Proxy &>(proxy_type),
-      td::overloaded([&](const ton_api::adnl_proxy_none &x) { R = std::make_shared<AdnlProxyNone>(); },
+      td::overloaded([&](const ton_api::adnl_proxy_none &x) { R = std::make_shared<AdnlProxyNone>(x.id_); },
                      [&](const ton_api::adnl_proxy_fast &x) {
-                       R = std::make_shared<AdnlProxyFast>(x.shared_secret_.as_slice());
+                       R = std::make_shared<AdnlProxyFast>(x.id_, x.shared_secret_.as_slice());
                      }));
-  return R;
+  return std::move(R);
 }
 
 }  // namespace adnl

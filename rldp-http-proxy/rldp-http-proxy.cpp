@@ -777,12 +777,16 @@ class RldpHttpProxy : public td::actor::Actor {
           ton::adnl::AdnlNetworkManager::create(is_client_ ? client_port_ : static_cast<td::uint16>(addr_.get_port()));
       adnl_ = ton::adnl::Adnl::create(is_client_ ? std::string("") : (db_root_), keyring_.get());
       td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
+      ton::adnl::AdnlCategoryMask cat_mask;
+      cat_mask[0] = true;
       if (is_client_) {
         td::IPAddress addr;
         addr.init_host_port("127.0.0.1", client_port_).ensure();
-        td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr, 0);
+        td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr,
+                                std::move(cat_mask), 0);
       } else {
-        td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr_, 0);
+        td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr_,
+                                std::move(cat_mask), 0);
       }
 
       ton::adnl::AdnlAddressList addr_list;
@@ -798,7 +802,8 @@ class RldpHttpProxy : public td::actor::Actor {
         auto pub = pk.compute_public_key();
         td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
         local_id_ = ton::adnl::AdnlNodeIdShort{pub.compute_short_id()};
-        td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list);
+        td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list,
+                                static_cast<td::uint8>(0));
 
         if (server_ids_.size() == 0 && !is_client_) {
           server_ids_.insert(local_id_);
@@ -809,10 +814,12 @@ class RldpHttpProxy : public td::actor::Actor {
         auto pub = pk.compute_public_key();
         td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
         dht_id_ = ton::adnl::AdnlNodeIdShort{pub.compute_short_id()};
-        td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list);
+        td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list,
+                                static_cast<td::uint8>(0));
       }
       for (auto &serv_id : server_ids_) {
-        td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, server_ids_full_[serv_id], addr_list);
+        td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, server_ids_full_[serv_id], addr_list,
+                                static_cast<td::uint8>(0));
       }
     }
     {

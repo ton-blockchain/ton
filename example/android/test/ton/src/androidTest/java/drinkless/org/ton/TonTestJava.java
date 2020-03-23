@@ -102,7 +102,7 @@ public class TonTestJava {
         TonApi.AccountAddress giverAddress = (TonApi.AccountAddress)client.send(new TonApi.GetAccountAddress(new TonApi.WalletV3InitialAccountState(giverKey.publicKey, info.configInfo.defaultWalletId), 1));
 
         appendLog("sending grams...");
-        TonApi.QueryInfo queryInfo = (TonApi.QueryInfo)client.send(new TonApi.CreateQuery(giverInputKey, giverAddress, 60, new TonApi.ActionMsg(new TonApi.MsgMessage[]{new TonApi.MsgMessage(walletAddress, 6660000000L, new TonApi.MsgDataText("Helo") )}, true)));
+        TonApi.QueryInfo queryInfo = (TonApi.QueryInfo)client.send(new TonApi.CreateQuery(giverInputKey, giverAddress, 60, new TonApi.ActionMsg(new TonApi.MsgMessage[]{new TonApi.MsgMessage(walletAddress, "", 6660000000L, new TonApi.MsgDataText("Hello".getBytes()) )}, true)));
         result = client.send(new TonApi.QuerySend(queryInfo.id));
         if (!(result instanceof TonApi.Ok)) {
             appendLog("failed to send grams");

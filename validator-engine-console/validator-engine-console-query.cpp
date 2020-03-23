@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-engine-console-query.h"
 #include "validator-engine-console.h"
@@ -609,6 +609,7 @@ td::Status AddNetworkAddressQuery::receive(td::BufferSlice data) {
 td::Status AddNetworkProxyAddressQuery::run() {
   TRY_RESULT_ASSIGN(in_addr_, tokenizer_.get_token<td::IPAddress>());
   TRY_RESULT_ASSIGN(out_addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(id_, tokenizer_.get_token<td::Bits256>());
   TRY_RESULT_ASSIGN(shared_secret_, tokenizer_.get_token<td::BufferSlice>());
   TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
   TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
@@ -619,7 +620,7 @@ td::Status AddNetworkProxyAddressQuery::run() {
 td::Status AddNetworkProxyAddressQuery::send() {
   auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addProxy>(
       static_cast<td::int32>(in_addr_.get_ipv4()), in_addr_.get_port(), static_cast<td::int32>(out_addr_.get_ipv4()),
-      out_addr_.get_port(), ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(std::move(shared_secret_)),
+      out_addr_.get_port(), ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(id_, std::move(shared_secret_)),
       std::move(cats_), std::move(prio_cats_));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();

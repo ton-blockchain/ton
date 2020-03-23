@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -99,6 +99,19 @@ inline td::Result<ton::PublicKeyHash> Tokenizer::get_token() {
   TRY_RESULT(F, td::hex_decode(S));
   if (F.size() == 32) {
     return ton::PublicKeyHash{td::Slice{F}};
+  } else {
+    return td::Status::Error("cannot parse keyhash: bad length");
+  }
+}
+
+template <>
+inline td::Result<td::Bits256> Tokenizer::get_token() {
+  TRY_RESULT(S, get_raw_token());
+  TRY_RESULT(F, td::hex_decode(S));
+  if (F.size() == 32) {
+    td::Bits256 v;
+    v.as_slice().copy_from(F);
+    return v;
   } else {
     return td::Status::Error("cannot parse keyhash: bad length");
   }
@@ -782,7 +795,7 @@ class AddNetworkProxyAddressQuery : public Query {
     return "addproxyaddr";
   }
   static std::string get_help() {
-    return "addproxyaddr <inip> <outid> <secret> {cats...} {priocats...}\tadds ip address to address list";
+    return "addproxyaddr <inip> <outip> <id> <secret> {cats...} {priocats...}\tadds ip address to address list";
   }
   std::string name() const override {
     return get_name();
@@ -791,6 +804,7 @@ class AddNetworkProxyAddressQuery : public Query {
  private:
   td::IPAddress in_addr_;
   td::IPAddress out_addr_;
+  td::Bits256 id_;
   td::BufferSlice shared_secret_;
   std::vector<td::int32> cats_;
   std::vector<td::int32> prio_cats_;

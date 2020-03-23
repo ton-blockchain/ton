@@ -39,6 +39,9 @@ namespace validator {
 using td::Ref;
 
 class Collator final : public td::actor::Actor {
+  static constexpr int supported_version = 1;
+  static constexpr long long supported_capabilities =
+      ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion;
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
   const ShardIdFull shard;
@@ -137,6 +140,7 @@ class Collator final : public td::actor::Actor {
   bool shard_conf_adjusted_{false};
   bool ihr_enabled_{false};
   bool create_stats_enabled_{false};
+  bool report_version_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
   Ref<block::WorkchainInfo> wc_info_;
@@ -286,6 +290,7 @@ class Collator final : public td::actor::Actor {
   bool store_master_ref(vm::CellBuilder& cb);
   bool store_prev_blk_ref(vm::CellBuilder& cb, bool after_merge);
   bool store_zero_state_ref(vm::CellBuilder& cb);
+  bool store_version(vm::CellBuilder& cb) const;
   bool create_block_info(Ref<vm::Cell>& block_info);
   bool check_value_flow();
   bool create_block_extra(Ref<vm::Cell>& block_extra);

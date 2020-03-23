@@ -382,7 +382,6 @@ void ArchiveImporter::finish_query() {
   if (promise_) {
     promise_.set_value(
         std::vector<BlockSeqno>{state_->get_seqno(), std::min<BlockSeqno>(state_->get_seqno(), shard_client_seqno_)});
-    td::unlink(path_).ensure();
   }
   stop();
 }

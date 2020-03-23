@@ -29,6 +29,8 @@
 #include "adnl/adnl.h"
 #include "adnl/adnl-test-loopback-implementation.h"
 
+#include "keys/encryptor.h"
+
 #include "td/utils/port/signals.h"
 #include "td/utils/port/path.h"
 #include "td/utils/Random.h"
@@ -81,8 +83,10 @@ int main() {
 
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr);
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr);
+    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
+                            static_cast<td::uint8>(0));
+    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr,
+                            static_cast<td::uint8>(0));
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::add_peer, src, ton::adnl::AdnlNodeIdFull{pub2}, addr);
 
@@ -91,28 +95,83 @@ int main() {
   });
 
   {
-    auto a = ton::adnl::Adnl::adnl_start_time();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10000));
-    CHECK(a == ton::adnl::Adnl::adnl_start_time());
-  }
-
-  {
-    auto obj = ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(td::BufferSlice{"1234"});
+    td::Bits256 proxy_id;
+    td::Random::secure_bytes(proxy_id.as_slice());
+    auto obj = ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(proxy_id, td::BufferSlice{"1234"});
     auto R = ton::adnl::AdnlProxy::create(*obj.get());
     R.ensure();
     auto P = R.move_as_ok();
     td::BufferSlice z{64};
     td::Random::secure_bytes(z.as_slice());
-    auto packet = P->encrypt(ton::adnl::AdnlProxy::Packet{2, 3, z.clone()});
-    td::Bits256 x;
-    x.as_slice().copy_from(packet.as_slice().truncate(32));
-    CHECK(x.is_zero());
+    auto packet = P->encrypt(ton::adnl::AdnlProxy::Packet{15, 2, 3, 4, 5, 6, z.clone()});
     auto packet2R = P->decrypt(std::move(packet));
     packet2R.ensure();
     auto packet2 = packet2R.move_as_ok();
+    CHECK(packet2.flags == 15);
     CHECK(packet2.ip == 2);
     CHECK(packet2.port == 3);
+    CHECK(packet2.adnl_start_time == 4);
+    CHECK(packet2.seqno == 5);
+    CHECK(packet2.date == 6);
     CHECK(packet2.data.as_slice() == z.as_slice());
+  }
+
+  {
+    auto f = td::Clocks::system();
+    for (int i = 0; i < 10000; i++) {
+      auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+      auto pub = pk.compute_public_key();
+      auto dec = pk.create_decryptor().move_as_ok();
+      auto enc = pub.create_encryptor().move_as_ok();
+      td::BufferSlice data{1024};
+      td::Random::secure_bytes(data.as_slice());
+      auto enc_data = enc->encrypt(data.as_slice()).move_as_ok();
+      auto dec_data = dec->decrypt(enc_data.as_slice()).move_as_ok();
+      CHECK(data.as_slice() == dec_data.as_slice());
+    }
+    LOG(ERROR) << "Encrypted 10000 of 1KiB packets. Time=" << (td::Clocks::system() - f);
+    f = td::Clocks::system();
+    {
+      auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+      auto pub = pk.compute_public_key();
+      auto dec = pk.create_decryptor().move_as_ok();
+      auto enc = pub.create_encryptor().move_as_ok();
+      for (int i = 0; i < 10000; i++) {
+        td::BufferSlice data{1024};
+        td::Random::secure_bytes(data.as_slice());
+        auto enc_data = enc->encrypt(data.as_slice()).move_as_ok();
+        auto dec_data = dec->decrypt(enc_data.as_slice()).move_as_ok();
+        CHECK(data.as_slice() == dec_data.as_slice());
+      }
+    }
+    LOG(ERROR) << "Encrypted 10000 of 1KiB packets with one key. Time=" << (td::Clocks::system() - f);
+    f = td::Clocks::system();
+    for (int i = 0; i < 10000; i++) {
+      auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+      auto pub = pk.compute_public_key();
+      auto dec = pk.create_decryptor().move_as_ok();
+      auto enc = pub.create_encryptor().move_as_ok();
+      td::BufferSlice data{1024};
+      td::Random::secure_bytes(data.as_slice());
+      auto enc_data = enc->encrypt(data.as_slice()).move_as_ok();
+      auto dec_data = dec->decrypt(enc_data.as_slice()).move_as_ok();
+      CHECK(data.as_slice() == dec_data.as_slice());
+    }
+    LOG(ERROR) << "Signed 10000 of 1KiB packets. Time=" << (td::Clocks::system() - f);
+    f = td::Clocks::system();
+    {
+      auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+      auto pub = pk.compute_public_key();
+      auto dec = pk.create_decryptor().move_as_ok();
+      auto enc = pub.create_encryptor().move_as_ok();
+      for (int i = 0; i < 10000; i++) {
+        td::BufferSlice data{1024};
+        td::Random::secure_bytes(data.as_slice());
+        auto signature = dec->sign(data.as_slice()).move_as_ok();
+        enc->check_signature(data.as_slice(), signature.as_slice()).ensure();
+      }
+    }
+    LOG(ERROR) << "Signed 10000 of 1KiB packets with one key. Time=" << (td::Clocks::system() - f);
   }
 
   auto send_packet = [&](td::uint32 i) {
@@ -159,6 +218,7 @@ int main() {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, dst, "1", std::make_unique<Callback>(remaining));
   });
 
+  LOG(ERROR) << "Ed25519 version is " << td::Ed25519::version();
   LOG(ERROR) << "testing delivering of all packets";
 
   auto f = td::Clocks::system();
@@ -323,6 +383,12 @@ int main() {
     }
   }
   LOG(ERROR) << "successfully tested ignoring";
+
+  if (true) {
+    auto a = ton::adnl::Adnl::adnl_start_time();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+    CHECK(a == ton::adnl::Adnl::adnl_start_time());
+  }
 
   td::rmrf(db_root_).ensure();
   std::_Exit(0);

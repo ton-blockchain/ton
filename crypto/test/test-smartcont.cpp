@@ -583,16 +583,58 @@ TEST(Smartcon, Multisig) {
       wallet_id, td::transform(keys, [](auto& key) { return key.get_public_key().ok().as_octet_string(); }), k);
   auto ms = ton::MultisigWallet::create(init_state);
 
-  td::uint64 query_id = 123 | ((100 * 60ull) << 32);
-  ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
-  // first empty query (init)
-  CHECK(ms.write().send_external_message(vm::CellBuilder().finalize()).code == 0);
-  // first empty query
-  CHECK(ms.write().send_external_message(vm::CellBuilder().finalize()).code > 0);
+  td::uint32 now = 0;
+  auto args = [&now]() -> ton::SmartContract::Args { return ton::SmartContract::Args().set_now(now); };
 
+  // first empty query (init)
+  CHECK(ms.write().send_external_message(vm::CellBuilder().finalize(), args()).code == 0);
+  // first empty query
+  CHECK(ms.write().send_external_message(vm::CellBuilder().finalize(), args()).code > 0);
+
+  {
+    td::uint64 query_id = 123 | ((now + 10 * 60ull) << 32);
+    ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
+    auto query = qb.create(0, keys[0]);
+    auto res = ms.write().send_external_message(query, args());
+    CHECK(!res.accepted);
+    CHECK(res.code == 41);
+  }
+  {
+    for (int i = 1; i <= 11; i++) {
+      td::uint64 query_id = i | ((now + 100 * 60ull) << 32);
+      ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
+      auto query = qb.create(5, keys[5]);
+      auto res = ms.write().send_external_message(query, args());
+      if (i <= 10) {
+        CHECK(res.accepted);
+      } else {
+        CHECK(!res.accepted);
+      }
+    }
+
+    now += 100 * 60 + 100;
+    {
+      td::uint64 query_id = 200 | ((now + 100 * 60ull) << 32);
+      ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
+      auto query = qb.create(6, keys[6]);
+      auto res = ms.write().send_external_message(query, args());
+      CHECK(res.accepted);
+    }
+
+    {
+      td::uint64 query_id = 300 | ((now + 100 * 60ull) << 32);
+      ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
+      auto query = qb.create(5, keys[5]);
+      auto res = ms.write().send_external_message(query, args());
+      CHECK(res.accepted);
+    }
+  }
+
+  td::uint64 query_id = 123 | ((now + 100 * 60ull) << 32);
+  ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
   for (int i = 0; i < 10; i++) {
     auto query = qb.create(i, keys[i]);
-    auto ans = ms.write().send_external_message(query);
+    auto ans = ms.write().send_external_message(query, args());
     LOG(INFO) << "CODE: " << ans.code;
     LOG(INFO) << "GAS: " << ans.gas_used;
   }
@@ -602,12 +644,12 @@ TEST(Smartcon, Multisig) {
   auto query = qb.create(49, keys[49]);
 
   CHECK(ms->get_n_k() == std::make_pair(n, k));
-  auto ans = ms.write().send_external_message(query);
+  auto ans = ms.write().send_external_message(query, args());
   LOG(INFO) << "CODE: " << ans.code;
   LOG(INFO) << "GAS: " << ans.gas_used;
   CHECK(ans.success);
   ASSERT_EQ(0, ms->processed(query_id));
-  CHECK(ms.write().send_external_message(query).code > 0);
+  CHECK(ms.write().send_external_message(query, args()).code > 0);
   ASSERT_EQ(0, ms->processed(query_id));
 
   {
@@ -618,7 +660,7 @@ TEST(Smartcon, Multisig) {
     query = qb.create(99, keys[99]);
   }
 
-  ans = ms.write().send_external_message(query);
+  ans = ms.write().send_external_message(query, args());
   LOG(INFO) << "CODE: " << ans.code;
   LOG(INFO) << "GAS: " << ans.gas_used;
   ASSERT_EQ(-1, ms->processed(query_id));
