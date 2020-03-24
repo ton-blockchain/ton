@@ -39,9 +39,12 @@ namespace validator {
 using td::Ref;
 
 class Collator final : public td::actor::Actor {
-  static constexpr int supported_version = 1;
-  static constexpr long long supported_capabilities =
-      ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion;
+  static constexpr int supported_version() {
+    return 1;
+  }
+  static constexpr long long supported_capabilities() {
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion;
+  }
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
   const ShardIdFull shard;
