@@ -55,12 +55,15 @@
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 
-#include "tonlib/keys/Mnemonic.h"
-
 #include "block.h"
 #include "block-parse.h"
 #include "block-auto.h"
 #include "mc-config.h"
+
+#if defined(_INTERNAL_COMPILE) || defined(_TONLIB_COMPILE)
+# define WITH_TONLIB
+# include "tonlib/keys/Mnemonic.h"
+#endif
 
 #define PDO(__op) \
   if (!(__op)) {  \
@@ -636,6 +639,7 @@ void interpret_sub_extra_currencies(vm::Stack& stack) {
   stack.push_bool(ok);
 }
 
+#ifdef WITH_TONLIB
 void interpret_mnemonic_to_privkey(vm::Stack& stack, int mode) {
   td::SecureString str{td::Slice{stack.pop_string()}};
   auto res = tonlib::Mnemonic::create(std::move(str), td::SecureString());
@@ -652,6 +656,7 @@ void interpret_mnemonic_to_privkey(vm::Stack& stack, int mode) {
   }
   stack.push_bytes(key.as_slice());
 }
+#endif
 
 void init_words_custom(fift::Dictionary& d) {
   using namespace std::placeholders;
@@ -671,8 +676,10 @@ void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("isWorkchainDescr? ", interpret_is_workchain_descr);
   d.def_stack_word("CC+? ", interpret_add_extra_currencies);
   d.def_stack_word("CC-? ", interpret_sub_extra_currencies);
+#ifdef WITH_TONLIB
   d.def_stack_word("mnemo>priv ", std::bind(interpret_mnemonic_to_privkey, _1, 0));
   d.def_stack_word("mnemo>pub ", std::bind(interpret_mnemonic_to_privkey, _1, 1));
+#endif
 }
 
 tlb::TypenameLookup tlb_dict;

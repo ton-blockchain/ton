@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "catchain-receiver-source.hpp"
 #include "common/errorlog.h"
@@ -75,6 +75,7 @@ void CatChainReceiverSourceImpl::blame() {
   if (!blamed_) {
     LOG(ERROR) << this << ": CATCHAIN: blaming source " << id_;
     blocks_.clear();
+    delivered_height_ = 0;
     chain_->on_blame(id_);
   }
   blamed_ = true;

@@ -20,6 +20,7 @@
 #include "fabric.h"
 #include "ton/ton-io.hpp"
 #include "td/utils/overloaded.h"
+#include "common/delay.h"
 
 namespace ton {
 
@@ -50,8 +51,12 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
       if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
         LOG(ERROR) << "failed to validate candidate: " << S;
       }
-      td::actor::send_closure(SelfId, &ValidatorGroup::validate_block_candidate, round_id, std::move(block),
-                              std::move(promise));
+      delay_action(
+          [SelfId, round_id, block = std::move(block), promise = std::move(promise)]() mutable {
+            td::actor::send_closure(SelfId, &ValidatorGroup::validate_block_candidate, round_id, std::move(block),
+                                    std::move(promise));
+          },
+          td::Timestamp::in(0.1));
     } else {
       auto v = R.move_as_ok();
       v.visit(td::overloaded([&](UnixTime ts) { promise.set_result(ts); },

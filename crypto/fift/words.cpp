@@ -28,6 +28,8 @@
 #include "common/bitstring.h"
 #include "common/util.h"
 
+#include "openssl/digest.hpp"
+
 #include "Ed25519.h"
 
 #include "vm/cells.h"

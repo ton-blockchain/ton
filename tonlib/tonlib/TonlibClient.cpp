@@ -412,6 +412,14 @@ class AccountState {
           {ton::HighloadWalletV2::get_init_code(wallet_revision_), ton::WalletV3::get_init_data(key, wallet_id_)});
       return wallet_type_;
     }
+    o_revision = ton::HighloadWallet::guess_revision(address_, key, wallet_id_);
+    if (o_revision) {
+      wallet_type_ = WalletType::HighloadWalletV1;
+      wallet_revision_ = o_revision.value();
+      set_new_state(
+          {ton::HighloadWallet::get_init_code(wallet_revision_), ton::WalletV3::get_init_data(key, wallet_id_)});
+      return wallet_type_;
+    }
     o_revision = ton::ManualDns::guess_revision(address_, key, wallet_id_);
     if (o_revision) {
       wallet_type_ = WalletType::ManualDns;
@@ -428,11 +436,6 @@ class AccountState {
                address_.addr) {
       set_new_state({ton::Wallet::get_init_code(), ton::Wallet::get_init_data(key)});
       wallet_type_ = WalletType::Wallet;
-    } else if (ton::GenericAccount::get_address(address_.workchain,
-                                                ton::HighloadWallet::get_init_state(key, wallet_id_))
-                   .addr == address_.addr) {
-      set_new_state({ton::HighloadWallet::get_init_code(), ton::HighloadWallet::get_init_data(key, wallet_id_)});
-      wallet_type_ = WalletType::HighloadWalletV1;
     }
     return wallet_type_;
   }
@@ -491,6 +494,12 @@ class AccountState {
     o_revision = ton::HighloadWalletV2::guess_revision(code_hash);
     if (o_revision) {
       wallet_type_ = WalletType::HighloadWalletV2;
+      wallet_revision_ = o_revision.value();
+      return wallet_type_;
+    }
+    o_revision = ton::HighloadWallet::guess_revision(code_hash);
+    if (o_revision) {
+      wallet_type_ = WalletType::HighloadWalletV1;
       wallet_revision_ = o_revision.value();
       return wallet_type_;
     }
@@ -1438,7 +1447,8 @@ td::Result<block::StdAddress> get_account_address(
   TRY_RESULT(key_bytes, get_public_key(test_wallet_state.public_key_));
   auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
   return ton::GenericAccount::get_address(
-      0 /*zerochain*/, ton::HighloadWallet::get_init_state(key, static_cast<td::uint32>(test_wallet_state.wallet_id_)));
+      0 /*zerochain*/,
+      ton::HighloadWallet::get_init_state(key, static_cast<td::uint32>(test_wallet_state.wallet_id_), revision));
 }
 
 td::Result<block::StdAddress> get_account_address(
@@ -1687,6 +1697,29 @@ const MasterConfig& get_default_master_config() {
     },
     "init_block": 
 {"workchain":-1,"shard":-9223372036854775808,"seqno":870721,"root_hash":"jYKhSQ1xeSPprzgjqiUOnAWwc2yqs7nCVAU21k922s4=","file_hash":"kHidF02CZpaz2ia9jtXUJLp0AiWMWwfzprTUIsddHSo="}
+  }
+})abc");
+    res.add_config("testnet2", R"abc({
+  "liteservers": [
+    {
+      "ip": 1137658550,
+      "port": 4924,
+      "id": {
+        "@type": "pub.ed25519",
+        "key": "peJTw/arlRfssgTuf9BMypJzqOi7SXEqSPSWiEw2U1M="
+      }
+    }
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
+      "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
+    },
+    "init_block": {"workchain":-1,"shard":-9223372036854775808,"seqno":2908451,"root_hash":"5+7X1QHVUBFLFMwa/yd/2fGzt2KeQtwr+o6UUFOQ7Qc=","file_hash":"gmiUgrtAbvEJZYDEkcbeNOhGPS3g+qCepSOEBFLZFzk="}
   }
 })abc");
     return res;

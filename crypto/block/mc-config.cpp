@@ -35,7 +35,7 @@
 #include "td/utils/uint128.h"
 #include "ton/ton-types.h"
 #include "ton/ton-shard.h"
-#include "crypto/openssl/digest.h"
+#include "openssl/digest.hpp"
 #include <stack>
 #include <algorithm>
 

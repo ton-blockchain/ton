@@ -1,0 +1,33 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"GetOpt.fif" include
+
+"validator-to-sign.req" =: savefile
+
+{ ."usage: " @' $0 type ." <expire-at> <validator-idx> <proposal-hash> [<savefile>]" cr
+  ."Creates an unsigned request expiring at unixtime <expire-at> to vote for configuration proposal <proposal-hash> (decimal; prefix with '0x' if needed) on behalf of validator with zero-based index <validator-idx> in current validator set (as stored in configuration parameter 34)" cr
+  ."The result is saved into <savefile> (" savefile type ." by default) and output in hexadecimal form, to be signed later by the validator public key" cr 1 halt
+} : usage
+
+$# dup 3 < swap 4 > or ' usage if
+4 :$1..n
+
+$1 parse-int dup 30 1<< < { now + 1000 + 2000 /c 2000 * } if
+  dup =: expire-at
+  dup now <= abort"expiration time must be in the future"
+  32 ufits not abort"invalid expiration time"
+$2 parse-int dup =: val-idx
+  16 ufits not abort"validator index out of range"
+$3 parse-int dup =: prop-hash
+  256 ufits not abort"invalid proposal hash"
+$4 savefile replace-if-null =: savefile
+0 =: seqno
+
+."Creating a request expiring at " expire-at . 
+."to vote for configuration proposal 0x" prop-hash 64x.
+."on behalf of validator with index " val-idx . cr
+
+B{566f7465} seqno 32 u>B B+ expire-at 32 u>B B+ val-idx 16 u>B B+ prop-hash 256 u>B B+
+dup Bx. cr
+dup B>base64url type cr
+savefile tuck B>file ."Saved to file " type cr

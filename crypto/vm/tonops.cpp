@@ -26,6 +26,8 @@
 #include "vm/dict.h"
 #include "Ed25519.h"
 
+#include "openssl/digest.hpp"
+
 namespace vm {
 
 namespace {

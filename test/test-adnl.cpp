@@ -50,6 +50,8 @@ int main() {
     CHECK(id.serialize() == td::to_lower(id_str));
   }
 
+  td::to_integer_safe<td::uint32>("0").ensure();
+
   std::string db_root_ = "tmp-ee";
   td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();

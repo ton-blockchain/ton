@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "manager.hpp"
 #include "validator-group.hpp"
@@ -1413,6 +1413,9 @@ void ValidatorManagerImpl::start_up() {
       }
       fname = fname.substr(8);
 
+      while (fname.size() > 1 && fname[0] == '0') {
+        fname.remove_prefix(1);
+      }
       auto v = td::to_integer_safe<BlockSeqno>(fname);
       if (v.is_error()) {
         return;
@@ -1486,6 +1489,10 @@ bool ValidatorManagerImpl::out_of_sync() {
     return false;
   }
 
+  if (last_masterchain_seqno_ < last_known_key_block_handle_->id().seqno()) {
+    return true;
+  }
+
   if (validator_groups_.size() > 0 && last_known_key_block_handle_->id().seqno() <= last_masterchain_seqno_) {
     return false;
   }
@@ -1510,7 +1517,7 @@ void ValidatorManagerImpl::download_next_archive() {
   }
 
   auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
-  auto it = to_import_.upper_bound(seqno);
+  auto it = to_import_.upper_bound(seqno + 1);
   if (it != to_import_.begin()) {
     it--;
     if (it->second.second) {
@@ -1715,12 +1722,12 @@ void ValidatorManagerImpl::update_shards() {
 
         // DIRTY. But we don't want to create hardfork now
         // TODO! DELETE IT LATER
-        if (last_masterchain_seqno_ >= 2904932 && val_set->get_catchain_seqno() == 44896) {
-          if (opts_->zero_block_id().file_hash.to_hex() ==
-              "5E994FCF4D425C0A6CE6A792594B7173205F740A39CD56F537DEFD28B48A0F6E") {
-            val_group_id[0] = !val_group_id[0];
-          }
-        }
+        //if (last_masterchain_seqno_ >= 2904932 && val_set->get_catchain_seqno() == 44896) {
+        //  if (opts_->zero_block_id().file_hash.to_hex() ==
+        //      "5E994FCF4D425C0A6CE6A792594B7173205F740A39CD56F537DEFD28B48A0F6E") {
+        //    val_group_id[0] = !val_group_id[0];
+        //  }
+        //}
 
         VLOG(VALIDATOR_DEBUG) << "validating group " << val_group_id;
         auto it = validator_groups_.find(val_group_id);
@@ -2214,6 +2221,10 @@ void ValidatorManagerImpl::try_get_static_file(FileHash file_hash, td::Promise<t
 }
 
 void ValidatorManagerImpl::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
+  if (masterchain_seqno > last_masterchain_seqno_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "masterchain seqno too big"));
+    return;
+  }
   td::actor::send_closure(db_, &Db::get_archive_id, masterchain_seqno, std::move(promise));
 }
 
