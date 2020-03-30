@@ -78,6 +78,19 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
   CatChainBlockHeight received_height() const override {
     return received_height_;
   }
+  bool has_unreceived() const override {
+    if (blamed()) {
+      return true;
+    }
+    if (!blocks_.size()) {
+      return false;
+    }
+    CHECK(blocks_.rbegin()->second->get_height() >= received_height_);
+    return blocks_.rbegin()->second->get_height() > received_height_;
+  }
+  bool has_undelivered() const override {
+    return delivered_height_ < received_height_;
+  }
   CatChainReceivedBlock *get_block(CatChainBlockHeight height) const override;
 
   td::Status validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) override;

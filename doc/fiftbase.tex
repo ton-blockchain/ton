@@ -2156,6 +2156,8 @@ Typical values of $x$ are $x=0$ or $x=2$ for very small bags of cells (e.g., TON
 \item {\tt ten} ( -- $10$), pushes {\em Integer\/} constant 10.
 \item {\tt third} ($t$ -- $x$), returns the third component of a {\em Tuple}, cf.~\ptref{p:tuples}. Equivalent to {\tt 2 []}.
 \item {\tt times} ($e$ $n$ -- ), executes execution token ({\em WordDef\/}) $e$ exactly $n$ times, if $n\geq0$, cf.~\ptref{p:simple.loops}. If $n$ is negative, throws an exception.
+\item {\tt totalcsize} ($c$ -- $x$ $y$ $z$), recursively computes the total number of unique cells $x$, data bits $y$ and cell references $z$ in the tree of cells rooted in {\em Cell\/}~$c$.
+\item {\tt totalssize} ($s$ -- $x$ $y$ $z$), recursively computes the total number of unique cells $x$, data bits $y$ and cell references $z$ in the tree of cells rooted in {\em Slice\/}~$s$.
 \item {\tt triple} ($x$ $y$ $z$ -- $t$), creates new triple $t=(x,y,z)$, cf.~\ptref{p:tuples}. Equivalent to {\tt 3 tuple}.
 \item {\tt true} ( -- $-1$), pushes $-1$ into the stack, cf.~\ptref{p:bool}. Equivalent to {\tt -1}.
 \item {\tt tuck} ($x$ $y$ -- $y$ $x$ $y$), equivalent to {\tt swap over}, cf.~\ptref{p:stack.ops}.

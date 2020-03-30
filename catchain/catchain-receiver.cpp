@@ -83,6 +83,16 @@ void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_pt
     return;
   }
 
+  if (block->src_ == static_cast<td::int32>(local_idx_)) {
+    if (!allow_unsafe_self_blocks_resync_ || started_) {
+      LOG(FATAL) << this << ": received unknown SELF block from " << src
+                 << " (unsafe=" << allow_unsafe_self_blocks_resync_ << ")";
+    } else {
+      LOG(ERROR) << this << ": received unknown SELF block from " << src << ". UPDATING LOCAL DATABASE. UNSAFE";
+      initial_sync_complete_at_ = td::Timestamp::in(300.0);
+    }
+  }
+
   auto raw_data = serialize_tl_object(block, true, payload.as_slice());
   create_block(std::move(block), td::SharedSlice{payload.as_slice()});
 
@@ -420,14 +430,16 @@ CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback, C
                                            td::actor::ActorId<adnl::Adnl> adnl,
                                            td::actor::ActorId<overlay::Overlays> overlay_manager,
                                            std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                           CatChainSessionId unique_hash, std::string db_root)
+                                           CatChainSessionId unique_hash, std::string db_root,
+                                           bool allow_unsafe_self_blocks_resync)
     : callback_(std::move(callback))
     , opts_(std::move(opts))
     , keyring_(keyring)
     , adnl_(adnl)
     , overlay_manager_(overlay_manager)
     , local_id_(local_id)
-    , db_root_(db_root) {
+    , db_root_(db_root)
+    , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   std::vector<td::Bits256> short_ids;
   local_idx_ = static_cast<td::uint32>(ids.size());
   for (auto &id : ids) {
@@ -589,19 +601,20 @@ void CatChainReceiverImpl::read_db() {
 
   next_rotate_ = td::Timestamp::in(60 + td::Random::fast(0, 60));
   next_sync_ = td::Timestamp::in(0.001 * td::Random::fast(0, 60));
+  initial_sync_complete_at_ = td::Timestamp::in(allow_unsafe_self_blocks_resync_ ? 300.0 : 5.0);
   alarm_timestamp().relax(next_rotate_);
   alarm_timestamp().relax(next_sync_);
-
-  callback_->start();
+  alarm_timestamp().relax(initial_sync_complete_at_);
 }
 
 td::actor::ActorOwn<CatChainReceiverInterface> CatChainReceiverInterface::create(
     std::unique_ptr<Callback> callback, CatChainOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
-    std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root) {
+    std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root,
+    bool allow_unsafe_self_blocks_resync) {
   auto A = td::actor::create_actor<CatChainReceiverImpl>("catchainreceiver", std::move(callback), std::move(opts),
                                                          keyring, adnl, overlay_manager, std::move(ids), local_id,
-                                                         unique_hash, db_root);
+                                                         unique_hash, db_root, allow_unsafe_self_blocks_resync);
   return std::move(A);
 }
 
@@ -906,6 +919,59 @@ void CatChainReceiverImpl::choose_neighbours() {
   neighbours_ = std::move(n);
 }
 
+bool CatChainReceiverImpl::unsafe_start_up_check_completed() {
+  auto S = get_source(local_idx_);
+  CHECK(!S->blamed());
+  if (S->has_unreceived() || S->has_undelivered()) {
+    LOG(INFO) << "catchain: has_unreceived=" << S->has_unreceived() << " has_undelivered=" << S->has_undelivered();
+    run_scheduler();
+    initial_sync_complete_at_ = td::Timestamp::in(60.0);
+    return false;
+  }
+  auto h = S->delivered_height();
+  if (h == 0) {
+    CHECK(last_sent_block_->get_height() == 0);
+    CHECK(!unsafe_root_block_writing_);
+    return true;
+  }
+  if (last_sent_block_->get_height() == h) {
+    CHECK(!unsafe_root_block_writing_);
+    return true;
+  }
+  if (unsafe_root_block_writing_) {
+    initial_sync_complete_at_ = td::Timestamp::in(5.0);
+    LOG(INFO) << "catchain: writing=true";
+    return false;
+  }
+
+  unsafe_root_block_writing_ = true;
+  auto B = S->get_block(h);
+  CHECK(B != nullptr);
+  CHECK(B->delivered());
+  CHECK(B->in_db());
+
+  auto id = B->get_hash();
+
+  td::BufferSlice raw_data{32};
+  raw_data.as_slice().copy_from(as_slice(id));
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block = B](td::Result<td::Unit> R) mutable {
+    R.ensure();
+    td::actor::send_closure(SelfId, &CatChainReceiverImpl::written_unsafe_root_block, block);
+  });
+
+  db_.set(CatChainBlockHash::zero(), std::move(raw_data), std::move(P), 0);
+  initial_sync_complete_at_ = td::Timestamp::in(5.0);
+  LOG(INFO) << "catchain: need update root";
+  return false;
+}
+
+void CatChainReceiverImpl::written_unsafe_root_block(CatChainReceivedBlock *block) {
+  CHECK(last_sent_block_->get_height() < block->get_height());
+  last_sent_block_ = block;
+  unsafe_root_block_writing_ = false;
+}
+
 void CatChainReceiverImpl::alarm() {
   alarm_timestamp() = td::Timestamp::never();
   if (next_sync_ && next_sync_.is_in_past()) {
@@ -923,8 +989,22 @@ void CatChainReceiverImpl::alarm() {
     next_rotate_ = td::Timestamp::in(td::Random::fast(60.0, 120.0));
     choose_neighbours();
   }
+  if (!started_ && read_db_ && initial_sync_complete_at_ && initial_sync_complete_at_.is_in_past()) {
+    bool allow = false;
+    if (allow_unsafe_self_blocks_resync_) {
+      allow = unsafe_start_up_check_completed();
+    } else {
+      allow = true;
+    }
+    if (allow) {
+      initial_sync_complete_at_ = td::Timestamp::never();
+      started_ = true;
+      callback_->start();
+    }
+  }
   alarm_timestamp().relax(next_rotate_);
   alarm_timestamp().relax(next_sync_);
+  alarm_timestamp().relax(initial_sync_complete_at_);
 }
 
 void CatChainReceiverImpl::send_fec_broadcast(td::BufferSlice data) {

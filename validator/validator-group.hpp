@@ -59,7 +59,8 @@ class ValidatorGroup : public td::actor::Actor {
                  td::Ref<ValidatorSet> validator_set, validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                 std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session)
+                 std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
+                 bool allow_unsafe_self_blocks_resync)
       : shard_(shard)
       , local_id_(std::move(local_id))
       , session_id_(session_id)
@@ -71,7 +72,8 @@ class ValidatorGroup : public td::actor::Actor {
       , overlays_(overlays)
       , db_root_(std::move(db_root))
       , manager_(validator_manager)
-      , init_(create_session) {
+      , init_(create_session)
+      , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   }
 
  private:
@@ -98,6 +100,7 @@ class ValidatorGroup : public td::actor::Actor {
   td::actor::ActorOwn<validatorsession::ValidatorSession> session_;
 
   bool init_ = false;
+  bool allow_unsafe_self_blocks_resync_;
   td::uint32 last_known_round_id_ = 0;
 };
 

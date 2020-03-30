@@ -91,6 +91,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::uint32 get_filedb_depth() const override {
     return db_depth_;
   }
+  bool check_unsafe_resync_allowed(CatchainSeqno seqno) const override {
+    return unsafe_catchains_.count(seqno) > 0;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -129,6 +132,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     CHECK(value <= 32);
     db_depth_ = value;
   }
+  void add_unsafe_resync_catchain(CatchainSeqno seqno) override {
+    unsafe_catchains_.insert(seqno);
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -164,6 +170,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool initial_sync_disabled_;
   std::vector<BlockIdExt> hardforks_;
   td::uint32 db_depth_ = 2;
+  std::set<CatchainSeqno> unsafe_catchains_;
 };
 
 }  // namespace validator

@@ -41,7 +41,11 @@ boc-filename dup "null" $= {
 } cond
 =: param-value
 
-{ 2drop true } : is-valid-config?
+{ dup -1000 = { drop <s ref@ <s 12 u@ 0xFF0 = } {
+  dup -1001 = { drop <s ref@ <s 12 u@ 0xFF0 = } {
+  2drop true
+  } cond } cond
+} : is-valid-config?
 
 dup param-idx is-valid-config? not abort"not a valid value for chosen configuration parameter"
 
@@ -59,5 +63,11 @@ now 32 << param-idx + =: query-id
 
 dup ."resulting internal message body: " <s csr. cr
 2 boc+>B dup Bx. cr
+
+param-value dup null? { drop } {
+  totalcsize swap ."(a total of " . ."data bits, " . ."cell references -> " 
+  drop dup Blen . ."BoC data bytes)" cr
+} cond
+
 savefile tuck B>file
 ."(Saved to file " type .")" cr

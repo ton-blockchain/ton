@@ -657,6 +657,27 @@ td::Status CreateElectionBidQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status CreateProposalVoteQuery::run() {
+  TRY_RESULT_ASSIGN(data_, tokenizer_.get_token<std::string>());
+  TRY_RESULT_ASSIGN(fname_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status CreateProposalVoteQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_createProposalVote>(td::BufferSlice(data_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status CreateProposalVoteQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_proposalVote>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success: permkey=" << f->perm_key_.to_hex() << "\n";
+  TRY_STATUS(td::write_file(fname_, f->to_send_.as_slice()));
+  return td::Status::OK();
+}
+
 td::Status CheckDhtServersQuery::run() {
   TRY_RESULT_ASSIGN(id_, tokenizer_.get_token<ton::PublicKeyHash>());
   return td::Status::OK();

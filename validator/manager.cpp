@@ -1868,9 +1868,10 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
   } else {
     auto validator_id = get_validator(shard, validator_set);
     CHECK(!validator_id.is_zero());
-    auto G = td::actor::create_actor<ValidatorGroup>("validatorgroup", shard, validator_id, session_id, validator_set,
-                                                     opts, keyring_, adnl_, rldp_, overlays_, db_root_, actor_id(this),
-                                                     init_session);
+    auto G = td::actor::create_actor<ValidatorGroup>(
+        "validatorgroup", shard, validator_id, session_id, validator_set, opts, keyring_, adnl_, rldp_, overlays_,
+        db_root_, actor_id(this), init_session,
+        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()));
     return G;
   }
 }

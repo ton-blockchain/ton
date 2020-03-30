@@ -242,7 +242,7 @@ void ValidatorGroup::create_session() {
 
   session_ = validatorsession::ValidatorSession::create(session_id_, config_, local_id_, std::move(vec),
                                                         make_validator_session_callback(), keyring_, adnl_, rldp_,
-                                                        overlays_, db_root_);
+                                                        overlays_, db_root_, allow_unsafe_self_blocks_resync_);
   if (prev_block_ids_.size() > 0) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }

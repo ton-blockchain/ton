@@ -68,6 +68,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::uint32 key_block_utime_step() const {
     return 86400;
   }
+  virtual bool check_unsafe_resync_allowed(CatchainSeqno seqno) const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -81,6 +82,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_initial_sync_disabled(bool value) = 0;
   virtual void set_hardforks(std::vector<BlockIdExt> hardforks) = 0;
   virtual void set_filedb_depth(td::uint32 value) = 0;
+  virtual void add_unsafe_resync_catchain(CatchainSeqno seqno) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,

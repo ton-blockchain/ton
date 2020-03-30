@@ -932,6 +932,32 @@ void interpret_concat_builders(vm::Stack& stack) {
   stack.push_builder(std::move(cb1));
 }
 
+void interpret_cell_datasize(vm::Stack& stack, int mode) {
+  auto bound = (mode & 4 ? stack.pop_int() : td::make_refint(1 << 22));
+  Ref<vm::Cell> cell;
+  Ref<vm::CellSlice> cs;
+  if (mode & 2) {
+    cs = stack.pop_cellslice();
+  } else {
+    cell = stack.pop_maybe_cell();
+  }
+  if (!bound->is_valid() || bound->sgn() < 0) {
+    throw IntError{"finite non-negative integer expected"};
+  }
+  vm::VmStorageStat stat{bound->unsigned_fits_bits(63) ? bound->to_long() : (1ULL << 63) - 1};
+  bool ok = (mode & 2 ? stat.add_storage(cs.write()) : stat.add_storage(std::move(cell)));
+  if (ok) {
+    stack.push_smallint(stat.cells);
+    stack.push_smallint(stat.bits);
+    stack.push_smallint(stat.refs);
+  } else if (!(mode & 1)) {
+    throw IntError{"scanned too many cells"};
+  }
+  if (mode & 1) {
+    stack.push_bool(ok);
+  }
+}
+
 void interpret_slice_bitrefs(vm::Stack& stack, int mode) {
   auto cs = stack.pop_cellslice();
   if (mode & 1) {
@@ -2755,6 +2781,8 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("sbits ", std::bind(interpret_slice_bitrefs, _1, 1));
   d.def_stack_word("srefs ", std::bind(interpret_slice_bitrefs, _1, 2));
   d.def_stack_word("sbitrefs ", std::bind(interpret_slice_bitrefs, _1, 3));
+  d.def_stack_word("totalcsize ", std::bind(interpret_cell_datasize, _1, 0));
+  d.def_stack_word("totalssize ", std::bind(interpret_cell_datasize, _1, 2));
   // boc manipulation
   d.def_stack_word("B>boc ", interpret_boc_deserialize);
   d.def_stack_word("boc>B ", interpret_boc_serialize);

@@ -60,7 +60,8 @@ class CatChainReceiverInterface : public td::actor::Actor {
                                                                td::actor::ActorId<adnl::Adnl> adnl,
                                                                td::actor::ActorId<overlay::Overlays> overlay_manager,
                                                                std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                                               CatChainSessionId unique_hash, std::string db_root);
+                                                               CatChainSessionId unique_hash, std::string db_root,
+                                                               bool allow_unsafe_self_blocks_resync);
 
   virtual ~CatChainReceiverInterface() = default;
 };

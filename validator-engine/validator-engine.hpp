@@ -200,11 +200,16 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_keyring_ = false;
   bool started_ = false;
 
+  std::set<ton::CatchainSeqno> unsafe_catchains_;
+
  public:
   static constexpr td::uint8 max_cat() {
     return 250;
   }
 
+  void add_unsafe_catchain(ton::CatchainSeqno seq) {
+    unsafe_catchains_.insert(seq);
+  }
   void set_local_config(std::string str);
   void set_global_config(std::string str);
   void set_fift_dir(std::string str) {
@@ -285,6 +290,8 @@ class ValidatorEngine : public td::actor::Actor {
 
   void alarm() override;
   void run();
+
+  void get_current_validator_perm_key(td::Promise<std::pair<ton::PublicKey, size_t>> promise);
 
   void try_add_adnl_node(ton::PublicKeyHash pub, AdnlCategory cat, td::Promise<td::Unit> promise);
   void try_add_dht_node(ton::PublicKeyHash pub, td::Promise<td::Unit> promise);
@@ -375,6 +382,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_createElectionBid &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_checkDhtServers &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_createProposalVote &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

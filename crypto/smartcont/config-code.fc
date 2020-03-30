@@ -23,23 +23,27 @@
   .end_cell());
 }
 
-;; [min_tot_rounds, max_tot_rounds, min_wins, max_losses, min_store_sec, max_store_sec, bit_price, cell_price]
+;; (min_tot_rounds, max_tot_rounds, min_wins, max_losses, min_store_sec, max_store_sec, bit_price, cell_price)
 _ parse_vote_config(cell c) inline {
   var cs = c.begin_parse();
   throw_unless(44, cs~load_uint(8) == 0x36);
-  var res = [cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(32), cs~load_uint(32), cs~load_uint(32), cs~load_uint(32)];
+  var res = (cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(32), cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));
   cs.end_parse();
   return res;
 }
 
 ;; cfg_vote_setup#91 normal_params:^ConfigProposalSetup critical_params:^ConfigProposalSetup = ConfigVotingSetup;
-_ get_vote_config(int critical?) inline_ref {
-  var cs = config_param(11).begin_parse();
+_ get_vote_config_internal(int critical?, cell cparam11) inline_ref {
+  var cs = cparam11.begin_parse();
   throw_unless(44, cs~load_uint(8) == 0x91);
   if (critical?) {
     cs~load_ref();
   }
   return parse_vote_config(cs.preload_ref());
+}
+
+_ get_vote_config(int critical?) inline {
+  return get_vote_config_internal(critical?, config_param(11));
 }
 
 (int, int) check_validator_set(cell vset) {
@@ -123,7 +127,7 @@ _ perform_action(cfg_dict, public_key, action, cs) inline_ref {
   }
 }
 
-(cell, int, slice) get_current_vset() inline_ref {
+(cell, int, cell) get_current_vset() inline_ref {
   var vset = config_param(34);
   var cs = begin_parse(vset);
   ;; validators_ext#12 utime_since:uint32 utime_until:uint32 
@@ -131,13 +135,13 @@ _ perform_action(cfg_dict, public_key, action, cs) inline_ref {
   ;; total_weight:uint64
   throw_unless(40, cs~load_uint(8) == 0x12);
   cs~skip_bits(32 + 32 + 16 + 16);
-  int total_weight = cs~load_uint(64);
-  return (vset, total_weight, cs);
+  var (total_weight, dict) = (cs~load_uint(64), cs~load_dict());
+  cs.end_parse();
+  return (vset, total_weight, dict);
 }
 
 (slice, int) get_validator_descr(int idx) inline_ref {
-  var (vset, total_weight, cs) = get_current_vset();
-  var dict = begin_cell().store_slice(cs).end_cell();
+  var (vset, total_weight, dict) = get_current_vset();
   var (value, _) = dict.udict_get?(16, idx);
   return (value, total_weight);
 }
@@ -227,7 +231,7 @@ _ perform_action(cfg_dict, public_key, action, cs) inline_ref {
 }
 
 slice update_proposal_status(slice rest, int weight_remaining, int critical?) inline_ref {
-  var [min_tot_rounds, max_tot_rounds, min_wins, max_losses, _, _, _, _] = get_vote_config(critical?);
+  var (min_tot_rounds, max_tot_rounds, min_wins, max_losses, _, _, _, _) = get_vote_config(critical?);
   var (rounds_remaining, wins, losses) = (rest~load_uint(8), rest~load_uint(8), rest~load_uint(8));
   losses -= (weight_remaining >= 0);
   if (losses > max_losses) {
@@ -241,8 +245,8 @@ slice update_proposal_status(slice rest, int weight_remaining, int critical?) in
   }
   return begin_cell()
     .store_uint(rounds_remaining, 8)
-    .store_uint(losses, 8)
     .store_uint(wins, 8)
+    .store_uint(losses, 8)
   .end_cell().begin_parse();
 }
 
@@ -261,7 +265,7 @@ builder begin_pack_proposal_status(int expires, cell proposal, int critical?, ce
   var (pstatus, found?) = vote_dict.udict_get?(256, phash);
   ifnot (found?) {
     ;; config proposal not found
-    return (vote_dict, null(), false);
+    return (vote_dict, null(), -1);
   }
   var (cur_vset, total_weight, _) = get_current_vset();
   int cur_vset_id = cur_vset.cell_hash();
@@ -269,7 +273,7 @@ builder begin_pack_proposal_status(int expires, cell proposal, int critical?, ce
   if (expires <= now()) {
     ;; config proposal expired, delete and report not found
     vote_dict~udict_delete?(256, phash);
-    return (vote_dict, null(), false);
+    return (vote_dict, null(), -1);
   }
   if (vset_id != cur_vset_id) {
     ;; config proposal belongs to a previous validator set
@@ -281,12 +285,12 @@ builder begin_pack_proposal_status(int expires, cell proposal, int critical?, ce
   if (rest.null?()) {
     ;; discard proposal (existed for too many rounds, or too many losses)
     vote_dict~udict_delete?(256, phash);
-    return (vote_dict, null(), false);
+    return (vote_dict, null(), -1);
   }
   var (_, found?) = voters.udict_get?(16, idx);
   if (found?) {
     ;; already voted for this proposal, ignore vote
-    return (vote_dict, null(), false);
+    return (vote_dict, null(), -2);
   }
   ;; register vote
   voters~udict_set_builder(16, idx, begin_cell().store_uint(now(), 32));
@@ -296,16 +300,16 @@ builder begin_pack_proposal_status(int expires, cell proposal, int critical?, ce
     ;; not enough votes, or proposal already accepted in this round
     ;; simply update weight_remaining
     vote_dict~udict_set_builder(256, phash, begin_pack_proposal_status(expires, proposal, critical?, voters, weight_remaining, vset_id).store_slice(rest));
-    return (vote_dict, null(), false);
+    return (vote_dict, null(), 2);
   }
   ;; proposal wins in this round
-  var [min_tot_rounds, max_tot_rounds, min_wins, max_losses, _, _, _, _] = get_vote_config(critical?);
+  var (min_tot_rounds, max_tot_rounds, min_wins, max_losses, _, _, _, _) = get_vote_config(critical?);
   var (rounds_remaining, wins, losses) = (rest~load_uint(8), rest~load_uint(8), rest~load_uint(8));
   wins += 1;
   if (wins >= min_wins) {
     ;; proposal is accepted, remove and process
     vote_dict~udict_delete?(256, phash);
-    return (vote_dict, proposal, critical?);
+    return (vote_dict, proposal, 6 - critical?);
   }
   ;; update proposal info
   vote_dict~udict_set_builder(256, phash,
@@ -313,7 +317,24 @@ builder begin_pack_proposal_status(int expires, cell proposal, int critical?, ce
     .store_uint(rounds_remaining, 8)
     .store_uint(wins, 8)
     .store_uint(losses, 8));
-  return (vote_dict, null(), false);
+  return (vote_dict, null(), 2);
+}
+
+int proceed_register_vote(phash, idx, weight) impure inline_ref {
+  var (cfg_dict, stored_seqno, public_key, vote_dict) = load_data();
+  (vote_dict, var accepted_proposal, var status) = register_vote(vote_dict, phash, idx, weight);
+  store_data(cfg_dict, stored_seqno, public_key, vote_dict);
+  ifnot (accepted_proposal.null?()) {
+    var critical? = 6 - status;
+    (cfg_dict, var param_id, var param_val) = accept_proposal(cfg_dict, accepted_proposal, critical?);
+    store_data(cfg_dict, stored_seqno, public_key, vote_dict);
+    if (param_id) {
+      commit();
+      (cfg_dict, public_key) = perform_proposed_action(cfg_dict, public_key, param_id, param_val);
+      store_data(cfg_dict, stored_seqno, public_key, vote_dict);
+    }
+  }
+  return status;
 }
 
 (slice, int) scan_proposal(int phash, slice pstatus) inline_ref {
@@ -394,7 +415,7 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
   }
   ;; obtain vote proposal configuration
   var vote_cfg = get_vote_config(critical?);
-  var [min_tot_rounds, max_tot_rounds, min_wins, max_losses, min_store_sec, max_store_sec, bit_price, cell_price] = vote_cfg;
+  var (min_tot_rounds, max_tot_rounds, min_wins, max_losses, min_store_sec, max_store_sec, bit_price, cell_price) = vote_cfg;
   if (expire_at < min_store_sec) {
     return -0xc5787069;   ;; expired
   }
@@ -486,6 +507,19 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
     }
     return send_answer(s_addr, query_id, ans_tag, mode);
   }
+  if (tag == 0x566f7465) {
+    ;; vote for a configuration proposal
+    var signature = in_msg~load_bits(512);
+    var msg_body = in_msg;
+    var (sign_tag, idx, phash) = (in_msg~load_uint(32), in_msg~load_uint(16), in_msg~load_uint(256));
+    in_msg.end_parse();
+    throw_unless(37, sign_tag == 0x566f7445);
+    var (vdescr, total_weight) = get_validator_descr(idx);
+    var (val_pubkey, weight) = unpack_validator_descr(vdescr);
+    throw_unless(34, check_data_signature(msg_body, signature, val_pubkey));
+    int res = proceed_register_vote(phash, idx, weight);
+    return send_confirmation(s_addr, query_id, res + 0xd6745240);
+  }
   ;; if tag is non-zero and its higher bit is zero, throw an exception (the message is an unsupported query)
   ;; to bounce message back to sender
   throw_unless(37, (tag == 0) | (tag & (1 << 31)));
@@ -501,33 +535,24 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
   throw_if(35, valid_until < now());
   throw_if(39, slice_depth(cs) > 128);
   var (cfg_dict, stored_seqno, public_key, vote_dict) = load_data();
+  throw_unless(33, msg_seqno == stored_seqno);
   if (action == 0x566f7465) {
+    ;; vote for a configuration proposal
     var (idx, phash) = (cs~load_uint(16), cs~load_uint(256));
     cs.end_parse();
     var (vdescr, total_weight) = get_validator_descr(idx);
     var (val_pubkey, weight) = unpack_validator_descr(vdescr);
     throw_unless(34, check_data_signature(in_msg, signature, val_pubkey));
     accept_message();
-    stored_seqno += 1;
+    stored_seqno = (stored_seqno + 1) % (1 << 32);
     store_data(cfg_dict, stored_seqno, public_key, vote_dict);
     commit();
-    (vote_dict, var accepted_proposal, var critical?) = register_vote(vote_dict, phash, idx, weight);
-    store_data(cfg_dict, stored_seqno, public_key, vote_dict);
-    ifnot (accepted_proposal.null?()) {
-      (cfg_dict, var param_id, var param_val) = accept_proposal(cfg_dict, accepted_proposal, critical?);
-      store_data(cfg_dict, stored_seqno, public_key, vote_dict);
-      if (param_id) {
-        commit();
-        (cfg_dict, public_key) = perform_proposed_action(cfg_dict, public_key, param_id, param_val);
-        store_data(cfg_dict, stored_seqno, public_key, vote_dict);
-      }
-    }
+    proceed_register_vote(phash, idx, weight);
     return ();
   }
-  throw_unless(33, msg_seqno == stored_seqno);
   throw_unless(34, check_signature(slice_hash(in_msg), signature, public_key));
   accept_message();
-  stored_seqno += 1;
+  stored_seqno = (stored_seqno + 1) % (1 << 32);
   store_data(cfg_dict, stored_seqno, public_key, vote_dict);
   commit();
   (cfg_dict, public_key) = perform_action(cfg_dict, public_key, action, cs);
@@ -602,4 +627,15 @@ _ list_proposals() method_id {
     }
   } until (~ f);
   return list;
+}
+
+_ proposal_storage_price(int critical?, int seconds, int bits, int refs) method_id {
+  var cfg_dict = get_data().begin_parse().preload_ref();
+  var cparam11 = cfg_dict.idict_get_ref(32, 11);
+  var (min_tot_rounds, max_tot_rounds, min_wins, max_losses, min_store_sec, max_store_sec, bit_price, cell_price) = get_vote_config_internal(critical?, cparam11);
+  if (seconds < min_store_sec) {
+    return -1;
+  }
+  seconds = min(seconds, max_store_sec);
+  return (bit_price * (bits + 1024) + cell_price * (refs + 2)) * seconds;
 }

@@ -814,14 +814,16 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
                                            std::unique_ptr<Callback> callback,
                                            td::actor::ActorId<keyring::Keyring> keyring,
                                            td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                                           td::actor::ActorId<overlay::Overlays> overlays, std::string db_root)
+                                           td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+                                           bool allow_unsafe_self_blocks_resync)
     : unique_hash_(session_id)
     , callback_(std::move(callback))
     , db_root_(db_root)
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp_(rldp)
-    , overlay_manager_(overlays) {
+    , overlay_manager_(overlays)
+    , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   description_ = ValidatorSessionDescription::create(std::move(opts), nodes, local_id);
 }
 
@@ -834,7 +836,8 @@ void ValidatorSessionImpl::start() {
   catchain_ = catchain::CatChain::create(
       make_catchain_callback(),
       catchain::CatChainOptions{description().opts().catchain_idle_timeout, description().opts().catchain_max_deps},
-      keyring_, adnl_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_);
+      keyring_, adnl_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_,
+      allow_unsafe_self_blocks_resync_);
 
   check_all();
 }
@@ -864,10 +867,11 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
     catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
     std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root) {
+    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+    bool allow_unsafe_self_blocks_resync) {
   return td::actor::create_actor<ValidatorSessionImpl>("session", session_id, std::move(opts), local_id,
                                                        std::move(nodes), std::move(callback), keyring, adnl, rldp,
-                                                       overlays, db_root);
+                                                       overlays, db_root, allow_unsafe_self_blocks_resync);
 }
 
 td::Bits256 ValidatorSessionOptions::get_hash() const {
