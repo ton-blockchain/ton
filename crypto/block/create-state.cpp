@@ -599,6 +599,18 @@ void interpret_set_config_param(vm::Stack& stack) {
   }
 }
 
+void interpret_check_config_param(vm::Stack& stack) {
+  int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
+  Ref<vm::Cell> value = stack.pop_cell();
+  if (verbosity > 2 && x >= 0) {
+    std::cerr << "checking validity as configuration parameter #" << x << " of ";
+    // vm::load_cell_slice(value).print_rec(std::cerr);
+    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    std::cerr << std::endl;
+  }
+  stack.push_bool(x < 0 || block::gen::ConfigParam{x}.validate_ref(value));
+}
+
 void interpret_is_shard_state(vm::Stack& stack) {
   Ref<vm::Cell> cell = stack.pop_cell();
   if (verbosity > 4) {
@@ -668,6 +680,7 @@ void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("globalid! ", interpret_set_global_id);
   d.def_stack_word("config@ ", interpret_get_config_param);
   d.def_stack_word("config! ", interpret_set_config_param);
+  d.def_stack_word("config-valid? ", interpret_check_config_param);
   d.def_stack_word("(configdict) ", interpret_get_config_dict);
   d.def_stack_word("register_smc ", interpret_register_smartcontract);
   d.def_stack_word("set_config_smc ", interpret_set_config_smartcontract);

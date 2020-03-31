@@ -41,13 +41,7 @@ boc-filename dup "null" $= {
 } cond
 =: param-value
 
-{ dup -1000 = { drop <s ref@ <s 12 u@ 0xFF0 = } {
-  dup -1001 = { drop <s ref@ <s 12 u@ 0xFF0 = } {
-  2drop true
-  } cond } cond
-} : is-valid-config?
-
-dup param-idx is-valid-config? not abort"not a valid value for chosen configuration parameter"
+param-value param-idx is-valid-config? not abort"not a valid value for chosen configuration parameter"
 
 critical { ."Critical" } { ."Non-critical" } cond
 ." configuration proposal will expire at " expire-at . ."(in " expire-in . ."seconds)" cr
