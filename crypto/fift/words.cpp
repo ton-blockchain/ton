@@ -2258,9 +2258,11 @@ std::vector<Ref<vm::Cell>> get_vm_libraries() {
 // +32 = return c5 (actions)
 // +64 = log vm ops to stderr
 // +128 = pop hard gas limit (enabled by ACCEPT) from stack as well
+// +256 = enable stack trace
+// +512 = enable debug instructions
 void interpret_run_vm(IntCtx& ctx, int mode) {
   if (mode < 0) {
-    mode = ctx.stack.pop_smallint_range(0xff);
+    mode = ctx.stack.pop_smallint_range(0x3ff);
   }
   bool with_data = mode & 4;
   Ref<vm::Tuple> c7;
@@ -2282,8 +2284,8 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
   OstreamLogger ostream_logger(ctx.error_stream);
   auto log = create_vm_log((mode & 64) && ctx.error_stream ? &ostream_logger : nullptr);
   vm::GasLimits gas{gas_limit, gas_max};
-  int res =
-      vm::run_vm_code(cs, ctx.stack, mode & 3, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7), &actions);
+  int res = vm::run_vm_code(cs, ctx.stack, (mode & 3) | ((mode & 0x300) >> 6), &data, log, nullptr, &gas,
+                            get_vm_libraries(), std::move(c7), &actions);
   ctx.stack.push_smallint(res);
   if (with_data) {
     ctx.stack.push_cell(std::move(data));

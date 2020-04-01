@@ -496,7 +496,7 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
   }
   if (tag == 0x6e565052) {
     ;; new voting proposal
-    var price = register_voting_proposal(cs, msg_value);
+    var price = register_voting_proposal(in_msg, msg_value);
     int mode = 64;
     int ans_tag = - price;
     if (price >= 0) {
