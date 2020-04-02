@@ -210,6 +210,9 @@ _( 2 3 2 2 1000000 10000000 1 500 )
 _( 4 7 4 2 5000000 20000000 2 1000 )
 config.param_proposals_setup!
 
+// deposit bit_pps cell_pps
+GR$100 1 500 config.complaint_prices!
+
 "validator-keys" +suffix +".pub" file>B
 { dup Blen } { 32 B| swap dup ."Validator public key = " Bx. cr
   17 add-validator } while drop

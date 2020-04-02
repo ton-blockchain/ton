@@ -578,6 +578,15 @@ bool MsgProcessedUptoCollection::already_processed(const EnqueuedMsgDescr& msg) 
   return false;
 }
 
+bool MsgProcessedUptoCollection::can_check_processed() const {
+  for (const auto& entry : list) {
+    if (!entry.can_check_processed()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool MsgProcessedUptoCollection::for_each_mcseqno(std::function<bool(ton::BlockSeqno)> func) const {
   for (const auto& entry : list) {
     if (!func(entry.mc_seqno)) {

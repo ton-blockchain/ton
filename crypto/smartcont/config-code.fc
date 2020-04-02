@@ -397,7 +397,7 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
       hash = -0xcd506e6c;  ;; cannot set mandatory parameter to null
     }
   }
-  if (param_val.cell_depth() >= 256) {
+  if (param_val.cell_depth() >= 128) {
     hash = -0xc2616456;  ;; bad value
   }
   if (hash < -1) {

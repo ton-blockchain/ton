@@ -171,6 +171,9 @@ struct MsgProcessedUpto {
                 ton::BlockSeqno other_mc_seqno) const &;
   // NB: this is for checking whether we have already imported an internal message
   bool already_processed(const EnqueuedMsgDescr& msg) const;
+  bool can_check_processed() const {
+    return (bool)compute_shard_end_lt;
+  }
 };
 
 struct MsgProcessedUptoCollection {
@@ -197,6 +200,7 @@ struct MsgProcessedUptoCollection {
   bool combine_with(const MsgProcessedUptoCollection& other);
   // NB: this is for checking whether we have already imported an internal message
   bool already_processed(const EnqueuedMsgDescr& msg) const;
+  bool can_check_processed() const;
   bool for_each_mcseqno(std::function<bool(ton::BlockSeqno)>) const;
 };
 
