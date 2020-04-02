@@ -1628,13 +1628,14 @@ bool Collator::do_collate() {
   if (max_lt == start_lt) {
     ++max_lt;
   }
-  // 1.1. delete delivered messages from output queue
-  if (!out_msg_queue_cleanup()) {
-    return fatal_error("cannot scan OutMsgQueue and remove already delivered messages");
-  }
-  // 1.2. re-adjust neighbors' out_msg_queues (for oneself)
+  // NB: interchanged 1.2 and 1.1 (is this always correct?)
+  // 1.1. re-adjust neighbors' out_msg_queues (for oneself)
   if (!add_trivial_neighbor()) {
     return fatal_error("cannot add previous block as a trivial neighbor");
+  }
+  // 1.2. delete delivered messages from output queue
+  if (!out_msg_queue_cleanup()) {
+    return fatal_error("cannot scan OutMsgQueue and remove already delivered messages");
   }
   // 1.3. create OutputQueueMerger from adjusted neighbors
   CHECK(!nb_out_msgs_);
