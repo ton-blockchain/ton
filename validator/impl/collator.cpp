@@ -3024,7 +3024,27 @@ bool Collator::create_mc_state_extra() {
     return fatal_error(wset_res.move_as_error());
   }
   bool update_shard_cc = is_key_block_ || (now_ / ccvc.shard_cc_lifetime > prev_now_ / ccvc.shard_cc_lifetime);
+  // temp debug
+  if (verbosity >= 3 * 1) {
+    auto csr = shard_conf_->get_root_csr();
+    LOG(INFO) << "new shard configuration before post-processing is";
+    std::ostringstream os;
+    csr->print_rec(os);
+    block::gen::t_ShardHashes.print(os, csr.write());
+    LOG(INFO) << os.str();
+  }
+  // end (temp debug)
   if (!update_shard_config(wset_res.move_as_ok(), ccvc, update_shard_cc)) {
+    auto csr = shard_conf_->get_root_csr();
+    if (csr.is_null()) {
+      LOG(WARNING) << "new shard configuration is null (!)";
+    } else {
+      LOG(WARNING) << "invalid new shard configuration is";
+      std::ostringstream os;
+      csr->print_rec(os);
+      block::gen::t_ShardHashes.print(os, csr.write());
+      LOG(WARNING) << os.str();
+    }
     return fatal_error("cannot post-process shard configuration");
   }
   // 3. save new shard_hashes
