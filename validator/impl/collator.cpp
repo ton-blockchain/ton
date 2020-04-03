@@ -765,14 +765,12 @@ bool Collator::add_trivial_neighbor_after_merge() {
       ++found;
       LOG(DEBUG) << "neighbor #" << i << " : " << nb.blk_.to_str() << " intersects our shard " << shard.to_str();
       if (!ton::shard_is_parent(shard, nb.shard()) || found > 2) {
-        LOG(FATAL) << "impossible shard configuration in add_trivial_neighbor_after_merge()";
-        return false;
+        return fatal_error("impossible shard configuration in add_trivial_neighbor_after_merge()");
       }
       auto prev_shard = prev_blocks.at(found - 1).shard_full();
       if (nb.shard() != prev_shard) {
-        LOG(FATAL) << "neighbor shard " << nb.shard().to_str() << " does not match that of our ancestor "
-                   << prev_shard.to_str();
-        return false;
+        return fatal_error("neighbor shard "s + nb.shard().to_str() + " does not match that of our ancestor " +
+                           prev_shard.to_str());
       }
       if (found == 1) {
         nb.set_queue_root(out_msg_queue_->get_root_cell());
@@ -861,8 +859,7 @@ bool Collator::add_trivial_neighbor() {
                      << " with shard shrinking to our (immediate after-split adjustment)";
           cs = 2;
         } else {
-          LOG(FATAL) << "impossible shard configuration in add_trivial_neighbor()";
-          return false;
+          return fatal_error("impossible shard configuration in add_trivial_neighbor()");
         }
       } else if (ton::shard_is_parent(nb.shard(), shard) && shard == prev_shard) {
         // case 3. Continued after-split
@@ -917,8 +914,7 @@ bool Collator::add_trivial_neighbor() {
           nb.disable();
         }
       } else {
-        LOG(FATAL) << "impossible shard configuration in add_trivial_neighbor()";
-        return false;
+        return fatal_error("impossible shard configuration in add_trivial_neighbor()");
       }
     }
   }

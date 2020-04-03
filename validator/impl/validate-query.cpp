@@ -115,6 +115,14 @@ bool ValidateQuery::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "aborting validation of block candidate for " << shard_.to_str() << " : " << error.to_string();
   if (main_promise) {
+    auto c = error.code();
+    if (c <= -667 && c >= -670) {
+      errorlog::ErrorLog::log(PSTRING() << "FATAL ERROR: aborting validation of block candidate for " << shard_.to_str()
+                                        << " : " << error << ": data=" << block_candidate.id.file_hash.to_hex()
+                                        << " collated_data=" << block_candidate.collated_file_hash.to_hex());
+      errorlog::ErrorLog::log_file(block_candidate.data.clone());
+      errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
+    }
     main_promise(std::move(error));
   }
   stop();
@@ -1892,14 +1900,12 @@ bool ValidateQuery::add_trivial_neighbor_after_merge() {
       ++found;
       LOG(DEBUG) << "neighbor #" << i << " : " << nb.blk_.to_str() << " intersects our shard " << shard_.to_str();
       if (!ton::shard_is_parent(shard_, nb.shard()) || found > 2) {
-        LOG(FATAL) << "impossible shard configuration in add_trivial_neighbor_after_merge()";
-        return false;
+        return fatal_error("impossible shard configuration in add_trivial_neighbor_after_merge()");
       }
       auto prev_shard = prev_blocks.at(found - 1).shard_full();
       if (nb.shard() != prev_shard) {
-        LOG(FATAL) << "neighbor shard " << nb.shard().to_str() << " does not match that of our ancestor "
-                   << prev_shard.to_str();
-        return false;
+        return fatal_error("neighbor shard "s + nb.shard().to_str() + " does not match that of our ancestor " +
+                           prev_shard.to_str());
       }
       if (found == 1) {
         nb.set_queue_root(ps_.out_msg_queue_->get_root_cell());
@@ -1989,8 +1995,7 @@ bool ValidateQuery::add_trivial_neighbor() {
                      << " with shard shrinking to our (immediate after-split adjustment)";
           cs = 2;
         } else {
-          LOG(FATAL) << "impossible shard configuration in add_trivial_neighbor()";
-          return false;
+          return fatal_error("impossible shard configuration in add_trivial_neighbor()");
         }
       } else if (ton::shard_is_parent(nb.shard(), shard_) && shard_ == prev_shard) {
         // case 3. Continued after-split
@@ -2045,8 +2050,7 @@ bool ValidateQuery::add_trivial_neighbor() {
           nb.disable();
         }
       } else {
-        LOG(FATAL) << "impossible shard configuration in add_trivial_neighbor()";
-        return false;
+        return fatal_error("impossible shard configuration in add_trivial_neighbor()");
       }
     }
   }
@@ -3172,7 +3176,6 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       break;
     }
     default:
-      LOG(FATAL) << "unhandled InMsg tag " << tag;
       return fatal_error(PSTRING() << "unknown InMsgTag " << tag);
   }
 
@@ -3705,8 +3708,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       break;
     }
     default:
-      LOG(FATAL) << "unknown OutMsg tag " << tag;
-      return false;
+      return fatal_error(PSTRING() << "unknown OutMsg tag " << tag);
   }
 
   return true;
@@ -3819,9 +3821,9 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
   bool f0 = ps_.processed_upto_->already_processed(enq);
   bool f1 = ns_.processed_upto_->already_processed(enq);
   if (f0 && !f1) {
-    LOG(FATAL) << "a previously processed message has been un-processed (impossible situation after the validation of "
-                  "ProcessedInfo)";
-    return false;
+    return fatal_error(
+        "a previously processed message has been un-processed (impossible situation after the validation of "
+        "ProcessedInfo)");
   }
   if (f0) {
     // this message has been processed in a previous block of this shard
@@ -3847,14 +3849,19 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
                             key.to_hex(352) + " of old outbound queue contains a different MsgEnvelope");
       }
     }
+    // next check is incorrect after a merge, when ns_.processed_upto has > 1 entries
+    // we effectively comment it out
+    return true;
     // NB. we might have a non-trivial dequeueing out_entry with this message hash, but another envelope (for transit messages)
     // (so we cannot assert that out_entry is null)
     if (claimed_proc_lt_ && (claimed_proc_lt_ < lt || (claimed_proc_lt_ == lt && claimed_proc_hash_ < enq.hash_))) {
-      LOG(FATAL) << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
-                 << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
-                 << "), but we had somehow already processed a message (" << lt << "," << enq.hash_.to_hex()
-                 << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352);
-      return false;
+      LOG(WARNING) << "old processed_upto: " << ps_.processed_upto_->to_str();
+      LOG(WARNING) << "new processed_upto: " << ns_.processed_upto_->to_str();
+      return fatal_error(
+          -669, PSTRING() << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
+                          << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
+                          << "), but we had somehow already processed a message (" << lt << "," << enq.hash_.to_hex()
+                          << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352));
     }
     return true;
   }
@@ -3862,11 +3869,12 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
     // this message must have been imported and processed in this very block
     // (because it is marked processed after this block, but not before)
     if (!claimed_proc_lt_ || claimed_proc_lt_ < lt || (claimed_proc_lt_ == lt && claimed_proc_hash_ < enq.hash_)) {
-      LOG(FATAL) << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
-                 << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
-                 << "), but we had somehow processed in this block a message (" << lt << "," << enq.hash_.to_hex()
-                 << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352);
-      return false;
+      return fatal_error(
+          -669, PSTRING() << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
+                          << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
+                          << "), but we had somehow processed in this block a message (" << lt << ","
+                          << enq.hash_.to_hex() << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key "
+                          << key.to_hex(352));
     }
     // must have a msg_import_fin or msg_import_tr InMsg record
     if (in_entry.is_null()) {
@@ -3894,11 +3902,11 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
   // the message is left unprocessed in our virtual "inbound queue"
   // just a simple sanity check
   if (claimed_proc_lt_ && !(claimed_proc_lt_ < lt || (claimed_proc_lt_ == lt && claimed_proc_hash_ < enq.hash_))) {
-    LOG(FATAL) << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
-               << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
-               << "), but we somehow have not processed a message (" << lt << "," << enq.hash_.to_hex()
-               << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352);
-    return false;
+    return fatal_error(
+        -669, PSTRING() << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
+                        << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
+                        << "), but we somehow have not processed a message (" << lt << "," << enq.hash_.to_hex()
+                        << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352));
   }
   return true;
 }
