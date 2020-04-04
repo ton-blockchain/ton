@@ -1705,9 +1705,19 @@ void ValidatorManagerImpl::update_shards() {
   std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> new_validator_groups_;
   std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> new_next_validator_groups_;
 
+  bool force_recover = false;
+  {
+    auto val_set = last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId});
+    auto r = opts_->check_unsafe_catchain_rotate(last_masterchain_seqno_, val_set->get_catchain_seqno());
+    force_recover = r > 0;
+  }
+
   if (allow_validate_) {
     for (auto &desc : new_shards) {
       auto shard = desc.first;
+      if (force_recover && !desc.first.is_masterchain()) {
+        continue;
+      }
       auto prev = desc.second;
       for (auto &p : prev) {
         CHECK(p.is_valid());
@@ -1720,6 +1730,18 @@ void ValidatorManagerImpl::update_shards() {
       if (!validator_id.is_zero()) {
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash);
 
+        if (force_recover) {
+          auto r = opts_->check_unsafe_catchain_rotate(last_masterchain_seqno_, val_set->get_catchain_seqno());
+          if (r) {
+            td::uint8 b[36];
+            td::MutableSlice x{b, 36};
+            x.copy_from(val_group_id.as_slice());
+            x.remove_prefix(32);
+            CHECK(x.size() == 4);
+            x.copy_from(td::Slice(reinterpret_cast<const td::uint8 *>(&r), 4));
+            val_group_id = sha256_bits256(td::Slice(b, 36));
+          }
+        }
         // DIRTY. But we don't want to create hardfork now
         // TODO! DELETE IT LATER
         //if (last_masterchain_seqno_ >= 2904932 && val_set->get_catchain_seqno() == 44896) {
