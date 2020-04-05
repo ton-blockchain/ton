@@ -1171,6 +1171,15 @@ td::Status ValidatorEngine::load_global_config() {
   }
 
   validator_options_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
+  validator_options_.write().set_shard_check_function(
+      [](ton::ShardIdFull shard, ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
+        if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
+          return true;
+        }
+        CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
+        //return shard.is_masterchain();
+        return true;
+      });
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
   }

@@ -119,6 +119,36 @@ builder pack_complaint(int validator_pubkey, cell description, int severity, int
   return (cs~load_int(32), cs~load_int(32), cs~load_int(32), cs.preload_int(32));
 }
 
+;; next three functions return information about current validator set (config param #34)
+;; they are borrowed from config-code.fc
+(cell, int, cell) get_current_vset() inline_ref {
+  var vset = config_param(34);
+  var cs = begin_parse(vset);
+  ;; validators_ext#12 utime_since:uint32 utime_until:uint32 
+  ;; total:(## 16) main:(## 16) { main <= total } { main >= 1 } 
+  ;; total_weight:uint64
+  throw_unless(40, cs~load_uint(8) == 0x12);
+  cs~skip_bits(32 + 32 + 16 + 16);
+  var (total_weight, dict) = (cs~load_uint(64), cs~load_dict());
+  cs.end_parse();
+  return (vset, total_weight, dict);
+}
+
+(slice, int) get_validator_descr(int idx) inline_ref {
+  var (vset, total_weight, dict) = get_current_vset();
+  var (value, _) = dict.udict_get?(16, idx);
+  return (value, total_weight);
+}
+
+(int, int) unpack_validator_descr(slice cs) inline {
+  ;; ed25519_pubkey#8e81278a pubkey:bits256 = SigPubKey;
+  ;; validator#53 public_key:SigPubKey weight:uint64 = ValidatorDescr;
+  ;; validator_addr#73 public_key:SigPubKey weight:uint64 adnl_addr:bits256 = ValidatorDescr;
+  throw_unless(41, (cs~load_uint(8) & ~ 0x20) == 0x53);
+  throw_unless(41, cs~load_uint(32) == 0x8e81278a);
+  return (cs~load_uint(256), cs~load_uint(64));
+}
+
 () send_message_back(addr, ans_tag, query_id, body, grams, mode) impure inline_ref {
   ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
   var msg = begin_cell()
@@ -446,6 +476,7 @@ int register_complaint(s_addr, complaint, msg_value) {
   ifnot (f) { ;; no such validator, cannot complain
     return -6;
   }
+  fs~skip_bits(256 + 64);   ;; addr weight
   var validator_stake = fs~load_grams();
   int fine = suggested_fine + muldiv(validator_stake, suggested_fine_part, 1 << 32);
   if (fine > validator_stake) {  ;; validator's stake is less than suggested fine
@@ -467,7 +498,84 @@ int register_complaint(s_addr, complaint, msg_value) {
   ;; next line can be commented, but it saves a lot of stack manipulations
   var (elect, credits, _, grams, active_id, active_hash) = load_data();
   store_data(elect, credits, past_elections, grams, active_id, active_hash);
-  return 0;
+  return paid;
+}
+
+(cell, cell, int) punish(credits, frozen, complaint) inline_ref {
+  var (validator_pubkey, description, severity, reward_addr, paid, suggested_fine, suggested_fine_part) = complaint.begin_parse().unpack_complaint();
+  var (cs, f) = frozen.udict_get?(256, validator_pubkey);
+  ifnot (f) {
+    ;; no validator to punish
+    return (credits, frozen, 0);
+  }
+  var (addr, weight, stake, banned) = (cs~load_uint(256), cs~load_uint(64), cs~load_grams(), cs~load_int(1));
+  cs.end_parse();
+  int fine = min(stake, suggested_fine + muldiv(stake, suggested_fine_part, 1 << 32));
+  stake -= fine;
+  frozen~udict_set_builder(256, validator_pubkey, begin_cell()
+    .store_uint(addr, 256)
+    .store_uint(weight, 64)
+    .store_grams(stake)
+    .store_int(banned, 1));
+  int reward = min(fine >> 3, paid * 8);
+  fine -= reward;
+  credits~credit_to(reward_addr, reward);
+  return (credits, frozen, fine);
+}
+
+(cell, cell, int) register_vote(complaints, chash, idx, weight) inline_ref {
+  var (cstatus, found?) = complaints.udict_get?(256, chash);
+  ifnot (found?) {
+    ;; complaint not found
+    return (complaints, null(), -1);
+  }
+  var (cur_vset, total_weight, _) = get_current_vset();
+  int cur_vset_id = cur_vset.cell_hash();
+  var (complaint, voters, vset_id, weight_remaining) = unpack_complaint_status(cstatus);
+  if (vset_id != cur_vset_id) {
+    ;; complaint votes belong to a previous validator set, reset voting
+    vset_id = cur_vset_id;
+    voters = null();
+    weight_remaining = muldiv(total_weight, 2, 3);
+  }
+  var (_, found?) = voters.udict_get?(16, idx);
+  if (found?) {
+    ;; already voted for this proposal, ignore vote
+    return (complaints, null(), 0);
+  }
+  ;; register vote
+  voters~udict_set_builder(16, idx, begin_cell().store_uint(now(), 32));
+  int old_wr = weight_remaining;
+  weight_remaining -= weight;
+  old_wr ^= weight_remaining;
+  ;; save voters and weight_remaining
+  complaints~udict_set_builder(256, chash, pack_complaint_status(complaint, voters, vset_id, weight_remaining));
+  if (old_wr >= 0) {
+    ;; not enough votes or already accepted
+    return (complaints, null(), 1);
+  }
+  ;; complaint wins, prepare punishment
+  return (complaints, complaint, 2);
+}
+
+int proceed_register_vote(election_id, chash, idx, weight) impure inline_ref {
+  var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
+  var (fs, f) = past_elections.udict_get?(32, election_id);
+  ifnot (f) {  ;; election not found
+    return -2;
+  }
+  var (unfreeze_at, stake_held, vset_hash, frozen_dict, total_stake, bonuses, complaints) = unpack_past_election(fs);
+  (complaints, var accepted_complaint, var status) = register_vote(complaints, chash, idx, weight);
+  if (status <= 0) {
+    return status;
+  }
+  ifnot (accepted_complaint.null?()) {
+    (credits, frozen_dict, int fine) = punish(credits, frozen_dict, accepted_complaint);
+    grams += fine;
+  }
+  past_elections.udict_set_builder(32, election_id, pack_past_election(unfreeze_at, stake_held, vset_hash, frozen_dict, total_stake, bonuses, complaints));
+  store_data(elect, credits, past_elections, grams, active_id, active_hash);
+  return status;
 }
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
@@ -520,6 +628,20 @@ int register_complaint(s_addr, complaint, msg_value) {
     }
     return send_message_back(s_addr, ans_tag + 0xf2676350, query_id, op, 0, mode);
   }
+  if (op == 0x56744370) {
+    ;; vote for a complaint
+    var signature = in_msg~load_bits(512);
+    var msg_body = in_msg;
+    var (sign_tag, idx, elect_id, chash) = (in_msg~load_uint(32), in_msg~load_uint(16), in_msg~load_uint(32), in_msg~load_uint(256));
+    in_msg.end_parse();
+    throw_unless(37, sign_tag == 0x56744350);
+    var (vdescr, total_weight) = get_validator_descr(idx);
+    var (val_pubkey, weight) = unpack_validator_descr(vdescr);
+    throw_unless(34, check_data_signature(msg_body, signature, val_pubkey));
+    int res = proceed_register_vote(elect_id, chash, idx, weight);
+    return send_message_back(s_addr, res + 0xd6745240, query_id, op, 0, 64);
+  }
+
   ifnot (op & (1 << 31)) {
     ;; unknown query, return error
     return send_message_back(s_addr, 0xffffffff, query_id, op, 0, 64);

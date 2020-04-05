@@ -143,7 +143,7 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
                                      td::uint32 src_idx, td::Slice signature) const override;
   double get_delay(td::uint32 priority) const override;
   double get_empty_block_delay() const override {
-    return get_delay(get_max_priority() + 1);
+    return std::max(get_delay(get_max_priority() + 1), 1.0);
   }
   td::uint32 get_vote_for_author(td::uint32 attempt_seqno) const override;
   std::vector<PublicKeyHash> export_nodes() const;
