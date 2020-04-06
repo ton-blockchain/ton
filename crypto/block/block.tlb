@@ -151,6 +151,9 @@ message$_ {X:Type} info:CommonMsgInfo
 message$_ {X:Type} info:CommonMsgInfoRelaxed
   init:(Maybe (Either StateInit ^StateInit))
   body:(Either X ^X) = MessageRelaxed X;
+  
+_ (Message Any) = MessageAny;
+
 //
 interm_addr_regular$0 use_dest_bits:(#<= 96) 
   = IntermediateAddress;

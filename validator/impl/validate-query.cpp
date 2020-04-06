@@ -1210,7 +1210,7 @@ bool ValidateQuery::request_neighbor_queues() {
   }
   int i = 0;
   for (block::McShardDescr& descr : neighbors_) {
-    LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
+    LOG(DEBUG) << "requesting outbound queue of neighbor #" << i << " : " << descr.blk_.to_str();
     ++pending;
     send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
                        [ self = get_self(), i ](td::Result<Ref<MessageQueue>> res) {
@@ -3974,12 +3974,14 @@ bool ValidateQuery::check_delivered_dequeued() {
       // could look up neighbor with shard containing enq_msg_descr.next_prefix more efficiently
       // (instead of checking all neighbors)
       if (!nb.is_disabled() && nb.processed_upto->already_processed(enq)) {
-        // the message has been delivered!
-        return reject_query(
-            PSTRING()
-            << "outbound message with (lt,hash)=(" << enq.lt_ << "," << enq.hash_.to_hex() << ") enqueued_lt="
-            << enq.enqueued_lt_ << " has been already delivered and processed by neighbor " << nb.blk_.to_str()
-            << " but it has not been dequeued in this block and it is still present in the new outbound queue");
+        // the message has been delivered but not removed from queue!
+        LOG(WARNING) << "outbound queue not cleaned up completely (overfull block?): outbound message with (lt,hash)=("
+                     << enq.lt_ << "," << enq.hash_.to_hex() << ") enqueued_lt=" << enq.enqueued_lt_
+                     << " has been already delivered and processed by neighbor " << nb.blk_.to_str()
+                     << " but it has not been dequeued in this block and it is still present in the new outbound queue";
+        outq_cleanup_partial_ = true;
+        ok = true;
+        return false;  // skip scanning the remainder of the queue
       }
     }
     if (created_lt >= start_lt_) {

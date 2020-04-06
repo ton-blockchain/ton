@@ -1777,6 +1777,9 @@ void ValidatorManagerImpl::update_shards() {
   }
   for (auto &shard : future_shards) {
     auto val_set = last_masterchain_state_->get_next_validator_set(shard);
+    if (val_set.is_null()) {
+      continue;
+    }
 
     auto validator_id = get_validator(shard, val_set);
     if (!validator_id.is_zero()) {

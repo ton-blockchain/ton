@@ -160,7 +160,7 @@ class LiteQuery : public td::actor::Actor {
                              const BlockIdExt& blkid);
   bool make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, Ref<vm::Cell> block_root,
                              const BlockIdExt& blkid);
-  bool make_shard_info_proof(Ref<vm::Cell>& proof, vm::CellSlice& cs, ShardIdFull shard, ShardIdFull& true_shard,
+  bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, ShardIdFull& true_shard,
                              Ref<vm::Cell>& leaf, bool& found, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, AccountIdPrefixFull prefix);

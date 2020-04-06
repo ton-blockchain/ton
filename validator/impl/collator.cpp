@@ -34,6 +34,7 @@
 #include "validator-set.hpp"
 #include "top-shard-descr.hpp"
 #include <ctime>
+#include "td/utils/Random.h"
 
 namespace ton {
 
@@ -1208,6 +1209,9 @@ bool Collator::import_new_shard_top_blocks() {
   if (shard_block_descr_.empty()) {
     return true;
   }
+  if (skip_topmsgdescr_) {
+    return true;
+  }
   auto lt_limit = config_->lt + config_->get_max_lt_growth();
   std::sort(shard_block_descr_.begin(), shard_block_descr_.end(), cmp_shard_block_descr_ref);
   int tb_act = 0;
@@ -1441,6 +1445,37 @@ bool Collator::init_utime() {
     return fatal_error(
         "error initializing unix time for the new block: failed to observe end of fsm_split time interval for this "
         "shard");
+  }
+  // check whether masterchain catchain rotation is overdue
+  auto ccvc = config_->get_catchain_validators_config();
+  unsigned lifetime = ccvc.mc_cc_lifetime;
+  if (is_masterchain() && now_ / lifetime > prev_now_ / lifetime && now_ > (prev_now_ / lifetime + 1) * lifetime + 20) {
+    auto overdue = now_ - (prev_now_ / lifetime + 1) * lifetime;
+    // masterchain catchain rotation overdue, skip topsharddescr with some probability
+    skip_topmsgdescr_ = (td::Random::fast(0, 1023) < 256);  // probability 1/4
+    skip_extmsg_ = (td::Random::fast(0, 1023) < 256);       // skip ext msg probability 1/4
+    if (skip_topmsgdescr_) {
+      LOG(WARNING)
+          << "randomly skipping import of new shard data because of overdue masterchain catchain rotation (overdue by "
+          << overdue << " seconds)";
+    }
+    if (skip_extmsg_) {
+      LOG(WARNING)
+          << "randomly skipping external message import because of overdue masterchain catchain rotation (overdue by "
+          << overdue << " seconds)";
+    }
+  } else if (is_masterchain() && now_ > prev_now_ + 60) {
+    auto interval = now_ - prev_now_;
+    skip_topmsgdescr_ = (td::Random::fast(0, 1023) < 128);  // probability 1/8
+    skip_extmsg_ = (td::Random::fast(0, 1023) < 128);       // skip ext msg probability 1/8
+    if (skip_topmsgdescr_) {
+      LOG(WARNING) << "randomly skipping import of new shard data because of overdue masterchain block (last block was "
+                   << interval << " seconds ago)";
+    }
+    if (skip_extmsg_) {
+      LOG(WARNING) << "randomly skipping external message import because of overdue masterchain block (last block was "
+                   << interval << " seconds ago)";
+    }
   }
   return true;
 }
@@ -1742,7 +1777,7 @@ bool Collator::dequeue_message(Ref<vm::Cell> msg_envelope, ton::LogicalTime deli
 }
 
 bool Collator::out_msg_queue_cleanup() {
-  LOG(DEBUG) << "in out_msg_queue_cleanup()";
+  LOG(INFO) << "cleaning outbound queue from messages already imported by neighbors";
   if (verbosity >= 2) {
     auto rt = out_msg_queue_->get_root();
     std::cerr << "old out_msg_queue is ";
@@ -1759,6 +1794,11 @@ bool Collator::out_msg_queue_cleanup() {
   auto res = out_msg_queue_->filter([&](vm::CellSlice& cs, td::ConstBitPtr key, int n) -> int {
     assert(n == 352);
     // LOG(DEBUG) << "key is " << key.to_hex(n);
+    if (block_full_) {
+      LOG(WARNING) << "BLOCK FULL while cleaning up outbound queue, cleanup completed only partially";
+      outq_cleanup_partial_ = true;
+      return (1 << 30) + 1;  // retain all remaining outbound queue entries including this one without processing
+    }
     block::EnqueuedMsgDescr enq_msg_descr;
     unsigned long long created_lt;
     if (!(cs.fetch_ulong_bool(64, created_lt)  // augmentation
@@ -1788,6 +1828,10 @@ bool Collator::out_msg_queue_cleanup() {
         fatal_error(PSTRING() << "cannot dequeue outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << ","
                               << enq_msg_descr.hash_.to_hex() << ") by inserting a msg_export_deq record");
         return -1;
+      }
+      register_out_msg_queue_op();
+      if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
+        block_full_ = true;
       }
     }
     return !delivered;
@@ -2631,6 +2675,10 @@ bool Collator::process_inbound_internal_messages() {
 }
 
 bool Collator::process_inbound_external_messages() {
+  if (skip_extmsg_) {
+    LOG(INFO) << "skipping processing of inbound external messages";
+    return true;
+  }
   bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
   for (auto& ext_msg_pair : ext_msg_list_) {
     if (full) {

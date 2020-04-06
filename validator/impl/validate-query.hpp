@@ -144,6 +144,7 @@ class ValidateQuery : public td::actor::Actor {
   bool is_fake_{false};
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
+  bool outq_cleanup_partial_{false};
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;

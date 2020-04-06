@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-session.hpp"
 #include "td/utils/Random.h"
@@ -52,10 +52,10 @@ ValidatorSessionDescriptionImpl::ValidatorSessionDescriptionImpl(ValidatorSessio
   self_idx_ = it->second;
 
   pdata_temp_ptr_ = 0;
-  pdata_temp_size_ = 1 << 30;
+  pdata_temp_size_ = 1 << 27;
   pdata_temp_ = new td::uint8[pdata_temp_size_];
 
-  pdata_perm_size_ = 1ull << 30;
+  pdata_perm_size_ = 1ull << 27;
   pdata_perm_ptr_ = 0;
 
   for (auto &el : cache_) {
