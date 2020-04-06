@@ -43,6 +43,7 @@
 4 constant capBounceMsgBody
 8 constant capReportVersion
 16 constant capSplitMergeTransactions
+32 constant capShortDequeue
 
 // max-validators masterchain-validators min-validators --
 { swap rot <b swap 16 u, swap 16 u, swap 16 u, b> 16 config! } : config.validator_num!

@@ -157,7 +157,7 @@ Masterchain swap
  *
  */
 // version capabilities
-1 capCreateStats capBounceMsgBody or capReportVersion or config.version!
+1 capCreateStats capBounceMsgBody or capReportVersion or capShortDeque or config.version!
 // max-validators max-main-validators min-validators
 // 9 4 1 config.validator_num!
 1000 100 13 config.validator_num!

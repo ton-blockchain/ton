@@ -47,11 +47,15 @@ class PackageWriter : public td::actor::Actor {
 
 class ArchiveSlice : public td::actor::Actor {
  public:
-  ArchiveSlice(bool key_blocks_only, bool temp, std::string prefix);
+  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string prefix);
+
+  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
+    promise.set_result(archive_id_);
+  }
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
-  void add_file(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
+  void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise);
   void get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise);
   void get_file(FileReference ref_id, td::Promise<td::BufferSlice> promise);
@@ -65,7 +69,7 @@ class ArchiveSlice : public td::actor::Actor {
                         std::function<td::int32(ton_api::db_lt_el_value &)> compare, bool exact,
                         td::Promise<ConstBlockHandle> promise);
 
-  void get_slice(td::uint64 offset, td::uint32 limit, td::Promise<td::BufferSlice> promise);
+  void get_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit, td::Promise<td::BufferSlice> promise);
 
   void start_up() override;
   void destroy(td::Promise<td::Unit> promise);
@@ -83,6 +87,8 @@ class ArchiveSlice : public td::actor::Actor {
   td::BufferSlice get_db_key_lt_el(ShardIdFull shard, td::uint32 idx);
   td::BufferSlice get_db_key_block_info(BlockIdExt block_id);
   td::BufferSlice get_lt_from_db(ShardIdFull shard, td::uint32 idx);
+
+  td::uint32 archive_id_;
 
   bool key_blocks_only_;
   bool temp_;

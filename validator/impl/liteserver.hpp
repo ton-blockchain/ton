@@ -62,7 +62,7 @@ class LiteQuery : public td::actor::Actor {
   enum {
     default_timeout_msec = 4500,      // 4.5 seconds
     max_transaction_count = 16,       // fetch at most 16 transactions in one query
-    client_method_gas_limit = 100000  // gas limit for liteServer.runSmcMethod
+    client_method_gas_limit = 300000  // gas limit for liteServer.runSmcMethod
   };
   enum {
     ls_version = 0x101,
@@ -160,8 +160,8 @@ class LiteQuery : public td::actor::Actor {
                              const BlockIdExt& blkid);
   bool make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, Ref<vm::Cell> block_root,
                              const BlockIdExt& blkid);
-  bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, ShardIdFull& true_shard,
-                             Ref<vm::Cell>& leaf, bool& found, bool exact = true);
+  bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard,
+                             ShardIdFull& true_shard, Ref<vm::Cell>& leaf, bool& found, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, AccountIdPrefixFull prefix);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, BlockIdExt& blkid, AccountIdPrefixFull prefix);

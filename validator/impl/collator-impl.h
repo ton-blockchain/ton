@@ -147,6 +147,7 @@ class Collator final : public td::actor::Actor {
   bool report_version_{false};
   bool skip_topmsgdescr_{false};
   bool skip_extmsg_{false};
+  bool short_dequeue_records_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
   Ref<block::WorkchainInfo> wc_info_;
@@ -275,6 +276,7 @@ class Collator final : public td::actor::Actor {
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);
+  bool insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash);
   bool register_out_msg_queue_op(bool force = false);
   bool update_min_mc_seqno(ton::BlockSeqno some_mc_seqno);
   bool combine_account_transactions();

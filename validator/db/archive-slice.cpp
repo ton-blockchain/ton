@@ -162,7 +162,8 @@ void ArchiveSlice::update_handle(BlockHandle handle, td::Promise<td::Unit> promi
   promise.set_value(td::Unit());
 }
 
-void ArchiveSlice::add_file(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise) {
+void ArchiveSlice::add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data,
+                            td::Promise<td::Unit> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
@@ -409,7 +410,12 @@ td::BufferSlice ArchiveSlice::get_db_key_block_info(BlockIdExt block_id) {
   return create_serialize_tl_object<ton_api::db_blockdb_key_value>(create_tl_block_id(block_id));
 }
 
-void ArchiveSlice::get_slice(td::uint64 offset, td::uint32 limit, td::Promise<td::BufferSlice> promise) {
+void ArchiveSlice::get_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                             td::Promise<td::BufferSlice> promise) {
+  if (archive_id != archive_id_) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "bad archive id"));
+    return;
+  }
   td::actor::create_actor<db::ReadFile>("readfile", prefix_ + ".pack", offset, limit, 0, std::move(promise)).release();
 }
 
@@ -467,8 +473,8 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(writer_, &PackageWriter::set_async_mode, mode, std::move(promise));
 }
 
-ArchiveSlice::ArchiveSlice(bool key_blocks_only, bool temp, std::string prefix)
-    : key_blocks_only_(key_blocks_only), temp_(temp), prefix_(std::move(prefix)) {
+ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string prefix)
+    : archive_id_(archive_id), key_blocks_only_(key_blocks_only), temp_(temp), prefix_(std::move(prefix)) {
 }
 
 namespace {

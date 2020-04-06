@@ -1711,9 +1711,13 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
       case block::gen::AccountState::account_uninit:
         LOG(ERROR) << "account " << workchain << ":" << addr.to_hex()
                    << " not initialized yet (cannot run any methods)";
+        promise.set_error(td::Status::Error(PSLICE() << "account " << workchain << ":" << addr.to_hex()
+                                                     << " not initialized yet (cannot run any methods)"));
         return;
       case block::gen::AccountState::account_frozen:
         LOG(ERROR) << "account " << workchain << ":" << addr.to_hex() << " frozen (cannot run any methods)";
+        promise.set_error(td::Status::Error(PSLICE() << "account " << workchain << ":" << addr.to_hex()
+                                                     << " frozen (cannot run any methods)"));
         return;
     }
     CHECK(store.state.write().fetch_ulong(1) == 1);  // account_init$1 _:StateInit = AccountState;
@@ -1730,7 +1734,7 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
       stack->dump(os, 3);
       out << os.str();
     }
-    long long gas_limit = vm::GasLimits::infty;
+    long long gas_limit = /* vm::GasLimits::infty */ 10000000;
     // OstreamLogger ostream_logger(ctx.error_stream);
     // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
     vm::GasLimits gas{gas_limit};
@@ -1741,10 +1745,27 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
     // vm.incr_stack_trace(1);    // enable stack dump after each step
     LOG(INFO) << "starting VM to run method `" << method << "` (" << method_id << ") of smart contract " << workchain
               << ":" << addr.to_hex();
-    int exit_code = ~vm.run();
+    int exit_code;
+    try {
+      exit_code = ~vm.run();
+    } catch (vm::VmVirtError& err) {
+      LOG(ERROR) << "virtualization error while running VM to locally compute runSmcMethod result: " << err.get_msg();
+      promise.set_error(
+          td::Status::Error(PSLICE() << "virtualization error while running VM to locally compute runSmcMethod result: "
+                                     << err.get_msg()));
+      exit_code = -1001;
+    } catch (vm::VmError& err) {
+      LOG(ERROR) << "error while running VM to locally compute runSmcMethod result: " << err.get_msg();
+      promise.set_error(td::Status::Error(PSLICE() << "error while running VM to locally compute runSmcMethod result: "
+                                                   << err.get_msg()));
+      exit_code = -1000;
+    }
     LOG(DEBUG) << "VM terminated with exit code " << exit_code;
     if (mode > 0) {
       LOG(DEBUG) << "remote VM exit code is " << remote_exit_code;
+      if (remote_exit_code == ~(int)vm::Excno::out_of_gas) {
+        LOG(WARNING) << "remote server ran out of gas while performing this request; consider using runmethodfull";
+      }
     }
     if (exit_code != 0) {
       LOG(ERROR) << "VM terminated with error code " << exit_code;
@@ -1765,13 +1786,17 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
       } else {
         auto res = vm::std_boc_deserialize(std::move(remote_result));
         if (res.is_error()) {
-          LOG(ERROR) << "cannot deserialize remote VM result boc: " << res.move_as_error();
+          auto err = res.move_as_error();
+          LOG(ERROR) << "cannot deserialize remote VM result boc: " << err;
+          promise.set_error(
+              td::Status::Error(PSLICE() << "cannot deserialize remote VM result boc: " << std::move(err)));
           return;
         }
         auto cs = vm::load_cell_slice(res.move_as_ok());
         Ref<vm::Stack> remote_stack;
         if (!(vm::Stack::deserialize_to(cs, remote_stack, 0) && cs.empty_ext())) {
           LOG(ERROR) << "remote VM result boc cannot be deserialized as a VmStack";
+          promise.set_error(td::Status::Error("remote VM result boc cannot be deserialized as a VmStack"));
           return;
         }
         std::ostringstream os;
@@ -1784,8 +1809,11 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
     promise.set_result(stack->extract_contents());
   } catch (vm::VmVirtError& err) {
     out << "virtualization error while parsing runSmcMethod result: " << err.get_msg();
+    promise.set_error(
+        td::Status::Error(PSLICE() << "virtualization error while parsing runSmcMethod result: " << err.get_msg()));
   } catch (vm::VmError& err) {
     out << "error while parsing runSmcMethod result: " << err.get_msg();
+    promise.set_error(td::Status::Error(PSLICE() << "error while parsing runSmcMethod result: " << err.get_msg()));
   }
 }
 

@@ -512,6 +512,7 @@ bool Collator::unpack_last_mc_state() {
   ihr_enabled_ = config_->ihr_enabled();
   create_stats_enabled_ = config_->create_stats_enabled();
   report_version_ = config_->has_capability(ton::capReportVersion);
+  short_dequeue_records_ = config_->has_capability(ton::capShortDequeue);
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -1770,10 +1771,20 @@ bool Collator::do_collate() {
 bool Collator::dequeue_message(Ref<vm::Cell> msg_envelope, ton::LogicalTime delivered_lt) {
   LOG(DEBUG) << "dequeueing outbound message";
   vm::CellBuilder cb;
-  return cb.store_long_bool(6, 3)                 // msg_export_deq$110
-         && cb.store_ref_bool(msg_envelope)       // out_msg:^MsgEnvelope
-         && cb.store_long_bool(delivered_lt, 64)  // import_block_lt:uint64
-         && insert_out_msg(cb.finalize());
+  if (short_dequeue_records_) {
+    td::BitArray<352> out_queue_key;
+    return block::compute_out_msg_queue_key(msg_envelope, out_queue_key)  // (compute key)
+           && cb.store_long_bool(13, 4)                                   // msg_export_deq_short$1101
+           && cb.store_bits_bool(msg_envelope->get_hash().as_bitslice())  // msg_env_hash:bits256
+           && cb.store_bits_bool(out_queue_key.bits(), 96)                // next_workchain:int32 next_addr_pfx:uint64
+           && cb.store_long_bool(delivered_lt, 64)                        // import_block_lt:uint64
+           && insert_out_msg(cb.finalize(), out_queue_key.bits() + 96);
+  } else {
+    return cb.store_long_bool(12, 4)                // msg_export_deq$1100
+           && cb.store_ref_bool(msg_envelope)       // out_msg:^MsgEnvelope
+           && cb.store_long_bool(delivered_lt, 63)  // import_block_lt:uint63
+           && insert_out_msg(cb.finalize());
+  }
 }
 
 bool Collator::out_msg_queue_cleanup() {
@@ -2783,7 +2794,7 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
 // inserts an OutMsg into OutMsgDescr
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
   if (verbosity > 2) {
-    fprintf(stderr, "OutMsg being inserted into OutMsgDescr: ");
+    std::cerr << "OutMsg being inserted into OutMsgDescr: ";
     block::gen::t_OutMsg.print_ref(std::cerr, out_msg);
   }
   auto cs = load_cell_slice(out_msg);
@@ -2800,10 +2811,14 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
     }
     msg = cs2.prefetch_ref();  // use hash of (Message Any)
   }
+  return insert_out_msg(std::move(out_msg), msg->get_hash().bits());
+}
+
+bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
   bool ok;
   try {
-    ok = out_msg_dict->set(msg->get_hash().bits(), 256, cs, vm::Dictionary::SetMode::Add);
-  } catch (vm::VmError) {
+    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(std::move(out_msg)), vm::Dictionary::SetMode::Add);
+  } catch (vm::VmError&) {
     ok = false;
   }
   if (!ok) {
@@ -2814,6 +2829,7 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
   return block_limit_status_->add_cell(std::move(out_msg)) &&
          ((out_descr_cnt_ & 63) || block_limit_status_->add_cell(out_msg_dict->get_root_cell()));
 }
+
 // enqueues a new Message into OutMsgDescr and OutMsgQueue
 bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, ton::LogicalTime enqueued_lt) {
   // 0. unpack src_addr and dest_addr
