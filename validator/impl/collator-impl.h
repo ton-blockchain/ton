@@ -40,10 +40,10 @@ using td::Ref;
 
 class Collator final : public td::actor::Actor {
   static constexpr int supported_version() {
-    return 1;
+    return 2;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion;
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
   }
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
