@@ -168,6 +168,8 @@ void ArchiveSlice::add_file(BlockHandle handle, FileReference ref_id, td::Buffer
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  auto &p = choose_package(
+      handle ? handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block() : 0);
   std::string value;
   auto R = kv_->get(ref_id.hash().to_hex(), value);
   R.ensure();
@@ -186,7 +188,7 @@ void ArchiveSlice::add_file(BlockHandle handle, FileReference ref_id, td::Buffer
                             std::move(promise));
   });
 
-  td::actor::send_closure(writer_, &PackageWriter::append, ref_id.filename(), std::move(data), std::move(P));
+  td::actor::send_closure(p.writer, &PackageWriter::append, ref_id.filename(), std::move(data), std::move(P));
 }
 
 void ArchiveSlice::add_file_cont(FileReference ref_id, td::uint64 offset, td::uint64 size,
@@ -246,11 +248,13 @@ void ArchiveSlice::get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHa
   promise.set_value(std::move(handle));
 }
 
-void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
+void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  auto &p = choose_package(
+      handle ? handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block() : 0);
   std::string value;
   auto R = kv_->get(ref_id.hash().to_hex(), value);
   R.ensure();
@@ -267,7 +271,7 @@ void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> p
           promise.set_value(std::move(R.move_as_ok().second));
         }
       });
-  td::actor::create_actor<PackageReader>("reader", package_, offset, std::move(P)).release();
+  td::actor::create_actor<PackageReader>("reader", p.package, offset, std::move(P)).release();
 }
 
 void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
@@ -426,7 +430,7 @@ void ArchiveSlice::start_up() {
                << "': " << R.move_as_error();
     return;
   }
-  package_ = std::make_shared<Package>(R.move_as_ok());
+  auto pack = std::make_shared<Package>(R.move_as_ok());
   kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(prefix_ + ".index").move_as_ok());
 
   std::string value;
@@ -435,12 +439,13 @@ void ArchiveSlice::start_up() {
 
   if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
     auto len = td::to_integer<td::uint64>(value);
-    package_->truncate(len);
+    pack->truncate(len);
   } else {
-    package_->truncate(0);
+    pack->truncate(0);
   }
 
-  writer_ = td::actor::create_actor<PackageWriter>("writer", package_);
+  auto writer = td::actor::create_actor<PackageWriter>("writer", pack);
+  packages_.emplace_back(std::move(pack), std::move(writer), prefix_ + ".pack", 0);
 }
 
 void ArchiveSlice::begin_transaction() {
@@ -470,11 +475,24 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
     huge_transaction_started_ = false;
   }
 
-  td::actor::send_closure(writer_, &PackageWriter::set_async_mode, mode, std::move(promise));
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+
+  for (auto &p : packages_) {
+    td::actor::send_closure(p.writer, &PackageWriter::set_async_mode, mode, std::move(promise));
+  }
 }
 
 ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string prefix)
     : archive_id_(archive_id), key_blocks_only_(key_blocks_only), temp_(temp), prefix_(std::move(prefix)) {
+}
+
+ArchiveSlice::PackageInfo &ArchiveSlice::choose_package(BlockSeqno masterchain_seqno) {
+  if (temp_ || key_blocks_only_) {
+    return packages_[0];
+  }
+  return packages_[0];
 }
 
 namespace {
@@ -502,8 +520,7 @@ void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(promise));
   destroyed_ = true;
 
-  writer_.reset();
-  package_ = nullptr;
+  packages_.clear();
   kv_ = nullptr;
 
   td::unlink(prefix_ + ".pack").ensure();

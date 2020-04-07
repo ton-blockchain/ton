@@ -1445,6 +1445,8 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
 
   last_key_block_handle_ = std::move(R.last_key_block_handle_);
   last_known_key_block_handle_ = last_key_block_handle_;
+
+  CHECK(last_masterchain_block_handle_->is_applied());
   callback_->new_key_block(last_key_block_handle_);
 
   gc_masterchain_handle_ = std::move(R.gc_handle);

@@ -58,7 +58,7 @@ class ArchiveSlice : public td::actor::Actor {
   void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise);
   void get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise);
-  void get_file(FileReference ref_id, td::Promise<td::BufferSlice> promise);
+  void get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise);
 
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
@@ -99,9 +99,21 @@ class ArchiveSlice : public td::actor::Actor {
   td::uint32 huge_transaction_size_ = 0;
 
   std::string prefix_;
-  std::shared_ptr<Package> package_;
   std::shared_ptr<td::KeyValue> kv_;
-  td::actor::ActorOwn<PackageWriter> writer_;
+
+  struct PackageInfo {
+    PackageInfo(std::shared_ptr<Package> package, td::actor::ActorOwn<PackageWriter> writer, std::string path,
+                td::uint32 idx)
+        : package(std::move(package)), writer(std ::move(writer)), path(std::move(path)), idx(idx) {
+    }
+    std::shared_ptr<Package> package;
+    td::actor::ActorOwn<PackageWriter> writer;
+    std::string path;
+    td::uint32 idx;
+  };
+  std::vector<PackageInfo> packages_;
+
+  PackageInfo &choose_package(BlockSeqno masterchain_seqno);
 };
 
 }  // namespace validator
