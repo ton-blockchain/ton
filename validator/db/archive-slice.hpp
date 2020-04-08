@@ -26,6 +26,32 @@ namespace ton {
 
 namespace validator {
 
+struct PackageId {
+  td::uint32 id;
+  bool key;
+  bool temp;
+
+  explicit PackageId(td::uint32 id, bool key, bool temp) : id(id), key(key), temp(temp) {
+  }
+
+  bool operator<(const PackageId &with) const {
+    return id < with.id;
+  }
+  bool operator==(const PackageId &with) const {
+    return id == with.id;
+  }
+
+  std::string path() const;
+  std::string name() const;
+
+  bool is_empty() {
+    return id == std::numeric_limits<td::uint32>::max();
+  }
+  static PackageId empty(bool key, bool temp) {
+    return PackageId(std::numeric_limits<td::uint32>::max(), key, temp);
+  }
+};
+
 class PackageWriter : public td::actor::Actor {
  public:
   PackageWriter(std::shared_ptr<Package> package) : package_(std::move(package)) {
@@ -47,11 +73,9 @@ class PackageWriter : public td::actor::Actor {
 
 class ArchiveSlice : public td::actor::Actor {
  public:
-  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string prefix);
+  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string db_root);
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
-    promise.set_result(archive_id_);
-  }
+  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
@@ -80,7 +104,8 @@ class ArchiveSlice : public td::actor::Actor {
 
  private:
   void written_data(BlockHandle handle, td::Promise<td::Unit> promise);
-  void add_file_cont(FileReference ref_id, td::uint64 offset, td::uint64 size, td::Promise<td::Unit> promise);
+  void add_file_cont(size_t idx, FileReference ref_id, td::uint64 offset, td::uint64 size,
+                     td::Promise<td::Unit> promise);
 
   /* ltdb */
   td::BufferSlice get_db_key_lt_desc(ShardIdFull shard);
@@ -96,24 +121,28 @@ class ArchiveSlice : public td::actor::Actor {
   bool destroyed_ = false;
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
+  bool sliced_mode_{false};
   td::uint32 huge_transaction_size_ = 0;
+  td::uint32 slice_size_{100};
 
-  std::string prefix_;
+  std::string db_root_;
   std::shared_ptr<td::KeyValue> kv_;
 
   struct PackageInfo {
-    PackageInfo(std::shared_ptr<Package> package, td::actor::ActorOwn<PackageWriter> writer, std::string path,
-                td::uint32 idx)
-        : package(std::move(package)), writer(std ::move(writer)), path(std::move(path)), idx(idx) {
+    PackageInfo(std::shared_ptr<Package> package, td::actor::ActorOwn<PackageWriter> writer, BlockSeqno id,
+                std::string path, td::uint32 idx)
+        : package(std::move(package)), writer(std ::move(writer)), id(id), path(std::move(path)), idx(idx) {
     }
     std::shared_ptr<Package> package;
     td::actor::ActorOwn<PackageWriter> writer;
+    BlockSeqno id;
     std::string path;
     td::uint32 idx;
   };
   std::vector<PackageInfo> packages_;
 
-  PackageInfo &choose_package(BlockSeqno masterchain_seqno);
+  td::Result<PackageInfo *> choose_package(BlockSeqno masterchain_seqno, bool force);
+  void add_package(BlockSeqno masterchain_seqno, td::uint64 size);
 };
 
 }  // namespace validator

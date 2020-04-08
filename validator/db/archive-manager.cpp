@@ -540,7 +540,7 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, prefix);
+  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, db_root_);
 
   get_file_map(id).emplace(id, std::move(desc));
 }
@@ -574,7 +574,7 @@ ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull shard
   FileDescription desc{id, false};
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
-  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, prefix);
+  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, db_root_);
   if (!id.temp) {
     update_desc(desc, shard, seqno, ts, lt);
   }

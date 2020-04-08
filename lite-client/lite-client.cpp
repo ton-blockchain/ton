@@ -980,8 +980,11 @@ bool TestNode::do_parse_line() {
            (parse_block_id_ext(domain, blkid) ? get_word_to(domain) : (blkid = mc_last_id_).is_valid()) &&
            (seekeoln() || parse_int16(cat)) && seekeoln() &&
            dns_resolve_start(workchain, addr, blkid, domain, cat, step);
-  } else if (word == "allshards") {
-    return eoln() ? get_all_shards() : (parse_block_id_ext(blkid) && seekeoln() && get_all_shards(false, blkid));
+  } else if (word == "allshards" || word == "allshardssave") {
+    std::string filename;
+    return (word.size() <= 9 || get_word_to(filename)) &&
+           (seekeoln() ? get_all_shards(filename)
+                       : (parse_block_id_ext(blkid) && seekeoln() && get_all_shards(filename, false, blkid)));
   } else if (word == "saveconfig") {
     blkid = mc_last_id_;
     std::string filename;
@@ -2105,7 +2108,7 @@ void TestNode::got_block_transactions(ton::BlockIdExt blkid, int mode, unsigned 
   out << (incomplete ? "(block transaction list incomplete)" : "(end of block transaction list)") << std::endl;
 }
 
-bool TestNode::get_all_shards(bool use_last, ton::BlockIdExt blkid) {
+bool TestNode::get_all_shards(std::string filename, bool use_last, ton::BlockIdExt blkid) {
   if (use_last) {
     blkid = mc_last_id_;
   }
@@ -2122,7 +2125,7 @@ bool TestNode::get_all_shards(bool use_last, ton::BlockIdExt blkid) {
   auto b = ton::serialize_tl_object(
       ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(blkid)), true);
   LOG(INFO) << "requesting recent shard configuration";
-  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> R)->void {
+  return envelope_send_query(std::move(b), [ Self = actor_id(this), filename ](td::Result<td::BufferSlice> R)->void {
     if (R.is_error()) {
       return;
     }
@@ -2132,12 +2135,12 @@ bool TestNode::get_all_shards(bool use_last, ton::BlockIdExt blkid) {
     } else {
       auto f = F.move_as_ok();
       td::actor::send_closure_later(Self, &TestNode::got_all_shards, ton::create_block_id(f->id_), std::move(f->proof_),
-                                    std::move(f->data_));
+                                    std::move(f->data_), filename);
     }
   });
 }
 
-void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::BufferSlice data) {
+void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::BufferSlice data, std::string filename) {
   LOG(INFO) << "got shard configuration with respect to block " << blk.to_str();
   if (data.empty()) {
     td::TerminalIO::out() << "shard configuration is empty" << '\n';
@@ -2169,6 +2172,15 @@ void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::Bu
         } else {
           out << "shard #" << ++cnt << " : " << id.to_str() << " (cannot unpack)\n";
         }
+      }
+    }
+    if (!filename.empty()) {
+      auto res1 = td::write_file(filename, data.as_slice());
+      if (res1.is_error()) {
+        LOG(ERROR) << "cannot write shard configuration to file `" << filename << "` : " << res1.move_as_error();
+      } else {
+        out << "saved shard configuration (ShardHashes) to file `" << filename << "` (" << data.size() << " bytes)"
+            << std::endl;
       }
     }
   }

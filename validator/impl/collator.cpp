@@ -2965,6 +2965,9 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
   if (!info.is_fsm_none() && (now >= info.fsm_utime_end() || info.before_split_)) {
     info.clear_fsm();
     changed = true;
+  } else if (info.is_fsm_merge() && (!sibling || sibling->before_split_)) {
+    info.clear_fsm();
+    changed = true;
   }
   if (wc_info && !info.before_split_) {
     // workchain present in configuration?
@@ -2977,14 +2980,15 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
       LOG(INFO) << "preparing to split shard " << info.shard().to_str() << " during " << info.fsm_utime() << " .. "
                 << info.fsm_utime_end();
     } else if (info.is_fsm_none() && depth > wc_info->min_split && (info.want_merge_ || depth > wc_info->max_split) &&
-               sibling && sibling->is_fsm_none() && (sibling->want_merge_ || depth > wc_info->max_split)) {
+               sibling && !sibling->before_split_ && sibling->is_fsm_none() &&
+               (sibling->want_merge_ || depth > wc_info->max_split)) {
       // prepare merge
       info.set_fsm_merge(now + ton::split_merge_delay, ton::split_merge_interval);
       changed = true;
       LOG(INFO) << "preparing to merge shard " << info.shard().to_str() << " with " << sibling->shard().to_str()
                 << " during " << info.fsm_utime() << " .. " << info.fsm_utime_end();
-    } else if (info.is_fsm_merge() && depth > wc_info->min_split && sibling && sibling->is_fsm_merge() &&
-               now >= info.fsm_utime() && now >= sibling->fsm_utime() &&
+    } else if (info.is_fsm_merge() && depth > wc_info->min_split && sibling && !sibling->before_split_ &&
+               sibling->is_fsm_merge() && now >= info.fsm_utime() && now >= sibling->fsm_utime() &&
                (depth > wc_info->max_split || (info.want_merge_ && sibling->want_merge_))) {
       // force merge
       info.before_merge_ = true;

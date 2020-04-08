@@ -1599,7 +1599,8 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
   }
   unsigned depth = ton::shard_prefix_length(shard);
   bool split_cond = ((info.want_split_ || depth < wc_info->min_split) && depth < wc_info->max_split && depth < 60);
-  bool merge_cond = depth > wc_info->min_split && (info.want_merge_ || depth > wc_info->max_split) && sibling &&
+  bool merge_cond = !info.before_split_ && depth > wc_info->min_split &&
+                    (info.want_merge_ || depth > wc_info->max_split) && sibling && !sibling->before_split_ &&
                     (sibling->want_merge_ || depth > wc_info->max_split);
   if (!fsm_inherited && !info.is_fsm_none()) {
     if (info.fsm_utime() < now_ || info.fsm_utime_end() <= info.fsm_utime() ||
@@ -1617,6 +1618,11 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
       return reject_query("announcing future merge for shard "s + shard.to_str() +
                           " in new shard configuration, but merge conditions are not met");
     }
+  }
+  if (info.is_fsm_merge() && (!sibling || sibling->before_split_)) {
+    return reject_query(
+        "future merge for shard "s + shard.to_str() +
+        " is still set in the new shard configuration, but its sibling is absent or has before_split set");
   }
   if (info.before_merge_) {
     if (!sibling || !sibling->before_merge_) {

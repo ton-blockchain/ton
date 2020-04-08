@@ -24,32 +24,6 @@ namespace ton {
 
 namespace validator {
 
-struct PackageId {
-  td::uint32 id;
-  bool key;
-  bool temp;
-
-  explicit PackageId(td::uint32 id, bool key, bool temp) : id(id), key(key), temp(temp) {
-  }
-
-  bool operator<(const PackageId &with) const {
-    return id < with.id;
-  }
-  bool operator==(const PackageId &with) const {
-    return id == with.id;
-  }
-
-  std::string path() const;
-  std::string name() const;
-
-  bool is_empty() {
-    return id == std::numeric_limits<td::uint32>::max();
-  }
-  static PackageId empty(bool key, bool temp) {
-    return PackageId(std::numeric_limits<td::uint32>::max(), key, temp);
-  }
-};
-
 class RootDb;
 
 class ArchiveManager : public td::actor::Actor {
