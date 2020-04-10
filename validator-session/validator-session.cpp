@@ -510,6 +510,11 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
       auto P = td::PromiseCreator::lambda([round = cur_round_, hash = block_id, root_hash = block->get_root_hash(),
                                            file_hash = block->get_file_hash(), timer = std::move(timer),
                                            SelfId = actor_id(this)](td::Result<CandidateDecision> res) {
+        if (res.is_error()) {
+          LOG(ERROR) << "round " << round << " failed to validate candidate " << hash << ": " << res.move_as_error();
+          return;
+        }
+
         auto R = res.move_as_ok();
         if (R.is_ok()) {
           td::actor::send_closure(SelfId, &ValidatorSessionImpl::candidate_decision_ok, round, hash, root_hash,
@@ -815,10 +820,11 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
                                            td::actor::ActorId<keyring::Keyring> keyring,
                                            td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                                            td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-                                           bool allow_unsafe_self_blocks_resync)
+                                           std::string db_suffix, bool allow_unsafe_self_blocks_resync)
     : unique_hash_(session_id)
     , callback_(std::move(callback))
     , db_root_(db_root)
+    , db_suffix_(db_suffix)
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp_(rldp)
@@ -836,7 +842,7 @@ void ValidatorSessionImpl::start() {
   catchain_ = catchain::CatChain::create(
       make_catchain_callback(),
       catchain::CatChainOptions{description().opts().catchain_idle_timeout, description().opts().catchain_max_deps},
-      keyring_, adnl_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_,
+      keyring_, adnl_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_, db_suffix_,
       allow_unsafe_self_blocks_resync_);
 
   check_all();
@@ -868,16 +874,22 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
     std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-    bool allow_unsafe_self_blocks_resync) {
+    std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
   return td::actor::create_actor<ValidatorSessionImpl>("session", session_id, std::move(opts), local_id,
                                                        std::move(nodes), std::move(callback), keyring, adnl, rldp,
-                                                       overlays, db_root, allow_unsafe_self_blocks_resync);
+                                                       overlays, db_root, db_suffix, allow_unsafe_self_blocks_resync);
 }
 
 td::Bits256 ValidatorSessionOptions::get_hash() const {
-  return create_hash_tl_object<ton_api::validatorSession_config>(
-      catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
-      max_round_attempts, max_block_size, max_collated_data_size);
+  if (!new_catchain_ids) {
+    return create_hash_tl_object<ton_api::validatorSession_config>(
+        catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
+        max_round_attempts, max_block_size, max_collated_data_size);
+  } else {
+    return create_hash_tl_object<ton_api::validatorSession_configNew>(
+        catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
+        max_round_attempts, max_block_size, max_collated_data_size, new_catchain_ids);
+  }
 }
 
 ValidatorSessionOptions::ValidatorSessionOptions(const ValidatorSessionConfig &conf) {
@@ -890,6 +902,7 @@ ValidatorSessionOptions::ValidatorSessionOptions(const ValidatorSessionConfig &c
   next_candidate_delay = conf.next_candidate_delay;
   round_attempt_duration = conf.round_attempt_duration;
   round_candidates = conf.round_candidates;
+  new_catchain_ids = conf.new_catchain_ids;
 }
 
 }  // namespace validatorsession

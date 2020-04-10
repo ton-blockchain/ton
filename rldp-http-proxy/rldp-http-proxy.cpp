@@ -1007,7 +1007,7 @@ class RldpHttpProxy : public td::actor::Actor {
   }
 
  private:
-  td::uint16 port_;
+  td::uint16 port_{0};
   td::IPAddress addr_;
   std::string global_config_;
   std::vector<std::pair<std::string, td::IPAddress>> local_hosts_;

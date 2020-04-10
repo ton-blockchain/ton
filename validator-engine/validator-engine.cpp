@@ -1202,10 +1202,6 @@ td::Status ValidatorEngine::load_global_config() {
     validator_options_.write().add_unsafe_resync_catchain(seq);
   }
 
-  if (zero_state.file_hash.to_hex() == "5E994FCF4D425C0A6CE6A792594B7173205F740A39CD56F537DEFD28B48A0F6E") {
-    validator_options_.write().add_unsafe_catchain_rotate(3081761, 48452, 1);
-  }
-
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
     auto b = ton::create_block_id(x);

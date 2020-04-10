@@ -430,7 +430,7 @@ CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback, C
                                            td::actor::ActorId<adnl::Adnl> adnl,
                                            td::actor::ActorId<overlay::Overlays> overlay_manager,
                                            std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                           CatChainSessionId unique_hash, std::string db_root,
+                                           CatChainSessionId unique_hash, std::string db_root, std::string db_suffix,
                                            bool allow_unsafe_self_blocks_resync)
     : callback_(std::move(callback))
     , opts_(std::move(opts))
@@ -439,6 +439,7 @@ CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback, C
     , overlay_manager_(overlay_manager)
     , local_id_(local_id)
     , db_root_(db_root)
+    , db_suffix_(db_suffix)
     , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   std::vector<td::Bits256> short_ids;
   local_idx_ = static_cast<td::uint32>(ids.size());
@@ -491,7 +492,8 @@ void CatChainReceiverImpl::start_up() {
 
   if (!opts_.debug_disable_db) {
     std::shared_ptr<td::KeyValue> kv = std::make_shared<td::RocksDb>(
-        td::RocksDb::open(db_root_ + "/catchainreceiver-" + td::base64url_encode(as_slice(incarnation_))).move_as_ok());
+        td::RocksDb::open(db_root_ + "/catchainreceiver" + db_suffix_ + td::base64url_encode(as_slice(incarnation_)))
+            .move_as_ok());
     db_ = DbType{std::move(kv)};
 
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<DbType::GetResult> R) {
@@ -611,10 +613,10 @@ td::actor::ActorOwn<CatChainReceiverInterface> CatChainReceiverInterface::create
     std::unique_ptr<Callback> callback, CatChainOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
     std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root,
-    bool allow_unsafe_self_blocks_resync) {
-  auto A = td::actor::create_actor<CatChainReceiverImpl>("catchainreceiver", std::move(callback), std::move(opts),
-                                                         keyring, adnl, overlay_manager, std::move(ids), local_id,
-                                                         unique_hash, db_root, allow_unsafe_self_blocks_resync);
+    std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
+  auto A = td::actor::create_actor<CatChainReceiverImpl>(
+      "catchainreceiver", std::move(callback), std::move(opts), keyring, adnl, overlay_manager, std::move(ids),
+      local_id, unique_hash, db_root, db_suffix, allow_unsafe_self_blocks_resync);
   return std::move(A);
 }
 
@@ -1058,7 +1060,7 @@ static void destroy_db(std::string name, td::uint32 attempt) {
 }
 
 void CatChainReceiverImpl::destroy() {
-  auto name = db_root_ + "/catchainreceiver-" + td::base64url_encode(as_slice(incarnation_));
+  auto name = db_root_ + "/catchainreceiver" + db_suffix_ + td::base64url_encode(as_slice(incarnation_));
   delay_action([name]() { destroy_db(name, 0); }, td::Timestamp::in(1.0));
   stop();
 }

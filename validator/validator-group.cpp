@@ -30,6 +30,10 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
   }
+  if (!started_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "cannot collate block: group not started"));
+    return;
+  }
   run_collate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
                     Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
                     td::Timestamp::in(10.0), std::move(promise));
@@ -66,6 +70,10 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
                              }));
     }
   });
+  if (!started_) {
+    P.set_error(td::Status::Error(ErrorCode::notready, "validator group not started"));
+    return;
+  }
   auto next_block_id = create_next_block_id(block.id.root_hash, block.id.file_hash);
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   block.id = next_block_id;
@@ -85,6 +93,12 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
   validator_set_->check_signatures(root_hash, file_hash, sig_set).ensure();
   auto approve_sig_set = create_signature_set(std::move(approve_signatures));
   validator_set_->check_approve_signatures(root_hash, file_hash, approve_sig_set).ensure();
+
+  if (!started_) {
+    postoned_accept_.push_back(PostponedAccept{root_hash, file_hash, std::move(block_data), std::move(sig_set),
+                                               std::move(approve_sig_set), std::move(promise)});
+    return;
+  }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
   auto block =
       block_data.size() > 0 ? create_block(next_block_id, std::move(block_data)).move_as_ok() : td::Ref<BlockData>{};
@@ -240,10 +254,19 @@ void ValidatorGroup::create_session() {
   }
   CHECK(found);
 
-  session_ = validatorsession::ValidatorSession::create(session_id_, config_, local_id_, std::move(vec),
-                                                        make_validator_session_callback(), keyring_, adnl_, rldp_,
-                                                        overlays_, db_root_, allow_unsafe_self_blocks_resync_);
-  if (prev_block_ids_.size() > 0) {
+  if (!config_.new_catchain_ids) {
+    session_ = validatorsession::ValidatorSession::create(session_id_, config_, local_id_, std::move(vec),
+                                                          make_validator_session_callback(), keyring_, adnl_, rldp_,
+                                                          overlays_, db_root_, "-", allow_unsafe_self_blocks_resync_);
+  } else {
+    session_ = validatorsession::ValidatorSession::create(
+        session_id_, config_, local_id_, std::move(vec), make_validator_session_callback(), keyring_, adnl_, rldp_,
+        overlays_, db_root_ + "/catchains/",
+        PSTRING() << "." << shard_.workchain << "." << shard_.shard << "." << validator_set_->get_catchain_seqno()
+                  << ".",
+        allow_unsafe_self_blocks_resync_);
+  }
+  if (started_) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
 }
@@ -252,16 +275,29 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
   prev_block_ids_ = prev;
   min_masterchain_block_id_ = min_masterchain_block_id;
   min_ts_ = min_ts;
+  started_ = true;
 
   if (init_) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
+
+  for (auto &p : postoned_accept_) {
+    auto next_block_id = create_next_block_id(p.root_hash, p.file_hash);
+
+    auto block =
+        p.block.size() > 0 ? create_block(next_block_id, std::move(p.block)).move_as_ok() : td::Ref<BlockData>{};
+    retry_accept_block_query(next_block_id, std::move(block), prev_block_ids_, std::move(p.sigs),
+                             std::move(p.approve_sigs), std::move(p.promise));
+    prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
+  }
+  postoned_accept_.clear();
 }
 
 void ValidatorGroup::destroy() {
   if (!session_.empty()) {
-    td::actor::send_closure(session_, &validatorsession::ValidatorSession::destroy);
-    session_.release();
+    auto ses = session_.release();
+    delay_action([ses]() mutable { td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy); },
+                 td::Timestamp::in(10.0));
   }
   stop();
 }

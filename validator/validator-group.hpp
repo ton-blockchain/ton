@@ -79,6 +79,17 @@ class ValidatorGroup : public td::actor::Actor {
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
 
+  struct PostponedAccept {
+    RootHash root_hash;
+    FileHash file_hash;
+    td::BufferSlice block;
+    td::Ref<BlockSignatureSet> sigs;
+    td::Ref<BlockSignatureSet> approve_sigs;
+    td::Promise<td::Unit> promise;
+  };
+
+  std::list<PostponedAccept> postoned_accept_;
+
   ShardIdFull shard_;
   PublicKeyHash local_id_;
   PublicKey local_id_full_;
@@ -100,6 +111,7 @@ class ValidatorGroup : public td::actor::Actor {
   td::actor::ActorOwn<validatorsession::ValidatorSession> session_;
 
   bool init_ = false;
+  bool started_ = false;
   bool allow_unsafe_self_blocks_resync_;
   td::uint32 last_known_round_id_ = 0;
 };

@@ -79,6 +79,7 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   std::unique_ptr<Callback> callback_;
   std::string db_root_;
+  std::string db_suffix_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -157,7 +158,7 @@ class ValidatorSessionImpl : public ValidatorSession {
                        std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                        td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                       std::string db_root, bool allow_unsafe_self_blocks_resync);
+                       std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   void start_up() override;
   void alarm() override;
 

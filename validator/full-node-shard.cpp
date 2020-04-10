@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/SharedSlice.h"
 #include "full-node-shard.hpp"
@@ -512,7 +512,11 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
                    std::move(query.data_),
                    std::move(query.proof_)};
 
-  auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {});
+  auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
+    if (R.is_error()) {
+      LOG(INFO) << "dropped broadcast: " << R.move_as_error();
+    }
+  });
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, std::move(B),
                           std::move(P));
 }

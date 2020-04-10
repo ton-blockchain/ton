@@ -55,13 +55,11 @@ class CatChainReceiverInterface : public td::actor::Actor {
 
   virtual void destroy() = 0;
 
-  static td::actor::ActorOwn<CatChainReceiverInterface> create(std::unique_ptr<Callback> callback, CatChainOptions opts,
-                                                               td::actor::ActorId<keyring::Keyring> keyring,
-                                                               td::actor::ActorId<adnl::Adnl> adnl,
-                                                               td::actor::ActorId<overlay::Overlays> overlay_manager,
-                                                               std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                                               CatChainSessionId unique_hash, std::string db_root,
-                                                               bool allow_unsafe_self_blocks_resync);
+  static td::actor::ActorOwn<CatChainReceiverInterface> create(
+      std::unique_ptr<Callback> callback, CatChainOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
+      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
+      std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root,
+      std::string db_suffix, bool allow_unsafe_self_blocks_resync);
 
   virtual ~CatChainReceiverInterface() = default;
 };

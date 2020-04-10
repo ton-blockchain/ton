@@ -51,6 +51,7 @@ class CatChainImpl : public CatChain {
   bool receiver_started_ = false;
 
   std::string db_root_;
+  std::string db_suffix_;
   bool allow_unsafe_self_blocks_resync_;
 
   void send_process();
@@ -119,7 +120,7 @@ class CatChainImpl : public CatChain {
   CatChainImpl(std::unique_ptr<Callback> callback, CatChainOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
                td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
                std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash,
-               std::string db_root, bool allow_unsafe_self_blocks_resync);
+               std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
 
   void alarm() override;
   void start_up() override;

@@ -131,7 +131,7 @@ class CatChainInst : public td::actor::Actor {
     }
     catchain_ =
         ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_, std::move(nodes),
-                                        nodes_[idx_].id, unique_hash_, std::string(""), false);
+                                        nodes_[idx_].id, unique_hash_, std::string(""), "", false);
   }
 
   CatChainInst(td::actor::ActorId<ton::keyring::Keyring> keyring, td::actor::ActorId<ton::adnl::Adnl> adnl,
