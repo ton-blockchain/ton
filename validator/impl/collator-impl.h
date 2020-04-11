@@ -47,9 +47,9 @@ class Collator final : public td::actor::Actor {
   }
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
-  const ShardIdFull shard;
+  const ShardIdFull shard_;
   ton::BlockId new_id;
-  bool busy{false};
+  bool busy_{false};
   bool before_split_{false};
   bool after_split_{false};
   bool after_merge_{false};
@@ -69,7 +69,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<ShardState>> prev_states;
   std::vector<Ref<BlockData>> prev_block_data;
   Ed25519_PublicKey created_by_;
-  Ref<ValidatorSet> validator_set;
+  Ref<ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
   td::Promise<BlockCandidate> main_promise;
@@ -90,13 +90,13 @@ class Collator final : public td::actor::Actor {
            td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
-    return busy;
+    return busy_;
   }
   ShardId get_shard() const {
-    return shard.shard;
+    return shard_.shard;
   }
   WorkchainId workchain() const {
-    return shard.workchain;
+    return shard_.workchain;
   }
   static constexpr td::uint32 priority() {
     return 2;
@@ -232,6 +232,7 @@ class Collator final : public td::actor::Actor {
   bool create_ticktock_transactions(int mask);
   bool create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, ton::LogicalTime req_start_lt, int mask);
   Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root);
+  bool check_cur_validator_set();
   bool unpack_last_mc_state();
   bool unpack_last_state();
   bool unpack_merge_last_state();
@@ -248,7 +249,7 @@ class Collator final : public td::actor::Actor {
   bool request_neighbor_msg_queues();
   void update_max_lt(ton::LogicalTime lt);
   bool is_masterchain() const {
-    return shard.is_masterchain();
+    return shard_.is_masterchain();
   }
   bool is_our_address(Ref<vm::CellSlice> addr_ref) const;
   bool is_our_address(ton::AccountIdPrefixFull addr_prefix) const;

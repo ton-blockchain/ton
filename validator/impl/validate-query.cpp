@@ -1737,14 +1737,20 @@ bool ValidateQuery::register_shard_block_creators(std::vector<td::Bits256> creat
   return true;
 }
 
+// similar to Collator::check_cur_validator_set()
 bool ValidateQuery::check_cur_validator_set() {
   CatchainSeqno cc_seqno = 0;
   auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
   if (nodes.empty()) {
-    return reject_query("cannot compute masterchain validator set from old masterchain state");
+    return reject_query("cannot compute validator set for shard "s + shard_.to_str() + " from old masterchain state");
   }
   std::vector<ValidatorDescr> export_nodes;
   if (validator_set_.not_null()) {
+    if (validator_set_->get_catchain_seqno() != cc_seqno) {
+      return reject_query(PSTRING() << "current validator set catchain seqno mismatch: this validator set has cc_seqno="
+                                    << validator_set_->get_catchain_seqno() << ", only validator set with cc_seqno="
+                                    << cc_seqno << " is entitled to create block " << id_.to_str());
+    }
     export_nodes = validator_set_->export_vector();
   }
   if (export_nodes != nodes /* && !is_fake_ */) {

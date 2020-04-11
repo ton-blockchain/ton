@@ -178,9 +178,9 @@ void GetNextKeyBlocks::download_next_proof() {
     }
   });
 
-  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, false, local_id_, overlay_id_, download_from_,
-                                         priority_, timeout_, validator_manager_, rldp_, overlays_, adnl_, client_,
-                                         std::move(P))
+  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, false, true, local_id_, overlay_id_,
+                                         download_from_, priority_, timeout_, validator_manager_, rldp_, overlays_,
+                                         adnl_, client_, std::move(P))
       .release();
 }
 

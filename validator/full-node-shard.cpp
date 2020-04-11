@@ -287,6 +287,35 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
                           create_block_id(query.block_), false, std::move(P));
 }
 
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareKeyBlockProof &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [allow_partial = query.allow_partial_, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          auto x = create_serialize_tl_object<ton_api::tonNode_preparedProofEmpty>();
+          promise.set_value(std::move(x));
+        } else if (allow_partial) {
+          auto x = create_serialize_tl_object<ton_api::tonNode_preparedProofLink>();
+          promise.set_value(std::move(x));
+        } else {
+          auto x = create_serialize_tl_object<ton_api::tonNode_preparedProof>();
+          promise.set_value(std::move(x));
+        }
+      });
+
+  if (query.allow_partial_) {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link,
+                            create_block_id(query.block_), std::move(P));
+  } else {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof,
+                            create_block_id(query.block_), std::move(P));
+  }
+}
+
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProof &query,
                                       td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda(
@@ -331,6 +360,42 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle,
                           create_block_id(query.block_), false, std::move(P));
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProof &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
+
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof,
+                          create_block_id(query.block_), std::move(P));
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProofLink &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
+
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link,
+                          create_block_id(query.block_), std::move(P));
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareZeroState &query,
@@ -639,7 +704,7 @@ void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt mast
 void FullNodeShardImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                              td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, false, adnl_id_, overlay_id_, b.adnl_id,
+  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, false, false, adnl_id_, overlay_id_, b.adnl_id,
                                          priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
                                          create_neighbour_promise(b, std::move(promise)))
       .release();
@@ -648,7 +713,7 @@ void FullNodeShardImpl::download_block_proof(BlockIdExt block_id, td::uint32 pri
 void FullNodeShardImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                                   td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, adnl_id_, overlay_id_,
+  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, false, adnl_id_, overlay_id_,
                                          adnl::AdnlNodeIdShort::zero(), priority, timeout, validator_manager_, rldp_,
                                          overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
       .release();
