@@ -1097,8 +1097,21 @@ tuple past_elections() method_id {
   do {
     (id, var fs, var found) = past_elections.udict_get_prev?(32, id);
     if (found) {
-      var info = [unpack_past_election(fs)];
-      list = cons(pair(id, info), list);
+      list = cons([id, unpack_past_election(fs)], list);
+    }
+  } until (~ found);
+  return list;
+}
+
+tuple past_elections_list() method_id {
+  var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
+  var id = (1 << 32);
+  var list = null();
+  do {
+    (id, var fs, var found) = past_elections.udict_get_prev?(32, id);
+    if (found) {
+      var (unfreeze_at, stake_held, vset_hash, frozen_dict, total_stake, bonuses, complaints) = unpack_past_election(fs);
+      list = cons([id, unfreeze_at, vset_hash, stake_held], list);
     }
   } until (~ found);
   return list;
@@ -1117,7 +1130,7 @@ _ complete_unpack_complaint(slice cs) inline_ref {
   return [[complaint.begin_parse().unpack_complaint()], voters_list, vset_id, weight_remaining];
 }
 
-cell get_past_complaints(int election_id) inline_ref {
+cell get_past_complaints(int election_id) inline_ref method_id {
   var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
   var (fs, found?) = past_elections.udict_get?(32, election_id);
   ifnot (found?) {
@@ -1144,4 +1157,12 @@ tuple list_complaints(int election_id) method_id {
     }
   } until (~ found?);
   return list;
+}
+
+int complaint_storage_price(int bits, int refs, int expire_in) method_id {
+  ;; compute complaint storage/creation price
+  var (deposit, bit_price, cell_price) = get_complaint_prices();
+  var pps = (bits + 1024) * bit_price + (refs + 2) * cell_price;
+  var paid = pps * expire_in + deposit;
+  return paid + (1 << 30);
 }

@@ -1505,7 +1505,7 @@ void HttpQueryStatus::finish_query() {
         td::uint32 j = 0;
         for (auto &X : results_.results) {
           if (!X->values_[i].is_valid()) {
-            A << "<td>FAIL</td>";
+            A << "<td class=\"table-danger\">FAIL</td>";
           } else {
             if (m[j].count(X->values_[i].id.seqno) == 0) {
               m[j].insert(X->values_[i].id.seqno);

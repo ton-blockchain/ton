@@ -409,10 +409,13 @@ void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::s
   auto merger = StatsMerger::create(std::move(promise));
 }
 
-void RootDb::truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) {
+void RootDb::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   td::MultiPromise mp;
   auto ig = mp.init_guard();
   ig.add_promise(std::move(promise));
+
+  td::actor::send_closure(archive_db_, &ArchiveManager::truncate, seqno, handle, ig.get_promise());
+  td::actor::send_closure(state_db_, &StateDb::truncate, seqno, handle, ig.get_promise());
 }
 
 void RootDb::add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) {
@@ -483,8 +486,8 @@ void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
 }
 
-void RootDb::run_gc(UnixTime ts) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, ts);
+void RootDb::run_gc(UnixTime ts, UnixTime archive_ttl) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, ts, archive_ttl);
 }
 
 }  // namespace validator

@@ -320,6 +320,25 @@ void ValidatorManagerMasterchainStarter::got_init_block_id(BlockIdExt block_id) 
 
 void ValidatorManagerMasterchainStarter::got_init_block_handle(BlockHandle handle) {
   handle_ = std::move(handle);
+  if (!handle_->received_state()) {
+    LOG(ERROR) << "db inconsistent: last state ( " << handle_->id() << " ) not received";
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_state, handle_, 1, td::Timestamp::in(600.0),
+                            [SelfId = actor_id(this), handle = handle_](td::Result<td::Ref<ShardState>> R) {
+                              td::actor::send_closure(
+                                  SelfId, &ValidatorManagerMasterchainStarter::got_init_block_handle, handle);
+                            });
+    return;
+  }
+  if (!handle_->is_applied()) {
+    CHECK(handle_->inited_prev());
+    td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, handle_->one_prev(true), false,
+                            [SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+                              R.ensure();
+                              td::actor::send_closure(
+                                  SelfId, &ValidatorManagerMasterchainStarter::got_init_block_handle, R.move_as_ok());
+                            });
+    return;
+  }
   LOG_CHECK(handle_->received_state()) << "block_id=" << handle_->id();
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
@@ -401,7 +420,7 @@ void ValidatorManagerMasterchainStarter::got_gc_block_state(td::Ref<MasterchainS
 
 void ValidatorManagerMasterchainStarter::got_key_block_handle(BlockHandle handle) {
   CHECK(handle);
-  CHECK(handle->id().id.seqno == 0 || handle->is_key_block());
+  //CHECK(handle->id().id.seqno == 0 || handle->is_key_block());
   last_key_block_handle_ = std::move(handle);
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockIdExt> R) {
@@ -413,10 +432,6 @@ void ValidatorManagerMasterchainStarter::got_key_block_handle(BlockHandle handle
 }
 
 void ValidatorManagerMasterchainStarter::got_shard_block_id(BlockIdExt block_id) {
-  client_block_id_ = block_id;
-  start_shard_client();
-  return;
-
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<BlockIdExt>> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_hardforks, R.move_as_ok());
@@ -437,6 +452,13 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
         return;
       }
     }
+    if (opts_->need_db_truncate()) {
+      auto seq = opts_->get_truncate_seqno();
+      if (seq <= handle_->id().seqno()) {
+        got_truncate_block_seqno(seq);
+        return;
+      }
+    }
     start_shard_client();
     return;
   }
@@ -444,9 +466,10 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
     LOG(FATAL) << "cannot start: number of hardforks increase is too big";
     return;
   }
+  has_new_hardforks_ = true;
 
   auto b = *h.rbegin();
-  if (b.seqno() > handle_->id().seqno()) {
+  if (handle_->id().seqno() + 1 < b.seqno()) {
     truncated();
     return;
   }
@@ -455,8 +478,16 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
     return;
   }
 
+  got_truncate_block_seqno(b.seqno() - 1);
+}
+
+void ValidatorManagerMasterchainStarter::got_truncate_block_seqno(BlockSeqno seqno) {
   BlockIdExt id;
-  if (state_->get_old_mc_block_id(b.seqno() - 1, id)) {
+  if (handle_->id().seqno() == seqno) {
+    got_truncate_block_handle(handle_);
+    return;
+  }
+  if (state_->get_old_mc_block_id(seqno, id)) {
     got_truncate_block_id(id);
     return;
   }
@@ -465,8 +496,7 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_id, R.move_as_ok()->id());
   });
-  td::actor::send_closure(db_, &Db::get_block_by_seqno, AccountIdPrefixFull{masterchainId, 0}, b.seqno() - 1,
-                          std::move(P));
+  td::actor::send_closure(db_, &Db::get_block_by_seqno, AccountIdPrefixFull{masterchainId, 0}, seqno, std::move(P));
 }
 
 void ValidatorManagerMasterchainStarter::got_truncate_block_id(BlockIdExt block_id) {
@@ -491,76 +521,66 @@ void ValidatorManagerMasterchainStarter::got_truncate_block_handle(BlockHandle h
 
 void ValidatorManagerMasterchainStarter::got_truncate_state(td::Ref<MasterchainState> state) {
   state_ = std::move(state);
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::truncated_db);
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_prev_key_block_handle, R.move_as_ok());
   });
-  td::actor::send_closure(manager_, &ValidatorManager::truncate, state_, std::move(P));
-}
-
-void ValidatorManagerMasterchainStarter::truncated_db() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::truncated);
-  });
-
-  auto key = state_->last_key_block_id();
-
-  td::MultiPromise mp;
-  auto ig = mp.init_guard();
-  ig.add_promise(std::move(P));
-
-  td::actor::send_closure(db_, &Db::update_init_masterchain_block, block_id_, ig.get_promise());
-
-  if (client_block_id_.seqno() > block_id_.seqno()) {
-    client_block_id_ = block_id_;
-    td::actor::send_closure(db_, &Db::update_shard_client_state, client_block_id_, ig.get_promise());
-  }
-
-  if (last_key_block_handle_->id().seqno() > key.seqno()) {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this),
-                                         promise = ig.get_promise()](td::Result<BlockHandle> R) mutable {
-      R.ensure();
-      td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_prev_key_block_handle, R.move_as_ok());
-      promise.set_value(td::Unit());
-    });
-    td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, key, false, std::move(P));
-  }
-
-  {
-    auto P = td::PromiseCreator::lambda(
-        [b = block_id_, key, db = db_, promise = ig.get_promise()](td::Result<AsyncSerializerState> R) mutable {
-          if (R.is_error()) {
-            promise.set_value(td::Unit());
-            return;
-          }
-          auto s = R.move_as_ok();
-          if (s.last_block_id.seqno() <= b.seqno()) {
-            promise.set_value(td::Unit());
-            return;
-          }
-          s.last_block_id = b;
-          if (s.last_written_block_id.seqno() > b.seqno()) {
-            s.last_written_block_id = key;
-            s.last_written_block_ts = 0;  // may lead to extra state snapshot on disk. Does not seem like a problem
-          }
-          td::actor::send_closure(db, &Db::update_async_serializer_state, s, std::move(promise));
-        });
-    td::actor::send_closure(db_, &Db::get_async_serializer_state, std::move(P));
-  }
+  td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, state_->last_key_block_id(), false,
+                          std::move(P));
 }
 
 void ValidatorManagerMasterchainStarter::got_prev_key_block_handle(BlockHandle handle) {
   last_key_block_handle_ = std::move(handle);
+  //LOG_CHECK(last_key_block_handle_->inited_is_key_block() && last_key_block_handle_->is_key_block())
+  //    << last_key_block_handle_->id();
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::truncated);
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::truncate, block_id_.seqno(), handle_, std::move(P));
+}
+
+void ValidatorManagerMasterchainStarter::truncate_shard_next(BlockIdExt block_id, td::Promise<td::Unit> promise) {
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), manager = manager_, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+        R.ensure();
+        auto handle = R.move_as_ok();
+        handle->unsafe_clear_next();
+        handle->flush(manager, handle, std::move(promise));
+      });
+  td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, block_id, true, std::move(P));
 }
 
 void ValidatorManagerMasterchainStarter::truncated() {
-  handle_->set_next(*opts_->get_hardforks().rbegin());
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+
+  ig.add_promise([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::written_next);
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::truncated_next);
   });
-  handle_->flush(manager_, handle_, std::move(P));
+
+  truncate_shard_next(handle_->id(), ig.get_promise());
+  auto s = state_->get_shards();
+  for (auto &shard : s) {
+    if (opts_->need_monitor(shard->shard())) {
+      truncate_shard_next(shard->top_block_id(), ig.get_promise());
+    }
+  }
+}
+
+void ValidatorManagerMasterchainStarter::truncated_next() {
+  if (has_new_hardforks_) {
+    handle_->set_next(*opts_->get_hardforks().rbegin());
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+      R.ensure();
+      td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::written_next);
+    });
+    handle_->flush(manager_, handle_, std::move(P));
+  } else {
+    start_shard_client();
+  }
 }
 
 void ValidatorManagerMasterchainStarter::written_next() {

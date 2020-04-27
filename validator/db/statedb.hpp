@@ -56,6 +56,7 @@ class StateDb : public td::actor::Actor {
   StateDb(td::actor::ActorId<RootDb> root_db, std::string path);
 
   void start_up() override;
+  void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
 
  private:
   using KeyType = td::Bits256;

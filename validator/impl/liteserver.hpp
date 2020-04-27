@@ -23,6 +23,7 @@
 #include "interfaces/block-handle.h"
 #include "interfaces/validator-manager.h"
 #include "interfaces/shard.h"
+#include "block.hpp"
 #include "shard.hpp"
 #include "proof.hpp"
 
@@ -45,7 +46,7 @@ class LiteQuery : public td::actor::Actor {
   BlockIdExt base_blk_id_, base_blk_id_alt_, blk_id_;
   Ref<MasterchainStateQ> mc_state_, mc_state0_;
   Ref<ShardStateQ> state_;
-  Ref<BlockData> mc_block_, block_;
+  Ref<BlockQ> mc_block_, block_;
   Ref<ProofQ> mc_proof_, mc_proof_alt_;
   Ref<ProofLinkQ> proof_link_;
   td::BufferSlice buffer_;
@@ -130,6 +131,12 @@ class LiteQuery : public td::actor::Actor {
   bool construct_proof_link_back_cont(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool adjust_last_proof_link(ton::BlockIdExt cur, Ref<vm::Cell> block_root);
   bool finish_proof_chain(ton::BlockIdExt id);
+
+  void load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);
+  void continue_loadPrevKeyBlock(ton::BlockIdExt blkid, td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res,
+                                 td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);
+  void finish_loadPrevKeyBlock(ton::BlockIdExt blkid, td::Result<Ref<BlockData>> res,
+                               td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>> promise);
 
   bool request_block_data(BlockIdExt blkid);
   bool request_block_state(BlockIdExt blkid);

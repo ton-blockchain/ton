@@ -262,9 +262,9 @@ bool AcceptBlockQuery::create_new_proof() {
   } else {  // FAKE
     vm::CellBuilder cb2;
     if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-          && cb2.store_long_bool(validator_set_->get_validator_set_hash(),
+          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
                                  32)  // validator_info$_ validator_set_hash_short:uint32
-          && cb2.store_long_bool(validator_set_->get_catchain_seqno(),
+          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
                                  32)     //   validator_set_ts:uint32 = ValidatorInfo
           && cb2.store_long_bool(0, 32)  // sig_count:uint32
           && cb2.store_long_bool(0, 64)  // sig_weight:uint32
@@ -355,7 +355,7 @@ void AcceptBlockQuery::start_up() {
   VLOG(VALIDATOR_DEBUG) << "start_up()";
   alarm_timestamp() = timeout_;
 
-  if (validator_set_.is_null()) {
+  if (!is_fork_ && validator_set_.is_null()) {
     fatal_error("no real ValidatorSet passed to AcceptBlockQuery");
     return;
   }

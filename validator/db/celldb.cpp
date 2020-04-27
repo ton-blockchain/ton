@@ -44,9 +44,9 @@ void CellDbIn::start_up() {
   auto empty = get_empty_key_hash();
   if (get_block(empty).is_error()) {
     DbEntry e{get_empty_key(), empty, empty, RootHash::zero()};
-    cell_db_->begin_transaction().ensure();
+    cell_db_->begin_write_batch().ensure();
     set_block(empty, std::move(e));
-    cell_db_->commit_transaction().ensure();
+    cell_db_->commit_write_batch().ensure();
   }
   last_gc_ = empty;
 }
@@ -89,12 +89,12 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
   boc_->inc(cell);
   boc_->prepare_commit().ensure();
   vm::CellStorer stor{*cell_db_.get()};
-  cell_db_->begin_transaction().ensure();
+  cell_db_->begin_write_batch().ensure();
   boc_->commit(stor).ensure();
   set_block(empty, std::move(E));
   set_block(D.prev, std::move(P));
   set_block(key_hash, std::move(D));
-  cell_db_->commit_transaction().ensure();
+  cell_db_->commit_write_batch().ensure();
 
   boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
@@ -181,12 +181,12 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   boc_->dec(cell);
   boc_->prepare_commit().ensure();
   vm::CellStorer stor{*cell_db_.get()};
-  cell_db_->begin_transaction().ensure();
+  cell_db_->begin_write_batch().ensure();
   boc_->commit(stor).ensure();
   cell_db_->erase(get_key(last_gc_)).ensure();
   set_block(F.prev, std::move(P));
   set_block(F.next, std::move(N));
-  cell_db_->commit_transaction().ensure();
+  cell_db_->commit_write_batch().ensure();
   alarm_timestamp() = td::Timestamp::now();
 
   boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();

@@ -101,7 +101,7 @@ class Db : public td::actor::Actor {
 
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
 
-  virtual void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) = 0;
+  virtual void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) = 0;
   virtual void add_key_block_proof_link(td::Ref<ProofLink> proof_link, td::Promise<td::Unit> promise) = 0;
@@ -115,7 +115,7 @@ class Db : public td::actor::Actor {
                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void set_async_mode(bool mode, td::Promise<td::Unit> promise) = 0;
 
-  virtual void run_gc(UnixTime ts) = 0;
+  virtual void run_gc(UnixTime ts, UnixTime archive_ttl) = 0;
 };
 
 }  // namespace validator

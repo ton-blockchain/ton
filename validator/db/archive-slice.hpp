@@ -73,7 +73,7 @@ class PackageWriter : public td::actor::Actor {
 
 class ArchiveSlice : public td::actor::Actor {
  public:
-  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string db_root);
+  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root);
 
   void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
 
@@ -97,6 +97,7 @@ class ArchiveSlice : public td::actor::Actor {
 
   void start_up() override;
   void destroy(td::Promise<td::Unit> promise);
+  void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
 
   void begin_transaction();
   void commit_transaction();
@@ -117,6 +118,7 @@ class ArchiveSlice : public td::actor::Actor {
 
   bool key_blocks_only_;
   bool temp_;
+  bool finalized_;
 
   bool destroyed_ = false;
   bool async_mode_ = false;
@@ -130,19 +132,38 @@ class ArchiveSlice : public td::actor::Actor {
 
   struct PackageInfo {
     PackageInfo(std::shared_ptr<Package> package, td::actor::ActorOwn<PackageWriter> writer, BlockSeqno id,
-                std::string path, td::uint32 idx)
-        : package(std::move(package)), writer(std ::move(writer)), id(id), path(std::move(path)), idx(idx) {
+                std::string path, td::uint32 idx, td::uint32 version)
+        : package(std::move(package))
+        , writer(std ::move(writer))
+        , id(id)
+        , path(std::move(path))
+        , idx(idx)
+        , version(version) {
     }
     std::shared_ptr<Package> package;
     td::actor::ActorOwn<PackageWriter> writer;
     BlockSeqno id;
     std::string path;
     td::uint32 idx;
+    td::uint32 version;
   };
   std::vector<PackageInfo> packages_;
 
   td::Result<PackageInfo *> choose_package(BlockSeqno masterchain_seqno, bool force);
-  void add_package(BlockSeqno masterchain_seqno, td::uint64 size);
+  void add_package(BlockSeqno masterchain_seqno, td::uint64 size, td::uint32 version);
+  void truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_idx, Package *pack);
+  bool truncate_block(BlockSeqno masterchain_seqno, BlockIdExt block_id, td::uint32 cutoff_idx, Package *pack);
+
+  void delete_handle(ConstBlockHandle handle);
+  void delete_file(FileReference ref_id);
+  void move_handle(ConstBlockHandle handle, Package *old_pack, Package *pack);
+  void move_file(FileReference ref_id, Package *old_pack, Package *pack);
+
+  BlockSeqno max_masterchain_seqno();
+
+  static constexpr td::uint32 default_package_version() {
+    return 1;
+  }
 };
 
 }  // namespace validator

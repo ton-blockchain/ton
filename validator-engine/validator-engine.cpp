@@ -1172,13 +1172,16 @@ td::Status ValidatorEngine::load_global_config() {
 
   validator_options_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
   validator_options_.write().set_shard_check_function(
-      [](ton::ShardIdFull shard, ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
+      [](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
+         ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
         if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
           return true;
         }
         CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
-        //return shard.is_masterchain();
         return true;
+        /*ton::ShardIdFull p{ton::basechainId, ((cc_seqno * 1ull % 4) << 62) + 1};
+        auto s = ton::shard_prefix(p, 2);
+        return shard.is_masterchain() || ton::shard_intersects(shard, s);*/
       });
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
@@ -1195,11 +1198,11 @@ td::Status ValidatorEngine::load_global_config() {
   if (key_proof_ttl_ != 0) {
     validator_options_.write().set_key_proof_ttl(key_proof_ttl_);
   }
-  if (db_depth_ <= 32) {
-    validator_options_.write().set_filedb_depth(db_depth_);
-  }
   for (auto seq : unsafe_catchains_) {
     validator_options_.write().add_unsafe_resync_catchain(seq);
+  }
+  if (truncate_seqno_ > 0) {
+    validator_options_.write().truncate_db(truncate_seqno_);
   }
 
   std::vector<ton::BlockIdExt> h;
@@ -3079,6 +3082,10 @@ std::atomic<bool> rotate_logs_flags{false};
 void force_rotate_logs(int sig) {
   rotate_logs_flags.store(true);
 }
+std::atomic<bool> need_scheduler_status_flag{false};
+void need_scheduler_status(int sig) {
+  need_scheduler_status_flag.store(true);
+}
 
 void dump_memory_stats() {
   if (!is_memprof_on()) {
@@ -3164,15 +3171,6 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_fift_dir, fname); });
     return td::Status::OK();
   });
-  p.add_option('F', "filedb-depth",
-               "depth of autodirs for blocks, proofs, etc. Default value is 2. You need to clear the "
-               "database, if you need to change this option",
-               [&](td::Slice fname) {
-                 acts.push_back([&x, fname = fname.str()]() {
-                   td::actor::send_closure(x, &ValidatorEngine::set_db_depth, td::to_integer<td::uint32>(fname));
-                 });
-                 return td::Status::OK();
-               });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
     close(0);
@@ -3215,6 +3213,12 @@ int main(int argc, char *argv[]) {
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_ttl, v); });
                  return td::Status::OK();
                });
+  p.add_option('T', "truncate-db", "truncate db (with specified seqno as new top masterchain block seqno)",
+               [&](td::Slice fname) {
+                 auto v = td::to_integer<ton::BlockSeqno>(fname);
+                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_truncate_seqno, v); });
+                 return td::Status::OK();
+               });
   p.add_option('U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
     TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));
     acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
@@ -3242,7 +3246,9 @@ int main(int argc, char *argv[]) {
   }
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
+  td::set_runtime_signal_handler(2, need_scheduler_status).ensure();
 
+  td::actor::set_debug(true);
   td::actor::Scheduler scheduler({threads});
 
   scheduler.run_in_context([&] {
@@ -3257,6 +3263,10 @@ int main(int argc, char *argv[]) {
   while (scheduler.run(1)) {
     if (need_stats_flag.exchange(false)) {
       dump_stats();
+    }
+    if (need_scheduler_status_flag.exchange(false)) {
+      LOG(ERROR) << "DUMPING SCHEDULER STATISTICS";
+      scheduler.get_debug().dump();
     }
     if (rotate_logs_flags.exchange(false)) {
       if (td::log_interface) {

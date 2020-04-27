@@ -36,6 +36,7 @@ library TonUtil // TON Blockchain Fift Library
 
 // ( x -- ) Displays a 64-digit hex number
 { 64 0x. } : 64x.
+{ 64 0X. } : 64X.
 // ( wc addr -- )  Show address in <workchain>:<account> form
 { swap ._ .":" 64x. } : .addr
 // ( wc addr flags -- )  Show address in base64url form
@@ -204,6 +205,13 @@ recursive append-long-bytes {
 // ( x -- S )  serialize public key
 { 256 u>B B{3ee6} swap B+ dup crc16 16 u>B B+ B>base64 } : pubkey>$
 { pubkey>$ type } : .pubkey
+
+// ( S -- x )  parse validator-encoded public key
+{ base64>B dup Blen 36 <> abort"public key with magic must be 36 bytes long"
+  4 B| swap 32 B>u@ 0xC6B41348 <> abort"unknown magic for public key (not Ed25519)"
+} : parse-val-pubkey
+{ bl word parse-val-pubkey 1 'nop } ::_ VPK'
+{ char } word base64>B 1 'nop } ::_ B64{
 
 // adnl address parser
 { 256 u>B B{2D} swap B+ dup crc16 16 u>B B+ } : adnl-preconv

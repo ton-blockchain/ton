@@ -287,8 +287,8 @@ std::string dec_string2(RefInt256&& x) {
   return x.is_null() ? "(null)" : (x.is_unique() ? x.unique_write().to_dec_string_destroy() : x->to_dec_string());
 }
 
-std::string hex_string(RefInt256 x, bool upcase) {
-  return x.is_null() ? "(null)" : x->to_hex_string(upcase);
+std::string hex_string(RefInt256 x, bool upcase, int zero_pad) {
+  return x.is_null() ? "(null)" : x->to_hex_string(upcase, zero_pad);
 }
 
 std::string binary_string(RefInt256 x) {

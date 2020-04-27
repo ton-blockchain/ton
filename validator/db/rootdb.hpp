@@ -34,8 +34,8 @@ namespace validator {
 class RootDb : public Db {
  public:
   enum class Flags : td::uint32 { f_started = 1, f_ready = 2, f_switched = 4, f_archived = 8 };
-  RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path, td::uint32 depth)
-      : validator_manager_(validator_manager), root_path_(std::move(root_path)), depth_(depth) {
+  RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path)
+      : validator_manager_(validator_manager), root_path_(std::move(root_path)) {
   }
 
   void start_up() override;
@@ -84,7 +84,8 @@ class RootDb : public Db {
   void apply_block(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno, td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno,
+                          td::Promise<ConstBlockHandle> promise) override;
 
   void update_init_masterchain_block(BlockIdExt block, td::Promise<td::Unit> promise) override;
   void get_init_masterchain_block(td::Promise<BlockIdExt> promise) override;
@@ -113,7 +114,7 @@ class RootDb : public Db {
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
 
-  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override;
+  void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) override;
 
   void add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) override;
   void add_key_block_proof_link(td::Ref<ProofLink> proof_link, td::Promise<td::Unit> promise) override;
@@ -127,13 +128,12 @@ class RootDb : public Db {
                          td::Promise<td::BufferSlice> promise) override;
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;
 
-  void run_gc(UnixTime ts) override;
+  void run_gc(UnixTime ts, UnixTime archive_ttl) override;
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;
 
   std::string root_path_;
-  td::uint32 depth_;
 
   td::actor::ActorOwn<CellDb> cell_db_;
   td::actor::ActorOwn<StateDb> state_db_;

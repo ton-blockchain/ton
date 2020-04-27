@@ -98,12 +98,15 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   void got_key_block_handle(BlockHandle handle);
   void got_shard_block_id(BlockIdExt block_id);
   void got_hardforks(std::vector<BlockIdExt> hardforks);
+  void got_truncate_block_seqno(BlockSeqno seqno);
   void got_truncate_block_id(BlockIdExt block_id);
   void got_truncate_block_handle(BlockHandle handle);
   void got_truncate_state(td::Ref<MasterchainState> state);
   void truncated_db();
   void got_prev_key_block_handle(BlockHandle handle);
   void truncated();
+  void truncate_shard_next(BlockIdExt block_id, td::Promise<td::Unit> promise);
+  void truncated_next();
   void written_next();
   void start_shard_client();
   void finish();
@@ -117,13 +120,13 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   BlockHandle gc_handle_;
   td::Ref<MasterchainState> gc_state_;
   BlockHandle last_key_block_handle_;
+  bool has_new_hardforks_{false};
 
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<Db> db_;
 
   td::Promise<ValidatorManagerInitResult> promise_;
 
-  BlockIdExt client_block_id_;
   td::actor::ActorOwn<ShardClient> client_;
 };
 

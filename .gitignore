@@ -7,7 +7,6 @@ tl/generate/auto/
 compile_commands.json
 crypto/block/block-auto.cpp
 crypto/block/block-auto.h
-crypto/smartcont/*-code.fif
 crypto/smartcont/auto/
 test/regression-tests.cache/
 *.swp

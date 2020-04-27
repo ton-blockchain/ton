@@ -4822,14 +4822,15 @@ bool ValidateQuery::check_new_state() {
   // seq_no:uint32 vert_seq_no:# -> checked in unpack_next_state()
   // gen_utime:uint32 gen_lt:uint64 -> checked in unpack_next_state()
   // min_ref_mc_seqno:uint32
-  ton::BlockSeqno ref_mc_seqno = std::min(std::min(is_masterchain() ? id_.seqno() : mc_seqno_, min_shard_ref_mc_seqno_),
-                                          ns_.processed_upto_->min_mc_seqno());
+  ton::BlockSeqno my_mc_seqno = is_masterchain() ? id_.seqno() : mc_seqno_;
+  ton::BlockSeqno ref_mc_seqno =
+      std::min(std::min(my_mc_seqno, min_shard_ref_mc_seqno_), ns_.processed_upto_->min_mc_seqno());
   if (ns_.min_ref_mc_seqno_ != ref_mc_seqno) {
     return reject_query(
         PSTRING() << "new state of " << id_.to_str() << " has minimal referenced masterchain block seqno "
                   << ns_.min_ref_mc_seqno_
                   << " but the value computed from all shard references and previous masterchain block reference is "
-                  << ref_mc_seqno << " = min(" << mc_seqno_ << "," << min_shard_ref_mc_seqno_ << ","
+                  << ref_mc_seqno << " = min(" << my_mc_seqno << "," << min_shard_ref_mc_seqno_ << ","
                   << ns_.processed_upto_->min_mc_seqno() << ")");
   }
   // out_msg_queue_info:^OutMsgQueueInfo

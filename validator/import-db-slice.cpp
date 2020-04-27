@@ -201,7 +201,7 @@ void ArchiveImporter::checked_masterchain_proof(BlockHandle handle, td::Ref<Bloc
     R.ensure();
     td::actor::send_closure(SelfId, &ArchiveImporter::applied_masterchain_block, std::move(handle));
   });
-  run_apply_block_query(handle->id(), std::move(data), handle->id(), manager_, td::Timestamp::in(10.0), std::move(P));
+  run_apply_block_query(handle->id(), std::move(data), handle->id(), manager_, td::Timestamp::in(600.0), std::move(P));
 }
 
 void ArchiveImporter::applied_masterchain_block(BlockHandle handle) {
@@ -353,7 +353,7 @@ void ArchiveImporter::apply_shard_block_cont3(BlockHandle handle, BlockIdExt mas
   }
   TRY_RESULT_PROMISE(promise, block, create_block(handle->id(), std::move(data.second)));
 
-  run_apply_block_query(handle->id(), std::move(block), masterchain_block_id, manager_, td::Timestamp::in(10.0),
+  run_apply_block_query(handle->id(), std::move(block), masterchain_block_id, manager_, td::Timestamp::in(600.0),
                         std::move(promise));
 }
 

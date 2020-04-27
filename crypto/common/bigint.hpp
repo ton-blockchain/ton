@@ -272,7 +272,7 @@ class AnyIntView {
   int parse_binary_any(const char* str, int str_len, int* frac = nullptr);
   std::string to_dec_string_destroy_any();
   std::string to_dec_string_slow_destroy_any();
-  std::string to_hex_string_any(bool upcase = false) const;
+  std::string to_hex_string_any(bool upcase = false, int zero_pad = 0) const;
   std::string to_hex_string_slow_destroy_any();
   std::string to_binary_string_any() const;
 
@@ -650,7 +650,7 @@ class BigIntG {
   std::string to_dec_string_destroy();
   std::string to_dec_string_slow() const;
   std::string to_hex_string_slow() const;
-  std::string to_hex_string(bool upcase = false) const;
+  std::string to_hex_string(bool upcase = false, int zero_pad = 0) const;
   std::string to_binary_string() const;
   double to_double() const {
     return is_valid() ? ldexp(top_double(), (n - 1) * word_shift) : NAN;
@@ -2290,16 +2290,19 @@ std::string AnyIntView<Tr>::to_hex_string_slow_destroy_any() {
 }
 
 template <class Tr>
-std::string AnyIntView<Tr>::to_hex_string_any(bool upcase) const {
+std::string AnyIntView<Tr>::to_hex_string_any(bool upcase, int zero_pad) const {
   if (!is_valid()) {
     return "NaN";
   }
   int s = sgn(), k = 0;
   if (!s) {
+    if (zero_pad > 0) {
+      return std::string(zero_pad, '0');
+    }
     return "0";
   }
   std::string x;
-  x.reserve(((size() * word_shift + word_bits) >> 2) + 2);
+  x.reserve(2 + std::max((size() * word_shift + word_bits) >> 2, zero_pad));
   assert(word_shift < word_bits - 4);
   const char* hex_digs = (upcase ? HEX_digits : hex_digits);
   word_t v = 0;
@@ -2316,6 +2319,11 @@ std::string AnyIntView<Tr>::to_hex_string_any(bool upcase) const {
   while (v > 0) {
     x += hex_digs[v & 15];
     v >>= 4;
+  }
+  if (zero_pad > 0) {
+    while (x.size() < (unsigned)zero_pad) {
+      x += '0';
+    }
   }
   if (s < 0) {
     x += '-';
@@ -2498,8 +2506,8 @@ std::string BigIntG<len, Tr>::to_hex_string_slow() const {
 }
 
 template <int len, class Tr>
-std::string BigIntG<len, Tr>::to_hex_string(bool upcase) const {
-  return as_any_int().to_hex_string_any(upcase);
+std::string BigIntG<len, Tr>::to_hex_string(bool upcase, int zero_pad) const {
+  return as_any_int().to_hex_string_any(upcase, zero_pad);
 }
 
 template <int len, class Tr>

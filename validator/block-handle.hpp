@@ -517,7 +517,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
       : id_(id), flags_(id_.is_masterchain() ? static_cast<td::uint32>(dbf_masterchain) : 0) {
     get_thread_safe_counter().add(1);
   }
-  BlockHandleImpl(td::BufferSlice data);
+  BlockHandleImpl(td::Slice data);
   ~BlockHandleImpl() {
     LOG_CHECK(!need_flush()) << "flags=" << flags_;
     get_thread_safe_counter().add(-1);
@@ -532,7 +532,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
     return std::make_shared<BlockHandleImpl>(id);
   }
 
-  static BlockHandle create(td::BufferSlice data) {
+  static BlockHandle create(td::Slice data) {
     return std::make_shared<BlockHandleImpl>(std::move(data));
   }
 };

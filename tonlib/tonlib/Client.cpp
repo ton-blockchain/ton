@@ -101,6 +101,7 @@ class Client::Impl final {
     scheduler_.run_in_context_external([] { td::actor::SchedulerContext::get()->stop(); });
     LOG(ERROR) << "join";
     scheduler_thread_.join();
+    LOG(ERROR) << "join - done";
   }
 
  private:

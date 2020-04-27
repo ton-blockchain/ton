@@ -52,10 +52,10 @@ class ArchiveManager : public td::actor::Actor {
   void check_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<bool> promise);
   void check_zero_state(BlockIdExt block_id, td::Promise<bool> promise);
 
-  //void truncate(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
+  void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
   //void truncate_continue(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
 
-  void run_gc(UnixTime ts);
+  void run_gc(UnixTime ts, UnixTime archive_ttl);
 
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
@@ -104,6 +104,7 @@ class ArchiveManager : public td::actor::Actor {
   std::map<PackageId, FileDescription> files_;
   std::map<PackageId, FileDescription> key_files_;
   std::map<PackageId, FileDescription> temp_files_;
+  BlockSeqno finalized_up_to_{0};
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;

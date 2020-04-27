@@ -157,7 +157,7 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
-  virtual void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) = 0;
+  virtual void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 

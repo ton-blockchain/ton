@@ -120,7 +120,7 @@ extern RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd = false);
 
 extern std::string dec_string(RefInt256 x);
 extern std::string dec_string2(RefInt256&& x);
-extern std::string hex_string(RefInt256 x, bool upcase = false);
+extern std::string hex_string(RefInt256 x, bool upcase = false, int zero_pad = 0);
 extern std::string binary_string(RefInt256 x);
 
 extern RefInt256 dec_string_to_int256(const std::string& s);

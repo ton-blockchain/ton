@@ -93,9 +93,10 @@ struct LastBlockState {
   ton::BlockIdExt last_block_id;
   td::int64 utime{0};
   ton::BlockIdExt init_block_id;
+  td::int32 vert_seqno{0};
 
   static constexpr td::int32 magic = 0xa7f171a4;
-  enum Version { None = 0, Magic, InitBlock, Next };
+  enum Version { None = 0, Magic, InitBlock, VertSeqno, Next };
   static constexpr td::int32 version = Version::Next - 1;
 
   template <class StorerT>
@@ -110,6 +111,7 @@ struct LastBlockState {
     store(last_block_id, storer);
     store(utime, storer);
     store(init_block_id, storer);
+    store(vert_seqno, storer);
   }
 
   template <class ParserT>
@@ -129,6 +131,9 @@ struct LastBlockState {
     parse(utime, parser);
     if (version >= InitBlock) {
       parse(init_block_id, parser);
+    }
+    if (version >= VertSeqno) {
+      parse(vert_seqno, parser);
     }
   }
 };

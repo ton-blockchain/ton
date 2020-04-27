@@ -134,7 +134,7 @@ std::vector<PublicKey> ValidatorSessionDescriptionImpl::export_full_nodes() cons
 }
 
 double ValidatorSessionDescriptionImpl::get_delay(td::uint32 priority) const {
-  return priority * opts_.next_candidate_delay;
+  return ((sources_.size() >= 5 ? 0 : 1) + priority) * opts_.next_candidate_delay;
 }
 
 td::uint32 ValidatorSessionDescriptionImpl::get_vote_for_author(td::uint32 attempt_seqno) const {

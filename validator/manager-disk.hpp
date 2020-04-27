@@ -351,7 +351,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
-  void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) override {
+  void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override {

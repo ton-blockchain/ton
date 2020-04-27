@@ -54,11 +54,12 @@ static inline bool dbg(int c) {
   return true;
 }
 
-Collator::Collator(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
+Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                    td::Promise<BlockCandidate> promise)
     : shard_(shard)
+    , is_hardfork_(is_hardfork)
     , min_ts(min_ts)
     , min_mc_block_id{min_masterchain_block_id}
     , prev_blocks(std::move(prev))
@@ -74,6 +75,9 @@ void Collator::start_up() {
   LOG(DEBUG) << "Previous block #1 is " << prev_blocks.at(0).to_str();
   if (prev_blocks.size() > 1) {
     LOG(DEBUG) << "Previous block #2 is " << prev_blocks.at(1).to_str();
+  }
+  if (is_hardfork_ && workchain() == masterchainId) {
+    is_key_block_ = true;
   }
   // 1. check validity of parameters, especially prev_blocks, shard and min_mc_block_id
   if (workchain() != ton::masterchainId && workchain() != ton::basechainId) {
@@ -162,12 +166,26 @@ void Collator::start_up() {
     // 2. learn latest masterchain state and block id
     LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
-                                  [self = get_self()](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
-                                    LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-                                    td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
-                                                                  std::move(res));
-                                  });
+    if (!is_hardfork_) {
+      td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
+                                    [self = get_self()](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+                                      LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
+                                      td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
+                                                                    std::move(res));
+                                    });
+    } else {
+      td::actor::send_closure_later(
+          manager, &ValidatorManager::get_shard_state_from_db_short, min_mc_block_id,
+          [self = get_self(), block_id = min_mc_block_id](td::Result<Ref<ShardState>> res) {
+            LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
+            if (res.is_error()) {
+              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error());
+            } else {
+              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
+                                            std::make_pair(Ref<MasterchainState>(res.move_as_ok()), block_id));
+            }
+          });
+    }
   }
   // 3. load previous block(s) and corresponding state(s)
   prev_states.resize(prev_blocks.size());
@@ -195,16 +213,21 @@ void Collator::start_up() {
                                     });
     }
   }
+  if (is_hardfork_) {
+    LOG(WARNING) << "generating a hardfork block";
+  }
   // 4. load external messages
-  LOG(DEBUG) << "sending get_external_messages() query to Manager";
-  ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_,
-                                [self = get_self()](td::Result<std::vector<Ref<ExtMessage>>> res) -> void {
-                                  LOG(DEBUG) << "got answer to get_external_messages() query";
-                                  td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages,
-                                                                std::move(res));
-                                });
-  if (is_masterchain()) {
+  if (!is_hardfork_) {
+    LOG(DEBUG) << "sending get_external_messages() query to Manager";
+    ++pending;
+    td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_,
+                                  [self = get_self()](td::Result<std::vector<Ref<ExtMessage>>> res) -> void {
+                                    LOG(DEBUG) << "got answer to get_external_messages() query";
+                                    td::actor::send_closure_later(
+                                        std::move(self), &Collator::after_get_external_messages, std::move(res));
+                                  });
+  }
+  if (is_masterchain() && !is_hardfork_) {
     // 5. load shard block info messages
     LOG(DEBUG) << "sending get_shard_blocks() query to Manager";
     ++pending;
@@ -487,6 +510,7 @@ void Collator::after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDe
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
+    return;
   }
   auto vect = res.move_as_ok();
   shard_block_descr_ = std::move(vect);
@@ -521,7 +545,7 @@ bool Collator::unpack_last_mc_state() {
     prev_key_block_seqno_ = 0;
   }
   LOG(DEBUG) << "previous key block is " << prev_key_block_.to_str() << " (exists=" << prev_key_block_exists_ << ")";
-  vert_seqno_ = config_->get_vert_seqno();
+  vert_seqno_ = config_->get_vert_seqno() + (is_hardfork_ ? 1 : 0);
   LOG(DEBUG) << "vertical seqno (vert_seqno) is " << vert_seqno_;
   auto limits = config_->get_block_limits(is_masterchain());
   if (limits.is_error()) {
@@ -549,6 +573,9 @@ bool Collator::unpack_last_mc_state() {
 }
 
 bool Collator::check_cur_validator_set() {
+  if (is_hardfork_) {
+    return true;
+  }
   CatchainSeqno cc_seqno = 0;
   auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
   if (nodes.empty()) {
@@ -3083,12 +3110,16 @@ bool Collator::create_mc_state_extra() {
   auto cfg_smc_config = cfg_res.move_as_ok();
   CHECK(cfg_smc_config.not_null());
   vm::Dictionary cfg_dict{cfg_smc_config, 32};
+  bool ignore_cfg_changes = false;
+  Ref<vm::Cell> cfg0;
   if (!block::valid_config_data(cfg_smc_config, config_addr, true, true, old_mparams_)) {
     block::gen::t_Hashmap_32_Ref_Cell.print_ref(std::cerr, cfg_smc_config);
-    return fatal_error("configuration smart contract "s + config_addr.to_hex() +
-                       " contains an invalid configuration in its data");
+    LOG(ERROR) << "configuration smart contract "s + config_addr.to_hex() +
+                      " contains an invalid configuration in its data, IGNORING CHANGES";
+    ignore_cfg_changes = true;
+  } else {
+    cfg0 = cfg_dict.lookup_ref(td::BitArray<32>(1 - 1));
   }
-  Ref<vm::Cell> cfg0 = cfg_dict.lookup_ref(td::BitArray<32>(1 - 1));
   bool changed_cfg = false;
   if (cfg0.not_null()) {
     ton::StdSmcAddress new_config_addr;
@@ -3101,7 +3132,11 @@ bool Collator::create_mc_state_extra() {
       changed_cfg = true;
     }
   }
-  if (block::important_config_parameters_changed(cfg_smc_config, state_extra.config->prefetch_ref()) || changed_cfg) {
+  if (ignore_cfg_changes) {
+    LOG(ERROR) << "configuration changes ignored";
+    return fatal_error("attempting to install invalid new configuration");
+  } else if (block::important_config_parameters_changed(cfg_smc_config, state_extra.config->prefetch_ref()) ||
+             changed_cfg) {
     LOG(WARNING) << "global configuration changed, updating";
     vm::CellBuilder cb;
     CHECK(cb.store_bits_bool(config_addr) && cb.store_ref_bool(cfg_smc_config));
@@ -3625,6 +3660,7 @@ bool Collator::store_master_ref(vm::CellBuilder& cb) {
 
 bool Collator::update_processed_upto() {
   auto ref_mc_seqno = is_masterchain() ? new_block_seqno : prev_mc_block_seqno;
+  update_min_mc_seqno(ref_mc_seqno);
   if (last_proc_int_msg_.first) {
     if (!processed_upto_->insert(ref_mc_seqno, last_proc_int_msg_.first, last_proc_int_msg_.second.cbits())) {
       return fatal_error("cannot update our ProcessedUpto to reflect processed inbound message");
@@ -3694,8 +3730,8 @@ bool Collator::compute_total_balance() {
 bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
   vm::CellBuilder cb, cb2;
   bool mc = is_masterchain();
-  td::uint32 val_hash = validator_set_->get_validator_set_hash();
-  CatchainSeqno cc_seqno = validator_set_->get_catchain_seqno();
+  td::uint32 val_hash = is_hardfork_ ? 0 : validator_set_->get_validator_set_hash();
+  CatchainSeqno cc_seqno = is_hardfork_ ? 0 : validator_set_->get_catchain_seqno();
   return cb.store_long_bool(0x9bc7a987, 32)                         // block_info#9bc7a987
          && cb.store_long_bool(0, 32)                               // version:uint32
          && cb.store_bool_bool(!mc)                                 // not_master:(## 1)
@@ -3705,7 +3741,8 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_bool_bool(want_split_)                         // want_split:Bool
          && cb.store_bool_bool(want_merge_)                         // want_merge:Bool
          && cb.store_bool_bool(is_key_block_)                       // key_block:Bool
-         && cb.store_long_bool((int)report_version_, 9)             // vert_seqno_incr:(## 1) flags:(## 8)
+         && cb.store_bool_bool(is_hardfork_)                        // vert_seqno_incr:(## 1)
+         && cb.store_long_bool((int)report_version_, 8)             // flags:(## 8)
          && cb.store_long_bool(new_block_seqno, 32)                 // seq_no:#
          && cb.store_long_bool(vert_seqno_, 32)                     // vert_seq_no:#
          && block::ShardId{shard_}.serialize(cb)                    // shard:ShardIdent
@@ -3721,6 +3758,9 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
                     && cb.store_builder_ref_bool(std::move(cb2))))  // .. ^BlkMasterInfo
          && store_prev_blk_ref(cb2, after_merge_)                   // prev_ref:..
          && cb.store_builder_ref_bool(std::move(cb2))               // .. ^(PrevBlkInfo after_merge)
+         && (!is_hardfork_ ||                                       // prev_vert_ref:vert_seqno_incr?..
+             (store_master_ref(cb2)                                 //
+              && cb.store_builder_ref_bool(std::move(cb2))))        // .. ^(BlkPrevInfo 0)
          && cb.finalize_to(block_info);
 }
 

@@ -309,7 +309,7 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
       }
     }
     f = true;
-    auto G = fetch_tl_object<ton_api::db_lt_desc_value>(td::BufferSlice{value}, true);
+    auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
     G.ensure();
     auto g = G.move_as_ok();
     if (compare_desc(*g.get()) > 0) {
@@ -467,12 +467,18 @@ void ArchiveSlice::start_up() {
         R2 = kv_->get(PSTRING() << "status." << i, value);
         R2.ensure();
         auto len = td::to_integer<td::uint64>(value);
+        R2 = kv_->get(PSTRING() << "version." << i, value);
+        R2.ensure();
+        td::uint32 ver = 0;
+        if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+          ver = td::to_integer<td::uint32>(value);
+        }
         auto v = archive_id_ + slice_size_ * i;
-        add_package(v, len);
+        add_package(v, len, ver);
       }
     } else {
       auto len = td::to_integer<td::uint64>(value);
-      add_package(archive_id_, len);
+      add_package(archive_id_, len, 0);
     }
   } else {
     if (!temp_ && !key_blocks_only_) {
@@ -482,13 +488,15 @@ void ArchiveSlice::start_up() {
       kv_->set("slices", "1").ensure();
       kv_->set("slice_size", td::to_string(slice_size_)).ensure();
       kv_->set("status.0", "0").ensure();
+      kv_->set("version.0", td::to_string(default_package_version())).ensure();
       kv_->commit_transaction().ensure();
+      add_package(archive_id_, 0, default_package_version());
     } else {
       kv_->begin_transaction().ensure();
       kv_->set("status", "0").ensure();
       kv_->commit_transaction().ensure();
+      add_package(archive_id_, 0, 0);
     }
-    add_package(archive_id_, 0);
   }
 }
 
@@ -528,8 +536,12 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   }
 }
 
-ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, std::string db_root)
-    : archive_id_(archive_id), key_blocks_only_(key_blocks_only), temp_(temp), db_root_(std::move(db_root)) {
+ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root)
+    : archive_id_(archive_id)
+    , key_blocks_only_(key_blocks_only)
+    , temp_(temp)
+    , finalized_(finalized)
+    , db_root_(std::move(db_root)) {
 }
 
 td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno masterchain_seqno, bool force) {
@@ -548,16 +560,17 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
     begin_transaction();
     kv_->set("slices", td::to_string(v + 1)).ensure();
     kv_->set(PSTRING() << "status." << v, "0").ensure();
+    kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
     commit_transaction();
     CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
-    add_package(masterchain_seqno, 0);
+    add_package(masterchain_seqno, 0, default_package_version());
     return &packages_[v];
   } else {
     return &packages_[v];
   }
 }
 
-void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size) {
+void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 version) {
   PackageId p_id{seqno, key_blocks_only_, temp_};
   std::string path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".pack";
   auto R = Package::open(path, false, true);
@@ -565,9 +578,17 @@ void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size) {
     LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
     return;
   }
+  auto idx = td::narrow_cast<td::uint32>(packages_.size());
+  if (finalized_) {
+    packages_.emplace_back(nullptr, td::actor::ActorOwn<PackageWriter>(), seqno, path, idx, version);
+    return;
+  }
   auto pack = std::make_shared<Package>(R.move_as_ok());
+  if (version >= 1) {
+    pack->truncate(size).ensure();
+  }
   auto writer = td::actor::create_actor<PackageWriter>("writer", pack);
-  packages_.emplace_back(std::move(pack), std::move(writer), seqno, path, 0);
+  packages_.emplace_back(std::move(pack), std::move(writer), seqno, path, idx, version);
 }
 
 namespace {
@@ -607,6 +628,207 @@ void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
   delay_action([name = db_path, attempt = 0,
                 promise = ig.get_promise()]() mutable { destroy_db(name, attempt, std::move(promise)); },
                td::Timestamp::in(0.0));
+}
+
+BlockSeqno ArchiveSlice::max_masterchain_seqno() {
+  auto key = get_db_key_lt_desc(ShardIdFull{masterchainId});
+  std::string value;
+  auto F = kv_->get(key, value);
+  F.ensure();
+  if (F.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return 0;
+  }
+  auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
+  G.ensure();
+  auto g = G.move_as_ok();
+  if (g->first_idx_ == g->last_idx_) {
+    return 0;
+  }
+  auto last_idx = g->last_idx_ - 1;
+  auto db_key = get_db_key_lt_el(ShardIdFull{masterchainId}, last_idx);
+  F = kv_->get(db_key, value);
+  F.ensure();
+  CHECK(F.move_as_ok() == td::KeyValue::GetStatus::Ok);
+  auto E = fetch_tl_object<ton_api::db_lt_el_value>(td::BufferSlice{value}, true);
+  E.ensure();
+  auto e = E.move_as_ok();
+  return e->id_->seqno_;
+}
+
+void ArchiveSlice::delete_file(FileReference ref_id) {
+  std::string value;
+  auto R = kv_->get(ref_id.hash().to_hex(), value);
+  R.ensure();
+  if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return;
+  }
+  kv_->erase(ref_id.hash().to_hex());
+}
+
+void ArchiveSlice::delete_handle(ConstBlockHandle handle) {
+  delete_file(fileref::Proof{handle->id()});
+  delete_file(fileref::ProofLink{handle->id()});
+  delete_file(fileref::Block{handle->id()});
+  kv_->erase(get_db_key_block_info(handle->id()));
+}
+
+void ArchiveSlice::move_file(FileReference ref_id, Package *old_pack, Package *pack) {
+  LOG(DEBUG) << "moving " << ref_id.filename_short();
+  std::string value;
+  auto R = kv_->get(ref_id.hash().to_hex(), value);
+  R.ensure();
+  if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return;
+  }
+  auto offset = td::to_integer<td::uint64>(value);
+  auto V = old_pack->read(offset);
+  V.ensure();
+  auto data = std::move(V.move_as_ok().second);
+  auto r = pack->append(ref_id.filename(), std::move(data), false);
+  kv_->set(ref_id.hash().to_hex(), td::to_string(r));
+}
+
+void ArchiveSlice::move_handle(ConstBlockHandle handle, Package *old_pack, Package *pack) {
+  move_file(fileref::Proof{handle->id()}, old_pack, pack);
+  move_file(fileref::ProofLink{handle->id()}, old_pack, pack);
+  move_file(fileref::Block{handle->id()}, old_pack, pack);
+}
+
+bool ArchiveSlice::truncate_block(BlockSeqno masterchain_seqno, BlockIdExt block_id, td::uint32 cutoff_idx,
+                                  Package *pack) {
+  std::string value;
+  auto R = kv_->get(get_db_key_block_info(block_id), value);
+  R.ensure();
+  CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+  auto E = create_block_handle(value);
+  E.ensure();
+  auto handle = E.move_as_ok();
+  auto seqno = handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block();
+  if (seqno > masterchain_seqno) {
+    delete_handle(std::move(handle));
+    return false;
+  }
+
+  auto S = choose_package(seqno, false);
+  S.ensure();
+  auto p = S.move_as_ok();
+  CHECK(p->idx <= cutoff_idx);
+  if (p->idx == cutoff_idx) {
+    move_handle(std::move(handle), p->package.get(), pack);
+  }
+
+  return true;
+}
+
+void ArchiveSlice::truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_idx,
+                                  Package *pack) {
+  auto key = get_db_key_lt_desc(shard);
+  std::string value;
+  auto F = kv_->get(key, value);
+  F.ensure();
+  if (F.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return;
+  }
+  auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
+  G.ensure();
+  auto g = G.move_as_ok();
+  if (g->first_idx_ == g->last_idx_) {
+    return;
+  }
+
+  int new_last_idx = g->first_idx_;
+  for (int i = g->first_idx_; i < g->last_idx_; i++) {
+    auto db_key = get_db_key_lt_el(shard, i);
+    F = kv_->get(db_key, value);
+    F.ensure();
+    CHECK(F.move_as_ok() == td::KeyValue::GetStatus::Ok);
+    auto E = fetch_tl_object<ton_api::db_lt_el_value>(value, true);
+    E.ensure();
+    auto e = E.move_as_ok();
+
+    if (truncate_block(masterchain_seqno, create_block_id(e->id_), cutoff_idx, pack)) {
+      CHECK(new_last_idx == i);
+      new_last_idx = i + 1;
+    }
+  }
+
+  if (g->last_idx_ != new_last_idx) {
+    g->last_idx_ = new_last_idx;
+    kv_->set(key, serialize_tl_object(g, true)).ensure();
+  }
+}
+
+void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
+  if (temp_ || archive_id_ > masterchain_seqno) {
+    destroy(std::move(promise));
+    return;
+  }
+  LOG(INFO) << "TRUNCATE: slice " << archive_id_ << " maxseqno= " << max_masterchain_seqno()
+            << " truncate_upto=" << masterchain_seqno;
+  if (max_masterchain_seqno() <= masterchain_seqno) {
+    promise.set_value(td::Unit());
+    return;
+  }
+
+  auto cutoff = choose_package(masterchain_seqno, false);
+  cutoff.ensure();
+  auto pack = cutoff.move_as_ok();
+  CHECK(pack);
+
+  auto pack_r = Package::open(pack->path + ".new", false, true);
+  pack_r.ensure();
+  auto new_package = std::make_shared<Package>(pack_r.move_as_ok());
+  new_package->truncate(0).ensure();
+
+  std::string value;
+  auto status_key = create_serialize_tl_object<ton_api::db_lt_status_key>();
+  auto R = kv_->get(status_key, value);
+  R.ensure();
+
+  auto F = fetch_tl_object<ton_api::db_lt_status_value>(value, true);
+  F.ensure();
+  auto f = F.move_as_ok();
+
+  kv_->begin_transaction().ensure();
+  for (int i = 0; i < f->total_shards_; i++) {
+    auto shard_key = create_serialize_tl_object<ton_api::db_lt_shard_key>(i);
+    R = kv_->get(shard_key, value);
+    R.ensure();
+    CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+
+    auto G = fetch_tl_object<ton_api::db_lt_shard_value>(value, true);
+    G.ensure();
+    auto g = G.move_as_ok();
+
+    truncate_shard(masterchain_seqno, ShardIdFull{g->workchain_, static_cast<td::uint64>(g->shard_)}, pack->idx,
+                   new_package.get());
+  }
+
+  if (!sliced_mode_) {
+    kv_->set("status", td::to_string(new_package->size())).ensure();
+  } else {
+    kv_->set(PSTRING() << "status." << pack->idx, td::to_string(new_package->size())).ensure();
+    for (size_t i = pack->idx + 1; i < packages_.size(); i++) {
+      kv_->erase(PSTRING() << "status." << i);
+      kv_->erase(PSTRING() << "version." << i);
+    }
+    kv_->set("slices", td::to_string(pack->idx + 1));
+  }
+
+  pack->package = new_package;
+  pack->writer.reset();
+  td::unlink(pack->path).ensure();
+  td::rename(pack->path + ".new", pack->path).ensure();
+  pack->writer = td::actor::create_actor<PackageWriter>("writer", new_package);
+
+  for (auto idx = pack->idx + 1; idx < packages_.size(); idx++) {
+    td::unlink(packages_[idx].path).ensure();
+  }
+  packages_.erase(packages_.begin() + pack->idx + 1);
+
+  kv_->commit_transaction().ensure();
+
+  promise.set_value(td::Unit());
 }
 
 }  // namespace validator

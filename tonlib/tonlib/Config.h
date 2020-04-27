@@ -29,7 +29,9 @@ struct Config {
   };
   ton::BlockIdExt zero_state_id;
   ton::BlockIdExt init_block_id;
+  std::vector<ton::BlockIdExt> hardforks;
   std::vector<LiteClient> lite_clients;
+  std::string name;
   static td::Result<Config> parse(std::string str);
 };
 }  // namespace tonlib

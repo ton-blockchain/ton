@@ -121,6 +121,26 @@ td::Result<Config> Config::parse(std::string str) {
     res.init_block_id = init_block_id;
   }
 
+  auto r_hardforks = td::get_json_object_field(validator, "hardforks", td::JsonValue::Type::Array, false);
+  if (r_hardforks.is_ok()) {
+    auto hardforks_obj = r_hardforks.move_as_ok();
+    auto &hardforks = hardforks_obj.get_array();
+    for (auto &fork : hardforks) {
+      if (fork.type() != td::JsonValue::Type::Object) {
+        return td::Status::Error("Invalid config (8)");
+      }
+      TRY_RESULT(fork_block, parse_block_id_ext(fork.get_object()));
+      res.hardforks.push_back(std::move(fork_block));
+    }
+  }
+
+  for (auto hardfork : res.hardforks) {
+    if (!res.init_block_id.is_valid() || hardfork.seqno() > res.init_block_id.seqno()) {
+      LOG(INFO) << "Replace init_block with hardfork: " << res.init_block_id.to_str() << " -> " << hardfork.to_str();
+      res.init_block_id = hardfork;
+    }
+  }
+
   return res;
 }
 }  // namespace tonlib
