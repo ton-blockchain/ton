@@ -61,8 +61,8 @@
 #include "mc-config.h"
 
 #if defined(_INTERNAL_COMPILE) || defined(_TONLIB_COMPILE)
-# define WITH_TONLIB
-# include "tonlib/keys/Mnemonic.h"
+#define WITH_TONLIB
+#include "tonlib/keys/Mnemonic.h"
 #endif
 
 #define PDO(__op) \
@@ -271,6 +271,10 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   PDO(sgn(balance) >= 0);
   THRERR("balance cannot be negative");
   if (!mode) {
+    if (verbosity > 2) {
+      std::cerr << "StateInit used for computing address: ";
+      block::gen::t_StateInit.print_ref(std::cerr, state_init);
+    }
     return smc_addr;  // compute address only
   }
   auto it = smart_contracts.find(addr);
@@ -651,6 +655,10 @@ void interpret_sub_extra_currencies(vm::Stack& stack) {
   stack.push_bool(ok);
 }
 
+void interpret_allocated_balance(vm::Stack& stack) {
+  stack.push_int(total_smc_balance);
+}
+
 #ifdef WITH_TONLIB
 void interpret_mnemonic_to_privkey(vm::Stack& stack, int mode) {
   td::SecureString str{td::Slice{stack.pop_string()}};
@@ -689,6 +697,7 @@ void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("isWorkchainDescr? ", interpret_is_workchain_descr);
   d.def_stack_word("CC+? ", interpret_add_extra_currencies);
   d.def_stack_word("CC-? ", interpret_sub_extra_currencies);
+  d.def_stack_word("allocated-balance ", interpret_allocated_balance);
 #ifdef WITH_TONLIB
   d.def_stack_word("mnemo>priv ", std::bind(interpret_mnemonic_to_privkey, _1, 0));
   d.def_stack_word("mnemo>pub ", std::bind(interpret_mnemonic_to_privkey, _1, 1));

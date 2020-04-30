@@ -579,7 +579,11 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 
   auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
     if (R.is_error()) {
-      LOG(INFO) << "dropped broadcast: " << R.move_as_error();
+      if (R.error().code() == ErrorCode::notready) {
+        LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
+      } else {
+        LOG(INFO) << "dropped broadcast: " << R.move_as_error();
+      }
     }
   });
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, std::move(B),

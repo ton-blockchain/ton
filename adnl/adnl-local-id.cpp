@@ -79,7 +79,9 @@ void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::P
   }
   VLOG(ADNL_INFO) << this << ": dropping IN message from " << src
                   << ": no callbacks for custom query. firstint=" << td::TlParser(s.as_slice()).fetch_int();
-  promise.set_error(td::Status::Error(ErrorCode::warning, "no callbacks for query"));
+  promise.set_error(td::Status::Error(ErrorCode::warning, PSTRING() << "dropping IN message from " << src
+                                                                    << ": no callbacks for custom query. firstint="
+                                                                    << td::TlParser(s.as_slice()).fetch_int()));
 }
 
 void AdnlLocalId::subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback) {

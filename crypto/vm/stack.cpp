@@ -222,7 +222,7 @@ StackEntry::StackEntry(Ref<Stack> stack_ref) : ref(std::move(stack_ref)), tp(t_s
 StackEntry::StackEntry(Ref<Continuation> cont_ref) : ref(std::move(cont_ref)), tp(t_vmcont) {
 }
 
-Ref<Continuation> StackEntry::as_cont() const & {
+Ref<Continuation> StackEntry::as_cont() const& {
   return as<Continuation, t_vmcont>();
 }
 
@@ -233,7 +233,7 @@ Ref<Continuation> StackEntry::as_cont() && {
 StackEntry::StackEntry(Ref<Box> box_ref) : ref(std::move(box_ref)), tp(t_box) {
 }
 
-Ref<Box> StackEntry::as_box() const & {
+Ref<Box> StackEntry::as_box() const& {
   return as<Box, t_box>();
 }
 
@@ -252,7 +252,7 @@ StackEntry::StackEntry(std::vector<StackEntry>&& tuple_components)
     : ref(Ref<Tuple>{true, std::move(tuple_components)}), tp(t_tuple) {
 }
 
-Ref<Tuple> StackEntry::as_tuple() const & {
+Ref<Tuple> StackEntry::as_tuple() const& {
   return as<Tuple, t_tuple>();
 }
 
@@ -260,7 +260,7 @@ Ref<Tuple> StackEntry::as_tuple() && {
   return move_as<Tuple, t_tuple>();
 }
 
-Ref<Tuple> StackEntry::as_tuple_range(unsigned max_len, unsigned min_len) const & {
+Ref<Tuple> StackEntry::as_tuple_range(unsigned max_len, unsigned min_len) const& {
   auto t = as<Tuple, t_tuple>();
   if (t.not_null() && t->size() <= max_len && t->size() >= min_len) {
     return t;
@@ -281,7 +281,7 @@ Ref<Tuple> StackEntry::as_tuple_range(unsigned max_len, unsigned min_len) && {
 StackEntry::StackEntry(Ref<Atom> atom_ref) : ref(std::move(atom_ref)), tp(t_atom) {
 }
 
-Ref<Atom> StackEntry::as_atom() const & {
+Ref<Atom> StackEntry::as_atom() const& {
   return as<Atom, t_atom>();
 }
 

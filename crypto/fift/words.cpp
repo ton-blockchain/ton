@@ -592,7 +592,7 @@ void interpret_str_split(vm::Stack& stack) {
 void interpret_str_pos(vm::Stack& stack) {
   auto s2 = stack.pop_string(), s1 = stack.pop_string();
   auto pos = s1.find(s2);
-  stack.push_smallint(pos == std::string::npos ? -1 : pos);
+  stack.push_smallint(pos == std::string::npos ? -1 : static_cast<long long>(pos));
 }
 
 void interpret_str_reverse(vm::Stack& stack) {

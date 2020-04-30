@@ -7,8 +7,13 @@ int err:replay_protection() asm "34 PUSHINT";
 int err:no_timeout() asm "35 PUSHINT";
 int err:expected_init() asm "36 PUSHINT";
 int err:expected_close() asm "37 PUSHINT";
+int err:expected_payout() asm "37 PUSHINT";
 int err:no_promise_signature() asm "38 PUSHINT";
 int err:wrong_channel_id() asm "39 PUSHINT";
+int err:unknown_op() asm "40 PUSHINT";
+int err:not_enough_fee() asm "41 PUSHINT";
+
+int op:pchan_cmd() asm "0x912838d1 PUSHINT";
 
 int msg:init() asm "0x27317822 PUSHINT";
 int msg:close() asm "0xf28ae183 PUSHINT";
@@ -18,6 +23,8 @@ int msg:payout() asm "0x37fe7810 PUSHINT";
 int state:init() asm "0 PUSHINT";
 int state:close() asm "1 PUSHINT";
 int state:payout() asm "2 PUSHINT";
+
+int min_fee() asm "1000000000 PUSHINT";
 
 
 ;; A -  initial balance of Alice, 
@@ -60,7 +67,8 @@ _ unpack_config(cell config) {
     cs~load_uint(256), 
     cs~load_ref().begin_parse(), 
     cs~load_ref().begin_parse(),
-    cs~load_uint(64));
+    cs~load_uint(64),
+    cs~load_grams());
   cs.end_parse();
   return res;
 }
@@ -164,8 +172,8 @@ cell do_payout(int promise_A, int promise_B, int A, int B, slice a_addr, slice b
   A += diff;
   B -= diff;
 
-  send_payout(a_addr, A, channel_id, 3);
   send_payout(b_addr, B, channel_id, 3);
+  send_payout(a_addr, A, channel_id, 3 + 128);
 
   return begin_cell()
     .store_int(state:payout(), 3)
@@ -179,7 +187,7 @@ cell do_payout(int promise_A, int promise_B, int A, int B, slice a_addr, slice b
 ;; init$000 inc_A:Grams inc_B:Grams min_A:Grams min_B:Grams = Message;
 ;;
 cell with_init(slice state, int msg_value, slice msg, int msg_signed_A?, int msg_signed_B?, 
-               slice a_addr, slice b_addr, int init_timeout, int channel_id) {
+               slice a_addr, slice b_addr, int init_timeout, int channel_id, int min_A_extra) {
   ;; parse state
   (int signed_A?, int signed_B?, int min_A, int min_B, int expire_at, int A, int B) = unpack_state_init(state);
 
@@ -217,6 +225,7 @@ cell with_init(slice state, int msg_value, slice msg, int msg_signed_A?, int msg
   }
   
   if (signed_A? & signed_B?) {
+    A -= min_A_extra;
     if ((min_A > A) | (min_B > B)) {
       return do_payout(0, 0, A, B, a_addr, b_addr, channel_id);
     }
@@ -289,24 +298,57 @@ cell with_close(slice cs, slice msg, int msg_signed_A?, int msg_signed_B?, int a
   return pack_state_close(signed_A?, signed_B?, promise_A, promise_B, expire_at, A, B);
 }
 
+() with_payout(slice cs, slice msg, slice a_addr, slice b_addr, int channel_id) impure {
+  int op = msg~load_uint(32);
+  throw_unless(err:expected_payout(), op == msg:payout());
+  (int A, int B) = (cs~load_grams(), cs~load_grams());
+  throw_unless(err:not_enough_fee(), A + B + 1000000000 < get_balance().pair_first());
+  accept_message();
+  send_payout(b_addr, B, channel_id, 3);
+  send_payout(a_addr, A, channel_id, 3 + 128);
+}
+
 () recv_any(int msg_value, slice msg) impure {
+  if (msg.slice_empty?()) {
+    return();
+  }
+  ;; op is not signed, but we don't need it to be signed.
+  int op = msg~load_uint(32);
+  if (op <= 1) {
+    ;; simple transfer with comment, return
+    ;; external message will be aborted
+    ;; internal message will be accepted
+    return ();
+  }
+  throw_unless(err:unknown_op(), op == op:pchan_cmd());
+
   (cell config, cell state) = unpack_data();
-  (int init_timeout, int close_timeout, int a_key, int b_key, slice a_addr, slice b_addr, int channel_id) = config.unpack_config();
+  (int init_timeout, int close_timeout, int a_key, int b_key, 
+   slice a_addr, slice b_addr, int channel_id, int min_A_extra) = config.unpack_config();
   (int msg_signed_A?, int msg_signed_B?) = msg~unwrap_signatures(a_key, b_key);
 
   slice cs = state.begin_parse();
   int state_type = cs~load_uint(3);
 
   if (state_type == state:init()) { ;; init
-    state = with_init(cs, msg_value, msg, msg_signed_A?, msg_signed_B?, a_addr, b_addr, init_timeout, channel_id); 
+    state = with_init(cs, msg_value, msg, msg_signed_A?, msg_signed_B?, a_addr, b_addr, init_timeout, channel_id, min_A_extra); 
   } if (state_type == state:close()) {
     state = with_close(cs, msg, msg_signed_A?, msg_signed_B?, a_key, b_key, a_addr, b_addr, close_timeout, channel_id);
+  } if (state_type == state:payout()) {
+    with_payout(cs, msg, a_addr, b_addr, channel_id);
   }
 
   pack_data(config, state);
 }
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+  ;; TODO: uncomment when supported in tests
+  ;; var cs = in_msg_cell.begin_parse();
+  ;; var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  ;; if (flags & 1) {
+  ;;  ;; ignore all bounced messages
+  ;;  return ();
+  ;; }
   recv_any(msg_value, in_msg);
 }
 

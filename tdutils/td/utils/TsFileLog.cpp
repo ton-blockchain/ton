@@ -89,7 +89,7 @@ class TsFileLog : public LogInterface {
   void rotate() override {
     for (auto &info : logs_) {
       if (info.is_inited.load(std::memory_order_consume)) {
-        info.log.rotate();
+        info.log.lazy_rotate();
       }
     }
   }

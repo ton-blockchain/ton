@@ -41,7 +41,6 @@ bip39Hints words:vector<string> = Bip39Hints;
 adnlAddress adnl_address:string = AdnlAddress;
 
 accountAddress account_address:string = AccountAddress;
-accountRevisionList revisions:vector<int32> = AccountRevisionList;
 
 unpackedAccountAddress workchain_id:int32 bounceable:Bool testnet:Bool addr:bytes = UnpackedAccountAddress;
 
@@ -89,7 +88,10 @@ pchan.statePayout A:int64 B:int64 = pchan.State;
 pchan.accountState config:pchan.config state:pchan.State description:string = AccountState;
 uninited.accountState frozen_hash:bytes = AccountState;
 
-fullAccountState balance:int64 last_transaction_id:internal.transactionId block_id:ton.blockIdExt sync_utime:int53 account_state:AccountState = FullAccountState;
+fullAccountState address:accountAddress balance:int64 last_transaction_id:internal.transactionId block_id:ton.blockIdExt sync_utime:int53 account_state:AccountState revision:int32 = FullAccountState;
+
+accountRevisionList revisions:vector<fullAccountState> = AccountRevisionList;
+accountList accounts:vector<fullAccountState> = AccountList;
 
 syncStateDone = SyncState;
 syncStateInProgress from_seqno:int32 to_seqno:int32 current_seqno:int32 = SyncState;
@@ -247,8 +249,14 @@ sync = ton.BlockIdExt;
 // revision = 0 -- use default revision
 // revision = x (x > 0) -- use revision x
 // revision = -1 -- use experimental (newest) revision. Only for debug purpose
-getAccountAddress initial_account_state:InitialAccountState revision:int32 = AccountAddress;
-guessAccountRevision initial_account_state:InitialAccountState = AccountRevisionList;
+//
+// workchain_id = -1 or 0. -1 for masterchain, 0 for basechain
+// NB: use wallet_id = default_wallet_id + workchain_id
+getAccountAddress initial_account_state:InitialAccountState revision:int32 workchain_id:int32 = AccountAddress;
+guessAccountRevision initial_account_state:InitialAccountState workchain_id:int32 = AccountRevisionList;
+
+guessAccount public_key:string rwallet_init_public_key:string = AccountRevisionList;
+
 getAccountState account_address:accountAddress = FullAccountState;
 createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action initial_account_state:InitialAccountState = query.Info;
 

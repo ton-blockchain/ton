@@ -36,7 +36,7 @@ class TestWallet : public ton::SmartContract, public WalletInterface {
   static constexpr unsigned max_message_size = vm::CellString::max_bytes;
   static constexpr unsigned max_gifts_size = 1;
   static td::Ref<vm::Cell> get_init_state(const td::Ed25519::PublicKey& public_key, td::int32 revision = 0) noexcept;
-  static td::Ref<vm::Cell> get_init_message(const td::Ed25519::PrivateKey& private_key) noexcept;
+  static td::Ref<vm::Cell> get_init_message_new(const td::Ed25519::PrivateKey& private_key) noexcept;
   static td::Ref<vm::Cell> make_a_gift_message_static(const td::Ed25519::PrivateKey& private_key, td::uint32 seqno,
                                                       td::Span<Gift> gifts) noexcept;
 

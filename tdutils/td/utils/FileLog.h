@@ -46,12 +46,15 @@ class FileLog : public LogInterface {
 
   void rotate() override;
 
+  void lazy_rotate();
+
  private:
   FileFd fd_;
   string path_;
   int64 size_ = 0;
   int64 rotate_threshold_ = 0;
   bool redirect_stderr_;
+  std::atomic<bool> want_rotate_{};
 
   void do_rotate();
 };

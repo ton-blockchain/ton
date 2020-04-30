@@ -962,3 +962,11 @@ TEST(Misc, CancellationToken) {
   source = CancellationTokenSource{};
   CHECK(token4);
 }
+
+TEST(Misc, Xorshift128plus) {
+  Random::Xorshift128plus rnd(123);
+  ASSERT_EQ(11453256657207062272ull, rnd());
+  ASSERT_EQ(14917490455889357332ull, rnd());
+  ASSERT_EQ(5645917797309401285ull, rnd());
+  ASSERT_EQ(13554822455746959330ull, rnd());
+}

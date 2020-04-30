@@ -33,7 +33,7 @@ td::Ref<vm::Cell> Wallet::get_init_state(const td::Ed25519::PublicKey& public_ke
   return GenericAccount::get_init_state(std::move(code), std::move(data));
 }
 
-td::Ref<vm::Cell> Wallet::get_init_message(const td::Ed25519::PrivateKey& private_key) noexcept {
+td::Ref<vm::Cell> Wallet::get_init_message_new(const td::Ed25519::PrivateKey& private_key) noexcept {
   td::uint32 seqno = 0;
   td::uint32 valid_until = std::numeric_limits<td::uint32>::max();
   auto signature =

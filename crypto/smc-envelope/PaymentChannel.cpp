@@ -30,6 +30,7 @@ td::Ref<vm::Cell> Config::serialize() const {
   rec.init_timeout = init_timeout;
   rec.close_timeout = close_timeout;
   rec.channel_id = channel_id;
+  rec.min_A_extra = pack_grams(min_A_extra);
 
   td::Ref<vm::Cell> res;
   CHECK(tlb::pack_cell(res, rec));
@@ -89,6 +90,13 @@ td::Ref<vm::Cell> MsgClose::serialize() const {
 
 td::Ref<vm::Cell> MsgTimeout::serialize() const {
   block::gen::ChanMsg::Record_chan_msg_timeout rec;
+  td::Ref<vm::Cell> res;
+  CHECK(tlb::pack_cell(res, rec));
+  return res;
+}
+
+td::Ref<vm::Cell> MsgPayout::serialize() const {
+  block::gen::ChanMsg::Record_chan_msg_payout rec;
   td::Ref<vm::Cell> res;
   CHECK(tlb::pack_cell(res, rec));
   return res;

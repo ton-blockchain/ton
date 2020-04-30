@@ -24,6 +24,7 @@ struct Config {
   block::StdAddress a_addr;
   block::StdAddress b_addr;
   td::uint64 channel_id{0};
+  td::uint64 min_A_extra{0};
 
   td::Ref<vm::Cell> serialize() const;
 };
@@ -56,6 +57,10 @@ struct MsgClose {
 };
 
 struct MsgTimeout {
+  td::Ref<vm::Cell> serialize() const;
+};
+
+struct MsgPayout {
   td::Ref<vm::Cell> serialize() const;
 };
 
@@ -125,8 +130,11 @@ struct MsgBuilder {
     rec.msg = vm::load_cell_slice_ref(msg);
     rec.sig_A = maybe_ref(maybe_sign(msg, a_key));
     rec.sig_B = maybe_ref(maybe_sign(msg, b_key));
+    block::gen::ChanOp::Record op_rec;
+    CHECK(tlb::csr_pack(op_rec.msg, rec));
+    LOG(ERROR) << op_rec.msg->size();
     td::Ref<vm::Cell> res;
-    CHECK(tlb::pack_cell(res, rec));
+    CHECK(tlb::pack_cell(res, op_rec));
     return res;
   }
 };
@@ -158,6 +166,10 @@ struct MsgInitBuilder : public MsgBuilder<MsgInitBuilder> {
 
 struct MsgTimeoutBuilder : public MsgBuilder<MsgTimeoutBuilder> {
   MsgTimeout msg;
+};
+
+struct MsgPayoutBuilder : public MsgBuilder<MsgPayoutBuilder> {
+  MsgPayout msg;
 };
 
 struct MsgCloseBuilder : public MsgBuilder<MsgCloseBuilder> {

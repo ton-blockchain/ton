@@ -62,6 +62,9 @@ class LogBenchmark : public td::Benchmark {
   void run_thread(int n) {
     auto str = PSTRING() << "#" << n << " : fsjklfdjsklfjdsklfjdksl\n";
     for (int i = 0; i < n; i++) {
+      if (i % 10000 == 0) {
+        log_->rotate();
+      }
       log_->append(str);
     }
   }

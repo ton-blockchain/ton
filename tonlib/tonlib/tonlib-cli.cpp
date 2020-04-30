@@ -118,6 +118,7 @@ class TonlibCli : public td::actor::Actor {
     td::int32 wallet_version = 2;
     td::int32 wallet_revision = 0;
     td::optional<td::uint32> wallet_id;
+    td::optional<td::int32> workchain_id;
     bool ignore_cache{false};
 
     bool one_shot{false};
@@ -133,6 +134,7 @@ class TonlibCli : public td::actor::Actor {
   std::uint64_t next_query_id_{1};
   td::Promise<td::Slice> cont_;
   td::uint32 wallet_id_;
+  td::int32 workchain_id_;
   ton::tonlib_api::object_ptr<tonlib_api::ton_blockIdExt> current_block_;
   enum class BlockMode { Auto, Manual } block_mode_ = BlockMode::Auto;
 
@@ -241,6 +243,11 @@ class TonlibCli : public td::actor::Actor {
                        wallet_id_ = options_.wallet_id.value();
                      } else {
                        wallet_id_ = static_cast<td::uint32>(r_ok.ok()->config_info_->default_wallet_id_);
+                     }
+                     if (options_.workchain_id) {
+                       workchain_id_ = options_.workchain_id.value();
+                     } else {
+                       workchain_id_ = 0;
                      }
                    }
                    load_channnels();
@@ -361,6 +368,7 @@ class TonlibCli : public td::actor::Actor {
                                "<addr> with specified parameters\n";
       td::TerminalIO::out() << "getstate <key_id>\tget state of wallet with requested key\n";
       td::TerminalIO::out() << "guessrevision <key_id>\tsearch of existing accounts corresponding to the given key\n";
+      td::TerminalIO::out() << "guessaccount <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "getaddress <key_id>\tget address of wallet with requested key\n";
 
       dns_help();
@@ -473,6 +481,10 @@ class TonlibCli : public td::actor::Actor {
       get_history(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "guessrevision") {
       guess_revision(parser.read_word(), std::move(cmd_promise));
+    } else if (cmd == "guessaccount") {
+      auto key = parser.read_word();
+      auto init_key = parser.read_word();
+      guess_account(key, init_key, std::move(cmd_promise));
     } else {
       cmd_promise.set_error(td::Status::Error(PSLICE() << "Unkwnown query `" << cmd << "`"));
     }
@@ -487,7 +499,8 @@ class TonlibCli : public td::actor::Actor {
     TRY_RESULT_PROMISE(
         promise, addr,
         sync_send_query(make_object<tonlib_api::getAccountAddress>(
-            make_object<tonlib_api::rwallet_initialAccountState>(address.public_key, public_key, wallet_id_), 1)));
+            make_object<tonlib_api::rwallet_initialAccountState>(address.public_key, public_key, wallet_id_ - 1), 1,
+            -1)));
     td::TerminalIO::out() << addr->account_address_ << "\n";
     promise.set_value(td::Unit());
   }
@@ -496,11 +509,12 @@ class TonlibCli : public td::actor::Actor {
     TRY_RESULT_PROMISE(promise, address, to_account_address(parser.read_word(), false));
     auto public_key = parser.read_word().str();
     auto initial_state =
-        make_object<tonlib_api::rwallet_initialAccountState>(address.public_key, public_key, wallet_id_);
+        make_object<tonlib_api::rwallet_initialAccountState>(address.public_key, public_key, wallet_id_ - 1);
     TRY_RESULT_PROMISE(
         promise, addr,
         sync_send_query(make_object<tonlib_api::getAccountAddress>(
-            make_object<tonlib_api::rwallet_initialAccountState>(address.public_key, public_key, wallet_id_), 1)));
+            make_object<tonlib_api::rwallet_initialAccountState>(address.public_key, public_key, wallet_id_ - 1), 1,
+            -1)));
 
     TRY_RESULT_PROMISE(promise, start_at, td::to_integer_safe<td::int32>(parser.read_word()));
     std::vector<std::pair<td::int32, td::uint64>> limits;
@@ -690,7 +704,7 @@ class TonlibCli : public td::actor::Actor {
   td::Status do_pchan_create(td::ConstParser& parser, bool gen_channel_id) {
     Channel channel;
     TRY_STATUS(channel.parse(parser, gen_channel_id));
-    TRY_RESULT(addr, sync_send_query(make_object<tonlib_api::getAccountAddress>(channel.to_init_state(), -1)));
+    TRY_RESULT(addr, sync_send_query(make_object<tonlib_api::getAccountAddress>(channel.to_init_state(), -1, 0)));
     channel.address = addr->account_address_;
 
     auto find_id = [&](td::Slice public_key, td::Slice address) -> td::optional<td::int32> {
@@ -1594,9 +1608,10 @@ class TonlibCli : public td::actor::Actor {
   td::Result<Address> to_account_address(td::Slice public_key) {
     auto r_addr = [&, self = this](td::int32 version, td::int32 revision) {
       auto do_request = [revision, self](auto x) {
-        return self->sync_send_query(make_object<tonlib_api::getAccountAddress>(std::move(x), revision));
+        return self->sync_send_query(
+            make_object<tonlib_api::getAccountAddress>(std::move(x), revision, self->workchain_id_));
       };
-      return with_account_state(version, public_key.str(), wallet_id_, do_request);
+      return with_account_state(version, public_key.str(), wallet_id_ + workchain_id_, do_request);
     }(options_.wallet_version, options_.wallet_revision);
     TRY_RESULT(addr, std::move(r_addr));
     Address res;
@@ -1641,7 +1656,7 @@ class TonlibCli : public td::actor::Actor {
     }
     if (key == "giver") {
       auto obj = tonlib::TonlibClient::static_request(
-          make_object<tonlib_api::getAccountAddress>(make_object<tonlib_api::testGiver_initialAccountState>(), 0));
+          make_object<tonlib_api::getAccountAddress>(make_object<tonlib_api::testGiver_initialAccountState>(), 0, -1));
       if (obj->get_id() != tonlib_api::error::ID) {
         Address res;
         res.address = ton::move_tl_object_as<tonlib_api::accountAddress>(obj);
@@ -1846,11 +1861,20 @@ class TonlibCli : public td::actor::Actor {
   void guess_revision(td::Slice key, td::Promise<td::Unit> promise) {
     TRY_RESULT_PROMISE(promise, key_i, to_key_i(key));
     with_account_state(options_.wallet_version, keys_[key_i].public_key, wallet_id_, [&](auto state) {
-      send_query(make_object<tonlib_api::guessAccountRevision>(std::move(state)), promise.wrap([](auto revisions) {
+      send_query(make_object<tonlib_api::guessAccountRevision>(std::move(state), 0), promise.wrap([](auto revisions) {
         td::TerminalIO::out() << to_string(revisions);
         return td::Unit();
       }));
     });
+  }
+
+  void guess_account(td::Slice key, td::Slice init_public_key, td::Promise<td::Unit> promise) {
+    TRY_RESULT_PROMISE(promise, address, to_account_address(key, false));
+    send_query(make_object<tonlib_api::guessAccount>(address.public_key, init_public_key.str()),
+               promise.wrap([](auto revisions) {
+                 td::TerminalIO::out() << to_string(revisions);
+                 return td::Unit();
+               }));
   }
 
   void get_history2(td::Slice key, td::Result<tonlib_api::object_ptr<tonlib_api::fullAccountState>> r_state,
@@ -2103,6 +2127,12 @@ int main(int argc, char* argv[]) {
   p.add_option('w', "wallet-id", "do not use this", [&](td::Slice arg) {
     TRY_RESULT(wallet_id, td::to_integer_safe<td::uint32>((arg)));
     options.wallet_id = wallet_id;
+    return td::Status::OK();
+  });
+  p.add_option('x', "workchain", "default workchain", [&](td::Slice arg) {
+    TRY_RESULT(workchain_id, td::to_integer_safe<td::int32>((arg)));
+    options.workchain_id = workchain_id;
+    LOG(INFO) << "Use workchain_id = " << workchain_id;
     return td::Status::OK();
   });
   p.add_option('W', "wallet-version", "do not use this (version[.revision])", [&](td::Slice arg) {

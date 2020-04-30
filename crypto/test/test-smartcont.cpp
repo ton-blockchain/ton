@@ -162,7 +162,7 @@ TEST(Tonlib, TestWallet) {
   td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
   auto pub_key = priv_key.get_public_key().move_as_ok();
   auto init_state = ton::TestWallet::get_init_state(pub_key);
-  auto init_message = ton::TestWallet::get_init_message(priv_key);
+  auto init_message = ton::TestWallet::get_init_message_new(priv_key);
   auto address = ton::GenericAccount::get_address(0, init_state);
 
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
@@ -215,7 +215,7 @@ TEST(Tonlib, Wallet) {
   td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
   auto pub_key = priv_key.get_public_key().move_as_ok();
   auto init_state = ton::Wallet::get_init_state(pub_key);
-  auto init_message = ton::Wallet::get_init_message(priv_key);
+  auto init_message = ton::Wallet::get_init_message_new(priv_key);
   auto address = ton::GenericAccount::get_address(0, init_state);
 
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
@@ -1273,7 +1273,8 @@ void do_dns_test(CheckedDns&& dns) {
       dns.update(actions);
       actions.clear();
     }
-    dns.resolve(gen_name(), td::narrow_cast<td::int16>(rnd.fast(0, 5)));
+    auto name = gen_name();
+    dns.resolve(name, td::narrow_cast<td::int16>(rnd.fast(0, 5)));
   }
 };
 

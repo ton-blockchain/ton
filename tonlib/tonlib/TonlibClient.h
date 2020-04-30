@@ -85,6 +85,7 @@ class TonlibClient : public td::actor::Actor {
   Config config_;
   td::uint32 config_generation_{0};
   td::uint32 wallet_id_;
+  std::string rwallet_init_public_key_;
   std::string last_state_key_;
   bool use_callbacks_for_network_{false};
 
@@ -234,7 +235,9 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::getAccountState& request,
                         td::Promise<object_ptr<tonlib_api::fullAccountState>>&& promise);
-  td::Status do_request(const tonlib_api::guessAccountRevision& request,
+  td::Status do_request(tonlib_api::guessAccountRevision& request,
+                        td::Promise<object_ptr<tonlib_api::accountRevisionList>>&& promise);
+  td::Status do_request(tonlib_api::guessAccount& request,
                         td::Promise<object_ptr<tonlib_api::accountRevisionList>>&& promise);
 
   td::Status do_request(tonlib_api::sync& request, td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise);
@@ -341,5 +344,14 @@ class TonlibClient : public td::actor::Actor {
   void proxy_request(td::int64 query_id, std::string data);
 
   friend class TonlibQueryActor;
+  struct Target {
+    bool can_be_empty{true};
+    bool can_be_uninited{false};
+    block::StdAddress address;
+    td::optional<td::Ed25519::PublicKey> public_key;
+  };
+
+  td::Status guess_revisions(std::vector<Target> targets,
+                             td::Promise<object_ptr<tonlib_api::accountRevisionList>>&& promise);
 };
 }  // namespace tonlib

@@ -84,10 +84,10 @@ td::Result<Config> Config::parse(std::string str) {
     //return td::Status::Error("Invalid config (4)");
     //}
 
-    TRY_RESULT(ip, td::get_json_object_int_field(object, "ip", false));
+    TRY_RESULT(ip, td::get_json_object_long_field(object, "ip", false));
     TRY_RESULT(port, td::get_json_object_int_field(object, "port", false));
     Config::LiteClient client;
-    TRY_STATUS(client.address.init_host_port(td::IPAddress::ipv4_to_str(ip), port));
+    TRY_STATUS(client.address.init_host_port(td::IPAddress::ipv4_to_str(static_cast<td::int32>(ip)), port));
 
     TRY_RESULT(id_obj, td::get_json_object_field(object, "id", td::JsonValue::Type::Object, false));
     auto &id = id_obj.get_object();

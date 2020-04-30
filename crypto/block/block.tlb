@@ -817,7 +817,7 @@ cap_name#ff name:Text = SmcCapability;
 //
 
 chan_config$_  init_timeout:uint32 close_timeout:uint32 a_key:bits256 b_key:bits256 
-  a_addr:^MsgAddressInt b_addr:^MsgAddressInt channel_id:uint64 = ChanConfig;
+  a_addr:^MsgAddressInt b_addr:^MsgAddressInt channel_id:uint64 min_A_extra:Grams = ChanConfig;
 
 chan_state_init$000  signed_A:Bool signed_B:Bool min_A:Grams min_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
 chan_state_close$001 signed_A:Bool signed_B:Bool promise_A:Grams promise_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
@@ -829,8 +829,12 @@ chan_signed_promise#_ sig:(Maybe ^bits512) promise:ChanPromise = ChanSignedPromi
 chan_msg_init#27317822 inc_A:Grams inc_B:Grams min_A:Grams min_B:Grams channel_id:uint64 = ChanMsg;
 chan_msg_close#f28ae183 extra_A:Grams extra_B:Grams promise:ChanSignedPromise  = ChanMsg;
 chan_msg_timeout#43278a28 = ChanMsg;
+chan_msg_payout#37fe7810 = ChanMsg;
 
 chan_signed_msg$_ sig_A:(Maybe ^bits512) sig_B:(Maybe ^bits512) msg:ChanMsg = ChanSignedMsg;
+
+chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
+
 
 chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
 

@@ -30,7 +30,7 @@ td::Ref<vm::Cell> TestWallet::get_init_state(const td::Ed25519::PublicKey& publi
   return GenericAccount::get_init_state(std::move(code), std::move(data));
 }
 
-td::Ref<vm::Cell> TestWallet::get_init_message(const td::Ed25519::PrivateKey& private_key) noexcept {
+td::Ref<vm::Cell> TestWallet::get_init_message_new(const td::Ed25519::PrivateKey& private_key) noexcept {
   std::string seq_no(4, 0);
   auto signature =
       private_key.sign(vm::CellBuilder().store_bytes(seq_no).finalize()->get_hash().as_slice()).move_as_ok();

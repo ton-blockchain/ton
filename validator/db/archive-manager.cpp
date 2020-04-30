@@ -289,6 +289,22 @@ void ArchiveManager::get_file(ConstBlockHandle handle, FileReference ref_id, td:
       return;
     }
   }
+  if (handle->handle_moved_to_archive()) {
+    auto f = get_file_desc(handle->id().shard_full(), get_package_id(handle->masterchain_ref_block()), 0, 0, 0, false);
+    if (f) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), ref_id, idx = get_max_temp_file_desc_idx(),
+                                           promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_ok()) {
+          promise.set_value(R.move_as_ok());
+        } else {
+          td::actor::send_closure(SelfId, &ArchiveManager::get_file_short_cont, ref_id, idx, std::move(promise));
+        }
+      });
+      td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_file, std::move(handle), std::move(ref_id),
+                              std::move(P));
+      return;
+    }
+  }
   get_file_short_cont(std::move(ref_id), get_max_temp_file_desc_idx(), std::move(promise));
 }
 
@@ -806,9 +822,6 @@ PackageId ArchiveManager::get_max_temp_file_desc_idx() {
 
 PackageId ArchiveManager::get_prev_temp_file_desc_idx(PackageId idx) {
   auto it = temp_files_.lower_bound(idx);
-  if (it == temp_files_.end()) {
-    return PackageId::empty(false, true);
-  }
   if (it == temp_files_.begin()) {
     return PackageId::empty(false, true);
   }

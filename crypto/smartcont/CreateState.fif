@@ -15,6 +15,11 @@
 
 <b b> constant empty_cell
 
+variable @default-subwallet-id
+@default-subwallet-id 0!
+{ @default-subwallet-id @ } : default-subwallet-id
+{ @default-subwallet-id ! } : default-subwallet-id!
+
 // b x --> b'  ( serializes a Gram amount )
 { -1 { 1+ 2dup 8 * ufits } until
   rot over 4 u, -rot 8 * u, } : Gram,
@@ -228,9 +233,37 @@ variable special-dict
 
 
 // restricted wallet creation
+
+// same as in new-wallet-v3.fif
+<{ SETCP0 DUP IFNOTRET // return if recv_internal
+   DUP 85143 INT EQUAL OVER 78748 INT EQUAL OR IFJMP:<{ // "seqno" and "get_public_key" get-methods
+     1 INT AND c4 PUSHCTR CTOS 32 LDU 32 LDU NIP 256 PLDU CONDSEL  // cnt or pubk
+   }>
+   INC 32 THROWIF	// fail unless recv_external
+   9 PUSHPOW2 LDSLICEX DUP 32 LDU 32 LDU 32 LDU 	//  signature in_msg subwallet_id valid_until msg_seqno cs
+   NOW s1 s3 XCHG LEQ 35 THROWIF	//  signature in_msg subwallet_id cs msg_seqno
+   c4 PUSH CTOS 32 LDU 32 LDU 256 LDU ENDS	//  signature in_msg subwallet_id cs msg_seqno stored_seqno stored_subwallet public_key
+   s3 s2 XCPU EQUAL 33 THROWIFNOT	//  signature in_msg subwallet_id cs public_key stored_seqno stored_subwallet
+   s4 s4 XCPU EQUAL 34 THROWIFNOT	//  signature in_msg stored_subwallet cs public_key stored_seqno
+   s0 s4 XCHG HASHSU	//  signature stored_seqno stored_subwallet cs public_key msg_hash
+   s0 s5 s5 XC2PU	//  public_key stored_seqno stored_subwallet cs msg_hash signature public_key
+   CHKSIGNU 35 THROWIFNOT	//  public_key stored_seqno stored_subwallet cs
+   ACCEPT
+   WHILE:<{
+     DUP SREFS	//  public_key stored_seqno stored_subwallet cs _51
+   }>DO<{	//  public_key stored_seqno stored_subwallet cs
+     8 LDU LDREF s0 s2 XCHG	//  public_key stored_seqno stored_subwallet cs _56 mode
+     SENDRAWMSG
+   }>	//  public_key stored_seqno stored_subwallet cs
+   ENDS SWAP INC	//  public_key stored_subwallet seqno'
+   NEWC 32 STU 32 STU 256 STU ENDC c4 POP
+}>c
+=: WCode3
+
 "auto/wallet-code.fif" include =: WCode0
 "auto/restricted-wallet-code.fif" include =: RWCode1
 "auto/restricted-wallet2-code.fif" include =: RWCode2
+"auto/restricted-wallet3-code.fif" include =: RWCode3
 
 // pubkey amount --
 { over ."Key " pubkey>$ type ." -> "
@@ -245,10 +278,21 @@ variable special-dict
   Masterchain swap 6 .Addr cr
 } : create-wallet1
 
+// pubkey amount
+{ over ."W0 Key " pubkey>$ type space dup .GR ." -> "
+  WCode3  // code
+  <b 0 32 u, default-subwallet-id 32 u, 3 roll 256 u, b>  // data
+  empty_cell  // libs
+  3 roll      // balance
+  0 0 2 register_smc
+  Masterchain swap 6 .Addr cr
+} : create-wallet0
+
 // D x t -- D'
 { <b rot Gram, swap rot 32 b>idict! not abort"cannot add value"
 } : rdict-entry
 { 86400 * } : days*
+{ 365 * days* } : years*
 // balance -- dict
 { dictnew
   over 31 -1<< rdict-entry
@@ -256,14 +300,27 @@ variable special-dict
   over 1/2 */ 183 days* rdict-entry
   swap 1/4 */ 365 days* rdict-entry
   0 548 days* rdict-entry
-} : make-rdict
+} : make-rdict1
+{ dictnew
+  over 31 -1<< rdict-entry
+  over .9 */ 0 rdict-entry
+  over .6775 */ 1 years* rdict-entry
+  over .445 */ 2 years* rdict-entry
+  swap .2225 */ 3 years* rdict-entry
+  0 4 years* 86400 + rdict-entry
+} : make-rdict2
 
-variable wallet2-start-at  wallet2-start-at 0!
-now 86400 / 1+ 86400 * wallet2-start-at !
+variable 'make-rdict
+{ 'make-rdict @ execute } : make-rdict
+
+variable rwallet-start-at  rwallet-start-at 0!
+now 86400 / 1+ 86400 * rwallet-start-at !
+
 // pubkey amount --
 { over ."Key " pubkey>$ type ." -> "
   RWCode2  // code
-  <b 1 32 u, 3 pick 256 u, 3 roll wallet2-start-at @ 32 u, make-rdict dict, b>  // data
+  <b 1 32 u, 3 pick 256 u, rwallet-start-at @ 32 u, 
+     3 roll make-rdict dict, b>  // data
   empty_cell  // libs
   3 roll  // balance
   0 // split_depth
@@ -273,8 +330,42 @@ now 86400 / 1+ 86400 * wallet2-start-at !
   Masterchain swap 6 .Addr cr
 } : create-wallet2
 
+variable rwallet-init-pubkey
+
+// pubkey -- addr
+{ RWCode3  // code
+  <b 0 32 u, default-subwallet-id 32 u,
+     rwallet-init-pubkey @ 256 u,
+     rot 256 u,
+  b> // data
+  empty_cell  // libs
+  0  // balance
+  0 0 0 register_smc  // compute address only
+} : precompute-wallet3-addr
+
+variable w3-addr
+
+// pubkey amount 'rdict --
+{ 'make-rdict ! over precompute-wallet3-addr w3-addr !
+  over ."RW3 Key " pubkey>$ type space dup .GR ." -> "
+  RWCode3  // code
+  <b 1 32 u, default-subwallet-id 32 u, 3 roll 256 u, rwallet-start-at @ 32 u,
+  2 pick make-rdict dict, b>  // data
+  empty_cell  // libs
+  3 roll  // balance
+  0 // split_depth
+  0 // ticktock
+  w3-addr @  // address
+  6 // mode: create+setaddr
+  register_smc
+  Masterchain swap 6 .Addr cr
+} : create-wallet3-internal
+
+{ ' make-rdict1 create-wallet3-internal } : create-wallet3
+{ ' make-rdict2 create-wallet3-internal } : create-wallet3b
+
 // pubkey amount
-{ over ."Key " pubkey>$ type ." -> "
+{ over ."Key " pubkey>$ type space dup .GR ." -> "
   WCode0  // code
   <b 1 32 u, 3 roll 256 u, b>  // data
   empty_cell  // libs
@@ -284,7 +375,7 @@ now 86400 / 1+ 86400 * wallet2-start-at !
   2 // mode: create
   register_smc
   Masterchain swap 6 .Addr cr
-} : create-wallet0
+} : create-wallet0a
 
 { dup tlb-type-lookup { nip } { "unknown TLB type " swap $+ abort } cond } : $>tlb
 { bl word $>tlb 1 'nop } ::_ tlb:
