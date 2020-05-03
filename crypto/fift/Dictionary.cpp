@@ -24,9 +24,48 @@ namespace fift {
 // WordDef
 //
 void WordDef::run(IntCtx& ctx) const {
-  auto next = run_tail(ctx);
-  while (next.not_null()) {
-    next = next->run_tail(ctx);
+  bool loop_provoked = false;
+  auto stkcpy = ctx.tracing_stack() ? 
+        vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
+  try {
+    auto next = run_tail(ctx);
+    while (next.not_null()) {
+      auto curr = next;
+      auto stkcpy_ = ctx.tracing_stack() ? 
+        vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
+      try {
+        next = next->run_tail(ctx);
+      } catch (...) {
+        if (ctx.tracing_errors()) {
+          std::ostringstream stko;
+          if (ctx.tracing_stack()) {
+            stko << "\n\tStack dump: ";
+            for (int i = stkcpy_.depth(); i > 0; i--) {
+              stkcpy_[i - 1].dump(stko); stko << ' ';
+            }
+          }
+          LOG(INFO) << "Backtrace: "
+            << ctx.dictionary->reverse_lookup(curr.get()) 
+            << "(word execution)" << stko.str();
+          loop_provoked = true;
+        }
+        throw;
+      }
+    }
+  } catch (...) {
+    if (ctx.tracing_errors() && !loop_provoked) {
+      std::ostringstream stko;
+      if (ctx.tracing_stack()) {
+        stko << "\n\tStack dump: ";
+        for (int i = stkcpy.depth(); i > 0; i--) {
+          stkcpy[i - 1].dump(stko); stko << ' ';
+        }
+      }
+      LOG(INFO) << "Backtrace: "
+        << ctx.dictionary->reverse_lookup(this) 
+        << "(word execution)" << stko.str();
+    }
+    throw;
   }
 }
 
@@ -78,7 +117,38 @@ Ref<WordDef> WordList::run_tail(IntCtx& ctx) const {
   }
   auto it = list.cbegin(), it2 = list.cend() - 1;
   while (it < it2) {
-    (*it)->run(ctx);
+    auto stkcpy = ctx.tracing_stack() ? 
+        vm::Stack(ctx.stack, ctx.stack.depth(), 0) : std::move(ctx.stack) ;
+    try {
+      (*it)->run(ctx);
+    } catch (...) {
+        if (ctx.tracing_errors()) {
+          std::ostringstream wl;
+          std::streampos offset = 0;
+          std::size_t offlen = 0;
+          auto iit = list.cbegin();
+          while (iit != list.cend()) {
+            if (iit == it) offset = wl.tellp();
+            std::string name = ctx.dictionary->reverse_lookup(iit->get());
+            wl << name;
+            if (iit == it) offlen = name.length() - 1;
+            ++iit;
+          }
+          std::ostringstream stko;
+          if (ctx.tracing_stack()) {
+            stko << "\n\tStack dump: ";
+            for (int i = stkcpy.depth(); i > 0; i--) {
+              stkcpy[i - 1].dump(stko); stko << ' ';
+            }
+          }
+          auto current = ctx.dictionary->reverse_lookup(this);
+          auto spaces = std::string(current.size() + 4 + offset, ' ');
+          LOG(WARNING) << "Backtrace (word list execution):"
+            << "\n\t" << current << ": { " << wl.str() << "}"
+            << "\n\t" << spaces + std::string(std::max(offlen, 1ul), '^') << stko.str();
+        }
+        throw;
+    }
     ++it;
   }
   return *it;
@@ -134,6 +204,25 @@ WordRef* Dictionary::lookup(td::Slice name) {
     return nullptr;
   }
   return &it->second;
+}
+
+std::string Dictionary::reverse_lookup(const WordDef* ref) {
+  auto it = words_.crbegin();
+  while (it != words_.crend()) {
+    if (it->second.get_def().get() == ref)
+      return it->first;
+    ++it;
+  }
+  auto base_addr = (long long)(words_.crbegin()->second.get_def().get());
+  std::ostringstream os;
+  auto addr = (long long) ref;
+  //if (ref->inner_addr())
+  //  addr = ref->inner_addr();
+  os << "{" << std::hex 
+     << ((addr - base_addr) / 0x10 % 0x10000) 
+     << "} ";
+  std::string str = os.str();
+  return str;
 }
 
 void Dictionary::def_ctx_word(std::string name, CtxWordFunc func) {

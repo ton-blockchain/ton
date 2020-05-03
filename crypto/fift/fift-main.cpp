@@ -65,7 +65,8 @@ void usage(const char* progname) {
                "\t-L<library-fif-file>\tPre-loads a library source file\n"
                "\t-d<ton-db-path>\tUse a ton database\n"
                "\t-s\tScript mode: use first argument as a fift source file and import remaining arguments as $n)\n"
-               "\t-v<verbosity-level>\tSet verbosity level\n";
+               "\t-v<verbosity-level>\tSet verbosity level\n"
+               "\t-t\tEnables detailed error backtrace on exception (twice for stack dumps)\n";
   std::exit(2);
 }
 
@@ -84,6 +85,8 @@ int main(int argc, char* const argv[]) {
   bool interactive = false;
   bool fift_preload = true, no_env = false;
   bool script_mode = false;
+  bool trace_errors = false;
+  bool trace_stack = false;
   std::vector<std::string> library_source_files, source_list;
   std::vector<std::string> source_include_path;
   std::string ton_db_path;
@@ -92,7 +95,7 @@ int main(int argc, char* const argv[]) {
 
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  while (!script_mode && (i = getopt(argc, argv, "hinI:L:d:sv:")) != -1) {
+  while (!script_mode && (i = getopt(argc, argv, "hinI:L:d:sv:t")) != -1) {
     switch (i) {
       case 'i':
         interactive = true;
@@ -115,6 +118,11 @@ int main(int argc, char* const argv[]) {
         break;
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + td::to_integer<int>(td::Slice(optarg));
+        break;
+      case 't':
+        if (trace_errors)
+          trace_stack = true;
+        trace_errors = true;
         break;
       case 'h':
       default:
@@ -163,6 +171,9 @@ int main(int argc, char* const argv[]) {
     fift::import_cmdline_args(config.dictionary, source_list.empty() ? "" : source_list[0], argc - optind,
                               argv + optind);
   }
+
+  config.trace_errors = trace_errors;
+  config.trace_stack = trace_stack;
 
   fift::Fift fift(std::move(config));
 
