@@ -1507,14 +1507,9 @@ const ValidatorSessionState* ValidatorSessionState::make_one(ValidatorSessionDes
     return state;
   }
   made = true;
-  auto old = state->old_rounds_;
-  if (made && round->check_block_is_signed(desc)) {
-    old = CntVector<const ValidatorSessionOldRoundState*>::push(desc, old, round->get_seqno(),
-                                                                ValidatorSessionOldRoundState::create(desc, round));
-    round = ValidatorSessionRoundState::create(desc, round->get_seqno());
-  }
+  CHECK(!round->check_block_is_signed(desc));
 
-  return ValidatorSessionState::create(desc, std::move(ts_vec), std::move(old), std::move(round));
+  return ValidatorSessionState::create(desc, std::move(ts_vec), state->old_rounds_, std::move(round));
 }
 
 const SentBlock* ValidatorSessionState::get_committed_block(ValidatorSessionDescription& desc, td::uint32 seqno) const {

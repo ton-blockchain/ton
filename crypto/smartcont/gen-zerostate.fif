@@ -8,7 +8,8 @@ def? $1 { @' $1 } { "" } cond constant suffix
 256 1<<1- 15 / constant AllOnes
 
 wc_master setworkchain
--239 setglobalid   // negative value means a test instance of the blockchain
+13 setglobalid   // negative value means a test instance of the blockchain
+0x11EF55AA default-subwallet-id!  // use this subwallet id in user wallets by default
 
 // Initial state of Workchain 0 (Basic workchain)
 
@@ -29,109 +30,56 @@ hashu dup =: basestate0_rhash
 basestate0_rhash basestate0_fhash now 0 4 8 0 add-std-workchain
 config.workchains!
 
-// SmartContract #1 (Simple wallet)
+/*
+ *
+ *  Initial wallets (test)
+ *
+ */
 
-<{ SETCP0 DUP IFNOTRET // return if recv_internal
-   DUP 85143 INT EQUAL IFJMP:<{ // "seqno" get-method
-     DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
-   }>
-   INC 32 THROWIF  // fail unless recv_external
-   512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
-   c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
-   s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
-   EQUAL 33 THROWIFNOT   // ( seqno mismatch? )
-   s2 PUSH HASHSU        // sign cs cnt pubk hash
-   s0 s4 s4 XC2PU        // pubk cs cnt hash sign pubk
-   CHKSIGNU              // pubk cs cnt ?
-   34 THROWIFNOT         // signature mismatch
-   ACCEPT
-   SWAP 32 LDU NIP 8 LDU LDREF ENDS      // pubk cnt mode msg
-   SWAP SENDRAWMSG       // pubk cnt ; ( message sent )
-   INC NEWC 32 STU 256 STU ENDC c4 POPCTR
-}>c
-// code
-<b 0 32 u, 
+// Stage 1 wallets
+
+PK'Puasxr0QfFZZnYISRphVse7XHKfW7pZU5SJarVHXvQ+rpzkD rwallet-init-pubkey !
+-86400 rwallet-start-at +!
+
+{ swap create-wallet3 } : stage1
+{ bl word $>GR bl word parse-pubkey } : parse-amount-pubkey
+{ parse-amount-pubkey stage1 } : StA
+
+// test
+StA 1001 PuZ8WoEOTgSR8-HopmCIVlOVSL94tNn9zgraiJqMk1SnioEQ
+
+// Stage 2 wallets
+
+{ swap create-wallet0 } : stage2
+{ parse-amount-pubkey stage2 } : StB
+
+// test
+StB 999. PubMMGvqM08jx_6BibYldMclwjl-D88r7-u0_IEcDXHA30-G
+
+// Lockdowns
+
+{ swap create-wallet3b } : stage3
+{ parse-amount-pubkey stage3 } : StC
+
+// SmartContract #1 (Advanced wallet)
+
+// Create new advanced wallet; code adapted from `auto/wallet3-code.fif`
+WCode3 // code
+<b 0 32 u, 0 32 u,  // subwallet-id=0
    "main-wallet" +suffix +".pk" load-generate-keypair drop
    B, 
 b> // data
-Libs{
-  x{ABACABADABACABA} s>c public_lib
-  x{1234} x{5678} |_ s>c private_lib
-}Libs  // libraries
-GR$4999990000 // balance
+empty_cell // libs
+GR$4999999000 allocated-balance - // balance
 0 // split_depth
 0 // ticktock
-AllOnes 0 * // address
+AllOnes 1 * // address
 6 // mode: create+setaddr
 register_smc
 dup make_special dup constant smc1_addr  
 Masterchain over 
-2dup ."wallet address = " .addr cr 2dup 6 .Addr cr
+2dup ."main wallet address = " .addr cr 2dup 6 .Addr cr
 "main-wallet" +suffix +".addr" save-address-verbose
-
-// SmartContract #2 (Simple money giver for test network)
-<{ SETCP0 DUP IFNOTRET // return if recv_internal
-   DUP 85143 INT EQUAL IFJMP:<{    // "seqno" get-method
-     DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
-   }>
-   INC 32 THROWIF    // fail unless recv_external
-   32 LDU SWAP                         // cs cnt
-   c4 PUSHCTR CTOS 32 LDU ENDS         // cs cnt cnt'
-   TUCK EQUAL 33 THROWIFNOT            // ( seqno mismatch? )
-   ACCEPT                              // cs cnt'
-   SWAP 8 LDU LDREF ENDS               // cnt'' mode msg
-   GR$20 INT 3 INT RAWRESERVE          // reserve all but 20 Grams from the balance
-   SWAP SENDRAWMSG
-   INC NEWC 32 STU ENDC c4 POPCTR      // store cnt''
-}>c
-// code
-<b 0 32 u, b> // data
-empty_cell    // libraries
-GR$1000       // initial balance (1k test Grams)
-0 0 AllOnes 6 * 6 register_smc
-dup make_special dup constant smc2_addr
-Masterchain over 
-2dup ."free test gram giver address = " .addr cr 2dup 6 .Addr cr
-"testgiver" +suffix +".addr" save-address-verbose
-
-// SmartContract #3
-PROGRAM{
-  recv_internal x{} PROC
-  run_ticktock PROC:<{
-    c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS
-    NEWC ROT INC 32 STUR OVER 256 STUR ENDC
-    c4 POPCTR
-    // first 32 bits of persistent data have been increased
-    // remaining 256 bits with an address have been fetched
-    // create new empty message with 0.1 Grams to that address
-    NEWC b{00100010011111111} STSLICECONST TUCK 256 STU
-    100000000 INT STGRAMS  // store 0.1 Grams
-    1 4 + 4 + 64 + 32 + 1+ 1+ INT STZEROES ENDC
-    // send raw message from Cell
-    ZERO SENDRAWMSG
-    -17 INT 256 STIR 130000000 INT STGRAMS
-    107 INT STZEROES ENDC 
-    ZERO // another message with 0.13 Grams to account -17
-    NEWC b{11000100100000} "test" $>s |+ STSLICECONST
-    123456789 INT STGRAMS
-    107 INT STZEROES "Hello, world!" $>s STSLICECONST ENDC
-    ZERO SENDRAWMSG SENDRAWMSG // external message to address "test"
-  }>
-}END>c
-// code
-<b x{11EF55AA} s, smc1_addr 256 u, b> // data
-// empty_cell // libraries
-Libs{
-  x{ABACABADABACABA} s>c public_lib
-  x{1234} x{5678} |_ s>c public_lib
-}Libs  // libraries
-GR$666 // balance
-0 // split_depth
-3 // ticktock: tick
-2 // mode: create
-register_smc
-dup make_special dup constant smc3_addr
-."address = " 64x. cr
 
 /*
  *
@@ -141,7 +89,7 @@ dup make_special dup constant smc3_addr
 "auto/elector-code.fif" include   // code in separate source file
 <b 0 1 1+ 1+ 4 + 32 + u, 0 256 u, b>  // data: dict dict dict grams uint32 uint256
 empty_cell  // libraries
-GR$10  // balance: 10 grams
+GR$500  // balance: 500 grams
 0 // split_depth
 2 // ticktock: tick
 AllOnes 3 * // address: -1:333...333
@@ -196,7 +144,7 @@ config.special!
 triple dup untriple config.mc_block_limits!
 untriple config.block_limits!
 
-GR$1.7 GR$1 config.block_create_fees!
+GR$160 GR$100 config.block_create_fees!
 // smc1_addr config.collector_smc!
 smc1_addr config.minter_smc!
 
@@ -214,14 +162,26 @@ config.param_proposals_setup!
 // deposit bit_pps cell_pps
 GR$100 1 500 config.complaint_prices!
 
-"validator-keys" +suffix +".pub" file>B
-{ dup Blen } { 32 B| swap dup ."Validator public key = " Bx. cr
-  17 add-validator } while drop
+{ file>B { dup Blen } { 
+    32 B| swap dup ."Validator public key = " Bx. cr
+    17 add-validator
+  } while drop
+} : load-keys-from-file
+
+false =: keys-from-file
+keys-from-file
+{ "validator-keys" +suffix +".pub" load-keys-from-file
+} {
+  VPK'xrQTSOn2F9RjLgeHdSS0uIvde4Lv49l+/KXfJe0I7wYatz6e
+  B64{8E9AbL8blhRiBUoZt/b/vIo3+iZzglLKiL8MTf0g6Sg=} 256 B>u@
+  1 add-adnl-validator
+} cond
 // newkeypair nip dup ."Validator #1 public key = " Bx. cr 
 // 17 add-validator
 // newkeypair nip dup ."Validator #2 public key = " Bx. cr
 // 239 add-validator
-100000 =: orig_vset_valid_for  // original validator set valid 100000 seconds
+
+3000 =: orig_vset_valid_for  // original validator set valid 3000 seconds
 now dup orig_vset_valid_for + 0 config.validators!
 
 /*
@@ -237,24 +197,14 @@ now dup orig_vset_valid_for + 0 config.validators!
    dictnew dict,   // vote dict
 b> // data
 empty_cell  // libraries
-GR$10  // balance
+GR$500  // balance
 0 1 config_addr 6 register_smc  // tock
 dup set_config_smc
 Masterchain swap
 ."config smart contract address = " 2dup .addr cr 2dup 7 .Addr cr
 "config-master" +suffix +".addr" save-address-verbose
 // Other data
-
-/*
- *
- *  Initial wallets (test)
- *
- */
  
-// pubkey amount `create-wallet1` or pubkey amount `create-wallet2`
-PK'PuZPPXK5Rff9SvtoS7Y9lUuEixvy-J6aishYFj3Qn6P0pJMb GR$1000000000 create-wallet1
-PK'PuYiB1zAWzr4p8j6I681+sGUrRGcn6Ylf7vXl0xaUl/w6Xfg GR$1700000000 create-wallet0
-
 /*
  *
  *  Create state

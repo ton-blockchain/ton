@@ -1782,7 +1782,7 @@ void interpret_wordlist_begin_aux(vm::Stack& stack) {
 }
 
 void interpret_wordlist_begin(IntCtx& ctx) {
-  check_not_int_exec(ctx);
+  ctx.check_not_int_exec();
   interpret_wordlist_begin_aux(ctx.stack);
   push_argcount(ctx, 0);
   ++(ctx.state);
@@ -1795,20 +1795,20 @@ void interpret_wordlist_end_aux(vm::Stack& stack) {
 }
 
 void interpret_wordlist_end(IntCtx& ctx) {
-  check_compile(ctx);
+  ctx.check_compile();
   interpret_wordlist_end_aux(ctx.stack);
   push_argcount(ctx, 1);
   --(ctx.state);
 }
 
 void interpret_internal_interpret_begin(IntCtx& ctx) {
-  check_compile(ctx);
+  ctx.check_compile();
   push_argcount(ctx, 0);
   ctx.state = -ctx.state;
 }
 
 void interpret_internal_interpret_end(IntCtx& ctx) {
-  check_int_exec(ctx);
+  ctx.check_int_exec();
   ctx.state = -ctx.state;
   ctx.stack.push({vm::from_object, Dictionary::nop_word_def});
 }
@@ -1830,9 +1830,9 @@ void interpret_create_aux(IntCtx& ctx, int mode) {
   bool active = (mode & 1);
   auto entry = ctx.dictionary->lookup(word);
   if (entry) {
-    *entry = WordRef{wd_ref, active};  // redefine word
+    *entry = DictEntry{std::move(wd_ref), active};  // redefine word
   } else {
-    ctx.dictionary->def_word(std::move(word), {wd_ref, active});
+    ctx.dictionary->def_word(std::move(word), {std::move(wd_ref), active});
   }
 }
 

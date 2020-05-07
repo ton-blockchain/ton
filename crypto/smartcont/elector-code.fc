@@ -318,6 +318,19 @@ _ ~credit_to(credits, addr, amount) inline_ref {
   return (credits, recovered + tot_bonuses - returned_bonuses);
 }
 
+int stakes_sum(frozen_dict) inline_ref {
+  var total = 0;
+  var pubkey = -1;
+  do {
+    (pubkey, var cs, var f) = frozen_dict.udict_get_next?(256, pubkey);
+    if (f) {
+      cs~skip_bits(256 + 64);
+      total += cs~load_grams();
+    }
+  } until (~ f);
+  return total;
+}
+
 _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
   var (fs, f) = past_elections~udict_delete_get?(32, elect_id);
   ifnot (f) {
@@ -325,6 +338,7 @@ _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
     return (credits, past_elections, 0);
   }
   var (unfreeze_at, stake_held, vset_hash, fdict, tot_stakes, bonuses, complaints) = fs.unpack_past_election();
+  ;; tot_stakes = fdict.stakes_sum(); ;; TEMP BUGFIX
   var unused_prizes = (bonuses > 0) ?
     credits~unfreeze_with_bonuses(fdict, tot_stakes, bonuses) :
     credits~unfreeze_without_bonuses(fdict, tot_stakes);
@@ -468,7 +482,7 @@ int register_complaint(s_addr, complaint, msg_value) {
   var (_, bits, refs) = slice_compute_data_size(complaint, 4096);
   var pps = (bits + 1024) * bit_price + (refs + 2) * cell_price;
   paid = pps * expire_in + deposit;
-  if (paid + (1 << 30) < msg_value) { ;; not enough money
+  if (msg_value < paid + (1 << 30)) { ;; not enough money
     return -5;
   }
   ;; re-pack modified complaint
@@ -503,12 +517,12 @@ int register_complaint(s_addr, complaint, msg_value) {
   return paid;
 }
 
-(cell, cell, int) punish(credits, frozen, complaint) inline_ref {
+(cell, cell, int, int) punish(credits, frozen, complaint) inline_ref {
   var (validator_pubkey, description, created_at, severity, reward_addr, paid, suggested_fine, suggested_fine_part) = complaint.begin_parse().unpack_complaint();
   var (cs, f) = frozen.udict_get?(256, validator_pubkey);
   ifnot (f) {
     ;; no validator to punish
-    return (credits, frozen, 0);
+    return (credits, frozen, 0, 0);
   }
   var (addr, weight, stake, banned) = (cs~load_uint(256), cs~load_uint(64), cs~load_grams(), cs~load_int(1));
   cs.end_parse();
@@ -520,9 +534,8 @@ int register_complaint(s_addr, complaint, msg_value) {
     .store_grams(stake)
     .store_int(banned, 1));
   int reward = min(fine >> 3, paid * 8);
-  fine -= reward;
   credits~credit_to(reward_addr, reward);
-  return (credits, frozen, fine);
+  return (credits, frozen, fine - reward, fine);
 }
 
 (cell, cell, int) register_vote(complaints, chash, idx, weight) inline_ref {
@@ -534,7 +547,12 @@ int register_complaint(s_addr, complaint, msg_value) {
   var (cur_vset, total_weight, _) = get_current_vset();
   int cur_vset_id = cur_vset.cell_hash();
   var (complaint, voters, vset_id, weight_remaining) = unpack_complaint_status(cstatus);
-  if (vset_id != cur_vset_id) {
+  int vset_old? = (vset_id != cur_vset_id);
+  if ((weight_remaining < 0) & vset_old?) {
+    ;; previous validator set already collected 2/3 votes, skip new votes
+    return (complaints, null(), -3);
+  }
+  if (vset_old?) {
     ;; complaint votes belong to a previous validator set, reset voting
     vset_id = cur_vset_id;
     voters = null();
@@ -572,10 +590,11 @@ int proceed_register_vote(election_id, chash, idx, weight) impure inline_ref {
     return status;
   }
   ifnot (accepted_complaint.null?()) {
-    (credits, frozen_dict, int fine) = punish(credits, frozen_dict, accepted_complaint);
-    grams += fine;
+    (credits, frozen_dict, int fine_unalloc, int fine_collected) = punish(credits, frozen_dict, accepted_complaint);
+    grams += fine_unalloc;
+    total_stake -= fine_collected;
   }
-  past_elections.udict_set_builder(32, election_id, pack_past_election(unfreeze_at, stake_held, vset_hash, frozen_dict, total_stake, bonuses, complaints));
+  past_elections~udict_set_builder(32, election_id, pack_past_election(unfreeze_at, stake_held, vset_hash, frozen_dict, total_stake, bonuses, complaints));
   store_data(elect, credits, past_elections, grams, active_id, active_hash);
   return status;
 }

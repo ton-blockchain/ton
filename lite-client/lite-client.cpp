@@ -663,6 +663,32 @@ bool TestNode::parse_account_addr(ton::WorkchainId& wc, ton::StdSmcAddress& addr
   return block::parse_std_account_addr(word, wc, addr) || set_error("cannot parse account address");
 }
 
+bool TestNode::parse_account_addr_ext(ton::WorkchainId& wc, ton::StdSmcAddress& addr, int& addr_ext, bool allow_none) {
+  addr_ext = 0;
+  auto word = get_word();
+  if (allow_none && (word == "none" || word == "root")) {
+    wc = ton::workchainInvalid;
+    return true;
+  }
+  if (word == "config" || word == "elector" || word == "dnsroot") {
+    wc = ton::masterchainId;
+    addr.set_zero();
+    addr_ext = 1 + (word == "elector") + (word == "dnsroot") * 2;
+    if (addr_ext == 1 && config_addr_queried_) {
+      addr = config_addr_;
+      addr_ext = 0;
+    } else if (addr_ext == 2 && elect_addr_queried_) {
+      addr = elect_addr_;
+      addr_ext = 0;
+    } else if (addr_ext == 3 && dns_root_queried_) {
+      addr = dns_root_;
+      addr_ext = 0;
+    }
+    return true;
+  }
+  return block::parse_std_account_addr(word, wc, addr) || set_error("cannot parse account address");
+}
+
 bool TestNode::convert_uint64(td::Slice word, td::uint64& val) {
   val = ~0ULL;
   if (word.empty()) {
@@ -958,6 +984,7 @@ bool TestNode::show_help(std::string command) {
 
 bool TestNode::do_parse_line() {
   ton::WorkchainId workchain = ton::masterchainId;  // change to basechain later
+  int addr_ext = 0;
   ton::StdSmcAddress addr{};
   ton::BlockIdExt blkid{};
   ton::LogicalTime lt{};
@@ -977,21 +1004,22 @@ bool TestNode::do_parse_line() {
   } else if (word == "sendfile") {
     return !eoln() && set_error(send_ext_msg_from_filename(get_line_tail()));
   } else if (word == "getaccount") {
-    return parse_account_addr(workchain, addr) &&
-           (seekeoln() ? get_account_state(workchain, addr, mc_last_id_)
-                       : parse_block_id_ext(blkid) && seekeoln() && get_account_state(workchain, addr, blkid));
+    return parse_account_addr_ext(workchain, addr, addr_ext) &&
+           (seekeoln()
+                ? get_account_state(workchain, addr, mc_last_id_, addr_ext)
+                : parse_block_id_ext(blkid) && seekeoln() && get_account_state(workchain, addr, blkid, addr_ext));
   } else if (word == "saveaccount" || word == "saveaccountcode" || word == "saveaccountdata") {
     std::string filename;
     int mode = ((word.c_str()[11] >> 1) & 3);
-    return get_word_to(filename) && parse_account_addr(workchain, addr) &&
-           (seekeoln()
-                ? get_account_state(workchain, addr, mc_last_id_, filename, mode)
-                : parse_block_id_ext(blkid) && seekeoln() && get_account_state(workchain, addr, blkid, filename, mode));
+    return get_word_to(filename) && parse_account_addr_ext(workchain, addr, addr_ext) &&
+           (seekeoln() ? get_account_state(workchain, addr, mc_last_id_, addr_ext, filename, mode)
+                       : parse_block_id_ext(blkid) && seekeoln() &&
+                             get_account_state(workchain, addr, blkid, addr_ext, filename, mode));
   } else if (word == "runmethod" || word == "runmethodx" || word == "runmethodfull") {
     std::string method;
-    return parse_account_addr(workchain, addr) && get_word_to(method) &&
+    return parse_account_addr_ext(workchain, addr, addr_ext) && get_word_to(method) &&
            (parse_block_id_ext(method, blkid) ? get_word_to(method) : (blkid = mc_last_id_).is_valid()) &&
-           parse_run_method(workchain, addr, blkid, method, word.size() <= 10);
+           parse_run_method(workchain, addr, blkid, addr_ext, method, word.size() <= 10);
   } else if (word == "dnsresolve" || word == "dnsresolvestep") {
     workchain = ton::workchainInvalid;
     bool step = (word.size() > 10);
@@ -1141,12 +1169,21 @@ td::Status TestNode::send_ext_msg_from_filename(std::string filename) {
 }
 
 bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                                 std::string filename, int mode) {
+                                 int addr_ext, std::string filename, int mode) {
   if (!ref_blkid.is_valid()) {
     return set_error("must obtain last block information before making other queries");
   }
   if (!(ready_ && !client_.empty())) {
     return set_error("server connection not ready");
+  }
+  if (addr_ext) {
+    return get_special_smc_addr(addr_ext, [this, ref_blkid, filename, mode](td::Result<ton::StdSmcAddress> res) {
+      if (res.is_error()) {
+        LOG(ERROR) << "cannot resolve special smart contract address: " << res.move_as_error();
+      } else {
+        get_account_state(ton::masterchainId, res.move_as_ok(), ref_blkid, 0, filename, mode);
+      }
+    });
   }
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(workchain, addr);
   auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
@@ -1190,12 +1227,27 @@ bool TestNode::cache_cell(Ref<vm::Cell> cell) {
 }
 
 bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                                std::string method_name, bool ext_mode) {
+                                int addr_ext, std::string method_name, bool ext_mode) {
   auto R = vm::parse_stack_entries(td::Slice(parse_ptr_, parse_end_));
   if (R.is_error()) {
     return set_error(R.move_as_error().to_string());
   }
   parse_ptr_ = parse_end_;
+  if (addr_ext) {
+    return get_special_smc_addr(addr_ext, [this, ref_blkid, method_name, ext_mode,
+                                           args = R.move_as_ok()](td::Result<ton::StdSmcAddress> res) mutable {
+      if (res.is_error()) {
+        LOG(ERROR) << "cannot resolve special smart contract address: " << res.move_as_error();
+      } else {
+        after_parse_run_method(ton::masterchainId, res.move_as_ok(), ref_blkid, method_name, std::move(args), ext_mode);
+      }
+    });
+  }
+  return after_parse_run_method(workchain, addr, ref_blkid, method_name, R.move_as_ok(), ext_mode);
+}
+
+bool TestNode::after_parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
+                                      std::string method_name, std::vector<vm::StackEntry> params, bool ext_mode) {
   auto P = td::PromiseCreator::lambda([this](td::Result<std::vector<vm::StackEntry>> R) {
     if (R.is_error()) {
       LOG(ERROR) << R.move_as_error();
@@ -1209,7 +1261,8 @@ bool TestNode::parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress a
       }
     }
   });
-  return start_run_method(workchain, addr, ref_blkid, method_name, R.move_as_ok(), ext_mode ? 0x1f : 0, std::move(P));
+  return start_run_method(workchain, addr, ref_blkid, method_name, std::move(params), ext_mode ? 0x1f : 0,
+                          std::move(P));
 }
 
 bool TestNode::start_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
@@ -1293,6 +1346,23 @@ bool TestNode::start_run_method(ton::WorkchainId workchain, ton::StdSmcAddress a
   }
 }
 
+bool TestNode::get_config_addr(td::Promise<ton::StdSmcAddress> promise) {
+  if (config_addr_queried_) {
+    promise.set_result(config_addr_);
+    return true;
+  }
+  auto P = td::PromiseCreator::lambda([this, promise = std::move(promise)](
+                                          td::Result<std::unique_ptr<block::Config>> R) mutable {
+    TRY_RESULT_PROMISE_PREFIX(promise, config, std::move(R), "cannot obtain configurator address from configuration:");
+    if (config_addr_queried_) {
+      promise.set_result(config_addr_);
+    } else {
+      promise.set_error(td::Status::Error("cannot obtain configurator address from configuration parameter #0"));
+    }
+  });
+  return get_config_params(mc_last_id_, std::move(P), 0x3000, "", {0});
+}
+
 bool TestNode::get_elector_addr(td::Promise<ton::StdSmcAddress> promise) {
   if (elect_addr_queried_) {
     promise.set_result(elect_addr_);
@@ -1308,6 +1378,37 @@ bool TestNode::get_elector_addr(td::Promise<ton::StdSmcAddress> promise) {
         }
       });
   return get_config_params(mc_last_id_, std::move(P), 0x3000, "", {1});
+}
+
+bool TestNode::get_dns_root(td::Promise<ton::StdSmcAddress> promise) {
+  if (dns_root_queried_) {
+    promise.set_result(dns_root_);
+    return true;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [this, promise = std::move(promise)](td::Result<std::unique_ptr<block::Config>> R) mutable {
+        TRY_RESULT_PROMISE_PREFIX(promise, config, std::move(R), "cannot obtain dns root address from configuration:");
+        if (dns_root_queried_) {
+          promise.set_result(dns_root_);
+        } else {
+          promise.set_error(td::Status::Error("cannot obtain dns root address from configuration parameter #4"));
+        }
+      });
+  return get_config_params(mc_last_id_, std::move(P), 0x3000, "", {4});
+}
+
+bool TestNode::get_special_smc_addr(int addr_ext, td::Promise<ton::StdSmcAddress> promise) {
+  switch (addr_ext) {
+    case 1:
+      return get_config_addr(std::move(promise));
+    case 2:
+      return get_elector_addr(std::move(promise));
+    case 3:
+      return get_dns_root(std::move(promise));
+    default:
+      promise.set_error(td::Status::Error(PSLICE() << "unknown special smart contract address class " << addr_ext));
+      return false;
+  }
 }
 
 bool TestNode::get_past_validator_sets() {
@@ -1427,7 +1528,7 @@ void TestNode::save_complaints(unsigned elect_id, Ref<vm::Cell> complaints, std:
     }
     LOG(DEBUG) << "saved " << len << " bytes into file `" << filename << "`";
     td::TerminalIO::out() << "SAVE_COMPLAINT\t" << elect_id << '\t' << entry.first.to_hex(256) << '\t'
-                          << rec2.validator_pubkey.to_hex() << '\t' << rec2.created_at << '\t' << filename;
+                          << rec2.validator_pubkey.to_hex() << '\t' << rec2.created_at << '\t' << filename << std::endl;
   }
 }
 
@@ -2609,12 +2710,15 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
 }
 
 bool TestNode::register_config_param(int idx, Ref<vm::Cell> value) {
-  if (idx == 1) {
-    return register_config_param1(std::move(value));
-  } else if (idx == 4) {
-    return register_config_param4(std::move(value));
-  } else {
-    return true;
+  switch (idx) {
+    case 0:
+      return register_config_param0(std::move(value));
+    case 1:
+      return register_config_param1(std::move(value));
+    case 4:
+      return register_config_param4(std::move(value));
+    default:
+      return true;
   }
 }
 
@@ -2647,6 +2751,24 @@ bool TestNode::register_config_param1(Ref<vm::Cell> value) {
     if (elect_addr_ != addr) {
       elect_addr_ = addr;
       LOG(INFO) << "elector smart contract address set to -1:" << addr.to_hex();
+    }
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool TestNode::register_config_param0(Ref<vm::Cell> value) {
+  if (value.is_null()) {
+    return false;
+  }
+  vm::CellSlice cs{vm::NoVmOrd(), std::move(value)};
+  ton::StdSmcAddress addr;
+  if (cs.size_ext() == 256 && cs.fetch_bits_to(addr)) {
+    config_addr_queried_ = true;
+    if (config_addr_ != addr) {
+      config_addr_ = addr;
+      LOG(INFO) << "configuration smart contract address set to -1:" << addr.to_hex();
     }
     return true;
   } else {

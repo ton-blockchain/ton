@@ -68,8 +68,8 @@ class TestNode : public td::actor::Actor {
   ton::BlockIdExt last_block_id_, last_state_id_;
   td::BufferSlice last_block_data_, last_state_data_;
 
-  ton::StdSmcAddress dns_root_, elect_addr_;
-  bool dns_root_queried_{false}, elect_addr_queried_{false};
+  ton::StdSmcAddress dns_root_, elect_addr_, config_addr_;
+  bool dns_root_queried_{false}, elect_addr_queried_{false}, config_addr_queried_{false};
 
   std::string line_;
   const char *parse_ptr_, *parse_end_;
@@ -191,12 +191,14 @@ class TestNode : public td::actor::Actor {
   td::Status send_ext_msg_from_filename(std::string filename);
   td::Status save_db_file(ton::FileHash file_hash, td::BufferSlice data);
   bool get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                         std::string filename = "", int mode = -1);
+                         int addr_ext = 0, std::string filename = "", int mode = -1);
   void got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
                          td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
                          ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string filename, int mode);
-  bool parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
+  bool parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid, int addr_ext,
                         std::string method_name, bool ext_mode);
+  bool after_parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
+                              std::string method_name, std::vector<vm::StackEntry> params, bool ext_mode);
   bool start_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
                         std::string method_name, std::vector<vm::StackEntry> params, int mode,
                         td::Promise<std::vector<vm::StackEntry>> promise);
@@ -207,6 +209,7 @@ class TestNode : public td::actor::Actor {
                       td::BufferSlice remote_result, int remote_exit_code,
                       td::Promise<std::vector<vm::StackEntry>> promise);
   bool register_config_param(int idx, Ref<vm::Cell> value);
+  bool register_config_param0(Ref<vm::Cell> value);
   bool register_config_param1(Ref<vm::Cell> value);
   bool register_config_param4(Ref<vm::Cell> value);
   bool dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid, std::string domain,
@@ -283,7 +286,10 @@ class TestNode : public td::actor::Actor {
                                         ton::Bits256 vset_hash = ton::Bits256::zero());
   td::Status continue_check_validator_load_proof(std::unique_ptr<ValidatorLoadInfo> info1,
                                                  std::unique_ptr<ValidatorLoadInfo> info2, Ref<vm::Cell> root);
+  bool get_config_addr(td::Promise<ton::StdSmcAddress> promise);
   bool get_elector_addr(td::Promise<ton::StdSmcAddress> promise);
+  bool get_dns_root(td::Promise<ton::StdSmcAddress> promise);
+  bool get_special_smc_addr(int addr_ext, td::Promise<ton::StdSmcAddress> promise);
   bool get_past_validator_sets();
   bool send_past_vset_query(ton::StdSmcAddress elector_addr);
   void register_past_vset_info(vm::StackEntry list);
@@ -313,6 +319,7 @@ class TestNode : public td::actor::Actor {
   bool set_error(std::string err_msg);
   void show_context() const;
   bool parse_account_addr(ton::WorkchainId& wc, ton::StdSmcAddress& addr, bool allow_none = false);
+  bool parse_account_addr_ext(ton::WorkchainId& wc, ton::StdSmcAddress& addr, int& addr_ext, bool allow_none = false);
   static int parse_hex_digit(int c);
   static bool parse_hash(const char* str, ton::Bits256& hash);
   static bool parse_hash(td::Slice str, ton::Bits256& hash);

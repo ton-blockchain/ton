@@ -956,9 +956,131 @@ class ValidatorProposalVoteCreator : public td::actor::Actor {
 
   td::Promise<td::BufferSlice> promise_;
 
-  td::uint32 ttl_;
-  AdnlCategory cat_ = 2;
-  double frac = 2.7;
+  ton::PublicKeyHash perm_key_;
+  ton::PublicKey perm_key_full_;
+  ton::adnl::AdnlNodeIdShort adnl_addr_;
+  ton::adnl::AdnlNodeIdFull adnl_key_full_;
+};
+
+class ValidatorPunishVoteCreator : public td::actor::Actor {
+ public:
+  ValidatorPunishVoteCreator(td::uint32 election_id, td::BufferSlice proposal, std::string dir,
+                             td::actor::ActorId<ValidatorEngine> engine,
+                             td::actor::ActorId<ton::keyring::Keyring> keyring, td::Promise<td::BufferSlice> promise)
+      : election_id_(election_id)
+      , proposal_(std::move(proposal))
+      , dir_(std::move(dir))
+      , engine_(engine)
+      , keyring_(keyring)
+      , promise_(std::move(promise)) {
+  }
+
+  void start_up() override {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::pair<ton::PublicKey, size_t>> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &ValidatorPunishVoteCreator::abort_query,
+                                R.move_as_error_prefix("failed to find self permanent key: "));
+      } else {
+        auto v = R.move_as_ok();
+        td::actor::send_closure(SelfId, &ValidatorPunishVoteCreator::got_id, v.first, v.second);
+      }
+    });
+    td::actor::send_closure(engine_, &ValidatorEngine::get_current_validator_perm_key, std::move(P));
+  }
+
+  void got_id(ton::PublicKey pubkey, size_t idx) {
+    pubkey_ = std::move(pubkey);
+    idx_ = idx;
+    auto codeR = td::read_file_str(dir_ + "/complaint-vote-req.fif");
+    if (codeR.is_error()) {
+      abort_query(codeR.move_as_error_prefix("fif not found (complaint-vote-req.fif)"));
+      return;
+    }
+    auto data = proposal_.as_slice().str();
+    auto R = fift::mem_run_fift(codeR.move_as_ok(),
+                                {"complaint-vote-req.fif", td::to_string(idx_), td::to_string(election_id_), data},
+                                dir_ + "/");
+    if (R.is_error()) {
+      abort_query(R.move_as_error_prefix("fift fail (complaint-vote-req.fif)"));
+      return;
+    }
+    auto res = R.move_as_ok();
+    auto to_signR = res.source_lookup.read_file("validator-to-sign.req");
+    if (to_signR.is_error()) {
+      abort_query(td::Status::Error(PSTRING() << "strange error: no to sign file. Output: " << res.output));
+      return;
+    }
+    auto to_sign = td::BufferSlice{to_signR.move_as_ok().data};
+
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &ValidatorPunishVoteCreator::abort_query,
+                                R.move_as_error_prefix("sign fail: "));
+      } else {
+        td::actor::send_closure(SelfId, &ValidatorPunishVoteCreator::signed_vote, R.move_as_ok());
+      }
+    });
+
+    td::actor::send_closure(keyring_, &ton::keyring::Keyring::sign_message, pubkey_.compute_short_id(),
+                            std::move(to_sign), std::move(P));
+  }
+
+  void signed_vote(td::BufferSlice signature) {
+    signature_ = std::move(signature);
+
+    auto codeR = td::read_file_str(dir_ + "/complaint-vote-signed.fif");
+    if (codeR.is_error()) {
+      abort_query(codeR.move_as_error_prefix("fif not found (complaint-vote-signed.fif)"));
+      return;
+    }
+
+    auto key = td::base64_encode(pubkey_.export_as_slice().as_slice());
+    auto sig = td::base64_encode(signature_.as_slice());
+
+    auto data = proposal_.as_slice().str();
+    auto R = fift::mem_run_fift(
+        codeR.move_as_ok(),
+        {"complaint-vote-signed.fif", td::to_string(idx_), td::to_string(election_id_), data, key, sig}, dir_ + "/");
+    if (R.is_error()) {
+      abort_query(R.move_as_error_prefix("fift fail (complaint-vote-signed.fif)"));
+      return;
+    }
+
+    auto res = R.move_as_ok();
+    auto dataR = res.source_lookup.read_file("vote-query.boc");
+    if (dataR.is_error()) {
+      abort_query(td::Status::Error("strage error: no result boc"));
+      return;
+    }
+
+    result_ = td::BufferSlice(dataR.move_as_ok().data);
+    finish_query();
+  }
+
+  void abort_query(td::Status error) {
+    promise_.set_value(ValidatorEngine::create_control_query_error(std::move(error)));
+    stop();
+  }
+  void finish_query() {
+    promise_.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_proposalVote>(
+        pubkey_.compute_short_id().bits256_value(), std::move(result_)));
+    stop();
+  }
+
+ private:
+  td::uint32 election_id_;
+  td::BufferSlice proposal_;
+  std::string dir_;
+
+  ton::PublicKey pubkey_;
+  size_t idx_;
+
+  td::BufferSlice signature_;
+  td::BufferSlice result_;
+  td::actor::ActorId<ValidatorEngine> engine_;
+  td::actor::ActorId<ton::keyring::Keyring> keyring_;
+
+  td::Promise<td::BufferSlice> promise_;
 
   ton::PublicKeyHash perm_key_;
   ton::PublicKey perm_key_full_;
@@ -2985,6 +3107,32 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createPro
 
   td::actor::create_actor<ValidatorProposalVoteCreator>("votecreate", std::move(query.vote_), fift_dir_, actor_id(this),
                                                         keyring_.get(), std::move(promise))
+      .release();
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createComplaintVote &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  if (fift_dir_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no fift dir")));
+    return;
+  }
+
+  td::actor::create_actor<ValidatorPunishVoteCreator>("votecomplaintcreate", query.election_id_, std::move(query.vote_),
+                                                      fift_dir_, actor_id(this), keyring_.get(), std::move(promise))
       .release();
 }
 

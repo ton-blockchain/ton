@@ -171,26 +171,26 @@ void IntCtx::skipspc(bool skip_eol) {
   } while (load_next_line());
 }
 
-void check_compile(const IntCtx& ctx) {
-  if (ctx.state <= 0) {
+void IntCtx::check_compile() const {
+  if (state <= 0) {
     throw IntError{"compilation mode only"};
   }
 }
 
-void check_execute(const IntCtx& ctx) {
-  if (ctx.state != 0) {
+void IntCtx::check_execute() const {
+  if (state != 0) {
     throw IntError{"interpret mode only"};
   }
 }
 
-void check_not_int_exec(const IntCtx& ctx) {
-  if (ctx.state < 0) {
+void IntCtx::check_not_int_exec() const {
+  if (state < 0) {
     throw IntError{"not allowed in internal interpret mode"};
   }
 }
 
-void check_int_exec(const IntCtx& ctx) {
-  if (ctx.state >= 0) {
+void IntCtx::check_int_exec() const {
+  if (state >= 0) {
     throw IntError{"internal interpret mode only"};
   }
 }

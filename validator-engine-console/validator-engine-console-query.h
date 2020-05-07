@@ -858,6 +858,30 @@ class CreateProposalVoteQuery : public Query {
   std::string fname_;
 };
 
+class CreateComplaintVoteQuery : public Query {
+ public:
+  CreateComplaintVoteQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "createcomplaintvote";
+  }
+  static std::string get_help() {
+    return "createcomplaintvote <election-id> <data> <fname>\tcreate proposal vote";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::uint32 election_id_;
+  std::string data_;
+  std::string fname_;
+};
+
 class CheckDhtServersQuery : public Query {
  public:
   CheckDhtServersQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

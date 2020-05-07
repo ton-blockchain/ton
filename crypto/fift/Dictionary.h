@@ -110,34 +110,34 @@ class WordList : public WordDef {
   }
 };
 
-class WordRef {
+class DictEntry {
   Ref<WordDef> def;
   bool active;
 
  public:
-  WordRef() = delete;
-  WordRef(const WordRef& ref) = default;
-  WordRef(WordRef&& ref) = default;
-  WordRef(Ref<WordDef> _def, bool _act = false);
-  WordRef(StackWordFunc func);
-  WordRef(CtxWordFunc func, bool _act = false);
-  WordRef(CtxTailWordFunc func, bool _act = false);
-  //WordRef(const std::vector<Ref<WordDef>>& word_list);
-  //WordRef(std::vector<Ref<WordDef>>&& word_list);
-  WordRef& operator=(const WordRef&) = default;
-  WordRef& operator=(WordRef&&) = default;
-  Ref<WordDef> get_def() const &;
+  DictEntry() = delete;
+  DictEntry(const DictEntry& ref) = default;
+  DictEntry(DictEntry&& ref) = default;
+  DictEntry(Ref<WordDef> _def, bool _act = false);
+  DictEntry(StackWordFunc func);
+  DictEntry(CtxWordFunc func, bool _act = false);
+  DictEntry(CtxTailWordFunc func, bool _act = false);
+  //DictEntry(const std::vector<Ref<WordDef>>& word_list);
+  //DictEntry(std::vector<Ref<WordDef>>&& word_list);
+  DictEntry& operator=(const DictEntry&) = default;
+  DictEntry& operator=(DictEntry&&) = default;
+  Ref<WordDef> get_def() const&;
   Ref<WordDef> get_def() &&;
   void operator()(IntCtx& ctx) const;
   bool is_active() const;
-  ~WordRef() = default;
+  ~DictEntry() = default;
 };
 
 /*
-WordRef::WordRef(const std::vector<Ref<WordDef>>& word_list) : def(Ref<WordList>{true, word_list}) {
+DictEntry::DictEntry(const std::vector<Ref<WordDef>>& word_list) : def(Ref<WordList>{true, word_list}) {
 }
 
-WordRef::WordRef(std::vector<Ref<WordDef>>&& word_list) : def(Ref<WordList>{true, std::move(word_list)}) {
+DictEntry::DictEntry(std::vector<Ref<WordDef>>&& word_list) : def(Ref<WordList>{true, std::move(word_list)}) {
 }
 */
 
@@ -149,12 +149,12 @@ WordRef::WordRef(std::vector<Ref<WordDef>>&& word_list) : def(Ref<WordList>{true
 
 class Dictionary {
  public:
-  WordRef* lookup(td::Slice name);
+  DictEntry* lookup(td::Slice name);
   void def_ctx_word(std::string name, CtxWordFunc func);
   void def_ctx_tail_word(std::string name, CtxTailWordFunc func);
   void def_active_word(std::string name, CtxWordFunc func);
   void def_stack_word(std::string name, StackWordFunc func);
-  void def_word(std::string name, WordRef word);
+  void def_word(std::string name, DictEntry word);
   void undef_word(td::Slice name);
 
   auto begin() const {
@@ -167,7 +167,7 @@ class Dictionary {
   static Ref<WordDef> nop_word_def;
 
  private:
-  std::map<std::string, WordRef, std::less<>> words_;
+  std::map<std::string, DictEntry, std::less<>> words_;
 };
 
 /*

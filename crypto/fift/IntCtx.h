@@ -141,12 +141,12 @@ struct IntCtx {
     Savepoint(IntCtx& _ctx, std::string new_filename, std::string new_current_dir, std::istream* new_input_stream);
     ~Savepoint();
   };
-};
 
-void check_compile(const IntCtx& ctx);
-void check_execute(const IntCtx& ctx);
-void check_not_int_exec(const IntCtx& ctx);
-void check_int_exec(const IntCtx& ctx);
+  void check_compile() const;
+  void check_execute() const;
+  void check_not_int_exec() const;
+  void check_int_exec() const;
+};
 
 td::StringBuilder& operator<<(td::StringBuilder& os, const IntCtx& ctx);
 std::ostream& operator<<(std::ostream& os, const IntCtx& ctx);

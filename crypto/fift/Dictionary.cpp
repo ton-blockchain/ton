@@ -94,41 +94,41 @@ WordList& WordList::append(const std::vector<Ref<WordDef>>& other) {
 }
 
 //
-// WordRef
+// DictEntry
 //
 
-WordRef::WordRef(Ref<WordDef> _def, bool _act) : def(std::move(_def)), active(_act) {
+DictEntry::DictEntry(Ref<WordDef> _def, bool _act) : def(std::move(_def)), active(_act) {
 }
 
-WordRef::WordRef(StackWordFunc func) : def(Ref<StackWord>{true, std::move(func)}), active(false) {
+DictEntry::DictEntry(StackWordFunc func) : def(Ref<StackWord>{true, std::move(func)}), active(false) {
 }
 
-WordRef::WordRef(CtxWordFunc func, bool _act) : def(Ref<CtxWord>{true, std::move(func)}), active(_act) {
+DictEntry::DictEntry(CtxWordFunc func, bool _act) : def(Ref<CtxWord>{true, std::move(func)}), active(_act) {
 }
 
-WordRef::WordRef(CtxTailWordFunc func, bool _act) : def(Ref<CtxTailWord>{true, std::move(func)}), active(_act) {
+DictEntry::DictEntry(CtxTailWordFunc func, bool _act) : def(Ref<CtxTailWord>{true, std::move(func)}), active(_act) {
 }
 
-Ref<WordDef> WordRef::get_def() const & {
+Ref<WordDef> DictEntry::get_def() const& {
   return def;
 }
 
-Ref<WordDef> WordRef::get_def() && {
+Ref<WordDef> DictEntry::get_def() && {
   return std::move(def);
 }
 
-void WordRef::operator()(IntCtx& ctx) const {
+void DictEntry::operator()(IntCtx& ctx) const {
   def->run(ctx);
 }
 
-bool WordRef::is_active() const {
+bool DictEntry::is_active() const {
   return active;
 }
 
 //
 // Dictionary
 //
-WordRef* Dictionary::lookup(td::Slice name) {
+DictEntry* Dictionary::lookup(td::Slice name) {
   auto it = words_.find(name);
   if (it == words_.end()) {
     return nullptr;
@@ -153,7 +153,7 @@ void Dictionary::def_ctx_tail_word(std::string name, CtxTailWordFunc func) {
   def_word(std::move(name), std::move(func));
 }
 
-void Dictionary::def_word(std::string name, WordRef word) {
+void Dictionary::def_word(std::string name, DictEntry word) {
   auto res = words_.emplace(name, std::move(word));
   LOG_IF(FATAL, !res.second) << "Cannot redefine word: " << name;
 }

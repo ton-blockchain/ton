@@ -32,11 +32,11 @@ file>B B>boc dup =: complaint hash =: c-hash
 complaint <s 8 u@ 0xbc <> abort"Not a valid ValidatorComplaint"
 complaint <s csr.
 
-." complaint envelope will expire at " expire-at . ."(in " expire-in . ."seconds)" cr
+// ." complaint envelope will expire at " expire-at . ."(in " expire-in . ."seconds)" cr
 now 32 << c-hash 0xffffffff and or =: query-id
 ."Query id is " query-id . cr
 
-<b x{52674370} s, query-id 64 u, election-id 32 u, expire-at 32 u,
+<b x{52674370} s, query-id 64 u, election-id 32 u,
    complaint <s s, b>
 
 dup ."resulting internal message body: " <s csr. cr

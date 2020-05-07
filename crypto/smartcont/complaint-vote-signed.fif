@@ -26,7 +26,7 @@ $5 base64>B dup Blen 64 <> abort"validator Ed25519 signature must be exactly 64 
   =: signature
 $6 savefile replace-if-null =: savefile
 
-."Creating the body of an internal message to be sent to the elections smart contract" cr }
+."Creating the body of an internal message to be sent to the elections smart contract" cr
 ."containing a signed request to vote for complaint 0x" compl-hash 64x. ."of past validator set " elect-id .
 ."on behalf of current validator with index " val-idx . "and public key" pubkey Bx. cr
 
