@@ -19,3 +19,5 @@ add_executable(pack-viewer pack-viewer.cpp )
 target_link_libraries(pack-viewer tl_api ton_crypto keys validator tddb )
 target_include_directories(pack-viewer PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..)
+
+install(TARGETS generate-random-id RUNTIME DESTINATION bin)
