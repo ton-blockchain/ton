@@ -582,6 +582,22 @@ class Result {
     *this = Result<T>();
   }
 
+  template <class F>
+  td::Result<decltype(std::declval<F>()(std::declval<T>()))> move_map(F &&f) {
+    if (is_error()) {
+      return move_as_error();
+    }
+    return f(move_as_ok());
+  }
+
+  template <class F>
+  decltype(std::declval<F>()(std::declval<T>())) move_fmap(F &&f) {
+    if (is_error()) {
+      return move_as_error();
+    }
+    return f(move_as_ok());
+  }
+
  private:
   Status status_;
   union {

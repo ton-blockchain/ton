@@ -30,6 +30,14 @@
 #include "td/utils/crypto.h"
 
 namespace ton {
+int SmartContract::Answer::output_actions_count(td::Ref<vm::Cell> list) {
+  int i = -1;
+  do {
+    ++i;
+    list = load_cell_slice(std::move(list)).prefetch_ref();
+  } while (list.not_null());
+  return i;
+}
 namespace {
 
 td::Ref<vm::Stack> prepare_vm_stack(td::RefInt256 amount, td::Ref<vm::CellSlice> body) {
@@ -64,15 +72,6 @@ td::Ref<vm::Tuple> prepare_vm_c7(td::uint32 now, td::uint64 balance) {
   );                                                         //  global_config:(Maybe Cell) ] = SmartContractInfo;
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
   return vm::make_tuple_ref(std::move(tuple));
-}
-
-static int output_actions_count(td::Ref<vm::Cell> list) {
-  int i = -1;
-  do {
-    ++i;
-    list = load_cell_slice(std::move(list)).prefetch_ref();
-  } while (list.not_null());
-  return i;
 }
 
 SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7,
@@ -133,7 +132,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     res.new_state.data = vm.get_c4();
     res.actions = vm.get_d(5);
     LOG(DEBUG) << "output actions:\n"
-               << block::gen::OutList{output_actions_count(res.actions)}.as_string_ref(res.actions);
+               << block::gen::OutList{res.output_actions_count(res.actions)}.as_string_ref(res.actions);
   }
   LOG_IF(ERROR, gas_credit != 0 && (res.accepted && !res.success))
       << "Accepted but failed with code " << res.code << "\n"

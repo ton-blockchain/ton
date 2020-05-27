@@ -50,6 +50,12 @@ class VectorQueue {
   T &back() {
     return vector_.back();
   }
+  const T &front() const {
+    return vector_[read_pos_];
+  }
+  const T &back() const {
+    return vector_.back();
+  }
   bool empty() const {
     return size() == 0;
   }

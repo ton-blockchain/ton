@@ -79,6 +79,19 @@ td::Result<td::string> CellString::load(CellSlice &cs, unsigned int top_bits) {
   CHECK(to.offs == (int)size);
   return res;
 }
+td::Result<td::Ref<vm::Cell>> CellString::create(td::Slice slice, unsigned int top_bits) {
+  vm::CellBuilder cb;
+  TRY_STATUS(store(cb, slice, top_bits));
+  return cb.finalize();
+}
+bool CellString::fetch_to(CellSlice &cs, std::string &res, unsigned int top_bits) {
+  auto r_str = load(cs, top_bits);
+  if (r_str.is_error()) {
+    return false;
+  }
+  res = r_str.move_as_ok();
+  return true;
+}
 
 td::Status CellText::store(CellBuilder &cb, td::Slice slice, unsigned int top_bits) {
   td::uint32 size = td::narrow_cast<td::uint32>(slice.size() * 8);
@@ -153,5 +166,18 @@ td::Result<td::string> CellText::load(CellSlice &cs) {
   for_each([&](auto slice) { to.concat(slice); }, cs);
   CHECK(to.offs == (int)size);
   return res;
+}
+td::Result<td::Ref<vm::Cell>> CellText::create(td::Slice slice, unsigned int top_bits) {
+  vm::CellBuilder cb;
+  TRY_STATUS(store(cb, slice, top_bits));
+  return cb.finalize();
+}
+bool CellText::fetch_to(CellSlice &cs, std::string &res) {
+  auto r_str = load(cs);
+  if (r_str.is_error()) {
+    return false;
+  }
+  res = r_str.move_as_ok();
+  return true;
 }
 }  // namespace vm

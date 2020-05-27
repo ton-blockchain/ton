@@ -200,7 +200,8 @@ class Scheduler {
     return thread_id;
   }
 
-  Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, SchedulerId id, size_t cpu_threads_count);
+  Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, SchedulerId id, size_t cpu_threads_count,
+            bool skip_timeouts = false);
 
   Scheduler(const Scheduler &) = delete;
   Scheduler &operator=(const Scheduler &) = delete;
@@ -241,6 +242,7 @@ class Scheduler {
   Poll poll_;
   KHeap<double> heap_;
   std::unique_ptr<IoWorker> io_worker_;
+  bool skip_timeouts_{false};
 
   class ContextImpl : public SchedulerContext {
    public:

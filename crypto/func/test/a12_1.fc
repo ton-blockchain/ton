@@ -1,0 +1,3 @@
+_ f(int a, int b, int c, int d, int e, int f, int g, int h, int i, int j) {
+  return (f, j, a, b, i, g, d, e, h, c);
+}

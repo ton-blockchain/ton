@@ -1939,7 +1939,7 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
       // for zero state, lazily deserialize buffer_ instead
       vm::StaticBagOfCellsDbLazy::Options options;
       options.check_crc32c = true;
-      auto res = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(std::move(buffer_)), options);
+      auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(std::move(buffer_)), options);
       if (res.is_error()) {
         return fatal_error(res.move_as_error());
       }

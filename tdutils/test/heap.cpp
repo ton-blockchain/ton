@@ -38,8 +38,8 @@ TEST(Heap, sort_random_perm) {
   for (int i = 0; i < n; i++) {
     v[i] = i;
   }
-  std::srand(123);
-  std::random_shuffle(v.begin(), v.end());
+  td::Random::Xorshift128plus rnd(123);
+  td::random_shuffle(as_mutable_span(v), rnd);
   std::vector<HeapNode> nodes(n);
   KHeap<int> kheap;
   for (int i = 0; i < n; i++) {

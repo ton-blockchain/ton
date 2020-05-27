@@ -59,9 +59,11 @@ class optional {
     return impl_.is_ok();
   }
   T &value() {
+    DCHECK(*this);
     return impl_.ok_ref();
   }
   const T &value() const {
+    DCHECK(*this);
     return impl_.ok_ref();
   }
   T &operator*() {

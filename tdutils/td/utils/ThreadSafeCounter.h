@@ -38,6 +38,13 @@ class ThreadSafeMultiCounter {
     tls_.for_each([&](auto &value) { res += value[index].load(); });
     return res;
   }
+  void clear() {
+    tls_.for_each([&](auto &value) {
+      for (auto &x : value) {
+        x = 0;
+      }
+    });
+  }
 
  private:
   ThreadLocalStorage<std::array<std::atomic<int64>, N>> tls_;
@@ -106,6 +113,11 @@ class NamedThreadSafeCounter {
     for (size_t i = 0; i < names_.size(); i++) {
       f(names_[i], counter_.sum(i));
     }
+  }
+
+  void clear() {
+    std::unique_lock<std::mutex> guard(mutex_);
+    counter_.clear();
   }
 
   friend StringBuilder &operator<<(StringBuilder &sb, const NamedThreadSafeCounter &counter) {

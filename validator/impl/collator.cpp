@@ -18,7 +18,7 @@
 */
 #include "collator-impl.h"
 #include "vm/boc.h"
-#include "vm/db/BlobView.h"
+#include "td/db/utils/BlobView.h"
 #include "vm/db/StaticBagOfCellsDb.h"
 #include "block/mc-config.h"
 #include "block/block.h"
@@ -28,7 +28,7 @@
 #include "crypto/openssl/rand.hpp"
 #include "ton/ton-shard.h"
 #include "adnl/utils.hpp"
-#include <assert.h>
+#include <cassert>
 #include <algorithm>
 #include "fabric.h"
 #include "validator-set.hpp"

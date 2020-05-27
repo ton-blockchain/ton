@@ -42,8 +42,14 @@ class ActorExecutor {
       this->has_poll = new_has_poll;
       return *this;
     }
+    Options &with_signals(ActorSignals signals) {
+      this->signals = signals;
+      return *this;
+    }
+
     bool from_queue{false};
     bool has_poll{false};
+    ActorSignals signals;
   };
 
   ActorExecutor(ActorInfo &actor_info, SchedulerDispatcher &dispatcher, Options options)

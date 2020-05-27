@@ -22,6 +22,11 @@
 #include "crypto/vm/stack.hpp"
 #include "crypto/common/bitstring.h"
 
+#include "td/utils/Status.h"
+
+#include "Dictionary.h"
+#include "Continuation.h"
+
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -65,13 +70,18 @@ class CharClassifier {
 
 struct IntCtx {
   vm::Stack stack;
+  Ref<FiftCont> next, exc_handler;
+  Ref<FiftCont> exc_cont, exc_next;
   int state{0};
   int include_depth{0};
   int line_no{0};
+  int exit_code{0};
+  td::Status error;
   bool need_line{true};
   std::string filename;
   std::string currentd_dir;
   std::istream* input_stream{nullptr};
+  std::unique_ptr<std::istream> input_stream_holder;
   std::ostream* output_stream{nullptr};
   std::ostream* error_stream{nullptr};
 
@@ -79,17 +89,49 @@ struct IntCtx {
   Dictionary* dictionary{nullptr};
   SourceLookup* source_lookup{nullptr};
   int* now{nullptr};
+  std::string word;
 
  private:
   std::string str;
-  const char* input_ptr;
+  const char* input_ptr = nullptr;
+
+  class Savepoint {
+    IntCtx& ctx;
+    int old_line_no;
+    bool old_need_line;
+    bool restored{false};
+    std::string old_filename;
+    std::string old_current_dir;
+    std::istream* old_input_stream;
+    std::unique_ptr<std::istream> old_input_stream_holder;
+    std::string old_curline;
+    std::ptrdiff_t old_curpos;
+    std::string old_word;
+
+   public:
+    Savepoint(IntCtx& _ctx, std::string new_filename, std::string new_current_dir,
+              std::unique_ptr<std::istream> new_input_stream);
+    bool restore(IntCtx& _ctx);
+  };
+
+  std::vector<Savepoint> ctx_save_stack;
 
  public:
   IntCtx() = default;
+  IntCtx(std::istream& _istream, std::string _filename, std::string _curdir = "", int _depth = 0)
+      : include_depth(_depth)
+      , filename(std::move(_filename))
+      , currentd_dir(std::move(_curdir))
+      , input_stream(&_istream) {
+  }
 
   operator vm::Stack&() {
     return stack;
   }
+
+  bool enter_ctx(std::string new_filename, std::string new_current_dir, std::unique_ptr<std::istream> new_input_stream);
+  bool leave_ctx();
+  bool top_ctx();
 
   td::Slice scan_word_to(char delim, bool err_endl = true);
   td::Slice scan_word();
@@ -127,25 +169,29 @@ struct IntCtx {
     state = 0;
     stack.clear();
   }
-  class Savepoint {
-    IntCtx& ctx;
-    int old_line_no;
-    bool old_need_line;
-    std::string old_filename;
-    std::string old_current_dir;
-    std::istream* old_input_stream;
-    std::string old_curline;
-    std::ptrdiff_t old_curpos;
-
-   public:
-    Savepoint(IntCtx& _ctx, std::string new_filename, std::string new_current_dir, std::istream* new_input_stream);
-    ~Savepoint();
-  };
 
   void check_compile() const;
   void check_execute() const;
   void check_not_int_exec() const;
   void check_int_exec() const;
+
+  bool print_error_backtrace(std::ostream& os) const;
+  bool print_backtrace(std::ostream& os, Ref<FiftCont> cont) const;
+
+  td::Status add_error_loc(td::Status err) const;
+
+  void set_exit_code(int err_code) {
+    exit_code = err_code;
+  }
+  int get_exit_code() const {
+    return exit_code;
+  }
+
+  void clear_error();
+  td::Result<int> get_result();
+
+  Ref<FiftCont> throw_exception(td::Status err, Ref<FiftCont> cur = {});
+  td::Result<int> run(Ref<FiftCont> cont);
 };
 
 td::StringBuilder& operator<<(td::StringBuilder& os, const IntCtx& ctx);

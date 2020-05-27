@@ -27,33 +27,10 @@
 #include <limits>
 
 namespace ton {
-td::optional<td::int32> HighloadWalletV2::guess_revision(const vm::Cell::Hash& code_hash) {
-  for (td::int32 i = 1; i <= 2; i++) {
-    if (get_init_code(i)->get_hash() == code_hash) {
-      return i;
-    }
-  }
-  return {};
-}
-td::optional<td::int32> HighloadWalletV2::guess_revision(const block::StdAddress& address,
-                                                         const td::Ed25519::PublicKey& public_key,
-                                                         td::uint32 wallet_id) {
-  for (td::int32 i = 1; i <= 2; i++) {
-    if (GenericAccount::get_address(address.workchain, get_init_state(public_key, wallet_id, i)) == address) {
-      return i;
-    }
-  }
-  return {};
-}
-td::Ref<vm::Cell> HighloadWalletV2::get_init_state(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id,
-                                                   td::int32 revision) noexcept {
-  auto code = get_init_code(revision);
-  auto data = get_init_data(public_key, wallet_id);
-  return GenericAccount::get_init_state(std::move(code), std::move(data));
-}
 
-td::Ref<vm::Cell> HighloadWalletV2::get_init_message(const td::Ed25519::PrivateKey& private_key, td::uint32 wallet_id,
-                                                     td::uint32 valid_until) noexcept {
+td::Result<td::Ref<vm::Cell>> HighloadWalletV2::get_init_message(const td::Ed25519::PrivateKey& private_key,
+                                                                 td::uint32 valid_until) const noexcept {
+  TRY_RESULT(wallet_id, get_wallet_id());
   td::uint32 id = -1;
   auto append_message = [&](auto&& cb) -> vm::CellBuilder& {
     cb.store_long(wallet_id, 32).store_long(valid_until, 32).store_long(id, 32);
@@ -65,10 +42,11 @@ td::Ref<vm::Cell> HighloadWalletV2::get_init_message(const td::Ed25519::PrivateK
   return append_message(vm::CellBuilder().store_bytes(signature)).finalize();
 }
 
-td::Ref<vm::Cell> HighloadWalletV2::make_a_gift_message(const td::Ed25519::PrivateKey& private_key,
-                                                        td::uint32 wallet_id, td::uint32 valid_until,
-                                                        td::Span<Gift> gifts) noexcept {
-  CHECK(gifts.size() <= max_gifts_size);
+td::Result<td::Ref<vm::Cell>> HighloadWalletV2::make_a_gift_message(const td::Ed25519::PrivateKey& private_key,
+                                                                    td::uint32 valid_until,
+                                                                    td::Span<Gift> gifts) const {
+  TRY_RESULT(wallet_id, get_wallet_id());
+  CHECK(gifts.size() <= get_max_gifts_size());
   vm::Dictionary messages(16);
   for (size_t i = 0; i < gifts.size(); i++) {
     auto& gift = gifts[i];
@@ -96,49 +74,34 @@ td::Ref<vm::Cell> HighloadWalletV2::make_a_gift_message(const td::Ed25519::Priva
   return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
 }
 
-td::Ref<vm::Cell> HighloadWalletV2::get_init_code(td::int32 revision) noexcept {
-  return SmartContractCode::get_code(SmartContractCode::HighloadWalletV2, revision);
-}
-
-vm::CellHash HighloadWalletV2::get_init_code_hash() noexcept {
-  return get_init_code(0)->get_hash();
-}
-
-td::Ref<vm::Cell> HighloadWalletV2::get_init_data(const td::Ed25519::PublicKey& public_key,
-                                                  td::uint32 wallet_id) noexcept {
+td::Ref<vm::Cell> HighloadWalletV2::get_init_data(const InitData& init_data) noexcept {
   vm::CellBuilder cb;
-  cb.store_long(wallet_id, 32).store_long(0, 64).store_bytes(public_key.as_octet_string());
+  cb.store_long(init_data.wallet_id, 32).store_long(init_data.seqno, 64).store_bytes(init_data.public_key);
   CHECK(cb.store_maybe_ref({}));
   return cb.finalize();
 }
 
 td::Result<td::uint32> HighloadWalletV2::get_wallet_id() const {
-  return TRY_VM(get_wallet_id_or_throw());
-}
-
-td::Result<td::uint32> HighloadWalletV2::get_wallet_id_or_throw() const {
-  if (state_.data.is_null()) {
-    return 0;
-  }
-  //FIXME use get method
-  auto cs = vm::load_cell_slice(state_.data);
-  return static_cast<td::uint32>(cs.fetch_ulong(32));
+  return TRY_VM([&]() -> td::Result<td::uint32> {
+    if (state_.data.is_null()) {
+      return 0;
+    }
+    auto cs = vm::load_cell_slice(state_.data);
+    return static_cast<td::uint32>(cs.fetch_ulong(32));
+  }());
 }
 
 td::Result<td::Ed25519::PublicKey> HighloadWalletV2::get_public_key() const {
-  return TRY_VM(get_public_key_or_throw());
-}
-
-td::Result<td::Ed25519::PublicKey> HighloadWalletV2::get_public_key_or_throw() const {
-  if (state_.data.is_null()) {
-    return td::Status::Error("data is null");
-  }
-  //FIXME use get method
-  auto cs = vm::load_cell_slice(state_.data);
-  cs.skip_first(96);
-  td::SecureString res(td::Ed25519::PublicKey::LENGTH);
-  cs.fetch_bytes(res.as_mutable_slice().ubegin(), td::narrow_cast<td::int32>(res.size()));
-  return td::Ed25519::PublicKey(std::move(res));
+  return TRY_VM([&]() -> td::Result<td::Ed25519::PublicKey> {
+    if (state_.data.is_null()) {
+      return td::Status::Error("data is null");
+    }
+    auto cs = vm::load_cell_slice(state_.data);
+    cs.skip_first(96);
+    td::SecureString res(td::Ed25519::PublicKey::LENGTH);
+    cs.fetch_bytes(res.as_mutable_slice().ubegin(), td::narrow_cast<td::int32>(res.size()));
+    return td::Ed25519::PublicKey(std::move(res));
+  }());
 }
 
 }  // namespace ton

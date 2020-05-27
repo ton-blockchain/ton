@@ -26,135 +26,30 @@
 #include "vm/cells/CellString.h"
 
 namespace ton {
-class WalletV3 : public ton::SmartContract, public WalletInterface {
- public:
-  explicit WalletV3(State state) : ton::SmartContract(std::move(state)) {
-  }
-  explicit WalletV3(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id, td::uint32 seqno = 0)
-      : WalletV3(State{get_init_code(), get_init_data(public_key, wallet_id, seqno)}) {
-  }
+
+struct WalletV3Traits {
+  using InitData = WalletInterface::DefaultInitData;
+
   static constexpr unsigned max_message_size = vm::CellString::max_bytes;
   static constexpr unsigned max_gifts_size = 4;
+  static constexpr auto code_type = SmartContractCode::WalletV3;
+};
 
-  static td::optional<td::int32> guess_revision(const vm::Cell::Hash& code_hash);
-  static td::optional<td::int32> guess_revision(const block::StdAddress& address,
-                                                const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id);
-  static td::Ref<vm::Cell> get_init_state(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id,
-                                          td::int32 revision = 0) noexcept;
-  static td::Ref<vm::Cell> make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 wallet_id,
-                                               td::uint32 seqno, td::uint32 valid_until, td::Span<Gift> gifts) noexcept;
-
-  static td::Ref<vm::Cell> get_init_code(td::int32 revision = 0) noexcept;
-  static vm::CellHash get_init_code_hash() noexcept;
-  static td::Ref<vm::Cell> get_init_data(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id,
-                                         td::uint32 seqno = 0) noexcept;
-
-  td::Result<td::uint32> get_seqno() const;
-  td::Result<td::uint32> get_wallet_id() const;
-
-  using WalletInterface::get_init_message;
+class WalletV3 : public WalletBase<WalletV3, WalletV3Traits> {
+ public:
+  explicit WalletV3(State state) : WalletBase(std::move(state)) {
+  }
   td::Result<td::Ref<vm::Cell>> make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 valid_until,
-                                                    td::Span<Gift> gifts) const override {
-    TRY_RESULT(seqno, get_seqno());
-    TRY_RESULT(wallet_id, get_wallet_id());
-    return make_a_gift_message(private_key, wallet_id, seqno, valid_until, gifts);
-  }
-  size_t get_max_gifts_size() const override {
-    return max_gifts_size;
-  }
-  td::Result<td::Ed25519::PublicKey> get_public_key() const override;
+                                                    td::Span<Gift> gifts) const override;
+  static td::Ref<vm::Cell> get_init_data(const InitData& init_data) noexcept;
 
- private:
-  td::Result<td::uint32> get_seqno_or_throw() const;
-  td::Result<td::uint32> get_wallet_id_or_throw() const;
-  td::Result<td::Ed25519::PublicKey> get_public_key_or_throw() const;
+  // can't use get methods for compatibility with old revisions
+  td::Result<td::uint32> get_wallet_id() const override;
+  td::Result<td::Ed25519::PublicKey> get_public_key() const override;
 };
 }  // namespace ton
 
-#include "smc-envelope/SmartContractCode.h"
-#include "smc-envelope/GenericAccount.h"
-#include "block/block-parse.h"
-#include <algorithm>
 namespace ton {
-template <class WalletT, class TraitsT>
-class WalletBase : public SmartContract, public WalletInterface {
- public:
-  using Traits = TraitsT;
-  using InitData = typename Traits::InitData;
-
-  explicit WalletBase(State state) : SmartContract(std::move(state)) {
-  }
-  static td::Ref<WalletT> create(State state) {
-    return td::Ref<WalletT>(true, std::move(state));
-  }
-  static td::Ref<vm::Cell> get_init_code(int revision) {
-    return SmartContractCode::get_code(get_code_type(), revision);
-  };
-  size_t get_max_gifts_size() const override {
-    return Traits::max_gifts_size;
-  }
-  static SmartContractCode::Type get_code_type() {
-    return Traits::code_type;
-  }
-  static td::optional<td::int32> guess_revision(const vm::Cell::Hash& code_hash) {
-    for (auto i : ton::SmartContractCode::get_revisions(get_code_type())) {
-      auto code = SmartContractCode::get_code(get_code_type(), i);
-      if (code->get_hash() == code_hash) {
-        return i;
-      }
-    }
-    return {};
-  }
-
-  static td::Ref<WalletT> create(const InitData& init_data, int revision) {
-    return td::Ref<WalletT>(true, State{get_init_code(revision), WalletT::get_init_data(init_data)});
-  }
-
-  td::Result<td::uint32> get_seqno() const {
-    return TRY_VM([&]() -> td::Result<td::uint32> {
-      Answer answer = this->run_get_method("seqno");
-      if (!answer.success) {
-        return td::Status::Error("seqno get method failed");
-      }
-      return static_cast<td::uint32>(answer.stack.write().pop_long_range(std::numeric_limits<td::uint32>::max()));
-    }());
-  }
-  td::Result<td::uint32> get_wallet_id() const {
-    return TRY_VM([&]() -> td::Result<td::uint32> {
-      Answer answer = this->run_get_method("wallet_id");
-      if (!answer.success) {
-        return td::Status::Error("seqno get method failed");
-      }
-      return static_cast<td::uint32>(answer.stack.write().pop_long_range(std::numeric_limits<td::uint32>::max()));
-    }());
-  }
-
-  td::Result<td::uint64> get_balance(td::uint64 account_balance, td::uint32 now) const {
-    return TRY_VM([&]() -> td::Result<td::uint64> {
-      Answer answer = this->run_get_method(Args().set_method_id("balance").set_balance(account_balance).set_now(now));
-      if (!answer.success) {
-        return td::Status::Error("balance get method failed");
-      }
-      return static_cast<td::uint64>(answer.stack.write().pop_long());
-    }());
-  }
-
-  td::Result<td::Ed25519::PublicKey> get_public_key() const override {
-    return TRY_VM([&]() -> td::Result<td::Ed25519::PublicKey> {
-      Answer answer = this->run_get_method("get_public_key");
-      if (!answer.success) {
-        return td::Status::Error("get_public_key get method failed");
-      }
-      auto key_int = answer.stack.write().pop_int();
-      LOG(ERROR) << key_int->bit_size(false);
-      td::SecureString bytes(32);
-      if (!key_int->export_bytes(bytes.as_mutable_slice().ubegin(), bytes.size(), false)) {
-        return td::Status::Error("not a public key");
-      }
-      return td::Ed25519::PublicKey(std::move(bytes));
-    }());
-  };
-};
 
 struct RestrictedWalletTraits {
   struct InitData {

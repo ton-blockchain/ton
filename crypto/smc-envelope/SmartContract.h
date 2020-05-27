@@ -48,6 +48,7 @@ class SmartContract : public td::CntObject {
     td::Ref<vm::Cell> actions;
     td::int32 code;
     td::int64 gas_used;
+    static int output_actions_count(td::Ref<vm::Cell> list);
   };
 
   struct Args {

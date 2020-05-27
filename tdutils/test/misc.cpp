@@ -710,6 +710,39 @@ TEST(Misc, Bits) {
   ASSERT_EQ(4, count_bits64((1ull << 63) | 7));
 }
 
+TEST(Misc, BitsRange) {
+  auto to_vec_a = [](td::uint64 x) {
+    std::vector<td::int32> bits;
+    for (auto i : td::BitsRange(x)) {
+      bits.push_back(i);
+    }
+    return bits;
+  };
+
+  auto to_vec_b = [](td::uint64 x) {
+    std::vector<td::int32> bits;
+    td::int32 pos = 0;
+    while (x != 0) {
+      if ((x & 1) != 0) {
+        bits.push_back(pos);
+      }
+      x >>= 1;
+      pos++;
+    }
+    return bits;
+  };
+
+  auto do_check = [](std::vector<td::int32> a, std::vector<td::int32> b) { ASSERT_EQ(b, a); };
+  auto check = [&](td::uint64 x) { do_check(to_vec_a(x), to_vec_b(x)); };
+
+  do_check(to_vec_a(21), {0, 2, 4});
+  for (int x = 0; x < 100; x++) {
+    check(x);
+    check(std::numeric_limits<td::uint32>::max() - x);
+    check(std::numeric_limits<td::uint64>::max() - x);
+  }
+}
+
 #if !TD_THREAD_UNSUPPORTED
 TEST(Misc, Time) {
   Stage run;
