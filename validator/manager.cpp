@@ -1663,20 +1663,20 @@ void ValidatorManagerImpl::completed_prestart_sync() {
 }
 
 void ValidatorManagerImpl::new_masterchain_block() {
-  update_shards();
-  update_shard_blocks();
-
-  if (!shard_client_.empty()) {
-    td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
-                            last_masterchain_block_handle_, last_masterchain_state_);
-  }
-
   if (last_masterchain_seqno_ > 0 && last_masterchain_block_handle_->is_key_block()) {
     last_key_block_handle_ = last_masterchain_block_handle_;
     if (last_key_block_handle_->id().seqno() > last_known_key_block_handle_->id().seqno()) {
       last_known_key_block_handle_ = last_key_block_handle_;
       callback_->new_key_block(last_key_block_handle_);
     }
+  }
+
+  update_shards();
+  update_shard_blocks();
+
+  if (!shard_client_.empty()) {
+    td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
+                            last_masterchain_block_handle_, last_masterchain_state_);
   }
 
   if (last_masterchain_seqno_ % 1024 == 0) {

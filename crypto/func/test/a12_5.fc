@@ -1,3 +1,4 @@
 _ f(int a, int b, int c, int d, int e, int f, int g, int h, int i, int j, int k) {
   return (c, g, d, k, a, f, e, h, i, j, b);   ;; optimal code is 6 ops, 6 bytes
+  ;; s0 s7 XCHG  s0 s8 XCHG  s0 s10 XCHG  s0 s6 XCHG  s0 s4 XCHG  s0 s9 XCHG
 }
