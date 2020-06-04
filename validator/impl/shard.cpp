@@ -20,7 +20,7 @@
 #include "message-queue.hpp"
 #include "validator-set.hpp"
 #include "vm/boc.h"
-#include "vm/db/BlobView.h"
+#include "td/db/utils/BlobView.h"
 #include "vm/db/StaticBagOfCellsDb.h"
 #include "vm/cellslice.h"
 #include "vm/cells/MerkleUpdate.h"
@@ -86,7 +86,7 @@ td::Status ShardStateQ::init() {
 #if LAZY_STATE_DESERIALIZE
     vm::StaticBagOfCellsDbLazy::Options options;
     options.check_crc32c = true;
-    auto res = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(data.clone()), options);
+    auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data.clone()), options);
     if (res.is_error()) {
       return res.move_as_error();
     }

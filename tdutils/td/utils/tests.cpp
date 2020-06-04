@@ -204,6 +204,7 @@ bool TestsRunner::run_all_step() {
       }
       LOG(ERROR) << "Run test " << tag("name", name);
       state_.start = Time::now();
+      state_.start_unadjusted = Time::now_unadjusted();
       state_.is_running = true;
     }
 
@@ -211,7 +212,13 @@ bool TestsRunner::run_all_step() {
       break;
     }
 
-    LOG(ERROR) << format::as_time(Time::now() - state_.start);
+    auto passed = Time::now() - state_.start;
+    auto real_passed = Time::now_unadjusted() - state_.start_unadjusted;
+    if (real_passed + 1e-9 > passed) {
+      LOG(ERROR) << format::as_time(passed);
+    } else {
+      LOG(ERROR) << format::as_time(passed) << " real[" << format::as_time(real_passed) << "]";
+    }
     if (regression_tester_) {
       regression_tester_->save_db();
     }

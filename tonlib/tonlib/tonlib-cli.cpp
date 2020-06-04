@@ -177,8 +177,8 @@ class TonlibCli : public td::actor::Actor {
      private:
       td::actor::ActorShared<TonlibCli> id_;
     };
-    ref_cnt_++;
     if (!options_.one_shot) {
+      ref_cnt_++;
       io_ = td::TerminalIO::create("> ", options_.enable_readline, std::make_unique<Cb>(actor_shared(this)));
       td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
     }
@@ -1587,12 +1587,6 @@ class TonlibCli : public td::actor::Actor {
 
   template <class F>
   auto with_account_state(int version, std::string public_key, td::uint32 wallet_id, F&& f) {
-    if (version == 1) {
-      return f(make_object<tonlib_api::testWallet_initialAccountState>(public_key));
-    }
-    if (version == 2) {
-      return f(make_object<tonlib_api::wallet_initialAccountState>(public_key));
-    }
     if (version == 4) {
       return f(make_object<tonlib_api::wallet_highload_v1_initialAccountState>(public_key, wallet_id));
     }
@@ -1652,17 +1646,6 @@ class TonlibCli : public td::actor::Actor {
         Address res = r_addr.move_as_ok();
         res.secret = keys_[r_key_i.ok()].secret.copy();
         return std::move(res);
-      }
-    }
-    if (key == "giver") {
-      auto obj = tonlib::TonlibClient::static_request(
-          make_object<tonlib_api::getAccountAddress>(make_object<tonlib_api::testGiver_initialAccountState>(), 0, -1));
-      if (obj->get_id() != tonlib_api::error::ID) {
-        Address res;
-        res.address = ton::move_tl_object_as<tonlib_api::accountAddress>(obj);
-        return std::move(res);
-      } else {
-        LOG(ERROR) << "Unexpected error during testGiver_getAccountAddress: " << to_string(obj);
       }
     }
     if (!need_private_key) {
@@ -2073,7 +2056,7 @@ int main(int argc, char* argv[]) {
 
   td::OptionsParser p;
   TonlibCli::Options options;
-  p.set_description("console for validator for TON Blockchain");
+  p.set_description("cli wrapper around tonlib");
   p.add_option('h', "help", "prints_help", [&]() {
     std::cout << (PSLICE() << p).c_str();
     std::exit(2);

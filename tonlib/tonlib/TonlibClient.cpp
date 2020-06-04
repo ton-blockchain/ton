@@ -30,12 +30,9 @@
 
 #include "smc-envelope/GenericAccount.h"
 #include "smc-envelope/ManualDns.h"
-#include "smc-envelope/TestWallet.h"
-#include "smc-envelope/Wallet.h"
 #include "smc-envelope/WalletV3.h"
 #include "smc-envelope/HighloadWallet.h"
 #include "smc-envelope/HighloadWalletV2.h"
-#include "smc-envelope/TestGiver.h"
 #include "smc-envelope/PaymentChannel.h"
 #include "smc-envelope/SmartContractCode.h"
 
@@ -277,21 +274,6 @@ class AccountState {
         raw().frozen_hash, get_sync_time());
   }
 
-  td::Result<tonlib_api::object_ptr<tonlib_api::testWallet_accountState>> to_testWallet_accountState() const {
-    if (wallet_type_ != SimpleWallet) {
-      return TonlibError::AccountTypeUnexpected("TestWallet");
-    }
-    TRY_RESULT(seqno, ton::TestWallet(get_smc_state()).get_seqno());
-    return tonlib_api::make_object<tonlib_api::testWallet_accountState>(static_cast<td::uint32>(seqno));
-  }
-
-  td::Result<tonlib_api::object_ptr<tonlib_api::wallet_accountState>> to_wallet_accountState() const {
-    if (wallet_type_ != Wallet) {
-      return TonlibError::AccountTypeUnexpected("Wallet");
-    }
-    TRY_RESULT(seqno, ton::Wallet(get_smc_state()).get_seqno());
-    return tonlib_api::make_object<tonlib_api::wallet_accountState>(static_cast<td::uint32>(seqno));
-  }
   td::Result<tonlib_api::object_ptr<tonlib_api::wallet_v3_accountState>> to_wallet_v3_accountState() const {
     if (wallet_type_ != WalletV3) {
       return TonlibError::AccountTypeUnexpected("WalletV3");
@@ -372,13 +354,6 @@ class AccountState {
         std::move(tl_state), info.description);
   }
 
-  td::Result<tonlib_api::object_ptr<tonlib_api::testGiver_accountState>> to_testGiver_accountState() const {
-    if (wallet_type_ != Giver) {
-      return TonlibError::AccountTypeUnexpected("TestGiver");
-    }
-    TRY_RESULT(seqno, ton::TestGiver(get_smc_state()).get_seqno());
-    return tonlib_api::make_object<tonlib_api::testGiver_accountState>(static_cast<td::uint32>(seqno));
-  }
   td::Result<tonlib_api::object_ptr<tonlib_api::dns_accountState>> to_dns_accountState() const {
     if (wallet_type_ != ManualDns) {
       return TonlibError::AccountTypeUnexpected("ManualDns");
@@ -398,12 +373,6 @@ class AccountState {
         return to_uninited_accountState();
       case Unknown:
         return f(to_raw_accountState());
-      case Giver:
-        return f(to_testGiver_accountState());
-      case SimpleWallet:
-        return f(to_testWallet_accountState());
-      case Wallet:
-        return f(to_wallet_accountState());
       case WalletV3:
         return f(to_wallet_v3_accountState());
       case HighloadWalletV1:
@@ -432,9 +401,6 @@ class AccountState {
   enum WalletType {
     Empty,
     Unknown,
-    Giver,
-    SimpleWallet,
-    Wallet,
     WalletV3,
     HighloadWalletV1,
     HighloadWalletV2,
@@ -455,9 +421,6 @@ class AccountState {
       case AccountState::ManualDns:
       case AccountState::PaymentChannel:
         return false;
-      case AccountState::Giver:
-      case AccountState::SimpleWallet:
-      case AccountState::Wallet:
       case AccountState::WalletV3:
       case AccountState::HighloadWalletV1:
       case AccountState::HighloadWalletV2:
@@ -474,12 +437,6 @@ class AccountState {
       case AccountState::ManualDns:
       case AccountState::PaymentChannel:
         return {};
-      case AccountState::Giver:
-        return td::make_unique<ton::TestGiver>(get_smc_state());
-      case AccountState::SimpleWallet:
-        return td::make_unique<ton::TestWallet>(get_smc_state());
-      case AccountState::Wallet:
-        return td::make_unique<ton::Wallet>(get_smc_state());
       case AccountState::WalletV3:
         return td::make_unique<ton::WalletV3>(get_smc_state());
       case AccountState::HighloadWalletV1:
@@ -570,28 +527,27 @@ class AccountState {
     if (wallet_type_ != WalletType::Empty) {
       return wallet_type_;
     }
-    auto wallet_id = address_.workchain + wallet_id_;
-    auto o_revision = ton::WalletV3::guess_revision(address_, key, wallet_id);
+    auto wallet_id = static_cast<td::uint32>(address_.workchain + wallet_id_);
+    ton::WalletV3::InitData init_data{key.as_octet_string(), wallet_id};
+    auto o_revision = ton::WalletV3::guess_revision(address_, init_data);
     if (o_revision) {
       wallet_type_ = WalletType::WalletV3;
       wallet_revision_ = o_revision.value();
-      set_new_state({ton::WalletV3::get_init_code(wallet_revision_), ton::WalletV3::get_init_data(key, wallet_id)});
+      set_new_state(ton::WalletV3::get_init_state(wallet_revision_, init_data));
       return wallet_type_;
     }
-    o_revision = ton::HighloadWalletV2::guess_revision(address_, key, wallet_id + address_.workchain);
+    o_revision = ton::HighloadWalletV2::guess_revision(address_, init_data);
     if (o_revision) {
       wallet_type_ = WalletType::HighloadWalletV2;
       wallet_revision_ = o_revision.value();
-      set_new_state({ton::HighloadWalletV2::get_init_code(wallet_revision_),
-                     ton::HighloadWalletV2::get_init_data(key, wallet_id + address_.workchain)});
+      set_new_state(ton::HighloadWallet::get_init_state(wallet_revision_, init_data));
       return wallet_type_;
     }
-    o_revision = ton::HighloadWallet::guess_revision(address_, key, wallet_id);
+    o_revision = ton::HighloadWallet::guess_revision(address_, init_data);
     if (o_revision) {
       wallet_type_ = WalletType::HighloadWalletV1;
       wallet_revision_ = o_revision.value();
-      set_new_state(
-          {ton::HighloadWallet::get_init_code(wallet_revision_), ton::HighloadWallet::get_init_data(key, wallet_id)});
+      set_new_state(ton::HighloadWallet::get_init_state(wallet_revision_, init_data));
       return wallet_type_;
     }
     o_revision = ton::ManualDns::guess_revision(address_, key, wallet_id);
@@ -602,15 +558,6 @@ class AccountState {
       set_new_state(dns->get_state());
       return wallet_type_;
     }
-    if (ton::GenericAccount::get_address(address_.workchain, ton::TestWallet::get_init_state(key)).addr ==
-        address_.addr) {
-      set_new_state({ton::TestWallet::get_init_code(), ton::TestWallet::get_init_data(key)});
-      wallet_type_ = WalletType::SimpleWallet;
-    } else if (ton::GenericAccount::get_address(address_.workchain, ton::Wallet::get_init_state(key)).addr ==
-               address_.addr) {
-      set_new_state({ton::Wallet::get_init_code(), ton::Wallet::get_init_data(key)});
-      wallet_type_ = WalletType::Wallet;
-    }
     return wallet_type_;
   }
 
@@ -618,7 +565,8 @@ class AccountState {
     if (wallet_type_ != WalletType::Empty) {
       return wallet_type_;
     }
-    set_new_state({ton::WalletV3::get_init_code(), ton::WalletV3::get_init_data(key, wallet_id_)});
+    ton::WalletV3::InitData init_data(key.as_octet_string(), wallet_id_ + address_.workchain);
+    set_new_state(ton::WalletV3::get_init_state(0, init_data));
     wallet_type_ = WalletType::WalletV3;
     return wallet_type_;
   }
@@ -696,16 +644,8 @@ class AccountState {
       return wallet_type_;
     }
 
-    if (code_hash == ton::TestGiver::get_init_code_hash()) {
-      wallet_type_ = WalletType::Giver;
-    } else if (code_hash == ton::TestWallet::get_init_code_hash()) {
-      wallet_type_ = WalletType::SimpleWallet;
-    } else if (code_hash == ton::Wallet::get_init_code_hash()) {
-      wallet_type_ = WalletType::Wallet;
-    } else {
-      LOG(WARNING) << "Unknown code hash: " << td::base64_encode(code_hash.as_slice());
-      wallet_type_ = WalletType::Unknown;
-    }
+    LOG(WARNING) << "Unknown code hash: " << td::base64_encode(code_hash.as_slice());
+    wallet_type_ = WalletType::Unknown;
     return wallet_type_;
   }
 };
@@ -1601,51 +1541,27 @@ td::Result<block::StdAddress> get_account_address(const tonlib_api::raw_initialA
                                           ton::GenericAccount::get_init_state(std::move(code), std::move(data)));
 }
 
-td::Result<block::StdAddress> get_account_address(const tonlib_api::testGiver_initialAccountState& test_wallet_state,
-                                                  td::int32 revision, ton::WorkchainId workchain_id) {
-  return ton::TestGiver::address();
-}
-
-td::Result<block::StdAddress> get_account_address(const tonlib_api::testWallet_initialAccountState& test_wallet_state,
-                                                  td::int32 revision, ton::WorkchainId workchain_id) {
-  TRY_RESULT(key_bytes, get_public_key(test_wallet_state.public_key_));
-  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  return ton::GenericAccount::get_address(workchain_id, ton::TestWallet::get_init_state(key, revision));
-}
-
-td::Result<block::StdAddress> get_account_address(const tonlib_api::wallet_initialAccountState& wallet_state,
-                                                  td::int32 revision, ton::WorkchainId workchain_id) {
-  TRY_RESULT(key_bytes, get_public_key(wallet_state.public_key_));
-  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  return ton::GenericAccount::get_address(workchain_id, ton::Wallet::get_init_state(key, revision));
-}
 td::Result<block::StdAddress> get_account_address(const tonlib_api::wallet_v3_initialAccountState& test_wallet_state,
                                                   td::int32 revision, ton::WorkchainId workchain_id) {
   TRY_RESULT(key_bytes, get_public_key(test_wallet_state.public_key_));
-  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  return ton::GenericAccount::get_address(
-      workchain_id,
-      ton::WalletV3::get_init_state(key, static_cast<td::uint32>(test_wallet_state.wallet_id_), revision));
+  return ton::WalletV3::create({key_bytes.key, static_cast<td::uint32>(test_wallet_state.wallet_id_)}, revision)
+      ->get_address(workchain_id);
 }
 
 td::Result<block::StdAddress> get_account_address(
     const tonlib_api::wallet_highload_v1_initialAccountState& test_wallet_state, td::int32 revision,
     ton::WorkchainId workchain_id) {
   TRY_RESULT(key_bytes, get_public_key(test_wallet_state.public_key_));
-  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  return ton::GenericAccount::get_address(
-      workchain_id,
-      ton::HighloadWallet::get_init_state(key, static_cast<td::uint32>(test_wallet_state.wallet_id_), revision));
+  return ton::HighloadWallet::create({key_bytes.key, static_cast<td::uint32>(test_wallet_state.wallet_id_)}, revision)
+      ->get_address(workchain_id);
 }
 
 td::Result<block::StdAddress> get_account_address(
     const tonlib_api::wallet_highload_v2_initialAccountState& test_wallet_state, td::int32 revision,
     ton::WorkchainId workchain_id) {
   TRY_RESULT(key_bytes, get_public_key(test_wallet_state.public_key_));
-  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  return ton::GenericAccount::get_address(
-      workchain_id,
-      ton::HighloadWalletV2::get_init_state(key, static_cast<td::uint32>(test_wallet_state.wallet_id_), revision));
+  return ton::HighloadWalletV2::create({key_bytes.key, static_cast<td::uint32>(test_wallet_state.wallet_id_)}, revision)
+      ->get_address(workchain_id);
 }
 
 td::Result<block::StdAddress> get_account_address(const tonlib_api::dns_initialAccountState& dns_state,
@@ -1678,9 +1594,6 @@ static td::optional<ton::SmartContractCode::Type> get_wallet_type(tonlib_api::In
       state,
       td::overloaded(
           [](const tonlib_api::raw_initialAccountState&) { return td::optional<ton::SmartContractCode::Type>(); },
-          [](const tonlib_api::testGiver_initialAccountState&) { return td::optional<ton::SmartContractCode::Type>(); },
-          [](const tonlib_api::testWallet_initialAccountState&) { return ton::SmartContractCode::WalletV1; },
-          [](const tonlib_api::wallet_initialAccountState&) { return ton::SmartContractCode::WalletV2; },
           [](const tonlib_api::wallet_v3_initialAccountState&) { return ton::SmartContractCode::WalletV3; },
           [](const tonlib_api::wallet_highload_v1_initialAccountState&) {
             return ton::SmartContractCode::HighloadWalletV1;
@@ -1999,7 +1912,7 @@ const MasterConfig& get_default_master_config() {
       "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
       "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
     },
-    "init_block": 
+    "init_block":
 {"workchain":-1,"shard":-9223372036854775808,"seqno":870721,"root_hash":"jYKhSQ1xeSPprzgjqiUOnAWwc2yqs7nCVAU21k922s4=","file_hash":"kHidF02CZpaz2ia9jtXUJLp0AiWMWwfzprTUIsddHSo="}
   }
 })abc");
@@ -2636,7 +2549,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                               return td::Status::OK();
                             }));
     // Use this limit as a preventive check
-    if (res.message.size() > ton::Wallet::max_message_size) {
+    if (res.message.size() > ton::WalletV3Traits::max_message_size) {
       return TonlibError::MessageTooLong();
     }
     TRY_STATUS(std::move(status));
@@ -3115,11 +3028,6 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       stop();
       return td::Status::OK();
     };
-
-    if (source_->get_wallet_type() == AccountState::Giver) {
-      valid_until = 0;
-      private_key_ = td::Ed25519::PrivateKey(td::SecureString(std::string(32, '\0')));
-    }
 
     return with_wallet(*source_->get_wallet());
   }

@@ -38,8 +38,6 @@ const auto& get_map() {
       map[name] = vm::std_boc_deserialize(td::base64_decode(code_str).move_as_ok()).move_as_ok();
     };
 #include "smartcont/auto/multisig-code.cpp"
-#include "smartcont/auto/simple-wallet-ext-code.cpp"
-#include "smartcont/auto/simple-wallet-code.cpp"
 #include "smartcont/auto/wallet-code.cpp"
 #include "smartcont/auto/highload-wallet-code.cpp"
 #include "smartcont/auto/highload-wallet-v2-code.cpp"
@@ -65,18 +63,6 @@ const auto& get_map() {
                   "QE0VNggED0Dm+hMfJgUXO68qIH+QFUEIf5EPKjAvQE0fgAf44WIYAQ9HhvpSCYAtMH1DAB+wCRMuIBs+"
                   "ZbgyWhyEA0gED0Q4rmMcgSyx8Tyz/L//QAye1UCAAE0DACASAGBwAXvZznaiaGmvmOuF/8AEG+X5dqJoaY+Y6Z/p/"
                   "5j6AmipEEAgegc30JjJLb/JXdHxQANCCAQPSWb6UyURCUMFMDud4gkzM2AZIyMOKz");
-    with_tvm_code("simple-wallet-r1",
-                  "te6ccgEEAQEAAAAAUwAAov8AIN0gggFMl7qXMO1E0NcLH+Ck8mCBAgDXGCDXCx/tRNDTH9P/"
-                  "0VESuvKhIvkBVBBE+RDyovgAAdMfMSDXSpbTB9QC+wDe0aTIyx/L/8ntVA==");
-    with_tvm_code("simple-wallet-r2",
-                  "te6ccgEBAQEAXwAAuv8AIN0gggFMl7ohggEznLqxnHGw7UTQ0x/XC//jBOCk8mCBAgDXGCDXCx/tRNDTH9P/"
-                  "0VESuvKhIvkBVBBE+RDyovgAAdMfMSDXSpbTB9QC+wDe0aTIyx/L/8ntVA==");
-    with_tvm_code("wallet-r1",
-                  "te6ccgEBAQEAVwAAqv8AIN0gggFMl7qXMO1E0NcLH+Ck8mCDCNcYINMf0x8B+CO78mPtRNDTH9P/0VExuvKhA/"
-                  "kBVBBC+RDyovgAApMg10qW0wfUAvsA6NGkyMsfy//J7VQ=");
-    with_tvm_code("wallet-r2",
-                  "te6ccgEBAQEAYwAAwv8AIN0gggFMl7ohggEznLqxnHGw7UTQ0x/XC//jBOCk8mCDCNcYINMf0x8B+CO78mPtRNDTH9P/"
-                  "0VExuvKhA/kBVBBC+RDyovgAApMg10qW0wfUAvsA6NGkyMsfy//J7VQ=");
     with_tvm_code("wallet3-r1",
                   "te6ccgEBAQEAYgAAwP8AIN0gggFMl7qXMO1E0NcLH+Ck8mCDCNcYINMf0x/TH/gjE7vyY+1E0NMf0x/T/"
                   "9FRMrryoVFEuvKiBPkBVBBV+RDyo/gAkyDXSpbTB9QC+wDo0QGkyMsfyx/L/8ntVA==");
@@ -123,20 +109,8 @@ td::Result<td::Ref<vm::Cell>> SmartContractCode::load(td::Slice name) {
 
 td::Span<int> SmartContractCode::get_revisions(Type type) {
   switch (type) {
-    case Type::WalletV1: {
-      static int res[] = {1, 2};
-      return res;
-    }
-    case Type::WalletV2: {
-      static int res[] = {1, 2};
-      return res;
-    }
     case Type::WalletV3: {
       static int res[] = {1, 2};
-      return res;
-    }
-    case Type::WalletV1Ext: {
-      static int res[] = {-1};
       return res;
     }
     case Type::HighloadWalletV1: {
@@ -191,14 +165,8 @@ td::Ref<vm::Cell> SmartContractCode::get_code(Type type, int ext_revision) {
   auto revision = validate_revision(type, ext_revision).move_as_ok();
   auto basename = [](Type type) -> td::Slice {
     switch (type) {
-      case Type::WalletV1:
-        return "simple-wallet";
-      case Type::WalletV2:
-        return "wallet";
       case Type::WalletV3:
         return "wallet3";
-      case Type::WalletV1Ext:
-        return "simple-wallet-ext";
       case Type::HighloadWalletV1:
         return "highload-wallet";
       case Type::HighloadWalletV2:

@@ -106,7 +106,8 @@ class Scheduler {
   };
 
   enum Mode { Running, Paused };
-  Scheduler(std::vector<NodeInfo> infos, Mode mode = Paused) : infos_(std::move(infos)) {
+  Scheduler(std::vector<NodeInfo> infos, bool skip_timeouts = false, Mode mode = Paused)
+      : infos_(std::move(infos)), skip_timeouts_(skip_timeouts) {
     init();
     if (mode == Running) {
       start();
@@ -184,6 +185,7 @@ class Scheduler {
   std::shared_ptr<core::SchedulerGroupInfo> group_info_;
   std::vector<td::unique_ptr<core::Scheduler>> schedulers_;
   bool is_started_{false};
+  bool skip_timeouts_{false};
 
   void init() {
     CHECK(infos_.size() < 256);
@@ -191,7 +193,8 @@ class Scheduler {
     group_info_ = std::make_shared<core::SchedulerGroupInfo>(infos_.size());
     td::uint8 id = 0;
     for (const auto &info : infos_) {
-      schedulers_.emplace_back(td::make_unique<core::Scheduler>(group_info_, core::SchedulerId{id}, info.cpu_threads_));
+      schedulers_.emplace_back(
+          td::make_unique<core::Scheduler>(group_info_, core::SchedulerId{id}, info.cpu_threads_, skip_timeouts_));
       id++;
     }
   }
@@ -250,7 +253,7 @@ T &current_actor() {
 inline void send_message(core::ActorInfo &actor_info, core::ActorMessage message) {
   auto scheduler_context_ptr = core::SchedulerContext::get();
   if (scheduler_context_ptr == nullptr) {
-    LOG(ERROR) << "send to actor is silently ignored";
+    //LOG(ERROR) << "send to actor is silently ignored";
     return;
   }
   auto &scheduler_context = *scheduler_context_ptr;
@@ -263,10 +266,11 @@ inline void send_message(ActorRef actor_ref, core::ActorMessage message) {
   message.set_link_token(actor_ref.link_token);
   send_message(actor_ref.actor_info, std::move(message));
 }
+
 inline void send_message_later(core::ActorInfo &actor_info, core::ActorMessage message) {
   auto scheduler_context_ptr = core::SchedulerContext::get();
   if (scheduler_context_ptr == nullptr) {
-    LOG(ERROR) << "send to actor is silently ignored";
+    //LOG(ERROR) << "send to actor is silently ignored";
     return;
   }
   auto &scheduler_context = *scheduler_context_ptr;
@@ -285,7 +289,7 @@ template <class ExecuteF, class ToMessageF>
 void send_immediate(ActorRef actor_ref, ExecuteF &&execute, ToMessageF &&to_message) {
   auto scheduler_context_ptr = core::SchedulerContext::get();
   if (scheduler_context_ptr == nullptr) {
-    LOG(ERROR) << "send to actor is silently ignored";
+    //LOG(ERROR) << "send to actor is silently ignored";
     return;
   }
   auto &scheduler_context = *scheduler_context_ptr;
@@ -368,28 +372,26 @@ void send_closure_later(ActorRef actor_ref, ArgsT &&... args) {
 inline void send_signals(ActorRef actor_ref, ActorSignals signals) {
   auto scheduler_context_ptr = core::SchedulerContext::get();
   if (scheduler_context_ptr == nullptr) {
-    LOG(ERROR) << "send to actor is silently ignored";
+    //LOG(ERROR) << "send to actor is silently ignored";
     return;
   }
   auto &scheduler_context = *scheduler_context_ptr;
-  core::ActorExecutor executor(actor_ref.actor_info, scheduler_context,
-                               core::ActorExecutor::Options().with_has_poll(scheduler_context.has_poll()));
-  if (executor.can_send_immediate()) {
-    return executor.send_immediate(signals.raw());
-  }
-  executor.send(signals.raw());
+  core::ActorExecutor executor(
+      actor_ref.actor_info, scheduler_context,
+      core::ActorExecutor::Options().with_has_poll(scheduler_context.has_poll()).with_signals(signals.raw()));
 }
 
 inline void send_signals_later(ActorRef actor_ref, ActorSignals signals) {
   auto scheduler_context_ptr = core::SchedulerContext::get();
   if (scheduler_context_ptr == nullptr) {
-    LOG(ERROR) << "send to actor is silently ignored";
+    //LOG(ERROR) << "send to actor is silently ignored";
     return;
   }
   auto &scheduler_context = *scheduler_context_ptr;
   core::ActorExecutor executor(actor_ref.actor_info, scheduler_context,
-                               core::ActorExecutor::Options().with_has_poll(scheduler_context.has_poll()));
-  executor.send((signals | ActorSignals::pause()).raw());
+                               core::ActorExecutor::Options()
+                                   .with_has_poll(scheduler_context.has_poll())
+                                   .with_signals((signals | ActorSignals::pause()).raw()));
 }
 
 inline void register_actor_info_ptr(core::ActorInfoPtr actor_info_ptr) {

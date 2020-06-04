@@ -145,7 +145,9 @@ TEST(Tonlib, InitClose) {
 
     sync_send(client, make_object<tonlib_api::options_setConfig>(cfg(bad_config.str()))).ensure_error();
     auto address = sync_send(client, make_object<tonlib_api::getAccountAddress>(
-                                         make_object<tonlib_api::testGiver_initialAccountState>(), 0, -1))
+                                         make_object<tonlib_api::wallet_v3_initialAccountState>(
+                                             "Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2", 123),
+                                         0, -1))
                        .move_as_ok();
     sync_send(client, make_object<tonlib_api::getAccountState>(std::move(address))).ensure_error();
     sync_send(client, make_object<tonlib_api::close>()).ensure();

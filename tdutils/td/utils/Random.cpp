@@ -192,5 +192,8 @@ uint64 Random::Xorshift128plus::operator()() {
 int Random::Xorshift128plus::fast(int min, int max) {
   return static_cast<int>((*this)() % (max - min + 1) + min);
 }
+int64 Random::Xorshift128plus::fast64(int64 min, int64 max) {
+  return static_cast<int64>((*this)() % (max - min + 1) + min);
+}
 
 }  // namespace td

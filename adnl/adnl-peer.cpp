@@ -141,7 +141,8 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
     if (!packet.priority_addr_list().empty()) {
       update_addr_list(packet.priority_addr_list());
     }
-    VLOG(ADNL_NOTICE) << this << ": dropping IN message old our reinit date " << packet.reinit_date() << " date=" << d;
+    VLOG(ADNL_NOTICE) << this << ": dropping IN message old our reinit date " << packet.dst_reinit_date()
+                      << " date=" << d;
     auto M = OutboundAdnlMessage{adnlmessage::AdnlMessageNop{}, 0};
     send_message(std::move(M));
     return;

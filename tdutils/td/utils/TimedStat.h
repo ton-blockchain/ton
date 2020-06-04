@@ -19,6 +19,7 @@
 #pragma once
 
 #include "td/utils/common.h"
+#include "td/utils/optional.h"
 
 #include <utility>
 
@@ -79,5 +80,28 @@ class TimedStat {
     }
   }
 };
+
+template <class T, class Cmp>
+struct MinMaxStat {
+ public:
+  using Event = T;
+  void on_event(Event event) {
+    if (!best_ || Cmp()(event, best_.value())) {
+      best_ = event;
+    }
+  }
+  td::optional<T> get_stat() const {
+    return best_.copy();
+  }
+
+ private:
+  td::optional<T> best_;
+};
+
+template <class T>
+using MinStat = MinMaxStat<T, std::less<>>;
+
+template <class T>
+using MaxStat = MinMaxStat<T, std::greater<>>;
 
 }  // namespace td

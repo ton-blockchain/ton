@@ -150,6 +150,10 @@ adnl.db.node.value date:int id:PublicKey addr_list:adnl.addressList priority_add
 
 ---types---
 
+rldp2.messagePart transfer_id:int256 fec_type:fec.Type part:int total_size:long seqno:int data:bytes = rldp2.MessagePart;
+rldp2.confirm transfer_id:int256 part:int max_seqno:int received_mask:int received_count:int = rldp2.MessagePart;
+rldp2.complete transfer_id:int256 part:int = rldp2.MessagePart;
+
 rldp.messagePart transfer_id:int256 fec_type:fec.Type part:int total_size:long seqno:int data:bytes = rldp.MessagePart;
 rldp.confirm transfer_id:int256 part:int seqno:int = rldp.MessagePart;
 rldp.complete transfer_id:int256 part:int = rldp.MessagePart;
@@ -655,6 +659,26 @@ engine.validator.checkDhtServers id:int256 = engine.validator.DhtServersStatus;
 
 engine.validator.controlQuery data:bytes = Object;
 
+---types---
+
+storage.pong = storage.Pong;
+storage.ok = Ok;
+
+storage.state will_upload:Bool want_download:Bool = storage.State;
+storage.piece proof:bytes data:bytes = storage.Piece;
+
+storage.updateInit have_pieces:bytes state:storage.State = storage.Update;
+storage.updateHavePieces piece_id:(vector int) = storage.Update;
+storage.updateState state:storage.State = storage.Update;
+
+---functions---
+
+storage.ping session_id:long = storage.Pong;
+storage.addUpdate session_id:long seqno:int update:storage.Update = Ok;
+
+storage.getPiece piece_id:int = storage.Piece;
+
+storage.queryPrefix id:int256 = Object;
 
 ---types---
 

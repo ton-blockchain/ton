@@ -39,8 +39,6 @@
 #include "smc-envelope/GenericAccount.h"
 #include "smc-envelope/ManualDns.h"
 #include "smc-envelope/MultisigWallet.h"
-#include "smc-envelope/TestGiver.h"
-#include "smc-envelope/TestWallet.h"
 #include "tonlib/LastBlock.h"
 #include "tonlib/ExtClient.h"
 #include "tonlib/utils.h"
@@ -182,7 +180,6 @@ AccountState get_account_state(Client& client, std::string address) {
       res.type = AccountState::Empty;
       break;
     case tonlib_api::wallet_v3_accountState::ID:
-    case tonlib_api::wallet_accountState::ID:
       res.type = AccountState::Wallet;
       break;
     case tonlib_api::dns_accountState::ID:

@@ -31,11 +31,8 @@ class CellString {
   static td::Status store(CellBuilder &cb, td::Slice slice, unsigned int top_bits = Cell::max_bits);
   static td::Status store(CellBuilder &cb, td::BitSlice slice, unsigned int top_bits = Cell::max_bits);
   static td::Result<td::string> load(CellSlice &cs, unsigned int top_bits = Cell::max_bits);
-  static td::Result<td::Ref<vm::Cell>> create(td::Slice slice, unsigned int top_bits = Cell::max_bits) {
-    vm::CellBuilder cb;
-    TRY_STATUS(store(cb, slice, top_bits));
-    return cb.finalize();
-  }
+  static td::Result<td::Ref<vm::Cell>> create(td::Slice slice, unsigned int top_bits = Cell::max_bits);
+  static bool fetch_to(CellSlice &cs, std::string &res, unsigned int top_bits = Cell::max_bits);
 
  private:
   template <class F>
@@ -50,11 +47,8 @@ class CellText {
   static td::Status store(CellBuilder &cb, td::Slice slice, unsigned int top_bits = Cell::max_bits);
   static td::Status store(CellBuilder &cb, td::BitSlice slice, unsigned int top_bits = Cell::max_bits);
   static td::Result<td::string> load(CellSlice &cs);
-  static td::Result<td::Ref<vm::Cell>> create(td::Slice slice, unsigned int top_bits = Cell::max_bits) {
-    vm::CellBuilder cb;
-    TRY_STATUS(store(cb, slice, top_bits));
-    return cb.finalize();
-  }
+  static td::Result<td::Ref<vm::Cell>> create(td::Slice slice, unsigned int top_bits = Cell::max_bits);
+  static bool fetch_to(CellSlice &cs, std::string &res);
 
  private:
   template <class F>

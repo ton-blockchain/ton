@@ -127,7 +127,7 @@ if (WIN32)
   set(WINGETOPT_TARGET wingetopt)
 endif()
 install(TARGETS tdnet keys crc32c tdactor adnllite tl_api tl-utils tl_lite_api tl-lite-utils ton_crypto ton_block smc-envelope ${WINGETOPT_TARGET}
-  tdutils tl_tonlib_api tonlib lite-client-common Tonlib EXPORT Tonlib
+  tdutils tl_tonlib_api tonlib lite-client-common tddb_utils Tonlib EXPORT Tonlib
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin

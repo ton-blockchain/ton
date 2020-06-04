@@ -124,9 +124,6 @@ set(TON_CRYPTO_SOURCE
 
   vm/db/StaticBagOfCellsDb.h
   vm/db/StaticBagOfCellsDb.cpp
-
-  vm/db/BlobView.h
-  vm/db/BlobView.cpp
 )
 
 set(TON_DB_SOURCE
@@ -144,6 +141,7 @@ set(FIFT_SOURCE
   fift/Dictionary.cpp
   fift/Fift.cpp
   fift/IntCtx.cpp
+  fift/Continuation.cpp
   fift/SourceLookup.cpp
   fift/utils.cpp
   fift/words.cpp
@@ -151,6 +149,7 @@ set(FIFT_SOURCE
   fift/Dictionary.h
   fift/Fift.h
   fift/IntCtx.h
+  fift/Continuation.h
   fift/SourceLookup.h
   fift/utils.h
   fift/words.h
@@ -216,9 +215,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/PaymentChannel.cpp
   smc-envelope/SmartContract.cpp
   smc-envelope/SmartContractCode.cpp
-  smc-envelope/TestGiver.cpp
-  smc-envelope/TestWallet.cpp
-  smc-envelope/Wallet.cpp
+  smc-envelope/WalletInterface.cpp
   smc-envelope/WalletV3.cpp
 
   smc-envelope/GenericAccount.h
@@ -228,9 +225,6 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/MultisigWallet.h
   smc-envelope/SmartContract.h
   smc-envelope/SmartContractCode.h
-  smc-envelope/TestGiver.h
-  smc-envelope/TestWallet.h
-  smc-envelope/Wallet.h
   smc-envelope/WalletInterface.h
   smc-envelope/WalletV3.h
 )
@@ -268,7 +262,7 @@ set(FIFT_TEST_SOURCE
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils)
+target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
 if (NOT WIN32)
   target_link_libraries(ton_crypto PUBLIC dl z)
 endif()

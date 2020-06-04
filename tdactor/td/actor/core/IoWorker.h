@@ -33,7 +33,7 @@ class IoWorker {
   void start_up();
   void tear_down();
 
-  bool run_once(double timeout);
+  bool run_once(double timeout, bool skip_timeouts = false);
 
  private:
   MpscPollableQueue<SchedulerMessage> &queue_;

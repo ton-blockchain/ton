@@ -83,6 +83,7 @@ class CntObject {
   void assert_unique() const {
     assert(is_unique());
   }
+  Ref<CntObject> clone() const;
 };
 
 typedef Ref<CntObject> RefAny;
@@ -159,6 +160,7 @@ struct static_cast_ref {};
 namespace detail {
 void safe_delete(const CntObject* ptr);
 }
+
 template <class T>
 class Ref {
   T* ptr;

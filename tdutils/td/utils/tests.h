@@ -25,6 +25,7 @@
 #include "td/utils/port/thread.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
+#include "td/utils/Span.h"
 #include "td/utils/Status.h"
 
 #include <atomic>
@@ -117,6 +118,7 @@ class TestsRunner : public TestContext {
     size_t it{0};
     bool is_running = false;
     double start{0};
+    double start_unadjusted{0};
     size_t end{0};
   };
   bool stress_flag_{false};

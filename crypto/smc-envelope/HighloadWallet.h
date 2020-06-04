@@ -26,41 +26,24 @@
 #include "vm/cells/CellString.h"
 
 namespace ton {
-class HighloadWallet : public ton::SmartContract, public WalletInterface {
- public:
-  explicit HighloadWallet(State state) : ton::SmartContract(std::move(state)) {
-  }
+struct HighloadWalletTraits {
+  using InitData = WalletInterface::DefaultInitData;
+
   static constexpr unsigned max_message_size = vm::CellString::max_bytes;
   static constexpr unsigned max_gifts_size = 254;
-  static td::Ref<vm::Cell> get_init_state(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id,
-                                          td::int32 revision) noexcept;
-  static td::Ref<vm::Cell> get_init_message(const td::Ed25519::PrivateKey& private_key, td::uint32 wallet_id) noexcept;
-  static td::Ref<vm::Cell> make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 wallet_id,
-                                               td::uint32 seqno, td::uint32 valid_until, td::Span<Gift> gifts) noexcept;
+  static constexpr auto code_type = SmartContractCode::HighloadWalletV1;
+};
 
-  static td::Ref<vm::Cell> get_init_code(td::int32 revision) noexcept;
-  static vm::CellHash get_init_code_hash() noexcept;
-  static td::Ref<vm::Cell> get_init_data(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id) noexcept;
-  static td::optional<td::int32> guess_revision(const vm::Cell::Hash& code_hash);
-  static td::optional<td::int32> guess_revision(const block::StdAddress& address,
-                                                const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id);
-  td::Result<td::uint32> get_seqno() const;
-  td::Result<td::uint32> get_wallet_id() const;
-
+class HighloadWallet : public WalletBase<HighloadWallet, HighloadWalletTraits> {
+ public:
+  explicit HighloadWallet(State state) : WalletBase(std::move(state)) {
+  }
   td::Result<td::Ref<vm::Cell>> make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 valid_until,
-                                                    td::Span<Gift> gifts) const override {
-    TRY_RESULT(seqno, get_seqno());
-    TRY_RESULT(wallet_id, get_wallet_id());
-    return make_a_gift_message(private_key, wallet_id, seqno, valid_until, gifts);
-  }
-  size_t get_max_gifts_size() const override {
-    return max_gifts_size;
-  }
-  td::Result<td::Ed25519::PublicKey> get_public_key() const override;
+                                                    td::Span<Gift> gifts) const override;
+  static td::Ref<vm::Cell> get_init_data(const InitData& init_data) noexcept;
 
- private:
-  td::Result<td::uint32> get_seqno_or_throw() const;
-  td::Result<td::uint32> get_wallet_id_or_throw() const;
-  td::Result<td::Ed25519::PublicKey> get_public_key_or_throw() const;
+  // can't use get methods for compatibility with old revisions
+  td::Result<td::uint32> get_wallet_id() const override;
+  td::Result<td::Ed25519::PublicKey> get_public_key() const override;
 };
 }  // namespace ton

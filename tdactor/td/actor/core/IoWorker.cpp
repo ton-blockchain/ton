@@ -37,7 +37,7 @@ void IoWorker::tear_down() {
 #endif
 }
 
-bool IoWorker::run_once(double timeout) {
+bool IoWorker::run_once(double timeout, bool skip_timeouts) {
   auto &dispatcher = *SchedulerContext::get();
 #if TD_PORT_POSIX
   auto &poll = SchedulerContext::get()->get_poll();
@@ -86,6 +86,14 @@ bool IoWorker::run_once(double timeout) {
     timeout_ms = static_cast<int>(wakeup_timestamp.in() * 1000) + 1;
     if (timeout_ms < 0) {
       timeout_ms = 0;
+    }
+
+    if (timeout_ms > 0 && skip_timeouts) {
+      timeout_ms = 0;
+      //auto *heap_node = heap.top();
+      //auto *actor_info = ActorInfo::from_heap_node(heap_node);
+      //LOG(ERROR) << "Jump: " << wakeup_timestamp.at() << " " << actor_info->get_name();
+      Time::jump_in_future(wakeup_timestamp.at() + 1e-9);
     }
     //const int thirty_seconds = 30 * 1000;
     //if (timeout_ms > thirty_seconds) {

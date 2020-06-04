@@ -21,6 +21,11 @@
 #include "td/utils/ScopeGuard.h"
 
 namespace td {
+
+Ref<CntObject> CntObject::clone() const {
+  return Ref<CntObject>{make_copy(), Ref<CntObject>::acquire_t()};
+}
+
 namespace detail {
 struct SafeDeleter {
  public:

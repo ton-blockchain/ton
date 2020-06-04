@@ -106,7 +106,7 @@ td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy)
   if (lazy) {
     vm::StaticBagOfCellsDbLazy::Options options;
     options.check_crc32c = true;
-    auto res = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(data_.clone()), options);
+    auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data_.clone()), options);
     if (res.is_error()) {
       return res.move_as_error();
     }

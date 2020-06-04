@@ -192,17 +192,20 @@ td::Result<typename T::ReturnType> fetch_result(const td::BufferSlice &message, 
 
 template <class Type, class... Args>
 td::BufferSlice create_serialize_tl_object(Args &&... args) {
-  return serialize_tl_object(create_tl_object<Type>(std::forward<Args>(args)...), true);
+  Type object(std::forward<Args>(args)...);
+  return serialize_tl_object(&object, true);
 }
 
 template <class Type, class... Args>
 td::BufferSlice create_serialize_tl_object_suffix(td::Slice suffix, Args &&... args) {
-  return serialize_tl_object(create_tl_object<Type>(std::forward<Args>(args)...), true, suffix);
+  Type object(std::forward<Args>(args)...);
+  return serialize_tl_object(&object, true, suffix);
 }
 
 template <class Type, class... Args>
 auto create_hash_tl_object(Args &&... args) {
-  return get_tl_object_sha_bits256(create_tl_object<Type>(std::forward<Args>(args)...));
+  Type object(std::forward<Args>(args)...);
+  return get_tl_object_sha_bits256(&object);
 }
 
 }  // namespace ton

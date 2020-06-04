@@ -57,9 +57,6 @@ raw.transactions transactions:vector<raw.transaction> previous_transaction_id:in
 pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
 
 raw.initialAccountState code:bytes data:bytes = InitialAccountState;
-testGiver.initialAccountState = InitialAccountState;
-testWallet.initialAccountState public_key:string = InitialAccountState;
-wallet.initialAccountState public_key:string = InitialAccountState;
 wallet.v3.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
 wallet.highload.v1.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
 wallet.highload.v2.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
@@ -72,12 +69,9 @@ dns.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
 pchan.initialAccountState config:pchan.config = InitialAccountState;
 
 raw.accountState code:bytes data:bytes frozen_hash:bytes = AccountState;
-testWallet.accountState seqno:int32 = AccountState;
-wallet.accountState seqno:int32 = AccountState;
 wallet.v3.accountState wallet_id:int64 seqno:int32 = AccountState;
 wallet.highload.v1.accountState wallet_id:int64 seqno:int32 = AccountState;
 wallet.highload.v2.accountState wallet_id:int64 = AccountState;
-testGiver.accountState seqno:int32 = AccountState;
 dns.accountState wallet_id:int64 = AccountState;
 rwallet.accountState wallet_id:int64 seqno:int32 unlocked_balance:int64 config:rwallet.config = AccountState;
 

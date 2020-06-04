@@ -1129,7 +1129,7 @@ td::Result<std::pair<Ref<vm::Cell>, std::shared_ptr<vm::StaticBagOfCellsDb>>> la
     td::BufferSlice data) {
   vm::StaticBagOfCellsDbLazy::Options options;
   options.check_crc32c = true;
-  TRY_RESULT(boc, vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(std::move(data)), options));
+  TRY_RESULT(boc, vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(std::move(data)), options));
   TRY_RESULT(rc, boc->get_root_count());
   if (rc != 1) {
     return td::Status::Error(-668, "bag-of-cells is not standard (exactly one root cell expected)");

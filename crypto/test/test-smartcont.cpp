@@ -34,9 +34,6 @@
 #include "smc-envelope/MultisigWallet.h"
 #include "smc-envelope/SmartContract.h"
 #include "smc-envelope/SmartContractCode.h"
-#include "smc-envelope/TestGiver.h"
-#include "smc-envelope/TestWallet.h"
-#include "smc-envelope/Wallet.h"
 #include "smc-envelope/WalletV3.h"
 #include "smc-envelope/HighloadWallet.h"
 #include "smc-envelope/HighloadWalletV2.h"
@@ -66,62 +63,6 @@ std::string load_source(std::string name) {
   return td::read_file_str(current_dir() + "../../crypto/" + name).move_as_ok();
 }
 
-td::Ref<vm::Cell> get_test_wallet_source() {
-  std::string code = R"ABCD(
-SETCP0 DUP IFNOTRET // return if recv_internal
-DUP 85143 INT EQUAL OVER 78748 INT EQUAL OR IFJMP:<{ // "seqno" and "get_public_key" get-methods
-  1 INT AND c4 PUSHCTR CTOS 32 LDU 256 PLDU CONDSEL  // cnt or pubk
-}>
-INC 32 THROWIF  // fail unless recv_external
-512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
-c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
-s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
-EQUAL 33 THROWIFNOT   // ( seqno mismatch? )
-s2 PUSH HASHSU        // sign cs cnt pubk hash
-s0 s4 s4 XC2PU        // pubk cs cnt hash sign pubk
-CHKSIGNU              // pubk cs cnt ?
-34 THROWIFNOT         // signature mismatch
-ACCEPT
-SWAP 32 LDU NIP
-DUP SREFS IF:<{
-  // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
-  8 LDU LDREF         // pubk cnt mode msg cs
-  s0 s2 XCHG SENDRAWMSG  // pubk cnt cs ; ( message sent )
-}>
-ENDS
-INC NEWC 32 STU 256 STU ENDC c4 POPCTR
-)ABCD";
-  return fift::compile_asm(code).move_as_ok();
-}
-
-td::Ref<vm::Cell> get_wallet_source() {
-  std::string code = R"ABCD(
-SETCP0 DUP IFNOTRET // return if recv_internal
-   DUP 85143 INT EQUAL OVER 78748 INT EQUAL OR IFJMP:<{ // "seqno" and "get_public_key" get-methods
-     1 INT AND c4 PUSHCTR CTOS 32 LDU 256 PLDU CONDSEL  // cnt or pubk
-   }>
-   INC 32 THROWIF	// fail unless recv_external
-   9 PUSHPOW2 LDSLICEX DUP 32 LDU 32 LDU	//  signature in_msg msg_seqno valid_until cs
-   SWAP NOW LEQ 35 THROWIF	//  signature in_msg msg_seqno cs
-   c4 PUSH CTOS 32 LDU 256 LDU ENDS	//  signature in_msg msg_seqno cs stored_seqno public_key
-   s3 s1 XCPU	//  signature in_msg public_key cs stored_seqno msg_seqno stored_seqno
-   EQUAL 33 THROWIFNOT	//  signature in_msg public_key cs stored_seqno
-   s0 s3 XCHG HASHSU	//  signature stored_seqno public_key cs hash
-   s0 s4 s2 XC2PU CHKSIGNU 34 THROWIFNOT	//  cs stored_seqno public_key
-   ACCEPT
-   s0 s2 XCHG	//  public_key stored_seqno cs
-   WHILE:<{
-     DUP SREFS	//  public_key stored_seqno cs _40
-   }>DO<{	//  public_key stored_seqno cs
-     // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
-     8 LDU LDREF s0 s2 XCHG	//  public_key stored_seqno cs _45 mode
-     SENDRAWMSG	//  public_key stored_seqno cs
-   }>
-   ENDS INC	//  public_key seqno'
-   NEWC 32 STU 256 STU ENDC c4 POP
-)ABCD";
-  return fift::compile_asm(code).move_as_ok();
-}
 td::Ref<vm::Cell> get_wallet_v3_source() {
   std::string code = R"ABCD(
 SETCP0 DUP IFNOTRET // return if recv_internal
@@ -150,140 +91,37 @@ SETCP0 DUP IFNOTRET // return if recv_internal
   return fift::compile_asm(code).move_as_ok();
 }
 
-TEST(Tonlib, TestWallet) {
-  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_test_wallet_source()).move_as_ok());
-  CHECK(get_test_wallet_source()->get_hash() == ton::TestWallet::get_init_code()->get_hash());
-  auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet.fif"), {"aba", "0"}).move_as_ok();
-
-  auto new_wallet_pk = fift_output.source_lookup.read_file("new-wallet.pk").move_as_ok().data;
-  auto new_wallet_query = fift_output.source_lookup.read_file("new-wallet-query.boc").move_as_ok().data;
-  auto new_wallet_addr = fift_output.source_lookup.read_file("new-wallet.addr").move_as_ok().data;
-
-  td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
-  auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = ton::TestWallet::get_init_state(pub_key);
-  auto init_message = ton::TestWallet::get_init_message_new(priv_key);
-  auto address = ton::GenericAccount::get_address(0, init_state);
-
-  CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
-
-  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(address, init_state, init_message);
-
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(res).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
-
-  fift_output.source_lookup.write_file("/main.fif", load_source("smartcont/wallet.fif")).ensure();
-  auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
-  fift_output = fift::mem_run_fift(std::move(fift_output.source_lookup),
-                                   {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123",
-                                    "321", "-C", "TEST"})
-                    .move_as_ok();
-  auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
-  ton::TestWallet::Gift gift;
-  gift.destination = dest;
-  gift.message = "TEST";
-  gift.gramms = 321000000000ll;
-  ton::TestWallet wallet(priv_key.get_public_key().move_as_ok(), 123);
-  ASSERT_EQ(123u, wallet.get_seqno().ok());
-  CHECK(priv_key.get_public_key().ok().as_octet_string() == wallet.get_public_key().ok().as_octet_string());
-  auto gift_message = ton::GenericAccount::create_ext_message(
-      address, {}, wallet.make_a_gift_message(priv_key, 0, {gift}).move_as_ok());
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(gift_message).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == gift_message->get_hash());
-}
-
-td::Ref<vm::Cell> get_wallet_source_fc() {
-  return fift::compile_asm(load_source("smartcont/wallet-code.fif"), "", false).move_as_ok();
-}
-
-TEST(Tonlib, Wallet) {
-  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_wallet_source()).move_as_ok());
-  CHECK(get_wallet_source()->get_hash() == ton::Wallet::get_init_code()->get_hash());
-
-  auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet-v2.fif"), {"aba", "0"}).move_as_ok();
-
-  auto new_wallet_pk = fift_output.source_lookup.read_file("new-wallet.pk").move_as_ok().data;
-  auto new_wallet_query = fift_output.source_lookup.read_file("new-wallet-query.boc").move_as_ok().data;
-  auto new_wallet_addr = fift_output.source_lookup.read_file("new-wallet.addr").move_as_ok().data;
-
-  td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
-  auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = ton::Wallet::get_init_state(pub_key);
-  auto init_message = ton::Wallet::get_init_message_new(priv_key);
-  auto address = ton::GenericAccount::get_address(0, init_state);
-
-  CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
-
-  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(address, init_state, init_message);
-
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(res).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
-
-  fift_output.source_lookup.write_file("/main.fif", load_source("smartcont/wallet-v2.fif")).ensure();
-  class ZeroOsTime : public fift::OsTime {
-   public:
-    td::uint32 now() override {
-      return 0;
-    }
-  };
-  fift_output.source_lookup.set_os_time(std::make_unique<ZeroOsTime>());
-  auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
-  fift_output = fift::mem_run_fift(std::move(fift_output.source_lookup),
-                                   {"aba", "new-wallet", "-C", "TESTv2",
-                                    "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123", "321"})
-                    .move_as_ok();
-  auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
-  ton::TestWallet::Gift gift;
-  gift.destination = dest;
-  gift.message = "TESTv2";
-  gift.gramms = 321000000000ll;
-  ton::Wallet wallet(priv_key.get_public_key().move_as_ok(), 123);
-  ASSERT_EQ(123u, wallet.get_seqno().ok());
-  CHECK(priv_key.get_public_key().ok().as_octet_string() == wallet.get_public_key().ok().as_octet_string());
-  auto gift_message = ton::GenericAccount::create_ext_message(
-      address, {}, wallet.make_a_gift_message(priv_key, 60, {gift}).move_as_ok());
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(gift_message).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == gift_message->get_hash());
-}
-
 TEST(Tonlib, WalletV3) {
   LOG(ERROR) << td::base64_encode(std_boc_serialize(get_wallet_v3_source()).move_as_ok());
-  CHECK(get_wallet_v3_source()->get_hash() == ton::WalletV3::get_init_code()->get_hash());
+  CHECK(get_wallet_v3_source()->get_hash() == ton::WalletV3::get_init_code(2)->get_hash());
 
   auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet-v3.fif"), {"aba", "0", "239"}).move_as_ok();
-
   auto new_wallet_pk = fift_output.source_lookup.read_file("new-wallet.pk").move_as_ok().data;
   auto new_wallet_query = fift_output.source_lookup.read_file("new-wallet-query.boc").move_as_ok().data;
   auto new_wallet_addr = fift_output.source_lookup.read_file("new-wallet.addr").move_as_ok().data;
 
   td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
   auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = ton::WalletV3::get_init_state(pub_key, 239);
-  auto init_message =
-      ton::WalletV3(priv_key.get_public_key().move_as_ok(), 239).get_init_message(priv_key).move_as_ok();
-  auto address = ton::GenericAccount::get_address(0, init_state);
+  ton::WalletV3::InitData init_data;
+  init_data.public_key = pub_key.as_octet_string();
+  init_data.wallet_id = 239;
+  auto wallet = ton::WalletV3::create(init_data, 2);
+  ASSERT_EQ(239u, wallet->get_wallet_id().ok());
+  ASSERT_EQ(0u, wallet->get_seqno().ok());
 
+  auto address = wallet->get_address();
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
 
-  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(address, init_state, init_message);
-
+  auto init_message = wallet->get_init_message(priv_key).move_as_ok();
+  td::Ref<vm::Cell> ext_init_message = ton::GenericAccount::create_ext_message(
+      address, ton::GenericAccount::get_init_state(wallet->get_state()), init_message);
   LOG(ERROR) << "-------";
-  vm::load_cell_slice(res).print_rec(std::cerr);
+  vm::load_cell_slice(ext_init_message).print_rec(std::cerr);
   LOG(ERROR) << "-------";
   vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
+  CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == ext_init_message->get_hash());
+
+  CHECK(wallet.write().send_external_message(init_message).success);
 
   fift_output.source_lookup.write_file("/main.fif", load_source("smartcont/wallet-v3.fif")).ensure();
   class ZeroOsTime : public fift::OsTime {
@@ -296,7 +134,7 @@ TEST(Tonlib, WalletV3) {
   auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
   fift_output = fift::mem_run_fift(std::move(fift_output.source_lookup),
                                    {"aba", "new-wallet", "-C", "TESTv3",
-                                    "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "239", "123", "321"})
+                                    "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "239", "1", "321"})
                     .move_as_ok();
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
 
@@ -305,15 +143,14 @@ TEST(Tonlib, WalletV3) {
   gift.message = "TESTv3";
   gift.gramms = 321000000000ll;
 
-  ton::WalletV3 wallet(priv_key.get_public_key().move_as_ok(), 239, 123);
-  ASSERT_EQ(239u, wallet.get_wallet_id().ok());
-  ASSERT_EQ(123u, wallet.get_seqno().ok());
-  CHECK(priv_key.get_public_key().ok().as_octet_string() == wallet.get_public_key().ok().as_octet_string());
+  ASSERT_EQ(239u, wallet->get_wallet_id().ok());
+  ASSERT_EQ(1u, wallet->get_seqno().ok());
+  CHECK(priv_key.get_public_key().ok().as_octet_string() == wallet->get_public_key().ok().as_octet_string());
   CHECK(priv_key.get_public_key().ok().as_octet_string() ==
-        ton::GenericAccount::get_public_key(wallet).ok().as_octet_string());
+        ton::GenericAccount::get_public_key(*wallet).ok().as_octet_string());
 
   auto gift_message = ton::GenericAccount::create_ext_message(
-      address, {}, wallet.make_a_gift_message(priv_key, 60, {gift}).move_as_ok());
+      address, {}, wallet->make_a_gift_message(priv_key, 60, {gift}).move_as_ok());
   LOG(ERROR) << "-------";
   vm::load_cell_slice(gift_message).print_rec(std::cerr);
   LOG(ERROR) << "-------";
@@ -334,20 +171,21 @@ TEST(Tonlib, HighloadWallet) {
 
   td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
   auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = ton::HighloadWallet::get_init_state(pub_key, 239, -1);
-  auto init_message = ton::HighloadWallet::get_init_message(priv_key, 239);
-  auto address = ton::GenericAccount::get_address(0, init_state);
+  ton::HighloadWallet::InitData init_data(pub_key.as_octet_string(), 239);
 
-  ton::HighloadWallet wallet(
-      {ton::HighloadWallet::get_init_code(-1), ton::HighloadWallet::get_init_data(pub_key, 239)});
-  ASSERT_EQ(239u, wallet.get_wallet_id().ok());
-  ASSERT_EQ(0u, wallet.get_seqno().ok());
-  CHECK(pub_key.as_octet_string() == wallet.get_public_key().ok().as_octet_string());
-  CHECK(pub_key.as_octet_string() == ton::GenericAccount::get_public_key(wallet).ok().as_octet_string());
+  auto wallet = ton::HighloadWallet::create(init_data, -1);
+  auto address = wallet->get_address();
+  CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
+  ASSERT_EQ(239u, wallet->get_wallet_id().ok());
+  ASSERT_EQ(0u, wallet->get_seqno().ok());
+  CHECK(pub_key.as_octet_string() == wallet->get_public_key().ok().as_octet_string());
+  CHECK(pub_key.as_octet_string() == ton::GenericAccount::get_public_key(*wallet).ok().as_octet_string());
 
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
 
-  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(address, init_state, init_message);
+  auto init_message = wallet->get_init_message(priv_key).move_as_ok();
+  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(
+      address, ton::GenericAccount::get_init_state(wallet->get_state()), init_message);
 
   LOG(ERROR) << "---smc-envelope----";
   vm::load_cell_slice(res).print_rec(std::cerr);
@@ -382,12 +220,14 @@ TEST(Tonlib, HighloadWallet) {
       return 0;
     }
   };
+  init_data.seqno = 123;
+  wallet = ton::HighloadWallet::create(init_data, -1);
   fift_output.source_lookup.set_os_time(std::make_unique<ZeroOsTime>());
   fift_output = fift::mem_run_fift(std::move(fift_output.source_lookup), {"aba", "new-wallet", "239", "123", "order"})
                     .move_as_ok();
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
   auto gift_message = ton::GenericAccount::create_ext_message(
-      address, {}, ton::HighloadWallet::make_a_gift_message(priv_key, 239, 123, 60, gifts));
+      address, {}, wallet->make_a_gift_message(priv_key, 60, gifts).move_as_ok());
   LOG(ERROR) << "---smc-envelope----";
   vm::load_cell_slice(gift_message).print_rec(std::cerr);
   LOG(ERROR) << "---fift scripts----";
@@ -416,19 +256,21 @@ TEST(Tonlib, HighloadWalletV2) {
 
   td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
   auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = ton::HighloadWalletV2::get_init_state(pub_key, 239, -1);
-  auto init_message = ton::HighloadWalletV2::get_init_message(priv_key, 239, 65535);
-  auto address = ton::GenericAccount::get_address(0, init_state);
+  ton::HighloadWalletV2::InitData init_data(pub_key.as_octet_string(), 239);
 
-  ton::HighloadWalletV2 wallet(
-      {ton::HighloadWalletV2::get_init_code(-1), ton::HighloadWalletV2::get_init_data(pub_key, 239)});
-  ASSERT_EQ(239u, wallet.get_wallet_id().ok());
-  CHECK(pub_key.as_octet_string() == wallet.get_public_key().ok().as_octet_string());
-  CHECK(pub_key.as_octet_string() == ton::GenericAccount::get_public_key(wallet).ok().as_octet_string());
+  auto wallet = ton::HighloadWalletV2::create(init_data, -1);
+  auto address = wallet->get_address();
+
+  ASSERT_EQ(239u, wallet->get_wallet_id().ok());
+  wallet->get_seqno().ensure_error();
+  CHECK(pub_key.as_octet_string() == wallet->get_public_key().ok().as_octet_string());
+  CHECK(pub_key.as_octet_string() == ton::GenericAccount::get_public_key(*wallet).ok().as_octet_string());
 
   CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
 
-  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(address, init_state, init_message);
+  auto init_message = wallet->get_init_message(priv_key, 65535).move_as_ok();
+  td::Ref<vm::Cell> res = ton::GenericAccount::create_ext_message(
+      address, ton::GenericAccount::get_init_state(wallet->get_state()), init_message);
 
   LOG(ERROR) << "---smc-envelope----";
   vm::load_cell_slice(res).print_rec(std::cerr);
@@ -462,34 +304,12 @@ TEST(Tonlib, HighloadWalletV2) {
       fift::mem_run_fift(std::move(fift_output.source_lookup), {"aba", "new-wallet", "239", "order"}).move_as_ok();
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
   auto gift_message = ton::GenericAccount::create_ext_message(
-      address, {}, ton::HighloadWalletV2::make_a_gift_message(priv_key, 239, 60, gifts));
+      address, {}, wallet->make_a_gift_message(priv_key, 60, gifts).move_as_ok());
   LOG(ERROR) << "---smc-envelope----";
   vm::load_cell_slice(gift_message).print_rec(std::cerr);
   LOG(ERROR) << "---fift scripts----";
   vm::load_cell_slice(vm::std_boc_deserialize(wallet_query).move_as_ok()).print_rec(std::cerr);
   CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == gift_message->get_hash());
-}
-
-TEST(Tonlib, TestGiver) {
-  auto address =
-      block::StdAddress::parse("-1:60c04141c6a7b96d68615e7a91d265ad0f3a9a922e9ae9c901d4fa83f5d3c0d0").move_as_ok();
-  LOG(ERROR) << address.bounceable;
-  auto fift_output = fift::mem_run_fift(load_source("smartcont/testgiver.fif"),
-                                        {"aba", address.rserialize(), "0", "6.666", "wallet-query"})
-                         .move_as_ok();
-  LOG(ERROR) << fift_output.output;
-
-  auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
-
-  ton::TestGiver::Gift gift;
-  gift.gramms = 1000000000ll * 6666 / 1000;
-  gift.message = "GIFT";
-  gift.destination = address;
-  td::Ed25519::PrivateKey key{td::SecureString()};
-  auto res = ton::GenericAccount::create_ext_message(ton::TestGiver::address(), {},
-                                                     ton::TestGiver().make_a_gift_message(key, 0, {gift}).move_as_ok());
-  vm::CellSlice(vm::NoVm(), res).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == res->get_hash());
 }
 
 TEST(Tonlib, RestrictedWallet) {
@@ -585,74 +405,130 @@ TEST(Tonlib, RestrictedWallet3) {
   CHECK(wallet->get_seqno().move_as_ok() == 2);
 }
 
-class SimpleWallet : public ton::SmartContract {
+template <class T>
+void check_wallet_seqno(td::Ref<T> wallet, td::uint32 seqno) {
+  ASSERT_EQ(seqno, wallet->get_seqno().ok());
+}
+void check_wallet_seqno(td::Ref<ton::HighloadWalletV2> wallet, td::uint32 seqno) {
+}
+void check_wallet_seqno(td::Ref<ton::WalletInterface> wallet, td::uint32 seqno) {
+}
+template <class T>
+void check_wallet_state(td::Ref<T> wallet, td::uint32 seqno, td::uint32 wallet_id, td::Slice public_key) {
+  ASSERT_EQ(wallet_id, wallet->get_wallet_id().ok());
+  ASSERT_EQ(public_key, wallet->get_public_key().ok().as_octet_string().as_slice());
+  check_wallet_seqno(wallet, seqno);
+}
+
+struct CreatedWallet {
+  td::optional<td::Ed25519::PrivateKey> priv_key;
+  block::StdAddress address;
+  td::Ref<ton::WalletInterface> wallet;
+};
+
+template <class T>
+class InitWallet {
  public:
-  SimpleWallet(State state) : SmartContract(std::move(state)) {
-  }
+  CreatedWallet operator()(int revision) const {
+    ton::WalletInterface::DefaultInitData init_data;
+    auto priv_key = td::Ed25519::generate_private_key().move_as_ok();
+    auto pub_key = priv_key.get_public_key().move_as_ok();
 
-  const State& get_state() const {
-    return state_;
-  }
-  SimpleWallet* make_copy() const override {
-    return new SimpleWallet{state_};
-  }
+    init_data.seqno = 0;
+    init_data.wallet_id = 123;
+    init_data.public_key = pub_key.as_octet_string();
 
-  static td::Ref<SimpleWallet> create_empty() {
-    return td::Ref<SimpleWallet>(true,
-                                 State{ton::SmartContractCode::get_code(ton::SmartContractCode::WalletV1Ext), {}});
-  }
-  static td::Ref<SimpleWallet> create(td::Ref<vm::Cell> data) {
-    return td::Ref<SimpleWallet>(
-        true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::WalletV1Ext), std::move(data)});
-  }
-  static td::Ref<SimpleWallet> create_fast(td::Ref<vm::Cell> data) {
-    return td::Ref<SimpleWallet>(
-        true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::WalletV1), std::move(data)});
-  }
+    auto wallet = T::create(init_data, revision);
+    auto address = wallet->get_address();
+    check_wallet_state(wallet, 0, 123, init_data.public_key);
+    CHECK(wallet.write().send_external_message(wallet->get_init_message(priv_key).move_as_ok()).success);
 
-  td::int32 seqno() const {
-    auto res = run_get_method("seqno");
-    return res.stack.write().pop_smallint_range(1000000000);
-  }
-
-  td::Ref<vm::Cell> create_init_state(td::Slice public_key) const {
-    td::RefInt256 pk{true};
-    pk.write().import_bytes(public_key.ubegin(), public_key.size(), false);
-    auto res = run_get_method("create_init_state", {pk});
-    return res.stack.write().pop_cell();
-  }
-
-  td::Ref<vm::Cell> prepare_send_message(td::Ref<vm::Cell> msg, td::int8 mode = 3) const {
-    auto res = run_get_method("prepare_send_message", {td::make_refint(mode), msg});
-    return res.stack.write().pop_cell();
-  }
-
-  static td::Ref<vm::Cell> sign_message(vm::Ref<vm::Cell> body, const td::Ed25519::PrivateKey& pk) {
-    auto signature = pk.sign(body->get_hash().as_slice()).move_as_ok();
-    return vm::CellBuilder().store_bytes(signature.as_slice()).append_cellslice(vm::load_cell_slice(body)).finalize();
+    CreatedWallet res;
+    res.wallet = std::move(wallet);
+    res.address = std::move(address);
+    res.priv_key = std::move(priv_key);
+    return res;
   }
 };
 
-TEST(Smartcon, Simple) {
-  auto private_key = td::Ed25519::generate_private_key().move_as_ok();
-  auto public_key = private_key.get_public_key().move_as_ok().as_octet_string();
+template <>
+CreatedWallet InitWallet<ton::RestrictedWallet>::operator()(int revision) const {
+  auto init_priv_key = td::Ed25519::generate_private_key().move_as_ok();
+  auto init_pub_key = init_priv_key.get_public_key().move_as_ok();
+  auto priv_key = td::Ed25519::generate_private_key().move_as_ok();
+  auto pub_key = priv_key.get_public_key().move_as_ok();
 
-  auto w_lib = SimpleWallet::create_empty();
-  auto init_data = w_lib->create_init_state(public_key);
+  ton::RestrictedWallet::InitData init_data;
+  init_data.init_key = init_pub_key.as_octet_string();
+  init_data.main_key = pub_key.as_octet_string();
+  init_data.wallet_id = 123;
+  auto wallet = ton::RestrictedWallet::create(init_data, 1);
+  check_wallet_state(wallet, 0, 123, init_data.init_key);
 
-  auto w = SimpleWallet::create(init_data);
-  LOG(ERROR) << w->code_size();
-  auto fw = SimpleWallet::create_fast(init_data);
-  LOG(ERROR) << fw->code_size();
-  LOG(ERROR) << w->seqno();
+  auto address = wallet->get_address();
 
-  for (int i = 0; i < 20; i++) {
-    auto msg = w->sign_message(w->prepare_send_message(vm::CellBuilder().finalize()), private_key);
-    w.write().send_external_message(msg);
-    fw.write().send_external_message(msg);
+  td::uint64 x = 100 * 1000000000ull;
+  ton::RestrictedWallet::Config config;
+  config.start_at = 1;
+  config.limits = {{-32768, x}, {92, x * 3 / 4}, {183, x * 1 / 2}, {366, x * 1 / 4}, {548, 0}};
+  CHECK(wallet.write().send_external_message(wallet->get_init_message(init_priv_key, 10, config).move_as_ok()).success);
+  CHECK(wallet->get_seqno().move_as_ok() == 1);
+
+  CreatedWallet res;
+  res.wallet = std::move(wallet);
+  res.address = std::move(address);
+  res.priv_key = std::move(priv_key);
+  return res;
+}
+
+template <class T>
+void do_test_wallet(int revision) {
+  auto res = InitWallet<T>()(revision);
+  auto priv_key = res.priv_key.unwrap();
+  auto address = std::move(res.address);
+  auto iwallet = std::move(res.wallet);
+  auto public_key = priv_key.get_public_key().move_as_ok().as_octet_string();
+  ;
+  check_wallet_state(iwallet, 1, 123, public_key);
+
+  // lets send a lot of messages
+  std::vector<ton::WalletInterface::Gift> gifts;
+  for (size_t i = 0; i < iwallet->get_max_gifts_size(); i++) {
+    ton::WalletInterface::Gift gift;
+    gift.gramms = 1;
+    gift.destination = address;
+    gift.message = std::string(iwallet->get_max_message_size(), 'z');
+    gifts.push_back(gift);
   }
-  ASSERT_EQ(20, w->seqno());
-  CHECK(w->get_state().data->get_hash() == fw->get_state().data->get_hash());
+
+  td::uint32 valid_until = 10000;
+  auto send_gifts = iwallet->make_a_gift_message(priv_key, valid_until, gifts).move_as_ok();
+
+  {
+    auto cwallet = iwallet;
+    CHECK(!cwallet.write()
+               .send_external_message(send_gifts, ton::SmartContract::Args().set_now(valid_until + 1))
+               .success);
+  }
+  //TODO: make wallet work (or not) with now == valid_until
+  auto ans = iwallet.write().send_external_message(send_gifts, ton::SmartContract::Args().set_now(valid_until - 1));
+  CHECK(ans.success);
+  CHECK((int)gifts.size() <= ans.output_actions_count(ans.actions));
+  check_wallet_state(iwallet, 2, 123, public_key);
+}
+
+template <class T>
+void do_test_wallet() {
+  for (auto revision : T::get_revisions()) {
+    do_test_wallet<T>(revision);
+  }
+}
+
+TEST(Tonlib, Wallet) {
+  do_test_wallet<ton::WalletV3>();
+  do_test_wallet<ton::HighloadWallet>();
+  do_test_wallet<ton::HighloadWalletV2>();
+  do_test_wallet<ton::RestrictedWallet>();
 }
 
 namespace std {  // ouch
@@ -1157,7 +1033,7 @@ class CheckedDns {
     }
   }
   void update(const Action& action) {
-    return update(td::Span<Action>(&action, 1));
+    return update(td::span_one(action));
   }
 
   std::vector<Entry> resolve(td::Slice name, td::int16 category) {
@@ -1337,16 +1213,13 @@ TEST(Smartcont, DnsManual) {
   {
     CheckedDns::Action e[4] = {CheckedDns::Action{"", 0, ""}, CheckedDns::Action{"a.b.c", 1, "hello"},
                                CheckedDns::Action{"a.b.c", 2, "world"}, CheckedDns::Action{"x.y.z", 3, "abc"}};
-    dns.update(td::Span<CheckedDns::Action>(e, 4));
+    dns.update(td::span(e, 4));
   }
   dns.resolve("a.b.c", 1);
   dns.resolve("a.b.c", 2);
   dns.resolve("x.y.z", 3);
 
-  {
-    CheckedDns::Action e[1] = {CheckedDns::Action{"x.y.z", 0, ""}};
-    dns.update(td::Span<CheckedDns::Action>(e, 1));
-  }
+  dns.update(td::span_one(CheckedDns::Action{"x.y.z", 0, ""}));
 
   dns.resolve("a.b.c", 1);
   dns.resolve("a.b.c", 2);
@@ -1355,7 +1228,7 @@ TEST(Smartcont, DnsManual) {
   {
     CheckedDns::Action e[3] = {CheckedDns::Action{"x.y.z", 0, ""}, CheckedDns::Action{"x.y.z", 1, "xxx"},
                                CheckedDns::Action{"x.y.z", 2, "yyy"}};
-    dns.update(td::Span<CheckedDns::Action>(e, 3));
+    dns.update(td::span(e, 3));
   }
   dns.resolve("a.b.c", 1);
   dns.resolve("a.b.c", 2);

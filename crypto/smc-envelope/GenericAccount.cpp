@@ -46,7 +46,8 @@ bool unpack_grams(td::Ref<vm::CellSlice> cs, td::uint64& amount) {
 }
 }  // namespace smc
 
-td::Ref<vm::Cell> GenericAccount::get_init_state(td::Ref<vm::Cell> code, td::Ref<vm::Cell> data) noexcept {
+td::Ref<vm::Cell> GenericAccount::get_init_state(const td::Ref<vm::Cell>& code,
+                                                 const td::Ref<vm::Cell>& data) noexcept {
   return vm::CellBuilder()
       .store_zeroes(2)
       .store_ones(2)
@@ -135,5 +136,24 @@ td::Result<td::Ed25519::PublicKey> GenericAccount::get_public_key(const SmartCon
     return td::Ed25519::PublicKey(std::move(bytes));
   };
   return TRY_VM(do_get_public_key());
+}
+
+td::Result<td::uint32> GenericAccount::get_seqno(const SmartContract& sc) {
+  return TRY_VM([&]() -> td::Result<td::uint32> {
+    auto answer = sc.run_get_method("seqno");
+    if (!answer.success) {
+      return td::Status::Error("seqno get method failed");
+    }
+    return static_cast<td::uint32>(answer.stack.write().pop_long_range(std::numeric_limits<td::uint32>::max()));
+  }());
+}
+td::Result<td::uint32> GenericAccount::get_wallet_id(const SmartContract& sc) {
+  return TRY_VM([&]() -> td::Result<td::uint32> {
+    auto answer = sc.run_get_method("wallet_id");
+    if (!answer.success) {
+      return td::Status::Error("seqno get method failed");
+    }
+    return static_cast<td::uint32>(answer.stack.write().pop_long_range(std::numeric_limits<td::uint32>::max()));
+  }());
 }
 }  // namespace ton

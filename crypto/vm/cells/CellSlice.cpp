@@ -48,7 +48,7 @@ Cell::LoadedCell load_cell_nothrow(const Ref<Cell>& ref) {
   auto res = ref->load_cell();
   if (res.is_ok()) {
     auto ld = res.move_as_ok();
-    CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
+    //CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
     return ld;
   }
   return {};
@@ -58,7 +58,7 @@ Cell::LoadedCell load_cell_nothrow(const Ref<Cell>& ref, int mode) {
   auto res = ref->load_cell();
   if (res.is_ok()) {
     auto ld = res.move_as_ok();
-    CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
+    //CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
     if ((mode >> (ld.data_cell->is_special() ? 1 : 0)) & 1) {
       return ld;
     }

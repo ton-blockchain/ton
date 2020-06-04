@@ -270,4 +270,40 @@ inline int32 count_bits64(uint64 x) {
 
 #endif
 
+struct BitsRange {
+  td::uint64 bits{0};
+  mutable td::int32 pos{-1};
+
+  explicit BitsRange(td::uint64 bits = 0) : bits{bits}, pos{-1} {
+  }
+
+  BitsRange begin() const {
+    return *this;
+  }
+
+  BitsRange end() const {
+    return BitsRange{};
+  }
+
+  td::int32 operator*() const {
+    if (pos == -1) {
+      pos = td::count_trailing_zeroes64(bits);
+    }
+    return pos;
+  }
+
+  bool operator!=(const BitsRange &other) const {
+    return bits != other.bits;
+  }
+
+  BitsRange &operator++() {
+    auto i = **this;
+    if (i != 64) {
+      bits ^= 1ull << i;
+    }
+    pos = -1;
+    return *this;
+  }
+};
+
 }  // namespace td

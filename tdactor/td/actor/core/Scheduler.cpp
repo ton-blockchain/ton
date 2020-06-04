@@ -24,7 +24,6 @@
 namespace td {
 namespace actor {
 namespace core {
-
 std::atomic<bool> debug;
 void set_debug(bool flag) {
   debug = flag;
@@ -34,8 +33,11 @@ bool need_debug() {
   return debug.load(std::memory_order_relaxed);
 }
 
-Scheduler::Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, SchedulerId id, size_t cpu_threads_count)
-    : scheduler_group_info_(std::move(scheduler_group_info)), cpu_threads_(cpu_threads_count) {
+Scheduler::Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, SchedulerId id, size_t cpu_threads_count,
+                     bool skip_timeouts)
+    : scheduler_group_info_(std::move(scheduler_group_info))
+    , cpu_threads_(cpu_threads_count)
+    , skip_timeouts_(skip_timeouts) {
   scheduler_group_info_->active_scheduler_count++;
   info_ = &scheduler_group_info_->schedulers.at(id.value());
   info_->id = id;
@@ -101,7 +103,7 @@ bool Scheduler::run(double timeout) {
     if (SchedulerContext::get()->is_stop_requested()) {
       res = false;
     } else {
-      res = io_worker_->run_once(timeout);
+      res = io_worker_->run_once(timeout, skip_timeouts_);
     }
     if (!res) {
       if (!is_stopped_) {
@@ -331,6 +333,7 @@ void Scheduler::close_scheduler_group(SchedulerGroupInfo &group_info) {
       worker->actor_info_creator.clear();
     }
   }
+
   //for (auto &scheduler : group_info.schedulers) {
   //scheduler.io_worker->actor_info_creator.ensure_empty();
   //for (auto &worker : scheduler.cpu_workers) {
