@@ -17,7 +17,7 @@
     Copyright 2019-2020 Telegram Systems LLP
 */
 #include "rlimit.h"
-#if TD_LINUX || TD_ANDROID
+#if TD_LINUX || TD_ANDROID || TD_FREEBSD
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/time.h>
