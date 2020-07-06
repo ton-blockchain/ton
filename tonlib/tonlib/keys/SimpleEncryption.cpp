@@ -18,6 +18,7 @@
 */
 #include "SimpleEncryption.h"
 
+#include "td/utils/misc.h"
 #include "td/utils/Random.h"
 #include "td/utils/SharedSlice.h"
 

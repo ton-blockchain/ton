@@ -28,7 +28,7 @@
 #include "td/actor/actor.h"
 
 #include "td/utils/filesystem.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/Parser.h"
 #include "td/utils/port/signals.h"
@@ -2054,71 +2054,53 @@ int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler();
 
-  td::OptionsParser p;
+  td::OptionParser p;
   TonlibCli::Options options;
   p.set_description("cli wrapper around tonlib");
   p.add_option('h', "help", "prints_help", [&]() {
     std::cout << (PSLICE() << p).c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('r', "disable-readline", "disable readline", [&]() {
-    options.enable_readline = false;
-    return td::Status::OK();
-  });
-  p.add_option('R', "enable-readline", "enable readline", [&]() {
-    options.enable_readline = true;
-    return td::Status::OK();
-  });
-  p.add_option('D', "directory", "set keys directory", [&](td::Slice arg) {
-    options.key_dir = arg.str();
-    return td::Status::OK();
-  });
-  p.add_option('M', "in-memory", "store keys only in-memory", [&]() {
-    options.in_memory = true;
-    return td::Status::OK();
-  });
+  p.add_option('r', "disable-readline", "disable readline", [&]() { options.enable_readline = false; });
+  p.add_option('R', "enable-readline", "enable readline", [&]() { options.enable_readline = true; });
+  p.add_option('D', "directory", "set keys directory", [&](td::Slice arg) { options.key_dir = arg.str(); });
+  p.add_option('M', "in-memory", "store keys only in-memory", [&]() { options.in_memory = true; });
   p.add_option('E', "execute", "execute one command", [&](td::Slice arg) {
     options.one_shot = true;
     options.cmd = arg.str();
-    return td::Status::OK();
   });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     auto verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
   });
-  p.add_option('C', "config-force", "set lite server config, drop config related blockchain cache", [&](td::Slice arg) {
+  p.add_checked_option('C', "config-force", "set lite server config, drop config related blockchain cache",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(data, td::read_file_str(arg.str()));
+                         options.config = std::move(data);
+                         options.ignore_cache = true;
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('c', "config", "set lite server config", [&](td::Slice arg) {
     TRY_RESULT(data, td::read_file_str(arg.str()));
     options.config = std::move(data);
-    options.ignore_cache = true;
     return td::Status::OK();
   });
-  p.add_option('c', "config", "set lite server config", [&](td::Slice arg) {
-    TRY_RESULT(data, td::read_file_str(arg.str()));
-    options.config = std::move(data);
-    return td::Status::OK();
-  });
-  p.add_option('N', "config-name", "set lite server config name", [&](td::Slice arg) {
-    options.name = arg.str();
-    return td::Status::OK();
-  });
-  p.add_option('n', "use-callbacks-for-network", "do not use this", [&]() {
-    options.use_callbacks_for_network = true;
-    return td::Status::OK();
-  });
-  p.add_option('w', "wallet-id", "do not use this", [&](td::Slice arg) {
+  p.add_option('N', "config-name", "set lite server config name", [&](td::Slice arg) { options.name = arg.str(); });
+  p.add_option('n', "use-callbacks-for-network", "do not use this",
+               [&]() { options.use_callbacks_for_network = true; });
+  p.add_checked_option('w', "wallet-id", "do not use this", [&](td::Slice arg) {
     TRY_RESULT(wallet_id, td::to_integer_safe<td::uint32>((arg)));
     options.wallet_id = wallet_id;
     return td::Status::OK();
   });
-  p.add_option('x', "workchain", "default workchain", [&](td::Slice arg) {
+  p.add_checked_option('x', "workchain", "default workchain", [&](td::Slice arg) {
     TRY_RESULT(workchain_id, td::to_integer_safe<td::int32>((arg)));
     options.workchain_id = workchain_id;
     LOG(INFO) << "Use workchain_id = " << workchain_id;
     return td::Status::OK();
   });
-  p.add_option('W', "wallet-version", "do not use this (version[.revision])", [&](td::Slice arg) {
+  p.add_checked_option('W', "wallet-version", "do not use this (version[.revision])", [&](td::Slice arg) {
     td::ConstParser parser(arg);
     TRY_RESULT(version, td::to_integer_safe<td::int32>((parser.read_till_nofail('.'))));
     options.wallet_version = version;

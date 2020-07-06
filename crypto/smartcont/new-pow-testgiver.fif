@@ -1,0 +1,59 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+
+{ ."usage: " $0 type ." <workchain-id> <giver-id> <amount> <interval> <min-complexity> <init-complexity> <max-complexity> [<filename-base>]" cr
+  ."Creates a new proof-of-work testgiver with unique 32-bit identifier <giver-id> designed to deliver <amount> every <interval> seconds, with SHA256 hash complexity between 2**<min-complexity> and 2**<max-complexity>, with private key saved to or loaded from <filename-base>.pk" cr
+  ."('pow-giver.pk' by default)" cr 1 halt
+} : usage
+$# 7 - -2 and ' usage if
+
+8 :$1..n
+$1 parse-workchain-id =: wc    // set workchain id from command line argument
+$2 parse-int dup =: subwallet-id
+  0= abort"giver-id must be non-zero"
+$3 $>GR =: amount
+$4 parse-int dup =: interval
+  dup 24 ufits and 0= abort"invalid interval"
+$5 parse-int dup =: min-cpl
+  1- 8 ufits not abort"invalid minimal log-complexity (must be 1..256)"
+$6 parse-int dup =: init-cpl
+  1- 8 ufits not abort"invalid initial log-complexity (must be 1..256)"
+$7 parse-int dup =: max-cpl
+  1- 8 ufits not abort"invalid maximal log-complexity (must be 1..256)"
+$8 "pow-giver" replace-if-null =: file-base
+
+min-cpl init-cpl > abort"initial complexity cannot be below minimal complexity"
+max-cpl init-cpl < abort"initial complexity cannot exceed maximal complexity"
+subwallet-id (.) 1 ' $+ does : +subwallet
+
+."Creating new proof-of-work testgiver in workchain " wc .
+."with unique giver id " subwallet-id . cr
+."Designed to give " amount .GR ."approximately every " interval . ."seconds" cr
+."Complexity (in SHA256 hashes): min=" min-cpl 1<< . ."init=" init-cpl 1<< . ."max=" max-cpl 1<< . cr
+
+"auto/pow-testgiver-code.fif" include  // code
+{ 256 swap - 8 u, } : cpl,
+<b 0 32 u, subwallet-id 32 u,  // seqno wallet-id
+   file-base +".pk" load-generate-keypair constant wallet_pk B,  // pubkey
+   newkeypair nip 16 B| drop B,  // seed
+   256 init-cpl - 1<< 256 u,  // pow_complexity
+   -1 32 i,  // last_success
+   <b amount Gram, interval 32 u, max-cpl cpl, min-cpl cpl, b> ref,
+b> // data
+null // no libraries
+<b b{0011} s, 3 roll ref, rot ref, swap dict, b>  // create StateInit
+dup ."StateInit: " <s csr. cr
+dup hashu wc swap 2dup 2constant wallet_addr
+."new PoW testgiver address = " 2dup .addr cr
+2dup file-base +subwallet +".addr" save-address-verbose
+."Non-bounceable address (for init): " 2dup 7 .Addr cr
+."Bounceable address (for later access): " 6 .Addr cr
+<b subwallet-id 32 u, -1 32 i, 0 32 u, b>
+dup ."signing message: " <s csr. cr
+dup hashu wallet_pk ed25519_sign_uint rot
+<b b{1000100} s, wallet_addr addr, b{000010} s, swap <s s, b{0} s, swap B, swap <s s, b>
+dup ."External message for initialization is " <s csr. cr
+2 boc+>B dup Bx. cr
+file-base +subwallet +"-query.boc" tuck B>file
+."(Saved proof-of-work testgiver creating query to file " type .")" cr

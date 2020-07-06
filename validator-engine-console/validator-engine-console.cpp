@@ -30,7 +30,7 @@
 #include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -247,7 +247,7 @@ int main(int argc, char* argv[]) {
 
   td::actor::ActorOwn<ValidatorEngineConsole> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("console for validator for TON Blockchain");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -255,9 +255,8 @@ int main(int argc, char* argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('a', "address", "server address", [&](td::Slice arg) {
+  p.add_checked_option('a', "address", "server address", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     td::actor::send_closure(x, &ValidatorEngineConsole::set_remote_addr, addr);
@@ -265,33 +264,25 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('k', "key", "private key", [&](td::Slice arg) {
     td::actor::send_closure(x, &ValidatorEngineConsole::set_private_key, td::BufferSlice{arg});
-    return td::Status::OK();
   });
   p.add_option('p', "pub", "server public key", [&](td::Slice arg) {
     td::actor::send_closure(x, &ValidatorEngineConsole::set_public_key, td::BufferSlice{arg});
-    return td::Status::OK();
   });
-  p.add_option('r', "disable-readline", "disable readline", [&]() {
-    td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, false);
-    return td::Status::OK();
-  });
-  p.add_option('R', "enable-readline", "enable readline", [&]() {
-    td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, true);
-    return td::Status::OK();
-  });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_option('r', "disable-readline", "disable readline",
+               [&]() { td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, false); });
+  p.add_option('R', "enable-readline", "enable readline",
+               [&]() { td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, true); });
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
   p.add_option('c', "cmd", "schedule command", [&](td::Slice arg) {
     td::actor::send_closure(x, &ValidatorEngineConsole::add_cmd, td::BufferSlice{arg});
-    return td::Status::OK();
   });
   p.add_option('t', "timeout", "timeout in batch mode", [&](td::Slice arg) {
     auto d = td::to_double(arg);
     td::actor::send_closure(x, &ValidatorEngineConsole::set_fail_timeout, td::Timestamp::in(d));
-    return td::Status::OK();
   });
   td::actor::Scheduler scheduler({2});
 

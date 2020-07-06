@@ -16,44 +16,53 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "user.h"
-#if TD_LINUX
-#include <unistd.h>
-#include <sys/types.h>
-#include <pwd.h>
+
+#include "td/utils/port/user.h"
+
+#include "td/utils/port/config.h"
+
+#if TD_PORT_POSIX
 #include <grp.h>
+#include <pwd.h>
+#if TD_DARWIN || TD_FREEBSD || TD_NETBSD
+#include <sys/param.h>
+#endif
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 namespace td {
 
-#if TD_LINUX
-td::Status change_user(td::Slice user) {
-  struct passwd *pw;
-  if (getuid() != 0 || geteuid() != 0) {
-    return td::Status::PosixError(errno, "cannot setuid() as not root");
+Status change_user(CSlice username, CSlice groupname) {
+#if TD_PORT_POSIX
+  passwd *pw = getpwnam(username.c_str());
+  if (pw == nullptr) {
+    return OS_ERROR(PSTRING() << "Can't find the user '" << username << "' to switch to");
   }
-  if ((pw = getpwnam(user.str().c_str())) == 0) {
-    return td::Status::PosixError(errno, PSTRING() << "bad user '" << user << "'");
-  }
+  uid_t uid = pw->pw_uid;
   gid_t gid = pw->pw_gid;
-  if (setgroups(1, &gid) < 0) {
-    return td::Status::PosixError(errno, "failed to clear supplementary groups list");
+  if (setgroups(1, &gid) == -1) {
+    return OS_ERROR("Failed to clear supplementary group list");
   }
-  if (initgroups(user.str().c_str(), gid) != 0) {
-    return td::Status::PosixError(errno, "failed to load groups of user");
+  if (!groupname.empty()) {
+    group *g = getgrnam(groupname.c_str());
+    if (g == nullptr) {
+      return OS_ERROR("Can't find the group to switch to");
+    }
+    gid = g->gr_gid;
+  } else if (initgroups(username.c_str(), gid) == -1) {
+    return OS_ERROR("Failed to load groups of user");
   }
-  if (setgid(pw->pw_gid) < 0) {
-    return td::Status::PosixError(errno, "failed to setgid()");
+  if (setgid(gid) == -1) {
+    return OS_ERROR("failed to set effective group ID");
   }
-  if (setuid(pw->pw_uid) < 0) {
-    return td::Status::PosixError(errno, "failed to setuid()");
+  if (setuid(uid) == -1) {
+    return OS_ERROR("failed to set effective user ID");
   }
-  return td::Status::OK();
-}
+  return Status::OK();
 #else
-td::Status change_user(td::Slice username) {
-  return td::Status::Error("not implemented");
-}
+  return Status::Error("Changing effective user is not supported");
 #endif
+}
 
 }  // namespace td

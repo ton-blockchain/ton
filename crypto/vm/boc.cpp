@@ -23,9 +23,10 @@
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "td/utils/bits.h"
-#include "td/utils/Slice-decl.h"
-#include "td/utils/format.h"
 #include "td/utils/crypto.h"
+#include "td/utils/format.h"
+#include "td/utils/misc.h"
+#include "td/utils/Slice-decl.h"
 
 namespace vm {
 using td::Ref;

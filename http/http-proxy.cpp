@@ -29,7 +29,7 @@
 #include "http/http-client.h"
 
 #include "td/utils/port/signals.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/FileLog.h"
 
 #include <algorithm>
@@ -258,12 +258,11 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("simple http proxy");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -271,9 +270,8 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('p', "port", "sets listening port", [&](td::Slice arg) -> td::Status {
+  p.add_checked_option('p', "port", "sets listening port", [&](td::Slice arg) -> td::Status {
     TRY_RESULT(port, td::to_integer_safe<td::uint16>(arg));
     td::actor::send_closure(x, &HttpProxy::set_port, port);
     return td::Status::OK();
@@ -285,13 +283,11 @@ int main(int argc, char *argv[]) {
       setsid();
 #endif
     }).ensure();
-    return td::Status::OK();
   });
 #if TD_DARWIN || TD_LINUX
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::FileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
-    return td::Status::OK();
   });
 #endif
 

@@ -30,7 +30,7 @@
 #include <string>
 #include <cstring>
 #include <cassert>
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "keys/encryptor.h"
 #include "auto/tl/ton_api_json.h"
 #include "td/utils/filesystem.h"
@@ -45,28 +45,18 @@ int main(int argc, char *argv[]) {
   std::string out_f;
   bool reverse_ = false;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("json2tlo");
 
-  p.add_option('i', "in", "input", [&](td::Slice key) {
-    in_f = key.str();
-    return td::Status::OK();
-  });
-  p.add_option('o', "out", "output", [&](td::Slice key) {
-    out_f = key.str();
-    return td::Status::OK();
-  });
-  p.add_option('r', "reverse", "read tlo, print json", [&]() {
-    reverse_ = !reverse_;
-    return td::Status::OK();
-  });
+  p.add_option('i', "in", "input", [&](td::Slice key) { in_f = key.str(); });
+  p.add_option('o', "out", "output", [&](td::Slice key) { out_f = key.str(); });
+  p.add_option('r', "reverse", "read tlo, print json", [&]() { reverse_ = !reverse_; });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
 
   auto S = p.run(argc, argv);
@@ -86,7 +76,7 @@ int main(int argc, char *argv[]) {
     if (!reverse_) {
       TRY_RESULT(j, td::json_decode(in_data.as_slice()));
       ton::tl_object_ptr<ton::ton_api::Object> s_data;
-      TRY_STATUS(td::from_json(s_data, j));
+      TRY_STATUS(td::from_json(s_data, std::move(j)));
 
       out_data = serialize_tl_object(s_data, true);
     } else {

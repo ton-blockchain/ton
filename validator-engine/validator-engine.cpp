@@ -39,7 +39,7 @@
 #include "td/utils/filesystem.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/overloaded.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/user.h"
@@ -3280,12 +3280,11 @@ int main(int argc, char *argv[]) {
 
   std::vector<std::function<void()>> acts;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("validator or full node for TON network");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -3293,19 +3292,16 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
   p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
     acts.push_back(
         [&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_global_config, fname); });
-    return td::Status::OK();
   });
   p.add_option('c', "local-config", "file to read local config", [&](td::Slice fname) {
     acts.push_back(
         [&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_local_config, fname); });
-    return td::Status::OK();
   });
-  p.add_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
+  p.add_checked_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     acts.push_back([&x, addr]() { td::actor::send_closure(x, &ValidatorEngine::add_ip, addr); });
@@ -3313,11 +3309,9 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_root, fname); });
-    return td::Status::OK();
   });
   p.add_option('f', "fift-dir", "directory with fift scripts", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_fift_dir, fname); });
-    return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
@@ -3325,68 +3319,62 @@ int main(int argc, char *argv[]) {
     setsid();
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
-    return td::Status::OK();
   });
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
-    return td::Status::OK();
   });
   p.add_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600", [&](td::Slice fname) {
     auto v = td::to_double(fname);
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
-    return td::Status::OK();
   });
   p.add_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=7*86400",
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_block_ttl, v); });
-                 return td::Status::OK();
                });
   p.add_option('A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=365*86400",
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_ttl, v); });
-                 return td::Status::OK();
                });
   p.add_option('K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_key_proof_ttl, v); });
-                 return td::Status::OK();
                });
   p.add_option('S', "sync-before", "in initial sync download all blocks for last given seconds default=3600",
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_ttl, v); });
-                 return td::Status::OK();
                });
   p.add_option('T', "truncate-db", "truncate db (with specified seqno as new top masterchain block seqno)",
                [&](td::Slice fname) {
                  auto v = td::to_integer<ton::BlockSeqno>(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_truncate_seqno, v); });
-                 return td::Status::OK();
                });
-  p.add_option('U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
-    TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));
-    acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
-    return td::Status::OK();
-  });
+  p.add_checked_option(
+      'U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
+        TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));
+        acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
+        return td::Status::OK();
+      });
   td::uint32 threads = 7;
-  p.add_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
-    td::int32 v;
-    try {
-      v = std::stoi(fname.str());
-    } catch (...) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-    }
-    if (v < 1 || v > 256) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
-    }
-    threads = v;
-    return td::Status::OK();
-  });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
+  p.add_checked_option(
+      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
+        td::int32 v;
+        try {
+          v = std::stoi(fname.str());
+        } catch (...) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+        }
+        if (v < 1 || v > 256) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
+        }
+        threads = v;
+        return td::Status::OK();
+      });
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

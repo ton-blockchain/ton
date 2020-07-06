@@ -36,7 +36,7 @@ struct CatChainNode {
 };
 
 struct CatChainOptions {
-  td::Clocks::Duration idle_timeout = 16.0;
+  double idle_timeout = 16.0;
   td::uint32 max_deps = 4;
 
   bool debug_disable_db = false;

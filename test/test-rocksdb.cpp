@@ -26,7 +26,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/db/RocksDb.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/path.h"
 #include "td/utils/StringBuilder.h"
@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_DEBUG);
   td::set_default_failure_signal_handler().ensure();
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("test basic adnl functionality");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -77,13 +77,9 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
   bool create_db = false;
-  p.add_option('c', "create", "create test db", [&] {
-    create_db = true;
-    return td::Status::OK();
-  });
+  p.add_option('c', "create", "create test db", [&] { create_db = true; });
 
   auto res = p.run(argc, argv);
   LOG_IF(FATAL, res.is_error()) << res.error();

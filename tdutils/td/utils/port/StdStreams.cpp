@@ -35,8 +35,7 @@ namespace td {
 template <int id>
 static FileFd &get_file_fd() {
   static FileFd result = FileFd::from_native_fd(NativeFd(id, true));
-  static auto guard = td::ScopeExit() + [&] { result.move_as_native_fd().release(); };
-  assert(!result.empty());
+  static auto guard = ScopeExit() + [&] { result.move_as_native_fd().release(); };
   return result;
 }
 
@@ -56,7 +55,7 @@ static FileFd &get_file_fd() {
   static auto handle = GetStdHandle(id);
   LOG_IF(FATAL, handle == INVALID_HANDLE_VALUE) << "Failed to GetStdHandle " << id;
   static FileFd result = FileFd::from_native_fd(NativeFd(handle, true));
-  static auto guard = td::ScopeExit() + [&] { result.move_as_native_fd().release(); };
+  static auto guard = ScopeExit() + [&] { result.move_as_native_fd().release(); };
 #else
   static FileFd result;
 #endif
@@ -81,7 +80,7 @@ class BufferedStdinImpl : public Iocp::Callback {
 #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP | WINAPI_PARTITION_SYSTEM)
   BufferedStdinImpl() : info_(NativeFd(GetStdHandle(STD_INPUT_HANDLE), true)) {
     iocp_ref_ = Iocp::get()->get_ref();
-    read_thread_ = td::thread([this] { this->read_loop(); });
+    read_thread_ = thread([this] { this->read_loop(); });
   }
 #else
   BufferedStdinImpl() {
@@ -121,7 +120,7 @@ class BufferedStdinImpl : public Iocp::Callback {
   PollableFdInfo info_;
   ChainBufferWriter writer_;
   ChainBufferReader reader_ = writer_.extract_reader();
-  td::thread read_thread_;
+  thread read_thread_;
   std::atomic<bool> close_flag_{false};
   IocpRef iocp_ref_;
   std::atomic<int> refcnt_{1};
@@ -144,7 +143,7 @@ class BufferedStdinImpl : public Iocp::Callback {
     }
   }
   void on_iocp(Result<size_t> r_size, WSAOVERLAPPED *overlapped) override {
-    info_.add_flags_from_poll(td::PollFlags::Read());
+    info_.add_flags_from_poll(PollFlags::Read());
     dec_refcnt();
   }
 

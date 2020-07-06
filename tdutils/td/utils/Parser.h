@@ -57,7 +57,7 @@ class ParserImpl {
     return ptr_ == end_;
   }
   void clear() {
-    ptr_ = nullptr;
+    ptr_ = SliceT().begin();
     end_ = ptr_;
     status_ = Status::OK();
   }

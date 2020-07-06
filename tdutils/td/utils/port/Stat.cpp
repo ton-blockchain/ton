@@ -18,7 +18,6 @@
 */
 #include "td/utils/port/Stat.h"
 
-#include "td/utils/port/detail/PollableFd.h"
 #include "td/utils/port/FileFd.h"
 
 #if TD_PORT_POSIX
@@ -27,6 +26,7 @@
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/Clocks.h"
+#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/ScopeGuard.h"
 
 #include <utility>
@@ -50,8 +50,20 @@
 #include <sys/syscall.h>
 #endif
 
+#elif TD_PORT_WINDOWS
+
+#include "td/utils/port/thread.h"
+
+#ifndef PSAPI_VERSION
+#define PSAPI_VERSION 1
+#endif
+#include <psapi.h>
+
+#endif
+
 namespace td {
 
+#if TD_PORT_POSIX
 namespace detail {
 
 template <class...>
@@ -118,6 +130,7 @@ Stat from_native_stat(const struct ::stat &buf) {
   res.atime_nsec_ = static_cast<uint64>(buf.st_atime) * 1000000000 + time_nsec.first;
   res.mtime_nsec_ = static_cast<uint64>(buf.st_mtime) * 1000000000 + time_nsec.second / 1000 * 1000;
   res.size_ = buf.st_size;
+  res.real_size_ = buf.st_blocks * 512;
   res.is_dir_ = (buf.st_mode & S_IFMT) == S_IFDIR;
   res.is_reg_ = (buf.st_mode & S_IFMT) == S_IFREG;
   return res;
@@ -187,14 +200,20 @@ Status update_atime(CSlice path) {
   };
   return detail::update_atime(file.get_native_fd().fd());
 }
+#endif
 
 Result<Stat> stat(CSlice path) {
+#if TD_PORT_POSIX
   struct ::stat buf;
   int err = detail::skip_eintr([&] { return ::stat(path.c_str(), &buf); });
   if (err < 0) {
     return OS_ERROR(PSLICE() << "Stat for file \"" << path << "\" failed");
   }
   return detail::from_native_stat(buf);
+#elif TD_PORT_WINDOWS
+  TRY_RESULT(fd, FileFd::open(path, FileFd::Flags::Read | FileFd::PrivateFlags::WinStat));
+  return fd.stat();
+#endif
 }
 
 Result<MemStat> mem_stat() {
@@ -204,7 +223,7 @@ Result<MemStat> mem_stat() {
 
   if (KERN_SUCCESS !=
       task_info(mach_task_self(), TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&t_info), &t_info_count)) {
-    return Status::Error("task_info failed");
+    return Status::Error("Call to task_info failed");
   }
   MemStat res;
   res.resident_size_ = t_info.resident_size;
@@ -262,7 +281,7 @@ Result<MemStat> mem_stat() {
         LOG(ERROR) << "Failed to parse memory stats " << tag("name", name) << tag("value", value);
         *x = static_cast<uint64>(-1);
       } else {
-        *x = r_mem.ok() * 1024;  // memory is in kB
+        *x = r_mem.ok() * 1024;  // memory is in KB
       }
     }
     if (*s == 0) {
@@ -271,6 +290,19 @@ Result<MemStat> mem_stat() {
     s++;
   }
 
+  return res;
+#elif TD_WINDOWS
+  PROCESS_MEMORY_COUNTERS_EX counters;
+  if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&counters),
+                            sizeof(counters))) {
+    return Status::Error("Call to GetProcessMemoryInfo failed");
+  }
+
+  MemStat res;
+  res.resident_size_ = counters.WorkingSetSize;
+  res.resident_size_peak_ = counters.PeakWorkingSetSize;
+  res.virtual_size_ = counters.PrivateUsage;
+  res.virtual_size_peak_ = counters.PeakPagefileUsage;
   return res;
 #else
   return Status::Error("Not supported");
@@ -287,7 +319,9 @@ Status cpu_stat_self(CpuStat &stat) {
   constexpr int TMEM_SIZE = 10000;
   char mem[TMEM_SIZE];
   TRY_RESULT(size, fd.read(MutableSlice(mem, TMEM_SIZE - 1)));
-  CHECK(size < TMEM_SIZE - 1);
+  if (size >= TMEM_SIZE - 1) {
+    return Status::Error("Failed for read /proc/self/stat");
+  }
   mem[size] = 0;
 
   char *s = mem;
@@ -296,10 +330,10 @@ Status cpu_stat_self(CpuStat &stat) {
 
   while (pass_cnt < 15) {
     if (pass_cnt == 13) {
-      stat.process_user_ticks = to_integer<uint64>(Slice(s, t));
+      stat.process_user_ticks_ = to_integer<uint64>(Slice(s, t));
     }
     if (pass_cnt == 14) {
-      stat.process_system_ticks = to_integer<uint64>(Slice(s, t));
+      stat.process_system_ticks_ = to_integer<uint64>(Slice(s, t));
     }
     while (*s && *s != ' ') {
       s++;
@@ -308,11 +342,12 @@ Status cpu_stat_self(CpuStat &stat) {
       s++;
       pass_cnt++;
     } else {
-      return Status::Error("unexpected end of proc file");
+      return Status::Error("Unexpected end of proc file");
     }
   }
   return Status::OK();
 }
+
 Status cpu_stat_total(CpuStat &stat) {
   TRY_RESULT(fd, FileFd::open("/proc/stat", FileFd::Read));
   SCOPE_EXIT {
@@ -322,14 +357,17 @@ Status cpu_stat_total(CpuStat &stat) {
   constexpr int TMEM_SIZE = 10000;
   char mem[TMEM_SIZE];
   TRY_RESULT(size, fd.read(MutableSlice(mem, TMEM_SIZE - 1)));
-  CHECK(size < TMEM_SIZE - 1);
+  if (size >= TMEM_SIZE - 1) {
+    return Status::Error("Failed for read /proc/stat");
+  }
   mem[size] = 0;
 
-  uint64 sum = 0, cur = 0;
+  uint64 sum = 0;
+  uint64 cur = 0;
   for (size_t i = 0; i < size; i++) {
-    int c = mem[i];
+    char c = mem[i];
     if (c >= '0' && c <= '9') {
-      cur = cur * 10 + (uint64)c - '0';
+      cur = cur * 10 + static_cast<uint64>(c) - '0';
     } else {
       sum += cur;
       cur = 0;
@@ -339,7 +377,7 @@ Status cpu_stat_total(CpuStat &stat) {
     }
   }
 
-  stat.total_ticks = sum;
+  stat.total_ticks_ = sum;
   return Status::OK();
 }
 #endif
@@ -350,24 +388,27 @@ Result<CpuStat> cpu_stat() {
   TRY_STATUS(cpu_stat_self(stat));
   TRY_STATUS(cpu_stat_total(stat));
   return stat;
+#elif TD_WINDOWS
+  CpuStat stat;
+  stat.total_ticks_ = static_cast<uint64>(GetTickCount64()) * 10000;
+  auto hardware_concurrency = thread::hardware_concurrency();
+  if (hardware_concurrency != 0) {
+    stat.total_ticks_ *= hardware_concurrency;
+  }
+
+  FILETIME ignored_time;
+  FILETIME kernel_time;
+  FILETIME user_time;
+  if (!GetProcessTimes(GetCurrentProcess(), &ignored_time, &ignored_time, &kernel_time, &user_time)) {
+    return Status::Error("Failed to call GetProcessTimes");
+  }
+  stat.process_system_ticks_ = kernel_time.dwLowDateTime + (static_cast<uint64>(kernel_time.dwHighDateTime) << 32);
+  stat.process_user_ticks_ = user_time.dwLowDateTime + (static_cast<uint64>(user_time.dwHighDateTime) << 32);
+
+  return stat;
 #else
   return Status::Error("Not supported");
 #endif
 }
-}  // namespace td
-#endif
-
-#if TD_PORT_WINDOWS
-namespace td {
-
-Result<Stat> stat(CSlice path) {
-  TRY_RESULT(fd, FileFd::open(path, FileFd::Flags::Read | FileFd::PrivateFlags::WinStat));
-  return fd.stat();
-}
-
-Result<CpuStat> cpu_stat() {
-  return Status::Error("Not supported");
-}
 
 }  // namespace td
-#endif

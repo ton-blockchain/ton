@@ -190,11 +190,11 @@ class ValidatorEngine : public td::actor::Actor {
   };
   std::map<CI_key, td::uint32> control_permissions_;
 
-  td::Clocks::Duration state_ttl_ = 0;
-  td::Clocks::Duration block_ttl_ = 0;
-  td::Clocks::Duration sync_ttl_ = 0;
-  td::Clocks::Duration archive_ttl_ = 0;
-  td::Clocks::Duration key_proof_ttl_ = 0;
+  double state_ttl_ = 0;
+  double block_ttl_ = 0;
+  double sync_ttl_ = 0;
+  double archive_ttl_ = 0;
+  double key_proof_ttl_ = 0;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -216,19 +216,19 @@ class ValidatorEngine : public td::actor::Actor {
     fift_dir_ = str;
   }
   void set_db_root(std::string db_root);
-  void set_state_ttl(td::Clocks::Duration t) {
+  void set_state_ttl(double t) {
     state_ttl_ = t;
   }
-  void set_block_ttl(td::Clocks::Duration t) {
+  void set_block_ttl(double t) {
     block_ttl_ = t;
   }
-  void set_sync_ttl(td::Clocks::Duration t) {
+  void set_sync_ttl(double t) {
     sync_ttl_ = t;
   }
-  void set_archive_ttl(td::Clocks::Duration t) {
+  void set_archive_ttl(double t) {
     archive_ttl_ = t;
   }
-  void set_key_proof_ttl(td::Clocks::Duration t) {
+  void set_key_proof_ttl(double t) {
     key_proof_ttl_ = t;
   }
   void set_truncate_seqno(ton::BlockSeqno seqno) {

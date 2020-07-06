@@ -259,6 +259,7 @@ set(FIFT_TEST_SOURCE
   PARENT_SCOPE
 )
 
+
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
@@ -304,6 +305,12 @@ target_include_directories(tlbc PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_
 target_link_libraries(tlbc PUBLIC ton_crypto src_parser)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
+endif()
+
+add_executable(pow-miner util/pow-miner.cpp util/Miner.cpp util/Miner.h)
+target_link_libraries(pow-miner PUBLIC ton_crypto ton_block)
+if (WINGETOPT_FOUND)
+  target_link_libraries_system(fift wingetopt)
 endif()
 
 add_library(ton_block ${BLOCK_SOURCE})
@@ -371,6 +378,7 @@ if (NOT CMAKE_CROSSCOMPILING)
   GenFif(DEST smartcont/auto/restricted-wallet-code SOURCE smartcont/restricted-wallet-code.fc NAME restricted-wallet)
   GenFif(DEST smartcont/auto/restricted-wallet2-code SOURCE smartcont/restricted-wallet2-code.fc NAME restricted-wallet2)
   GenFif(DEST smartcont/auto/restricted-wallet3-code SOURCE smartcont/restricted-wallet3-code.fc NAME restricted-wallet3)
+  GenFif(DEST smartcont/auto/pow-testgiver-code SOURCE smartcont/pow-testgiver-code.fc NAME pow-testgiver)
 
   GenFif(DEST smartcont/auto/dns-manual-code SOURCE smartcont/dns-manual-code.fc NAME dns-manual)
   GenFif(DEST smartcont/auto/dns-auto-code SOURCE smartcont/dns-auto-code.fc NAME dns-auto)

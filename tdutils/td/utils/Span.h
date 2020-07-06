@@ -21,6 +21,7 @@
 #include "td/utils/common.h"
 
 #include <array>
+#include <iterator>
 
 namespace td {
 
@@ -109,18 +110,20 @@ class SpanImpl {
   InnerT *data() const {
     return data_;
   }
+
   InnerT *begin() const {
     return data_;
   }
   InnerT *end() const {
     return data_ + size_;
   }
-  auto rbegin() const {
+  std::reverse_iterator<InnerT *> rbegin() const {
     return std::reverse_iterator<InnerT *>(end());
   }
-  auto rend() const {
+  std::reverse_iterator<InnerT *> rend() const {
     return std::reverse_iterator<InnerT *>(begin());
   }
+
   size_t size() const {
     return size_;
   }

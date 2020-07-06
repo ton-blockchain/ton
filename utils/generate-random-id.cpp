@@ -35,7 +35,7 @@
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
 #include "tl/tl_json.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/filesystem.h"
 #include "keys/encryptor.h"
 #include "keys/keys.hpp"
@@ -44,30 +44,23 @@ int main(int argc, char *argv[]) {
   ton::PrivateKey pk;
   ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("generate random id");
 
   std::string mode = "";
 
   std::string name = "id_ton";
 
-  p.add_option('m', "mode", "sets mode (one of id/adnl/dht/keys/adnlid)", [&](td::Slice key) {
-    mode = key.str();
-    return td::Status::OK();
-  });
+  p.add_option('m', "mode", "sets mode (one of id/adnl/dht/keys/adnlid)", [&](td::Slice key) { mode = key.str(); });
   p.add_option('h', "help", "prints this help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('n', "name", "path to save private keys to", [&](td::Slice arg) {
-    name = arg.str();
-    return td::Status::OK();
-  });
-  p.add_option('k', "key", "path to private key to import", [&](td::Slice key) {
+  p.add_option('n', "name", "path to save private keys to", [&](td::Slice arg) { name = arg.str(); });
+  p.add_checked_option('k', "key", "path to private key to import", [&](td::Slice key) {
     if (!pk.empty()) {
       return td::Status::Error("duplicate '-k' option");
     }
@@ -76,7 +69,7 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_PREFIX_ASSIGN(pk, ton::PrivateKey::import(data.as_slice()), "failed to import private key: ");
     return td::Status::OK();
   });
-  p.add_option('a', "addr-list", "addr list to sign", [&](td::Slice key) {
+  p.add_checked_option('a', "addr-list", "addr list to sign", [&](td::Slice key) {
     if (addr_list) {
       return td::Status::Error("duplicate '-a' option");
     }
@@ -84,7 +77,7 @@ int main(int argc, char *argv[]) {
 
     td::BufferSlice bs(key);
     TRY_RESULT_PREFIX(as_json_value, td::json_decode(bs.as_slice()), "bad addr list JSON: ");
-    TRY_STATUS_PREFIX(td::from_json(addr_list, as_json_value), "bad addr list TL: ");
+    TRY_STATUS_PREFIX(td::from_json(addr_list, std::move(as_json_value)), "bad addr list TL: ");
     return td::Status::OK();
   });
 

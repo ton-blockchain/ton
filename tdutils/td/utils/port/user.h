@@ -16,14 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #pragma once
 
-#include "td/utils/port/config.h"
-#include "td/utils/port/platform.h"
+#include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 
 namespace td {
-
-td::Status change_user(td::Slice username);
-
+Status change_user(CSlice username, CSlice groupname = CSlice());
 }

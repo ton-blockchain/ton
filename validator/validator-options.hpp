@@ -41,19 +41,19 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool allow_blockchain_init() const override {
     return allow_blockchain_init_;
   }
-  td::ClocksBase::Duration sync_blocks_before() const override {
+  double sync_blocks_before() const override {
     return sync_blocks_before_;
   }
-  td::ClocksBase::Duration block_ttl() const override {
+  double block_ttl() const override {
     return block_ttl_;
   }
-  td::ClocksBase::Duration state_ttl() const override {
+  double state_ttl() const override {
     return state_ttl_;
   }
-  td::ClocksBase::Duration archive_ttl() const override {
+  double archive_ttl() const override {
     return archive_ttl_;
   }
-  td::ClocksBase::Duration key_proof_ttl() const override {
+  double key_proof_ttl() const override {
     return key_proof_ttl_;
   }
   bool initial_sync_disabled() const override {
@@ -121,19 +121,19 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_allow_blockchain_init(bool value) override {
     allow_blockchain_init_ = value;
   }
-  void set_sync_blocks_before(td::ClocksBase::Duration value) override {
+  void set_sync_blocks_before(double value) override {
     sync_blocks_before_ = value;
   }
-  void set_block_ttl(td::ClocksBase::Duration value) override {
+  void set_block_ttl(double value) override {
     block_ttl_ = value;
   }
-  void set_state_ttl(td::ClocksBase::Duration value) override {
+  void set_state_ttl(double value) override {
     state_ttl_ = value;
   }
-  void set_archive_ttl(td::ClocksBase::Duration value) override {
+  void set_archive_ttl(double value) override {
     archive_ttl_ = value;
   }
-  void set_key_proof_ttl(td::ClocksBase::Duration value) override {
+  void set_key_proof_ttl(double value) override {
     key_proof_ttl_ = value;
   }
   void set_initial_sync_disabled(bool value) override {
@@ -161,9 +161,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
 
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard,
-                              bool allow_blockchain_init, td::ClocksBase::Duration sync_blocks_before,
-                              td::ClocksBase::Duration block_ttl, td::ClocksBase::Duration state_ttl,
-                              td::ClocksBase::Duration archive_ttl, td::ClocksBase::Duration key_proof_ttl,
+                              bool allow_blockchain_init, double sync_blocks_before,
+                              double block_ttl, double state_ttl,
+                              double archive_ttl, double key_proof_ttl,
                               bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
@@ -182,11 +182,11 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   BlockIdExt init_block_id_;
   std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard_;
   bool allow_blockchain_init_;
-  td::ClocksBase::Duration sync_blocks_before_;
-  td::ClocksBase::Duration block_ttl_;
-  td::ClocksBase::Duration state_ttl_;
-  td::ClocksBase::Duration archive_ttl_;
-  td::ClocksBase::Duration key_proof_ttl_;
+  double sync_blocks_before_;
+  double block_ttl_;
+  double state_ttl_;
+  double archive_ttl_;
+  double key_proof_ttl_;
   bool initial_sync_disabled_;
   std::vector<BlockIdExt> hardforks_;
   std::set<CatchainSeqno> unsafe_catchains_;

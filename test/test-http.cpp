@@ -25,7 +25,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"

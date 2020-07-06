@@ -30,17 +30,17 @@ struct Neighbour {
   adnl::AdnlNodeIdShort adnl_id;
   td::uint32 proto_version = 0;
   td::uint64 capabilities = 0;
-  td::Clocks::Duration roundtrip = 0;
-  td::Clocks::Duration roundtrip_relax_at = 0;
+  double roundtrip = 0;
+  double roundtrip_relax_at = 0;
   double roundtrip_weight = 0;
   double unreliability = 0;
 
   Neighbour(adnl::AdnlNodeIdShort adnl_id) : adnl_id(std::move(adnl_id)) {
   }
   void update_proto_version(const ton_api::tonNode_capabilities &q);
-  void query_success(td::Clocks::Duration t);
+  void query_success(double t);
   void query_failed();
-  void update_roundtrip(td::Clocks::Duration t);
+  void update_roundtrip(double t);
 
   static Neighbour zero;
 };
@@ -173,8 +173,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void ping_neighbours();
   void reload_neighbours();
   void got_neighbours(std::vector<adnl::AdnlNodeIdShort> res);
-  void update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, bool success);
-  void got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, td::BufferSlice data);
+  void update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, double t, bool success);
+  void got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, double t, td::BufferSlice data);
   const Neighbour &choose_neighbour() const;
 
   template <typename T>

@@ -34,7 +34,7 @@
 
 int main(int argc, char **argv) {
   td::set_default_failure_signal_handler().ensure();
-  // TODO port OptionsParser to Windows
+  // TODO port OptionParser to Windows
   auto &runner = td::TestsRunner::get_default();
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--filter")) {

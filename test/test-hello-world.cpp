@@ -95,7 +95,7 @@ int main() {
   auto decode_encode = [](auto obj_json) {
     auto as_json_value = td::json_decode(obj_json).move_as_ok();
     ton::ton_api::object_ptr<ton::ton_api::Object> obj2;
-    from_json(obj2, as_json_value).ensure();
+    from_json(obj2, std::move(as_json_value)).ensure();
     CHECK(obj2 != nullptr);
     return td::json_encode<std::string>(td::ToJson(obj2));
   };

@@ -29,7 +29,7 @@
 #include "http/http-client.h"
 
 #include "td/utils/port/signals.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/FileLog.h"
 #include "td/utils/Random.h"
 #include "td/utils/filesystem.h"
@@ -1121,7 +1121,7 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description(
       "A simple rldp-to-http and http-to-rldp proxy for running and accessing ton sites\n"
       "Example:\n\trldp-http-proxy -p 8080 -c 3333 -C ton-global.config.json\tRuns a local HTTP->RLDP proxy that "
@@ -1132,7 +1132,6 @@ int main(int argc, char *argv[]) {
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
   p.add_option('h', "help", "prints a help message", [&]() {
     char b[10240];
@@ -1140,45 +1139,41 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('p', "port", "sets http listening port", [&](td::Slice arg) -> td::Status {
+  p.add_checked_option('p', "port", "sets http listening port", [&](td::Slice arg) -> td::Status {
     TRY_RESULT(port, td::to_integer_safe<td::uint16>(arg));
     td::actor::send_closure(x, &RldpHttpProxy::set_port, port);
     return td::Status::OK();
   });
-  p.add_option('a', "address", "local <ip>:<port> to use for adnl queries", [&](td::Slice arg) -> td::Status {
+  p.add_checked_option('a', "address", "local <ip>:<port> to use for adnl queries", [&](td::Slice arg) -> td::Status {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     td::actor::send_closure(x, &RldpHttpProxy::set_addr, addr);
     return td::Status::OK();
   });
-  p.add_option('A', "adnl", "server ADNL addr", [&](td::Slice arg) -> td::Status {
+  p.add_checked_option('A', "adnl", "server ADNL addr", [&](td::Slice arg) -> td::Status {
     TRY_RESULT(adnl, ton::adnl::AdnlNodeIdShort::parse(arg));
     td::actor::send_closure(x, &RldpHttpProxy::add_adnl_addr, adnl);
     return td::Status::OK();
   });
-  p.add_option('c', "client-port", "local <port> to use for client adnl queries", [&](td::Slice arg) -> td::Status {
-    TRY_RESULT(port, td::to_integer_safe<td::uint16>(arg));
-    td::actor::send_closure(x, &RldpHttpProxy::set_client_port, port);
-    return td::Status::OK();
-  });
-  p.add_option('C', "global-config", "global TON configuration file", [&](td::Slice arg) -> td::Status {
-    td::actor::send_closure(x, &RldpHttpProxy::set_global_config, arg.str());
-    return td::Status::OK();
-  });
-  p.add_option('L', "local", "http hostname that will be proxied to http server at localhost:80",
-               [&](td::Slice arg) -> td::Status {
-                 td::IPAddress addr;
-                 TRY_STATUS(addr.init_ipv4_port("127.0.0.1", 80));
-                 td::actor::send_closure(x, &RldpHttpProxy::set_local_host, arg.str(), addr);
-                 return td::Status::OK();
-               });
-  p.add_option('D', "db", "db root", [&](td::Slice arg) -> td::Status {
-    td::actor::send_closure(x, &RldpHttpProxy::set_db_root, arg.str());
-    return td::Status::OK();
-  });
-  p.add_option(
+  p.add_checked_option('c', "client-port", "local <port> to use for client adnl queries",
+                       [&](td::Slice arg) -> td::Status {
+                         TRY_RESULT(port, td::to_integer_safe<td::uint16>(arg));
+                         td::actor::send_closure(x, &RldpHttpProxy::set_client_port, port);
+                         return td::Status::OK();
+                       });
+  p.add_option('C', "global-config", "global TON configuration file",
+               [&](td::Slice arg) { td::actor::send_closure(x, &RldpHttpProxy::set_global_config, arg.str()); });
+  p.add_checked_option('L', "local", "http hostname that will be proxied to http server at localhost:80",
+                       [&](td::Slice arg) -> td::Status {
+                         td::IPAddress addr;
+                         TRY_STATUS(addr.init_ipv4_port("127.0.0.1", 80));
+                         td::actor::send_closure(x, &RldpHttpProxy::set_local_host, arg.str(), addr);
+                         return td::Status::OK();
+                       });
+  p.add_option('D', "db", "db root",
+               [&](td::Slice arg) { td::actor::send_closure(x, &RldpHttpProxy::set_db_root, arg.str()); });
+  p.add_checked_option(
       'R', "remote",
       "<hostname>@<ip>:<port>, indicates a http hostname that will be proxied to remote http server at <ip>:<port>",
       [&](td::Slice arg) -> td::Status {
@@ -1198,25 +1193,23 @@ int main(int argc, char *argv[]) {
       setsid();
 #endif
     }).ensure();
-    return td::Status::OK();
   });
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::FileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
-    return td::Status::OK();
   });
-  p.add_option('P', "proxy-all", "value=[YES|NO]. proxy all HTTP requests (default only *.ton and *.adnl)",
-               [&](td::Slice value) {
-                 if (value == "YES" || value == "yes") {
-                   td::actor::send_closure(x, &RldpHttpProxy::set_proxy_all, true);
-                 } else if (value == "NO" || value == "no") {
-                   td::actor::send_closure(x, &RldpHttpProxy::set_proxy_all, false);
-                 } else {
-                   return td::Status::Error("--proxy-all expected YES or NO");
-                 }
+  p.add_checked_option('P', "proxy-all", "value=[YES|NO]. proxy all HTTP requests (default only *.ton and *.adnl)",
+                       [&](td::Slice value) {
+                         if (value == "YES" || value == "yes") {
+                           td::actor::send_closure(x, &RldpHttpProxy::set_proxy_all, true);
+                         } else if (value == "NO" || value == "no") {
+                           td::actor::send_closure(x, &RldpHttpProxy::set_proxy_all, false);
+                         } else {
+                           return td::Status::Error("--proxy-all expected YES or NO");
+                         }
 
-                 return td::Status::OK();
-               });
+                         return td::Status::OK();
+                       });
 
   td::actor::Scheduler scheduler({7});
 

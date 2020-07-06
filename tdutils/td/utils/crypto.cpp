@@ -20,17 +20,23 @@
 
 #include "td/utils/as.h"
 #include "td/utils/BigNum.h"
+#include "td/utils/bits.h"
+#include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/RwMutex.h"
 #include "td/utils/port/thread_local.h"
 #include "td/utils/Random.h"
 #include "td/utils/ScopeGuard.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/StackAllocator.h"
+#include "td/utils/StringBuilder.h"
 
 #if TD_HAVE_OPENSSL
 #include <openssl/aes.h>
 #include <openssl/bio.h>
 #include <openssl/crypto.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/md5.h>
@@ -48,6 +54,8 @@
 #endif
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <mutex>
 #include <utility>
 
@@ -144,11 +152,13 @@ uint64 pq_factorize(uint64 pq) {
 void init_crypto() {
   static bool is_inited = [] {
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
-    return OPENSSL_init_crypto(0, nullptr) != 0;
+    bool result = OPENSSL_init_crypto(0, nullptr) != 0;
 #else
     OpenSSL_add_all_algorithms();
-    return true;
+    bool result = true;
 #endif
+    clear_openssl_errors("Init crypto");
+    return result;
   }();
   CHECK(is_inited);
 }
@@ -253,34 +263,336 @@ int pq_factorize(Slice pq_str, string *p_str, string *q_str) {
   return 0;
 }
 
-#ifdef OPENSSL_IS_BORINGSSL
-extern "C" {
-void AES_ige_encrypt(const unsigned char *in_ptr, unsigned char *out, size_t length, const AES_KEY *key,
-                     unsigned char *ivec, const int enc);
-}
-#endif
+struct AesBlock {
+  uint64 hi;
+  uint64 lo;
 
-static void aes_ige_xcrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlice to, bool encrypt_flag) {
-  CHECK(aes_key.size() == 32);
-  CHECK(aes_iv.size() == 16);
-  AES_KEY key;
-  int err;
-  if (encrypt_flag) {
-    err = AES_set_encrypt_key(aes_key.ubegin(), 256, &key);
-  } else {
-    err = AES_set_decrypt_key(aes_key.ubegin(), 256, &key);
+  uint8 *raw() {
+    return reinterpret_cast<uint8 *>(this);
   }
-  LOG_IF(FATAL, err != 0);
-  CHECK(from.size() <= to.size());
-  AES_ige_encrypt(from.ubegin(), to.ubegin(), from.size(), &key, aes_iv.ubegin(), encrypt_flag);
+  const uint8 *raw() const {
+    return reinterpret_cast<const uint8 *>(this);
+  }
+  Slice as_slice() const {
+    return Slice(raw(), AES_BLOCK_SIZE);
+  }
+
+  AesBlock operator^(const AesBlock &b) const {
+    AesBlock res;
+    res.hi = hi ^ b.hi;
+    res.lo = lo ^ b.lo;
+    return res;
+  }
+  void operator^=(const AesBlock &b) {
+    hi ^= b.hi;
+    lo ^= b.lo;
+  }
+
+  void load(const uint8 *from) {
+    *this = as<AesBlock>(from);
+  }
+  void store(uint8 *to) {
+    as<AesBlock>(to) = *this;
+  }
+
+  AesBlock inc() const {
+#if SIZE_MAX == UINT64_MAX
+    AesBlock res;
+    res.lo = host_to_big_endian64(big_endian_to_host64(lo) + 1);
+    if (res.lo == 0) {
+      res.hi = host_to_big_endian64(big_endian_to_host64(hi) + 1);
+    } else {
+      res.hi = hi;
+    }
+    return res;
+#else
+    AesBlock res = *this;
+    auto ptr = res.raw();
+    if (++ptr[15] == 0) {
+      for (int i = 14; i >= 0; i--) {
+        if (++ptr[i] != 0) {
+          break;
+        }
+      }
+    }
+    return res;
+#endif
+  }
+};
+static_assert(sizeof(AesBlock) == 16, "");
+static_assert(sizeof(AesBlock) == AES_BLOCK_SIZE, "");
+
+class XorBytes {
+ public:
+  static void run(const uint8 *a, const uint8 *b, uint8 *c, size_t n) {
+    static constexpr int BLOCK_SIZE = 16;
+    auto block_cnt = n / BLOCK_SIZE;
+    n -= block_cnt * BLOCK_SIZE;
+    while (block_cnt-- > 0) {
+      Block<BLOCK_SIZE> a_big = as<Block<BLOCK_SIZE>>(a);
+      Block<BLOCK_SIZE> b_big = as<Block<BLOCK_SIZE>>(b);
+      as<Block<BLOCK_SIZE>>(c) = a_big ^ b_big;
+      a += BLOCK_SIZE;
+      b += BLOCK_SIZE;
+      c += BLOCK_SIZE;
+    }
+    while (n-- > 0) {
+      c[n] = a[n] ^ b[n];
+    }
+  }
+
+ private:
+  template <size_t N>
+  struct alignas(N) Block {
+    uint8 data[N];
+    Block operator^(const Block &b) const & {
+      Block res;
+      for (size_t i = 0; i < N; i++) {
+        res.data[i] = data[i] ^ b.data[i];
+      }
+      return res;
+    }
+  };
+};
+
+struct AesCtrCounterPack {
+  static constexpr size_t BLOCK_COUNT = 32;
+  AesBlock blocks[BLOCK_COUNT];
+  uint8 *raw() {
+    return reinterpret_cast<uint8 *>(this);
+  }
+  const uint8 *raw() const {
+    return reinterpret_cast<const uint8 *>(this);
+  }
+
+  static size_t size() {
+    return sizeof(blocks);
+  }
+
+  void init(AesBlock block) {
+    blocks[0] = block;
+    for (size_t i = 1; i < BLOCK_COUNT; i++) {
+      blocks[i] = blocks[i - 1].inc();
+    }
+  }
+};
+
+class Evp {
+ public:
+  Evp() {
+    ctx_ = EVP_CIPHER_CTX_new();
+    LOG_IF(FATAL, ctx_ == nullptr);
+  }
+  Evp(const Evp &from) = delete;
+  Evp &operator=(const Evp &from) = delete;
+  Evp(Evp &&from) = delete;
+  Evp &operator=(Evp &&from) = delete;
+  ~Evp() {
+    CHECK(ctx_ != nullptr);
+    EVP_CIPHER_CTX_free(ctx_);
+  }
+
+  void init_encrypt_ecb(Slice key) {
+    init(Type::Ecb, true, EVP_aes_256_ecb(), key);
+  }
+
+  void init_decrypt_ecb(Slice key) {
+    init(Type::Ecb, false, EVP_aes_256_ecb(), key);
+  }
+
+  void init_encrypt_cbc(Slice key) {
+    init(Type::Cbc, true, EVP_aes_256_cbc(), key);
+  }
+
+  void init_decrypt_cbc(Slice key) {
+    init(Type::Cbc, false, EVP_aes_256_cbc(), key);
+  }
+
+  void init_iv(Slice iv) {
+    int res = EVP_CipherInit_ex(ctx_, nullptr, nullptr, nullptr, iv.ubegin(), -1);
+    LOG_IF(FATAL, res != 1);
+  }
+
+  void encrypt(const uint8 *src, uint8 *dst, int size) {
+    // CHECK(type_ != Type::Empty && is_encrypt_);
+    CHECK(size % AES_BLOCK_SIZE == 0);
+    int len;
+    int res = EVP_EncryptUpdate(ctx_, dst, &len, src, size);
+    LOG_IF(FATAL, res != 1);
+    CHECK(len == size);
+  }
+
+  void decrypt(const uint8 *src, uint8 *dst, int size) {
+    // CHECK(type_ != Type::Empty && !is_encrypt_);
+    CHECK(size % AES_BLOCK_SIZE == 0);
+    int len;
+    int res = EVP_DecryptUpdate(ctx_, dst, &len, src, size);
+    LOG_IF(FATAL, res != 1);
+    CHECK(len == size);
+  }
+
+ private:
+  EVP_CIPHER_CTX *ctx_{nullptr};
+  enum class Type : int8 { Empty, Ecb, Cbc };
+  // Type type_{Type::Empty};
+  // bool is_encrypt_ = false;
+
+  void init(Type type, bool is_encrypt, const EVP_CIPHER *cipher, Slice key) {
+    // type_ = type;
+    // is_encrypt_ = is_encrypt;
+    int res = EVP_CipherInit_ex(ctx_, cipher, nullptr, key.ubegin(), nullptr, is_encrypt ? 1 : 0);
+    LOG_IF(FATAL, res != 1);
+    EVP_CIPHER_CTX_set_padding(ctx_, 0);
+  }
+};
+
+struct AesState::Impl {
+  Evp evp;
+};
+
+AesState::AesState() = default;
+AesState::AesState(AesState &&from) = default;
+AesState &AesState::operator=(AesState &&from) = default;
+AesState::~AesState() = default;
+
+void AesState::init(Slice key, bool encrypt) {
+  CHECK(key.size() == 32);
+  if (!impl_) {
+    impl_ = make_unique<Impl>();
+  }
+  if (encrypt) {
+    impl_->evp.init_encrypt_ecb(key);
+  } else {
+    impl_->evp.init_decrypt_ecb(key);
+  }
+}
+
+void AesState::encrypt(const uint8 *src, uint8 *dst, int size) {
+  CHECK(impl_);
+  impl_->evp.encrypt(src, dst, size);
+}
+
+void AesState::decrypt(const uint8 *src, uint8 *dst, int size) {
+  CHECK(impl_);
+  impl_->evp.decrypt(src, dst, size);
+}
+
+class AesIgeStateImpl {
+ public:
+  void init(Slice key, Slice iv, bool encrypt) {
+    CHECK(key.size() == 32);
+    CHECK(iv.size() == 32);
+    if (encrypt) {
+      evp_.init_encrypt_cbc(key);
+    } else {
+      evp_.init_decrypt_ecb(key);
+    }
+
+    encrypted_iv_.load(iv.ubegin());
+    plaintext_iv_.load(iv.ubegin() + AES_BLOCK_SIZE);
+  }
+  void encrypt(Slice from, MutableSlice to) {
+    CHECK(from.size() % AES_BLOCK_SIZE == 0);
+    CHECK(to.size() >= from.size());
+    auto len = to.size() / AES_BLOCK_SIZE;
+    auto in = from.ubegin();
+    auto out = to.ubegin();
+
+    static constexpr size_t BLOCK_COUNT = 31;
+    while (len != 0) {
+      AesBlock data[BLOCK_COUNT];
+      AesBlock data_xored[BLOCK_COUNT];
+
+      auto count = td::min(BLOCK_COUNT, len);
+      std::memcpy(data, in, AES_BLOCK_SIZE * count);
+      data_xored[0] = data[0];
+      if (count > 1) {
+        data_xored[1] = plaintext_iv_ ^ data[1];
+        for (size_t i = 2; i < count; i++) {
+          data_xored[i] = data[i - 2] ^ data[i];
+        }
+      }
+
+      evp_.init_iv(encrypted_iv_.as_slice());
+      int inlen = static_cast<int>(AES_BLOCK_SIZE * count);
+      evp_.encrypt(data_xored[0].raw(), data_xored[0].raw(), inlen);
+
+      data_xored[0] ^= plaintext_iv_;
+      for (size_t i = 1; i < count; i++) {
+        data_xored[i] ^= data[i - 1];
+      }
+      plaintext_iv_ = data[count - 1];
+      encrypted_iv_ = data_xored[count - 1];
+
+      std::memcpy(out, data_xored, AES_BLOCK_SIZE * count);
+      len -= count;
+      in += AES_BLOCK_SIZE * count;
+      out += AES_BLOCK_SIZE * count;
+    }
+  }
+
+  void decrypt(Slice from, MutableSlice to) {
+    CHECK(from.size() % AES_BLOCK_SIZE == 0);
+    CHECK(to.size() >= from.size());
+    auto len = to.size() / AES_BLOCK_SIZE;
+    auto in = from.ubegin();
+    auto out = to.ubegin();
+
+    AesBlock encrypted;
+
+    while (len) {
+      encrypted.load(in);
+
+      plaintext_iv_ ^= encrypted;
+      evp_.decrypt(plaintext_iv_.raw(), plaintext_iv_.raw(), AES_BLOCK_SIZE);
+      plaintext_iv_ ^= encrypted_iv_;
+
+      plaintext_iv_.store(out);
+      encrypted_iv_ = encrypted;
+
+      --len;
+      in += AES_BLOCK_SIZE;
+      out += AES_BLOCK_SIZE;
+    }
+  }
+
+ private:
+  Evp evp_;
+  AesBlock encrypted_iv_;
+  AesBlock plaintext_iv_;
+};
+
+AesIgeState::AesIgeState() = default;
+AesIgeState::AesIgeState(AesIgeState &&from) = default;
+AesIgeState &AesIgeState::operator=(AesIgeState &&from) = default;
+AesIgeState::~AesIgeState() = default;
+
+void AesIgeState::init(Slice key, Slice iv, bool encrypt) {
+  if (!impl_) {
+    impl_ = make_unique<AesIgeStateImpl>();
+  }
+
+  impl_->init(key, iv, encrypt);
+}
+
+void AesIgeState::encrypt(Slice from, MutableSlice to) {
+  impl_->encrypt(from, to);
+}
+
+void AesIgeState::decrypt(Slice from, MutableSlice to) {
+  impl_->decrypt(from, to);
 }
 
 void aes_ige_encrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlice to) {
-  aes_ige_xcrypt(aes_key, aes_iv, from, to, true);
+  AesIgeStateImpl state;
+  state.init(aes_key, aes_iv, true);
+  state.encrypt(from, to);
 }
 
 void aes_ige_decrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlice to) {
-  aes_ige_xcrypt(aes_key, aes_iv, from, to, false);
+  AesIgeStateImpl state;
+  state.init(aes_key, aes_iv, false);
+  state.decrypt(from, to);
 }
 
 static void aes_cbc_xcrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlice to, bool encrypt_flag) {
@@ -324,35 +636,43 @@ class AesCtrState::Impl {
     CHECK(key.size() == 32);
     CHECK(iv.size() == 16);
     static_assert(AES_BLOCK_SIZE == 16, "");
-    if (AES_set_encrypt_key(key.ubegin(), 256, &aes_key) < 0) {
-      LOG(FATAL) << "Failed to set encrypt key";
-    }
-    counter.as_mutable_slice().copy_from(as_slice(iv));
-    current_pos = 0;
+    evp_.init_encrypt_ecb(key);
+    counter_.load(iv.ubegin());
+    fill();
   }
 
   void encrypt(Slice from, MutableSlice to) {
-    CHECK(to.size() >= from.size());
-    for (size_t i = 0; i < from.size(); i++) {
-      if (current_pos == 0) {
-        AES_encrypt(counter.as_slice().ubegin(), encrypted_counter.as_mutable_slice().ubegin(), &aes_key);
-        uint8 *ptr = counter.as_mutable_slice().ubegin();
-        for (int j = 15; j >= 0; j--) {
-          if (++ptr[j] != 0) {
-            break;
-          }
-        }
+    auto *src = from.ubegin();
+    auto *dst = to.ubegin();
+    auto n = from.size();
+    while (n != 0) {
+      size_t left = encrypted_counter_.raw() + AesCtrCounterPack::size() - current_;
+      if (left == 0) {
+        fill();
+        left = AesCtrCounterPack::size();
       }
-      to[i] = static_cast<char>(from[i] ^ encrypted_counter[current_pos]);
-      current_pos = (current_pos + 1) & 15;
+      size_t min_n = td::min(n, left);
+      XorBytes::run(src, current_, dst, min_n);
+      src += min_n;
+      dst += min_n;
+      n -= min_n;
+      current_ += min_n;
     }
   }
 
  private:
-  AES_KEY aes_key;
-  SecureString counter{AES_BLOCK_SIZE};
-  SecureString encrypted_counter{AES_BLOCK_SIZE};
-  uint8 current_pos;
+  Evp evp_;
+
+  uint8 *current_;
+  AesBlock counter_;
+  AesCtrCounterPack encrypted_counter_;
+
+  void fill() {
+    encrypted_counter_.init(counter_);
+    counter_ = encrypted_counter_.blocks[AesCtrCounterPack::BLOCK_COUNT - 1].inc();
+    current_ = encrypted_counter_.raw();
+    evp_.encrypt(current_, current_, static_cast<int>(AesCtrCounterPack::size()));
+  }
 };
 
 AesCtrState::AesCtrState() = default;
@@ -689,6 +1009,35 @@ void init_openssl_threads() {
   }
 #endif
 }
+
+Status create_openssl_error(int code, Slice message) {
+  const int max_result_size = 1 << 12;
+  auto result = StackAllocator::alloc(max_result_size);
+  StringBuilder sb(result.as_slice());
+
+  sb << message;
+  while (unsigned long error_code = ERR_get_error()) {
+    char error_buf[1024];
+    ERR_error_string_n(error_code, error_buf, sizeof(error_buf));
+    Slice error(error_buf, std::strlen(error_buf));
+    sb << "{" << error << "}";
+  }
+  LOG_IF(ERROR, sb.is_error()) << "OpenSSL error buffer overflow";
+  LOG(DEBUG) << sb.as_cslice();
+  return Status::Error(code, sb.as_cslice());
+}
+
+void clear_openssl_errors(Slice source) {
+  if (ERR_peek_error() != 0) {
+    LOG(ERROR) << source << ": " << create_openssl_error(0, "Unprocessed OPENSSL_ERROR");
+  }
+#if TD_PORT_WINDOWS
+  WSASetLastError(0);
+#else
+  errno = 0;
+#endif
+}
+
 #endif
 
 #if TD_HAVE_ZLIB

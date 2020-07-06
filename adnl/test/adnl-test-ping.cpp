@@ -31,7 +31,7 @@
 #include "keys/encryptor.h"
 #include "td/utils/Time.h"
 #include "td/utils/format.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 
 #include <iostream>
 #include <sstream>
@@ -168,7 +168,7 @@ td::Result<td::UInt256> get_uint256(std::string str) {
 int main(int argc, char *argv[]) {
   td::actor::ActorOwn<AdnlNode> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("test basic adnl functionality");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];

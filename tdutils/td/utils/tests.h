@@ -29,6 +29,7 @@
 #include "td/utils/Status.h"
 
 #include <atomic>
+#include <functional>
 #include <utility>
 
 #define REGISTER_TESTS(x)                \
@@ -134,7 +135,7 @@ class TestsRunner : public TestContext {
 template <class T>
 class RegisterTest {
  public:
-  RegisterTest(string name, TestsRunner &runner = TestsRunner::get_default()) {
+  explicit RegisterTest(string name, TestsRunner &runner = TestsRunner::get_default()) {
     runner.add_test(name, make_unique<T>());
   }
 };
@@ -152,8 +153,8 @@ class Stage {
   std::atomic<uint64> value_{0};
 };
 
-inline string rand_string(char from, char to, int len) {
-  string res(len, 0);
+inline string rand_string(int from, int to, size_t len) {
+  string res(len, '\0');
   for (auto &c : res) {
     c = static_cast<char>(Random::fast(from, to));
   }
