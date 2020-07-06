@@ -28,6 +28,8 @@ class Stacktrace {
     }
   };
   static void print_to_stderr(const PrintOptions &options = PrintOptions());
+
+  static void init();
 };
 
 }  // namespace td

@@ -267,6 +267,9 @@ class AnyIntView {
     return size() > 1 ? (double)digits[size() - 1] + (double)digits[size() - 2] * (1.0 / Tr::Base)
                       : (double)digits[size() - 1];
   }
+  bool is_odd_any() const {
+    return size() > 0 && (digits[0] & 1);
+  }
   word_t to_long_any() const;
   int parse_hex_any(const char* str, int str_len, int* frac = nullptr);
   int parse_binary_any(const char* str, int str_len, int* frac = nullptr);
@@ -657,6 +660,15 @@ class BigIntG {
   }
   word_t to_long() const {
     return as_any_int().to_long_any();
+  }
+  bool is_odd() const {
+    return n > 0 && (digits[0] & 1);
+  }
+  bool is_even() const {
+    return n > 0 && !(digits[0] & 1);
+  }
+  word_t mod_pow2_short(int pow) const {
+    return n > 0 ? digits[0] & ((1 << pow) - 1) : 0;
   }
 
  private:

@@ -28,7 +28,7 @@
 #include "adnl/adnl-ext-client.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -591,9 +591,9 @@ int main(int argc, char* argv[]) {
 
   td::actor::ActorOwn<CoreActor> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("TON Blockchain explorer");
-  p.add_option('h', "help", "prints_help", [&]() {
+  p.add_checked_option('h', "help", "prints_help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
     sb << p;
@@ -601,31 +601,31 @@ int main(int argc, char* argv[]) {
     std::exit(2);
     return td::Status::OK();
   });
-  p.add_option('I', "hide-ips", "hides ips from status", [&]() {
+  p.add_checked_option('I', "hide-ips", "hides ips from status", [&]() {
     td::actor::send_closure(x, &CoreActor::set_hide_ips, true);
     return td::Status::OK();
   });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
-  p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
+  p.add_checked_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
     td::actor::send_closure(x, &CoreActor::set_global_config, fname.str());
     return td::Status::OK();
   });
-  p.add_option('a', "addr", "connect to ip:port", [&](td::Slice arg) {
+  p.add_checked_option('a', "addr", "connect to ip:port", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     td::actor::send_closure(x, &CoreActor::set_remote_addr, addr);
     return td::Status::OK();
   });
-  p.add_option('p', "pub", "remote public key", [&](td::Slice arg) {
+  p.add_checked_option('p', "pub", "remote public key", [&](td::Slice arg) {
     td::actor::send_closure(x, &CoreActor::set_remote_public_key, td::BufferSlice{arg});
     return td::Status::OK();
   });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
-  p.add_option('d', "daemonize", "set SIGHUP", [&]() {
+  p.add_checked_option('d', "daemonize", "set SIGHUP", [&]() {
     td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
       close(0);
@@ -634,16 +634,16 @@ int main(int argc, char* argv[]) {
     }).ensure();
     return td::Status::OK();
   });
-  p.add_option('H', "http-port", "listen on http port", [&](td::Slice arg) {
+  p.add_checked_option('H', "http-port", "listen on http port", [&](td::Slice arg) {
     td::actor::send_closure(x, &CoreActor::set_http_port, td::to_integer<td::uint32>(arg));
     return td::Status::OK();
   });
-  p.add_option('L', "local-scripts", "use local copy of ajax/bootstrap/... JS", [&]() {
+  p.add_checked_option('L', "local-scripts", "use local copy of ajax/bootstrap/... JS", [&]() {
     local_scripts = true;
     return td::Status::OK();
   });
 #if TD_DARWIN || TD_LINUX
-  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+  p.add_checked_option('l', "logname", "log to file", [&](td::Slice fname) {
     auto FileLog = td::FileFd::open(td::CSlice(fname.str().c_str()),
                                     td::FileFd::Flags::Create | td::FileFd::Flags::Append | td::FileFd::Flags::Write)
                        .move_as_ok();

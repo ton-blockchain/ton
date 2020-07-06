@@ -67,10 +67,10 @@ string implode(const vector<string> &v, char delimiter = ' ');
 
 namespace detail {
 
-template <typename T>
+template <typename V>
 struct transform_helper {
   template <class Func>
-  auto transform(const T &v, const Func &f) {
+  auto transform(const V &v, const Func &f) {
     vector<decltype(f(*v.begin()))> result;
     result.reserve(v.size());
     for (auto &x : v) {
@@ -80,7 +80,7 @@ struct transform_helper {
   }
 
   template <class Func>
-  auto transform(T &&v, const Func &f) {
+  auto transform(V &&v, const Func &f) {
     vector<decltype(f(std::move(*v.begin())))> result;
     result.reserve(v.size());
     for (auto &x : v) {
@@ -92,9 +92,58 @@ struct transform_helper {
 
 }  // namespace detail
 
-template <class T, class Func>
-auto transform(T &&v, const Func &f) {
-  return detail::transform_helper<std::decay_t<T>>().transform(std::forward<T>(v), f);
+template <class V, class Func>
+auto transform(V &&v, const Func &f) {
+  return detail::transform_helper<std::decay_t<V>>().transform(std::forward<V>(v), f);
+}
+
+template <class V, class Func>
+void remove_if(V &v, const Func &f) {
+  size_t i = 0;
+  while (i != v.size() && !f(v[i])) {
+    i++;
+  }
+  if (i == v.size()) {
+    return;
+  }
+
+  size_t j = i;
+  while (++i != v.size()) {
+    if (!f(v[i])) {
+      v[j++] = std::move(v[i]);
+    }
+  }
+  v.erase(v.begin() + j, v.end());
+}
+
+template <class V, class T>
+bool remove(V &v, const T &value) {
+  size_t i = 0;
+  while (i != v.size() && v[i] != value) {
+    i++;
+  }
+  if (i == v.size()) {
+    return false;
+  }
+
+  size_t j = i;
+  while (++i != v.size()) {
+    if (v[i] != value) {
+      v[j++] = std::move(v[i]);
+    }
+  }
+  v.erase(v.begin() + j, v.end());
+  return true;
+}
+
+template <class V, class T>
+bool contains(const V &v, const T &value) {
+  for (auto &x : v) {
+    if (x == value) {
+      return true;
+    }
+  }
+  return false;
 }
 
 template <class T>
@@ -131,6 +180,9 @@ template <class T>
 void combine(vector<T> &destination, vector<T> &&source) {
   if (destination.size() < source.size()) {
     destination.swap(source);
+  }
+  if (source.empty()) {
+    return;
   }
   destination.reserve(destination.size() + source.size());
   for (auto &elem : source) {
@@ -332,7 +384,9 @@ T clamp(T value, T min_value, T max_value) {
 
 Result<string> hex_decode(Slice hex);
 
-string url_encode(Slice str);
+string hex_encode(Slice data);
+
+string url_encode(Slice data);
 
 // run-time checked narrowing cast (type conversion):
 

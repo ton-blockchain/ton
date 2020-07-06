@@ -40,11 +40,11 @@ struct ValidatorSessionOptions {
   ValidatorSessionOptions() {
   }
   ValidatorSessionOptions(const ValidatorSessionConfig &conf);
-  td::Clocks::Duration catchain_idle_timeout = 16.0;
+  double catchain_idle_timeout = 16.0;
   td::uint32 catchain_max_deps = 4;
 
   td::uint32 round_candidates = 3;
-  td::Clocks::Duration next_candidate_delay = 2.0;
+  double next_candidate_delay = 2.0;
   td::uint32 round_attempt_duration = 16;
   td::uint32 max_round_attempts = 4;
 

@@ -16,11 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #pragma once
-#include "td/utils/ThreadLocalStorage.h"
+
+#include "td/utils/common.h"
+#include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/ThreadLocalStorage.h"
 
 #include <array>
+#include <atomic>
 #include <mutex>
 
 namespace td {
@@ -35,7 +40,7 @@ class ThreadSafeMultiCounter {
   int64 sum(size_t index) const {
     CHECK(index < N);
     int64 res = 0;
-    tls_.for_each([&](auto &value) { res += value[index].load(); });
+    tls_.for_each([&](auto &value) { res += value[index].load(std::memory_order_relaxed); });
     return res;
   }
   void clear() {
@@ -94,7 +99,7 @@ class NamedThreadSafeCounter {
       }
     }
     CHECK(names_.size() < N);
-    names_.push_back(name.str());
+    names_.emplace_back(name.begin(), name.size());
     return get_counter_ref(names_.size() - 1);
   }
 

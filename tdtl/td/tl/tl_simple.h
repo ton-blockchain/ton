@@ -28,10 +28,11 @@
 #include <string>
 #include <vector>
 
+#include <iostream>
+
 namespace td {
 namespace tl {
 namespace simple {
-// TL type is
 
 std::string gen_cpp_name(std::string name) {
   for (std::size_t i = 0; i < name.size(); i++) {
@@ -92,6 +93,9 @@ struct Constructor {
 struct CustomType {
   std::string name;
   std::vector<const Constructor *> constructors;
+
+  mutable bool is_result_{false};
+  mutable bool is_query_{false};
 };
 
 struct Function {
@@ -120,6 +124,23 @@ class Schema {
       auto *from_function = config.get_function_by_num(function_num);
       functions.push_back(get_function(from_function));
     }
+    for (auto &function : functions_) {
+      mark_result(function->type);
+      for (auto &arg : function->args) {
+        mark_query(arg.type);
+      }
+    }
+
+    //for (auto custom_type : custom_types) {
+    //std::cerr << custom_type->name;
+    //if (custom_type->is_result_) {
+    //std::cerr << " result";
+    //}
+    //if (custom_type->is_query_) {
+    //std::cerr << " query";
+    //}
+    //std::cerr << std::endl;
+    //}
   }
 
   std::vector<const CustomType *> custom_types;
@@ -135,6 +156,34 @@ class Schema {
   std::map<std::int32_t, Type *> type_by_id;
   std::map<std::int32_t, Constructor *> constructor_by_id;
   std::map<std::int32_t, Function *> function_by_id;
+
+  void mark_result(const Type *type) {
+    do_mark(type, true);
+  }
+
+  void mark_query(const Type *type) {
+    do_mark(type, false);
+  }
+
+  void do_mark(const Type *type, bool is_result) {
+    if (type->type == Type::Vector) {
+      return do_mark(type->vector_value_type, is_result);
+    }
+    if (type->type != Type::Custom) {
+      return;
+    }
+    auto *custom = type->custom;
+    auto &was = is_result ? custom->is_result_ : custom->is_query_;
+    if (was) {
+      return;
+    }
+    was = true;
+    for (auto constructor : custom->constructors) {
+      for (auto &arg : constructor->args) {
+        do_mark(arg.type, is_result);
+      }
+    }
+  }
 
   const Type *get_type(const tl_type *from_type) {
     auto &type = type_by_id[from_type->id];
@@ -185,6 +234,7 @@ class Schema {
     }
     return type;
   }
+
   const CustomType *get_custom_type(const tl_type *from_type) {
     auto *type = get_type(from_type);
     assert(type->type == Type::Custom);
@@ -208,6 +258,7 @@ class Schema {
     }
     return constructor;
   }
+
   const Function *get_function(const tl_combinator *from) {
     auto &function = function_by_id[from->id];
     if (!function) {
@@ -225,6 +276,7 @@ class Schema {
     }
     return function;
   }
+
   const Type *get_type(const tl_tree *tree) {
     assert(tree->get_type() == NODE_TYPE_TYPE);
     auto *type_tree = static_cast<const tl_tree_type *>(tree);

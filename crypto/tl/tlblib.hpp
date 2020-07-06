@@ -20,6 +20,7 @@
 #include <iostream>
 #include <map>
 #include "vm/cellslice.h"
+#include <functional>
 
 namespace tlb {
 

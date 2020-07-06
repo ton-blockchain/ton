@@ -21,7 +21,6 @@
 #include "td/utils/port/config.h"
 
 #include "td/utils/common.h"
-#include "td/utils/MovableValue.h"
 #include "td/utils/Status.h"
 #include "td/utils/StringBuilder.h"
 
@@ -37,8 +36,6 @@ class NativeFd {
   using Socket = SOCKET;
 #endif
   NativeFd() = default;
-  NativeFd(NativeFd &&) = default;
-  NativeFd &operator=(NativeFd &&);
   explicit NativeFd(Fd fd);
   NativeFd(Fd fd, bool nolog);
 #if TD_PORT_WINDOWS
@@ -46,11 +43,11 @@ class NativeFd {
 #endif
   NativeFd(const NativeFd &) = delete;
   NativeFd &operator=(const NativeFd &) = delete;
+  NativeFd(NativeFd &&other);
+  NativeFd &operator=(NativeFd &&other);
   ~NativeFd();
 
   explicit operator bool() const;
-
-  static Fd empty_fd();
 
   Fd fd() const;
   Socket socket() const;
@@ -67,10 +64,10 @@ class NativeFd {
   Status validate() const;
 
  private:
-#if TD_PORT_POSIX
-  MovableValue<Fd, -1> fd_;
-#elif TD_PORT_WINDOWS
-  MovableValue<Fd, INVALID_HANDLE_VALUE> fd_;
+  static Fd empty_fd();
+
+  Fd fd_ = empty_fd();
+#if TD_PORT_WINDOWS
   bool is_socket_{false};
 #endif
 };

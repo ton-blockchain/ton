@@ -16,11 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #pragma once
 
 #include "td/utils/common.h"
-#include "td/utils/Slice.h"
 #include "td/utils/SharedSlice.h"
+#include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 
 namespace td {
@@ -35,9 +36,10 @@ Result<string> base64url_decode(Slice base64);
 bool is_base64(Slice input);
 bool is_base64url(Slice input);
 
-string base64_filter(Slice input);
+bool is_base64_characters(Slice input);
+bool is_base64url_characters(Slice input);
 
+string base64_filter(Slice input);
 string base32_encode(Slice input, bool upper_case = false);
 Result<string> base32_decode(Slice base32);
-
 }  // namespace td

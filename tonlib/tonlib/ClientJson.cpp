@@ -47,7 +47,7 @@ static td::Result<std::pair<tonlib_api::object_ptr<tonlib_api::Function>, std::s
   }
 
   tonlib_api::object_ptr<tonlib_api::Function> func;
-  TRY_STATUS(from_json(func, json_value));
+  TRY_STATUS(from_json(func, std::move(json_value)));
   return std::make_pair(std::move(func), extra);
 }
 

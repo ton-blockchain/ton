@@ -27,7 +27,7 @@ namespace td {
 
 class HttpUrl {
  public:
-  enum class Protocol { HTTP, HTTPS } protocol_ = Protocol::HTTP;
+  enum class Protocol { Http, Https } protocol_ = Protocol::Http;
   string userinfo_;
   string host_;
   bool is_ipv6_ = false;
@@ -49,7 +49,7 @@ class HttpUrl {
 };
 
 Result<HttpUrl> parse_url(Slice url,
-                          HttpUrl::Protocol default_protocol = HttpUrl::Protocol::HTTP) TD_WARN_UNUSED_RESULT;
+                          HttpUrl::Protocol default_protocol = HttpUrl::Protocol::Http) TD_WARN_UNUSED_RESULT;
 
 StringBuilder &operator<<(StringBuilder &sb, const HttpUrl &url);
 

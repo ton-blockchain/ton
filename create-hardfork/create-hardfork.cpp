@@ -30,7 +30,7 @@
 #include "auto/tl/ton_api_json.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -254,7 +254,7 @@ int main(int argc, char *argv[]) {
 
   td::actor::ActorOwn<HardforkCreator> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("test collate block");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -262,27 +262,19 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
-    td::actor::send_closure(x, &HardforkCreator::set_db_root, fname.str());
-    return td::Status::OK();
-  });
-  p.add_option('m', "ext-message", "binary file with serialized inbound external message", [&](td::Slice fname) {
-    td::actor::send_closure(x, &HardforkCreator::load_ext_message, fname.str());
-    return td::Status::OK();
-  });
-  p.add_option('M', "top-shard-message", "binary file with serialized shard top block description",
-               [&](td::Slice fname) {
-                 td::actor::send_closure(x, &HardforkCreator::load_shard_block_message, fname.str());
-                 return td::Status::OK();
-               });
+  p.add_option('D', "db", "root for dbs",
+               [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::set_db_root, fname.str()); });
+  p.add_option('m', "ext-message", "binary file with serialized inbound external message",
+               [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::load_ext_message, fname.str()); });
+  p.add_option(
+      'M', "top-shard-message", "binary file with serialized shard top block description",
+      [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::load_shard_block_message, fname.str()); });
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
-  p.add_option('w', "workchain", "<workchain>[:<shard>]\tcollate block in this workchain", [&](td::Slice arg) {
+  p.add_checked_option('w', "workchain", "<workchain>[:<shard>]\tcollate block in this workchain", [&](td::Slice arg) {
     ton::ShardId shard = 0;
     auto pos = std::min(arg.find(':'), arg.size());
     TRY_RESULT(workchain, td::to_integer_safe<int>(arg.substr(0, pos)));
@@ -299,18 +291,18 @@ int main(int argc, char *argv[]) {
                             ton::ShardIdFull{workchain, shard ? shard : ton::shardIdAll});
     return td::Status::OK();
   });
-  p.add_option('T', "top-block", "BlockIdExt of top block (new block will be generated atop of it)",
-               [&](td::Slice arg) {
-                 ton::BlockIdExt block_id;
-                 if (block::parse_block_id_ext(arg, block_id)) {
-                   LOG(INFO) << "setting previous block to " << block_id.to_str();
-                   td::actor::send_closure(x, &HardforkCreator::set_shard_top_block, block_id);
+  p.add_checked_option('T', "top-block", "BlockIdExt of top block (new block will be generated atop of it)",
+                       [&](td::Slice arg) {
+                         ton::BlockIdExt block_id;
+                         if (block::parse_block_id_ext(arg, block_id)) {
+                           LOG(INFO) << "setting previous block to " << block_id.to_str();
+                           td::actor::send_closure(x, &HardforkCreator::set_shard_top_block, block_id);
 
-                   return td::Status::OK();
-                 } else {
-                   return td::Status::Error("cannot parse BlockIdExt");
-                 }
-               });
+                           return td::Status::OK();
+                         } else {
+                           return td::Status::Error("cannot parse BlockIdExt");
+                         }
+                       });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
     td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
@@ -318,7 +310,6 @@ int main(int argc, char *argv[]) {
       setsid();
 #endif
     }).ensure();
-    return td::Status::OK();
   });
 
   td::actor::Scheduler scheduler({7});

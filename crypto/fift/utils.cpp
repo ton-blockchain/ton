@@ -20,6 +20,7 @@
 #include "words.h"
 #include "td/utils/PathView.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/misc.h"
 #include "td/utils/port/path.h"
 
 namespace fift {

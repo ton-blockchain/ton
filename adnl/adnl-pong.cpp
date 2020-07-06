@@ -30,7 +30,7 @@
 #include "td/utils/port/IPAddress.h"
 #include "td/net/UdpServer.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/FileLog.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/user.h"
@@ -91,12 +91,11 @@ int main(int argc, char *argv[]) {
 
   std::string config = "/var/ton-work/etc/adnl-proxy.conf.json";
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("adnl pinger");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -104,7 +103,6 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
@@ -112,9 +110,8 @@ int main(int argc, char *argv[]) {
     setsid();
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
-    return td::Status::OK();
   });
-  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+  p.add_checked_option('l', "logname", "log to file", [&](td::Slice fname) {
     auto F = std::make_unique<td::FileLog>();
     TRY_STATUS(F->init(fname.str(), std::numeric_limits<td::uint64>::max(), true));
     logger_ = std::move(F);
@@ -122,25 +119,26 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   td::uint32 threads = 7;
-  p.add_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
-    td::int32 v;
-    try {
-      v = std::stoi(fname.str());
-    } catch (...) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-    }
-    if (v < 1 || v > 256) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
-    }
-    threads = v;
-    return td::Status::OK();
-  });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
-  p.add_option('k', "key", "private key", [&](td::Slice key) {
+  p.add_checked_option(
+      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
+        td::int32 v;
+        try {
+          v = std::stoi(fname.str());
+        } catch (...) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+        }
+        if (v < 1 || v > 256) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
+        }
+        threads = v;
+        return td::Status::OK();
+      });
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
+  p.add_checked_option('k', "key", "private key", [&](td::Slice key) {
     TRY_RESULT_ASSIGN(pk, ton::PrivateKey::import(key));
     return td::Status::OK();
   });
-  p.add_option('a', "addr", "ip:port of instance", [&](td::Slice key) {
+  p.add_checked_option('a', "addr", "ip:port of instance", [&](td::Slice key) {
     TRY_STATUS(addr.init_host_port(key.str()));
     return td::Status::OK();
   });

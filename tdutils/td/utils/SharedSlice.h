@@ -16,18 +16,21 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #pragma once
 
 #include "td/utils/Slice.h"
 
 #include <atomic>
 #include <memory>
+#include <new>
+#include <type_traits>
 
 namespace td {
 
 namespace detail {
 struct SharedSliceHeader {
-  explicit SharedSliceHeader(size_t size) : refcnt_{1}, size_{size} {
+  explicit SharedSliceHeader(size_t size) : size_{size} {
   }
 
   void inc() {
@@ -49,7 +52,7 @@ struct SharedSliceHeader {
   }
 
  private:
-  std::atomic<uint64> refcnt_;
+  std::atomic<uint64> refcnt_{1};
   size_t size_;
 };
 
@@ -122,9 +125,9 @@ class UnsafeSharedSlice {
 
   static UnsafeSharedSlice create(size_t size) {
     static_assert(std::is_standard_layout<HeaderT>::value, "HeaderT must have statdard layout");
-    auto ptr = std::make_unique<char[]>(size + sizeof(HeaderT));
+    auto ptr = std::make_unique<char[]>(sizeof(HeaderT) + size);
     auto header_ptr = new (ptr.get()) HeaderT(size);
-    CHECK(reinterpret_cast<char *>(header_ptr) == ptr.get());
+    CHECK(header_ptr == reinterpret_cast<HeaderT *>(ptr.get()));
 
     return UnsafeSharedSlice(std::move(ptr));
   }
@@ -149,7 +152,7 @@ class UnsafeSharedSlice {
     return reinterpret_cast<HeaderT *>(ptr_.get());
   }
 
-  struct Destructor {
+  struct SharedSliceDestructor {
     void operator()(char *ptr) {
       auto header = reinterpret_cast<HeaderT *>(ptr);
       if (header->dec()) {
@@ -161,7 +164,7 @@ class UnsafeSharedSlice {
     }
   };
 
-  std::unique_ptr<char[], Destructor> ptr_;
+  std::unique_ptr<char[], SharedSliceDestructor> ptr_;
 };
 }  // namespace detail
 
@@ -175,8 +178,7 @@ class SharedSlice {
  public:
   SharedSlice() = default;
 
-  explicit SharedSlice(Slice slice) : impl_(Impl::create(slice.size())) {
-    impl_.as_mutable_slice().copy_from(slice);
+  explicit SharedSlice(Slice slice) : impl_(Impl::create(slice)) {
   }
 
   explicit SharedSlice(UniqueSharedSlice from);
@@ -316,7 +318,7 @@ class UniqueSliceImpl {
   explicit UniqueSliceImpl(size_t size) : impl_(Impl::create(size)) {
   }
   UniqueSliceImpl(size_t size, char c) : impl_(Impl::create(size)) {
-    std::memset(as_mutable_slice().data(), c, size);
+    as_mutable_slice().fill(c);
   }
   explicit UniqueSliceImpl(Slice slice) : impl_(Impl::create(slice)) {
   }

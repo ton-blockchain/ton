@@ -21,6 +21,7 @@
 #include "td/tl/tl_simple.h"
 
 #include "td/utils/buffer.h"
+#include "td/utils/common.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/logging.h"
 #include "td/utils/Slice.h"
@@ -29,6 +30,8 @@
 #include <utility>
 
 namespace td {
+
+using Mode = tl::TL_writer::Mode;
 
 namespace {
 std::string tl_name = "ton_api";
@@ -39,23 +42,25 @@ void gen_to_json_constructor(StringBuilder &sb, const T *constructor, bool is_he
   sb << "void to_json(JsonValueScope &jv, "
      << "const " << tl_name << "::" << tl::simple::gen_cpp_name(constructor->name) << " &object)";
   if (is_header) {
-    sb << ";\n";
+    sb << ";\n\n";
     return;
   }
   sb << " {\n";
   sb << "  auto jo = jv.enter_object();\n";
-  sb << "  jo << ctie(\"@type\", \"" << constructor->name << "\");\n";
+  sb << "  jo(\"@type\", \"" << constructor->name << "\");\n";
   for (auto &arg : constructor->args) {
-    auto field = tl::simple::gen_cpp_field_name(arg.name);
+    auto field_name = tl::simple::gen_cpp_field_name(arg.name);
     // TODO: or as null
     bool is_custom = arg.type->type == tl::simple::Type::Custom;
 
     if (is_custom) {
-      sb << "  if (object." << field << ") {\n  ";
+      sb << "  if (object." << field_name << ") {\n  ";
     }
     auto object = PSTRING() << "object." << tl::simple::gen_cpp_field_name(arg.name);
     if (arg.type->type == tl::simple::Type::Bytes || arg.type->type == tl::simple::Type::SecureBytes) {
       object = PSTRING() << "JsonBytes{" << object << "}";
+    } else if (arg.type->type == tl::simple::Type::Bool) {
+      object = PSTRING() << "JsonBool{" << object << "}";
     } else if (arg.type->type == tl::simple::Type::Int64) {
       object = PSTRING() << "JsonInt64{" << object << "}";
     } else if (arg.type->type == tl::simple::Type::Vector &&
@@ -66,7 +71,7 @@ void gen_to_json_constructor(StringBuilder &sb, const T *constructor, bool is_he
                arg.type->vector_value_type->type == tl::simple::Type::Int64) {
       object = PSTRING() << "JsonVectorInt64{" << object << "}";
     }
-    sb << "  jo << ctie(\"" << arg.name << "\", ToJson(" << object << "));\n";
+    sb << "  jo(\"" << arg.name << "\", ToJson(" << object << "));\n";
     if (is_custom) {
       sb << "  }\n";
     }
@@ -127,14 +132,15 @@ void gen_from_json_constructor(StringBuilder &sb, const T *constructor, bool is_
          << "\", JsonValue::Type::Null, true));\n";
       sb << "    if (value.type() != JsonValue::Type::Null) {\n";
       if (arg.type->type == tl::simple::Type::Bytes || arg.type->type == tl::simple::Type::SecureBytes) {
-        sb << "      TRY_STATUS(from_json_bytes(to." << tl::simple::gen_cpp_field_name(arg.name) << ", value));\n";
+        sb << "      TRY_STATUS(from_json_bytes(to." << tl::simple::gen_cpp_field_name(arg.name)
+           << ", std::move(value)));\n";
       } else if (arg.type->type == tl::simple::Type::Vector &&
                  (arg.type->vector_value_type->type == tl::simple::Type::Bytes ||
                   arg.type->vector_value_type->type == tl::simple::Type::SecureBytes)) {
         sb << "      TRY_STATUS(from_json_vector_bytes(to." << tl::simple::gen_cpp_field_name(arg.name)
-           << ", value));\n";
+           << ", std::move(value)));\n";
       } else {
-        sb << "      TRY_STATUS(from_json(to." << tl::simple::gen_cpp_field_name(arg.name) << ", value));\n";
+        sb << "      TRY_STATUS(from_json(to." << tl::simple::gen_cpp_field_name(arg.name) << ", std::move(value)));\n";
       }
       sb << "    }\n";
       sb << "  }\n";
@@ -144,11 +150,18 @@ void gen_from_json_constructor(StringBuilder &sb, const T *constructor, bool is_
   }
 }
 
-void gen_from_json(StringBuilder &sb, const tl::simple::Schema &schema, bool is_header) {
+void gen_from_json(StringBuilder &sb, const tl::simple::Schema &schema, bool is_header, Mode mode) {
   for (auto *custom_type : schema.custom_types) {
+    if (!((custom_type->is_query_ && mode != Mode::Client) || (custom_type->is_result_ && mode != Mode::Server)) &&
+        mode != Mode::All) {
+      continue;
+    }
     for (auto *constructor : custom_type->constructors) {
       gen_from_json_constructor(sb, constructor, is_header);
     }
+  }
+  if (mode == Mode::Client) {
+    return;
   }
   for (auto *function : schema.functions) {
     gen_from_json_constructor(sb, function, is_header);
@@ -159,7 +172,7 @@ using Vec = std::vector<std::pair<int32, std::string>>;
 void gen_tl_constructor_from_string(StringBuilder &sb, Slice name, const Vec &vec, bool is_header) {
   sb << "Result<int32> tl_constructor_from_string(" << tl_name << "::" << name << " *object, const std::string &str)";
   if (is_header) {
-    sb << ";\n";
+    sb << ";\n\n";
     return;
   }
   sb << " {\n";
@@ -177,15 +190,19 @@ void gen_tl_constructor_from_string(StringBuilder &sb, Slice name, const Vec &ve
   sb << "\n  };\n";
   sb << "  auto it = m.find(str);\n";
   sb << "  if (it == m.end()) {\n"
-     << "    return Status::Error(str + \"Unknown class\");\n"
+     << "    return Status::Error(PSLICE() << \"Unknown class \\\"\" << str << \"\\\"\");\n"
      << "  }\n"
      << "  return it->second;\n";
-  sb << "}\n";
+  sb << "}\n\n";
 }
 
-void gen_tl_constructor_from_string(StringBuilder &sb, const tl::simple::Schema &schema, bool is_header) {
+void gen_tl_constructor_from_string(StringBuilder &sb, const tl::simple::Schema &schema, bool is_header, Mode mode) {
   Vec vec_for_nullary;
   for (auto *custom_type : schema.custom_types) {
+    if (!((custom_type->is_query_ && mode != Mode::Client) || (custom_type->is_result_ && mode != Mode::Server)) &&
+        mode != Mode::All) {
+      continue;
+    }
     Vec vec;
     for (auto *constructor : custom_type->constructors) {
       vec.push_back(std::make_pair(constructor->id, constructor->name));
@@ -198,6 +215,9 @@ void gen_tl_constructor_from_string(StringBuilder &sb, const tl::simple::Schema 
   }
   gen_tl_constructor_from_string(sb, "Object", vec_for_nullary, is_header);
 
+  if (mode == Mode::Client) {
+    return;
+  }
   Vec vec_for_function;
   for (auto *function : schema.functions) {
     vec_for_function.push_back(std::make_pair(function->id, function->name));
@@ -205,7 +225,8 @@ void gen_tl_constructor_from_string(StringBuilder &sb, const tl::simple::Schema 
   gen_tl_constructor_from_string(sb, "Function", vec_for_function, is_header);
 }
 
-void gen_json_converter_file(const tl::simple::Schema &schema, const std::string &file_name_base, bool is_header) {
+void gen_json_converter_file(const tl::simple::Schema &schema, const std::string &file_name_base, bool is_header,
+                             Mode mode) {
   auto file_name = is_header ? file_name_base + ".h" : file_name_base + ".cpp";
   //file_name = "auto/" + file_name;
   auto old_file_content = [&] {
@@ -241,31 +262,43 @@ void gen_json_converter_file(const tl::simple::Schema &schema, const std::string
     sb << "#include \"td/utils/common.h\"\n";
     sb << "#include \"td/utils/Slice.h\"\n\n";
 
+    sb << "#include <functional>\n";
     sb << "#include <unordered_map>\n\n";
   }
   sb << "namespace ton {\n";
   sb << "namespace " << tl_name << "{\n";
   sb << "  using namespace td;\n";
-  gen_tl_constructor_from_string(sb, schema, is_header);
-  gen_from_json(sb, schema, is_header);
+  gen_tl_constructor_from_string(sb, schema, is_header, mode);
+  gen_from_json(sb, schema, is_header, mode);
   gen_to_json(sb, schema, is_header);
   sb << "}  // namespace " << tl_name << "\n";
   sb << "}  // namespace ton\n";
 
   CHECK(!sb.is_error());
   buf.resize(sb.as_cslice().size());
+#if TD_WINDOWS
+  string new_file_content;
+  for (auto c : buf) {
+    if (c == '\n') {
+      new_file_content += '\r';
+    }
+    new_file_content += c;
+  }
+#else
   auto new_file_content = std::move(buf);
+#endif
   if (new_file_content != old_file_content.as_slice()) {
     write_file(file_name, new_file_content).ensure();
   }
 }
 
-void gen_json_converter(const tl::tl_config &config, const std::string &file_name, const std::string &new_tl_name) {
+void gen_json_converter(const tl::tl_config &config, const std::string &file_name, const std::string &new_tl_name,
+                        Mode mode) {
   tl_name = new_tl_name;
 
   tl::simple::Schema schema(config);
-  gen_json_converter_file(schema, file_name, true);
-  gen_json_converter_file(schema, file_name, false);
+  gen_json_converter_file(schema, file_name, true, mode);
+  gen_json_converter_file(schema, file_name, false, mode);
 }
 
 }  // namespace td

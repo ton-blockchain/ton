@@ -399,6 +399,18 @@ x{B7B5} @Defop(8u+1) QUFITS
 x{B7B600} @Defop QFITSX
 x{B7B601} @Defop QUFITSX
 
+// advanced integer constants
+{ 0 { over 1 and 0= } { 1+ swap 2/ swap } while } : pow2decomp
+{ dup 8 fits { PUSHINT } {
+  dup pow2decomp over 1 = { nip nip PUSHPOW2 } {
+  over -1 = { nip nip PUSHNEGPOW2 } {
+  dup 20 >= { rot drop -rot PUSHINT swap LSHIFT# } {
+  { drop PUSHINT } {
+  not pow2decomp swap -1 = { nip PUSHPOW2DEC } {
+  drop PUSHINT
+  } cond } cond } cond } cond } cond } cond
+} dup : PUSHINTX : INTX
+
 // integer comparison
 x{B8} @Defop SGN
 x{B9} @Defop LESS

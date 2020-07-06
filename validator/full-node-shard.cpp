@@ -50,7 +50,7 @@ void Neighbour::update_proto_version(const ton_api::tonNode_capabilities &q) {
   capabilities = q.capabilities_;
 }
 
-void Neighbour::query_success(td::Clocks::Duration t) {
+void Neighbour::query_success(double t) {
   unreliability--;
   if (unreliability < 0) {
     unreliability = 0;
@@ -62,7 +62,7 @@ void Neighbour::query_failed() {
   unreliability++;
 }
 
-void Neighbour::update_roundtrip(td::Clocks::Duration t) {
+void Neighbour::update_roundtrip(double t) {
   roundtrip = (t + roundtrip) * 0.5;
 }
 
@@ -938,7 +938,7 @@ const Neighbour &FullNodeShardImpl::choose_neighbour() const {
   return best ? *best : Neighbour::zero;
 }
 
-void FullNodeShardImpl::update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, bool success) {
+void FullNodeShardImpl::update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, double t, bool success) {
   auto it = neighbours_.find(adnl_id);
   if (it != neighbours_.end()) {
     if (success) {
@@ -949,7 +949,7 @@ void FullNodeShardImpl::update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, td
   }
 }
 
-void FullNodeShardImpl::got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t,
+void FullNodeShardImpl::got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, double t,
                                                    td::BufferSlice data) {
   auto it = neighbours_.find(adnl_id);
   if (it == neighbours_.end()) {

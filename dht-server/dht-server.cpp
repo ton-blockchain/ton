@@ -30,7 +30,7 @@
 #include "td/utils/filesystem.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/overloaded.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/user.h"
 #include "td/utils/port/signals.h"
@@ -1176,12 +1176,11 @@ int main(int argc, char *argv[]) {
 
   std::vector<std::function<void()>> acts;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("dht server for TON DHT network");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -1189,17 +1188,14 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
   p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_global_config, fname); });
-    return td::Status::OK();
   });
   p.add_option('c', "local-config", "file to read local config", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_local_config, fname); });
-    return td::Status::OK();
   });
-  p.add_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
+  p.add_checked_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     acts.push_back([&x, addr]() { td::actor::send_closure(x, &DhtServer::add_ip, addr); });
@@ -1207,7 +1203,6 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_db_root, fname); });
-    return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
@@ -1215,28 +1210,27 @@ int main(int argc, char *argv[]) {
     setsid();
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
-    return td::Status::OK();
   });
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
-    return td::Status::OK();
   });
   td::uint32 threads = 7;
-  p.add_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
-    td::int32 v;
-    try {
-      v = std::stoi(fname.str());
-    } catch (...) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-    }
-    if (v < 1 || v > 256) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
-    }
-    threads = v;
-    return td::Status::OK();
-  });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
+  p.add_checked_option(
+      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
+        td::int32 v;
+        try {
+          v = std::stoi(fname.str());
+        } catch (...) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+        }
+        if (v < 1 || v > 256) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
+        }
+        threads = v;
+        return td::Status::OK();
+      });
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   p.run(argc, argv).ensure();
 
   td::set_runtime_signal_handler(1, need_stats).ensure();

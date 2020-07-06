@@ -1,3 +1,22 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2017-2020 Telegram Systems LLP
+*/
+
 #include "adnl/adnl.h"
 #include "common/bigint.hpp"
 #include "common/bitstring.h"
@@ -11,7 +30,7 @@
 #include "td/utils/port/signals.h"
 #include "td/utils/Parser.h"
 #include "td/utils/overloaded.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/PathView.h"
 #include "td/utils/Random.h"
 #include "td/utils/misc.h"
@@ -807,37 +826,27 @@ int main(int argc, char *argv[]) {
   td::set_default_failure_signal_handler();
 
   StorageCliOptions options;
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("experimental cli for ton storage");
   p.add_option('h', "help", "prints_help", [&]() {
     std::cout << (PSLICE() << p).c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     auto verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
   });
-  p.add_option('C', "config", "set ton config", [&](td::Slice arg) {
-    options.config = arg.str();
-    return td::Status::OK();
-  });
-  p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
-    options.db_root = fname.str();
-    return td::Status::OK();
-  });
-  p.add_option('I', "ip", "set ip:port", [&](td::Slice arg) {
+  p.add_option('C', "config", "set ton config", [&](td::Slice arg) { options.config = arg.str(); });
+  p.add_option('D', "db", "root for dbs", [&](td::Slice fname) { options.db_root = fname.str(); });
+  p.add_checked_option('I', "ip", "set ip:port", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     options.addr = addr;
     return td::Status::OK();
   });
-  p.add_option('E', "execute", "execute one command", [&](td::Slice arg) {
-    options.cmd = arg.str();
-    return td::Status::OK();
-  });
-  p.add_option('d', "dir", "working directory", [&](td::Slice arg) { return td::chdir(arg.str()); });
+  p.add_option('E', "execute", "execute one command", [&](td::Slice arg) { options.cmd = arg.str(); });
+  p.add_checked_option('d', "dir", "working directory", [&](td::Slice arg) { return td::chdir(arg.str()); });
 
   auto S = p.run(argc, argv);
   if (S.is_error()) {

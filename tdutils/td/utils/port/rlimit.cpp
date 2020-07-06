@@ -14,14 +14,19 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2019-2020 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
-#include "rlimit.h"
-#if TD_LINUX || TD_ANDROID
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/time.h>
+
+#include "td/utils/port/rlimit.h"
+
+#include "td/utils/port/config.h"
+
+#include "td/utils/misc.h"
+
+#if TD_PORT_POSIX
 #include <sys/resource.h>
+#include <sys/time.h>
+#include <sys/types.h>
 #endif
 
 namespace td {

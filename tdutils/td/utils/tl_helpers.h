@@ -21,6 +21,7 @@
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
+#include "td/utils/SharedSlice.h"
 #include "td/utils/Slice.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/StackAllocator.h"
@@ -31,6 +32,7 @@
 
 #include <type_traits>
 #include <unordered_set>
+#include <utility>
 
 #define BEGIN_STORE_FLAGS()     \
   do {                          \
@@ -149,6 +151,13 @@ void store(const vector<T> &vec, StorerT &storer) {
     store(val, storer);
   }
 }
+template <class T, class StorerT>
+void store(const vector<T *> &vec, StorerT &storer) {
+  storer.store_binary(narrow_cast<int32>(vec.size()));
+  for (auto &val : vec) {
+    store(*val, storer);
+  }
+}
 template <class T, class ParserT>
 void parse(vector<T> &vec, ParserT &parser) {
   uint32 size = parser.fetch_int();
@@ -160,6 +169,18 @@ void parse(vector<T> &vec, ParserT &parser) {
   for (auto &val : vec) {
     parse(val, parser);
   }
+}
+
+template <class T, class StorerT>
+void store(const unique_ptr<T> &ptr, StorerT &storer) {
+  CHECK(ptr != nullptr);
+  store(*ptr, storer);
+}
+template <class T, class ParserT>
+void parse(unique_ptr<T> &ptr, ParserT &parser) {
+  CHECK(ptr == nullptr);
+  ptr = make_unique<T>();
+  parse(*ptr, parser);
 }
 
 template <class Key, class Hash, class KeyEqual, class Allocator, class StorerT>
@@ -182,6 +203,17 @@ void parse(std::unordered_set<Key, Hash, KeyEqual, Allocator> &s, ParserT &parse
     parse(val, parser);
     s.insert(std::move(val));
   }
+}
+
+template <class U, class V, class StorerT>
+void store(const std::pair<U, V> &pair, StorerT &storer) {
+  store(pair.first, storer);
+  store(pair.second, storer);
+}
+template <class U, class V, class ParserT>
+void parse(std::pair<U, V> &pair, ParserT &parser) {
+  parse(pair.first, parser);
+  parse(pair.second, parser);
 }
 
 template <class T, class StorerT>

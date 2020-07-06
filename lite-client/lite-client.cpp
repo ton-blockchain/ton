@@ -33,7 +33,7 @@
 #include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.hpp"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -4167,7 +4167,7 @@ int main(int argc, char* argv[]) {
 
   td::actor::ActorOwn<TestNode> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("Test Lite Client for TON Blockchain");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -4175,30 +4175,21 @@ int main(int argc, char* argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
-    td::actor::send_closure(x, &TestNode::set_global_config, fname.str());
-    return td::Status::OK();
-  });
-  p.add_option('r', "disable-readline", "", [&]() {
-    td::actor::send_closure(x, &TestNode::set_readline_enabled, false);
-    return td::Status::OK();
-  });
-  p.add_option('R', "enable-readline", "", [&]() {
-    td::actor::send_closure(x, &TestNode::set_readline_enabled, true);
-    return td::Status::OK();
-  });
-  p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
-    td::actor::send_closure(x, &TestNode::set_db_root, fname.str());
-    return td::Status::OK();
-  });
-  p.add_option('L', "print-limit", "sets maximum count of recursively printed objects", [&](td::Slice arg) {
+  p.add_option('C', "global-config", "file to read global config",
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::set_global_config, fname.str()); });
+  p.add_option('r', "disable-readline", "",
+               [&]() { td::actor::send_closure(x, &TestNode::set_readline_enabled, false); });
+  p.add_option('R', "enable-readline", "",
+               [&]() { td::actor::send_closure(x, &TestNode::set_readline_enabled, true); });
+  p.add_option('D', "db", "root for dbs",
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::set_db_root, fname.str()); });
+  p.add_checked_option('L', "print-limit", "sets maximum count of recursively printed objects", [&](td::Slice arg) {
     auto plimit = td::to_integer<int>(arg);
     td::actor::send_closure(x, &TestNode::set_print_limit, plimit);
     return plimit >= 0 ? td::Status::OK() : td::Status::Error("printing limit must be non-negative");
   });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
@@ -4206,27 +4197,21 @@ int main(int argc, char* argv[]) {
   p.add_option('i', "idx", "set liteserver idx", [&](td::Slice arg) {
     auto idx = td::to_integer<int>(arg);
     td::actor::send_closure(x, &TestNode::set_liteserver_idx, idx);
-    return td::Status::OK();
   });
-  p.add_option('a', "addr", "connect to ip:port", [&](td::Slice arg) {
+  p.add_checked_option('a', "addr", "connect to ip:port", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     td::actor::send_closure(x, &TestNode::set_remote_addr, addr);
     return td::Status::OK();
   });
-  p.add_option('c', "cmd", "schedule command", [&](td::Slice arg) {
-    td::actor::send_closure(x, &TestNode::add_cmd, td::BufferSlice{arg});
-    return td::Status::OK();
-  });
+  p.add_option('c', "cmd", "schedule command",
+               [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::add_cmd, td::BufferSlice{arg}); });
   p.add_option('t', "timeout", "timeout in batch mode", [&](td::Slice arg) {
     auto d = td::to_double(arg);
     td::actor::send_closure(x, &TestNode::set_fail_timeout, td::Timestamp::in(d));
-    return td::Status::OK();
   });
-  p.add_option('p', "pub", "remote public key", [&](td::Slice arg) {
-    td::actor::send_closure(x, &TestNode::set_public_key, td::BufferSlice{arg});
-    return td::Status::OK();
-  });
+  p.add_option('p', "pub", "remote public key",
+               [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::set_public_key, td::BufferSlice{arg}); });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
     td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
@@ -4234,7 +4219,6 @@ int main(int argc, char* argv[]) {
       setsid();
 #endif
     }).ensure();
-    return td::Status::OK();
   });
 #if TD_DARWIN || TD_LINUX
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
@@ -4244,7 +4228,6 @@ int main(int argc, char* argv[]) {
 
     dup2(FileLog.get_native_fd().fd(), 1);
     dup2(FileLog.get_native_fd().fd(), 2);
-    return td::Status::OK();
   });
 #endif
 

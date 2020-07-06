@@ -183,6 +183,9 @@ AsmOp AsmOp::IntConst(td::RefInt256 x) {
   if (k >= 0) {
     return AsmOp::Const(k, "PUSHNEGPOW2");
   }
+  if (!x->mod_pow2_short(23)) {
+    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINTX");
+  }
   return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT");
 }
 

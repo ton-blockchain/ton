@@ -51,11 +51,20 @@ class IPAddress {
   void set_port(int port);
 
   uint32 get_ipv4() const;
-  Slice get_ipv6() const;
-  Slice get_ip_str() const;
+  string get_ipv6() const;
+
+  // returns result in a static thread-local buffer, which may be overwritten by any subsequent method call
+  CSlice get_ip_str() const;
+
+  // returns IP address as a host, i.e. IPv4 or [IPv6]
+  string get_ip_host() const;
+
+  static string ipv4_to_str(uint32 ipv4);
+  static string ipv6_to_str(Slice ipv6);
 
   IPAddress get_any_addr() const;
 
+  static Result<IPAddress> get_ip_address(CSlice host);  // host must be any IPv4 or IPv6
   static Result<IPAddress> get_ipv4_address(CSlice host);
   static Result<IPAddress> get_ipv6_address(CSlice host);
 
@@ -75,8 +84,6 @@ class IPAddress {
   const sockaddr *get_sockaddr() const;
   size_t get_sockaddr_len() const;
   int get_address_family() const;
-  static CSlice ipv4_to_str(uint32 ipv4);
-  static CSlice ipv6_to_str(Slice ipv6);
   Status init_sockaddr(sockaddr *addr);
   Status init_sockaddr(sockaddr *addr, socklen_t len) TD_WARN_UNUSED_RESULT;
 

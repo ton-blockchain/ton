@@ -59,6 +59,7 @@ class Random {
     uint64 operator()();
     int fast(int min, int max);
     int64 fast64(int64 min, int64 max);
+    void bytes(MutableSlice dest);
 
    private:
     uint64 seed_[2];

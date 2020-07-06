@@ -28,7 +28,7 @@
 #include "td/actor/actor.h"
 
 #include "td/utils/BufferedFd.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/port/SocketFd.h"
 #include "td/utils/port/ServerSocketFd.h"
 #include "td/utils/Observer.h"
@@ -105,19 +105,14 @@ class PingClient : public td::actor::Actor, td::ObserverBase {
 };
 
 int main(int argc, char *argv[]) {
-  td::OptionsParser options_parser;
+  td::OptionParser options_parser;
   options_parser.set_description("Tcp ping server/client (based on td::actors2)");
 
   int port = 8081;
   bool is_client = false;
-  options_parser.add_option('p', "port", "listen/connect to tcp port (8081 by default)", [&](td::Slice arg) {
-    port = td::to_integer<int>(arg);
-    return td::Status::OK();
-  });
-  options_parser.add_option('c', "client", "Work as client (server by default)", [&]() {
-    is_client = true;
-    return td::Status::OK();
-  });
+  options_parser.add_option('p', "port", "listen/connect to tcp port (8081 by default)",
+                            [&](td::Slice arg) { port = td::to_integer<int>(arg); });
+  options_parser.add_option('c', "client", "Work as client (server by default)", [&]() { is_client = true; });
   auto status = options_parser.run(argc, argv);
   if (status.is_error()) {
     LOG(ERROR) << status.error();

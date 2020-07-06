@@ -16,7 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 
 #if TD_HAVE_GETOPT
 #include "getopt.h"
@@ -29,11 +29,11 @@
 
 namespace td {
 
-void OptionsParser::set_description(std::string description) {
+void OptionParser::set_description(std::string description) {
   description_ = std::move(description);
 }
 
-void OptionsParser::add_option(Option::Type type, char short_key, Slice long_key, Slice description,
+void OptionParser::add_option(Option::Type type, char short_key, Slice long_key, Slice description,
                                std::function<Status(Slice)> callback) {
   for (auto &option : options_) {
     if (option.short_key == short_key || (!long_key.empty() && long_key == option.long_key)) {
@@ -43,12 +43,12 @@ void OptionsParser::add_option(Option::Type type, char short_key, Slice long_key
   options_.push_back(Option{type, short_key, long_key.str(), description.str(), std::move(callback)});
 }
 
-void OptionsParser::add_option(char short_key, Slice long_key, Slice description,
+void OptionParser::add_option(char short_key, Slice long_key, Slice description,
                                std::function<Status(Slice)> callback) {
   add_option(Option::Type::Arg, short_key, long_key, description, std::move(callback));
 }
 
-void OptionsParser::add_option(char short_key, Slice long_key, Slice description,
+void OptionParser::add_option(char short_key, Slice long_key, Slice description,
                                std::function<Status(void)> callback) {
   // Ouch. There must be some better way
   add_option(Option::Type::NoArg, short_key, long_key, description,
@@ -56,7 +56,7 @@ void OptionsParser::add_option(char short_key, Slice long_key, Slice description
                        std::placeholders::_1));
 }
 
-Result<int> OptionsParser::run(int argc, char *argv[]) {
+Result<int> OptionParser::run(int argc, char *argv[]) {
 #if TD_HAVE_GETOPT
   char buff[1024];
   StringBuilder sb(MutableSlice{buff, sizeof(buff)});
@@ -122,20 +122,20 @@ Result<int> OptionsParser::run(int argc, char *argv[]) {
 #endif
 }
 
-StringBuilder &operator<<(StringBuilder &sb, const OptionsParser &o) {
+StringBuilder &operator<<(StringBuilder &sb, const OptionParser &o) {
   sb << o.description_ << "\n";
   for (auto &opt : o.options_) {
     sb << "-" << opt.short_key;
     if (!opt.long_key.empty()) {
       sb << "|--" << opt.long_key;
     }
-    if (opt.type == OptionsParser::Option::OptionalArg) {
+    if (opt.type == OptionParser::Option::OptionalArg) {
       sb << "[";
     }
-    if (opt.type != OptionsParser::Option::NoArg) {
+    if (opt.type != OptionParser::Option::NoArg) {
       sb << "<arg>";
     }
-    if (opt.type == OptionsParser::Option::OptionalArg) {
+    if (opt.type == OptionParser::Option::OptionalArg) {
       sb << "]";
     }
     sb << "\t" << opt.description;

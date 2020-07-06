@@ -46,8 +46,10 @@ $3 parse-int =: subwallet_id
 $4 parse-int =: seqno
 $5 $>cc extra-cc+! extra-currencies @ 2=: amount
 $6 "wallet-query" replace-if-null =: savefile
+subwallet_id (.) 1 ' $+ does : +subwallet
 
-file-base +".addr" load-address
+file-base +subwallet +".addr" dup file-exists? { drop file-base +".addr" } ifnot
+load-address
 2dup 2constant wallet_addr
 ."Source wallet address = " 2dup .addr cr 6 .Addr cr
 file-base +".pk" load-keypair nip constant wallet_pk

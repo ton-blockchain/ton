@@ -16,25 +16,27 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
+
+#include "td/utils/benchmark.h"
 #include "td/utils/FileLog.h"
-#include "td/utils/TsFileLog.h"
+#include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/path.h"
-#include "td/utils/benchmark.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/Slice.h"
+#include "td/utils/tests.h"
+#include "td/utils/TsFileLog.h"
 
+#include <functional>
 #include <limits>
 
-// Thread safe logging with tests
-//
-// LOG uses thread local LogInterface
-// void append(CSlice slice, int log_level);
-//
+char disable_linker_warning_about_empty_file_tdutils_test_log_cpp TD_UNUSED;
 
+#if !TD_THREAD_UNSUPPORTED
 template <class Log>
 class LogBenchmark : public td::Benchmark {
  public:
-  explicit LogBenchmark(std::string name, int threads_n, std::function<td::unique_ptr<Log>()> creator)
+  LogBenchmark(std::string name, int threads_n, std::function<td::unique_ptr<Log>()> creator)
       : name_(std::move(name)), threads_n_(threads_n), creator_(std::move(creator)) {
   }
   std::string get_description() const override {
@@ -78,7 +80,7 @@ class LogBenchmark : public td::Benchmark {
 };
 
 template <class F>
-void bench_log(std::string name, int threads_n, F &&f) {
+static void bench_log(std::string name, int threads_n, F &&f) {
   bench(LogBenchmark<typename decltype(f())::element_type>(std::move(name), threads_n, std::move(f)));
 };
 
@@ -89,7 +91,7 @@ TEST(Log, TsLogger) {
     class FileLog : public td::LogInterface {
      public:
       FileLog() {
-        file_log_.init("tmplog", std::numeric_limits<td::int64>::max(), false);
+        file_log_.init("tmplog", std::numeric_limits<td::int64>::max(), false).ensure();
         ts_log_.init(&file_log_);
       }
       ~FileLog() {
@@ -121,7 +123,7 @@ TEST(Log, TsLogger) {
     class FileLog : public td::LogInterface {
      public:
       FileLog() {
-        file_log_.init("tmplog", std::numeric_limits<td::int64>::max(), false);
+        file_log_.init("tmplog", std::numeric_limits<td::int64>::max(), false).ensure();
       }
       ~FileLog() {
       }
@@ -138,3 +140,4 @@ TEST(Log, TsLogger) {
     return td::make_unique<FileLog>();
   });
 }
+#endif

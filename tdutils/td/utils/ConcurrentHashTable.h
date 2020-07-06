@@ -121,7 +121,7 @@ class ConcurrentHashMap {
   ConcurrentHashMap(ConcurrentHashMap &&) = delete;
   ConcurrentHashMap &operator=(ConcurrentHashMap &&) = delete;
   ~ConcurrentHashMap() {
-    unique_ptr<HashMap>(hash_map_.load());
+    unique_ptr<HashMap>(hash_map_.load()).reset();
   }
 
   static std::string get_name() {

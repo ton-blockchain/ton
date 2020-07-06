@@ -19,6 +19,7 @@
 #pragma once
 
 #include "td/utils/buffer.h"
+#include "td/utils/Status.h"
 #include "auto/tl/ton_api.h"
 
 namespace ton {

@@ -450,11 +450,11 @@ struct ValidatorDescr {
 struct ValidatorSessionConfig {
   td::uint32 proto_version = 0;
 
-  /* td::Clocks::Duration */ double catchain_idle_timeout = 16.0;
+  /* double */ double catchain_idle_timeout = 16.0;
   td::uint32 catchain_max_deps = 4;
 
   td::uint32 round_candidates = 3;
-  /* td::Clocks::Duration */ double next_candidate_delay = 2.0;
+  /* double */ double next_candidate_delay = 2.0;
   td::uint32 round_attempt_duration = 16;
   td::uint32 max_round_attempts = 4;
 
