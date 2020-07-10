@@ -118,6 +118,10 @@ td::Ref<vm::Cell> GenericAccount::create_ext_message(const block::StdAddress& ad
 
   td::Ref<vm::Cell> res;
   tlb::type_pack_cell(res, block::gen::t_Message_Any, message);
+  if (res.is_null()) {
+    /* body */ { message.body = vm::CellBuilder().store_ones(1).store_ref(std::move(body)).as_cellslice_ref(); }
+    tlb::type_pack_cell(res, block::gen::t_Message_Any, message);
+  }
   CHECK(res.not_null());
 
   return res;

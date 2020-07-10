@@ -113,9 +113,11 @@ void TerminalIOImpl::start_up() {
   }
 #endif
 
-  td::actor::SchedulerContext::get()->get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
-                                                           td::PollFlags::Read());
-  loop();
+  if (!no_input_) {
+    td::actor::SchedulerContext::get()->get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
+                                                             td::PollFlags::Read());
+    loop();
+  }
 }
 
 void TerminalIOImpl::tear_down() {
@@ -329,10 +331,10 @@ TerminalIOOutputter::~TerminalIOOutputter() {
   }
 }
 
-td::actor::ActorOwn<TerminalIO> TerminalIO::create(std::string prompt, bool use_readline,
+td::actor::ActorOwn<TerminalIO> TerminalIO::create(std::string prompt, bool use_readline, bool no_input,
                                                    std::unique_ptr<Callback> callback) {
   return actor::create_actor<TerminalIOImpl>(actor::ActorOptions().with_name("terminal io").with_poll(), prompt,
-                                             use_readline, std::move(callback));
+                                             use_readline, no_input, std::move(callback));
 }
 
 TerminalIOImpl *TerminalIOImpl::instance_ = nullptr;

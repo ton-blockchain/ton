@@ -323,7 +323,7 @@ class StorageCli : public td::actor::Actor {
       td::actor::send_closure(actor_id(this), &StorageCli::parse_line, td::BufferSlice(options_.cmd.unwrap()));
     } else {
       ref_cnt_++;
-      io_ = td::TerminalIO::create("> ", options_.enable_readline, std::make_unique<Cb>(actor_shared(this)));
+      io_ = td::TerminalIO::create("> ", options_.enable_readline, false, std::make_unique<Cb>(actor_shared(this)));
       td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
     }
 
