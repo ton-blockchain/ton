@@ -307,8 +307,13 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
 endif()
 
-add_executable(pow-miner util/pow-miner.cpp util/Miner.cpp util/Miner.h)
-target_link_libraries(pow-miner PUBLIC ton_crypto ton_block)
+add_library(pow-miner-lib util/Miner.cpp util/Miner.h)
+target_include_directories(pow-miner-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(pow-miner-lib PUBLIC ton_crypto ton_block)
+
+add_executable(pow-miner util/pow-miner.cpp)
+target_link_libraries(pow-miner PRIVATE ton_crypto ton_block pow-miner-lib)
+
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
 endif()

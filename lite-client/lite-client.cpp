@@ -105,7 +105,7 @@ void TestNode::run() {
    private:
     td::actor::ActorId<TestNode> id_;
   };
-  io_ = td::TerminalIO::create("> ", readline_enabled_, std::make_unique<Cb>(actor_id(this)));
+  io_ = td::TerminalIO::create("> ", readline_enabled_, ex_mode_, std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
 
   if (remote_public_key_.empty()) {

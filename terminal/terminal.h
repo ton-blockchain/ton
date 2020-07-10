@@ -93,7 +93,7 @@ class TerminalIO : public actor::Actor {
   virtual void set_log_interface() = 0;
   virtual bool readline_used() const = 0;
 
-  static td::actor::ActorOwn<TerminalIO> create(std::string prompt, bool use_readline,
+  static td::actor::ActorOwn<TerminalIO> create(std::string prompt, bool use_readline, bool no_input,
                                                 std::unique_ptr<Callback> callback);
 };
 

@@ -77,6 +77,16 @@ class TonlibClient : public td::actor::Actor {
     std::string rwallet_init_public_key;
   };
 
+  template <class T, class P>
+  void make_request(T&& request, P&& promise) {
+    td::Promise<typename std::decay_t<T>::ReturnType> new_promise = std::move(promise);
+
+    auto status = do_request(std::forward<T>(request), std::move(new_promise));
+    if (status.is_error()) {
+      new_promise.operator()(std::move(status));
+    }
+  }
+
  private:
   enum class State { Uninited, Running, Closed } state_ = State::Uninited;
   td::unique_ptr<TonlibCallback> callback_;
@@ -203,15 +213,6 @@ class TonlibClient : public td::actor::Actor {
 
   void make_any_request(tonlib_api::Function& function, QueryContext query_context,
                         td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise);
-  template <class T, class P>
-  void make_request(T&& request, P&& promise) {
-    td::Promise<typename std::decay_t<T>::ReturnType> new_promise = std::move(promise);
-
-    auto status = do_request(std::forward<T>(request), std::move(new_promise));
-    if (status.is_error()) {
-      new_promise.operator()(std::move(status));
-    }
-  }
 
   td::Result<FullConfig> validate_config(tonlib_api::object_ptr<tonlib_api::config> config);
   void set_config(FullConfig config);

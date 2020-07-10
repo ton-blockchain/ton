@@ -1958,6 +1958,7 @@ void ValidatorManagerImpl::add_handle_to_lru(BlockHandle handle) {
   auto it = handle_lru_map_.find(handle->id());
   if (it != handle_lru_map_.end()) {
     CHECK(it->second->handle() == handle);
+    it->second->remove();
     handle_lru_.put(it->second.get());
   } else {
     auto id = handle->id();
@@ -1978,6 +1979,7 @@ void ValidatorManagerImpl::add_handle_to_lru(BlockHandle handle) {
 BlockHandle ValidatorManagerImpl::get_handle_from_lru(BlockIdExt id) {
   auto it = handle_lru_map_.find(id);
   if (it != handle_lru_map_.end()) {
+    it->second->remove();
     handle_lru_.put(it->second.get());
     auto handle = it->second->handle();
     CHECK(handle->id() == id);
