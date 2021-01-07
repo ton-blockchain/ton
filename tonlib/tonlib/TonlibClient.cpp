@@ -1928,7 +1928,22 @@ const MasterConfig& get_default_master_config() {
       "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
       "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
     },
-    "init_block": {"workchain":-1,"shard":-9223372036854775808,"seqno":2908451,"root_hash":"5+7X1QHVUBFLFMwa/yd/2fGzt2KeQtwr+o6UUFOQ7Qc=","file_hash":"gmiUgrtAbvEJZYDEkcbeNOhGPS3g+qCepSOEBFLZFzk="}
+    "init_block" : {
+       "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
+       "seqno": 8536841,
+       "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
+       "workchain": -1,
+       "shard": -9223372036854775808
+   },
+   "hardforks": [
+      {
+        "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
+         "seqno": 8536841,
+         "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
+         "workchain": -1,
+         "shard": -9223372036854775808
+     }
+   ]
   }
 })abc");
     return res;
