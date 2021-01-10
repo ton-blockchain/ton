@@ -1,13 +1,33 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2017-2020 Telegram Systems LLP
+*/
 #include "lite-client-common.h"
 
 #include "auto/tl/lite_api.hpp"
 #include "tl-utils/lite-utils.hpp"
 #include "ton/lite-tl.hpp"
 #include "td/utils/overloaded.h"
+#include "td/utils/Random.h"
 
 using namespace std::literals::string_literals;
 
 namespace liteclient {
+
 td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
     ton::lite_api::object_ptr<ton::lite_api::liteServer_partialBlockProof> f) {
   // deserialize proof chain
@@ -74,4 +94,27 @@ td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
   LOG(DEBUG) << "deserialized a BlkProofChain of " << chain->link_count() << " links";
   return std::move(chain);
 }
+
+td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, td::Ref<vm::CellSlice> my_addr,
+                                 const block::CurrencyCollection& balance) {
+  td::BitArray<256> rand_seed;
+  td::RefInt256 rand_seed_int{true};
+  td::Random::secure_bytes(rand_seed.as_slice());
+  if (!rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false)) {
+    return {};
+  }
+  auto tuple = vm::make_tuple_ref(td::make_refint(0x076ef1ea),  // [ magic:0x076ef1ea
+                                  td::make_refint(0),           //   actions:Integer
+                                  td::make_refint(0),           //   msgs_sent:Integer
+                                  td::make_refint(now),         //   unixtime:Integer
+                                  td::make_refint(lt),          //   block_lt:Integer
+                                  td::make_refint(lt),          //   trans_lt:Integer
+                                  std::move(rand_seed_int),     //   rand_seed:Integer
+                                  balance.as_vm_tuple(),        //   balance_remaining:[Integer (Maybe Cell)]
+                                  my_addr,                      //  myself:MsgAddressInt
+                                  vm::StackEntry());            //  global_config:(Maybe Cell) ] = SmartContractInfo;
+  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
+  return vm::make_tuple_ref(std::move(tuple));
+}
+
 }  // namespace liteclient

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -166,7 +166,7 @@ class MpscLinkQueueUniquePtrNode {
   MpscLinkQueueImpl::Node *to_mpsc_link_queue_node() {
     return ptr_.release()->to_mpsc_link_queue_node();
   }
-  static MpscLinkQueueUniquePtrNode<Value> from_mpsc_link_queue_node(td::MpscLinkQueueImpl::Node *node) {
+  static MpscLinkQueueUniquePtrNode<Value> from_mpsc_link_queue_node(MpscLinkQueueImpl::Node *node) {
     return MpscLinkQueueUniquePtrNode<Value>(unique_ptr<Value>(Value::from_mpsc_link_queue_node(node)));
   }
 

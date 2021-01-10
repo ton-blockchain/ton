@@ -15,7 +15,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "ExtClientOutbound.h"
 #include "TonlibError.h"
@@ -42,6 +42,7 @@ class ExtClientOutboundImp : public ExtClientOutbound {
     auto it = queries_.find(id);
     if (it == queries_.end()) {
       promise.set_error(TonlibError::Internal("Unknown query id"));
+      return;
     }
     it->second.set_result(std::move(r_data));
     queries_.erase(it);

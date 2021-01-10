@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -44,12 +44,12 @@ std::pair<T, T> split(T s, char delimiter = ' ') {
 }
 
 template <class T>
-vector<T> full_split(T s, char delimiter = ' ') {
+vector<T> full_split(T s, char delimiter = ' ', size_t max_parts = std::numeric_limits<size_t>::max()) {
   vector<T> result;
   if (s.empty()) {
     return result;
   }
-  while (true) {
+  while (result.size() + 1 < max_parts) {
     auto delimiter_pos = s.find(delimiter);
     if (delimiter_pos == string::npos) {
       result.push_back(std::move(s));
@@ -59,16 +59,18 @@ vector<T> full_split(T s, char delimiter = ' ') {
       s = s.substr(delimiter_pos + 1);
     }
   }
+  result.push_back(std::move(s));
+  return result;
 }
 
 string implode(const vector<string> &v, char delimiter = ' ');
 
 namespace detail {
 
-template <typename T>
+template <typename V>
 struct transform_helper {
   template <class Func>
-  auto transform(const T &v, const Func &f) {
+  auto transform(const V &v, const Func &f) {
     vector<decltype(f(*v.begin()))> result;
     result.reserve(v.size());
     for (auto &x : v) {
@@ -78,7 +80,7 @@ struct transform_helper {
   }
 
   template <class Func>
-  auto transform(T &&v, const Func &f) {
+  auto transform(V &&v, const Func &f) {
     vector<decltype(f(std::move(*v.begin())))> result;
     result.reserve(v.size());
     for (auto &x : v) {
@@ -90,9 +92,58 @@ struct transform_helper {
 
 }  // namespace detail
 
-template <class T, class Func>
-auto transform(T &&v, const Func &f) {
-  return detail::transform_helper<std::decay_t<T>>().transform(std::forward<T>(v), f);
+template <class V, class Func>
+auto transform(V &&v, const Func &f) {
+  return detail::transform_helper<std::decay_t<V>>().transform(std::forward<V>(v), f);
+}
+
+template <class V, class Func>
+void remove_if(V &v, const Func &f) {
+  size_t i = 0;
+  while (i != v.size() && !f(v[i])) {
+    i++;
+  }
+  if (i == v.size()) {
+    return;
+  }
+
+  size_t j = i;
+  while (++i != v.size()) {
+    if (!f(v[i])) {
+      v[j++] = std::move(v[i]);
+    }
+  }
+  v.erase(v.begin() + j, v.end());
+}
+
+template <class V, class T>
+bool remove(V &v, const T &value) {
+  size_t i = 0;
+  while (i != v.size() && v[i] != value) {
+    i++;
+  }
+  if (i == v.size()) {
+    return false;
+  }
+
+  size_t j = i;
+  while (++i != v.size()) {
+    if (v[i] != value) {
+      v[j++] = std::move(v[i]);
+    }
+  }
+  v.erase(v.begin() + j, v.end());
+  return true;
+}
+
+template <class V, class T>
+bool contains(const V &v, const T &value) {
+  for (auto &x : v) {
+    if (x == value) {
+      return true;
+    }
+  }
+  return false;
 }
 
 template <class T>
@@ -129,6 +180,9 @@ template <class T>
 void combine(vector<T> &destination, vector<T> &&source) {
   if (destination.size() < source.size()) {
     destination.swap(source);
+  }
+  if (source.empty()) {
+    return;
   }
   destination.reserve(destination.size() + source.size());
   for (auto &elem : source) {
@@ -301,6 +355,20 @@ typename std::enable_if<std::is_unsigned<T>::value, T>::type hex_to_integer(Slic
   return integer_value;
 }
 
+template <class T>
+Result<typename std::enable_if<std::is_unsigned<T>::value, T>::type> hex_to_integer_safe(Slice str) {
+  T integer_value = 0;
+  auto begin = str.begin();
+  auto end = str.end();
+  while (begin != end) {
+    if (!is_hex_digit(*begin)) {
+      return Status::Error("not a hex digit");
+    }
+    integer_value = static_cast<T>(integer_value * 16 + hex_to_int(*begin++));
+  }
+  return integer_value;
+}
+
 double to_double(Slice str);
 
 template <class T>
@@ -316,7 +384,9 @@ T clamp(T value, T min_value, T max_value) {
 
 Result<string> hex_decode(Slice hex);
 
-string url_encode(Slice str);
+string hex_encode(Slice data);
+
+string url_encode(Slice data);
 
 // run-time checked narrowing cast (type conversion):
 

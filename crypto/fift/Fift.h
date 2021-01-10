@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -26,7 +26,6 @@
 
 namespace fift {
 struct IntCtx;
-int funny_interpret_loop(IntCtx& ctx);
 
 struct Fift {
  public:
@@ -36,6 +35,7 @@ struct Fift {
     fift::Dictionary dictionary;
     std::ostream* output_stream{&std::cout};
     std::ostream* error_stream{&std::cerr};
+    bool show_backtrace{true};
   };
   // Fift must own ton_db and dictionary, no concurrent access is allowed
   explicit Fift(Config config);
@@ -48,6 +48,6 @@ struct Fift {
  private:
   Config config_;
 
-  td::Result<int> do_interpret(IntCtx& ctx);
+  td::Result<int> do_interpret(IntCtx& ctx, bool is_interactive = false);
 };
 }  // namespace fift

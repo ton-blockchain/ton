@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells/CellBuilder.h"
 
@@ -24,7 +24,7 @@
 #include "td/utils/misc.h"
 #include "td/utils/format.h"
 
-#include "openssl/digest.h"
+#include "openssl/digest.hpp"
 
 namespace vm {
 
@@ -52,18 +52,31 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
   }
   auto res = DataCell::create(data, size(), td::span(refs.data(), size_refs()), special);
   if (res.is_error()) {
-    LOG(ERROR) << res.error();
+    LOG(DEBUG) << res.error();
     throw CellWriteError{};
   }
-  CHECK(res.ok().not_null());
-  return res.move_as_ok();
+  auto cell = res.move_as_ok();
+  CHECK(cell.not_null());
+  if (vm_state_interface) {
+    vm_state_interface->register_new_cell(cell);
+    if (cell.is_null()) {
+      LOG(DEBUG) << "cannot register new data cell";
+      throw CellWriteError{};
+    }
+  }
+  return cell;
+}
+
+td::Result<Ref<DataCell>> CellBuilder::finalize_novm_nothrow(bool special) {
+  auto res = DataCell::create(data, size(), td::mutable_span(refs.data(), size_refs()), special);
+  bits = refs_cnt = 0;
+  return res;
 }
 
 Ref<DataCell> CellBuilder::finalize_novm(bool special) {
-  auto res = DataCell::create(data, size(), td::mutable_span(refs.data(), size_refs()), special);
-  bits = refs_cnt = 0;
+  auto res = finalize_novm_nothrow(special);
   if (res.is_error()) {
-    LOG(ERROR) << res.error();
+    LOG(DEBUG) << res.error();
     throw CellWriteError{};
   }
   CHECK(res.ok().not_null());
@@ -72,10 +85,17 @@ Ref<DataCell> CellBuilder::finalize_novm(bool special) {
 
 Ref<DataCell> CellBuilder::finalize(bool special) {
   auto* vm_state_interface = VmStateInterface::get();
-  if (vm_state_interface) {
-    vm_state_interface->register_cell_create();
+  if (!vm_state_interface) {
+    return finalize_novm(special);
   }
-  return finalize_novm(special);
+  vm_state_interface->register_cell_create();
+  auto cell = finalize_novm(special);
+  vm_state_interface->register_new_cell(cell);
+  if (cell.is_null()) {
+    LOG(DEBUG) << "cannot register new data cell";
+    throw CellWriteError{};
+  }
+  return cell;
 }
 
 Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
@@ -87,6 +107,7 @@ Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level
   }
   return do_create_pruned_branch(std::move(cell), new_level, virt_level);
 }
+
 Ref<DataCell> CellBuilder::do_create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
   auto level_mask = cell->get_level_mask().apply(virt_level);
   auto level = level_mask.get_level();
@@ -371,6 +392,14 @@ CellBuilder& CellBuilder::store_ref(Ref<Cell> ref) {
   return ensure_pass(store_ref_bool(std::move(ref)));
 }
 
+td::uint16 CellBuilder::get_depth() const {
+  int d = 0;
+  for (unsigned i = 0; i < refs_cnt; i++) {
+    d = std::max(d, 1 + refs[i]->get_depth());
+  }
+  return static_cast<td::uint16>(d);
+}
+
 bool CellBuilder::append_data_cell_bool(const DataCell& cell) {
   unsigned len = cell.size();
   if (can_extend_by(len, cell.size_refs())) {
@@ -458,6 +487,16 @@ bool CellBuilder::append_cellslice_chk(const CellSlice& cs, unsigned size_ext) {
 
 bool CellBuilder::append_cellslice_chk(Ref<CellSlice> cs_ref, unsigned size_ext) {
   return cs_ref.not_null() && append_cellslice_chk(*cs_ref, size_ext);
+}
+
+CellSlice CellSlice::clone() const {
+  CellBuilder cb;
+  Ref<Cell> cell;
+  if (cb.append_cellslice_bool(*this) && cb.finalize_to(cell)) {
+    return CellSlice{NoVmOrd(), std::move(cell)};
+  } else {
+    return {};
+  }
 }
 
 bool CellBuilder::append_bitstring(const td::BitString& bs) {

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/actor/actor.h"
@@ -22,6 +22,7 @@
 #include "tonlib/Config.h"
 #include "tonlib/ExtClient.h"
 
+#include "td/utils/CancellationToken.h"
 #include "td/utils/tl_helpers.h"
 
 namespace block {
@@ -92,9 +93,10 @@ struct LastBlockState {
   ton::BlockIdExt last_block_id;
   td::int64 utime{0};
   ton::BlockIdExt init_block_id;
+  td::int32 vert_seqno{0};
 
   static constexpr td::int32 magic = 0xa7f171a4;
-  enum Version { None = 0, Magic, InitBlock, Next };
+  enum Version { None = 0, Magic, InitBlock, VertSeqno, Next };
   static constexpr td::int32 version = Version::Next - 1;
 
   template <class StorerT>
@@ -109,6 +111,7 @@ struct LastBlockState {
     store(last_block_id, storer);
     store(utime, storer);
     store(init_block_id, storer);
+    store(vert_seqno, storer);
   }
 
   template <class ParserT>
@@ -129,6 +132,23 @@ struct LastBlockState {
     if (version >= InitBlock) {
       parse(init_block_id, parser);
     }
+    if (version >= VertSeqno) {
+      parse(vert_seqno, parser);
+    }
+  }
+};
+
+struct LastBlockSyncState {
+  enum Type { Invalid, InProgress, Done } type = Invalid;
+  td::int32 from_seqno{0};
+  td::int32 to_seqno{0};
+  td::int32 current_seqno{0};
+
+  auto as_key() const {
+    return std::tie(type, from_seqno, to_seqno, current_seqno);
+  }
+  bool operator==(const LastBlockSyncState &other) const {
+    return as_key() == other.as_key();
   }
 };
 
@@ -139,16 +159,19 @@ class LastBlock : public td::actor::Actor {
     virtual ~Callback() {
     }
     virtual void on_state_changed(LastBlockState state) = 0;
+    virtual void on_sync_state_changed(LastBlockSyncState state) = 0;
   };
 
-  explicit LastBlock(ExtClientRef client, LastBlockState state, Config config, td::unique_ptr<Callback> callback);
+  explicit LastBlock(ExtClientRef client, LastBlockState state, Config config, td::CancellationToken cancellation_token,
+                     td::unique_ptr<Callback> callback);
   void get_last_block(td::Promise<LastBlockState> promise);
 
  private:
+  td::unique_ptr<Callback> callback_;
   ExtClient client_;
   LastBlockState state_;
   Config config_;
-  td::unique_ptr<Callback> callback_;
+  td::CancellationToken cancellation_token_;
 
   td::Status fatal_error_;
 
@@ -156,6 +179,11 @@ class LastBlock : public td::actor::Actor {
   QueryState get_mc_info_state_{QueryState::Empty};       // just to check zero state
   QueryState check_init_block_state_{QueryState::Empty};  // init_block <---> last_key_block (from older to newer)
   QueryState get_last_block_state_{QueryState::Empty};    // last_key_block_id --> ?
+
+  unsigned min_seqno_ = 0;
+  unsigned current_seqno_ = 0;
+  unsigned max_seqno_ = 0;
+  LastBlockSyncState sync_state_;
 
   // stats
   struct Stats {
@@ -209,6 +237,10 @@ class LastBlock : public td::actor::Actor {
   void on_fatal_error(td::Status status);
   bool has_fatal_error() const;
 
+  LastBlockSyncState get_sync_state();
+  void update_sync_state();
   void sync_loop();
+
+  void tear_down() override;
 };
 }  // namespace tonlib

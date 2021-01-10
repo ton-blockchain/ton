@@ -900,7 +900,7 @@ If one wants to represent $x$ nanograms, one selects an integer $\ell<16$ such t
 
 Recall (cf.~\cite[A]{TON}) that the original total supply of Grams is fixed at five billion (i.e., $5\cdot10^{18}<2^{63}$ nanograms), and is expected to grow very slowly. Therefore, all the amounts of Grams encountered in practice will fit in unsigned or even signed 64-bit integers. The validators may use the 64-bit integer representation of Grams in their internal computations; however, the serialization of these values the blockchain is another matter.
 
-\nxsubpoint\emb{Representing collections of arbitrary currencies}
+\nxsubpoint\emb{Representing collections of arbitrary currencies}\label{sp:extra.curr}
 Recall that the TON Blockchain allows its users to define arbitrary cryptocurrencies or tokens apart from the Gram, provided some conditions are met. Such additional cryptocurrencies are identified by 32-bit $\currencyid$s. The list of defined additional cryptocurrencies is a part of the blockchain configuration, stored in the masterchain.
 
 When some amounts of one or several such cryptocurrencies need to be represented, a dictionary (cf.~\cite[3.3]{TVM}) with 32-bit $\currencyid$s as keys and \texttt{VarUInteger 32} values is used:
@@ -936,7 +936,7 @@ message$_ {X:Type} info:CommonMsgInfo
 \end{verbatim}
 The meaning of this scheme is as follows.
 
-Type \texttt{Message $X$} describes a message with the body (or payload) of type $X$. Its serialization starts with \texttt{info} of type \texttt{CommonMsgInfo}, which comes in three flavors: for internal messages, inbound external messages, and outbound external messages, respectively. All of them have a source address \texttt{src} and destination address \texttt{dest}, which are external or internal according to the chosen constructor. Apart from that, an internal message may bear some \texttt{value} in Grams and other defined currencies, and all messages generated inside the TON Blockchain have a logical creation time \texttt{created\_lt} (cf.~\ptref{sp:lt.ton.blkch}) and creation unixtime \texttt{created\_at}, both automatically set by the generating transaction. The creation unixtime equals the creation unixtime of the block containing the generating transaction.
+Type \texttt{Message $X$} describes a message with the body (or payload) of type $X$. Its serialization starts with \texttt{info} of type \texttt{CommonMsgInfo}, which comes in three flavors: for internal messages, inbound external messages, and outbound external messages, respectively. All of them have a source address \texttt{src} and destination address \texttt{dest}, which are external or internal according to the chosen constructor. Apart from that, an internal message may bear some \texttt{value} in Grams and other defined currencies (cf.~\ptref{sp:extra.curr}), and all messages generated inside the TON Blockchain have a logical creation time \texttt{created\_lt} (cf.~\ptref{sp:lt.ton.blkch}) and creation unixtime \texttt{created\_at}, both automatically set by the generating transaction. The creation unixtime equals the creation unixtime of the block containing the generating transaction.
 
 \nxsubpoint\emb{Forwarding and IHR fees. Total value of an internal message}
 Internal messages define an \texttt{ihr\_fee} in Grams, which is subtracted from the value attached to the message and awarded to the validators of the destination shardchain if they include the message by the IHR mechanism. The \texttt{fwd\_fee} is the original total forwarding fee paid for using the HR mechanism; it is automatically computed from some configuration parameters and the size of the message at the time the message is generated.
@@ -1692,7 +1692,7 @@ The smart-contract information structure {\em SmartContractInfo}, passed in the 
   myself:MsgAddressInt global_config:(Maybe Cell) 
 ] = SmartContractInfo;
 \end{verbatim}
-In other words, the first component of this tuple is an {\em Integer\/} {\tt magic\/} always equal to {\tt 0x076ef1ea}, the second component is an {\em Integer\/} {\tt actions}, originally initialized by zero, but incremented by one whenever an output action is installed by a non-{\tt RAW} output action primitive of the TVM, and so on. The remaining balance is represented by a pair, i.e., a two-component {\em Tuple}: the first component is the nanogram balance, and the second component is a dictionary with 16-bit keys representing all other currencies, if any.
+In other words, the first component of this tuple is an {\em Integer\/} {\tt magic\/} always equal to {\tt 0x076ef1ea}, the second component is an {\em Integer\/} {\tt actions}, originally initialized by zero, but incremented by one whenever an output action is installed by a non-{\tt RAW} output action primitive of the TVM, and so on. The remaining balance is represented by a pair, i.e., a two-component {\em Tuple}: the first component is the nanogram balance, and the second component is a dictionary with 32-bit keys representing all other currencies, if any (cf.~\ptref{sp:extra.curr}).
 
 The {\tt rand\_seed} field (an unsigned 256-bit integer) here is initialized deterministically starting from the {\tt rand\_seed} of the block, the account address, the hash of the inbound message being processed (if any), and the transaction logical time {\tt trans\_lt}.
 

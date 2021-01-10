@@ -14,7 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -50,7 +50,7 @@ struct ValidatorDescr {
       : pubkey(_pubkey), weight(_weight), cum_weight(_cum_weight) {
     adnl_addr.set_zero();
   }
-  bool operator<(td::uint64 wt_pos) const & {
+  bool operator<(td::uint64 wt_pos) const& {
     return cum_weight < wt_pos;
   }
 };
@@ -71,6 +71,12 @@ struct ValidatorSet {
   }
   const ValidatorDescr& at_weight(td::uint64 weight_pos) const;
   std::vector<ton::ValidatorDescr> export_validator_set() const;
+  std::map<ton::Bits256, int> compute_validator_map() const;
+  std::vector<double> export_scaled_validator_weights() const;
+  int lookup_public_key(td::ConstBitPtr pubkey) const;
+  int lookup_public_key(const td::Bits256& pubkey) const {
+    return lookup_public_key(pubkey.bits());
+  }
 };
 
 #pragma pack(push, 1)
@@ -273,6 +279,7 @@ struct McShardHash : public McShardHashI {
   bool pack(vm::CellBuilder& cb) const;
   static Ref<McShardHash> unpack(vm::CellSlice& cs, ton::ShardIdFull id);
   static Ref<McShardHash> from_block(Ref<vm::Cell> block_root, const ton::FileHash& _fhash, bool init_fees = false);
+  static bool extract_cc_seqno(vm::CellSlice& cs, ton::CatchainSeqno* cc);
   McShardHash* make_copy() const override {
     return new McShardHash(*this);
   }
@@ -327,15 +334,58 @@ struct StoragePrices {
       , mc_bit_price(_mc_bprice)
       , mc_cell_price(_mc_cprice) {
   }
+  static td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
+                                            const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
+                                            bool is_special, bool is_masterchain);
+};
+
+struct GasLimitsPrices {
+  td::uint64 flat_gas_limit{0};
+  td::uint64 flat_gas_price{0};
+  td::uint64 gas_price{0};
+  td::uint64 special_gas_limit{0};
+  td::uint64 gas_limit{0};
+  td::uint64 gas_credit{0};
+  td::uint64 block_gas_limit{0};
+  td::uint64 freeze_due_limit{0};
+  td::uint64 delete_due_limit{0};
+
+  td::RefInt256 compute_gas_price(td::uint64 gas_used) const;
+};
+
+// msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
+// ihr_fwd_fees = ceil((msg_fwd_fees * ihr_price_factor)/2^16) nanograms
+// bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
+
+struct MsgPrices {
+  td::uint64 lump_price;
+  td::uint64 bit_price;
+  td::uint64 cell_price;
+  td::uint32 ihr_factor;
+  td::uint32 first_frac;
+  td::uint32 next_frac;
+  td::uint64 compute_fwd_fees(td::uint64 cells, td::uint64 bits) const;
+  std::pair<td::uint64, td::uint64> compute_fwd_ihr_fees(td::uint64 cells, td::uint64 bits,
+                                                         bool ihr_disabled = false) const;
+  MsgPrices() = default;
+  MsgPrices(td::uint64 lump, td::uint64 bitp, td::uint64 cellp, td::uint32 ihrf, td::uint32 firstf, td::uint32 nextf)
+      : lump_price(lump), bit_price(bitp), cell_price(cellp), ihr_factor(ihrf), first_frac(firstf), next_frac(nextf) {
+  }
+  td::RefInt256 get_first_part(td::RefInt256 total) const;
+  td::uint64 get_first_part(td::uint64 total) const;
+  td::RefInt256 get_next_part(td::RefInt256 total) const;
 };
 
 struct CatchainValidatorsConfig {
   td::uint32 mc_cc_lifetime, shard_cc_lifetime, shard_val_lifetime, shard_val_num;
-  CatchainValidatorsConfig(td::uint32 mc_cc_lt_, td::uint32 sh_cc_lt_, td::uint32 sh_val_lt_, td::uint32 sh_val_num_)
+  bool shuffle_mc_val;
+  CatchainValidatorsConfig(td::uint32 mc_cc_lt_, td::uint32 sh_cc_lt_, td::uint32 sh_val_lt_, td::uint32 sh_val_num_,
+                           bool shuffle_mc = false)
       : mc_cc_lifetime(mc_cc_lt_)
       , shard_cc_lifetime(sh_cc_lt_)
       , shard_val_lifetime(sh_val_lt_)
-      , shard_val_num(sh_val_num_) {
+      , shard_val_num(sh_val_num_)
+      , shuffle_mc_val(shuffle_mc) {
   }
 };
 
@@ -494,11 +544,30 @@ class Config {
   bool create_stats_enabled() const {
     return has_capability(ton::capCreateStatsEnabled);
   }
+  std::unique_ptr<vm::Dictionary> get_param_dict(int idx) const;
+  td::Result<std::vector<int>> unpack_param_list(int idx) const;
+  std::unique_ptr<vm::Dictionary> get_mandatory_param_dict() const {
+    return get_param_dict(9);
+  }
+  std::unique_ptr<vm::Dictionary> get_critical_param_dict() const {
+    return get_param_dict(10);
+  }
+  td::Result<std::vector<int>> get_mandatory_param_list() const {
+    return unpack_param_list(9);
+  }
+  td::Result<std::vector<int>> get_critical_param_list() const {
+    return unpack_param_list(10);
+  }
+  bool all_mandatory_params_defined(int* bad_idx_ptr = nullptr) const;
+  td::Result<ton::StdSmcAddress> get_dns_root_addr() const;
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
   static td::Result<std::unique_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
+  td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
+  static td::Result<GasLimitsPrices> do_get_gas_limits_prices(td::Ref<vm::Cell> cell, int id);
+  td::Result<MsgPrices> get_msg_prices(bool is_masterchain = false) const;
   static CatchainValidatorsConfig unpack_catchain_validators_config(Ref<vm::Cell> cell);
   CatchainValidatorsConfig get_catchain_validators_config() const;
   td::Status visit_validator_params() const;
@@ -515,6 +584,7 @@ class Config {
   const ValidatorSet* get_cur_validator_set() const {
     return cur_validators_.get();
   }
+  std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
   ton::ValidatorSessionConfig get_consensus_config() const;
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;
@@ -534,6 +604,9 @@ class Config {
   static td::Result<std::unique_ptr<Config>> unpack_config(Ref<vm::CellSlice> config_csr, int mode = 0);
   static td::Result<std::unique_ptr<Config>> extract_from_state(Ref<vm::Cell> mc_state_root, int mode = 0);
   static td::Result<std::unique_ptr<Config>> extract_from_key_block(Ref<vm::Cell> key_block_root, int mode = 0);
+  static td::Result<std::pair<ton::UnixTime, ton::UnixTime>> unpack_validator_set_start_stop(Ref<vm::Cell> root);
+  static td::Result<std::vector<int>> unpack_param_dict(vm::Dictionary& dict);
+  static td::Result<std::vector<int>> unpack_param_dict(Ref<vm::Cell> dict_root);
 
  protected:
   Config(int _mode) : mode(_mode) {

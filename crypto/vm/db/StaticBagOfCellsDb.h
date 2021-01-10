@@ -14,12 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "vm/cells.h"
-#include "vm/db/BlobView.h"
+#include "td/db/utils/BlobView.h"
 
 #include "td/utils/Status.h"
 
@@ -41,7 +41,7 @@ class StaticBagOfCellsDb : public std::enable_shared_from_this<StaticBagOfCellsD
 
 class StaticBagOfCellsDbBaseline {
  public:
-  static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(std::unique_ptr<BlobView> data);
+  static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(td::BlobView data);
   static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(td::Slice data);
 };
 
@@ -52,7 +52,7 @@ class StaticBagOfCellsDbLazy {
     }
     bool check_crc32c{false};
   };
-  static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(std::unique_ptr<BlobView> data, Options options = {});
+  static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(td::BlobView data, Options options = {});
   static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(td::BufferSlice data, Options options = {});
   static td::Result<std::shared_ptr<StaticBagOfCellsDb>> create(std::string data, Options options = {});
 };

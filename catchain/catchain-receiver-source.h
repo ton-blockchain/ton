@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -52,6 +52,9 @@ class CatChainReceiverSource {
   virtual CatChainReceivedBlock *get_block(CatChainBlockHeight height) const = 0;
   virtual void block_received(CatChainBlockHeight height) = 0;
   virtual void block_delivered(CatChainBlockHeight height) = 0;
+
+  virtual bool has_unreceived() const = 0;
+  virtual bool has_undelivered() const = 0;
 
   virtual td::Status validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) = 0;
   virtual void on_new_block(CatChainReceivedBlock *block) = 0;

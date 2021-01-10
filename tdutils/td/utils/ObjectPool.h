@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -57,7 +57,7 @@ class ObjectPool {
     // It is not very usual case of acquire/release use.
     // Instead of publishing an object via some flag we do the opposite.
     // We publish new generation via destruction of the data.
-    // In usual case if we see a flag then we are able to use an object.
+    // In usual case if we see a flag, then we are able to use an object.
     // In our case if we have used an object and it is already invalid, then generation will mismatch
     bool is_alive() const {
       if (!storage_) {

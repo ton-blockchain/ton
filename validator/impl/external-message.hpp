@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -34,6 +34,7 @@ class ExtMessageQ : public ExtMessage {
 
  public:
   static constexpr unsigned max_ext_msg_size = 65535;
+  static constexpr unsigned max_ext_msg_depth = 512;
   AccountIdPrefixFull shard() const override {
     return addr_prefix_;
   }

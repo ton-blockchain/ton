@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -25,9 +25,11 @@
 #include "td/utils/port/thread.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
+#include "td/utils/Span.h"
 #include "td/utils/Status.h"
 
 #include <atomic>
+#include <functional>
 #include <utility>
 
 #define REGISTER_TESTS(x)                \
@@ -37,6 +39,34 @@
 #define LOAD_TESTS(x) TD_CONCAT(register_tests_, x)()
 
 namespace td {
+
+class RandomSteps {
+ public:
+  struct Step {
+    std::function<void()> func;
+    td::uint32 weight;
+  };
+  RandomSteps(std::vector<Step> steps) : steps_(std::move(steps)) {
+    for (auto &step : steps_) {
+      steps_sum_ += step.weight;
+    }
+  }
+  template <class Random>
+  void step(Random &rnd) {
+    auto w = rnd() % steps_sum_;
+    for (auto &step : steps_) {
+      if (w < step.weight) {
+        step.func();
+        break;
+      }
+      w -= step.weight;
+    }
+  }
+
+ private:
+  std::vector<Step> steps_;
+  td::int32 steps_sum_ = 0;
+};
 
 class RegressionTester {
  public:
@@ -89,6 +119,7 @@ class TestsRunner : public TestContext {
     size_t it{0};
     bool is_running = false;
     double start{0};
+    double start_unadjusted{0};
     size_t end{0};
   };
   bool stress_flag_{false};
@@ -104,7 +135,7 @@ class TestsRunner : public TestContext {
 template <class T>
 class RegisterTest {
  public:
-  RegisterTest(string name, TestsRunner &runner = TestsRunner::get_default()) {
+  explicit RegisterTest(string name, TestsRunner &runner = TestsRunner::get_default()) {
     runner.add_test(name, make_unique<T>());
   }
 };
@@ -122,8 +153,8 @@ class Stage {
   std::atomic<uint64> value_{0};
 };
 
-inline string rand_string(char from, char to, int len) {
-  string res(len, 0);
+inline string rand_string(int from, int to, size_t len) {
+  string res(len, '\0');
   for (auto &c : res) {
     c = static_cast<char>(Random::fast(from, to));
   }

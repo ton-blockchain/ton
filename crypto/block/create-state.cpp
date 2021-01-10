@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <cassert>
 #include <algorithm>
@@ -59,6 +59,11 @@
 #include "block-parse.h"
 #include "block-auto.h"
 #include "mc-config.h"
+
+#if defined(_INTERNAL_COMPILE) || defined(_TONLIB_COMPILE)
+#define WITH_TONLIB
+#include "tonlib/keys/Mnemonic.h"
+#endif
 
 #define PDO(__op) \
   if (!(__op)) {  \
@@ -266,6 +271,10 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   PDO(sgn(balance) >= 0);
   THRERR("balance cannot be negative");
   if (!mode) {
+    if (verbosity > 2) {
+      std::cerr << "StateInit used for computing address: ";
+      block::gen::t_StateInit.print_ref(std::cerr, state_init);
+    }
     return smc_addr;  // compute address only
   }
   auto it = smart_contracts.find(addr);
@@ -594,6 +603,18 @@ void interpret_set_config_param(vm::Stack& stack) {
   }
 }
 
+void interpret_check_config_param(vm::Stack& stack) {
+  int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
+  Ref<vm::Cell> value = stack.pop_cell();
+  if (verbosity > 2 && x >= 0) {
+    std::cerr << "checking validity as configuration parameter #" << x << " of ";
+    // vm::load_cell_slice(value).print_rec(std::cerr);
+    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    std::cerr << std::endl;
+  }
+  stack.push_bool(x < 0 || block::gen::ConfigParam{x}.validate_ref(value));
+}
+
 void interpret_is_shard_state(vm::Stack& stack) {
   Ref<vm::Cell> cell = stack.pop_cell();
   if (verbosity > 4) {
@@ -616,7 +637,49 @@ void interpret_is_workchain_descr(vm::Stack& stack) {
   stack.push_bool(block::gen::t_WorkchainDescr.validate_ref(std::move(cell)));
 }
 
+void interpret_add_extra_currencies(vm::Stack& stack) {
+  Ref<vm::Cell> y = stack.pop_maybe_cell(), x = stack.pop_maybe_cell(), res;
+  bool ok = block::add_extra_currency(std::move(x), std::move(y), res);
+  if (ok) {
+    stack.push_maybe_cell(std::move(res));
+  }
+  stack.push_bool(ok);
+}
+
+void interpret_sub_extra_currencies(vm::Stack& stack) {
+  Ref<vm::Cell> y = stack.pop_maybe_cell(), x = stack.pop_maybe_cell(), res;
+  bool ok = block::sub_extra_currency(std::move(x), std::move(y), res);
+  if (ok) {
+    stack.push_maybe_cell(std::move(res));
+  }
+  stack.push_bool(ok);
+}
+
+void interpret_allocated_balance(vm::Stack& stack) {
+  stack.push_int(total_smc_balance);
+}
+
+#ifdef WITH_TONLIB
+void interpret_mnemonic_to_privkey(vm::Stack& stack, int mode) {
+  td::SecureString str{td::Slice{stack.pop_string()}};
+  auto res = tonlib::Mnemonic::create(std::move(str), td::SecureString());
+  if (res.is_error()) {
+    throw fift::IntError{res.move_as_error().to_string()};
+  }
+  auto privkey = res.move_as_ok().to_private_key();
+  td::SecureString key;
+  if (mode & 1) {
+    auto pub = privkey.get_public_key();
+    key = pub.move_as_ok().as_octet_string();
+  } else {
+    key = privkey.as_octet_string();
+  }
+  stack.push_bytes(key.as_slice());
+}
+#endif
+
 void init_words_custom(fift::Dictionary& d) {
+  using namespace std::placeholders;
   d.def_stack_word("verb@ ", interpret_get_verbosity);
   d.def_stack_word("verb! ", interpret_set_verbosity);
   d.def_stack_word("wcid@ ", interpret_get_workchain);
@@ -625,12 +688,109 @@ void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("globalid! ", interpret_set_global_id);
   d.def_stack_word("config@ ", interpret_get_config_param);
   d.def_stack_word("config! ", interpret_set_config_param);
+  d.def_stack_word("config-valid? ", interpret_check_config_param);
   d.def_stack_word("(configdict) ", interpret_get_config_dict);
   d.def_stack_word("register_smc ", interpret_register_smartcontract);
   d.def_stack_word("set_config_smc ", interpret_set_config_smartcontract);
   d.def_stack_word("create_state ", interpret_create_state);
   d.def_stack_word("isShardState? ", interpret_is_shard_state);
   d.def_stack_word("isWorkchainDescr? ", interpret_is_workchain_descr);
+  d.def_stack_word("CC+? ", interpret_add_extra_currencies);
+  d.def_stack_word("CC-? ", interpret_sub_extra_currencies);
+  d.def_stack_word("allocated-balance ", interpret_allocated_balance);
+#ifdef WITH_TONLIB
+  d.def_stack_word("mnemo>priv ", std::bind(interpret_mnemonic_to_privkey, _1, 0));
+  d.def_stack_word("mnemo>pub ", std::bind(interpret_mnemonic_to_privkey, _1, 1));
+#endif
+}
+
+tlb::TypenameLookup tlb_dict;
+
+// ( S -- T -1 or 0 )  Looks up TLB type by name
+void interpret_tlb_type_lookup(vm::Stack& stack) {
+  auto ptr = tlb_dict.lookup(stack.pop_string());
+  if (ptr) {
+    stack.push_make_object<tlb::TlbTypeHolder>(ptr);
+  }
+  stack.push_bool(ptr);
+}
+
+td::Ref<tlb::TlbTypeHolder> pop_tlb_type(vm::Stack& stack) {
+  auto res = stack.pop_object<tlb::TlbTypeHolder>();
+  if (res.is_null()) {
+    throw vm::VmError{vm::Excno::type_chk, "not a TLB type"};
+  }
+  return res;
+}
+
+// ( T -- S )  Gets TLB type name
+void interpret_tlb_type_name(vm::Stack& stack) {
+  stack.push_string((*pop_tlb_type(stack))->get_type_name());
+}
+
+// ( T -- )  Prints TLB type name
+void interpret_print_tlb_type(vm::Stack& stack) {
+  std::cout << (*pop_tlb_type(stack))->get_type_name();
+}
+
+// ( s T -- )  Dumps (part of) slice s as a value of TLB type T
+void interpret_tlb_dump_as(vm::Stack& stack) {
+  auto tp = pop_tlb_type(stack);
+  (*tp)->print(std::cout, stack.pop_cellslice());
+}
+
+// ( s T -- s' S -1 or 0 )
+// Detects prefix of slice s that is a value of TLB type T, returns the remainder as s', and prints the value into String S.
+void interpret_tlb_dump_to_str(vm::Stack& stack) {
+  auto tp = pop_tlb_type(stack);
+  auto cs = stack.pop_cellslice();
+  std::ostringstream os;
+  bool ok = (*tp)->print_skip(os, cs.write());
+  if (ok) {
+    stack.push(std::move(cs));
+    stack.push_string(os.str());
+  }
+  stack.push_bool(ok);
+}
+
+// ( s T -- s' -1 or 0 )   Skips the only prefix of slice s that can be a value of TLB type T
+void interpret_tlb_skip(vm::Stack& stack) {
+  auto tp = pop_tlb_type(stack);
+  auto cs = stack.pop_cellslice();
+  bool ok = (*tp)->skip(cs.write());
+  if (ok) {
+    stack.push(std::move(cs));
+  }
+  stack.push_bool(ok);
+}
+
+// ( s T -- s' -1 or 0 )  Checks whether a prefix of slice s is a valid value of TLB type T, and skips it
+void interpret_tlb_validate_skip(vm::Stack& stack) {
+  auto tp = pop_tlb_type(stack);
+  auto cs = stack.pop_cellslice();
+  bool ok = (*tp)->validate_skip_upto(1048576, cs.write());
+  if (ok) {
+    stack.push(std::move(cs));
+  }
+  stack.push_bool(ok);
+}
+
+void interpret_tlb_type_const(vm::Stack& stack, const tlb::TLB* ptr) {
+  stack.push_make_object<tlb::TlbTypeHolder>(ptr);
+}
+
+void init_words_tlb(fift::Dictionary& d) {
+  using namespace std::placeholders;
+  tlb_dict.register_types(block::gen::register_simple_types);
+  d.def_stack_word("tlb-type-lookup ", interpret_tlb_type_lookup);
+  d.def_stack_word("tlb-type-name ", interpret_tlb_type_name);
+  d.def_stack_word("tlb. ", interpret_print_tlb_type);
+  d.def_stack_word("tlb-dump-as ", interpret_tlb_dump_as);
+  d.def_stack_word("(tlb-dump-str?) ", interpret_tlb_dump_to_str);
+  d.def_stack_word("tlb-skip ", interpret_tlb_skip);
+  d.def_stack_word("tlb-validate-skip ", interpret_tlb_validate_skip);
+  d.def_stack_word("ExtraCurrencyCollection",
+                   std::bind(interpret_tlb_type_const, _1, &block::tlb::t_ExtraCurrencyCollection));
 }
 
 void usage(const char* progname) {
@@ -739,6 +899,7 @@ int main(int argc, char* const argv[]) {
   fift::init_words_vm(config.dictionary);
   fift::init_words_ton(config.dictionary);
   init_words_custom(config.dictionary);
+  init_words_tlb(config.dictionary);
 
   if (script_mode) {
     fift::import_cmdline_args(config.dictionary, source_list.empty() ? "" : source_list[0], argc - optind,

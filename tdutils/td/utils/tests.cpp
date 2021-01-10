@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/tests.h"
 
@@ -50,7 +50,7 @@ class RegressionTesterImpl : public RegressionTester {
   }
 
   RegressionTesterImpl(string db_path, string db_cache_dir) : db_path_(db_path), db_cache_dir_(db_cache_dir) {
-    load_db(db_path);
+    load_db(db_path).ignore();
     if (db_cache_dir_.empty()) {
       db_cache_dir_ = PathView(db_path).without_extension().str() + ".cache/";
     }
@@ -204,6 +204,7 @@ bool TestsRunner::run_all_step() {
       }
       LOG(ERROR) << "Run test " << tag("name", name);
       state_.start = Time::now();
+      state_.start_unadjusted = Time::now_unadjusted();
       state_.is_running = true;
     }
 
@@ -211,7 +212,13 @@ bool TestsRunner::run_all_step() {
       break;
     }
 
-    LOG(ERROR) << format::as_time(Time::now() - state_.start);
+    auto passed = Time::now() - state_.start;
+    auto real_passed = Time::now_unadjusted() - state_.start_unadjusted;
+    if (real_passed + 1e-9 > passed) {
+      LOG(ERROR) << format::as_time(passed);
+    } else {
+      LOG(ERROR) << format::as_time(passed) << " real[" << format::as_time(real_passed) << "]";
+    }
     if (regression_tester_) {
       regression_tester_->save_db();
     }

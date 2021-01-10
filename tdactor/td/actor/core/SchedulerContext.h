@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/actor/core/Context.h"
@@ -37,6 +37,7 @@ class SchedulerDispatcher {
   virtual void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) = 0;
 };
 
+struct Debug;
 class SchedulerContext : public Context<SchedulerContext>, public SchedulerDispatcher {
  public:
   virtual ~SchedulerContext() = default;
@@ -55,6 +56,9 @@ class SchedulerContext : public Context<SchedulerContext>, public SchedulerDispa
   // Stop all schedulers
   virtual bool is_stop_requested() = 0;
   virtual void stop() = 0;
+
+  // Debug
+  virtual Debug &get_debug() = 0;
 };
 }  // namespace core
 }  // namespace actor

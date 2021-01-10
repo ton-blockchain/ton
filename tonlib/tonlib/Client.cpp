@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "Client.h"
 
@@ -56,8 +56,10 @@ class Client::Impl final {
       std::shared_ptr<OutputQueue> output_queue_;
     };
 
-    scheduler_.run_in_context(
-        [&] { tonlib_ = td::actor::create_actor<TonlibClient>("Tonlib", td::make_unique<Callback>(output_queue_)); });
+    scheduler_.run_in_context([&] {
+      tonlib_ = td::actor::create_actor<TonlibClient>(td::actor::ActorOptions().with_name("Tonlib").with_poll(),
+                                                      td::make_unique<Callback>(output_queue_));
+    });
 
     scheduler_thread_ = td::thread([&] { scheduler_.run(); });
   }
@@ -99,6 +101,7 @@ class Client::Impl final {
     scheduler_.run_in_context_external([] { td::actor::SchedulerContext::get()->stop(); });
     LOG(ERROR) << "join";
     scheduler_thread_.join();
+    LOG(ERROR) << "join - done";
   }
 
  private:
@@ -107,7 +110,7 @@ class Client::Impl final {
   std::atomic<bool> receive_lock_{false};
   bool is_closed_{false};
 
-  td::actor::Scheduler scheduler_{{0}};
+  td::actor::Scheduler scheduler_{{1}};
   td::thread scheduler_thread_;
   td::actor::ActorOwn<TonlibClient> tonlib_;
 
@@ -132,7 +135,7 @@ class Client::Impl final {
 };
 
 Client::Client() : impl_(std::make_unique<Impl>()) {
-  // At least it should be enough for everybody who uses TDLib
+  // At least it should be enough for everybody who uses tonlib
   // FIXME
   //td::init_openssl_threads();
 }

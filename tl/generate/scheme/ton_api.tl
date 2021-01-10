@@ -58,8 +58,8 @@ adnl.id.short id:int256 = adnl.id.Short;
 adnl.proxyToFastHash ip:int port:int date:int data_hash:int256 shared_secret:int256 = adnl.ProxyTo;
 adnl.proxyToFast ip:int port:int date:int signature:int256 = adnl.ProxyToSign;
 
-adnl.proxy.none = adnl.Proxy;
-adnl.proxy.fast shared_secret:bytes = adnl.Proxy;
+adnl.proxy.none id:int256 = adnl.Proxy;
+adnl.proxy.fast id:int256 shared_secret:bytes = adnl.Proxy;
 
 
 adnl.address.udp ip:int port:int = adnl.Address;
@@ -67,7 +67,7 @@ adnl.address.udp6 ip:int128 port:int = adnl.Address;
 //adnl.address.tcp ip:int port:int = adnl.Address;
 //adnl.address.tcp6 ip:int128 port:int = adnl.Address;
 
-//adnl.address.tunnel to:adnl.Address tunid: = adnl.Address; 
+adnl.address.tunnel to:int256 pubkey:PublicKey = adnl.Address; 
 
 adnl.addressList addrs:(vector adnl.Address) version:int reinit_date:int priority:int expire_at:int = adnl.AddressList;
 
@@ -97,6 +97,34 @@ adnl.packetContents
   rand2:bytes 
         = adnl.PacketContents;
 
+adnl.tunnelPacketContents 
+  rand1:bytes 
+  flags:# 
+  from_ip:flags.0?int
+  from_port:flags.0?int
+  message:flags.1?bytes 
+  statistics:flags.2?bytes
+  payment:flags.3?bytes
+  rand2:bytes 
+        = adnl.TunnelPacketContents;
+
+
+// flag 16 - packet is outbound
+// flag 17 - control packet
+adnl.proxyPacketHeader
+  proxy_id:int256
+  flags:# 
+  ip:flags.0?int
+  port:flags.0?int
+  adnl_start_time:flags.1?int
+  seqno:flags.2?long
+  date:flags.3?int
+  signature:int256 = adnl.ProxyPacketHeader;
+
+adnl.proxyControlPacketPing id:int256 = adnl.ProxyControlPacket;
+adnl.proxyControlPacketPong id:int256 = adnl.ProxyControlPacket;
+adnl.proxyControlPacketRegister ip:int port:int = adnl.ProxyControlPacket;
+
 
 adnl.message.createChannel key:int256 date:int = adnl.Message;
 adnl.message.confirmChannel key:int256 peer_key:int256 date:int = adnl.Message;
@@ -121,6 +149,10 @@ adnl.db.node.value date:int id:PublicKey addr_list:adnl.addressList priority_add
 
 
 ---types---
+
+rldp2.messagePart transfer_id:int256 fec_type:fec.Type part:int total_size:long seqno:int data:bytes = rldp2.MessagePart;
+rldp2.confirm transfer_id:int256 part:int max_seqno:int received_mask:int received_count:int = rldp2.MessagePart;
+rldp2.complete transfer_id:int256 part:int = rldp2.MessagePart;
 
 rldp.messagePart transfer_id:int256 fec_type:fec.Type part:int total_size:long seqno:int data:bytes = rldp.MessagePart;
 rldp.confirm transfer_id:int256 part:int seqno:int = rldp.MessagePart;
@@ -275,6 +307,8 @@ validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes coll
 
 validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
+validatorSession.configNew catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
+        max_round_attempts:int max_block_size:int max_collated_data_size:int new_catchain_ids:Bool = validatorSession.Config;
 
 ---functions---
 
@@ -362,13 +396,18 @@ tonNode.capabilities version:int capabilities:long = tonNode.Capabilities;
 
 tonNode.success = tonNode.Success;
 
+tonNode.archiveNotFound = tonNode.ArchiveInfo;
+tonNode.archiveInfo id:long = tonNode.ArchiveInfo;
+
 ---functions---
 
 tonNode.getNextBlockDescription prev_block:tonNode.blockIdExt = tonNode.BlockDescription;
 tonNode.getNextBlocksDescription prev_block:tonNode.blockIdExt limit:int = tonNode.BlocksDescription;
 tonNode.getPrevBlocksDescription next_block:tonNode.blockIdExt limit:int cutoff_seqno:int = tonNode.BlocksDescription;
 tonNode.prepareBlockProof block:tonNode.blockIdExt allow_partial:Bool = tonNode.PreparedProof;
+tonNode.prepareKeyBlockProof block:tonNode.blockIdExt allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
+tonNode.prepareKeyBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareBlock block:tonNode.blockIdExt = tonNode.Prepared;
 tonNode.prepareBlocks blocks:(vector tonNode.blockIdExt) = tonNode.Prepared;
 tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
@@ -382,9 +421,15 @@ tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNo
 tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.downloadZeroState block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProof block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadKeyBlockProof block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProofs blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
+tonNode.downloadKeyBlockProofs blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
 tonNode.downloadBlockProofLink block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadKeyBlockProofLink block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProofLinks blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
+tonNode.downloadKeyBlockProofLinks blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
+tonNode.getArchiveInfo masterchain_seqno:int = tonNode.ArchiveInfo;
+tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
 
 tonNode.getCapabilities = tonNode.Capabilities;
 
@@ -411,13 +456,15 @@ db.root.key.config = db.root.Key;
 db.celldb.value block_id:tonNode.blockIdExt prev:int256 next:int256 root_hash:int256 = db.celldb.Value;
 db.celldb.key.value hash:int256 = db.celldb.key.Value;
 
-db.block.info id:tonNode.blockIdExt flags:# prev_left:flags.1?tonNode.blockIdExt
+db.block.info#4ac6e727 id:tonNode.blockIdExt flags:# prev_left:flags.1?tonNode.blockIdExt
                                             prev_right:flags.2?tonNode.blockIdExt
                                             next_left:flags.3?tonNode.blockIdExt
                                             next_right:flags.4?tonNode.blockIdExt
                                             lt:flags.13?long 
                                             ts:flags.14?int
-                                            state:flags.17?int256 = db.block.Info;
+                                            state:flags.17?int256 
+                                            masterchain_ref_seqno:flags.23?int = db.block.Info;
+db.block.packedInfo id:tonNode.blockIdExt unixtime:int offset:long = db.block.Info;
 db.block.archivedInfo id:tonNode.blockIdExt flags:# next:flags.0?tonNode.blockIdExt = db.block.Info;
 
 db.blockdb.value next:tonNode.blockIdExt data:bytes = db.blockdb.Value;
@@ -436,6 +483,7 @@ db.filedb.key.proof block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.proofLink block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.signatures block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.candidate id:db.candidate.id = db.filedb.Key;
+db.filedb.key.blockInfo block_id:tonNode.blockIdExt = db.filedb.Key;
 
 db.filedb.value key:db.filedb.Key prev:int256 next:int256 file_hash:int256 = db.filedb.Value;
 
@@ -445,6 +493,7 @@ db.state.gcBlockId block:tonNode.blockIdExt = db.state.GcBlockId;
 db.state.shardClient block:tonNode.blockIdExt = db.state.ShardClient;
 db.state.asyncSerializer block:tonNode.blockIdExt last:tonNode.blockIdExt last_ts:int = db.state.AsyncSerializer;
 db.state.hardforks blocks:(vector tonNode.blockIdExt) = db.state.Hardforks;
+db.state.dbVersion version:int = db.state.DbVersion;
 
 db.state.key.destroyedSessions = db.state.Key;
 db.state.key.initBlockId = db.state.Key;
@@ -452,6 +501,7 @@ db.state.key.gcBlockId = db.state.Key;
 db.state.key.shardClient = db.state.Key;
 db.state.key.asyncSerializer = db.state.Key;
 db.state.key.hardforks = db.state.Key;
+db.state.key.dbVersion = db.state.Key;
 
 db.lt.el.key workchain:int shard:long idx:int = db.lt.Key;
 db.lt.desc.key workchain:int shard:long = db.lt.Key;
@@ -462,6 +512,14 @@ db.lt.desc.value first_idx:int last_idx:int last_seqno:int last_lt:long last_ts:
 db.lt.shard.value workchain:int shard:long = db.lt.shard.Value; 
 db.lt.status.value total_shards:int = db.lt.status.Value;
 
+db.files.index.key = db.files.Key;
+db.files.package.key package_id:int key:Bool temp:Bool = db.files.Key;
+
+db.files.index.value packages:(vector int) key_packages:(vector int) temp_packages:(vector int) = db.files.index.Value;
+db.files.package.firstBlock workchain:int shard:long seqno:int unixtime:int lt:long = db.files.package.FirstBlock;
+db.files.package.value package_id:int key:Bool temp:Bool firstblocks:(vector db.files.package.firstBlock) deleted:Bool 
+                   = db.files.package.Value; 
+
 ---functions---
 
 ---types---
@@ -469,6 +527,7 @@ db.lt.status.value total_shards:int = db.lt.status.Value;
 validator.groupMember public_key_hash:int256 adnl:int256 weight:long = engine.validator.GroupMember; 
 validator.group workchain:int shard:long catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
 validator.groupEx workchain:int shard:long vertical_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
+validator.groupNew workchain:int shard:long vertical_seqno:int last_key_block_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
 
 ---functions---
 
@@ -552,6 +611,7 @@ engine.validator.success = engine.validator.Success;
 engine.validator.jsonConfig data:string = engine.validator.JsonConfig;
 
 engine.validator.electionBid election_date:int perm_key:int256 adnl_addr:int256 to_send_payload:bytes = engine.validator.ElectionBid; 
+engine.validator.proposalVote perm_key:int256 to_send:bytes = engine.validator.ProposalVote;
 
 engine.validator.dhtServerStatus id:int256 status:int = engine.validator.DhtServerStatus;
 engine.validator.dhtServersStatus servers:(vector engine.validator.dhtServerStatus) = engine.validator.DhtServersStatus;
@@ -592,7 +652,51 @@ engine.validator.getConfig = engine.validator.JsonConfig;
 engine.validator.setVerbosity verbosity:int = engine.validator.Success; 
 
 engine.validator.createElectionBid election_date:int election_addr:string wallet:string = engine.validator.ElectionBid;
+engine.validator.createProposalVote vote:bytes = engine.validator.ProposalVote; 
+engine.validator.createComplaintVote election_id:int vote:bytes = engine.validator.ProposalVote; 
 
 engine.validator.checkDhtServers id:int256 = engine.validator.DhtServersStatus;
 
 engine.validator.controlQuery data:bytes = Object;
+
+---types---
+
+storage.pong = storage.Pong;
+storage.ok = Ok;
+
+storage.state will_upload:Bool want_download:Bool = storage.State;
+storage.piece proof:bytes data:bytes = storage.Piece;
+
+storage.updateInit have_pieces:bytes state:storage.State = storage.Update;
+storage.updateHavePieces piece_id:(vector int) = storage.Update;
+storage.updateState state:storage.State = storage.Update;
+
+---functions---
+
+storage.ping session_id:long = storage.Pong;
+storage.addUpdate session_id:long seqno:int update:storage.Update = Ok;
+
+storage.getPiece piece_id:int = storage.Piece;
+
+storage.queryPrefix id:int256 = Object;
+
+---types---
+
+http.header name:string value:string = http.Header;
+http.payloadPart data:bytes trailer:(vector http.header) last:Bool = http.PayloadPart;
+http.response http_version:string status_code:int reason:string headers:(vector http.header) = http.Response;
+
+---functions---
+
+http.request id:int256 method:string url:string http_version:string headers:(vector http.header) = http.Response;
+http.getNextPayloadPart id:int256 seqno:int max_chunk_size:int = http.PayloadPart;
+
+---types---
+
+
+http.server.dnsEntry domain:string addr:adnl.id.short = http.server.DnsEntry;
+http.server.host domains:(vector string) ip:int port:int adnl_id:adnl.id.short = http.server.Host;
+
+http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.server.host) = http.server.Config;
+
+---functions---

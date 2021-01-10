@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/tests.h"
 
@@ -270,7 +270,7 @@ struct LogEventString {
       return -static_cast<int64>(need_size);
     }
     dest.truncate(need_size);
-    td::as<unsigned>(dest.data()) = tag;
+    td::as<unsigned>(dest.data()) = unsigned(tag);
     td::as<int>(dest.data() + 4) = td::narrow_cast<int>(data.size());
     dest.substr(8).copy_from(data);
     return dest.size();
@@ -679,7 +679,7 @@ TEST(Buffers, CyclicBufferSimple) {
     auto data = td::rand_string('a', 'z', 100001);
     td::Slice write_slice = data;
     td::Slice read_slice = data;
-    for (size_t i = 1; (int)i < options.count; i++) {
+    for (size_t i = 1; i < options.count; i++) {
       ASSERT_EQ((i - 1) * options.chunk_size, reader.reader_size());
       ASSERT_EQ((i - 1) * options.chunk_size, writer.writer_size());
       auto slice = writer.prepare_write();

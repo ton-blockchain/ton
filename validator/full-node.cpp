@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "full-node.hpp"
 #include "ton/ton-shard.h"
@@ -99,7 +99,6 @@ void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
 }
 
 void FullNodeImpl::add_shard(ShardIdFull shard) {
-  LOG(WARNING) << "add shard " << shard;
   while (true) {
     if (shards_.count(shard) == 0) {
       shards_.emplace(shard, FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_,
@@ -230,7 +229,16 @@ void FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeou
   td::actor::send_closure(shard, &FullNodeShard::get_next_key_blocks, block_id, timeout, std::move(promise));
 }
 
+void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                                    td::Promise<std::string> promise) {
+  auto shard = get_shard(ShardIdFull{masterchainId});
+  CHECK(!shard.empty());
+  td::actor::send_closure(shard, &FullNodeShard::download_archive, masterchain_seqno, std::move(tmp_dir), timeout,
+                          std::move(promise));
+}
+
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
+  add_shard(ShardIdFull{shard.workchain, shardIdAll});
   while (shards_.count(shard) == 0) {
     if (shard.shard == shardIdAll) {
       return td::actor::ActorId<FullNodeShard>{};
@@ -391,6 +399,11 @@ void FullNodeImpl::start_up() {
     void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                              td::Promise<std::vector<BlockIdExt>> promise) override {
       td::actor::send_closure(id_, &FullNodeImpl::get_next_key_blocks, block_id, timeout, std::move(promise));
+    }
+    void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                          td::Promise<std::string> promise) override {
+      td::actor::send_closure(id_, &FullNodeImpl::download_archive, masterchain_seqno, std::move(tmp_dir), timeout,
+                              std::move(promise));
     }
 
     void new_key_block(BlockHandle handle) override {

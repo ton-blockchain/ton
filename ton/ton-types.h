@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -23,6 +23,9 @@
 #include "td/utils/bits.h"
 #include "td/utils/Slice.h"
 #include "td/utils/UInt.h"
+#include "td/utils/misc.h"
+
+#include <cinttypes>
 
 namespace ton {
 
@@ -53,7 +56,14 @@ constexpr unsigned min_split_merge_interval = 30;  // split/merge interval must 
 constexpr unsigned max_split_merge_delay =
     1000;  // end of split/merge interval must be at most 1000 seconds in the future
 
-enum GlobalCapabilities { capIhrEnabled = 1, capCreateStatsEnabled = 2 };
+enum GlobalCapabilities {
+  capIhrEnabled = 1,
+  capCreateStatsEnabled = 2,
+  capBounceMsgBody = 4,
+  capReportVersion = 8,
+  capSplitMergeTransactions = 16,
+  capShortDequeue = 32
+};
 
 inline int shard_pfx_len(ShardId shard) {
   return shard ? 63 - td::count_trailing_zeroes_non_zero64(shard) : 0;
@@ -140,7 +150,7 @@ struct AccountIdPrefixFull {
   std::string to_str() const {
     char buffer[64];
     return std::string{
-        buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx)", workchain, (unsigned long long)account_id_prefix)};
+        buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx)", workchain, static_cast<long long>(account_id_prefix))};
   }
 };
 
@@ -156,6 +166,9 @@ struct BlockId {
   BlockId() : workchain(workchainInvalid) {
   }
   explicit operator ShardIdFull() const {
+    return ShardIdFull{workchain, shard};
+  }
+  ShardIdFull shard_full() const {
     return ShardIdFull{workchain, shard};
   }
   bool is_valid() const {
@@ -200,8 +213,8 @@ struct BlockId {
   }
   std::string to_str() const {
     char buffer[64];
-    return std::string{buffer,
-                       (unsigned)snprintf(buffer, 63, "(%d,%016llx,%u)", workchain, (unsigned long long)shard, seqno)};
+    return std::string{buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx,%u)", workchain,
+                                                  static_cast<unsigned long long>(shard), seqno)};
   }
 };
 
@@ -273,6 +286,23 @@ struct BlockIdExt {
   }
   std::string to_str() const {
     return id.to_str() + ':' + root_hash.to_hex() + ':' + file_hash.to_hex();
+  }
+  static td::Result<BlockIdExt> from_str(td::CSlice s) {
+    BlockIdExt v;
+    char rh[65];
+    char fh[65];
+    auto r = sscanf(s.begin(), "(%d,%" SCNx64 ",%u):%64s:%64s", &v.id.workchain, &v.id.shard, &v.id.seqno, rh, fh);
+    if (r < 5) {
+      return td::Status::Error("failed to parse block id");
+    }
+    if (strlen(rh) != 64 || strlen(fh) != 64) {
+      return td::Status::Error("failed to parse block id: bad roothash/filehash");
+    }
+    TRY_RESULT(re, td::hex_decode(td::Slice(rh, 64)));
+    v.root_hash.as_slice().copy_from(td::Slice(re));
+    TRY_RESULT(fe, td::hex_decode(td::Slice(fh, 64)));
+    v.file_hash.as_slice().copy_from(td::Slice(fe));
+    return v;
   }
 };
 
@@ -420,16 +450,18 @@ struct ValidatorDescr {
 struct ValidatorSessionConfig {
   td::uint32 proto_version = 0;
 
-  /* td::Clocks::Duration */ double catchain_idle_timeout = 16.0;
+  /* double */ double catchain_idle_timeout = 16.0;
   td::uint32 catchain_max_deps = 4;
 
   td::uint32 round_candidates = 3;
-  /* td::Clocks::Duration */ double next_candidate_delay = 2.0;
+  /* double */ double next_candidate_delay = 2.0;
   td::uint32 round_attempt_duration = 16;
   td::uint32 max_round_attempts = 4;
 
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
+
+  bool new_catchain_ids = false;
 };
 
 }  // namespace ton

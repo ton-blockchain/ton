@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl-ext-server.hpp"
 #include "keys/encryptor.h"
@@ -146,8 +146,8 @@ void AdnlExtServerImpl::add_tcp_port(td::uint16 port) {
     }
   };
 
-  auto act = td::actor::create_actor<td::TcpListener>(td::actor::ActorOptions().with_name("listener").with_poll(), port,
-                                                      std::make_unique<Callback>(actor_id(this)));
+  auto act = td::actor::create_actor<td::TcpInfiniteListener>(
+      td::actor::ActorOptions().with_name("listener").with_poll(), port, std::make_unique<Callback>(actor_id(this)));
   listeners_.emplace(port, std::move(act));
 }
 

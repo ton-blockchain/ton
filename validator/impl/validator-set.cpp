@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-set.hpp"
 #include "auto/tl/ton_api.h"
@@ -156,6 +156,8 @@ Ref<ValidatorSet> ValidatorSetCompute::compute_validator_set(ShardIdFull shard, 
   LOG(DEBUG) << "in compute_validator_set() for " << shard.to_str();
   auto nodes = config_->compute_validator_set(shard, vset, time, ccseqno);
   if (nodes.empty()) {
+    LOG(ERROR) << "compute_validator_set() for " << shard.to_str() << "," << time << "," << ccseqno
+               << " returned empty list";
     return {};
   }
   return Ref<ValidatorSetQ>{true, ccseqno, shard, std::move(nodes)};

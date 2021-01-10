@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -51,7 +51,7 @@ class AdnlAddressUdp : public AdnlAddressImpl {
     return create_tl_object<ton_api::adnl_address_udp>(ip_, port_);
   }
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
-      td::actor::ActorId<AdnlNetworkManager> network_manager,
+      td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
 };
 
@@ -81,7 +81,38 @@ class AdnlAddressUdp6 : public AdnlAddressImpl {
     return create_tl_object<ton_api::adnl_address_udp6>(ip_, port_);
   }
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
-      td::actor::ActorId<AdnlNetworkManager> network_manager,
+      td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
+      std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
+};
+
+class AdnlAddressTunnel : public AdnlAddressImpl {
+ private:
+  AdnlNodeIdShort adnl_id_;
+  PublicKey pub_key_;
+
+ public:
+  explicit AdnlAddressTunnel(const ton_api::adnl_address_tunnel &obj);
+
+  AdnlAddressTunnel(AdnlNodeIdShort adnl_id, PublicKey pub_key)
+      : adnl_id_(std::move(adnl_id)), pub_key_(std::move(pub_key)) {
+  }
+
+  AdnlAddressTunnel *make_copy() const override {
+    return new AdnlAddressTunnel{*this};
+  }
+
+  bool is_public() const override {
+    return false;
+  }
+  td::uint32 serialized_size() const override {
+    return 4 + 32 + pub_key_.serialized_size();
+  }
+
+  tl_object_ptr<ton_api::adnl_Address> tl() const override {
+    return create_tl_object<ton_api::adnl_address_tunnel>(adnl_id_.bits256_value(), pub_key_.tl());
+  }
+  td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
+      td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
 };
 

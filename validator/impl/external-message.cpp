@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "external-message.hpp"
 #include "vm/boc.h"
@@ -48,15 +48,18 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   if (ext_msg->get_level() != 0) {
     return td::Status::Error("external message must have zero level");
   }
+  if (ext_msg->get_depth() >= max_ext_msg_depth) {
+    return td::Status::Error("external message is too deep");
+  }
   vm::CellSlice cs{vm::NoVmOrd{}, ext_msg};
   if (cs.prefetch_ulong(2) != 2) {  // ext_in_msg_info$10
     return td::Status::Error("external message must begin with ext_in_msg_info$10");
   }
   ton::Bits256 hash{ext_msg->get_hash().bits()};
-  if (!block::gen::t_Message_Any.validate_ref(ext_msg)) {
+  if (!block::gen::t_Message_Any.validate_ref(128, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to automated checks");
   }
-  if (!block::tlb::t_Message.validate_ref(ext_msg)) {
+  if (!block::tlb::t_Message.validate_ref(128, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;

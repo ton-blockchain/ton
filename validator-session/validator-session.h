@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -95,7 +95,8 @@ class ValidatorSession : public td::actor::Actor {
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
       std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root);
+      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   virtual ~ValidatorSession() = default;
 };
 

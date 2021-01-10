@@ -14,12 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/actor/actor.h"
 #include "common/bitstring.h"
+#include "common/errorcode.h"
 #include "td/utils/buffer.h"
 
 #include <functional>
@@ -52,6 +53,9 @@ class AdnlQuery : public td::actor::Actor {
   }
   void tear_down() override {
     destroy_(id_);
+    if (promise_) {
+      promise_.set_error(td::Status::Error(ErrorCode::cancelled, "Cancelled"));
+    }
   }
 
  private:

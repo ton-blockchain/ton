@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/db/TonDb.h"
 
@@ -255,15 +255,15 @@ TonDbTransactionImpl::TonDbTransactionImpl(std::shared_ptr<KeyValue> kv) : kv_(s
 }
 
 void TonDbTransactionImpl::begin() {
-  kv_->begin_transaction();
+  kv_->begin_write_batch();
   generation_++;
 }
 void TonDbTransactionImpl::commit() {
-  kv_->commit_transaction();
+  kv_->commit_write_batch();
   reader_.reset(kv_->snapshot().release());
 }
 void TonDbTransactionImpl::abort() {
-  kv_->abort_transaction();
+  kv_->abort_write_batch();
 }
 void TonDbTransactionImpl::clear_cache() {
   contracts_ = {};

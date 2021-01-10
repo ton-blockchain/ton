@@ -14,24 +14,31 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
+#pragma managed(push, off)
 #include "td/utils/port/config.h"
+#pragma managed(pop)
 
 #include "td/utils/common.h"
-#undef small
 
 #if TD_WINRT
 
+#pragma managed(push, off)
 #include "td/utils/port/wstring_convert.h"
+#pragma managed(pop)
 
 #include "collection.h"
 
+#pragma managed(push, off)
 #include <cstdint>
 #include <map>
 #include <mutex>
+#pragma managed(pop)
+
+#undef small
 
 #define REF_NEW ref new
 #define CLRCALL
@@ -101,6 +108,8 @@ inline String^ string_from_unmanaged(const std::string &from) {
 } // namespace CxCli
 
 #elif TD_CLI
+
+#undef small
 
 #define REF_NEW gcnew
 #define CLRCALL __clrcall

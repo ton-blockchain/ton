@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -52,7 +52,7 @@ class WriteFile : public td::actor::Actor {
     auto res = R.move_as_ok();
     auto file = std::move(res.first);
     auto old_name = res.second;
-    size_t offset = 0;
+    td::uint64 offset = 0;
     while (data_.size() > 0) {
       auto R = file.pwrite(data_.as_slice(), offset);
       auto s = R.move_as_ok();

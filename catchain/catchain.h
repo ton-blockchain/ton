@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -102,7 +102,8 @@ class CatChain : public td::actor::Actor {
                                               td::actor::ActorId<adnl::Adnl> adnl,
                                               td::actor::ActorId<overlay::Overlays> overlay_manager,
                                               std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                              CatChainSessionId unique_hash, std::string db_root);
+                                              CatChainSessionId unique_hash, std::string db_root, std::string db_suffix,
+                                              bool allow_unsafe_self_blocks_resync);
   virtual ~CatChain() = default;
 };
 

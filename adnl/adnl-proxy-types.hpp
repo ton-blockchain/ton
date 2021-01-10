@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -28,31 +28,42 @@ namespace adnl {
 
 class AdnlProxyNone : public AdnlProxy {
  public:
-  AdnlProxyNone() {
+  AdnlProxyNone(td::Bits256 id) : id_(id) {
   }
   td::BufferSlice encrypt(Packet packet) const override {
-    return std::move(packet.data);
+    td::BufferSlice d{packet.data.size() + 32};
+    d.as_slice().copy_from(id_.as_slice());
+    d.as_slice().remove_prefix(32).copy_from(packet.data.as_slice());
+    return d;
   }
-  td::Result<Packet> decrypt(td::BufferSlice packet) const override {
-    return Packet{0, 0, std::move(packet)};
-  }
+  td::Result<Packet> decrypt(td::BufferSlice packet) const override;
   tl_object_ptr<ton_api::adnl_Proxy> tl() const override {
-    return create_tl_object<ton_api::adnl_proxy_none>();
+    return create_tl_object<ton_api::adnl_proxy_none>(id_);
   }
+  const td::Bits256 &id() const override {
+    return id_;
+  }
+
+ private:
+  td::Bits256 id_;
 };
 
 class AdnlProxyFast : public AdnlProxy {
  public:
-  AdnlProxyFast(td::Slice shared_secret)
-      : shared_secret_(sha256_bits256(shared_secret)), shared_secret_raw_(shared_secret) {
+  AdnlProxyFast(td::Bits256 id, td::Slice shared_secret)
+      : id_(id), shared_secret_(sha256_bits256(shared_secret)), shared_secret_raw_(shared_secret) {
   }
   td::BufferSlice encrypt(Packet packet) const override;
   td::Result<Packet> decrypt(td::BufferSlice packet) const override;
   tl_object_ptr<ton_api::adnl_Proxy> tl() const override {
-    return create_tl_object<ton_api::adnl_proxy_fast>(shared_secret_raw_.clone_as_buffer_slice());
+    return create_tl_object<ton_api::adnl_proxy_fast>(id_, shared_secret_raw_.clone_as_buffer_slice());
+  }
+  const td::Bits256 &id() const override {
+    return id_;
   }
 
  private:
+  td::Bits256 id_;
   td::Bits256 shared_secret_;
   td::SharedSlice shared_secret_raw_;
 };

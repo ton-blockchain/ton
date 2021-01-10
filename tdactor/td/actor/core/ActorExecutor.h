@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -42,8 +42,14 @@ class ActorExecutor {
       this->has_poll = new_has_poll;
       return *this;
     }
+    Options &with_signals(ActorSignals signals) {
+      this->signals = signals;
+      return *this;
+    }
+
     bool from_queue{false};
     bool has_poll{false};
+    ActorSignals signals;
   };
 
   ActorExecutor(ActorInfo &actor_info, SchedulerDispatcher &dispatcher, Options options)

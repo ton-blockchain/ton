@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -31,7 +31,7 @@ namespace td {
 class AesCtrByteFlow : public ByteFlowInplaceBase {
  public:
   void init(const UInt256 &key, const UInt128 &iv) {
-    state_.init(key, iv);
+    state_.init(as_slice(key), as_slice(iv));
   }
   void init(AesCtrState &&state) {
     state_ = std::move(state);

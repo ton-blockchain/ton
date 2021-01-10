@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validate-broadcast.hpp"
 #include "fabric.h"
@@ -110,12 +110,12 @@ void ValidateBroadcast::start_up() {
     } else if (key_block_seqno == last_masterchain_state_->get_seqno()) {
       got_key_block_handle(last_masterchain_block_handle_);
     } else {
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockIdExt> R) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ConstBlockHandle> R) {
         if (R.is_error()) {
           td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query,
                                   R.move_as_error_prefix("cannot find reference key block id: "));
         } else {
-          td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_id, R.move_as_ok());
+          td::actor::send_closure(SelfId, &ValidateBroadcast::got_key_block_handle, R.move_as_ok());
         }
       });
       td::actor::send_closure(manager_, &ValidatorManager::get_block_by_seqno_from_db,
@@ -138,7 +138,7 @@ void ValidateBroadcast::got_key_block_id(BlockIdExt block_id) {
   td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, block_id, false, std::move(P));
 }
 
-void ValidateBroadcast::got_key_block_handle(BlockHandle handle) {
+void ValidateBroadcast::got_key_block_handle(ConstBlockHandle handle) {
   if (handle->id().seqno() == 0) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
@@ -183,7 +183,7 @@ void ValidateBroadcast::got_key_block_proof_link(td::Ref<ProofLink> key_proof_li
 
 void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
   zero_state_ = state;
-  auto confR = state->get_key_block_config();
+  auto confR = state->get_config_holder();
   if (confR.is_error()) {
     abort_query(confR.move_as_error_prefix("failed to extract config from zero state: "));
     return;
@@ -305,7 +305,9 @@ void ValidateBroadcast::checked_proof() {
       }
     });
 
-    td::actor::create_actor<ApplyBlock>("applyblock", handle_->id(), data_, manager_, timeout_, std::move(P)).release();
+    td::actor::create_actor<ApplyBlock>("applyblock", handle_->id(), data_, handle_->id(), manager_, timeout_,
+                                        std::move(P))
+        .release();
   } else {
     finish_query();
   }

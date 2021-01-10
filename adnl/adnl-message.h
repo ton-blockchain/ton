@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -249,6 +249,40 @@ class AdnlMessage {
   }
 };
 
+class OutboundAdnlMessage {
+ public:
+  template <class T>
+  OutboundAdnlMessage(T m, td::uint32 flags) : message_{std::move(m)}, flags_(flags) {
+  }
+  td::uint32 flags() const {
+    return flags_;
+  }
+  void set_flags(td::uint32 f) {
+    flags_ = f;
+  }
+  tl_object_ptr<ton_api::adnl_Message> tl() const {
+    return message_.tl();
+  }
+  td::uint32 size() const {
+    return message_.size();
+  }
+  template <class F>
+  void visit(F &&f) {
+    message_.visit(std::move(f));
+  }
+  template <class F>
+  void visit(F &&f) const {
+    message_.visit(std::move(f));
+  }
+  AdnlMessage release() {
+    return std::move(message_);
+  }
+
+ private:
+  AdnlMessage message_;
+  td::uint32 flags_;
+};
+
 class AdnlMessageList {
  public:
   AdnlMessageList() {
@@ -289,6 +323,48 @@ class AdnlMessageList {
 
  private:
   std::vector<AdnlMessage> messages_;
+};
+
+class OutboundAdnlMessageList {
+ public:
+  OutboundAdnlMessageList() {
+  }
+  OutboundAdnlMessageList(tl_object_ptr<ton_api::adnl_Message> message, td::uint32 flags) {
+    auto msg = OutboundAdnlMessage{std::move(message), flags};
+    messages_.emplace_back(std::move(msg));
+  }
+  OutboundAdnlMessageList(std::vector<tl_object_ptr<ton_api::adnl_Message>> messages, td::uint32 flags) {
+    for (auto &message : messages) {
+      messages_.push_back(OutboundAdnlMessage{std::move(message), flags});
+    }
+  }
+  void push_back(OutboundAdnlMessage message) {
+    messages_.push_back(std::move(message));
+  }
+
+  td::uint32 size() const {
+    return static_cast<td::uint32>(messages_.size());
+  }
+  tl_object_ptr<ton_api::adnl_Message> one_message() const {
+    CHECK(size() == 1);
+    return messages_[0].tl();
+  }
+  std::vector<tl_object_ptr<ton_api::adnl_Message>> mult_messages() const {
+    std::vector<tl_object_ptr<ton_api::adnl_Message>> vec;
+    for (auto &m : messages_) {
+      vec.emplace_back(m.tl());
+    }
+    return vec;
+  }
+  static std::vector<tl_object_ptr<ton_api::adnl_Message>> empty_vector() {
+    return std::vector<tl_object_ptr<ton_api::adnl_Message>>{};
+  }
+  auto &vector() {
+    return messages_;
+  }
+
+ private:
+  std::vector<OutboundAdnlMessage> messages_;
 };
 
 }  // namespace adnl

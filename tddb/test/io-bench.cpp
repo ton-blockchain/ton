@@ -23,9 +23,9 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/FileFd.h"
 #include "td/utils/Timer.h"
@@ -598,12 +598,13 @@ int main(int argc, char **argv) {
   Mode mode = Baseline;
   size_t buffer_size = 1024;
 
-  td::OptionsParser options_parser;
-  options_parser.add_option('f', td::Slice("from"), td::Slice("read from file"), [&](td::Slice arg) -> td::Status {
-    from = arg.str();
-    return td::Status::OK();
-  });
-  options_parser.add_option('m', td::Slice("mode"), td::Slice("mode"), [&](td::Slice arg) -> td::Status {
+  td::OptionParser options_parser;
+  options_parser.add_checked_option('f', td::Slice("from"), td::Slice("read from file"),
+                                    [&](td::Slice arg) -> td::Status {
+                                      from = arg.str();
+                                      return td::Status::OK();
+                                    });
+  options_parser.add_checked_option('m', td::Slice("mode"), td::Slice("mode"), [&](td::Slice arg) -> td::Status {
     TRY_RESULT(x, td::to_integer_safe<int>(arg));
     switch (x) {
       case 0:
@@ -627,11 +628,12 @@ int main(int argc, char **argv) {
     }
     return td::Status::Error("unknown mode");
   });
-  options_parser.add_option('b', td::Slice("buffer"), td::Slice("buffer size"), [&](td::Slice arg) -> td::Status {
-    TRY_RESULT(x, td::to_integer_safe<size_t>(arg));
-    buffer_size = x;
-    return td::Status::OK();
-  });
+  options_parser.add_checked_option('b', td::Slice("buffer"), td::Slice("buffer size"),
+                                    [&](td::Slice arg) -> td::Status {
+                                      TRY_RESULT(x, td::to_integer_safe<size_t>(arg));
+                                      buffer_size = x;
+                                      return td::Status::OK();
+                                    });
 
   auto status = options_parser.run(argc, argv);
   if (status.is_error()) {

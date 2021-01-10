@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl-channel.hpp"
 #include "adnl-peer.h"
@@ -111,13 +111,15 @@ void AdnlChannelImpl::send_message(td::uint32 priority, td::actor::ActorId<AdnlN
   td::actor::send_closure(conn, &AdnlNetworkConnection::send, local_id_, peer_id_, priority, std::move(B));
 }
 
-void AdnlChannelImpl::receive(td::BufferSlice data) {
+void AdnlChannelImpl::receive(td::IPAddress addr, td::BufferSlice data) {
   auto P = td::PromiseCreator::lambda(
-      [peer = peer_pair_, channel_id = channel_in_id_, id = print_id()](td::Result<AdnlPacket> R) {
+      [peer = peer_pair_, channel_id = channel_in_id_, addr, id = print_id()](td::Result<AdnlPacket> R) {
         if (R.is_error()) {
           VLOG(ADNL_WARNING) << id << ": dropping IN message: can not decrypt: " << R.move_as_error();
         } else {
-          td::actor::send_closure(peer, &AdnlPeerPair::receive_packet_from_channel, channel_id, R.move_as_ok());
+          auto packet = R.move_as_ok();
+          packet.set_remote_addr(addr);
+          td::actor::send_closure(peer, &AdnlPeerPair::receive_packet_from_channel, channel_id, std::move(packet));
         }
       });
 

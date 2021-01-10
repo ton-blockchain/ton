@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "shard-client.hpp"
 #include "ton/ton-io.hpp"
@@ -39,11 +39,42 @@ void ShardClient::start_up() {
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_client_state, true, std::move(P));
 }
 
+void ShardClient::start() {
+  if (!started_) {
+    started_ = true;
+    saved_to_db();
+  }
+}
+
 void ShardClient::got_state_from_db(BlockIdExt state) {
   CHECK(!init_mode_);
 
   CHECK(state.is_valid());
-  new_masterchain_block_id(state);
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ShardClient::got_init_handle_from_db, R.move_as_ok());
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, state, true, std::move(P));
+}
+
+void ShardClient::got_init_handle_from_db(BlockHandle handle) {
+  masterchain_block_handle_ = std::move(handle);
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ShardClient::got_init_state_from_db, td::Ref<MasterchainState>{R.move_as_ok()});
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, masterchain_block_handle_,
+                          std::move(P));
+}
+
+void ShardClient::got_init_state_from_db(td::Ref<MasterchainState> state) {
+  masterchain_state_ = std::move(state);
+  build_shard_overlays();
+  masterchain_state_.clear();
+
+  saved_to_db();
 }
 
 void ShardClient::start_up_init_mode() {
@@ -88,14 +119,19 @@ void ShardClient::applied_all_shards() {
 }
 
 void ShardClient::saved_to_db() {
-  if (init_mode_) {
-    promise_.set_value(td::Unit());
-    init_mode_ = false;
-  }
-
   CHECK(masterchain_block_handle_);
   td::actor::send_closure(manager_, &ValidatorManager::update_shard_client_block_handle, masterchain_block_handle_,
                           [](td::Unit) {});
+  if (promise_) {
+    promise_.set_value(td::Unit());
+  }
+  if (init_mode_) {
+    init_mode_ = false;
+  }
+
+  if (!started_) {
+    return;
+  }
   if (masterchain_block_handle_->inited_next_left()) {
     new_masterchain_block_id(masterchain_block_handle_->one_next(true));
   } else {
@@ -133,7 +169,9 @@ void ShardClient::download_masterchain_state() {
 void ShardClient::got_masterchain_block_state(td::Ref<MasterchainState> state) {
   masterchain_state_ = std::move(state);
   build_shard_overlays();
-  apply_all_shards();
+  if (started_) {
+    apply_all_shards();
+  }
 }
 
 void ShardClient::apply_all_shards() {
@@ -170,8 +208,8 @@ void ShardClient::apply_all_shards() {
 }
 
 void ShardClient::downloaded_shard_state(td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
-  run_apply_block_query(state->get_block_id(), td::Ref<BlockData>{}, manager_, td::Timestamp::in(600),
-                        std::move(promise));
+  run_apply_block_query(state->get_block_id(), td::Ref<BlockData>{}, masterchain_block_handle_->id(), manager_,
+                        td::Timestamp::in(600), std::move(promise));
 }
 
 void ShardClient::new_masterchain_block_notification(BlockHandle handle, td::Ref<MasterchainState> state) {
@@ -226,6 +264,40 @@ void ShardClient::build_shard_overlays() {
       }
     }
   }
+}
+
+void ShardClient::force_update_shard_client(BlockHandle handle, td::Promise<td::Unit> promise) {
+  CHECK(!init_mode_);
+  CHECK(!started_);
+
+  if (masterchain_block_handle_->id().seqno() >= handle->id().seqno()) {
+    promise.set_value(td::Unit());
+    return;
+  }
+
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), handle, promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable {
+        R.ensure();
+        td::actor::send_closure(SelfId, &ShardClient::force_update_shard_client_ex, std::move(handle),
+                                td::Ref<MasterchainState>{R.move_as_ok()}, std::move(promise));
+      });
+  td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, std::move(handle), std::move(P));
+}
+
+void ShardClient::force_update_shard_client_ex(BlockHandle handle, td::Ref<MasterchainState> state,
+                                               td::Promise<td::Unit> promise) {
+  CHECK(!init_mode_);
+  CHECK(!started_);
+
+  if (masterchain_block_handle_->id().seqno() >= handle->id().seqno()) {
+    promise.set_value(td::Unit());
+    return;
+  }
+  masterchain_block_handle_ = std::move(handle);
+  masterchain_state_ = std::move(state);
+  promise_ = std::move(promise);
+  build_shard_overlays();
+  applied_all_shards();
 }
 
 }  // namespace validator

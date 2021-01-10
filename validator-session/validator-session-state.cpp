@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-session-state.h"
 #include "td/utils/overloaded.h"
@@ -37,7 +37,7 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const ton::ton_api::validat
             sb << "APPROVE(" << obj.round_ << "," << obj.candidate_ << ")";
           },
           [&](const ton::ton_api::validatorSession_message_rejectedBlock& obj) {
-            sb << "COMMIT(" << obj.round_ << "," << obj.candidate_ << ")";
+            sb << "REJECT(" << obj.round_ << "," << obj.candidate_ << ")";
           },
           [&](const ton::ton_api::validatorSession_message_commit& obj) {
             sb << "COMMIT(" << obj.round_ << "," << obj.candidate_ << ")";
@@ -1419,6 +1419,10 @@ const ValidatorSessionState* ValidatorSessionState::action(ValidatorSessionDescr
                                                            const ValidatorSessionState* state, td::uint32 src_idx,
                                                            td::uint32 att,
                                                            const ton_api::validatorSession_round_Message* action) {
+  if (action) {
+    VLOG(VALIDATOR_SESSION_DEBUG) << "[validator session][node " << desc.get_source_id(src_idx) << "][" << action
+                                  << "]: applying message " << *action;
+  }
   if (att < state->att_->at(src_idx)) {
     VLOG(VALIDATOR_SESSION_WARNING) << "[validator session][node " << desc.get_source_id(src_idx) << "][" << action
                                     << "]: invalid message: bad ts: times goes back: " << state->att_->at(src_idx)
@@ -1503,14 +1507,9 @@ const ValidatorSessionState* ValidatorSessionState::make_one(ValidatorSessionDes
     return state;
   }
   made = true;
-  auto old = state->old_rounds_;
-  if (made && round->check_block_is_signed(desc)) {
-    old = CntVector<const ValidatorSessionOldRoundState*>::push(desc, old, round->get_seqno(),
-                                                                ValidatorSessionOldRoundState::create(desc, round));
-    round = ValidatorSessionRoundState::create(desc, round->get_seqno());
-  }
+  CHECK(!round->check_block_is_signed(desc));
 
-  return ValidatorSessionState::create(desc, std::move(ts_vec), std::move(old), std::move(round));
+  return ValidatorSessionState::create(desc, std::move(ts_vec), state->old_rounds_, std::move(round));
 }
 
 const SentBlock* ValidatorSessionState::get_committed_block(ValidatorSessionDescription& desc, td::uint32 seqno) const {

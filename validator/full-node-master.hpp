@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -44,9 +44,15 @@ class FullNodeMasterImpl : public FullNodeMaster {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlockProof &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareKeyBlockProof &query,
+                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProof &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProofLink &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProof &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProofLink &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlock &query,
                      td::Promise<td::BufferSlice> promise);
@@ -71,6 +77,10 @@ class FullNodeMasterImpl : public FullNodeMaster {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_slave_sendExtMessage &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
                      td::Promise<td::BufferSlice> promise);
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);

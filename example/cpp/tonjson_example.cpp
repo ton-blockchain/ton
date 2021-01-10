@@ -23,17 +23,17 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <iostream>
 #include <tonlib/tonlib_client_json.h>
 
-// Basic example of TONLib JSON interface usage.
+// Basic example of tonlib JSON interface usage.
 // Native interface should be preferred instead in C++, so here is only an example of
 // the main event cycle, which should be essentially the same for all languages.
 
 int main() {
-  // disable TDLib logging
+  // disable tonlib logging
   void *client = tonlib_client_json_create();
   // somehow share the client with other threads, which will be able to send requests via tonlib_client_json_send
 

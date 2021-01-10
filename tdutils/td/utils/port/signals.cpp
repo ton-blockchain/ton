@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/signals.h"
 
@@ -301,7 +301,7 @@ void signal_safe_write_pointer(void *p, bool add_header) {
   char *ptr = end;
   *--ptr = '\n';
   do {
-    *--ptr = td::format::hex_digit(addr % 16);
+    *--ptr = format::hex_digit(addr % 16);
     addr /= 16;
   } while (addr != 0);
   *--ptr = 'x';
@@ -318,6 +318,7 @@ static void block_stdin() {
 }
 
 static void default_failure_signal_handler(int sig) {
+  Stacktrace::init();
   signal_safe_write_signal_number(sig);
 
   Stacktrace::PrintOptions options;

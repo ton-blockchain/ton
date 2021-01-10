@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 
 #include "config.hpp"
@@ -51,6 +51,14 @@ td::Ref<ValidatorSet> ConfigHolderQ::get_validator_set(ShardIdFull shard, UnixTi
     return {};
   }
   return Ref<ValidatorSetQ>{true, cc_seqno, shard, std::move(nodes)};
+}
+
+std::pair<UnixTime, UnixTime> ConfigHolderQ::get_validator_set_start_stop(int next) const {
+  if (!config_) {
+    LOG(ERROR) << "MasterchainStateQ::get_validator_set_start_stop() : no config";
+    return {};
+  }
+  return config_->get_validator_set_start_stop(next);
 }
 
 }  // namespace validator

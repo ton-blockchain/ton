@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -36,7 +36,7 @@ struct CatChainNode {
 };
 
 struct CatChainOptions {
-  td::Clocks::Duration idle_timeout = 16.0;
+  double idle_timeout = 16.0;
   td::uint32 max_deps = 4;
 
   bool debug_disable_db = false;

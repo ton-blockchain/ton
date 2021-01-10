@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -25,6 +25,7 @@
 
 #include <tuple>
 #include <utility>
+#include <set>
 
 namespace td {
 namespace format {
@@ -204,7 +205,7 @@ inline StringBuilder &operator<<(StringBuilder &logger, Size t) {
     uint64 value;
   };
 
-  static constexpr NamedValue sizes[] = {{"B", 1}, {"kB", 1 << 10}, {"MB", 1 << 20}, {"GB", 1 << 30}};
+  static constexpr NamedValue sizes[] = {{"B", 1}, {"KB", 1 << 10}, {"MB", 1 << 20}, {"GB", 1 << 30}};
   static constexpr size_t sizes_n = sizeof(sizes) / sizeof(NamedValue);
 
   size_t i = 0;
@@ -230,6 +231,19 @@ StringBuilder &operator<<(StringBuilder &stream, const Array<ArrayT> &array) {
   bool first = true;
   stream << Slice("{");
   for (auto &x : array.ref) {
+    if (!first) {
+      stream << Slice(", ");
+    }
+    stream << x;
+    first = false;
+  }
+  return stream << Slice("}");
+}
+
+inline StringBuilder &operator<<(StringBuilder &stream, const Array<vector<bool>> &array) {
+  bool first = true;
+  stream << Slice("{");
+  for (bool x : array.ref) {
     if (!first) {
       stream << Slice(", ");
     }
@@ -331,6 +345,10 @@ StringBuilder &operator<<(StringBuilder &sb, const std::pair<A, B> &p) {
 
 template <class T>
 StringBuilder &operator<<(StringBuilder &stream, const vector<T> &vec) {
+  return stream << format::as_array(vec);
+}
+template <class T>
+StringBuilder &operator<<(StringBuilder &stream, const std::set<T> &vec) {
   return stream << format::as_array(vec);
 }
 

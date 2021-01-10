@@ -14,10 +14,11 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 #include "td/utils/crypto.h"
+#include "common/refint.h"
 #include <fstream>
 
 namespace sym {
@@ -62,7 +63,7 @@ inline bool is_special_ident(sym_idx_t idx) {
  */
 
 // TE ::= TA | TA -> TE
-// TA ::= int | ... | cont | var | _ | () | ( TE { , TE } )
+// TA ::= int | ... | cont | var | _ | () | ( TE { , TE } ) | [ TE { , TE } ]
 TypeExpr* parse_type(Lexer& lex);
 
 TypeExpr* parse_type1(Lexer& lex) {
@@ -89,15 +90,31 @@ TypeExpr* parse_type1(Lexer& lex) {
     case '_':
       lex.next();
       return TypeExpr::new_hole();
+    case _Ident: {
+      auto sym = sym::lookup_symbol(lex.cur().val);
+      if (sym && dynamic_cast<SymValType*>(sym->value)) {
+        auto val = dynamic_cast<SymValType*>(sym->value);
+        lex.next();
+        return val->get_type();
+      }
+      lex.cur().error_at("`", "` is not a type identifier");
+    }
   }
-  lex.expect('(');
-  if (lex.tp() == ')') {
+  int c;
+  if (lex.tp() == '[') {
     lex.next();
-    return TypeExpr::new_unit();
+    c = ']';
+  } else {
+    lex.expect('(');
+    c = ')';
+  }
+  if (lex.tp() == c) {
+    lex.next();
+    return c == ')' ? TypeExpr::new_unit() : TypeExpr::new_tuple({});
   }
   auto t1 = parse_type(lex);
-  if (lex.tp() != ',') {
-    lex.expect(')');
+  if (lex.tp() == ')') {
+    lex.expect(c);
     return t1;
   }
   std::vector<TypeExpr*> tlist{1, t1};
@@ -105,8 +122,8 @@ TypeExpr* parse_type1(Lexer& lex) {
     lex.next();
     tlist.push_back(parse_type(lex));
   }
-  lex.expect(')');
-  return TypeExpr::new_tensor(std::move(tlist));
+  lex.expect(c);
+  return c == ')' ? TypeExpr::new_tensor(std::move(tlist)) : TypeExpr::new_tuple(std::move(tlist));
 }
 
 TypeExpr* parse_type(Lexer& lex) {
@@ -133,7 +150,14 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
   } else if (lex.tp() != _Ident) {
     arg_type = parse_type(lex);
   } else {
-    arg_type = TypeExpr::new_hole();
+    auto sym = sym::lookup_symbol(lex.cur().val);
+    if (sym && dynamic_cast<SymValType*>(sym->value)) {
+      auto val = dynamic_cast<SymValType*>(sym->value);
+      lex.next();
+      arg_type = val->get_type();
+    } else {
+      arg_type = TypeExpr::new_hole();
+    }
   }
   if (lex.tp() == '_' || lex.tp() == ',' || lex.tp() == ')') {
     if (lex.tp() == '_') {
@@ -147,12 +171,62 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
   }
   loc = lex.cur().loc;
   SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
+  if (!new_sym_def) {
+    lex.cur().error_at("cannot define symbol `", "`");
+  }
   if (new_sym_def->value) {
     lex.cur().error_at("redefined formal parameter `", "`");
   }
   new_sym_def->value = new SymVal{SymVal::_Param, fa_idx, arg_type};
   lex.next();
   return std::make_tuple(arg_type, new_sym_def, loc);
+}
+
+void parse_global_var_decl(Lexer& lex) {
+  TypeExpr* var_type = 0;
+  SrcLocation loc = lex.cur().loc;
+  if (lex.tp() == '_') {
+    lex.next();
+    var_type = TypeExpr::new_hole();
+    loc = lex.cur().loc;
+  } else if (lex.tp() != _Ident) {
+    var_type = parse_type(lex);
+  } else {
+    auto sym = sym::lookup_symbol(lex.cur().val);
+    if (sym && dynamic_cast<SymValType*>(sym->value)) {
+      auto val = dynamic_cast<SymValType*>(sym->value);
+      lex.next();
+      var_type = val->get_type();
+    } else {
+      var_type = TypeExpr::new_hole();
+    }
+  }
+  if (lex.tp() != _Ident) {
+    lex.expect(_Ident, "global variable name");
+  }
+  loc = lex.cur().loc;
+  SymDef* sym_def = sym::define_global_symbol(lex.cur().val, false, loc);
+  if (!sym_def) {
+    lex.cur().error_at("cannot define global symbol `", "`");
+  }
+  if (sym_def->value) {
+    auto val = dynamic_cast<SymValGlobVar*>(sym_def->value);
+    if (!val) {
+      lex.cur().error_at("symbol `", "` cannot be redefined as a global variable");
+    }
+    try {
+      unify(var_type, val->sym_type);
+    } catch (UnifyError& ue) {
+      std::ostringstream os;
+      os << "cannot unify new type " << var_type << " of global variable `" << sym_def->name()
+         << "` with its previous type " << val->sym_type << ": " << ue;
+      lex.cur().error(os.str());
+    }
+  } else {
+    sym_def->value = new SymValGlobVar{glob_var_cnt++, var_type};
+    glob_vars.push_back(sym_def);
+  }
+  lex.next();
 }
 
 FormalArgList parse_formal_args(Lexer& lex) {
@@ -184,6 +258,18 @@ TypeExpr* extract_total_arg_type(const FormalArgList& arg_list) {
     type_list.push_back(std::get<0>(x));
   }
   return TypeExpr::new_tensor(std::move(type_list));
+}
+
+void parse_global_var_decls(Lexer& lex) {
+  lex.expect(_Global);
+  while (true) {
+    parse_global_var_decl(lex);
+    if (lex.tp() != ',') {
+      break;
+    }
+    lex.expect(',');
+  }
+  lex.expect(';');
 }
 
 SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false) {
@@ -220,30 +306,54 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
   }
 }
 
+Expr* make_func_apply(Expr* fun, Expr* x) {
+  Expr* res;
+  if (fun->cls == Expr::_Glob) {
+    if (x->cls == Expr::_Tensor) {
+      res = new Expr{Expr::_Apply, fun->sym, x->args};
+    } else {
+      res = new Expr{Expr::_Apply, fun->sym, {x}};
+    }
+    res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
+  } else {
+    res = new Expr{Expr::_VarApply, {fun, x}};
+    res->flags = Expr::_IsRvalue;
+  }
+  return res;
+}
+
 Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
 
-// parse ( E { , E } ) | () | id | num | _
+// parse ( E { , E } ) | () | [ E { , E } ] | [] | id | num | _
 Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
-  if (lex.tp() == '(') {
+  if (lex.tp() == '(' || lex.tp() == '[') {
+    bool tf = (lex.tp() == '[');
+    int clbr = (tf ? ']' : ')');
     SrcLocation loc{lex.cur().loc};
     lex.next();
-    if (lex.tp() == ')') {
+    if (lex.tp() == clbr) {
       lex.next();
-      Expr* res = new Expr{Expr::_Tuple, {}};
+      Expr* res = new Expr{Expr::_Tensor, {}};
       res->flags = Expr::_IsRvalue;
       res->here = loc;
       res->e_type = TypeExpr::new_unit();
+      if (tf) {
+        res = new Expr{Expr::_MkTuple, {res}};
+        res->flags = Expr::_IsRvalue;
+        res->here = loc;
+        res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+      }
       return res;
     }
     Expr* res = parse_expr(lex, code, nv);
-    if (lex.tp() != ',') {
-      lex.expect(')');
+    if (lex.tp() == ')') {
+      lex.expect(clbr);
       return res;
     }
     std::vector<TypeExpr*> type_list;
     type_list.push_back(res->e_type);
     int f = res->flags;
-    res = new Expr{Expr::_Tuple, {res}};
+    res = new Expr{Expr::_Tensor, {res}};
     while (lex.tp() == ',') {
       lex.next();
       auto x = parse_expr(lex, code, nv);
@@ -256,8 +366,14 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     }
     res->here = loc;
     res->flags = f;
-    res->e_type = TypeExpr::new_tensor(std::move(type_list));
-    lex.expect(')');
+    res->e_type = TypeExpr::new_tensor(std::move(type_list), !tf);
+    if (tf) {
+      res = new Expr{Expr::_MkTuple, {res}};
+      res->flags = f;
+      res->here = loc;
+      res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+    }
+    lex.expect(clbr);
     return res;
   }
   int t = lex.tp();
@@ -287,7 +403,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     return res;
   }
-  if (t == _Int || t == _Cell || t == _Slice || t == _Builder || t == _Cont || t == _Type) {
+  if (t == _Int || t == _Cell || t == _Slice || t == _Builder || t == _Cont || t == _Type || t == _Tuple) {
     Expr* res = new Expr{Expr::_Type, lex.cur().loc};
     res->flags = Expr::_IsType;
     res->e_type = TypeExpr::new_atomic(t);
@@ -295,6 +411,25 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     return res;
   }
   if (t == _Ident) {
+    auto sym = sym::lookup_symbol(lex.cur().val);
+    if (sym && dynamic_cast<SymValType*>(sym->value)) {
+      auto val = dynamic_cast<SymValType*>(sym->value);
+      Expr* res = new Expr{Expr::_Type, lex.cur().loc};
+      res->flags = Expr::_IsType;
+      res->e_type = val->get_type();
+      lex.next();
+      return res;
+    }
+    if (sym && dynamic_cast<SymValGlobVar*>(sym->value)) {
+      auto val = dynamic_cast<SymValGlobVar*>(sym->value);
+      Expr* res = new Expr{Expr::_GlobVar, lex.cur().loc};
+      res->e_type = val->get_type();
+      res->sym = sym;
+      res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImpure;
+      lex.next();
+      return res;
+    }
+    bool auto_apply = false;
     Expr* res = new Expr{Expr::_Var, lex.cur().loc};
     if (nv) {
       res->val = ~lex.cur().val;
@@ -302,20 +437,21 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       res->flags = Expr::_IsLvalue | Expr::_IsNewVar;
       // std::cerr << "defined new variable " << lex.cur().str << " : " << res->e_type << std::endl;
     } else {
-      res->sym = sym::lookup_symbol(lex.cur().val);
-      if (!res->sym) {
+      if (!sym) {
         check_global_func(lex.cur());
-        res->sym = sym::lookup_symbol(lex.cur().val);
+        sym = sym::lookup_symbol(lex.cur().val);
       }
+      res->sym = sym;
       SymVal* val = nullptr;
-      if (res->sym) {
-        val = dynamic_cast<SymVal*>(res->sym->value);
+      if (sym) {
+        val = dynamic_cast<SymVal*>(sym->value);
       }
       if (!val) {
         lex.cur().error_at("undefined identifier `", "`");
       } else if (val->type == SymVal::_Func) {
         res->e_type = val->get_type();
         res->cls = Expr::_Glob;
+        auto_apply = val->auto_apply;
       } else if (val->idx < 0) {
         lex.cur().error_at("accessing variable `", "` being defined");
       } else {
@@ -326,6 +462,12 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
       res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
     }
+    if (auto_apply) {
+      int impure = res->flags & Expr::_IsImpure;
+      delete res;
+      res = new Expr{Expr::_Apply, sym, {}};
+      res->flags = Expr::_IsRvalue | impure;
+    }
     res->deduce_type(lex.cur());
     lex.next();
     return res;
@@ -334,26 +476,10 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
   return nullptr;
 }
 
-Expr* make_func_apply(Expr* fun, Expr* x) {
-  Expr* res;
-  if (fun->cls == Expr::_Glob) {
-    if (x->cls == Expr::_Tuple) {
-      res = new Expr{Expr::_Apply, fun->sym, x->args};
-    } else {
-      res = new Expr{Expr::_Apply, fun->sym, {x}};
-    }
-    res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
-  } else {
-    res = new Expr{Expr::_VarApply, {fun, x}};
-    res->flags = Expr::_IsRvalue;
-  }
-  return res;
-}
-
 // parse E { E }
 Expr* parse_expr90(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr100(lex, code, nv);
-  while (lex.tp() == '(' || (lex.tp() == _Ident && !is_special_ident(lex.cur().val))) {
+  while (lex.tp() == '(' || lex.tp() == '[' || (lex.tp() == _Ident && !is_special_ident(lex.cur().val))) {
     if (res->is_type()) {
       Expr* x = parse_expr100(lex, code, true);
       x->chk_lvalue(lex.cur());  // chk_lrvalue() ?
@@ -418,7 +544,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     auto x = parse_expr100(lex, code, false);
     x->chk_rvalue(lex.cur());
-    if (x->cls == Expr::_Tuple) {
+    if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, name, {obj}};
       res->args.insert(res->args.end(), x->args.begin(), x->args.end());
     } else {
@@ -463,7 +589,7 @@ Expr* parse_expr75(Lexer& lex, CodeBlob& code, bool nv) {
 Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr75(lex, code, nv);
   while (lex.tp() == '*' || lex.tp() == '/' || lex.tp() == '%' || lex.tp() == _DivMod || lex.tp() == _DivC ||
-         lex.tp() == _DivR || lex.tp() == '&') {
+         lex.tp() == _DivR || lex.tp() == _ModC || lex.tp() == _ModR || lex.tp() == '&') {
     res->chk_rvalue(lex.cur());
     int t = lex.tp();
     sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
@@ -481,7 +607,7 @@ Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse [-] E { (+ | - | `|` ) E }
+// parse [-] E { (+ | - | `|` | ^) E }
 Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res;
   int t = lex.tp();
@@ -500,7 +626,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   } else {
     res = parse_expr30(lex, code, nv);
   }
-  while (lex.tp() == '-' || lex.tp() == '+' || lex.tp() == '|') {
+  while (lex.tp() == '-' || lex.tp() == '+' || lex.tp() == '|' || lex.tp() == '^') {
     res->chk_rvalue(lex.cur());
     t = lex.tp();
     sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
@@ -586,8 +712,8 @@ Expr* parse_expr10(Lexer& lex, CodeBlob& code, bool nv) {
   auto x = parse_expr13(lex, code, nv);
   int t = lex.tp();
   if (t == _PlusLet || t == _MinusLet || t == _TimesLet || t == _DivLet || t == _DivRLet || t == _DivCLet ||
-      t == _ModLet || t == _LshiftLet || t == _RshiftLet || t == _RshiftCLet || t == _RshiftRLet || t == _AndLet ||
-      t == _OrLet || t == _XorLet) {
+      t == _ModLet || t == _ModCLet || t == _ModRLet || t == _LshiftLet || t == _RshiftLet || t == _RshiftCLet ||
+      t == _RshiftRLet || t == _AndLet || t == _OrLet || t == _XorLet) {
     x->chk_lvalue(lex.cur());
     x->chk_rvalue(lex.cur());
     sym_idx_t name = symbols.lookup_add(std::string{"^_"} + lex.cur().str + "_");
@@ -960,9 +1086,76 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
   return res;
 }
 
+std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
+  std::vector<TypeExpr*> res;
+  lex.expect(_Forall);
+  int idx = 0;
+  while (true) {
+    if (lex.tp() == _Type) {
+      lex.next();
+    }
+    if (lex.tp() != _Ident) {
+      throw src::ParseError{lex.cur().loc, "free type identifier expected"};
+    }
+    auto loc = lex.cur().loc;
+    SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
+    if (new_sym_def->value) {
+      lex.cur().error_at("redefined type variable `", "`");
+    }
+    auto var = TypeExpr::new_var(idx);
+    new_sym_def->value = new SymValType{SymVal::_Typename, idx++, var};
+    res.push_back(var);
+    lex.next();
+    if (lex.tp() != ',') {
+      break;
+    }
+    lex.next();
+  }
+  lex.expect(_Mapsto);
+  return res;
+}
+
+void type_var_usage(TypeExpr* expr, const std::vector<TypeExpr*>& typevars, std::vector<bool>& used) {
+  if (expr->constr != TypeExpr::te_Var) {
+    for (auto arg : expr->args) {
+      type_var_usage(arg, typevars, used);
+    }
+    return;
+  }
+  for (std::size_t i = 0; i < typevars.size(); i++) {
+    if (typevars[i] == expr) {
+      used.at(i) = true;
+      return;
+    }
+  }
+  return;
+}
+
+TypeExpr* compute_type_closure(TypeExpr* expr, const std::vector<TypeExpr*>& typevars) {
+  if (typevars.empty()) {
+    return expr;
+  }
+  std::vector<bool> used(typevars.size(), false);
+  type_var_usage(expr, typevars, used);
+  std::vector<TypeExpr*> used_vars;
+  for (std::size_t i = 0; i < typevars.size(); i++) {
+    if (used.at(i)) {
+      used_vars.push_back(typevars[i]);
+    }
+  }
+  if (!used_vars.empty()) {
+    expr = TypeExpr::new_forall(std::move(used_vars), expr);
+  }
+  return expr;
+}
+
 void parse_func_def(Lexer& lex) {
   SrcLocation loc{lex.cur().loc};
   sym::open_scope(lex);
+  std::vector<TypeExpr*> type_vars;
+  if (lex.tp() == _Forall) {
+    type_vars = parse_type_var_list(lex);
+  }
   auto ret_type = parse_type(lex);
   if (lex.tp() != _Ident) {
     throw src::ParseError{lex.cur().loc, "function name identifier expected"};
@@ -1010,6 +1203,7 @@ void parse_func_def(Lexer& lex) {
     lex.expect('{', "function body block expected");
   }
   TypeExpr* func_type = TypeExpr::new_map(extract_total_arg_type(arg_list), ret_type);
+  func_type = compute_type_closure(func_type, type_vars);
   if (verbosity >= 1) {
     std::cerr << "function " << func_name.str << " : " << func_type << std::endl;
   }
@@ -1072,8 +1266,9 @@ void parse_func_def(Lexer& lex) {
     }
     if (val->method_id.is_null()) {
       val->method_id = std::move(method_id);
-    } else if (val->method_id != method_id) {
-      lex.cur().error("integer method identifier for `"s + func_name.str + "` changed to a different value");
+    } else if (td::cmp(val->method_id, method_id) != 0) {
+      lex.cur().error("integer method identifier for `"s + func_name.str + "` changed from " +
+                      val->method_id->to_dec_string() + " to a different value " + method_id->to_dec_string());
     }
   }
   if (f) {
@@ -1093,11 +1288,17 @@ void parse_func_def(Lexer& lex) {
   sym::close_scope(lex);
 }
 
-bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
+std::vector<const src::FileDescr*> source_fdescr;
+
+bool parse_source(std::istream* is, src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
-  Lexer lex{reader, true};
+  Lexer lex{reader, true, ";,()[] ~."};
   while (lex.tp() != _Eof) {
-    parse_func_def(lex);
+    if (lex.tp() == _Global) {
+      parse_global_var_decls(lex);
+    } else {
+      parse_func_def(lex);
+    }
   }
   return true;
 }
@@ -1107,6 +1308,7 @@ bool parse_source_file(const char* filename) {
     throw src::Fatal{"source file name is an empty string"};
   }
   src::FileDescr* cur_source = new src::FileDescr{filename};
+  source_fdescr.push_back(cur_source);
   std::ifstream ifs{filename};
   if (ifs.fail()) {
     throw src::Fatal{std::string{"cannot open source file `"} + filename + "`"};
@@ -1115,7 +1317,9 @@ bool parse_source_file(const char* filename) {
 }
 
 bool parse_source_stdin() {
-  return parse_source(&std::cin, new src::FileDescr{"stdin", true});
+  src::FileDescr* cur_source = new src::FileDescr{"stdin", true};
+  source_fdescr.push_back(cur_source);
+  return parse_source(&std::cin, cur_source);
 }
 
 }  // namespace funC

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/detail/EventFdBsd.h"
 
@@ -27,6 +27,8 @@ char disable_linker_warning_about_empty_file_event_fd_bsd_cpp TD_UNUSED;
 #include "td/utils/port/PollFlags.h"
 #include "td/utils/port/SocketFd.h"
 #include "td/utils/Slice.h"
+
+#include <cerrno>
 
 #include <fcntl.h>
 #include <poll.h>

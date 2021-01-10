@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -65,7 +65,7 @@ class ValidateBroadcast : public td::actor::Actor {
 
   void start_up() override;
   void got_key_block_id(BlockIdExt block_id);
-  void got_key_block_handle(BlockHandle block_handle);
+  void got_key_block_handle(ConstBlockHandle block_handle);
   void got_key_block_proof_link(td::Ref<ProofLink> proof_link);
   void got_zero_state(td::Ref<MasterchainState> state);
   void check_signatures_common(td::Ref<ConfigHolder> conf);

@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "adnl/adnl-ext-client.h"
@@ -85,6 +85,7 @@ class ValidatorEngineConsole : public td::actor::Actor {
   void add_cmd(td::BufferSlice data) {
     ex_mode_ = true;
     ex_queries_.push_back(std::move(data));
+    set_readline_enabled(false);
   }
   void set_fail_timeout(td::Timestamp ts) {
     fail_timeout_ = ts;

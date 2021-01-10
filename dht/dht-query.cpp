@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "dht.hpp"
 
@@ -96,7 +96,12 @@ void DhtQuery::add_nodes(DhtNodesList list) {
 
 void DhtQueryFindNodes::send_one_query(adnl::AdnlNodeIdShort id) {
   auto P = create_serialize_tl_object<ton_api::dht_findNode>(get_key().tl(), get_k());
-  auto B = create_serialize_tl_object_suffix<ton_api::dht_query>(P.as_slice(), self_.tl());
+  td::BufferSlice B;
+  if (client_only_) {
+    B = std::move(P);
+  } else {
+    B = create_serialize_tl_object_suffix<ton_api::dht_query>(P.as_slice(), self_.tl());
+  }
 
   auto Pr = td::PromiseCreator::lambda([SelfId = actor_id(this), dst = id](td::Result<td::BufferSlice> R) {
     td::actor::send_closure(SelfId, &DhtQueryFindNodes::on_result, std::move(R), dst);
@@ -129,7 +134,12 @@ void DhtQueryFindNodes::finish(DhtNodesList list) {
 
 void DhtQueryFindValue::send_one_query(adnl::AdnlNodeIdShort id) {
   auto P = create_serialize_tl_object<ton_api::dht_findValue>(get_key().tl(), get_k());
-  auto B = create_serialize_tl_object_suffix<ton_api::dht_query>(P.as_slice(), self_.tl());
+  td::BufferSlice B;
+  if (client_only_) {
+    B = std::move(P);
+  } else {
+    B = create_serialize_tl_object_suffix<ton_api::dht_query>(P.as_slice(), self_.tl());
+  }
 
   auto Pr = td::PromiseCreator::lambda([SelfId = actor_id(this), dst = id](td::Result<td::BufferSlice> R) {
     td::actor::send_closure(SelfId, &DhtQueryFindValue::on_result, std::move(R), dst);
@@ -186,7 +196,7 @@ void DhtQueryFindValue::finish(DhtNodesList list) {
 }
 
 DhtQueryStore::DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src,
-                             DhtNodesList list, td::uint32 k, td::uint32 a, DhtNode self,
+                             DhtNodesList list, td::uint32 k, td::uint32 a, DhtNode self, bool client_only,
                              td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
                              td::Promise<td::Unit> promise)
     : print_id_(print_id)
@@ -195,7 +205,8 @@ DhtQueryStore::DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, ad
     , promise_(std::move(promise))
     , value_(std::move(key_value))
     , list_(std::move(list))
-    , self_(std::move(self)) {
+    , self_(std::move(self))
+    , client_only_(client_only) {
   node_ = node;
   adnl_ = adnl;
   src_ = src;
@@ -208,7 +219,7 @@ void DhtQueryStore::start_up() {
 
   auto key = value_.key_id();
   auto A = td::actor::create_actor<DhtQueryFindNodes>("FindNodesQuery", key, print_id_, src_, std::move(list_), k_, a_,
-                                                      self_.clone(), node_, adnl_, std::move(P));
+                                                      self_.clone(), client_only_, node_, adnl_, std::move(P));
   A.release();
 }
 

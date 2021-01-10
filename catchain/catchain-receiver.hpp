@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -134,6 +134,9 @@ class CatChainReceiverImpl : public CatChainReceiver {
 
   void block_written_to_db(CatChainBlockHash hash);
 
+  bool unsafe_start_up_check_completed();
+  void written_unsafe_root_block(CatChainReceivedBlock *block);
+
   void destroy() override;
 
   CatChainReceivedBlock *get_block(CatChainBlockHash hash) const;
@@ -141,7 +144,8 @@ class CatChainReceiverImpl : public CatChainReceiver {
   CatChainReceiverImpl(std::unique_ptr<Callback> callback, CatChainOptions opts,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                        td::actor::ActorId<overlay::Overlays>, std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                       CatChainBlockHash unique_hash, std::string db_root);
+                       CatChainBlockHash unique_hash, std::string db_root, std::string db_suffix,
+                       bool allow_unsafe_self_blocks_resync);
 
  private:
   std::unique_ptr<overlay::Overlays::Callback> make_callback() {
@@ -217,11 +221,16 @@ class CatChainReceiverImpl : public CatChainReceiver {
   td::Timestamp next_rotate_;
 
   std::string db_root_;
+  std::string db_suffix_;
 
   using DbType = td::KeyValueAsync<CatChainBlockHash, td::BufferSlice>;
   DbType db_;
 
   bool intentional_fork_ = false;
+  td::Timestamp initial_sync_complete_at_{td::Timestamp::never()};
+  bool allow_unsafe_self_blocks_resync_{false};
+  bool unsafe_root_block_writing_{false};
+  bool started_{false};
 
   std::list<CatChainReceivedBlock *> to_run_;
 };

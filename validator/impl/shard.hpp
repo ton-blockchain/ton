@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "interfaces/shard.h"
@@ -139,7 +139,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   std::shared_ptr<block::ConfigInfo> get_config() const {
     return config_;
   }
-  td::Result<td::Ref<ConfigHolder>> get_key_block_config() const override {
+  td::Result<td::Ref<ConfigHolder>> get_config_holder() const override {
     if (!config_) {
       return td::Status::Error(ErrorCode::notready, "config not found");
     } else {

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "symtable.h"
 #include <sstream>
@@ -68,7 +68,7 @@ sym_idx_t SymTableBase::gen_lookup(std::string str, int mode, sym_idx_t idx) {
       if (!(mode & 1)) {
         return not_found;
       }
-      if (def_sym >= ((long)p * 3) / 4) {
+      if (def_sym >= ((long long)p * 3) / 4) {
         throw SymTableOverflow{def_sym};
       }
       sym_table[h1] = std::make_unique<Symbol>(str, idx <= 0 ? sym_idx_t(h1) : -idx);

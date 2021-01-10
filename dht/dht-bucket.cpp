@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/tl_storers.h"
 #include "td/utils/crypto.h"
@@ -145,13 +145,13 @@ void DhtBucket::promote_node(size_t idx) {
   }
 }
 
-void DhtBucket::check(td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> dht,
+void DhtBucket::check(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> dht,
                       adnl::AdnlNodeIdShort src) {
   size_t have_space = 0;
   for (size_t i = 0; i < active_nodes_.size(); i++) {
     auto &node = active_nodes_[i];
     if (node && td::Time::now_cached() - node->last_ping_at() > ping_timeout_) {
-      node->send_ping(adnl, dht, src);
+      node->send_ping(client_only, adnl, dht, src);
       if (node->ready_from() == 0) {
         demote_node(i);
       }
@@ -163,7 +163,7 @@ void DhtBucket::check(td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<Dh
   for (size_t i = 0; i < backup_nodes_.size(); i++) {
     auto &node = backup_nodes_[i];
     if (node && td::Time::now_cached() - node->last_ping_at() > ping_timeout_) {
-      node->send_ping(adnl, dht, src);
+      node->send_ping(client_only, adnl, dht, src);
     }
     if (node && have_space > 0 && node->is_ready()) {
       promote_node(i);

@@ -1,0 +1,50 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"GetOpt.fif" include
+
+{ show-options-help 1 halt } : usage
+86400 3 * =: expire-in
+false =: critical
+-1 =: old-hash
+
+begin-options
+     " <election-id> <complaint-boc> [-x <expire-in>] [<savefile>]" +cr +tab
+    +"Embeds a validator complaint loaded from file <complaint-boc> into an internal message body to be sent to the elector smart contract "
+    +"and saves it as an internal message body into <savefile>.boc ('complaint-msg-body.boc' by default)"
+     disable-digit-options generic-help-setopt
+  "x" "--expires-in" { parse-int =: expire-in } short-long-option-arg
+    "Sets complaint expiration time in seconds (default " expire-in (.) $+ +")" option-help
+  "h" "--help" { usage } short-long-option
+    "Shows a help message" option-help
+parse-options
+
+$# dup 2 < swap 3 > or ' usage if
+3 :$1..n
+
+$1 parse-int dup =: election-id
+  32 ufits not abort"invalid election id"
+$2 =: boc-filename
+$3 "complaint-msg-body.boc" replace-if-null =: savefile
+expire-in now + =: expire-at
+
+boc-filename dup ."Loading complaint from file `" type ."`" cr
+file>B B>boc dup =: complaint hash =: c-hash
+complaint <s 8 u@ 0xbc <> abort"Not a valid ValidatorComplaint"
+complaint <s csr.
+
+// ." complaint envelope will expire at " expire-at . ."(in " expire-in . ."seconds)" cr
+now 32 << c-hash 0xffffffff and or =: query-id
+."Query id is " query-id . cr
+
+<b x{52674370} s, query-id 64 u, election-id 32 u,
+   complaint <s s, b>
+
+dup ."resulting internal message body: " <s csr. cr
+2 boc+>B dup Bx. cr
+
+complaint
+totalcsize swap ."(a total of " . ."data bits, " . ."cell references -> " 
+drop dup Blen . ."BoC data bytes)" cr
+
+savefile tuck B>file
+."(Saved to file " type .")" cr

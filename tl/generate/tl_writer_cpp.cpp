@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "tl_writer_cpp.h"
 
@@ -44,7 +44,7 @@ std::string TD_TL_writer_cpp::gen_output_begin() const {
          "std::string to_string(const BaseObject &value) {\n"
          "  td::TlStorerToString storer;\n"
          "  value.store(storer, \"\");\n"
-         "  return storer.str();\n"
+         "  return storer.move_as_str();\n"
          "}\n";
 }
 

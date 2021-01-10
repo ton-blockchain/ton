@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -59,7 +59,8 @@ class ValidatorGroup : public td::actor::Actor {
                  td::Ref<ValidatorSet> validator_set, validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                 std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session)
+                 std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
+                 bool allow_unsafe_self_blocks_resync)
       : shard_(shard)
       , local_id_(std::move(local_id))
       , session_id_(session_id)
@@ -71,11 +72,23 @@ class ValidatorGroup : public td::actor::Actor {
       , overlays_(overlays)
       , db_root_(std::move(db_root))
       , manager_(validator_manager)
-      , init_(create_session) {
+      , init_(create_session)
+      , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   }
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
+
+  struct PostponedAccept {
+    RootHash root_hash;
+    FileHash file_hash;
+    td::BufferSlice block;
+    td::Ref<BlockSignatureSet> sigs;
+    td::Ref<BlockSignatureSet> approve_sigs;
+    td::Promise<td::Unit> promise;
+  };
+
+  std::list<PostponedAccept> postoned_accept_;
 
   ShardIdFull shard_;
   PublicKeyHash local_id_;
@@ -98,6 +111,8 @@ class ValidatorGroup : public td::actor::Actor {
   td::actor::ActorOwn<validatorsession::ValidatorSession> session_;
 
   bool init_ = false;
+  bool started_ = false;
+  bool allow_unsafe_self_blocks_resync_;
   td::uint32 last_known_round_id_ = 0;
 };
 

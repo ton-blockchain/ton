@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "tonlib/ClientJson.h"
 
@@ -47,7 +47,7 @@ static td::Result<std::pair<tonlib_api::object_ptr<tonlib_api::Function>, std::s
   }
 
   tonlib_api::object_ptr<tonlib_api::Function> func;
-  TRY_STATUS(from_json(func, json_value));
+  TRY_STATUS(from_json(func, std::move(json_value)));
   return std::make_pair(std::move(func), extra);
 }
 

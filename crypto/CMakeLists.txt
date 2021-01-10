@@ -23,6 +23,7 @@ set(TON_CRYPTO_SOURCE
   vm/atom.cpp
   vm/continuation.cpp
   vm/dict.cpp
+  vm/memo.cpp
   vm/dispatch.cpp
   vm/opctable.cpp
   vm/cp0.cpp
@@ -35,6 +36,8 @@ set(TON_CRYPTO_SOURCE
   vm/debugops.cpp
   vm/tonops.cpp
   vm/boc.cpp
+  vm/utils.cpp
+  vm/vm.cpp
   tl/tlblib.cpp
 
   Ed25519.h
@@ -45,6 +48,8 @@ set(TON_CRYPTO_SOURCE
   common/refint.h
   common/bigexp.h
   common/util.h
+  common/linalloc.hpp
+  common/promiseop.hpp
 
   ellcurve/Ed25519.h
   ellcurve/Fp25519.h
@@ -52,7 +57,7 @@ set(TON_CRYPTO_SOURCE
   ellcurve/TwEdwards.h
 
   openssl/bignum.h
-  openssl/digest.h
+  openssl/digest.hpp
   openssl/rand.hpp
   openssl/residue.h
 
@@ -74,12 +79,15 @@ set(TON_CRYPTO_SOURCE
   vm/excno.hpp
   vm/fmt.hpp
   vm/log.h
+  vm/memo.h
   vm/opctable.h
   vm/stack.hpp
   vm/stackops.h
   vm/tupleops.h
   vm/tonops.h
   vm/vmstate.h
+  vm/utils.h
+  vm/vm.h
 
   vm/cells.h
   vm/cellslice.h
@@ -88,6 +96,7 @@ set(TON_CRYPTO_SOURCE
   vm/cells/CellBuilder.cpp
   vm/cells/CellHash.cpp
   vm/cells/CellSlice.cpp
+  vm/cells/CellString.cpp
   vm/cells/CellTraits.cpp
   vm/cells/CellUsageTree.cpp
   vm/cells/DataCell.cpp
@@ -99,6 +108,7 @@ set(TON_CRYPTO_SOURCE
   vm/cells/CellBuilder.h
   vm/cells/CellHash.h
   vm/cells/CellSlice.h
+  vm/cells/CellString.h
   vm/cells/CellTraits.h
   vm/cells/CellUsageTree.h
   vm/cells/CellWithStorage.h
@@ -114,9 +124,6 @@ set(TON_CRYPTO_SOURCE
 
   vm/db/StaticBagOfCellsDb.h
   vm/db/StaticBagOfCellsDb.cpp
-
-  vm/db/BlobView.h
-  vm/db/BlobView.cpp
 )
 
 set(TON_DB_SOURCE
@@ -134,6 +141,7 @@ set(FIFT_SOURCE
   fift/Dictionary.cpp
   fift/Fift.cpp
   fift/IntCtx.cpp
+  fift/Continuation.cpp
   fift/SourceLookup.cpp
   fift/utils.cpp
   fift/words.cpp
@@ -141,6 +149,7 @@ set(FIFT_SOURCE
   fift/Dictionary.h
   fift/Fift.h
   fift/IntCtx.h
+  fift/Continuation.h
   fift/SourceLookup.h
   fift/utils.h
   fift/words.h
@@ -197,6 +206,29 @@ set(BLOCK_SOURCE
   block/transaction.h
 )
 
+set(SMC_ENVELOPE_SOURCE
+  smc-envelope/GenericAccount.cpp
+  smc-envelope/HighloadWallet.cpp
+  smc-envelope/HighloadWalletV2.cpp
+  smc-envelope/ManualDns.cpp
+  smc-envelope/MultisigWallet.cpp
+  smc-envelope/PaymentChannel.cpp
+  smc-envelope/SmartContract.cpp
+  smc-envelope/SmartContractCode.cpp
+  smc-envelope/WalletInterface.cpp
+  smc-envelope/WalletV3.cpp
+
+  smc-envelope/GenericAccount.h
+  smc-envelope/HighloadWallet.h
+  smc-envelope/HighloadWalletV2.h
+  smc-envelope/ManualDns.h
+  smc-envelope/MultisigWallet.h
+  smc-envelope/SmartContract.h
+  smc-envelope/SmartContractCode.h
+  smc-envelope/WalletInterface.h
+  smc-envelope/WalletV3.h
+)
+
 set(ED25519_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/Ed25519.cpp
   PARENT_SCOPE
@@ -217,15 +249,21 @@ set(TONVM_TEST_SOURCE
   PARENT_SCOPE
 )
 
+set(SMARTCONT_TEST_SOURCE
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/test-smartcont.cpp
+  PARENT_SCOPE
+)
+
 set(FIFT_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/fift.cpp
   PARENT_SCOPE
 )
 
+
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils)
+target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
 if (NOT WIN32)
   target_link_libraries(ton_crypto PUBLIC dl z)
 endif()
@@ -269,6 +307,17 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
 endif()
 
+add_library(pow-miner-lib util/Miner.cpp util/Miner.h)
+target_include_directories(pow-miner-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(pow-miner-lib PUBLIC ton_crypto ton_block)
+
+add_executable(pow-miner util/pow-miner.cpp)
+target_link_libraries(pow-miner PRIVATE ton_crypto ton_block pow-miner-lib)
+
+if (WINGETOPT_FOUND)
+  target_link_libraries_system(fift wingetopt)
+endif()
+
 add_library(ton_block ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
@@ -279,6 +328,7 @@ if (TON_USE_ASAN AND NOT WIN32)
   set(TURN_OFF_LSAN export LSAN_OPTIONS=detect_leaks=0)
 endif()
 
+file(MAKE_DIRECTORY smartcont/auto)
 if (NOT CMAKE_CROSSCOMPILING)
   set(GENERATE_TLB_CMD tlbc)
   add_custom_command(
@@ -295,35 +345,73 @@ if (NOT CMAKE_CROSSCOMPILING)
   add_custom_target(gen_fif ALL)
   function(GenFif)
     set(options )
-    set(oneValueArgs DEST)
+    set(oneValueArgs DEST NAME)
     set(multiValueArgs SOURCE)
     set(FUNC_LIB_SOURCE smartcont/stdlib.fc)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
-    string(REGEX REPLACE "[^a-zA-Z_]" "_" ID ${ARG_DEST})
+    string(REGEX REPLACE "[^0-9a-zA-Z_]" "_" ID ${ARG_DEST})
+    set(ARG_DEST_FIF "${ARG_DEST}.fif")
     add_custom_command(
-      COMMENT "Generate ${ARG_DEST}"
+      COMMENT "Generate ${ARG_DEST_FIF}"
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-      COMMAND func -PS -o ${ARG_DEST} ${FUNC_LIB_SOURCE} ${ARG_SOURCE}
+      COMMAND func -PS -o ${ARG_DEST_FIF} ${FUNC_LIB_SOURCE} ${ARG_SOURCE}
       MAIN_DEPENDENCY ${ARG_SOURCE}
       DEPENDS func ${FUNC_LIB_SOURCE}
-      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST}
+      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST_FIF}
     )
-    add_custom_target(gen_fif_${ID} DEPENDS ${ARG_DEST})
+    set(ARG_DEST_CPP "${ARG_DEST}.cpp")
+    add_custom_command(
+      COMMENT "Generate ${ARG_DEST_CPP}"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND fift -Ifift/lib:smartcont -s asm-to-cpp.fif ${ARG_DEST_FIF} ${ARG_DEST_CPP} ${ARG_NAME}
+      MAIN_DEPENDENCY ${ARG_SOURCE}
+      DEPENDS fift ${ARG_DEST_FIF} smartcont/asm-to-cpp.fif fift/lib/Asm.fif
+      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DEST_CPP}
+    )
+    add_custom_target(gen_fif_${ID} DEPENDS ${ARG_DEST_FIF} ${ARG_DEST_CPP})
     add_dependencies(gen_fif gen_fif_${ID})
   endfunction()
 
-  GenFif(DEST smartcont/config-code.fif SOURCE smartcont/config-code.fc)
-  GenFif(DEST smartcont/wallet-code.fif SOURCE smartcont/wallet-code.fc)
-  GenFif(DEST smartcont/simple-wallet-code.fif SOURCE smartcont/simple-wallet-code.fc)
-  GenFif(DEST smartcont/highload-wallet-code.fif SOURCE smartcont/highload-wallet-code.fc)
-  GenFif(DEST smartcont/highload-wallet-v2-code.fif SOURCE smartcont/highload-wallet-v2-code.fc)
-  GenFif(DEST smartcont/elector-code.fif SOURCE smartcont/elector-code.fc)
+  GenFif(DEST smartcont/auto/config-code SOURCE smartcont/config-code.fc NAME config)
+  GenFif(DEST smartcont/auto/wallet-code SOURCE smartcont/wallet-code.fc NAME wallet)
+  GenFif(DEST smartcont/auto/wallet3-code SOURCE smartcont/wallet3-code.fc NAME wallet3)
+  GenFif(DEST smartcont/auto/simple-wallet-code SOURCE smartcont/simple-wallet-code.fc NAME simple-wallet)
+  GenFif(DEST smartcont/auto/highload-wallet-code SOURCE smartcont/highload-wallet-code.fc NAME highload-wallet)
+  GenFif(DEST smartcont/auto/highload-wallet-v2-code SOURCE smartcont/highload-wallet-v2-code.fc NAME highload-wallet-v2)
+  GenFif(DEST smartcont/auto/elector-code SOURCE smartcont/elector-code.fc NAME elector-code)
+  GenFif(DEST smartcont/auto/multisig-code SOURCE smartcont/multisig-code.fc NAME multisig)
+  GenFif(DEST smartcont/auto/restricted-wallet-code SOURCE smartcont/restricted-wallet-code.fc NAME restricted-wallet)
+  GenFif(DEST smartcont/auto/restricted-wallet2-code SOURCE smartcont/restricted-wallet2-code.fc NAME restricted-wallet2)
+  GenFif(DEST smartcont/auto/restricted-wallet3-code SOURCE smartcont/restricted-wallet3-code.fc NAME restricted-wallet3)
+  GenFif(DEST smartcont/auto/pow-testgiver-code SOURCE smartcont/pow-testgiver-code.fc NAME pow-testgiver)
+
+  GenFif(DEST smartcont/auto/dns-manual-code SOURCE smartcont/dns-manual-code.fc NAME dns-manual)
+  GenFif(DEST smartcont/auto/dns-auto-code SOURCE smartcont/dns-auto-code.fc NAME dns-auto)
+
+  GenFif(DEST smartcont/auto/payment-channel-code SOURCE smartcont/payment-channel-code.fc NAME payment-channel)
+
+  GenFif(DEST smartcont/auto/simple-wallet-ext-code SOURCE smartcont/simple-wallet-ext-code.fc NAME simple-wallet-ext)
+endif()
+
+add_library(smc-envelope ${SMC_ENVELOPE_SOURCE})
+target_include_directories(smc-envelope PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(smc-envelope PUBLIC ton_crypto PRIVATE tdutils ton_block)
+if (NOT CMAKE_CROSSCOMPILING)
+  add_dependencies(smc-envelope gen_fif)
 endif()
 
 add_executable(create-state block/create-state.cpp)
 target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block)
+if (INTERNAL_COMPILE)
+  target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib)
+else()
+  if (TONLIB_COMPILE) 
+    target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib)
+  else()
+    target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block)
+  endif()
+endif()
 if (WINGETOPT_FOUND)
   target_link_libraries_system(create-state wingetopt)
 endif()
@@ -334,6 +422,22 @@ target_include_directories(dump-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_S
 target_link_libraries(dump-block PUBLIC ton_crypto fift-lib ton_block)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(dump-block wingetopt)
+endif()
+
+add_executable(adjust-block block/adjust-block.cpp)
+target_include_directories(adjust-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+target_link_libraries(adjust-block PUBLIC ton_crypto fift-lib ton_block)
+if (WINGETOPT_FOUND)
+  target_link_libraries_system(dump-block wingetopt)
+endif()
+
+add_executable(test-weight-distr block/test-weight-distr.cpp)
+target_include_directories(test-weight-distr PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+target_link_libraries(test-weight-distr PUBLIC ton_crypto fift-lib ton_block)
+if (WINGETOPT_FOUND)
+  target_link_libraries_system(test-weight-distr wingetopt)
 endif()
 
 install(TARGETS fift func RUNTIME DESTINATION bin)

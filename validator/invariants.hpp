@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -45,7 +45,7 @@ class ValidatorInvariants {
     CHECK(handle->inited_merge_before());
     CHECK(handle->inited_split_after());
     CHECK(handle->inited_prev());
-    CHECK(handle->inited_signatures());
+    CHECK(handle->inited_signatures() || handle->is_applied());
     CHECK(handle->inited_state_root_hash());
     CHECK(handle->inited_logical_time());
     CHECK(handle->inited_unix_time());

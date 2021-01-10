@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "state-serializer.hpp"
 #include "td/utils/Random.h"
@@ -94,7 +94,8 @@ void AsyncStateSerializer::next_iteration() {
     td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, last_block_id_, true, std::move(P));
     return;
   }
-  if (!masterchain_handle_->inited_unix_time() || !masterchain_handle_->inited_is_key_block()) {
+  if (!masterchain_handle_->inited_unix_time() || !masterchain_handle_->inited_is_key_block() ||
+      !masterchain_handle_->is_applied()) {
     return;
   }
   CHECK(masterchain_handle_->id() == last_block_id_);
@@ -213,6 +214,7 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
   });
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, handle->id(),
                           masterchain_handle_->id(), std::move(B), std::move(P));
+  LOG(INFO) << "storing persistent state for " << masterchain_handle_->id().seqno() << ":" << handle->id().id.shard;
   next_idx_++;
 }
 

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/actor/common.h"
@@ -100,6 +100,28 @@ void send_closure(ActorIdT &&actor_id, FunctionT function, ArgsT &&... args) {
 
 #endif
 
+template <class ActorIdT, class FunctionT, class... ArgsT, class FunctionClassT = member_function_class_t<FunctionT>,
+          size_t argument_count = member_function_argument_count<FunctionT>(),
+          std::enable_if_t<argument_count == sizeof...(ArgsT), bool> with_promise = false>
+auto future_send_closure(ActorIdT &&actor_id, FunctionT function, ArgsT &&... args) {
+  using R = ::td::detail::get_ret_t<std::decay_t<FunctionT>>;
+  auto pf = make_promise_future<R>();
+  send_closure(std::forward<ActorIdT>(actor_id), std::move(function), std::forward<ArgsT>(args)...,
+               std::move(pf.first));
+  return std::move(pf.second);
+}
+
+template <class R, class ActorIdT, class FunctionT, class... ArgsT,
+          class FunctionClassT = member_function_class_t<FunctionT>,
+          size_t argument_count = member_function_argument_count<FunctionT>(),
+          std::enable_if_t<argument_count != sizeof...(ArgsT), bool> with_promise = true>
+Future<R> future_send_closure(ActorIdT &&actor_id, FunctionT function, ArgsT &&... args) {
+  auto pf = make_promise_future<R>();
+  send_closure(std::forward<ActorIdT>(actor_id), std::move(function), std::forward<ArgsT>(args)...,
+               std::move(pf.first));
+  return std::move(pf.second);
+}
+
 template <typename ActorIdT, typename FunctionT, typename... ArgsT>
 bool send_closure_bool(ActorIdT &&actor_id, FunctionT function, ArgsT &&... args) {
   send_closure(std::forward<ActorIdT>(actor_id), function, std::forward<ArgsT>(args)...);
@@ -162,4 +184,29 @@ void send_signals_later(ActorIdT &&actor_id, ActorSignals signals) {
   detail::send_signals_later(id.as_actor_ref(), signals);
 }
 }  // namespace actor
+
+class SendClosure {
+ public:
+  template <class... ArgsT>
+  void operator()(ArgsT &&... args) const {
+    td::actor::send_closure(std::forward<ArgsT>(args)...);
+  }
+};
+
+template <class T>
+template <class... ArgsT>
+auto Promise<T>::send_closure(ArgsT &&... args) {
+  return [promise = std::move(*this), t = std::make_tuple(std::forward<ArgsT>(args)...)](auto &&r_res) mutable {
+    TRY_RESULT_PROMISE(promise, res, std::move(r_res));
+    td::call_tuple(SendClosure(), std::tuple_cat(std::move(t), std::make_tuple(std::move(res), std::move(promise))));
+  };
+}
+
+template <class... ArgsT>
+auto promise_send_closure(ArgsT &&... args) {
+  return [t = std::make_tuple(std::forward<ArgsT>(args)...)](auto &&res) mutable {
+    td::call_tuple(SendClosure(), std::tuple_cat(std::move(t), std::make_tuple(std::move(res))));
+  };
+}
+
 }  // namespace td

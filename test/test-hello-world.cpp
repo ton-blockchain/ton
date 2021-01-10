@@ -23,7 +23,7 @@
     from all source files in the program, then also delete it here.
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <iostream>
 
@@ -31,6 +31,7 @@
 #include "auto/tl/ton_api_json.h"
 
 #include "tl/tl_json.h"
+#include "td/utils/Random.h"
 
 namespace {
 std::string config = R"json(
@@ -94,7 +95,7 @@ int main() {
   auto decode_encode = [](auto obj_json) {
     auto as_json_value = td::json_decode(obj_json).move_as_ok();
     ton::ton_api::object_ptr<ton::ton_api::Object> obj2;
-    from_json(obj2, as_json_value).ensure();
+    from_json(obj2, std::move(as_json_value)).ensure();
     CHECK(obj2 != nullptr);
     return td::json_encode<std::string>(td::ToJson(obj2));
   };
@@ -135,4 +136,25 @@ int main() {
     return res;
   };
   test_tl_json(ton::ton_api::make_object<ton::ton_api::testVectorBytes>(create_vector_bytes()));
+
+  td::Bits256 x;
+  td::Random::secure_bytes(x.as_slice());
+
+  auto s = x.to_hex();
+
+  auto v = td::hex_decode(s).move_as_ok();
+
+  auto w = td::buffer_to_hex(x.as_slice());
+
+  td::Bits256 y;
+  y.as_slice().copy_from(v);
+
+  CHECK(x == y);
+
+  auto w2 = td::hex_decode(w).move_as_ok();
+  td::Bits256 z;
+  z.as_slice().copy_from(w2);
+
+  LOG_CHECK(x == z) << s << " " << w;
+  return 0;
 }

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/Hints.h"
 
@@ -80,7 +80,7 @@ vector<string> Hints::get_words(Slice name, bool is_search) {
 
 void Hints::add_word(const string &word, KeyT key, std::map<string, vector<KeyT>> &word_to_keys) {
   vector<KeyT> &keys = word_to_keys[word];
-  CHECK(std::find(keys.begin(), keys.end(), key) == keys.end());
+  CHECK(!td::contains(keys, key));
   keys.push_back(key);
 }
 

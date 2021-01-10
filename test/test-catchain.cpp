@@ -23,14 +23,14 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -129,8 +129,9 @@ class CatChainInst : public td::actor::Actor {
     for (auto &n : nodes_) {
       nodes.push_back(ton::catchain::CatChainNode{n.adnl_id, n.id_full});
     }
-    catchain_ = ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_,
-                                                std::move(nodes), nodes_[idx_].id, unique_hash_, std::string(""));
+    catchain_ =
+        ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_, std::move(nodes),
+                                        nodes_[idx_].id, unique_hash_, std::string(""), "", false);
   }
 
   CatChainInst(td::actor::ActorId<ton::keyring::Keyring> keyring, td::actor::ActorId<ton::adnl::Adnl> adnl,
@@ -217,6 +218,7 @@ int main(int argc, char *argv[]) {
   td::set_default_failure_signal_handler().ensure();
 
   std::string db_root_ = "tmp-ee";
+  td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();
 
   td::set_default_failure_signal_handler().ensure();
@@ -249,7 +251,8 @@ int main(int argc, char *argv[]) {
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
         td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
-        td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr);
+        td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
+                                static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
                                 true);
 

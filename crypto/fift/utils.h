@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -28,7 +28,8 @@ struct FiftOutput {
 };
 td::Result<fift::SourceLookup> create_mem_source_lookup(std::string main, std::string fift_dir = "",
                                                         bool need_preamble = true, bool need_asm = true,
-                                                        bool need_ton_util = true, bool need_lisp = true);
+                                                        bool need_ton_util = true, bool need_lisp = true,
+                                                        bool need_w3_code = true);
 td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string> args = {}, std::string fift_dir = "");
 td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std::string> args);
 td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code, std::string fift_dir = "", bool is_raw = true);

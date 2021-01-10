@@ -14,26 +14,18 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
-
-#include "fift/Fift.h"
-#include "fift/words.h"
-#include "fift/utils.h"
 
 #include "block/block.h"
 #include "block/block-auto.h"
+#include "block/mc-config.h"
 
 #include "vm/cells.h"
 #include "vm/boc.h"
-#include "vm/cells/MerkleProof.h"
+#include "vm/cells/CellString.h"
 
-#include "tonlib/CellString.h"
 #include "tonlib/utils.h"
-#include "tonlib/TestGiver.h"
-#include "tonlib/TestWallet.h"
-#include "tonlib/Wallet.h"
-#include "tonlib/GenericAccount.h"
 #include "tonlib/TonlibClient.h"
 #include "tonlib/Client.h"
 
@@ -43,6 +35,7 @@
 #include "td/utils/benchmark.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/optional.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
 #include "td/utils/PathView.h"
 #include "td/utils/tests.h"
@@ -68,183 +61,25 @@ TEST(Tonlib, CellString) {
   }
 };
 
+TEST(Tonlib, Text) {
+  for (unsigned size :
+       {0, 1, 7, 8, 35, 127, 128, 255, 256, (int)vm::CellText::max_bytes - 1, (int)vm::CellText::max_bytes}) {
+    auto str = td::rand_string('a', 'z', size);
+    for (unsigned head : {16, 17, 127, 35 * 8, 127 * 8, 1023, 1024}) {
+      vm::CellBuilder cb;
+      vm::CellText::store(cb, str, head).ensure();
+      auto cs = vm::load_cell_slice(cb.finalize());
+      auto cs2 = cs;
+      cs.print_rec(std::cerr);
+      CHECK(block::gen::t_Text.validate_exact_upto(1024, cs2));
+      auto got_str = vm::CellText::load(cs).move_as_ok();
+      ASSERT_EQ(str, got_str);
+    }
+  }
+};
+
 using namespace tonlib;
 
-std::string current_dir() {
-  return td::PathView(td::realpath(__FILE__).move_as_ok()).parent_dir().str();
-}
-
-std::string load_source(std::string name) {
-  return td::read_file_str(current_dir() + "../../crypto/" + name).move_as_ok();
-}
-
-td::Ref<vm::Cell> get_test_wallet_source() {
-  std::string code = R"ABCD(
-SETCP0 DUP IFNOTRET // return if recv_internal
-DUP 85143 INT EQUAL IFJMP:<{ // "seqno" get-method
-  DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
-}>
-INC 32 THROWIF  // fail unless recv_external
-512 INT LDSLICEX DUP 32 PLDU   // sign cs cnt
-c4 PUSHCTR CTOS 32 LDU 256 LDU ENDS  // sign cs cnt cnt' pubk
-s1 s2 XCPU            // sign cs cnt pubk cnt' cnt
-EQUAL 33 THROWIFNOT   // ( seqno mismatch? )
-s2 PUSH HASHSU        // sign cs cnt pubk hash
-s0 s4 s4 XC2PU        // pubk cs cnt hash sign pubk
-CHKSIGNU              // pubk cs cnt ?
-34 THROWIFNOT         // signature mismatch
-ACCEPT
-SWAP 32 LDU NIP
-DUP SREFS IF:<{
-  // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
-  8 LDU LDREF         // pubk cnt mode msg cs
-  s0 s2 XCHG SENDRAWMSG  // pubk cnt cs ; ( message sent )
-}>
-ENDS
-INC NEWC 32 STU 256 STU ENDC c4 POPCTR
-)ABCD";
-  return fift::compile_asm(code).move_as_ok();
-}
-
-td::Ref<vm::Cell> get_wallet_source() {
-  std::string code = R"ABCD(
-SETCP0 DUP IFNOTRET // return if recv_internal
-   DUP 85143 INT EQUAL IFJMP:<{ // "seqno" get-method
-     DROP c4 PUSHCTR CTOS 32 PLDU  // cnt
-   }>
-   INC 32 THROWIF	// fail unless recv_external
-   9 PUSHPOW2 LDSLICEX DUP 32 LDU 32 LDU	//  signature in_msg msg_seqno valid_until cs
-   SWAP NOW LEQ 35 THROWIF	//  signature in_msg msg_seqno cs
-   c4 PUSH CTOS 32 LDU 256 LDU ENDS	//  signature in_msg msg_seqno cs stored_seqno public_key
-   s3 s1 XCPU	//  signature in_msg public_key cs stored_seqno msg_seqno stored_seqno
-   EQUAL 33 THROWIFNOT	//  signature in_msg public_key cs stored_seqno
-   s0 s3 XCHG HASHSU	//  signature stored_seqno public_key cs hash
-   s0 s4 s2 XC2PU CHKSIGNU 34 THROWIFNOT	//  cs stored_seqno public_key
-   ACCEPT
-   s0 s2 XCHG	//  public_key stored_seqno cs
-   WHILE:<{
-     DUP SREFS	//  public_key stored_seqno cs _40
-   }>DO<{	//  public_key stored_seqno cs
-     // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
-     8 LDU LDREF s0 s2 XCHG	//  public_key stored_seqno cs _45 mode
-     SENDRAWMSG	//  public_key stored_seqno cs
-   }>
-   ENDS INC	//  public_key seqno'
-   NEWC 32 STU 256 STU ENDC c4 POP
-)ABCD";
-  return fift::compile_asm(code).move_as_ok();
-}
-
-TEST(Tonlib, TestWallet) {
-  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_test_wallet_source()).move_as_ok());
-  CHECK(get_test_wallet_source()->get_hash() == TestWallet::get_init_code()->get_hash());
-  auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet.fif"), {"aba", "0"}).move_as_ok();
-
-  auto new_wallet_pk = fift_output.source_lookup.read_file("new-wallet.pk").move_as_ok().data;
-  auto new_wallet_query = fift_output.source_lookup.read_file("new-wallet-query.boc").move_as_ok().data;
-  auto new_wallet_addr = fift_output.source_lookup.read_file("new-wallet.addr").move_as_ok().data;
-
-  td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
-  auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = TestWallet::get_init_state(pub_key);
-  auto init_message = TestWallet::get_init_message(priv_key);
-  auto address = GenericAccount::get_address(0, init_state);
-
-  CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
-
-  td::Ref<vm::Cell> res = GenericAccount::create_ext_message(address, init_state, init_message);
-
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(res).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
-
-  fift_output.source_lookup.write_file("/main.fif", load_source("smartcont/wallet.fif")).ensure();
-  auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
-  fift_output = fift::mem_run_fift(std::move(fift_output.source_lookup),
-                                   {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123",
-                                    "321", "-C", "TEST"})
-                    .move_as_ok();
-  auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
-  auto gift_message = GenericAccount::create_ext_message(
-      address, {}, TestWallet::make_a_gift_message(priv_key, 123, 321000000000ll, "TEST", dest));
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(gift_message).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == gift_message->get_hash());
-}
-
-td::Ref<vm::Cell> get_wallet_source_fc() {
-  return fift::compile_asm(load_source("smartcont/wallet-code.fif"), "", false).move_as_ok();
-}
-
-TEST(Tonlib, Wallet) {
-  LOG(ERROR) << td::base64_encode(std_boc_serialize(get_wallet_source()).move_as_ok());
-  CHECK(get_wallet_source()->get_hash() == Wallet::get_init_code()->get_hash());
-
-  auto fift_output = fift::mem_run_fift(load_source("smartcont/new-wallet-v2.fif"), {"aba", "0"}).move_as_ok();
-
-  auto new_wallet_pk = fift_output.source_lookup.read_file("new-wallet.pk").move_as_ok().data;
-  auto new_wallet_query = fift_output.source_lookup.read_file("new-wallet-query.boc").move_as_ok().data;
-  auto new_wallet_addr = fift_output.source_lookup.read_file("new-wallet.addr").move_as_ok().data;
-
-  td::Ed25519::PrivateKey priv_key{td::SecureString{new_wallet_pk}};
-  auto pub_key = priv_key.get_public_key().move_as_ok();
-  auto init_state = Wallet::get_init_state(pub_key);
-  auto init_message = Wallet::get_init_message(priv_key);
-  auto address = GenericAccount::get_address(0, init_state);
-
-  CHECK(address.addr.as_slice() == td::Slice(new_wallet_addr).substr(0, 32));
-
-  td::Ref<vm::Cell> res = GenericAccount::create_ext_message(address, init_state, init_message);
-
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(res).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(new_wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(new_wallet_query).move_as_ok()->get_hash() == res->get_hash());
-
-  fift_output.source_lookup.write_file("/main.fif", load_source("smartcont/wallet-v2.fif")).ensure();
-  class ZeroOsTime : public fift::OsTime {
-   public:
-    td::uint32 now() override {
-      return 0;
-    }
-  };
-  fift_output.source_lookup.set_os_time(std::make_unique<ZeroOsTime>());
-  auto dest = block::StdAddress::parse("Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX").move_as_ok();
-  fift_output =
-      fift::mem_run_fift(std::move(fift_output.source_lookup),
-                         {"aba", "new-wallet", "Ef9Tj6fMJP+OqhAdhKXxq36DL+HYSzCc3+9O6UNzqsgPfYFX", "123", "321"})
-          .move_as_ok();
-  auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
-  auto gift_message = GenericAccount::create_ext_message(
-      address, {}, Wallet::make_a_gift_message(priv_key, 123, 60, 321000000000ll, "TESTv2", dest));
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(gift_message).print_rec(std::cerr);
-  LOG(ERROR) << "-------";
-  vm::load_cell_slice(vm::std_boc_deserialize(wallet_query).move_as_ok()).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == gift_message->get_hash());
-}
-
-TEST(Tonlib, TestGiver) {
-  auto address =
-      block::StdAddress::parse("-1:60c04141c6a7b96d68615e7a91d265ad0f3a9a922e9ae9c901d4fa83f5d3c0d0").move_as_ok();
-  LOG(ERROR) << address.bounceable;
-  auto fift_output = fift::mem_run_fift(load_source("smartcont/testgiver.fif"),
-                                        {"aba", address.rserialize(), "0", "6.666", "wallet-query"})
-                         .move_as_ok();
-  LOG(ERROR) << fift_output.output;
-
-  auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
-
-  auto res = GenericAccount::create_ext_message(
-      TestGiver::address(), {}, TestGiver::make_a_gift_message(0, 1000000000ll * 6666 / 1000, "GIFT", address));
-  vm::CellSlice(vm::NoVm(), res).print_rec(std::cerr);
-  CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == res->get_hash());
-}
 TEST(Tonlib, PublicKey) {
   block::PublicKey::parse("pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2").ensure_error();
   auto key = block::PublicKey::parse("Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2").move_as_ok();
@@ -309,7 +144,12 @@ TEST(Tonlib, InitClose) {
 )abc";
 
     sync_send(client, make_object<tonlib_api::options_setConfig>(cfg(bad_config.str()))).ensure_error();
-    sync_send(client, make_object<tonlib_api::testGiver_getAccountState>()).ensure_error();
+    auto address = sync_send(client, make_object<tonlib_api::getAccountAddress>(
+                                         make_object<tonlib_api::wallet_v3_initialAccountState>(
+                                             "Pubjns2gp7DGCnEH7EOWeCnb6Lw1akm538YYaz6sdLVHfRB2", 123),
+                                         0, -1))
+                       .move_as_ok();
+    sync_send(client, make_object<tonlib_api::getAccountState>(std::move(address))).ensure_error();
     sync_send(client, make_object<tonlib_api::close>()).ensure();
     sync_send(client, make_object<tonlib_api::close>()).ensure_error();
     sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(nullptr, dir("."))))
@@ -317,28 +157,84 @@ TEST(Tonlib, InitClose) {
   }
 }
 
-TEST(Tonlib, SimpleEncryption) {
+td::Slice to_data(const td::SecureString &str) {
+  return str.as_slice();
+}
+td::Slice to_data(const tonlib::SimpleEncryptionV2::Decrypted &str) {
+  return str.data.as_slice();
+}
+
+template <class Encryption>
+void test_encryption() {
   std::string secret = "secret";
   {
     std::string data = "some private data";
     std::string wrong_secret = "wrong secret";
-    auto encrypted_data = SimpleEncryption::encrypt_data(data, secret);
+    auto encrypted_data = Encryption::encrypt_data(data, secret);
     LOG(ERROR) << encrypted_data.size();
-    auto decrypted_data = SimpleEncryption::decrypt_data(encrypted_data, secret).move_as_ok();
-    CHECK(data == decrypted_data);
-    SimpleEncryption::decrypt_data(encrypted_data, wrong_secret).ensure_error();
-    SimpleEncryption::decrypt_data("", secret).ensure_error();
-    SimpleEncryption::decrypt_data(std::string(32, 'a'), secret).ensure_error();
-    SimpleEncryption::decrypt_data(std::string(33, 'a'), secret).ensure_error();
-    SimpleEncryption::decrypt_data(std::string(64, 'a'), secret).ensure_error();
-    SimpleEncryption::decrypt_data(std::string(128, 'a'), secret).ensure_error();
+    auto decrypted_data = Encryption::decrypt_data(encrypted_data, secret).move_as_ok();
+    CHECK(data == to_data(decrypted_data));
+    Encryption::decrypt_data(encrypted_data, wrong_secret).ensure_error();
+    Encryption::decrypt_data("", secret).ensure_error();
+    Encryption::decrypt_data(std::string(32, 'a'), secret).ensure_error();
+    Encryption::decrypt_data(std::string(33, 'a'), secret).ensure_error();
+    Encryption::decrypt_data(std::string(64, 'a'), secret).ensure_error();
+    Encryption::decrypt_data(std::string(128, 'a'), secret).ensure_error();
   }
 
   for (size_t i = 0; i < 255; i++) {
     auto data = td::rand_string('a', 'z', static_cast<int>(i));
-    auto encrypted_data = SimpleEncryption::encrypt_data(data, secret);
-    auto decrypted_data = SimpleEncryption::decrypt_data(encrypted_data, secret).move_as_ok();
-    CHECK(data == decrypted_data);
+    auto encrypted_data = Encryption::encrypt_data(data, secret);
+    auto decrypted_data = Encryption::decrypt_data(encrypted_data, secret).move_as_ok();
+    CHECK(data == to_data(decrypted_data));
+  }
+}
+TEST(Tonlib, SimpleEncryption) {
+  test_encryption<SimpleEncryption>();
+}
+
+TEST(Tonlib, SimpleEncryptionV2) {
+  test_encryption<SimpleEncryptionV2>();
+}
+
+TEST(Tonlib, SimpleEncryptionAsym) {
+  auto private_key = td::Ed25519::generate_private_key().move_as_ok();
+  auto public_key = private_key.get_public_key().move_as_ok();
+  auto other_private_key = td::Ed25519::generate_private_key().move_as_ok();
+  auto other_public_key = private_key.get_public_key().move_as_ok();
+  auto wrong_private_key = td::Ed25519::generate_private_key().move_as_ok();
+  {
+    std::string data = "some private data";
+    auto encrypted_data = SimpleEncryptionV2::encrypt_data(data, public_key, other_private_key).move_as_ok();
+    LOG(ERROR) << encrypted_data.size();
+    auto decrypted_data = SimpleEncryptionV2::decrypt_data(encrypted_data, private_key).move_as_ok();
+    CHECK(data == decrypted_data.data);
+    auto decrypted_data2 = SimpleEncryptionV2::decrypt_data(encrypted_data, other_private_key).move_as_ok();
+    CHECK(data == decrypted_data2.data);
+
+    CHECK(decrypted_data.proof == decrypted_data2.proof);
+
+    auto decrypted_data3 =
+        SimpleEncryptionV2::decrypt_data_with_proof(encrypted_data, decrypted_data.proof).move_as_ok();
+    CHECK(data == decrypted_data3);
+
+    SimpleEncryptionV2::decrypt_data(encrypted_data, wrong_private_key).ensure_error();
+    SimpleEncryptionV2::decrypt_data("", private_key).ensure_error();
+    SimpleEncryptionV2::decrypt_data(std::string(32, 'a'), private_key).ensure_error();
+    SimpleEncryptionV2::decrypt_data(std::string(33, 'a'), private_key).ensure_error();
+    SimpleEncryptionV2::decrypt_data(std::string(64, 'a'), private_key).ensure_error();
+    SimpleEncryptionV2::decrypt_data(std::string(128, 'a'), private_key).ensure_error();
+
+    SimpleEncryptionV2::decrypt_data_with_proof(encrypted_data, decrypted_data.proof, "bad salt").ensure_error();
+  }
+
+  for (size_t i = 0; i < 255; i++) {
+    auto data = td::rand_string('a', 'z', static_cast<int>(i));
+    auto encrypted_data = SimpleEncryptionV2::encrypt_data(data, public_key, other_private_key).move_as_ok();
+    auto decrypted_data = SimpleEncryptionV2::decrypt_data(encrypted_data, private_key).move_as_ok();
+    CHECK(data == decrypted_data.data);
+    auto decrypted_data2 = SimpleEncryptionV2::decrypt_data(encrypted_data, other_private_key).move_as_ok();
+    CHECK(data == decrypted_data2.data);
   }
 }
 
@@ -430,6 +326,17 @@ TEST(Tonlib, ParseAddres) {
   ASSERT_EQ("Uf9Tj6fMJP-OqhAdhKXxq36DL-HYSzCc3-9O6UNzqsgPfdyS", addr_str2->account_address_);
 }
 
+TEST(Tonlib, ConfigParseBug) {
+  td::Slice literal =
+      "D1000000000000006400000000000186A0DE0000000003E8000000000000000F424000000000000F42400000000000002710000000000098"
+      "96800000000005F5E100000000003B9ACA00";
+  unsigned char buff[128];
+  int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), literal.begin(), literal.end());
+  CHECK(bits >= 0);
+  auto slice = vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize();
+  block::Config::do_get_gas_limits_prices(std::move(slice), 21).ensure();
+}
+
 TEST(Tonlib, EncryptionApi) {
   using tonlib_api::make_object;
   Client client;
@@ -480,15 +387,15 @@ TEST(Tonlib, KeysApi) {
                                                                      td::SecureString{}))
                  .move_as_ok();
 
-  sync_send(client, make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(
+  sync_send(client, make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKeyRegular>(
                         make_object<tonlib_api::key>(key->public_key_, key->secret_.copy()),
                         td::SecureString("wrong password"))))
       .ensure_error();
 
-  //exportKey input_key:inputKey = ExportedKey;
+  //exportKey input_key:inputKeyRegular = ExportedKey;
   auto exported_key =
       sync_send(client,
-                make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(
+                make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKeyRegular>(
                     make_object<tonlib_api::key>(key->public_key_, key->secret_.copy()), local_password.copy())))
           .move_as_ok();
   LOG(ERROR) << to_string(exported_key);
@@ -500,20 +407,20 @@ TEST(Tonlib, KeysApi) {
     return word_list_copy;
   };
 
-  //changeLocalPassword input_key:inputKey new_local_password:bytes = Key;
+  //changeLocalPassword input_key:inputKeyRegular new_local_password:bytes = Key;
   auto new_key =
       sync_send(client,
                 make_object<tonlib_api::changeLocalPassword>(
-                    make_object<tonlib_api::inputKey>(
+                    make_object<tonlib_api::inputKeyRegular>(
                         make_object<tonlib_api::key>(key->public_key_, key->secret_.copy()), local_password.copy()),
                     td::SecureString("tmp local password")))
           .move_as_ok();
   sync_send(client,
-            make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(
+            make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKeyRegular>(
                 make_object<tonlib_api::key>(key->public_key_, new_key->secret_.copy()), local_password.copy())))
       .ensure_error();
 
-  auto exported_key2 = sync_send(client, make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKey>(
+  auto exported_key2 = sync_send(client, make_object<tonlib_api::exportKey>(make_object<tonlib_api::inputKeyRegular>(
                                              make_object<tonlib_api::key>(key->public_key_, new_key->secret_.copy()),
                                              td::SecureString("tmp local password"))))
                            .move_as_ok();
@@ -531,7 +438,7 @@ TEST(Tonlib, KeysApi) {
     auto wrong_export_password = td::SecureString("wrong_export password");
     auto exported_encrypted_key =
         sync_send(client, make_object<tonlib_api::exportEncryptedKey>(
-                              make_object<tonlib_api::inputKey>(
+                              make_object<tonlib_api::inputKeyRegular>(
                                   make_object<tonlib_api::key>(key->public_key_, new_key->secret_.copy()),
                                   td::SecureString("tmp local password")),
                               export_password.copy()))
@@ -576,12 +483,12 @@ TEST(Tonlib, KeysApi) {
   CHECK(imported_key->public_key_ == key->public_key_);
   CHECK(imported_key->secret_ != key->secret_);
 
-  //exportPemKey input_key:inputKey key_password:bytes = ExportedPemKey;
+  //exportPemKey input_key:inputKeyRegular key_password:bytes = ExportedPemKey;
   auto pem_password = td::SecureString("pem password");
   auto r_exported_pem_key = sync_send(
       client,
       make_object<tonlib_api::exportPemKey>(
-          make_object<tonlib_api::inputKey>(
+          make_object<tonlib_api::inputKeyRegular>(
               make_object<tonlib_api::key>(key->public_key_, imported_key->secret_.copy()), new_local_password.copy()),
           pem_password.copy()));
   if (r_exported_pem_key.is_error() && r_exported_pem_key.error().message() == "INTERNAL Not supported") {
@@ -609,4 +516,142 @@ TEST(Tonlib, KeysApi) {
                               .move_as_ok();
   CHECK(new_imported_key->public_key_ == key->public_key_);
   CHECK(new_imported_key->secret_ != key->secret_);
+
+  auto exported_raw_key =
+      sync_send(client, make_object<tonlib_api::exportUnencryptedKey>(make_object<tonlib_api::inputKeyRegular>(
+                            make_object<tonlib_api::key>(key->public_key_, new_imported_key->secret_.copy()),
+                            new_local_password.copy())))
+          .move_as_ok();
+  sync_send(client, make_object<tonlib_api::deleteKey>(
+                        make_object<tonlib_api::key>(new_imported_key->public_key_, new_imported_key->secret_.copy())))
+      .move_as_ok();
+  td::Ed25519::PrivateKey pkey(exported_raw_key->data_.copy());
+  auto raw_imported_key = sync_send(client, make_object<tonlib_api::importUnencryptedKey>(new_local_password.copy(),
+                                                                                          std::move(exported_raw_key)))
+                              .move_as_ok();
+
+  CHECK(raw_imported_key->public_key_ == key->public_key_);
+  CHECK(raw_imported_key->secret_ != key->secret_);
+
+  auto other_public_key = td::Ed25519::generate_private_key().move_as_ok().get_public_key().move_as_ok();
+  std::string text = "hello world";
+
+  std::vector<tonlib_api::object_ptr<tonlib_api::msg_dataEncrypted>> elements;
+  td::Slice addr = "Ef9Tj6fMJP-OqhAdhKXxq36DL-HYSzCc3-9O6UNzqsgPfYFX";
+  auto encrypted = SimpleEncryptionV2::encrypt_data(text, other_public_key, pkey, addr).move_as_ok().as_slice().str();
+  elements.push_back(make_object<tonlib_api::msg_dataEncrypted>(
+      make_object<tonlib_api::accountAddress>(addr.str()), make_object<tonlib_api::msg_dataEncryptedText>(encrypted)));
+
+  auto decrypted =
+      sync_send(client, make_object<tonlib_api::msg_decrypt>(
+                            make_object<tonlib_api::inputKeyRegular>(
+                                make_object<tonlib_api::key>(key->public_key_, raw_imported_key->secret_.copy()),
+                                new_local_password.copy()),
+                            make_object<tonlib_api::msg_dataEncryptedArray>(std::move(elements))))
+          .move_as_ok();
+
+  auto proof = decrypted->elements_[0]->proof_;
+  downcast_call(*decrypted->elements_[0]->data_,
+                td::overloaded([](auto &) { UNREACHABLE(); },
+                               [&](tonlib_api::msg_dataDecryptedText &decrypted) { CHECK(decrypted.text_ == text); }));
+  auto decrypted2 = sync_send(client, make_object<tonlib_api::msg_decryptWithProof>(
+                                          proof, make_object<tonlib_api::msg_dataEncrypted>(
+                                                     make_object<tonlib_api::accountAddress>(addr.str()),
+                                                     make_object<tonlib_api::msg_dataEncryptedText>(encrypted))))
+                        .move_as_ok();
+  downcast_call(*decrypted2,
+                td::overloaded([](auto &) { UNREACHABLE(); },
+                               [&](tonlib_api::msg_dataDecryptedText &decrypted) { CHECK(decrypted.text_ == text); }));
+}
+
+TEST(Tonlib, ConfigCache) {
+  using tonlib_api::make_object;
+  Client client;
+
+  td::rmrf("testdir").ignore();
+  td::mkdir("testdir").ignore();
+  // init
+  sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>(
+                        nullptr, make_object<tonlib_api::keyStoreTypeDirectory>("testdir"))))
+      .ensure();
+
+  auto testnet = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  auto testnet2 = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
+      "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
+    }
+  }
+})abc";
+  auto testnet3 = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "root_hash": "ZXSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  auto bad = R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
+      "workchain": -1,
+      "shard": -9223372036854775808,
+      "seqno": 0,
+      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    }
+  }
+})abc";
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(bad, "", true, false)))
+      .ensure_error();
+
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet, "", true, false)))
+      .ensure();
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet2, "", true, false)))
+      .ensure();
+  sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet3, "", true, false)))
+      .ensure();
+
+  sync_send(client, make_object<tonlib_api::options_validateConfig>(
+                        make_object<tonlib_api::config>(testnet2, "testnet", true, false)))
+      .ensure_error();
+
+  sync_send(client, make_object<tonlib_api::options_setConfig>(
+                        make_object<tonlib_api::config>(testnet2, "testnet2", true, false)))
+      .ensure();
+  sync_send(client, make_object<tonlib_api::options_setConfig>(
+                        make_object<tonlib_api::config>(testnet3, "testnet2", true, false)))
+      .ensure_error();
 }

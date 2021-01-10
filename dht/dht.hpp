@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -85,8 +85,8 @@ class DhtMember : public Dht {
 
   static td::actor::ActorOwn<DhtMember> create(adnl::AdnlNodeIdShort id, std::string db_root,
                                                td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl, td::uint32 k = 10,
-                                               td::uint32 a = 3);
+                                               td::actor::ActorId<adnl::Adnl> adnl, td::uint32 k = 10, td::uint32 a = 3,
+                                               bool client_only = false);
 
   //virtual void update_addr_list(tl_object_ptr<ton_api::adnl_addressList> addr_list) = 0;
   //virtual void add_node(adnl::AdnlNodeIdShort id) = 0;

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -22,6 +22,7 @@
 #include "td/actor/actor.h"
 #include "validator/interfaces/block-handle.h"
 #include "ton/ton-io.hpp"
+#include "archive-manager.hpp"
 
 namespace ton {
 
@@ -32,13 +33,12 @@ class FileDb;
 
 class BlockArchiver : public td::actor::Actor {
  public:
-  BlockArchiver(BlockIdExt block_id, td::actor::ActorId<RootDb> root_db, td::actor::ActorId<FileDb> file_db,
-                td::actor::ActorId<FileDb> archive_db, td::Promise<td::Unit> promise);
+  BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManager> archive_db, td::Promise<td::Unit> promise);
 
   void abort_query(td::Status error);
 
   void start_up() override;
-  void got_block_handle(BlockHandle handle);
+  void moved_handle();
   void got_proof(td::BufferSlice data);
   void written_proof();
   void got_proof_link(td::BufferSlice data);
@@ -48,13 +48,9 @@ class BlockArchiver : public td::actor::Actor {
   void finish_query();
 
  private:
-  BlockIdExt block_id_;
-  td::actor::ActorId<RootDb> root_db_;
-  td::actor::ActorId<FileDb> file_db_;
-  td::actor::ActorId<FileDb> archive_db_;
-  td::Promise<td::Unit> promise_;
-
   BlockHandle handle_;
+  td::actor::ActorId<ArchiveManager> archive_;
+  td::Promise<td::Unit> promise_;
 };
 
 }  // namespace validator

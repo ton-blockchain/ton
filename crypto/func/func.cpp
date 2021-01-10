@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 #include "parser/srcread.h"
@@ -60,21 +60,36 @@ void generate_output_func(SymDef* func_sym) {
       code.print(std::cerr, 9);
     }
     code.simplify_var_types();
-    // std::cerr << "after simplify_var_types: \n";  code.print(std::cerr, 0);
+    if (verbosity >= 5) {
+      std::cerr << "after simplify_var_types: \n";
+      code.print(std::cerr, 0);
+    }
     code.prune_unreachable_code();
-    // std::cerr << "after prune_unreachable: \n";  code.print(std::cerr, 0);
+    if (verbosity >= 5) {
+      std::cerr << "after prune_unreachable: \n";
+      code.print(std::cerr, 0);
+    }
     code.split_vars(true);
-    // std::cerr << "after split_vars: \n";  code.print(std::cerr, 0);
+    if (verbosity >= 5) {
+      std::cerr << "after split_vars: \n";
+      code.print(std::cerr, 0);
+    }
     for (int i = 0; i < 8; i++) {
       code.compute_used_code_vars();
-      if (verbosity >= 5) {
+      if (verbosity >= 4) {
         std::cerr << "after compute_used_vars: \n";
         code.print(std::cerr, 6);
       }
       code.fwd_analyze();
-      // std::cerr << "after fwd_analyze: \n";  code.print(std::cerr, 6);
+      if (verbosity >= 5) {
+        std::cerr << "after fwd_analyze: \n";
+        code.print(std::cerr, 6);
+      }
       code.prune_unreachable_code();
-      // std::cerr << "after prune_unreachable: \n";  code.print(std::cerr, 6);
+      if (verbosity >= 5) {
+        std::cerr << "after prune_unreachable: \n";
+        code.print(std::cerr, 6);
+      }
     }
     code.mark_noreturn();
     if (verbosity >= 3) {
@@ -114,6 +129,11 @@ int generate_output() {
     } else {
       *outs << func_val->method_id << " DECLMETHOD " << name << "\n";
     }
+  }
+  for (SymDef* gvar_sym : glob_vars) {
+    assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
+    std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
+    *outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
   int errors = 0;
   for (SymDef* func_sym : glob_func) {

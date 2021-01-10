@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -43,7 +43,7 @@
 
 enum ValidatorEnginePermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
-using AdnlCategory = td::int32;
+using AdnlCategory = td::uint8;
 
 struct Config {
   struct Addr {
@@ -190,44 +190,49 @@ class ValidatorEngine : public td::actor::Actor {
   };
   std::map<CI_key, td::uint32> control_permissions_;
 
-  td::Clocks::Duration state_ttl_ = 0;
-  td::Clocks::Duration block_ttl_ = 0;
-  td::Clocks::Duration sync_ttl_ = 0;
-  td::Clocks::Duration archive_ttl_ = 0;
-  td::Clocks::Duration key_proof_ttl_ = 0;
-  td::uint32 db_depth_ = 33;
+  double state_ttl_ = 0;
+  double block_ttl_ = 0;
+  double sync_ttl_ = 0;
+  double archive_ttl_ = 0;
+  double key_proof_ttl_ = 0;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
+  ton::BlockSeqno truncate_seqno_{0};
+
+  std::set<ton::CatchainSeqno> unsafe_catchains_;
 
  public:
-  static constexpr td::uint32 max_cat() {
-    return 256;
+  static constexpr td::uint8 max_cat() {
+    return 250;
   }
 
+  void add_unsafe_catchain(ton::CatchainSeqno seq) {
+    unsafe_catchains_.insert(seq);
+  }
   void set_local_config(std::string str);
   void set_global_config(std::string str);
   void set_fift_dir(std::string str) {
     fift_dir_ = str;
   }
   void set_db_root(std::string db_root);
-  void set_db_depth(td::uint32 value) {
-    db_depth_ = value;
-  }
-  void set_state_ttl(td::Clocks::Duration t) {
+  void set_state_ttl(double t) {
     state_ttl_ = t;
   }
-  void set_block_ttl(td::Clocks::Duration t) {
+  void set_block_ttl(double t) {
     block_ttl_ = t;
   }
-  void set_sync_ttl(td::Clocks::Duration t) {
+  void set_sync_ttl(double t) {
     sync_ttl_ = t;
   }
-  void set_archive_ttl(td::Clocks::Duration t) {
+  void set_archive_ttl(double t) {
     archive_ttl_ = t;
   }
-  void set_key_proof_ttl(td::Clocks::Duration t) {
+  void set_key_proof_ttl(double t) {
     key_proof_ttl_ = t;
+  }
+  void set_truncate_seqno(ton::BlockSeqno seqno) {
+    truncate_seqno_ = seqno;
   }
   void add_ip(td::IPAddress addr) {
     addrs_.push_back(addr);
@@ -286,7 +291,9 @@ class ValidatorEngine : public td::actor::Actor {
   void alarm() override;
   void run();
 
-  void try_add_adnl_node(ton::PublicKeyHash pub, td::int32 cat, td::Promise<td::Unit> promise);
+  void get_current_validator_perm_key(td::Promise<std::pair<ton::PublicKey, size_t>> promise);
+
+  void try_add_adnl_node(ton::PublicKeyHash pub, AdnlCategory cat, td::Promise<td::Unit> promise);
   void try_add_dht_node(ton::PublicKeyHash pub, td::Promise<td::Unit> promise);
   void try_add_validator_permanent_key(ton::PublicKeyHash key_hash, td::uint32 election_date, td::uint32 ttl,
                                        td::Promise<td::Unit> promise);
@@ -376,6 +383,10 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_checkDhtServers &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_createProposalVote &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_createComplaintVote &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                          td::Promise<td::BufferSlice> promise) {
@@ -385,4 +396,3 @@ class ValidatorEngine : public td::actor::Actor {
   void process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
                              td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 };
-

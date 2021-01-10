@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -56,10 +56,12 @@ struct BlockHandleImpl : public BlockHandleInterface {
     dbf_inited_state_boc = 0x100000,
     dbf_archived = 0x200000,
     dbf_applied = 0x400000,
-    dbf_moved = 0x1000000,
+    dbf_inited_masterchain_ref_block = 0x800000,
     dbf_deleted = 0x2000000,
     dbf_deleted_boc = 0x4000000,
+    dbf_moved_new = 0x8000000,
     dbf_processed = 0x10000000,
+    dbf_moved_handle = 0x20000000,
   };
 
   std::atomic<td::uint64> version_{0};
@@ -71,6 +73,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
   LogicalTime lt_;
   UnixTime ts_;
   RootHash state_;
+  BlockSeqno masterchain_ref_seqno_;
 
   static constexpr td::uint64 lock_const() {
     return static_cast<td::uint64>(1) << 32;
@@ -92,8 +95,11 @@ struct BlockHandleImpl : public BlockHandleInterface {
   bool received() const override {
     return flags_.load(std::memory_order_consume) & Flags::dbf_received;
   }
-  bool moved_to_storage() const override {
-    return flags_.load(std::memory_order_consume) & Flags::dbf_moved;
+  bool moved_to_archive() const override {
+    return flags_.load(std::memory_order_consume) & Flags::dbf_moved_new;
+  }
+  bool handle_moved_to_archive() const override {
+    return flags_.load(std::memory_order_consume) & Flags::dbf_moved_handle;
   }
   bool deleted() const override {
     return flags_.load(std::memory_order_consume) & Flags::dbf_deleted;
@@ -194,6 +200,13 @@ struct BlockHandleImpl : public BlockHandleInterface {
   }
   bool is_applied() const override {
     return flags_.load(std::memory_order_consume) & Flags::dbf_applied;
+  }
+  bool inited_masterchain_ref_block() const override {
+    return id_.is_masterchain() || (flags_.load(std::memory_order_consume) & Flags::dbf_inited_masterchain_ref_block);
+  }
+  BlockSeqno masterchain_ref_block() const override {
+    CHECK(inited_masterchain_ref_block());
+    return id_.is_masterchain() ? id_.seqno() : masterchain_ref_seqno_;
   }
   std::vector<BlockIdExt> prev() const override {
     if (is_zero()) {
@@ -385,13 +398,16 @@ struct BlockHandleImpl : public BlockHandleInterface {
     flags_ |= Flags::dbf_received;
     unlock();
   }
-  void set_moved_to_storage() override {
-    if (flags_.load(std::memory_order_consume) & Flags::dbf_moved) {
+  void set_moved_to_archive() override {
+    if (flags_.load(std::memory_order_consume) & Flags::dbf_moved_new) {
       return;
     }
     lock();
-    flags_ |= Flags::dbf_moved;
+    flags_ |= Flags::dbf_moved_new;
     unlock();
+  }
+  void set_handle_moved_to_archive() override {
+    flags_ |= Flags::dbf_moved_handle;
   }
   void set_deleted() override {
     if (flags_.load(std::memory_order_consume) & Flags::dbf_deleted) {
@@ -472,6 +488,14 @@ struct BlockHandleImpl : public BlockHandleInterface {
       unlock();
     }
   }
+  void set_masterchain_ref_block(BlockSeqno seqno) override {
+    if (!inited_masterchain_ref_block()) {
+      lock();
+      masterchain_ref_seqno_ = seqno;
+      flags_ |= Flags::dbf_inited_masterchain_ref_block;
+      unlock();
+    }
+  }
 
   void unsafe_clear_applied() override {
     if (is_applied()) {
@@ -493,7 +517,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
       : id_(id), flags_(id_.is_masterchain() ? static_cast<td::uint32>(dbf_masterchain) : 0) {
     get_thread_safe_counter().add(1);
   }
-  BlockHandleImpl(td::BufferSlice data);
+  BlockHandleImpl(td::Slice data);
   ~BlockHandleImpl() {
     LOG_CHECK(!need_flush()) << "flags=" << flags_;
     get_thread_safe_counter().add(-1);
@@ -508,7 +532,7 @@ struct BlockHandleImpl : public BlockHandleInterface {
     return std::make_shared<BlockHandleImpl>(id);
   }
 
-  static BlockHandle create(td::BufferSlice data) {
+  static BlockHandle create(td::Slice data) {
     return std::make_shared<BlockHandleImpl>(std::move(data));
   }
 };

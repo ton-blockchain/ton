@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -34,9 +34,10 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
     callback_ = std::move(callback);
   }
 
-  void add_self_addr(td::IPAddress addr, td::uint32 priority) override {
+  void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) override {
   }
-  void add_proxy_addr(td::IPAddress addr, std::shared_ptr<AdnlProxy> proxy, td::uint32 priority) override {
+  void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
+                      AdnlCategoryMask cat_mask, td::uint32 priority) override {
   }
   void send_udp_packet(ton::adnl::AdnlNodeIdShort src_id, ton::adnl::AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
                        td::uint32 priority, td::BufferSlice data) override {
@@ -48,7 +49,9 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
       return;
     }
     CHECK(callback_);
-    callback_->receive_packet(dst_addr, std::move(data));
+    AdnlCategoryMask m;
+    m[0] = true;
+    callback_->receive_packet(dst_addr, std::move(m), std::move(data));
   }
 
   void add_node_id(AdnlNodeIdShort id, bool allow_send, bool allow_receive) {
@@ -67,6 +70,8 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
   void set_loss_probability(double p) {
     CHECK(p >= 0 && p <= 1);
     loss_probability_ = p;
+  }
+  void set_local_id_category(AdnlNodeIdShort id, td::uint8 cat) override {
   }
 
   TestLoopbackNetworkManager() {

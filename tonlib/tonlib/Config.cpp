@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "Config.h"
 #include "adnl/adnl-node-id.hpp"
@@ -84,10 +84,10 @@ td::Result<Config> Config::parse(std::string str) {
     //return td::Status::Error("Invalid config (4)");
     //}
 
-    TRY_RESULT(ip, td::get_json_object_int_field(object, "ip", false));
+    TRY_RESULT(ip, td::get_json_object_long_field(object, "ip", false));
     TRY_RESULT(port, td::get_json_object_int_field(object, "port", false));
     Config::LiteClient client;
-    TRY_STATUS(client.address.init_host_port(td::IPAddress::ipv4_to_str(ip), port));
+    TRY_STATUS(client.address.init_host_port(td::IPAddress::ipv4_to_str(static_cast<td::int32>(ip)), port));
 
     TRY_RESULT(id_obj, td::get_json_object_field(object, "id", td::JsonValue::Type::Object, false));
     auto &id = id_obj.get_object();
@@ -119,6 +119,26 @@ td::Result<Config> Config::parse(std::string str) {
   if (r_init_block_obj.is_ok()) {
     TRY_RESULT(init_block_id, parse_block_id_ext(r_init_block_obj.move_as_ok().get_object()));
     res.init_block_id = init_block_id;
+  }
+
+  auto r_hardforks = td::get_json_object_field(validator, "hardforks", td::JsonValue::Type::Array, false);
+  if (r_hardforks.is_ok()) {
+    auto hardforks_obj = r_hardforks.move_as_ok();
+    auto &hardforks = hardforks_obj.get_array();
+    for (auto &fork : hardforks) {
+      if (fork.type() != td::JsonValue::Type::Object) {
+        return td::Status::Error("Invalid config (8)");
+      }
+      TRY_RESULT(fork_block, parse_block_id_ext(fork.get_object()));
+      res.hardforks.push_back(std::move(fork_block));
+    }
+  }
+
+  for (auto hardfork : res.hardforks) {
+    if (!res.init_block_id.is_valid() || hardfork.seqno() > res.init_block_id.seqno()) {
+      LOG(INFO) << "Replace init_block with hardfork: " << res.init_block_id.to_str() << " -> " << hardfork.to_str();
+      res.init_block_id = hardfork;
+    }
   }
 
   return res;

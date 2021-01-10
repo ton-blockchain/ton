@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -39,8 +39,8 @@ class DhtBucket {
 
   //std::map<td::UInt256, std::unique_ptr<DhtRemoteNode>> pending_nodes_;
   td::uint32 k_;
-  bool check_one(td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node, adnl::AdnlNodeIdShort src,
-                 const DhtMember::PrintId &print_id);
+  //bool check_one(td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node, adnl::AdnlNodeIdShort src,
+  //               const DhtMember::PrintId &print_id);
   void demote_node(size_t idx);
   void promote_node(size_t idx);
 
@@ -52,7 +52,8 @@ class DhtBucket {
   td::uint32 active_cnt();
   td::Status add_full_node(DhtKeyId id, DhtNode node, td::actor::ActorId<adnl::Adnl> adnl,
                            adnl::AdnlNodeIdShort self_id);
-  void check(td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node, adnl::AdnlNodeIdShort src);
+  void check(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node,
+             adnl::AdnlNodeIdShort src);
   void receive_ping(DhtKeyId id, DhtNode result, td::actor::ActorId<adnl::Adnl> adnl, adnl::AdnlNodeIdShort self_id);
   void get_nearest_nodes(DhtKeyId id, td::uint32 bit, DhtNodesList &vec, td::uint32 k);
   void dump(td::StringBuilder &sb) const;

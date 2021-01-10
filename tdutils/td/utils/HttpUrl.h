@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -27,7 +27,7 @@ namespace td {
 
 class HttpUrl {
  public:
-  enum class Protocol { HTTP, HTTPS } protocol_ = Protocol::HTTP;
+  enum class Protocol { Http, Https } protocol_ = Protocol::Http;
   string userinfo_;
   string host_;
   bool is_ipv6_ = false;
@@ -49,7 +49,7 @@ class HttpUrl {
 };
 
 Result<HttpUrl> parse_url(Slice url,
-                          HttpUrl::Protocol default_protocol = HttpUrl::Protocol::HTTP) TD_WARN_UNUSED_RESULT;
+                          HttpUrl::Protocol default_protocol = HttpUrl::Protocol::Http) TD_WARN_UNUSED_RESULT;
 
 StringBuilder &operator<<(StringBuilder &sb, const HttpUrl &url);
 

@@ -14,31 +14,17 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
-#include "td/utils/misc.h"
 #include "td/utils/Slice.h"
 
 namespace td {
 
 class PathView {
  public:
-  explicit PathView(Slice path) : path_(path) {
-    last_slash_ = narrow_cast<int32>(path_.size()) - 1;
-    while (last_slash_ >= 0 && !is_slash(path_[last_slash_])) {
-      last_slash_--;
-    }
-
-    last_dot_ = static_cast<int32>(path_.size());
-    for (auto i = last_dot_ - 1; i > last_slash_ + 1; i--) {
-      if (path_[i] == '.') {
-        last_dot_ = i;
-        break;
-      }
-    }
-  }
+  explicit PathView(Slice path);
 
   bool empty() const {
     return path_.empty();
@@ -53,6 +39,9 @@ class PathView {
 
   Slice parent_dir() const {
     return path_.substr(0, last_slash_ + 1);
+  }
+  Slice parent_dir_noslash() const {
+    return last_slash_ <= 0 ? td::Slice(".") : path_.substr(0, last_slash_);
   }
 
   Slice extension() const {
@@ -86,34 +75,8 @@ class PathView {
     return !is_absolute();
   }
 
-  static Slice relative(Slice path, Slice dir, bool force = false) {
-    if (begins_with(path, dir)) {
-      path.remove_prefix(dir.size());
-      return path;
-    }
-    if (force) {
-      return Slice();
-    }
-    return path;
-  }
-
-  static Slice dir_and_file(Slice path) {
-    auto last_slash = static_cast<int32>(path.size()) - 1;
-    while (last_slash >= 0 && !is_slash(path[last_slash])) {
-      last_slash--;
-    }
-    if (last_slash < 0) {
-      return Slice();
-    }
-    last_slash--;
-    while (last_slash >= 0 && !is_slash(path[last_slash])) {
-      last_slash--;
-    }
-    if (last_slash < 0) {
-      return Slice();
-    }
-    return path.substr(last_slash + 1);
-  }
+  static Slice relative(Slice path, Slice dir, bool force = false);
+  static Slice dir_and_file(Slice path);
 
  private:
   static bool is_slash(char c) {

@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "block/block.h"
 #include "vm/boc.h"
@@ -31,10 +31,12 @@
 #include "block-db.h"
 #include "block-auto.h"
 #include "block-parse.h"
+#include "mc-config.h"
 #include "vm/cp0.h"
 #include <getopt.h>
 
 using td::Ref;
+using namespace std::literals::string_literals;
 
 int verbosity;
 
@@ -45,6 +47,12 @@ struct IntError {
   IntError(const char* _msg) : err_msg(_msg) {
   }
 };
+
+void throw_err(td::Status err) {
+  if (err.is_error()) {
+    throw IntError{err.to_string()};
+  }
+}
 
 td::Ref<vm::Cell> load_boc(std::string filename) {
   std::cerr << "loading bag-of-cell file " << filename << std::endl;
@@ -62,6 +70,8 @@ td::Ref<vm::Cell> load_boc(std::string filename) {
   }
   return boc.get_root_cell();
 }
+
+std::vector<Ref<vm::Cell>> loaded_boc;
 
 void test1() {
   block::ShardId id{ton::masterchainId}, id2{ton::basechainId, 0x11efULL << 48};
@@ -98,7 +108,7 @@ void test1() {
 
   block::tlb::ShardIdent::Record shard_id;
   for (int i = 0; i < 3; i++) {
-    std::cout << "ShardIdent.validate() = " << block::tlb::t_ShardIdent.validate(csl) << std::endl;
+    std::cout << "ShardIdent.validate() = " << block::tlb::t_ShardIdent.validate_upto(1024, csl) << std::endl;
     csl.print_rec(std::cerr);
     csl.dump(std::cerr, 7);
     std::cout << "ShardIdent.unpack() = " << block::tlb::t_ShardIdent.unpack(csl, shard_id) << std::endl;
@@ -107,9 +117,9 @@ void test1() {
                 << " shard_prefix:" << shard_id.shard_prefix << std::endl;
     }
   }
-  std::cout << "ShardIdent.skip_validate() = " << block::tlb::t_ShardIdent.validate_skip(csl) << std::endl;
-  std::cout << "ShardIdent.skip_validate() = " << block::tlb::t_ShardIdent.validate_skip(csl) << std::endl;
-  std::cout << "ShardIdent.skip_validate() = " << block::tlb::t_ShardIdent.validate_skip(csl) << std::endl;
+  std::cout << "ShardIdent.skip_validate() = " << block::tlb::t_ShardIdent.validate_skip_upto(1024, csl) << std::endl;
+  std::cout << "ShardIdent.skip_validate() = " << block::tlb::t_ShardIdent.validate_skip_upto(1024, csl) << std::endl;
+  std::cout << "ShardIdent.skip_validate() = " << block::tlb::t_ShardIdent.validate_skip_upto(1024, csl) << std::endl;
   using namespace td::literals;
   std::cout << "Grams.store_intval(239) = " << block::tlb::t_Grams.store_integer_value(cb, "239"_i256) << std::endl;
   std::cout << "Grams.store_intval(17239) = " << block::tlb::t_Grams.store_integer_value(cb, "17239"_i256) << std::endl;
@@ -120,13 +130,13 @@ void test1() {
   std::cout << "Grams.store_intval(666) = " << block::tlb::t_Grams.store_integer_value(cb, "666"_i256) << std::endl;
   std::cout << cb << std::endl;
   cs2 = td::Ref<vm::CellSlice>{true, cb.finalize()};
-  std::cout << "Grams.validate(cs) = " << block::tlb::t_Grams.validate(*cs) << std::endl;
-  std::cout << "Grams.validate(cs2) = " << block::tlb::t_Grams.validate(*cs2) << std::endl;
+  std::cout << "Grams.validate(cs) = " << block::tlb::t_Grams.validate_upto(1024, *cs) << std::endl;
+  std::cout << "Grams.validate(cs2) = " << block::tlb::t_Grams.validate_upto(1024, *cs2) << std::endl;
   //
   block::gen::SplitMergeInfo::Record data;
   block::gen::Grams::Record data2;
-  std::cout << "block::gen::Grams.validate(cs) = " << block::gen::t_Grams.validate(*cs) << std::endl;
-  std::cout << "block::gen::Grams.validate(cs2) = " << block::gen::t_Grams.validate(*cs2) << std::endl;
+  std::cout << "block::gen::Grams.validate(cs) = " << block::gen::t_Grams.validate_upto(1024, *cs) << std::endl;
+  std::cout << "block::gen::Grams.validate(cs2) = " << block::gen::t_Grams.validate_upto(1024, *cs2) << std::endl;
   std::cout << "[cs = " << cs << "]" << std::endl;
   bool ok = tlb::csr_unpack_inexact(cs, data);
   std::cout << "block::gen::SplitMergeInfo.unpack(cs, data) = " << ok << std::endl;
@@ -182,32 +192,93 @@ void test1() {
 }
 
 void test2(vm::CellSlice& cs) {
-  std::cout << "Bool.validate() = " << block::tlb::t_Bool.validate(cs) << std::endl;
-  std::cout << "UInt16.validate() = " << block::tlb::t_uint16.validate(cs) << std::endl;
-  std::cout << "HashmapE(32,UInt16).validate() = " << block::tlb::HashmapE(32, block::tlb::t_uint16).validate(cs)
-            << std::endl;
+  std::cout << "Bool.validate() = " << block::tlb::t_Bool.validate_upto(1024, cs) << std::endl;
+  std::cout << "UInt16.validate() = " << block::tlb::t_uint16.validate_upto(1024, cs) << std::endl;
+  std::cout << "HashmapE(32,UInt16).validate() = "
+            << block::tlb::HashmapE(32, block::tlb::t_uint16).validate_upto(1024, cs) << std::endl;
   std::cout << "block::gen::HashmapE(32,UInt16).validate() = "
-            << block::gen::HashmapE{32, block::gen::t_uint16}.validate(cs) << std::endl;
+            << block::gen::HashmapE{32, block::gen::t_uint16}.validate_upto(1024, cs) << std::endl;
+}
+
+td::Status test_vset() {
+  if (loaded_boc.size() != 2) {
+    return td::Status::Error(
+        "must have exactly two boc files (with a masterchain Block and with ConfigParams) for vset compute test");
+  }
+  std::cerr << "running test_vset()\n";
+  TRY_RESULT(config, block::Config::unpack_config(vm::load_cell_slice_ref(loaded_boc[1])));
+  std::cerr << "config unpacked\n";
+  auto cv_root = config->get_config_param(34);
+  if (cv_root.is_null()) {
+    return td::Status::Error("no config parameter 34");
+  }
+  std::cerr << "config param #34 obtained\n";
+  TRY_RESULT(cur_validators, block::Config::unpack_validator_set(std::move(cv_root)));
+  // auto vconf = config->get_catchain_validators_config();
+  std::cerr << "validator set unpacked\n";
+  std::cerr << "unpacking ShardHashes\n";
+  block::ShardConfig shards;
+  if (!shards.unpack(vm::load_cell_slice_ref(loaded_boc[0]))) {
+    return td::Status::Error("cannot unpack ShardConfig");
+  }
+  std::cerr << "ShardHashes initialized\n";
+  ton::ShardIdFull shard{0, 0x6e80000000000000};
+  ton::CatchainSeqno cc_seqno = std::max(48763, 48763) + 1 + 1;
+  ton::UnixTime now = 1586169666;
+  cc_seqno = shards.get_shard_cc_seqno(shard);
+  std::cerr << "shard=" << shard.to_str() << " cc_seqno=" << cc_seqno << " time=" << now << std::endl;
+  if (cc_seqno == ~0U) {
+    return td::Status::Error("cannot compute cc_seqno for shard "s + shard.to_str());
+  }
+  auto nodes = config->compute_validator_set(shard, *cur_validators, now, cc_seqno);
+  if (nodes.empty()) {
+    return td::Status::Error(PSTRING() << "compute_validator_set() for " << shard.to_str() << "," << now << ","
+                                       << cc_seqno << " returned empty list");
+  }
+  for (auto& x : nodes) {
+    std::cout << "weight=" << x.weight << " key=" << x.key.as_bits256().to_hex() << " addr=" << x.addr.to_hex()
+              << std::endl;
+  }
+  // ...
+  return td::Status::OK();
 }
 
 void usage() {
-  std::cout << "usage: test-block [-S][<boc-file>]\n\tor test-block -h\n\tDumps specified blockchain block or state "
-               "from <boc-file>, or runs some tests\n\t-S\tDump a blockchain state\n";
+  std::cout << "usage: dump-block [-t<typename>][-S][<boc-file>]\n\tor dump-block -h\n\tDumps specified blockchain "
+               "block or state "
+               "from <boc-file>, or runs some tests\n\t-S\tDump a blockchain state instead of a block\n";
   std::exit(2);
 }
 
 int main(int argc, char* const argv[]) {
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  bool dump_state = false;
+  const char* tname = nullptr;
+  const tlb::TLB* type = &block::gen::t_Block;
+  bool vset_compute_test = false;
+  bool store_loaded = false;
+  int dump = 3;
   auto zerostate = std::make_unique<block::ZerostateInfo>();
-  while ((i = getopt(argc, argv, "Shv:")) != -1) {
+  while ((i = getopt(argc, argv, "CSt:hqv:")) != -1) {
     switch (i) {
+      case 'C':
+        type = &block::gen::t_VmCont;
+        break;
       case 'S':
-        dump_state = true;
+        type = &block::gen::t_ShardStateUnsplit;
+        break;
+      case 't':
+        tname = optarg;
+        type = nullptr;
         break;
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
+        break;
+      case 'q':
+        type = &block::gen::t_ShardHashes;
+        vset_compute_test = true;
+        store_loaded = true;
+        dump = 0;
         break;
       case 'h':
         usage();
@@ -219,33 +290,55 @@ int main(int argc, char* const argv[]) {
   }
   SET_VERBOSITY_LEVEL(new_verbosity_level);
   try {
-    bool done = false;
+    int loaded = 0;
     while (optind < argc) {
       auto boc = load_boc(argv[optind++]);
       if (boc.is_null()) {
-        std::cerr << "(invalid boc)" << std::endl;
+        std::cerr << "(invalid boc in file" << argv[optind - 1] << ")" << std::endl;
         std::exit(2);
       } else {
-        done = true;
-        vm::CellSlice cs{vm::NoVm(), boc};
-        cs.print_rec(std::cout);
-        std::cout << std::endl;
-        auto& type = dump_state ? (const tlb::TLB&)block::gen::t_ShardStateUnsplit : block::gen::t_Block;
-        std::string type_name = dump_state ? "ShardState" : "Block";
-        type.print_ref(std::cout, boc);
-        std::cout << std::endl;
-        bool ok = type.validate_ref(boc);
-        std::cout << "(" << (ok ? "" : "in") << "valid " << type_name << ")" << std::endl;
+        if (store_loaded) {
+          loaded_boc.push_back(boc);
+        }
+        ++loaded;
+        if (dump & 1) {
+          vm::CellSlice cs{vm::NoVm(), boc};
+          cs.print_rec(std::cout);
+          std::cout << std::endl;
+        }
+        if (!type) {
+          tlb::TypenameLookup dict(block::gen::register_simple_types);
+          type = dict.lookup(tname);
+          if (!type) {
+            std::cerr << "unknown TL-B type " << tname << std::endl;
+            std::exit(3);
+          }
+        }
+        if (dump & 2) {
+          type->print_ref(std::cout, boc);
+          std::cout << std::endl;
+        }
+        bool ok = type->validate_ref(1048576, boc);
+        std::cout << "(" << (ok ? "" : "in") << "valid " << *type << ")" << std::endl;
+        if (vset_compute_test) {
+          if (!ok || loaded > 2) {
+            std::cerr << "fatal: validity check failed\n";
+            exit(3);
+          }
+          type = &block::gen::t_ConfigParams;
+        }
       }
     }
-    if (!done) {
+    if (vset_compute_test) {
+      throw_err(test_vset());
+    } else if (!loaded) {
       test1();
     }
   } catch (IntError& err) {
-    std::cerr << "caught internal error " << err.err_msg << std::endl;
+    std::cerr << "internal error: " << err.err_msg << std::endl;
     return 1;
   } catch (vm::VmError& err) {
-    std::cerr << "caught vm error " << err.get_msg() << std::endl;
+    std::cerr << "vm error: " << err.get_msg() << std::endl;
     return 1;
   }
   return 0;

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/net/TcpListener.h"
 
@@ -71,6 +71,58 @@ void TcpListener::loop() {
   if (status.is_error()) {
     LOG(ERROR) << "Server error " << status;
     return stop();
+  }
+}
+TcpInfiniteListener::TcpInfiniteListener(int32 port, std::unique_ptr<TcpListener::Callback> callback)
+    : port_(port), callback_(std::move(callback)) {
+}
+
+void TcpInfiniteListener::start_up() {
+  loop();
+}
+
+void TcpInfiniteListener::hangup() {
+  close_flag_ = true;
+  tcp_listener_.reset();
+  if (refcnt_ == 0) {
+    stop();
+  }
+}
+
+void TcpInfiniteListener::loop() {
+  if (!tcp_listener_.empty()) {
+    return;
+  }
+  class Callback : public TcpListener::Callback {
+   public:
+    Callback(actor::ActorShared<TcpInfiniteListener> parent) : parent_(std::move(parent)) {
+    }
+    void accept(SocketFd fd) override {
+      actor::send_closure(parent_, &TcpInfiniteListener::accept, std::move(fd));
+    }
+
+   private:
+    actor::ActorShared<TcpInfiniteListener> parent_;
+  };
+  refcnt_++;
+  tcp_listener_ = actor::create_actor<TcpListener>(
+      actor::ActorOptions().with_name(PSLICE() << "TcpListener" << tag("port", port_)).with_poll(), port_,
+      std::make_unique<Callback>(actor_shared(this)));
+}
+
+void TcpInfiniteListener::accept(SocketFd fd) {
+  callback_->accept(std::move(fd));
+}
+
+void TcpInfiniteListener::hangup_shared() {
+  refcnt_--;
+  tcp_listener_.reset();
+  if (close_flag_) {
+    if (refcnt_ == 0) {
+      stop();
+    }
+  } else {
+    alarm_timestamp() = Timestamp::in(5 /*5 seconds*/);
   }
 }
 

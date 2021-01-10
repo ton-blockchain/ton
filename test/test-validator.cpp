@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 #include "rldp/rldp.h"
@@ -32,7 +32,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/TsFileLog.h"
 #include "td/utils/filesystem.h"
@@ -290,7 +290,7 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("test basic adnl functionality");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));

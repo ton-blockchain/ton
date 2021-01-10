@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells/MerkleUpdate.h"
 #include "vm/cells/MerkleProof.h"
@@ -268,7 +268,7 @@ class MerkleCombine {
     // 1. Create maximum subtrees of X and Z with all cells in A, B, C and D
     // Max(V) - such maximum subtree
     //
-    // 2. Max(A) and Max(D) should be merkle update already. But win want to minimize it
+    // 2. Max(A) and Max(D) should be merkle update already. But we want to minimize it
     // So we cut all branches of Max(D) which are in maxA
     // When we cut branch q in Max(D) we mark some path to q in Max(A)
     // Then we cut all branches of Max(A) which are not marked.

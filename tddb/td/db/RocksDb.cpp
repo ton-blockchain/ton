@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/db/RocksDb.h"
 
 #include "rocksdb/db.h"
+#include "rocksdb/table.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -63,6 +64,13 @@ Result<RocksDb> RocksDb::open(std::string path) {
   auto statistics = rocksdb::CreateDBStatistics();
   {
     rocksdb::Options options;
+
+    static auto cache = rocksdb::NewLRUCache(1 << 30);
+
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.block_cache = cache;
+    options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+
     options.manual_wal_flush = true;
     options.create_if_missing = true;
     options.max_background_compactions = 4;
@@ -70,7 +78,18 @@ Result<RocksDb> RocksDb::open(std::string path) {
     options.bytes_per_sync = 1 << 20;
     options.writable_file_max_buffer_size = 2 << 14;
     options.statistics = statistics;
-    TRY_STATUS(from_rocksdb(rocksdb::OptimisticTransactionDB::Open(options, std::move(path), &db)));
+    rocksdb::OptimisticTransactionDBOptions occ_options;
+    occ_options.validate_policy = rocksdb::OccValidationPolicy::kValidateSerial;
+    rocksdb::ColumnFamilyOptions cf_options(options);
+    std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+    column_families.push_back(rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, cf_options));
+    std::vector<rocksdb::ColumnFamilyHandle *> handles;
+    TRY_STATUS(from_rocksdb(
+        rocksdb::OptimisticTransactionDB::Open(options, occ_options, std::move(path), column_families, &handles, &db)));
+    CHECK(handles.size() == 1);
+    // i can delete the handle since DBImpl is always holding a reference to
+    // default column family
+    delete handles[0];
   }
   return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(statistics));
 }
@@ -82,6 +101,10 @@ std::unique_ptr<KeyValueReader> RocksDb::snapshot() {
 }
 
 std::string RocksDb::stats() const {
+  std::string out;
+  db_->GetProperty("rocksdb.stats", &out);
+  //db_->GetProperty("rocksdb.cur-size-all-mem-tables", &out);
+  return out;
   return statistics_->ToString();
 }
 
@@ -149,31 +172,43 @@ Result<size_t> RocksDb::count(Slice prefix) {
   return res;
 }
 
-Status RocksDb::begin_transaction() {
+Status RocksDb::begin_write_batch() {
+  CHECK(!transaction_);
   write_batch_ = std::make_unique<rocksdb::WriteBatch>();
-  //transaction_.reset(db_->BeginTransaction({}, {}));
   return Status::OK();
 }
 
-Status RocksDb::commit_transaction() {
+Status RocksDb::begin_transaction() {
+  CHECK(!write_batch_);
+  rocksdb::WriteOptions options;
+  options.sync = true;
+  transaction_.reset(db_->BeginTransaction(options, {}));
+  return Status::OK();
+}
+
+Status RocksDb::commit_write_batch() {
   CHECK(write_batch_);
   auto write_batch = std::move(write_batch_);
   rocksdb::WriteOptions options;
   options.sync = true;
-  TRY_STATUS(from_rocksdb(db_->Write(options, write_batch.get())));
-  return Status::OK();
+  return from_rocksdb(db_->Write(options, write_batch.get()));
+}
 
-  //CHECK(transaction_);
-  //auto res = from_rocksdb(transaction_->Commit());
-  //transaction_.reset();
-  //return res;
+Status RocksDb::commit_transaction() {
+  CHECK(transaction_);
+  auto transaction = std::move(transaction_);
+  return from_rocksdb(transaction->Commit());
+}
+
+Status RocksDb::abort_write_batch() {
+  CHECK(write_batch_);
+  write_batch_.reset();
+  return Status::OK();
 }
 
 Status RocksDb::abort_transaction() {
-  CHECK(write_batch_);
-  write_batch_.reset();
-  //CHECK(transaction_);
-  //transaction_.reset();
+  CHECK(transaction_);
+  transaction_.reset();
   return Status::OK();
 }
 

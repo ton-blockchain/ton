@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -51,43 +51,52 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockIdExt zero_block_id() const = 0;
   virtual BlockIdExt init_block_id() const = 0;
   virtual bool need_monitor(ShardIdFull shard) const = 0;
-  virtual bool need_validate(ShardIdFull shard) const = 0;
+  virtual bool need_validate(ShardIdFull shard, CatchainSeqno cc_seqno) const = 0;
   virtual bool allow_blockchain_init() const = 0;
-  virtual td::ClocksBase::Duration sync_blocks_before() const = 0;
-  virtual td::ClocksBase::Duration block_ttl() const = 0;
-  virtual td::ClocksBase::Duration state_ttl() const = 0;
-  virtual td::ClocksBase::Duration archive_ttl() const = 0;
-  virtual td::ClocksBase::Duration key_proof_ttl() const = 0;
+  virtual double sync_blocks_before() const = 0;
+  virtual double block_ttl() const = 0;
+  virtual double state_ttl() const = 0;
+  virtual double archive_ttl() const = 0;
+  virtual double key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
   virtual bool is_hardfork(BlockIdExt block_id) const = 0;
   virtual td::uint32 get_vertical_seqno(BlockSeqno seqno) const = 0;
   virtual td::uint32 get_maximal_vertical_seqno() const = 0;
   virtual td::uint32 get_last_fork_masterchain_seqno() const = 0;
   virtual std::vector<BlockIdExt> get_hardforks() const = 0;
-  virtual td::uint32 get_filedb_depth() const = 0;
   virtual td::uint32 key_block_utime_step() const {
     return 86400;
   }
+  virtual bool check_unsafe_resync_allowed(CatchainSeqno seqno) const = 0;
+  virtual td::uint32 check_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno) const = 0;
+  virtual bool need_db_truncate() const = 0;
+  virtual BlockSeqno get_truncate_seqno() const = 0;
+  virtual BlockSeqno sync_upto() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
-  virtual void set_shard_check_function(std::function<bool(ShardIdFull, ShardCheckMode)> check_shard) = 0;
+  virtual void set_shard_check_function(
+      std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard) = 0;
   virtual void set_allow_blockchain_init(bool value) = 0;
-  virtual void set_sync_blocks_before(td::ClocksBase::Duration value) = 0;
-  virtual void set_block_ttl(td::ClocksBase::Duration value) = 0;
-  virtual void set_state_ttl(td::ClocksBase::Duration value) = 0;
-  virtual void set_archive_ttl(td::ClocksBase::Duration value) = 0;
-  virtual void set_key_proof_ttl(td::ClocksBase::Duration value) = 0;
+  virtual void set_sync_blocks_before(double value) = 0;
+  virtual void set_block_ttl(double value) = 0;
+  virtual void set_state_ttl(double value) = 0;
+  virtual void set_archive_ttl(double value) = 0;
+  virtual void set_key_proof_ttl(double value) = 0;
   virtual void set_initial_sync_disabled(bool value) = 0;
   virtual void set_hardforks(std::vector<BlockIdExt> hardforks) = 0;
-  virtual void set_filedb_depth(td::uint32 value) = 0;
+  virtual void add_unsafe_resync_catchain(CatchainSeqno seqno) = 0;
+  virtual void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) = 0;
+  virtual void truncate_db(BlockSeqno seqno) = 0;
+  virtual void set_sync_upto(BlockSeqno seqno) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
-      std::function<bool(ShardIdFull, ShardCheckMode)> check_shard = [](ShardIdFull, ShardCheckMode) { return true; },
-      bool allow_blockchain_init = false, td::ClocksBase::Duration sync_blocks_before = 300,
-      td::ClocksBase::Duration block_ttl = 86400 * 7, td::ClocksBase::Duration state_ttl = 3600,
-      td::ClocksBase::Duration archive_ttl = 86400 * 365, td::ClocksBase::Duration key_proof_ttl = 86400 * 3650,
+      std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard = [](ShardIdFull, CatchainSeqno,
+                                                                                       ShardCheckMode) { return true; },
+      bool allow_blockchain_init = false, double sync_blocks_before = 300,
+      double block_ttl = 86400 * 7, double state_ttl = 3600,
+      double archive_ttl = 86400 * 365, double key_proof_ttl = 86400 * 3650,
       bool initial_sync_disabled = false);
 };
 
@@ -117,6 +126,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                            td::Promise<td::BufferSlice> promise) = 0;
     virtual void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                                      td::Promise<std::vector<BlockIdExt>> promise) = 0;
+    virtual void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                                  td::Promise<std::string> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
   };
@@ -157,6 +168,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;
+  virtual void get_key_block_proof(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_next_key_blocks(BlockIdExt block_id, td::uint32 cnt,
                                    td::Promise<std::vector<BlockIdExt>> promise) = 0;
   virtual void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) = 0;
@@ -172,23 +185,27 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
                                   td::Promise<std::unique_ptr<DownloadToken>> promise) = 0;
 
-  virtual void get_block_data_from_db(BlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
+  virtual void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                            td::Promise<BlockCandidate> promise) = 0;
-  virtual void get_shard_state_from_db(BlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
-  virtual void get_block_proof_from_db(BlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;
+  virtual void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;
   virtual void get_block_proof_from_db_short(BlockIdExt id, td::Promise<td::Ref<Proof>> promise) = 0;
-  virtual void get_block_proof_link_from_db(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) = 0;
+  virtual void get_block_proof_link_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) = 0;
   virtual void get_block_proof_link_from_db_short(BlockIdExt id, td::Promise<td::Ref<ProofLink>> promise) = 0;
 
   virtual void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt,
-                                       td::Promise<BlockIdExt> promise) = 0;
+                                       td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                              td::Promise<BlockIdExt> promise) = 0;
+                                              td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                          td::Promise<BlockIdExt> promise) = 0;
+                                          td::Promise<ConstBlockHandle> promise) = 0;
+
+  virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
+  virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                                 td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;

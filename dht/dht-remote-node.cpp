@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "dht.hpp"
 
@@ -63,7 +63,7 @@ td::Status DhtRemoteNode::update_value(DhtNode node, td::actor::ActorId<adnl::Ad
   return td::Status::OK();
 }
 
-void DhtRemoteNode::send_ping(td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node,
+void DhtRemoteNode::send_ping(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node,
                               adnl::AdnlNodeIdShort src) {
   missed_pings_++;
   if (missed_pings_ > max_missed_pings_ && ready_from_ > 0) {
@@ -75,37 +75,42 @@ void DhtRemoteNode::send_ping(td::actor::ActorId<adnl::Adnl> adnl, td::actor::Ac
 
   td::actor::send_closure(adnl, &adnl::Adnl::add_peer, src, node_.adnl_id(), node_.addr_list());
 
-  auto P = td::PromiseCreator::lambda(
-      [key = id_, id = node_.adnl_id().compute_short_id(), node, src, adnl](td::Result<DhtNode> R) mutable {
-        if (R.is_error()) {
-          LOG(ERROR) << "[dht]: failed to get self node";
-          return;
-        }
-        auto P = td::PromiseCreator::lambda([key, node, adnl](td::Result<td::BufferSlice> R) {
-          if (R.is_error()) {
-            VLOG(DHT_INFO) << "[dht]: received error for query to " << key << ": " << R.move_as_error();
-            return;
-          }
-          auto F = fetch_tl_object<ton_api::dht_node>(R.move_as_ok(), true);
+  auto P = td::PromiseCreator::lambda([key = id_, id = node_.adnl_id().compute_short_id(), client_only, node, src,
+                                       adnl](td::Result<DhtNode> R) mutable {
+    if (R.is_error()) {
+      LOG(ERROR) << "[dht]: failed to get self node";
+      return;
+    }
+    auto P = td::PromiseCreator::lambda([key, node, adnl](td::Result<td::BufferSlice> R) {
+      if (R.is_error()) {
+        VLOG(DHT_INFO) << "[dht]: received error for query to " << key << ": " << R.move_as_error();
+        return;
+      }
+      auto F = fetch_tl_object<ton_api::dht_node>(R.move_as_ok(), true);
 
-          if (F.is_ok()) {
-            auto N = DhtNode::create(F.move_as_ok());
-            if (N.is_ok()) {
-              td::actor::send_closure(node, &DhtMember::receive_ping, key, N.move_as_ok());
-            } else {
-              VLOG(DHT_WARNING) << "[dht]: bad answer from " << key
-                                << ": dropping bad getSignedAddressList() query answer: " << N.move_as_error();
-            }
-          } else {
-            VLOG(DHT_WARNING) << "[dht]: bad answer from " << key
-                              << ": dropping invalid getSignedAddressList() query answer: " << F.move_as_error();
-          }
-        });
-        auto Q = create_serialize_tl_object<ton_api::dht_getSignedAddressList>();
-        auto B = create_serialize_tl_object_suffix<ton_api::dht_query>(Q.as_slice(), R.move_as_ok().tl());
-        td::actor::send_closure(adnl, &adnl::Adnl::send_query, src, id, "dht ping", std::move(P),
-                                td::Timestamp::in(10.0 + td::Random::fast(0, 100) * 0.1), std::move(B));
-      });
+      if (F.is_ok()) {
+        auto N = DhtNode::create(F.move_as_ok());
+        if (N.is_ok()) {
+          td::actor::send_closure(node, &DhtMember::receive_ping, key, N.move_as_ok());
+        } else {
+          VLOG(DHT_WARNING) << "[dht]: bad answer from " << key
+                            << ": dropping bad getSignedAddressList() query answer: " << N.move_as_error();
+        }
+      } else {
+        VLOG(DHT_WARNING) << "[dht]: bad answer from " << key
+                          << ": dropping invalid getSignedAddressList() query answer: " << F.move_as_error();
+      }
+    });
+    auto Q = create_serialize_tl_object<ton_api::dht_getSignedAddressList>();
+    td::BufferSlice B;
+    if (client_only) {
+      B = std::move(Q);
+    } else {
+      B = create_serialize_tl_object_suffix<ton_api::dht_query>(Q.as_slice(), R.move_as_ok().tl());
+    }
+    td::actor::send_closure(adnl, &adnl::Adnl::send_query, src, id, "dht ping", std::move(P),
+                            td::Timestamp::in(10.0 + td::Random::fast(0, 100) * 0.1), std::move(B));
+  });
 
   td::actor::send_closure(node, &DhtMember::get_self_node, std::move(P));
 }

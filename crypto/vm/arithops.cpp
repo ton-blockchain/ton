@@ -14,15 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
 #include "vm/arithops.h"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/continuation.h"
 #include "vm/excno.hpp"
+#include "vm/vm.h"
 #include "common/bigint.hpp"
 #include "common/refint.h"
 
@@ -389,7 +389,7 @@ int exec_muldivmod(VmState* st, unsigned args, int quiet) {
   auto x = stack.pop_int();
   typename td::BigInt256::DoubleInt tmp{0};
   tmp.add_mul(*x, *y);
-  auto q = td::RefInt256{true};
+  auto q = td::make_refint();
   tmp.mod_div(*z, q.unique_write(), round_mode);
   switch ((args >> 2) & 3) {
     case 1:
@@ -401,7 +401,7 @@ int exec_muldivmod(VmState* st, unsigned args, int quiet) {
       stack.push_int_quiet(std::move(q), quiet);
       // fallthrough
     case 2:
-      stack.push_int_quiet(td::RefInt256{true, tmp}, quiet);
+      stack.push_int_quiet(td::make_refint(tmp), quiet);
       break;
   }
   return 0;
@@ -450,17 +450,17 @@ int exec_mulshrmod(VmState* st, unsigned args, int mode) {
   switch ((args >> 2) & 3) {
     case 1:
       tmp.rshift(z, round_mode).normalize();
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     case 3: {
       typename td::BigInt256::DoubleInt tmp2{tmp};
       tmp2.rshift(z, round_mode).normalize();
-      stack.push_int_quiet(td::RefInt256{true, tmp2}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp2), mode & 1);
     }
       // fallthrough
     case 2:
       tmp.mod_pow2(z, round_mode).normalize();
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
   }
   return 0;
@@ -524,24 +524,24 @@ int exec_shldivmod(VmState* st, unsigned args, int mode) {
   tmp <<= y;
   switch ((args >> 2) & 3) {
     case 1: {
-      auto q = td::RefInt256{true};
+      auto q = td::make_refint();
       tmp.mod_div(*z, q.unique_write(), round_mode);
       q.unique_write().normalize();
       stack.push_int_quiet(std::move(q), mode & 1);
       break;
     }
     case 3: {
-      auto q = td::RefInt256{true};
+      auto q = td::make_refint();
       tmp.mod_div(*z, q.unique_write(), round_mode);
       q.unique_write().normalize();
       stack.push_int_quiet(std::move(q), mode & 1);
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     }
     case 2: {
       typename td::BigInt256::DoubleInt tmp2;
       tmp.mod_div(*z, tmp2, round_mode);
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     }
   }
@@ -740,7 +740,7 @@ int exec_bitsize(VmState* st, bool sgnd, bool quiet) {
   } else if (!quiet) {
     throw VmError{Excno::range_chk, "CHKSIZE for negative integer"};
   } else {
-    stack.push_int_quiet(td::RefInt256{true}, quiet);
+    stack.push_int_quiet(td::make_refint(), quiet);
   }
   return 0;
 }
@@ -789,7 +789,7 @@ void register_shift_logic_ops(OpcodeTable& cp0) {
 
 int exec_minmax(VmState* st, int mode) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute MINMAXOP " << mode;
+  VM_LOG(st) << "execute " << (mode & 1 ? "Q" : "") << (mode & 2 ? "MIN" : "") << (mode & 4 ? "MAX" : "");
   stack.check_underflow(2);
   auto x = stack.pop_int();
   auto y = stack.pop_int();
@@ -811,7 +811,7 @@ int exec_minmax(VmState* st, int mode) {
 
 int exec_abs(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute ABS";
+  VM_LOG(st) << "execute " << (quiet ? "QABS" : "ABS");
   stack.check_underflow(1);
   auto x = stack.pop_int();
   if (x->is_valid() && x->sgn() < 0) {

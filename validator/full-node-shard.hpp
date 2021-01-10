@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -30,17 +30,17 @@ struct Neighbour {
   adnl::AdnlNodeIdShort adnl_id;
   td::uint32 proto_version = 0;
   td::uint64 capabilities = 0;
-  td::Clocks::Duration roundtrip = 0;
-  td::Clocks::Duration roundtrip_relax_at = 0;
+  double roundtrip = 0;
+  double roundtrip_relax_at = 0;
   double roundtrip_weight = 0;
   double unreliability = 0;
 
   Neighbour(adnl::AdnlNodeIdShort adnl_id) : adnl_id(std::move(adnl_id)) {
   }
   void update_proto_version(const ton_api::tonNode_capabilities &q);
-  void query_success(td::Clocks::Duration t);
+  void query_success(double t);
   void query_failed();
-  void update_roundtrip(td::Clocks::Duration t);
+  void update_roundtrip(double t);
 
   static Neighbour zero;
 };
@@ -61,10 +61,10 @@ class FullNodeShardImpl : public FullNodeShard {
     return 1;
   }
   static constexpr td::uint32 proto_version() {
-    return 1;
+    return 2;
   }
   static constexpr td::uint64 proto_capabilities() {
-    return 0;
+    return 1;
   }
   static constexpr td::uint32 max_neighbours() {
     return 16;
@@ -94,9 +94,15 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlockProof &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareKeyBlockProof &query,
+                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProof &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProofLink &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProof &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProofLink &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlock &query,
                      td::Promise<td::BufferSlice> promise);
@@ -119,6 +125,10 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
                      td::Promise<td::BufferSlice> promise);
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);
@@ -148,6 +158,8 @@ class FullNodeShardImpl : public FullNodeShard {
                                  td::Promise<td::BufferSlice> promise) override;
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                            td::Promise<std::vector<BlockIdExt>> promise) override;
+  void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                        td::Promise<std::string> promise) override;
 
   void set_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
@@ -161,8 +173,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void ping_neighbours();
   void reload_neighbours();
   void got_neighbours(std::vector<adnl::AdnlNodeIdShort> res);
-  void update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, bool success);
-  void got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, td::Clocks::Duration t, td::BufferSlice data);
+  void update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, double t, bool success);
+  void got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, double t, td::BufferSlice data);
   const Neighbour &choose_neighbour() const;
 
   template <typename T>

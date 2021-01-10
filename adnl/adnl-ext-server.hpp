@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -69,6 +69,9 @@ class AdnlExtServerImpl : public AdnlExtServer {
     ports_.clear();
   }
 
+  void reopen_port() {
+  }
+
   AdnlExtServerImpl(td::actor::ActorId<AdnlPeerTable> adnl, std::vector<AdnlNodeIdShort> ids,
                     std::vector<td::uint16> ports)
       : peer_table_(adnl) {
@@ -84,7 +87,7 @@ class AdnlExtServerImpl : public AdnlExtServer {
   td::actor::ActorId<AdnlPeerTable> peer_table_;
   std::set<AdnlNodeIdShort> local_ids_;
   std::set<td::uint16> ports_;
-  std::map<td::uint16, td::actor::ActorOwn<td::TcpListener>> listeners_;
+  std::map<td::uint16, td::actor::ActorOwn<td::TcpInfiniteListener>> listeners_;
 };
 
 }  // namespace adnl

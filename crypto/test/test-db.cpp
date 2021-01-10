@@ -14,15 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/boc.h"
 #include "vm/cellslice.h"
 #include "vm/cells.h"
 #include "common/AtomicRef.h"
+#include "vm/cells/CellString.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
-#include "vm/db/BlobView.h"
 #include "vm/db/CellStorage.h"
 #include "vm/db/CellHashTable.h"
 #include "vm/db/TonDb.h"
@@ -33,51 +33,31 @@
 #include "td/utils/crypto.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
+#include "td/utils/Span.h"
 #include "td/utils/Status.h"
 #include "td/utils/Timer.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
 #include "td/utils/format.h"
 #include "td/utils/misc.h"
+#include "td/utils/optional.h"
 #include "td/utils/tests.h"
 #include "td/utils/tl_parsers.h"
 #include "td/utils/tl_helpers.h"
 
+#include "td/db/utils/BlobView.h"
 #include "td/db/RocksDb.h"
 #include "td/db/MemoryKeyValue.h"
+#include "td/db/utils/CyclicBuffer.h"
+
+#include "td/fec/fec.h"
 
 #include <set>
 #include <map>
 
 #include <openssl/sha.h>
 
-struct Step {
-  std::function<void()> func;
-  td::uint32 weight;
-};
-class RandomSteps {
- public:
-  RandomSteps(std::vector<Step> steps) : steps_(std::move(steps)) {
-    for (auto &step : steps_) {
-      steps_sum_ += step.weight;
-    }
-  }
-  template <class Random>
-  void step(Random &rnd) {
-    auto w = rnd() % steps_sum_;
-    for (auto &step : steps_) {
-      if (w < step.weight) {
-        step.func();
-        break;
-      }
-      w -= step.weight;
-    }
-  }
-
- private:
-  std::vector<Step> steps_;
-  td::int32 steps_sum_ = 0;
-};
+#include "openssl/digest.hpp"
 
 namespace vm {
 
@@ -458,17 +438,10 @@ class RandomBagOfCells {
   };
 };
 
-template <class T>
-void random_shuffle(td::MutableSpan<T> v, td::Random::Xorshift128plus &rnd) {
-  for (std::size_t i = 1; i < v.size(); i++) {
-    auto pos = static_cast<std::size_t>(rnd() % (i + 1));
-    std::swap(v[i], v[pos]);
-  }
-}
 Ref<Cell> gen_random_cell(int size, td::Random::Xorshift128plus &rnd, bool with_prunned_branches = true,
                           std::vector<Ref<Cell>> cells = {}) {
   if (!cells.empty()) {
-    random_shuffle(td::MutableSpan<Ref<Cell>>(cells), rnd);
+    td::random_shuffle(as_mutable_span(cells), rnd);
     cells.resize(cells.size() % rnd());
   }
   return RandomBagOfCells(size, rnd, with_prunned_branches, std::move(cells)).get_root();
@@ -476,7 +449,7 @@ Ref<Cell> gen_random_cell(int size, td::Random::Xorshift128plus &rnd, bool with_
 std::vector<Ref<Cell>> gen_random_cells(int roots, int size, td::Random::Xorshift128plus &rnd,
                                         bool with_prunned_branches = true, std::vector<Ref<Cell>> cells = {}) {
   if (!cells.empty()) {
-    random_shuffle(td::MutableSpan<Ref<Cell>>(cells), rnd);
+    td::random_shuffle(as_mutable_span(cells), rnd);
     cells.resize(cells.size() % rnd());
   }
   return RandomBagOfCells(size, rnd, with_prunned_branches, std::move(cells)).get_random_roots(roots, rnd);
@@ -557,16 +530,20 @@ TEST(Cell, MerkleProofCombine) {
       ASSERT_EQ(exploration_b.log, exploration2.log);
     }
 
-    Ref<Cell> proof_union;
     {
-      proof_union = MerkleProof::combine(proof1, proof2);
+      auto check = [&](auto proof_union) {
+        auto virtualized_proof = MerkleProof::virtualize(proof_union, 1);
+        auto exploration_a = CellExplorer::explore(virtualized_proof, exploration1.ops);
+        auto exploration_b = CellExplorer::explore(virtualized_proof, exploration2.ops);
+        ASSERT_EQ(exploration_a.log, exploration1.log);
+        ASSERT_EQ(exploration_b.log, exploration2.log);
+      };
+      auto proof_union = MerkleProof::combine(proof1, proof2);
       ASSERT_EQ(proof_union->get_hash(), proof12->get_hash());
+      check(proof_union);
 
-      auto virtualized_proof = MerkleProof::virtualize(proof_union, 1);
-      auto exploration_a = CellExplorer::explore(virtualized_proof, exploration1.ops);
-      auto exploration_b = CellExplorer::explore(virtualized_proof, exploration2.ops);
-      ASSERT_EQ(exploration_a.log, exploration1.log);
-      ASSERT_EQ(exploration_b.log, exploration2.log);
+      auto proof_union_fast = MerkleProof::combine_fast(proof1, proof2);
+      check(proof_union_fast);
     }
     {
       auto cell = MerkleProof::virtualize(proof12, 1);
@@ -717,6 +694,32 @@ TEST(TonDb, BenchCellBuilder3) {
   td::bench(BenchCellBuilder3());
 }
 
+TEST(TonDb, BocFuzz) {
+  vm::std_boc_deserialize(td::base64_decode("te6ccgEBAQEAAgAoAAA=").move_as_ok()).ensure_error();
+  vm::std_boc_deserialize(td::base64_decode("te6ccgQBQQdQAAAAAAEAte6ccgQBB1BBAAAAAAEAAAAAAP/"
+                                            "wAACJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJicmJiYmJiYmJiYmJiQ0NDQ0NDQ0NDQ0NDQ0ND"
+                                            "Q0NiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiQAA//AAAO4=")
+                              .move_as_ok());
+  vm::std_boc_deserialize(td::base64_decode("SEkh/w==").move_as_ok()).ensure_error();
+  vm::std_boc_deserialize(
+      td::base64_decode(
+          "te6ccqwBMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMAKCEAAAAgAQ==")
+          .move_as_ok())
+      .ensure_error();
+}
+void test_parse_prefix(td::Slice boc) {
+  for (size_t i = 0; i <= boc.size(); i++) {
+    auto prefix = boc.substr(0, i);
+    vm::BagOfCells::Info info;
+    auto res = info.parse_serialized_header(prefix);
+    if (res > 0) {
+      break;
+    }
+    CHECK(res != 0);
+    CHECK(-res > (int)i);
+  }
+}
+
 TEST(TonDb, Boc) {
   td::Random::Xorshift128plus rnd{123};
   for (int t = 0; t < 1000; t++) {
@@ -726,6 +729,8 @@ TEST(TonDb, Boc) {
 
     auto serialized = serialize_boc(std::move(cell), mode);
     CHECK(serialized.size() != 0);
+
+    test_parse_prefix(serialized);
 
     auto loaded_cell = deserialize_boc(serialized);
     ASSERT_EQ(cell_hash, loaded_cell->get_hash());
@@ -781,7 +786,7 @@ TEST(TonDb, DynamicBoc) {
     old_root_serialization = serialize_boc(cell);
 
     // Check that DynamicBagOfCells properly loads cells
-    cell = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(td::BufferSlice(old_root_serialization)))
+    cell = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(td::BufferSlice(old_root_serialization)))
                .move_as_ok()
                ->get_root_cell(0)
                .move_as_ok();
@@ -879,7 +884,7 @@ TEST(TonDb, DynamicBoc2) {
     VLOG(boc) << "  OK";
   };
 
-  RandomSteps steps({{new_root, 10}, {delete_root, 9}, {commit, 2}, {reset, 1}});
+  td::RandomSteps steps({{new_root, 10}, {delete_root, 9}, {commit, 2}, {reset, 1}});
   while (first_root_id != total_roots) {
     VLOG(boc) << first_root_id << " " << last_root_id << " " << kv->count("").ok();
     steps.step(rnd);
@@ -1222,6 +1227,88 @@ TEST(Cell, MerkleProofArrayHands) {
   test_boc_deserializer_full(proof).ensure();
   test_boc_deserializer_full(CellBuilder::create_merkle_proof(proof)).ensure();
 }
+
+TEST(Cell, MerkleProofCombineArray) {
+  size_t n = 1 << 15;
+  std::vector<td::uint64> data;
+  for (size_t i = 0; i < n; i++) {
+    data.push_back(i / 3);
+  }
+  CompactArray arr(data);
+
+  td::Ref<vm::Cell> root = vm::CellBuilder::create_merkle_proof(arr.merkle_proof({}));
+  td::Timer timer;
+  for (size_t i = 0; i < n; i++) {
+    auto new_root = vm::CellBuilder::create_merkle_proof(arr.merkle_proof({i}));
+    root = vm::MerkleProof::combine_fast(root, new_root);
+    if ((i - 1) % 100 == 0) {
+      LOG(ERROR) << timer;
+      timer = {};
+    }
+  }
+
+  CompactArray arr2(n, vm::MerkleProof::virtualize(root, 1));
+  for (size_t i = 0; i < n; i++) {
+    CHECK(arr.get(i) == arr2.get(i));
+  }
+}
+
+TEST(Cell, MerkleProofCombineArray2) {
+  auto a = vm::CellBuilder().store_long(1, 8).finalize();
+  auto b = vm::CellBuilder().store_long(2, 8).finalize();
+  auto c = vm::CellBuilder().store_long(3, 8).finalize();
+  auto d = vm::CellBuilder().store_long(4, 8).finalize();
+  auto left = vm::CellBuilder().store_ref(a).store_ref(b).finalize();
+  auto right = vm::CellBuilder().store_ref(c).store_ref(d).finalize();
+  auto x = vm::CellBuilder().store_ref(left).store_ref(right).finalize();
+  size_t n = 18;
+  //TODO: n = 100, currently TL
+  for (size_t i = 0; i < n; i++) {
+    x = vm::CellBuilder().store_ref(x).store_ref(x).finalize();
+  }
+
+  td::Ref<vm::Cell> root;
+  auto apply_op = [&](auto op) {
+    auto usage_tree = std::make_shared<CellUsageTree>();
+    auto usage_cell = UsageCell::create(x, usage_tree->root_ptr());
+    root = usage_cell;
+    op();
+    return MerkleProof::generate(root, usage_tree.get());
+  };
+
+  auto first = apply_op([&] {
+    auto x = root;
+    while (true) {
+      auto cs = vm::load_cell_slice(x);
+      if (cs.size_refs() == 0) {
+        break;
+      }
+      x = cs.prefetch_ref(0);
+    }
+  });
+  auto second = apply_op([&] {
+    auto x = root;
+    while (true) {
+      auto cs = vm::load_cell_slice(x);
+      if (cs.size_refs() == 0) {
+        break;
+      }
+      x = cs.prefetch_ref(1);
+    }
+  });
+
+  {
+    td::Timer t;
+    auto x = vm::MerkleProof::combine(first, second);
+    LOG(ERROR) << "slow " << t;
+  }
+  {
+    td::Timer t;
+    auto x = vm::MerkleProof::combine_fast(first, second);
+    LOG(ERROR) << "fast " << t;
+  }
+}
+
 TEST(Cell, MerkleUpdateHands) {
   auto data = CellBuilder{}.store_bytes("pruned data").store_ref(CellBuilder{}.finalize()).finalize();
   auto node = CellBuilder{}.store_bytes("protected data").store_ref(data).finalize();
@@ -1453,6 +1540,7 @@ template <class DeserializerT>
 class BenchBocDeserializer : public td::Benchmark {
  public:
   BenchBocDeserializer(std::string name, BenchBocDeserializerConfig config) : name_(std::move(name)), config_(config) {
+    td::PerfWarningTimer perf("A", 1);
     fast_array_ = vm::FastCompactArray(array_size);
     td::Random::Xorshift128plus rnd{123};
     for (td::uint32 i = 0; i < array_size; i++) {
@@ -1509,11 +1597,11 @@ class BenchBocDeserializer : public td::Benchmark {
     auto blob = [&] {
       switch (config_.blob_type) {
         case BenchBocDeserializerConfig::File:
-          return vm::FileBlobView::create("serialization").move_as_ok();
+          return td::FileBlobView::create("serialization").move_as_ok();
         case BenchBocDeserializerConfig::Memory:
-          return vm::BufferSliceBlobView::create(serialization_.clone());
+          return td::BufferSliceBlobView::create(serialization_.clone());
         case BenchBocDeserializerConfig::FileMemoryMap:
-          return vm::FileMemoryMappingBlobView::create("serialization").move_as_ok();
+          return td::FileMemoryMappingBlobView::create("serialization").move_as_ok();
         default:
           UNREACHABLE();
       }
@@ -1732,7 +1820,7 @@ TEST(TonDb, CompactArray) {
     fast_array = vm::FastCompactArray(size);
   };
 
-  RandomSteps steps({{reset_array, 1}, {set_value, 1000}, {validate, 10}, {validate_full, 2}, {flush_to_db, 1}});
+  td::RandomSteps steps({{reset_array, 1}, {set_value, 1000}, {validate, 10}, {validate_full, 2}, {flush_to_db, 1}});
   for (size_t t = 0; t < 100000; t++) {
     if (t % 10000 == 0) {
       LOG(ERROR) << t;

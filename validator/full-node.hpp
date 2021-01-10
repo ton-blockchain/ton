@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -64,6 +64,8 @@ class FullNodeImpl : public FullNode {
   void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                  td::Promise<td::BufferSlice> promise);
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout, td::Promise<std::vector<BlockIdExt>> promise);
+  void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                        td::Promise<std::string> promise);
 
   void got_key_block_proof(td::Ref<ProofLink> proof);
   void got_zero_block_state(td::Ref<ShardState> state);

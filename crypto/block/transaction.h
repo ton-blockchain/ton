@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -65,10 +65,10 @@ struct NewOutMsg {
   NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans)
       : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)) {
   }
-  bool operator<(const NewOutMsg& other) const & {
+  bool operator<(const NewOutMsg& other) const& {
     return lt < other.lt || (lt == other.lt && msg->get_hash() < other.msg->get_hash());
   }
-  bool operator>(const NewOutMsg& other) const & {
+  bool operator>(const NewOutMsg& other) const& {
     return lt > other.lt || (lt == other.lt && other.msg->get_hash() < msg->get_hash());
   }
 };
@@ -130,33 +130,16 @@ struct ComputePhaseConfig {
   }
   bool parse_GasLimitsPrices(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
   bool parse_GasLimitsPrices(Ref<vm::Cell> cell, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
-};
 
-// msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
-// ihr_fwd_fees = ceil((msg_fwd_fees * ihr_price_factor)/2^16) nanograms
-// bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
-
-struct MsgPrices {
-  td::uint64 lump_price;
-  td::uint64 bit_price;
-  td::uint64 cell_price;
-  td::uint32 ihr_factor;
-  td::uint32 first_frac;
-  td::uint32 next_frac;
-  td::uint64 compute_fwd_fees(td::uint64 cells, td::uint64 bits) const;
-  std::pair<td::uint64, td::uint64> compute_fwd_ihr_fees(td::uint64 cells, td::uint64 bits,
-                                                         bool ihr_disabled = false) const;
-  MsgPrices() = default;
-  MsgPrices(td::uint64 lump, td::uint64 bitp, td::uint64 cellp, td::uint32 ihrf, td::uint32 firstf, td::uint32 nextf)
-      : lump_price(lump), bit_price(bitp), cell_price(cellp), ihr_factor(ihrf), first_frac(firstf), next_frac(nextf) {
-  }
-  td::RefInt256 get_first_part(td::RefInt256 total) const;
-  td::uint64 get_first_part(td::uint64 total) const;
-  td::RefInt256 get_next_part(td::RefInt256 total) const;
+ private:
+  bool parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit,
+                                      td::RefInt256& delete_due_limit, td::uint64 flat_gas_limit = 0,
+                                      td::uint64 flat_gas_price = 0);
 };
 
 struct ActionPhaseConfig {
   int max_actions{255};
+  int bounce_msg_body{0};  // usually 0 or 256 bits
   MsgPrices fwd_std;
   MsgPrices fwd_mc;  // from/to masterchain
   const WorkchainSet* workchains{nullptr};
@@ -168,8 +151,6 @@ struct ActionPhaseConfig {
 struct CreditPhase {
   td::RefInt256 due_fees_collected;
   block::CurrencyCollection credit;
-  // td::RefInt256 credit;
-  // Ref<vm::Cell> credit_extra;
 };
 
 struct ComputePhase {
@@ -212,10 +193,6 @@ struct ActionPhase {
   Ref<vm::Cell> new_code;
   td::BitArray<256> action_list_hash;
   block::CurrencyCollection remaining_balance, reserved_balance;
-  // td::RefInt256 remaining_balance;
-  // Ref<vm::Cell> remaining_extra;
-  // td::RefInt256 reserved_balance;
-  // Ref<vm::Cell> reserved_extra;
   std::vector<Ref<vm::Cell>> action_list;  // processed in reverse order
   std::vector<Ref<vm::Cell>> out_msgs;
   ton::LogicalTime end_lt;
@@ -254,8 +231,6 @@ struct Account {
   ton::UnixTime last_paid;
   vm::CellStorageStat storage_stat;
   block::CurrencyCollection balance;
-  // td::RefInt256 balance;
-  // Ref<vm::Cell> extra_balance;
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
   Ref<vm::Cell> total_state;       // ^Account
@@ -337,7 +312,7 @@ struct Transaction {
   const Account& account;                     // only `commit` method modifies the account
   Ref<vm::CellSlice> my_addr, my_addr_exact;  // almost the same as in account.*
   ton::LogicalTime start_lt, end_lt;
-  block::CurrencyCollection balance;
+  block::CurrencyCollection balance, original_balance;
   block::CurrencyCollection msg_balance_remaining;
   td::RefInt256 due_payment;
   td::RefInt256 in_fwd_fee, msg_fwd_fees;
@@ -346,8 +321,6 @@ struct Transaction {
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;
   Ref<vm::CellSlice> new_inner_state;
-  // Ref<vm::Cell> extra_balance;
-  // Ref<vm::Cell> msg_extra;
   Ref<vm::Cell> new_code, new_data, new_library;
   Ref<vm::Cell> in_msg, in_msg_state;
   Ref<vm::CellSlice> in_msg_body;
@@ -365,7 +338,7 @@ struct Transaction {
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
   bool check_in_msg_state_hash();
-  bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true);
+  bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true, bool adjust_msg_value = false);
   bool prepare_credit_phase();
   bool compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg);
   Ref<vm::Stack> prepare_vm_stack(ComputePhase& cp);
@@ -394,6 +367,7 @@ struct Transaction {
   Ref<vm::Tuple> prepare_vm_c7(const ComputePhaseConfig& cfg) const;
   bool prepare_rand_seed(td::BitArray<256>& rand_seed, const ComputePhaseConfig& cfg) const;
   int try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
+  int try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   int try_action_send_msg(const vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg, int redoing = 0);
   int try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   bool check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const;

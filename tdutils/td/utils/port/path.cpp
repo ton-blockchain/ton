@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/path.h"
 
@@ -22,7 +22,7 @@
 
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-#include "td/utils/port/detail/PollableFd.h"
+#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/ScopeGuard.h"
 
 #if TD_PORT_WINDOWS
@@ -55,6 +55,7 @@
 #include <sys/syslimits.h>
 #endif
 
+#include <cerrno>
 #include <cstdlib>
 #include <string>
 
@@ -68,8 +69,7 @@ Status set_temporary_dir(CSlice dir) {
     input_dir += TD_DIR_SLASH;
   }
   TRY_STATUS(mkpath(input_dir, 0750));
-  TRY_RESULT(real_dir, realpath(input_dir));
-  temporary_dir = std::move(real_dir);
+  TRY_RESULT_ASSIGN(temporary_dir, realpath(input_dir));
   return Status::OK();
 }
 
@@ -431,8 +431,7 @@ Result<string> realpath(CSlice slice, bool ignore_access_denied) {
       return OS_ERROR(PSLICE() << "GetFullPathNameW failed for \"" << slice << '"');
     }
   } else {
-    TRY_RESULT(t_res, from_wstring(buf));
-    res = std::move(t_res);
+    TRY_RESULT_ASSIGN(res, from_wstring(buf));
   }
   if (res.empty()) {
     return Status::Error("Empty path");

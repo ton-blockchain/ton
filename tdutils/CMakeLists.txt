@@ -10,6 +10,10 @@ else()
   set(TD_HAVE_GETOPT 1)
 endif()
 
+if (NOT DEFINED CMAKE_INSTALL_LIBDIR)
+  set(CMAKE_INSTALL_LIBDIR "lib")
+endif()
+
 if (NOT ZLIB_FOUND)
   find_package(ZLIB)
 endif()
@@ -56,6 +60,7 @@ set(TDUTILS_SOURCE
   td/utils/port/MemoryMapping.cpp
   td/utils/port/path.cpp
   td/utils/port/PollFlags.cpp
+  td/utils/port/rlimit.cpp
   td/utils/port/ServerSocketFd.cpp
   td/utils/port/signals.cpp
   td/utils/port/sleep.cpp
@@ -66,6 +71,8 @@ set(TDUTILS_SOURCE
   td/utils/port/thread_local.cpp
   td/utils/port/user.cpp
   td/utils/port/UdpSocketFd.cpp
+  td/utils/port/uname.cpp
+  td/utils/port/user.cpp
   td/utils/port/wstring_convert.cpp
 
   td/utils/port/detail/Epoll.cpp
@@ -78,6 +85,7 @@ set(TDUTILS_SOURCE
   td/utils/port/detail/Poll.cpp
   td/utils/port/detail/Select.cpp
   td/utils/port/detail/ThreadIdGuard.cpp
+  td/utils/port/detail/ThreadPthread.cpp
   td/utils/port/detail/WineventPoll.cpp
 
   ${TDMIME_AUTO}
@@ -99,10 +107,11 @@ set(TDUTILS_SOURCE
   td/utils/logging.cpp
   td/utils/misc.cpp
   td/utils/MpmcQueue.cpp
-  td/utils/OptionsParser.cpp
+  td/utils/OptionParser.cpp
+  td/utils/PathView.cpp
   td/utils/Random.cpp
-  td/utils/Slice.cpp
   td/utils/SharedSlice.cpp
+  td/utils/Slice.cpp
   td/utils/StackAllocator.cpp
   td/utils/Status.cpp
   td/utils/StringBuilder.cpp
@@ -112,6 +121,7 @@ set(TDUTILS_SOURCE
   td/utils/tests.cpp
   td/utils/tl_parsers.cpp
   td/utils/translit.cpp
+  td/utils/TsFileLog.cpp
   td/utils/unicode.cpp
   td/utils/utf8.cpp
 
@@ -129,6 +139,7 @@ set(TDUTILS_SOURCE
   td/utils/port/Poll.h
   td/utils/port/PollBase.h
   td/utils/port/PollFlags.h
+  td/utils/port/rlimit.h
   td/utils/port/RwMutex.h
   td/utils/port/ServerSocketFd.h
   td/utils/port/signals.h
@@ -141,6 +152,8 @@ set(TDUTILS_SOURCE
   td/utils/port/thread_local.h
   td/utils/port/user.h
   td/utils/port/UdpSocketFd.h
+  td/utils/port/uname.h
+  td/utils/port/user.h
   td/utils/port/wstring_convert.h
 
   td/utils/port/detail/Epoll.h
@@ -153,6 +166,7 @@ set(TDUTILS_SOURCE
   td/utils/port/detail/Poll.h
   td/utils/port/detail/PollableFd.h
   td/utils/port/detail/Select.h
+  td/utils/port/detail/skip_eintr.h
   td/utils/port/detail/ThreadIdGuard.h
   td/utils/port/detail/ThreadPthread.h
   td/utils/port/detail/ThreadStl.h
@@ -213,7 +227,7 @@ set(TDUTILS_SOURCE
   td/utils/ObjectPool.h
   td/utils/Observer.h
   td/utils/optional.h
-  td/utils/OptionsParser.h
+  td/utils/OptionParser.h
   td/utils/OrderedEventsProcessor.h
   td/utils/overloaded.h
   td/utils/Parser.h
@@ -222,16 +236,19 @@ set(TDUTILS_SOURCE
   td/utils/Random.h
   td/utils/ScopeGuard.h
   td/utils/SharedObjectPool.h
+  td/utils/SharedSlice.h
   td/utils/Slice-decl.h
   td/utils/Slice.h
   td/utils/Span.h
   td/utils/SpinLock.h
   td/utils/StackAllocator.h
   td/utils/Status.h
+  td/utils/StealingQueue.h
   td/utils/Storer.h
   td/utils/StorerBase.h
   td/utils/StringBuilder.h
   td/utils/tests.h
+  td/utils/ThreadLocalStorage.h
   td/utils/ThreadSafeCounter.h
   td/utils/Time.h
   td/utils/TimedStat.h
@@ -241,6 +258,8 @@ set(TDUTILS_SOURCE
   td/utils/tl_parsers.h
   td/utils/tl_storers.h
   td/utils/translit.h
+  td/utils/TsFileLog.h
+  td/utils/TsList.h
   td/utils/type_traits.h
   td/utils/UInt.h
   td/utils/uint128.h
@@ -269,16 +288,19 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/HazardPointers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/heap.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/json.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/List.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/log.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/misc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcWaiter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpscLinkQueue.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/OptionParser.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/OrderedEventsProcessor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/port.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/pq.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedObjectPool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedSlice.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/StealingQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/variant.cpp
   PARENT_SCOPE
 )
@@ -290,7 +312,7 @@ if (WIN32)
   # find_library(WS2_32_LIBRARY ws2_32)
   # find_library(MSWSOCK_LIBRARY Mswsock)
   # target_link_libraries(tdutils PRIVATE ${WS2_32_LIBRARY} ${MSWSOCK_LIBRARY})
-  target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz)
+  target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz psapi)
 endif()
 if (NOT CMAKE_CROSSCOMPILING AND TDUTILS_MIME_TYPE)
   add_dependencies(tdutils tdmime_auto)
@@ -331,8 +353,6 @@ if (CMAKE_HOST_SYSTEM_NAME MATCHES "NetBSD")
 endif()
 
 install(TARGETS tdutils EXPORT TdTargets
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

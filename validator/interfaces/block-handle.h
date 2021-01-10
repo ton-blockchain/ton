@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -32,7 +32,8 @@ struct BlockHandleInterface {
  public:
   virtual BlockIdExt id() const = 0;
   virtual bool received() const = 0;
-  virtual bool moved_to_storage() const = 0;
+  virtual bool moved_to_archive() const = 0;
+  virtual bool handle_moved_to_archive() const = 0;
   virtual bool deleted() const = 0;
   virtual bool inited_next_left() const = 0;
   virtual bool inited_next_right() const = 0;
@@ -48,6 +49,7 @@ struct BlockHandleInterface {
   virtual bool inited_split_after() const = 0;
   virtual bool inited_merge_before() const = 0;
   virtual bool inited_is_key_block() const = 0;
+  virtual bool inited_masterchain_ref_block() const = 0;
   virtual bool split_after() const = 0;
   virtual bool merge_before() const = 0;
   virtual bool is_key_block() const = 0;
@@ -59,6 +61,7 @@ struct BlockHandleInterface {
   virtual bool is_zero() const = 0;
   virtual bool is_archived() const = 0;
   virtual bool is_applied() const = 0;
+  virtual BlockSeqno masterchain_ref_block() const = 0;
   virtual std::vector<BlockIdExt> prev() const = 0;
   virtual BlockIdExt one_prev(bool left) const = 0;
   virtual std::vector<BlockIdExt> next() const = 0;
@@ -82,7 +85,8 @@ struct BlockHandleInterface {
   virtual void set_next(BlockIdExt next) = 0;
   virtual void set_prev(BlockIdExt prev) = 0;
   virtual void set_received() = 0;
-  virtual void set_moved_to_storage() = 0;
+  virtual void set_moved_to_archive() = 0;
+  virtual void set_handle_moved_to_archive() = 0;
   virtual void set_deleted() = 0;
   virtual void set_split(bool value) = 0;
   virtual void set_merge(bool value) = 0;
@@ -92,6 +96,7 @@ struct BlockHandleInterface {
   virtual void set_deleted_state_boc() = 0;
   virtual void set_archived() = 0;
   virtual void set_applied() = 0;
+  virtual void set_masterchain_ref_block(BlockSeqno seqno) = 0;
 
   virtual void unsafe_clear_applied() = 0;
   virtual void unsafe_clear_next() = 0;
@@ -102,6 +107,7 @@ struct BlockHandleInterface {
 };
 
 using BlockHandle = std::shared_ptr<BlockHandleInterface>;
+using ConstBlockHandle = std::shared_ptr<const BlockHandleInterface>;
 
 }  // namespace validator
 

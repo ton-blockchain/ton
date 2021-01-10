@@ -14,13 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/Timer.h"
 
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-//#include  "td/utils/Slice.h"  // TODO move StringBuilder implementation to cpp, remove header
 #include "td/utils/Time.h"
 
 namespace td {

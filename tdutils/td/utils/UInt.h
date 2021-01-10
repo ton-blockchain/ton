@@ -14,14 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/utils/common.h"
 #include "td/utils/Slice.h"
-
-#include <cstring>
 
 namespace td {
 
@@ -69,8 +67,8 @@ bool operator!=(const UInt<size> &a, const UInt<size> &b) {
 }
 
 template <size_t size>
-td::UInt<size> operator^(const UInt<size> &a, const UInt<size> &b) {
-  td::UInt<size> res;
+UInt<size> operator^(const UInt<size> &a, const UInt<size> &b) {
+  UInt<size> res;
   for (size_t i = 0; i < size / 8; i++) {
     res.raw[i] = static_cast<uint8>(a.raw[i] ^ b.raw[i]);
   }

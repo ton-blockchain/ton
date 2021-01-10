@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "check-proof.hpp"
 #include "adnl/utils.hpp"
@@ -165,7 +165,7 @@ bool CheckProof::init_parse(bool is_aux) {
   block::gen::ExtBlkRef::Record mcref;  // _ ExtBlkRef = BlkMasterInfo;
   ShardIdFull shard;
   if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
-        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) &&
         block::gen::BlkPrevInfo{info.after_merge}.validate_ref(info.prev_ref) &&
         block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) &&
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
@@ -313,8 +313,8 @@ void CheckProof::start_up() {
     return;
   }
 
-  td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, id_,
-                          true, [SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+  td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, id_, true,
+                          [SelfId = actor_id(this)](td::Result<BlockHandle> R) {
                             if (R.is_error()) {
                               td::actor::send_closure(SelfId, &CheckProof::abort_query, R.move_as_error());
                             } else {
@@ -344,8 +344,8 @@ void CheckProof::got_block_handle(BlockHandle handle) {
     process_masterchain_state();
     return;
   }
-  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, prev_[0], priority(),
-                          timeout_, [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, prev_[0], priority(), timeout_,
+                          [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &CheckProof::got_masterchain_state,
                                                              td::Ref<MasterchainState>{R.move_as_ok()});
@@ -440,8 +440,8 @@ void CheckProof::check_signatures(Ref<ValidatorSet> s) {
   if (handle_) {
     got_block_handle_2(handle_);
   } else {
-    td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, id_,
-                            true, [SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+    td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, id_, true,
+                            [SelfId = actor_id(this)](td::Result<BlockHandle> R) {
                               check_send_error(SelfId, R) ||
                                   td::actor::send_closure_bool(SelfId, &CheckProof::got_block_handle_2, R.move_as_ok());
                             });
@@ -466,7 +466,10 @@ void CheckProof::got_block_handle_2(BlockHandle handle) {
   });
   if (skip_check_signatures_) {
     // do not save proof if we skipped signatures
-    handle_->flush(manager_, handle_, std::move(P));
+    auto proof = Ref<Proof>(proof_);
+    CHECK(proof.not_null());
+    td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
+                                  std::move(P));
   } else if (is_proof()) {
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());

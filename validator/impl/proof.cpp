@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "proof.hpp"
 #include "block/block-parse.h"
@@ -88,6 +88,7 @@ td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const
     }
     res.cc_seqno = info.gen_catchain_seqno;
     res.utime = info.gen_utime;
+    res.end_lt = info.end_lt;
     res.validator_set_hash = info.gen_validator_list_hash_short;
     res.prev_key_mc_seqno = info.prev_key_block_seqno;
     return res;
@@ -105,7 +106,7 @@ td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy)
   if (lazy) {
     vm::StaticBagOfCellsDbLazy::Options options;
     options.check_crc32c = true;
-    auto res = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(data_.clone()), options);
+    auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data_.clone()), options);
     if (res.is_error()) {
       return res.move_as_error();
     }

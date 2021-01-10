@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -50,9 +50,13 @@ class StateDb : public td::actor::Actor {
   void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise);
   void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise);
 
+  void update_db_version(td::uint32 version, td::Promise<td::Unit> promise);
+  void get_db_version(td::Promise<td::uint32> promise);
+
   StateDb(td::actor::ActorId<RootDb> root_db, std::string path);
 
   void start_up() override;
+  void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
 
  private:
   using KeyType = td::Bits256;

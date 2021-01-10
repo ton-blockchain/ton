@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -84,6 +84,12 @@ class BufferedFd : public BufferedFdBase<FdT> {
   ~BufferedFd();
 
   void close();
+  size_t left_unread() {
+    return input_reader_.size();
+  }
+  size_t left_unwritten() {
+    return output_reader_.size();
+  }
 
   Result<size_t> flush_read(size_t max_read = std::numeric_limits<size_t>::max()) TD_WARN_UNUSED_RESULT;
   Result<size_t> flush_write() TD_WARN_UNUSED_RESULT;
@@ -121,12 +127,12 @@ Result<size_t> BufferedFdBase<FdT>::flush_write() {
   write_->sync_with_writer();
   size_t result = 0;
   while (!write_->empty() && ::td::can_write(*this)) {
-    constexpr size_t buf_size = 20;
-    IoSlice buf[buf_size];
+    constexpr size_t BUF_SIZE = 20;
+    IoSlice buf[BUF_SIZE];
 
     auto it = write_->clone();
     size_t buf_i;
-    for (buf_i = 0; buf_i < buf_size; buf_i++) {
+    for (buf_i = 0; buf_i < BUF_SIZE; buf_i++) {
       Slice slice = it.prepare_read();
       if (slice.empty()) {
         break;

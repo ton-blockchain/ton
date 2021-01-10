@@ -1,0 +1,43 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+
+{ ."usage: " $0 type ." <workchain-id> <wallet-id> [<filename-base>]" cr
+  ."Creates a new advanced wallet with unique 32-bit identifier <wallet-id> in specified workchain, with private key saved to or loaded from <filename-base>.pk" cr
+  ."('new-wallet.pk' by default)" cr 1 halt
+} : usage
+$# 2- -2 and ' usage if
+
+3 :$1..n
+$1 parse-workchain-id =: wc    // set workchain id from command line argument
+$2 parse-int =: subwallet-id
+$3 "new-wallet" replace-if-null =: file-base
+
+."Creating new advanced v3 wallet in workchain " wc . cr
+."with unique wallet id " subwallet-id . cr
+
+// Create new advanced wallet; code adapted from `auto/wallet3-code.fif`
+"wallet-v3-code.fif" include
+// >libref
+// code
+<b 0 32 u, subwallet-id 32 u,
+   file-base +".pk" load-generate-keypair
+   constant wallet_pk
+   B, 
+b> // data
+null // no libraries
+<b b{0011} s, 3 roll ref, rot ref, swap dict, b>  // create StateInit
+dup ."StateInit: " <s csr. cr
+dup hashu wc swap 2dup 2constant wallet_addr
+."new wallet address = " 2dup .addr cr
+2dup file-base +".addr" save-address-verbose
+."Non-bounceable address (for init): " 2dup 7 .Addr cr
+."Bounceable address (for later access): " 6 .Addr cr
+<b subwallet-id 32 u, -1 32 i, 0 32 u, b>
+dup ."signing message: " <s csr. cr
+dup hashu wallet_pk ed25519_sign_uint rot
+<b b{1000100} s, wallet_addr addr, b{000010} s, swap <s s, b{0} s, swap B, swap <s s, b>
+dup ."External message for initialization is " <s csr. cr
+2 boc+>B dup Bx. cr
+file-base +"-query.boc" tuck B>file
+."(Saved wallet creating query to file " type .")" cr

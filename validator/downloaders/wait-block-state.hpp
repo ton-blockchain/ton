@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -54,6 +54,8 @@ class WaitBlockState : public td::actor::Actor {
   void got_state_from_net(td::BufferSlice data);
   void failed_to_get_zero_state();
   void failed_to_get_state_from_net(td::Status reason);
+  void got_proof_link(td::BufferSlice data);
+  void got_proof(td::BufferSlice data);
   void apply();
   void written_state(td::Ref<ShardState> upd_state);
   void written_state_file();

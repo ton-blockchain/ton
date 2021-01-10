@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -32,6 +32,8 @@
 #include "vm/cellops.h"
 #include "td/utils/Random.h"
 #include "block/block.h"
+
+extern bool local_scripts;
 
 class HttpAnswer {
  public:
@@ -84,6 +86,9 @@ class HttpAnswer {
   struct BlockViewLink {
     ton::BlockIdExt block_id;
   };
+  struct ConfigViewLink {
+    ton::BlockIdExt block_id;
+  };
   struct BlockDownloadLink {
     ton::BlockIdExt block_id;
   };
@@ -116,8 +121,15 @@ class HttpAnswer {
   struct CodeBlock {
     std::string data;
   };
+  struct ConfigParam {
+    td::int32 idx;
+    td::Ref<vm::Cell> root;
+  };
   struct Error {
     td::Status error;
+  };
+  struct Notification {
+    std::string text;
   };
   template <class T>
   struct RawData {
@@ -189,14 +201,17 @@ class HttpAnswer {
   HttpAnswer &operator<<(TransactionLinkShort trans);
   HttpAnswer &operator<<(BlockLink block);
   HttpAnswer &operator<<(BlockViewLink block);
+  HttpAnswer &operator<<(ConfigViewLink block);
   HttpAnswer &operator<<(BlockDownloadLink block);
 
   HttpAnswer &operator<<(Error error);
+  HttpAnswer &operator<<(Notification notification);
 
   HttpAnswer &operator<<(TransactionList trans);
   HttpAnswer &operator<<(CodeBlock block) {
     return *this << "<pre><code>" << block.data << "</code></pre>";
   }
+  HttpAnswer &operator<<(ConfigParam conf);
 
   template <class T>
   HttpAnswer &operator<<(RawData<T> data) {
@@ -220,3 +235,16 @@ class HttpAnswer {
   std::unique_ptr<td::StringBuilder> sb_;
   td::BufferSlice buf_;
 };
+
+template <>
+struct HttpAnswer::RawData<void> {
+  td::Ref<vm::Cell> root;
+  RawData(td::Ref<vm::Cell> root) : root(std::move(root)) {
+  }
+};
+template <>
+inline HttpAnswer &HttpAnswer::operator<<(RawData<void> data) {
+  std::ostringstream outp;
+  vm::load_cell_slice(data.root).print_rec(outp);
+  return *this << CodeBlock{outp.str()};
+}

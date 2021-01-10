@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 
@@ -318,8 +318,8 @@ int main() {
       CHECK(!found);
       auto vec = s->choose_blocks_to_approve(desc, i);
       CHECK(vec.size() == 1);
-      CHECK(vec[1] == nullptr);
-      CHECK(ton::validatorsession::SentBlock::get_block_id(vec[1]) == ton::validatorsession::skip_round_candidate_id());
+      CHECK(vec[0] == nullptr);
+      CHECK(ton::validatorsession::SentBlock::get_block_id(vec[0]) == ton::validatorsession::skip_round_candidate_id());
     }
 
     for (td::uint32 i = 0; i < total_nodes; i++) {

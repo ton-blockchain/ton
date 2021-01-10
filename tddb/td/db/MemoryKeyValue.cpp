@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/db/MemoryKeyValue.h"
 
@@ -60,6 +60,15 @@ std::unique_ptr<KeyValueReader> MemoryKeyValue::snapshot() {
 
 std::string MemoryKeyValue::stats() const {
   return PSTRING() << "MemoryKeyValueStats{" << tag("get_count", get_count_) << "}";
+}
+Status MemoryKeyValue::begin_write_batch() {
+  UNREACHABLE();
+}
+Status MemoryKeyValue::commit_write_batch() {
+  UNREACHABLE();
+}
+Status MemoryKeyValue::abort_write_batch() {
+  UNREACHABLE();
 }
 
 Status MemoryKeyValue::begin_transaction() {

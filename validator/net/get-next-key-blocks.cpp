@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "get-next-key-blocks.hpp"
 #include "download-proof.hpp"
@@ -178,9 +178,9 @@ void GetNextKeyBlocks::download_next_proof() {
     }
   });
 
-  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, false, local_id_, overlay_id_, download_from_,
-                                         priority_, timeout_, validator_manager_, rldp_, overlays_, adnl_, client_,
-                                         std::move(P))
+  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, false, true, local_id_, overlay_id_,
+                                         download_from_, priority_, timeout_, validator_manager_, rldp_, overlays_,
+                                         adnl_, client_, std::move(P))
       .release();
 }
 

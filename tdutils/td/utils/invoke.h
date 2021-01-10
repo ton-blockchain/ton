@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -128,7 +128,7 @@ auto invoke(F &&f,
 }
 
 template <class F, class... Args, std::size_t... S>
-auto call_tuple_impl(F &func, std::tuple<Args...> &&tuple, IntSeq<S...>) {
+auto call_tuple_impl(F &&func, std::tuple<Args...> &&tuple, IntSeq<S...>) {
   return func(std::forward<Args>(std::get<S>(tuple))...);
 }
 
@@ -163,7 +163,7 @@ class LogicAnd {
 };
 
 template <class F, class... Args>
-auto call_tuple(F &func, std::tuple<Args...> &&tuple) {
+auto call_tuple(F &&func, std::tuple<Args...> &&tuple) {
   return detail::call_tuple_impl(func, std::move(tuple), detail::IntRange<sizeof...(Args)>());
 }
 

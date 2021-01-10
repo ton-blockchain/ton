@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "download-state.hpp"
 #include "validator/fabric.h"
@@ -193,12 +193,17 @@ void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {
   handle_->set_logical_time(state_->get_logical_time());
   handle_->set_applied();
   handle_->set_split(state_->before_split());
+  if (!block_id_.is_masterchain()) {
+    handle_->set_masterchain_ref_block(masterchain_block_id_.seqno());
+  }
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Unit> R) {
+    CHECK(handle->handle_moved_to_archive());
+    CHECK(handle->moved_to_archive())
     R.ensure();
     td::actor::send_closure(SelfId, &DownloadShardState::written_block_handle);
   });
-  handle_->flush(manager_, handle_, std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::archive, handle_, std::move(P));
 }
 
 void DownloadShardState::written_block_handle() {

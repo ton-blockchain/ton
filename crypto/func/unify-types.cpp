@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -45,6 +45,12 @@ void TypeExpr::compute_width() {
       }
       if (maxw > w_inf) {
         maxw = w_inf;
+      }
+      break;
+    case te_Tuple:
+      minw = maxw = 1;
+      for (TypeExpr* arg : args) {
+        arg->compute_width();
       }
       break;
     case te_Indirect:
@@ -81,6 +87,14 @@ bool TypeExpr::recompute_width() {
       }
       if (maxw > max) {
         maxw = max;
+      }
+      return true;
+    }
+    case te_Tuple: {
+      for (TypeExpr* arg : args) {
+        if (arg->minw > 1 || arg->maxw < 1 || arg->minw > arg->maxw) {
+          return false;
+        }
       }
       return true;
     }
@@ -153,7 +167,7 @@ bool TypeExpr::remove_forall(TypeExpr*& te) {
 bool TypeExpr::remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars) {
   assert(te);
   assert(te2 && te2->constr == te_ForAll);
-  if (te->constr == te_Unknown) {
+  if (te->constr == te_Var) {
     for (std::size_t i = 0; i < new_vars.size(); i++) {
       if (te == te2->args[i + 1]) {
         te = new_vars[i];
@@ -201,12 +215,14 @@ std::ostream& operator<<(std::ostream& os, TypeExpr* type_expr) {
 std::ostream& TypeExpr::print(std::ostream& os, int lex_level) {
   switch (constr) {
     case te_Unknown:
-      if (value >= 0) {
-        return os << "??" << value;
-      } else if (value >= -26) {
-        return os << (char)(64 - value);
+      return os << "??" << value;
+    case te_Var:
+      if (value >= -26 && value < 0) {
+        return os << "_" << (char)(91 + value);
+      } else if (value >= 0 && value < 26) {
+        return os << (char)(65 + value);
       } else {
-        return os << "TVAR" << -value;
+        return os << "TVAR" << value;
       }
     case te_Indirect:
       return os << args[0];
@@ -231,7 +247,9 @@ std::ostream& TypeExpr::print(std::ostream& os, int lex_level) {
       }
     }
     case te_Tensor: {
-      os << "(";
+      if (lex_level > -127) {
+        os << "(";
+      }
       auto c = args.size();
       if (c) {
         for (const auto& x : args) {
@@ -241,7 +259,25 @@ std::ostream& TypeExpr::print(std::ostream& os, int lex_level) {
           }
         }
       }
-      return os << ")";
+      if (lex_level > -127) {
+        os << ")";
+      }
+      return os;
+    }
+    case te_Tuple: {
+      os << "[";
+      auto c = args.size();
+      if (c == 1 && args[0]->constr == te_Tensor) {
+        args[0]->print(os, -127);
+      } else if (c) {
+        for (const auto& x : args) {
+          x->print(os);
+          if (--c) {
+            os << ", ";
+          }
+        }
+      }
+      return os << "]";
     }
     case te_Map: {
       assert(args.size() == 2);
@@ -298,7 +334,7 @@ std::string UnifyError::message() const {
 
 void check_width_compat(TypeExpr* te1, TypeExpr* te2) {
   if (te1->minw > te2->maxw || te2->minw > te1->maxw) {
-    std::ostringstream os{"cannot unify types of widths "};
+    std::ostringstream os{"cannot unify types of widths ", std::ios_base::ate};
     te1->show_width(os);
     os << " and ";
     te2->show_width(os);
@@ -310,7 +346,7 @@ void check_update_widths(TypeExpr* te1, TypeExpr* te2) {
   check_width_compat(te1, te2);
   te1->minw = te2->minw = std::max(te1->minw, te2->minw);
   te1->maxw = te2->maxw = std::min(te1->maxw, te2->maxw);
-  assert(te1->minw <= te2->minw);
+  assert(te1->minw <= te1->maxw);
 }
 
 void unify(TypeExpr*& te1, TypeExpr*& te2) {

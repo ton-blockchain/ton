@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/as.h"
 #include "td/utils/base64.h"
@@ -36,6 +36,7 @@
 #include "td/utils/port/sleep.h"
 #include "td/utils/port/Stat.h"
 #include "td/utils/port/thread.h"
+#include "td/utils/port/uname.h"
 #include "td/utils/port/wstring_convert.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
@@ -174,7 +175,9 @@ TEST(Misc, base64) {
   ASSERT_TRUE(is_base64("dGVzdB==") == false);
   ASSERT_TRUE(is_base64("dGVzdA=") == false);
   ASSERT_TRUE(is_base64("dGVzdA") == false);
+  ASSERT_TRUE(is_base64("dGVzd") == false);
   ASSERT_TRUE(is_base64("dGVz") == true);
+  ASSERT_TRUE(is_base64("dGVz====") == false);
   ASSERT_TRUE(is_base64("") == true);
   ASSERT_TRUE(is_base64("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") == true);
   ASSERT_TRUE(is_base64("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == false);
@@ -186,13 +189,39 @@ TEST(Misc, base64) {
   ASSERT_TRUE(is_base64url("dGVzdB==") == false);
   ASSERT_TRUE(is_base64url("dGVzdA=") == false);
   ASSERT_TRUE(is_base64url("dGVzdA") == true);
+  ASSERT_TRUE(is_base64url("dGVzd") == false);
   ASSERT_TRUE(is_base64url("dGVz") == true);
+  ASSERT_TRUE(is_base64url("dGVz====") == false);
   ASSERT_TRUE(is_base64url("") == true);
   ASSERT_TRUE(is_base64url("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") == true);
   ASSERT_TRUE(is_base64url("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=") == false);
   ASSERT_TRUE(is_base64url("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/") == false);
   ASSERT_TRUE(is_base64url("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") == false);
   ASSERT_TRUE(is_base64url("====") == false);
+
+  ASSERT_TRUE(is_base64_characters("dGVzdA==") == false);
+  ASSERT_TRUE(is_base64_characters("dGVzdB==") == false);
+  ASSERT_TRUE(is_base64_characters("dGVzdA=") == false);
+  ASSERT_TRUE(is_base64_characters("dGVzdA") == true);
+  ASSERT_TRUE(is_base64_characters("dGVz") == true);
+  ASSERT_TRUE(is_base64_characters("") == true);
+  ASSERT_TRUE(is_base64_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") == true);
+  ASSERT_TRUE(is_base64_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == false);
+  ASSERT_TRUE(is_base64_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/") == false);
+  ASSERT_TRUE(is_base64_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") == false);
+  ASSERT_TRUE(is_base64_characters("====") == false);
+
+  ASSERT_TRUE(is_base64url_characters("dGVzdA==") == false);
+  ASSERT_TRUE(is_base64url_characters("dGVzdB==") == false);
+  ASSERT_TRUE(is_base64url_characters("dGVzdA=") == false);
+  ASSERT_TRUE(is_base64url_characters("dGVzdA") == true);
+  ASSERT_TRUE(is_base64url_characters("dGVz") == true);
+  ASSERT_TRUE(is_base64url_characters("") == true);
+  ASSERT_TRUE(is_base64url_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") == true);
+  ASSERT_TRUE(is_base64url_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=") == false);
+  ASSERT_TRUE(is_base64url_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/") == false);
+  ASSERT_TRUE(is_base64url_characters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") == false);
+  ASSERT_TRUE(is_base64url_characters("====") == false);
 
   for (int l = 0; l < 300000; l += l / 20 + l / 1000 * 500 + 1) {
     for (int t = 0; t < 10; t++) {
@@ -206,6 +235,10 @@ TEST(Misc, base64) {
       decoded = base64_decode(encoded);
       ASSERT_TRUE(decoded.is_ok());
       ASSERT_TRUE(decoded.ok() == s);
+
+      auto decoded_secure = base64_decode_secure(encoded);
+      ASSERT_TRUE(decoded_secure.is_ok());
+      ASSERT_TRUE(decoded_secure.ok().as_slice() == s);
     }
   }
 
@@ -218,6 +251,124 @@ TEST(Misc, base64) {
   ASSERT_TRUE(base64_encode("      /'.;.';≤.];,].',[.;/,.;/]/..;!@#!*(%?::;!%\";") ==
               "ICAgICAgLycuOy4nO+KJpC5dOyxdLicsWy47LywuOy9dLy4uOyFAIyEqKCU/"
               "Ojo7ISUiOw==");
+  ASSERT_TRUE(base64url_encode("ab><") == "YWI-PA");
+  ASSERT_TRUE(base64url_encode("ab><c") == "YWI-PGM");
+  ASSERT_TRUE(base64url_encode("ab><cd") == "YWI-PGNk");
+}
+
+template <class T>
+static void test_remove_if(vector<int> v, const T &func, vector<int> expected) {
+  td::remove_if(v, func);
+  if (expected != v) {
+    LOG(FATAL) << "Receive " << v << ", expected " << expected << " in remove_if";
+  }
+}
+
+TEST(Misc, remove_if) {
+  auto odd = [](int x) { return x % 2 == 1; };
+  auto even = [](int x) { return x % 2 == 0; };
+  auto all = [](int x) { return true; };
+  auto none = [](int x) { return false; };
+
+  vector<int> v{1, 2, 3, 4, 5, 6};
+  test_remove_if(v, odd, {2, 4, 6});
+  test_remove_if(v, even, {1, 3, 5});
+  test_remove_if(v, all, {});
+  test_remove_if(v, none, v);
+
+  v = vector<int>{1, 3, 5, 2, 4, 6};
+  test_remove_if(v, odd, {2, 4, 6});
+  test_remove_if(v, even, {1, 3, 5});
+  test_remove_if(v, all, {});
+  test_remove_if(v, none, v);
+
+  v.clear();
+  test_remove_if(v, odd, v);
+  test_remove_if(v, even, v);
+  test_remove_if(v, all, v);
+  test_remove_if(v, none, v);
+
+  v.push_back(-1);
+  test_remove_if(v, odd, v);
+  test_remove_if(v, even, v);
+  test_remove_if(v, all, {});
+  test_remove_if(v, none, v);
+
+  v[0] = 1;
+  test_remove_if(v, odd, {});
+  test_remove_if(v, even, v);
+  test_remove_if(v, all, {});
+  test_remove_if(v, none, v);
+
+  v[0] = 2;
+  test_remove_if(v, odd, v);
+  test_remove_if(v, even, {});
+  test_remove_if(v, all, {});
+  test_remove_if(v, none, v);
+}
+
+static void test_remove(vector<int> v, int value, vector<int> expected) {
+  bool is_found = expected != v;
+  ASSERT_EQ(is_found, td::remove(v, value));
+  if (expected != v) {
+    LOG(FATAL) << "Receive " << v << ", expected " << expected << " in remove";
+  }
+}
+
+TEST(Misc, remove) {
+  vector<int> v{1, 2, 3, 4, 5, 6};
+  test_remove(v, 0, {1, 2, 3, 4, 5, 6});
+  test_remove(v, 1, {2, 3, 4, 5, 6});
+  test_remove(v, 2, {1, 3, 4, 5, 6});
+  test_remove(v, 3, {1, 2, 4, 5, 6});
+  test_remove(v, 4, {1, 2, 3, 5, 6});
+  test_remove(v, 5, {1, 2, 3, 4, 6});
+  test_remove(v, 6, {1, 2, 3, 4, 5});
+  test_remove(v, 7, {1, 2, 3, 4, 5, 6});
+
+  v.clear();
+  test_remove(v, -1, v);
+  test_remove(v, 0, v);
+  test_remove(v, 1, v);
+}
+
+TEST(Misc, contains) {
+  td::vector<int> v{1, 3, 5, 7, 4, 2};
+  for (int i = -10; i < 20; i++) {
+    ASSERT_EQ(td::contains(v, i), (1 <= i && i <= 5) || i == 7);
+  }
+
+  v.clear();
+  ASSERT_TRUE(!td::contains(v, 0));
+  ASSERT_TRUE(!td::contains(v, 1));
+
+  td::string str = "abacaba";
+  ASSERT_TRUE(!td::contains(str, '0'));
+  ASSERT_TRUE(!td::contains(str, 0));
+  ASSERT_TRUE(!td::contains(str, 'd'));
+  ASSERT_TRUE(td::contains(str, 'a'));
+  ASSERT_TRUE(td::contains(str, 'b'));
+  ASSERT_TRUE(td::contains(str, 'c'));
+}
+
+TEST(Misc, base32) {
+  ASSERT_EQ("", base32_encode(""));
+  ASSERT_EQ("me", base32_encode("a"));
+  base32_decode("me").ensure();
+  ASSERT_EQ("mfra", base32_encode("ab"));
+  ASSERT_EQ("mfrgg", base32_encode("abc"));
+  ASSERT_EQ("mfrggza", base32_encode("abcd"));
+  ASSERT_EQ("mfrggzdg", base32_encode("abcdf"));
+  ASSERT_EQ("mfrggzdgm4", base32_encode("abcdfg"));
+  for (int l = 0; l < 300000; l += l / 20 + l / 1000 * 500 + 1) {
+    for (int t = 0; t < 10; t++) {
+      string s = rand_string(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), l);
+      auto encoded = base32_encode(s);
+      auto decoded = base32_decode(encoded);
+      ASSERT_TRUE(decoded.is_ok());
+      ASSERT_TRUE(decoded.ok() == s);
+    }
+  }
 }
 
 TEST(Misc, to_integer) {
@@ -466,6 +617,29 @@ TEST(BigNum, from_decimal) {
   ASSERT_TRUE(BigNum::from_decimal("999999999999999999999999999999999999999999999999").is_ok());
 }
 
+TEST(BigNum, from_binary) {
+  ASSERT_STREQ(BigNum::from_binary("").to_decimal(), "0");
+  ASSERT_STREQ(BigNum::from_binary("a").to_decimal(), "97");
+  ASSERT_STREQ(BigNum::from_binary("\x00\xff").to_decimal(), "255");
+  ASSERT_STREQ(BigNum::from_binary("\x00\x01\x00\x00").to_decimal(), "65536");
+  ASSERT_STREQ(BigNum::from_le_binary("").to_decimal(), "0");
+  ASSERT_STREQ(BigNum::from_le_binary("a").to_decimal(), "97");
+  ASSERT_STREQ(BigNum::from_le_binary("\x00\xff").to_decimal(), "65280");
+  ASSERT_STREQ(BigNum::from_le_binary("\x00\x01\x00\x00").to_decimal(), "256");
+  ASSERT_STREQ(BigNum::from_decimal("255").move_as_ok().to_binary(), "\xff");
+  ASSERT_STREQ(BigNum::from_decimal("255").move_as_ok().to_le_binary(), "\xff");
+  ASSERT_STREQ(BigNum::from_decimal("255").move_as_ok().to_binary(2), "\x00\xff");
+  ASSERT_STREQ(BigNum::from_decimal("255").move_as_ok().to_le_binary(2), "\xff\x00");
+  ASSERT_STREQ(BigNum::from_decimal("65280").move_as_ok().to_binary(), "\xff\x00");
+  ASSERT_STREQ(BigNum::from_decimal("65280").move_as_ok().to_le_binary(), "\x00\xff");
+  ASSERT_STREQ(BigNum::from_decimal("65280").move_as_ok().to_binary(2), "\xff\x00");
+  ASSERT_STREQ(BigNum::from_decimal("65280").move_as_ok().to_le_binary(2), "\x00\xff");
+  ASSERT_STREQ(BigNum::from_decimal("65536").move_as_ok().to_binary(), "\x01\x00\x00");
+  ASSERT_STREQ(BigNum::from_decimal("65536").move_as_ok().to_le_binary(), "\x00\x00\x01");
+  ASSERT_STREQ(BigNum::from_decimal("65536").move_as_ok().to_binary(4), "\x00\x01\x00\x00");
+  ASSERT_STREQ(BigNum::from_decimal("65536").move_as_ok().to_le_binary(4), "\x00\x00\x01\x00");
+}
+
 static void test_get_ipv4(uint32 ip) {
   td::IPAddress ip_address;
   ip_address.init_ipv4_port(td::IPAddress::ipv4_to_str(ip), 80).ensure();
@@ -570,6 +744,10 @@ static void test_full_split(Slice str, vector<Slice> expected) {
   ASSERT_EQ(expected, td::full_split(str));
 }
 
+static void test_full_split(Slice str, char c, size_t max_parts, vector<Slice> expected) {
+  ASSERT_EQ(expected, td::full_split(str, c, max_parts));
+}
+
 TEST(Misc, full_split) {
   test_full_split("", {});
   test_full_split(" ", {"", ""});
@@ -585,6 +763,7 @@ TEST(Misc, full_split) {
   test_full_split(" abcdef ", {"", "abcdef", ""});
   test_full_split(" ab cd ef ", {"", "ab", "cd", "ef", ""});
   test_full_split("  ab  cd  ef  ", {"", "", "ab", "", "cd", "", "ef", "", ""});
+  test_full_split("ab cd ef gh", ' ', 3, {"ab", "cd", "ef gh"});
 }
 
 TEST(Misc, StringBuilder) {
@@ -679,10 +858,51 @@ TEST(Misc, Bits) {
   ASSERT_EQ(0x12345678u, td::bswap32(0x78563412u));
   ASSERT_EQ(0x12345678abcdef67ull, td::bswap64(0x67efcdab78563412ull));
 
+  uint8 buf[8] = {1, 90, 2, 18, 129, 255, 0, 2};
+  uint64 num2 = bswap64(as<td::uint64>(buf));
+  uint64 num = (static_cast<uint64>(buf[0]) << 56) | (static_cast<uint64>(buf[1]) << 48) |
+               (static_cast<uint64>(buf[2]) << 40) | (static_cast<uint64>(buf[3]) << 32) |
+               (static_cast<uint64>(buf[4]) << 24) | (static_cast<uint64>(buf[5]) << 16) |
+               (static_cast<uint64>(buf[6]) << 8) | (static_cast<uint64>(buf[7]));
+  ASSERT_EQ(num, num2);
+
   ASSERT_EQ(0, count_bits32(0));
   ASSERT_EQ(0, count_bits64(0));
   ASSERT_EQ(4, count_bits32((1u << 31) | 7));
   ASSERT_EQ(4, count_bits64((1ull << 63) | 7));
+}
+
+TEST(Misc, BitsRange) {
+  auto to_vec_a = [](td::uint64 x) {
+    std::vector<td::int32> bits;
+    for (auto i : td::BitsRange(x)) {
+      bits.push_back(i);
+    }
+    return bits;
+  };
+
+  auto to_vec_b = [](td::uint64 x) {
+    std::vector<td::int32> bits;
+    td::int32 pos = 0;
+    while (x != 0) {
+      if ((x & 1) != 0) {
+        bits.push_back(pos);
+      }
+      x >>= 1;
+      pos++;
+    }
+    return bits;
+  };
+
+  auto do_check = [](std::vector<td::int32> a, std::vector<td::int32> b) { ASSERT_EQ(b, a); };
+  auto check = [&](td::uint64 x) { do_check(to_vec_a(x), to_vec_b(x)); };
+
+  do_check(to_vec_a(21), {0, 2, 4});
+  for (int x = 0; x < 100; x++) {
+    check(x);
+    check(std::numeric_limits<td::uint32>::max() - x);
+    check(std::numeric_limits<td::uint64>::max() - x);
+  }
 }
 
 #if !TD_THREAD_UNSUPPORTED
@@ -918,6 +1138,7 @@ TEST(Misc, Hasher) {
   test_hash<AbslHash>();
 #endif
 }
+
 TEST(Misc, CancellationToken) {
   CancellationTokenSource source;
   source.cancel();
@@ -936,4 +1157,19 @@ TEST(Misc, CancellationToken) {
   CHECK(!token4);
   source = CancellationTokenSource{};
   CHECK(token4);
+}
+
+TEST(Misc, Xorshift128plus) {
+  Random::Xorshift128plus rnd(123);
+  ASSERT_EQ(11453256657207062272ull, rnd());
+  ASSERT_EQ(14917490455889357332ull, rnd());
+  ASSERT_EQ(5645917797309401285ull, rnd());
+  ASSERT_EQ(13554822455746959330ull, rnd());
+}
+TEST(Misc, uname) {
+  auto first_version = get_operating_system_version();
+  auto second_version = get_operating_system_version();
+  ASSERT_STREQ(first_version, second_version);
+  ASSERT_EQ(first_version.begin(), second_version.begin());
+  ASSERT_TRUE(!first_version.empty());
 }

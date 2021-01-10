@@ -14,15 +14,21 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
+
 #pragma once
 
-#include "td/utils/FileLog.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/Status.h"
 
 namespace td {
 class TsFileLog {
+  static constexpr int64 DEFAULT_ROTATE_THRESHOLD = 10 * (1 << 20);
+
  public:
-  static Result<td::unique_ptr<LogInterface>> create(string path);
+  static Result<td::unique_ptr<LogInterface>> create(string path, int64 rotate_threshold = DEFAULT_ROTATE_THRESHOLD,
+                                                     bool redirect_stderr = true);
 };
 }  // namespace td

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -107,13 +107,13 @@ class EpochBasedMemoryReclamation {
   static constexpr size_t MAX_BAGS = 3;
   struct ThreadData {
     std::atomic<int64> epoch{1};
-    char pad[TD_CONCURRENCY_PAD - sizeof(epoch)];
+    char pad[TD_CONCURRENCY_PAD - sizeof(std::atomic<int64>)];
 
     size_t to_skip{0};
     size_t checked_thread_i{0};
     size_t bag_i{0};
     std::vector<unique_ptr<T>> to_delete[MAX_BAGS];
-    char pad2[TD_CONCURRENCY_PAD - sizeof(to_delete)];
+    char pad2[TD_CONCURRENCY_PAD - sizeof(std::vector<unique_ptr<T>>) * MAX_BAGS];
 
     void rotate_bags() {
       bag_i = (bag_i + 1) % MAX_BAGS;
@@ -143,10 +143,10 @@ class EpochBasedMemoryReclamation {
     }
   };
   std::vector<ThreadData> threads_;
-  char pad[TD_CONCURRENCY_PAD - sizeof(threads_)];
+  char pad[TD_CONCURRENCY_PAD - sizeof(std::vector<ThreadData>)];
 
   std::atomic<int64> epoch_{1};
-  char pad2[TD_CONCURRENCY_PAD - sizeof(epoch_)];
+  char pad2[TD_CONCURRENCY_PAD - sizeof(std::atomic<int64>)];
 
   void lock(size_t thread_id) {
     auto &data = threads_[thread_id];

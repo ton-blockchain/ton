@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -107,6 +107,13 @@ inline ErrorCtxSet ErrorCtx::set_guard(std::vector<std::string> str_list) {
  */
 
 class ValidateQuery : public td::actor::Actor {
+  static constexpr int supported_version() {
+    return 3;
+  }
+  static constexpr long long supported_capabilities() {
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
+  }
+
  public:
   ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                 BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
@@ -136,6 +143,8 @@ class ValidateQuery : public td::actor::Actor {
   bool update_shard_cc_{false};
   bool is_fake_{false};
   bool prev_key_block_exists_{false};
+  bool debug_checks_{false};
+  bool outq_cleanup_partial_{false};
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
@@ -169,6 +178,7 @@ class ValidateQuery : public td::actor::Actor {
   std::unique_ptr<block::ShardConfig> new_shard_conf_;  // from shard_hashes_ in mc blocks
   Ref<block::WorkchainInfo> wc_info_;
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
+  Ref<vm::Cell> old_mparams_;
   bool accept_msgs_{true};
 
   ton::BlockSeqno min_shard_ref_mc_seqno_{~0U};

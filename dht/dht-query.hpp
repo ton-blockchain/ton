@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -41,11 +41,21 @@ class DhtQuery : public td::actor::Actor {
  protected:
   DhtKeyId key_;
   DhtNode self_;
+  bool client_only_;
 
  public:
   DhtQuery(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k,
-           td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl)
-      : key_(key), self_(std::move(self)), print_id_(print_id), src_(src), k_(k), a_(a), node_(node), adnl_(adnl) {
+           td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
+           td::actor::ActorId<adnl::Adnl> adnl)
+      : key_(key)
+      , self_(std::move(self))
+      , client_only_(client_only)
+      , print_id_(print_id)
+      , src_(src)
+      , k_(k)
+      , a_(a)
+      , node_(node)
+      , adnl_(adnl) {
     add_nodes(std::move(list));
   }
   DhtMember::PrintId print_id() const {
@@ -94,9 +104,10 @@ class DhtQueryFindNodes : public DhtQuery {
 
  public:
   DhtQueryFindNodes(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
-                    td::uint32 k, td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node,
+                    td::uint32 k, td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
                     td::actor::ActorId<adnl::Adnl> adnl, td::Promise<DhtNodesList> promise)
-      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), node, adnl), promise_(std::move(promise)) {
+      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), client_only, node, adnl)
+      , promise_(std::move(promise)) {
   }
   void send_one_query(adnl::AdnlNodeIdShort id) override;
   void on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst);
@@ -112,9 +123,10 @@ class DhtQueryFindValue : public DhtQuery {
 
  public:
   DhtQueryFindValue(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
-                    td::uint32 k, td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node,
+                    td::uint32 k, td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
                     td::actor::ActorId<adnl::Adnl> adnl, td::Promise<DhtValue> promise)
-      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), node, adnl), promise_(std::move(promise)) {
+      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), client_only, node, adnl)
+      , promise_(std::move(promise)) {
   }
   void send_one_query(adnl::AdnlNodeIdShort id) override;
   void on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst);
@@ -139,10 +151,11 @@ class DhtQueryStore : public td::actor::Actor {
   td::uint32 remaining_;
   DhtNodesList list_;
   DhtNode self_;
+  bool client_only_;
 
  public:
   DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
-                td::uint32 k, td::uint32 a, DhtNode self, td::actor::ActorId<DhtMember> node,
+                td::uint32 k, td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
                 td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::Unit> promise);
   void send_stores(td::Result<DhtNodesList> res);
   void store_ready(td::Result<td::BufferSlice> res);

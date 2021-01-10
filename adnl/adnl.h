@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -33,6 +33,8 @@ class Dht;
 }
 
 namespace adnl {
+
+enum class AdnlLocalIdMode : td::uint32 { direct_only = 1, drop_from_net = 2 };
 
 class AdnlNetworkManager;
 
@@ -56,6 +58,8 @@ class AdnlSenderInterface : public td::actor::Actor {
                              td::uint64 max_answer_size) = 0;
 };
 
+class AdnlTunnel : public td::actor::Actor {};
+
 class Adnl : public AdnlSenderInterface {
  public:
   class Callback {
@@ -73,6 +77,11 @@ class Adnl : public AdnlSenderInterface {
     return 1024 * 8;
   }
 
+  struct SendFlags {
+    enum Flags : td::uint32 { direct_only = 1 };
+  };
+  virtual void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) = 0;
+
   // adds node to peer table
   // used mostly from DHT to avoid loops
   virtual void add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) = 0;
@@ -81,7 +90,10 @@ class Adnl : public AdnlSenderInterface {
   virtual void add_static_nodes_from_config(AdnlNodesList nodes) = 0;
 
   // adds local id. After that you can send/receive messages from/to this id
-  virtual void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list) = 0;
+  void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat) {
+    add_id_ex(std::move(id), std::move(addr_list), cat, 0);
+  }
+  virtual void add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat, td::uint32 mode) = 0;
   virtual void del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) = 0;
 
   // subscribe to (some) messages(+queries) to this local id
@@ -103,6 +115,8 @@ class Adnl : public AdnlSenderInterface {
 
   virtual void create_ext_server(std::vector<AdnlNodeIdShort> ids, std::vector<td::uint16> ports,
                                  td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise) = 0;
+  virtual void create_tunnel(AdnlNodeIdShort dst, td::uint32 size,
+                             td::Promise<std::pair<td::actor::ActorOwn<AdnlTunnel>, AdnlAddress>> promise) = 0;
 
   static td::actor::ActorOwn<Adnl> create(std::string db, td::actor::ActorId<keyring::Keyring> keyring);
 

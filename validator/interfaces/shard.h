@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -79,7 +79,7 @@ class MasterchainState : virtual public ShardState {
   virtual bool get_old_mc_block_id(ton::BlockSeqno seqno, ton::BlockIdExt& blkid,
                                    ton::LogicalTime* end_lt = nullptr) const = 0;
   virtual bool check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict = false) const = 0;
-  virtual td::Result<td::Ref<ConfigHolder>> get_key_block_config() const = 0;
+  virtual td::Result<td::Ref<ConfigHolder>> get_config_holder() const = 0;
   virtual td::Status prepare() {
     return td::Status::OK();
   }

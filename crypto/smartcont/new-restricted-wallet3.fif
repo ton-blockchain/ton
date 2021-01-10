@@ -1,0 +1,116 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+"GetOpt.fif" include
+
+{ show-options-help 1 halt } : usage
+0 =: restrict-mode
+-1 =: wc
+null =: subwallet-id
+86400 =: expires-in
+now =: start-at
+// 0x11EF55AA =: subwallet-base
+
+begin-options
+     " <creator-filename-base> <public-key> <amount> [-w<workchain>][-r<restrict-mode>][-i<subwallet-id>][-t<start-at>] [<savefile>]" +cr +tab
+    +"Creates a restricted lockup wallet v3 in the masterchain initialized by key loaded from <init-filename-base> "
+    +"and controlled by the private key corresponding to <public-key>" +cr +tab
+    +"and saves its initialization query into new-<savefile>.boc and its address into <savefile>.addr ('rwallet.addr' by default)"
+    disable-digit-options generic-help-setopt
+  "r" "--restrict-mode" { parse-int =: restrict-mode } short-long-option-arg
+    "Selects a standard restriction mode: 1 for 18-month lockup, 2 for 4-year lockup" option-help
+  "w" "--workchain" { parse-int =: wc } short-long-option-arg
+    "Selects a workchain (" wc (.) $+ +" by default)" option-help
+  "i" "--subwallet-id" { parse-int =: subwallet-id } short-long-option-arg
+    "Sets 32-bit subwallet id (workchain plus " subwallet-base (.) $+ +" by default)" option-help
+  "x" "--expires-in" { parse-int =: expires-in } short-long-option-arg
+    "Expiration time of the initialization message (" expires-in (.) $+
+    +" seconds by default)" option-help
+  "t" "--start-at" { dup "now" $= { drop now } { parse-int } cond =: start-at } short-long-option-arg
+    "Restriction start Unixtime (`now` by default)" option-help 
+  "h" "--help" { usage } short-long-option
+    "Shows a help message" option-help
+parse-options
+    
+$# dup 3 < swap 4 > or ' usage if
+4 :$1..n
+
+$1 =: filename-base
+$2 parse-pubkey =: PubKey
+$3 $>GR =: amount
+$4 "rwallet" replace-if-null =: savefile-base
+subwallet-id subwallet-base wc + replace-if-null =: subwallet-id
+expires-in now + =: expires-at
+
+"new-" savefile-base $+ +".boc" =: savefile
+savefile-base +".addr" =: savefile-addr
+
+wc 8 fits not abort"invalid workchain id"
+subwallet-id 32 fits not abort"invalid subwallet-id"
+expires-at 32 ufits not abort"invalid expiration time"
+start-at 32 ufits not abort"invalid restriction start time"
+restrict-mode dup 0 < swap 2 > or abort"unknown restriction mode"
+filename-base +".pk" load-keypair =: init_pk =: init_pubkey
+
+."Creating new restricted lockup wallet v3 in workchain " wc . 
+."with restriction mode " restrict-mode . ."and nominal amount " amount .GR cr
+."controlled by public key " PubKey .pubkey ." and initialized by public key " init_pubkey 256 B>u@ .pubkey cr
+."(subwallet id is " subwallet-id ._ .")" cr
+
+// D x t -- D'
+{ <b rot Gram, swap rot 32 b>idict! not abort"cannot add value"
+} : rdict-entry
+{ 86400 * } : days*
+{ 365 * days* } : years*
+// balance -- dict
+{ dictnew
+  over 31 -1<< rdict-entry
+  over 3/4 */ 91 days* rdict-entry
+  over 1/2 */ 183 days* rdict-entry
+  swap 1/4 */ 365 days* rdict-entry
+  0 548 days* rdict-entry
+} : make-rdict1
+{ dictnew
+  over 31 -1<< rdict-entry
+  over .9 */ 0 rdict-entry
+  over .6775 */ 1 years* rdict-entry
+  over .445 */ 2 years* rdict-entry
+  swap .2225 */ 3 years* rdict-entry
+  0 4 years* 86400 + rdict-entry
+} : make-rdict2
+{ dictnew
+  swap 31 -1<< rdict-entry
+  0 0 rdict-entry
+} : make-rdict0
+
+amount
+restrict-mode ?dup {
+  1 = { make-rdict1 } { make-rdict2 } cond 
+} { make-rdict0 } cond  
+=: rdict
+
+."Restrictions start at " start-at ._ .": " cr
+rdict 32 { swap . ."-> " Gram@ .GR cr true } idictforeach cr
+
+// Create new restricted wallet v3; code taken from `auto/restricted-wallet3-code.fif`
+"auto/restricted-wallet3-code.fif" include  // code
+<b 0 32 u, subwallet-id 32 i, init_pubkey B, PubKey 256 u, b> // data
+null // no libraries
+<b b{0011} s, 3 roll ref, rot ref, swap dict, b>  // create StateInit
+dup ."StateInit: " <s csr. cr
+dup =: StateInit hashu wc swap 2dup 2constant wallet_addr
+."new wallet address = " 2dup .addr cr
+2dup savefile-addr save-address-verbose
+."Non-bounceable address (for init): " 2dup 7 .Addr cr
+."Bounceable address (for later access): " 6 .Addr cr
+
+<b subwallet-id 32 u, expires-at 32 u, 0 32 u, start-at 32 u, rdict dict, b>
+dup ."signing message: " <s csr. cr
+dup hashu init_pk ed25519_sign_uint
+
+<b b{1000100} s, wallet_addr addr, b{000010} s, StateInit <s s, 
+  b{0} s, swap B, swap <s s, b>
+dup ."External message for initialization is " <s csr. cr
+2 boc+>B dup Bx. cr
+savefile tuck B>file
+."(Saved wallet creating query to file " type .")" cr

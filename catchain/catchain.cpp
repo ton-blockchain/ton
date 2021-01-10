@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "catchain-types.h"
 #include "catchain.hpp"
@@ -222,8 +222,12 @@ void CatChainImpl::on_receiver_started() {
 CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, CatChainOptions opts,
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                            td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
-                           PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root)
-    : opts_(std::move(opts)), db_root_(db_root) {
+                           PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root,
+                           std::string db_suffix, bool allow_unsafe_self_blocks_resync)
+    : opts_(std::move(opts))
+    , db_root_(db_root)
+    , db_suffix_(db_suffix)
+    , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   callback_ = std::move(callback);
   sources_.resize(ids.size());
   unique_hash_ = unique_hash;
@@ -280,9 +284,9 @@ void CatChainImpl::start_up() {
 
   auto cb = std::make_unique<ChainCb>(actor_id(this));
 
-  receiver_ =
-      CatChainReceiverInterface::create(std::move(cb), opts_, args_->keyring, args_->adnl, args_->overlay_manager,
-                                        std::move(args_->ids), args_->local_id, args_->unique_hash, db_root_);
+  receiver_ = CatChainReceiverInterface::create(
+      std::move(cb), opts_, args_->keyring, args_->adnl, args_->overlay_manager, std::move(args_->ids), args_->local_id,
+      args_->unique_hash, db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
   args_ = nullptr;
   //alarm_timestamp() = td::Timestamp::in(opts_.idle_timeout);
 }
@@ -292,9 +296,11 @@ td::actor::ActorOwn<CatChain> CatChain::create(std::unique_ptr<Callback> callbac
                                                td::actor::ActorId<adnl::Adnl> adnl,
                                                td::actor::ActorId<overlay::Overlays> overlay_manager,
                                                std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                               CatChainSessionId unique_hash, std::string db_root) {
+                                               CatChainSessionId unique_hash, std::string db_root,
+                                               std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
   return td::actor::create_actor<CatChainImpl>("catchain", std::move(callback), std::move(opts), keyring, adnl,
-                                               overlay_manager, std::move(ids), local_id, unique_hash, db_root);
+                                               overlay_manager, std::move(ids), local_id, unique_hash, db_root,
+                                               db_suffix, allow_unsafe_self_blocks_resync);
 }
 
 CatChainBlock *CatChainImpl::get_block(CatChainBlockHash hash) const {

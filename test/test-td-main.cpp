@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/tests.h"
 #include "td/utils/misc.h"
@@ -34,7 +34,7 @@
 
 int main(int argc, char **argv) {
   td::set_default_failure_signal_handler().ensure();
-  // TODO port OptionsParser to Windows
+  // TODO port OptionParser to Windows
   auto &runner = td::TestsRunner::get_default();
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--filter")) {

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -55,7 +55,6 @@ class BigNum {
 
   static BigNum from_binary(Slice str);
 
-  // Available only if OpenSSL >= 1.1.0
   static BigNum from_le_binary(Slice str);
 
   static Result<BigNum> from_decimal(CSlice str);
@@ -65,8 +64,6 @@ class BigNum {
   static BigNum from_raw(void *openssl_big_num);
 
   void set_value(uint32 new_value);
-
-  void ensure_const_time();
 
   int get_num_bits() const;
 
@@ -84,7 +81,6 @@ class BigNum {
 
   string to_binary(int exact_size = -1) const;
 
-  // Available only if OpenSSL >= 1.1.0
   string to_le_binary(int exact_size = -1) const;
 
   string to_decimal() const;

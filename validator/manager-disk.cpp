@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "manager-disk.hpp"
 #include "validator-group.hpp"
@@ -221,6 +221,42 @@ void ValidatorManagerImpl::get_block_proof(BlockHandle handle, td::Promise<td::B
   });
 
   td::actor::send_closure(db_, &Db::get_block_proof, handle, std::move(P));
+}
+
+void ValidatorManagerImpl::get_key_block_proof(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Ref<Proof>> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      auto B = R.move_as_ok();
+      promise.set_value(B->data());
+    }
+  });
+
+  td::actor::send_closure(db_, &Db::get_key_block_proof, block_id, std::move(P));
+}
+
+void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), block_id, db = db_.get()](td::Result<td::Ref<Proof>> R) mutable {
+        if (R.is_error()) {
+          auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Ref<Proof>> R) mutable {
+            if (R.is_error()) {
+              promise.set_error(R.move_as_error());
+            } else {
+              auto B = R.move_as_ok();
+              promise.set_value(B->data());
+            }
+          });
+
+          td::actor::send_closure(db, &Db::get_key_block_proof, block_id, std::move(P));
+        } else {
+          auto B = R.move_as_ok()->export_as_proof_link().move_as_ok();
+          promise.set_value(B->data());
+        }
+      });
+
+  td::actor::send_closure(db_, &Db::get_key_block_proof, block_id, std::move(P));
 }
 
 void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
@@ -505,7 +541,7 @@ void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> t
                                                  std::vector<IhrMessage::Hash> to_delete) {
 }
 
-void ValidatorManagerImpl::get_block_data_from_db(BlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
+void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
   td::actor::send_closure(db_, &Db::get_block_data, handle, std::move(promise));
 }
 
@@ -522,7 +558,7 @@ void ValidatorManagerImpl::get_block_data_from_db_short(BlockIdExt block_id, td:
   get_block_handle(block_id, false, std::move(P));
 }
 
-void ValidatorManagerImpl::get_shard_state_from_db(BlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
+void ValidatorManagerImpl::get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
   td::actor::send_closure(db_, &Db::get_block_state, handle, std::move(promise));
 }
 
@@ -546,7 +582,7 @@ void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockId
   td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
 }
 
-void ValidatorManagerImpl::get_block_proof_from_db(BlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
+void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof, std::move(handle), std::move(promise));
 }
 
@@ -563,7 +599,8 @@ void ValidatorManagerImpl::get_block_proof_from_db_short(BlockIdExt block_id, td
   get_block_handle(block_id, false, std::move(P));
 }
 
-void ValidatorManagerImpl::get_block_proof_link_from_db(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) {
+void ValidatorManagerImpl::get_block_proof_link_from_db(ConstBlockHandle handle,
+                                                        td::Promise<td::Ref<ProofLink>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof_link, std::move(handle), std::move(promise));
 }
 
@@ -582,17 +619,17 @@ void ValidatorManagerImpl::get_block_proof_link_from_db_short(BlockIdExt block_i
 }
 
 void ValidatorManagerImpl::get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt,
-                                                   td::Promise<BlockIdExt> promise) {
+                                                   td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(db_, &Db::get_block_by_lt, account, lt, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                                          td::Promise<BlockIdExt> promise) {
+                                                          td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(db_, &Db::get_block_by_unix_time, account, ts, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                      td::Promise<BlockIdExt> promise) {
+                                                      td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(db_, &Db::get_block_by_seqno, account, seqno, std::move(promise));
 }
 
@@ -728,7 +765,8 @@ void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit
   td::actor::send_closure(db_, &Db::store_block_handle, std::move(handle), std::move(promise));
 }
 
-void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState> state,
+                                          td::Promise<td::Unit> promise) {
   handle->set_processed();
   if (state->get_shard().is_masterchain() && handle->id().id.seqno > last_masterchain_seqno_) {
     CHECK(handle->id().id.seqno == last_masterchain_seqno_ + 1);
@@ -743,6 +781,23 @@ void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> sta
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(promise));
   } else {
     promise.set_value(td::Unit());
+  }
+}
+
+void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
+  if (handle->is_applied()) {
+    return new_block_cont(std::move(handle), std::move(state), std::move(promise));
+  } else {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle, state = std::move(state),
+                                         promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+      if (R.is_error()) {
+        promise.set_error(R.move_as_error());
+      } else {
+        td::actor::send_closure(SelfId, &ValidatorManagerImpl::new_block_cont, std::move(handle), std::move(state),
+                                std::move(promise));
+      }
+    });
+    td::actor::send_closure(db_, &Db::apply_block, handle, std::move(P));
   }
 }
 
@@ -827,7 +882,7 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
 }
 
 void ValidatorManagerImpl::start_up() {
-  db_ = create_db_actor(actor_id(this), db_root_, opts_->get_filedb_depth());
+  db_ = create_db_actor(actor_id(this), db_root_);
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
     R.ensure();
