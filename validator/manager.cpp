@@ -1692,6 +1692,9 @@ void ValidatorManagerImpl::update_shards() {
   auto exp_vec = last_masterchain_state_->get_shards();
   auto config = last_masterchain_state_->get_consensus_config();
   validatorsession::ValidatorSessionOptions opts{config};
+  if(last_masterchain_seqno_ > 9000000) { //TODO move to get_consensus_config()
+      opts.proto_version = 1;
+  }
   auto opts_hash = opts.get_hash();
 
   std::map<ShardIdFull, std::vector<BlockIdExt>> new_shards;
