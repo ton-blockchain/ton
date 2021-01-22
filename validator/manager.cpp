@@ -1692,7 +1692,10 @@ void ValidatorManagerImpl::update_shards() {
   auto exp_vec = last_masterchain_state_->get_shards();
   auto config = last_masterchain_state_->get_consensus_config();
   validatorsession::ValidatorSessionOptions opts{config};
-  if(last_masterchain_seqno_ > 9000000) { //TODO move to get_consensus_config()
+  uint threshold = 9500000;
+  bool force_group_id_upgrade = last_masterchain_seqno_ == threshold;
+  auto legacy_opts_hash = opts.get_hash();
+  if(last_masterchain_seqno_ >= threshold) { //TODO move to get_consensus_config()
       opts.proto_version = 1;
   }
   auto opts_hash = opts.get_hash();
@@ -1768,6 +1771,45 @@ void ValidatorManagerImpl::update_shards() {
   }
 
   BlockSeqno key_seqno = last_key_block_handle_->id().seqno();
+
+  if (force_group_id_upgrade) {
+    for (auto &desc : new_shards) {
+      auto shard = desc.first;
+      auto prev = desc.second;
+      for (auto &p : prev) {
+        CHECK(p.is_valid());
+      }
+      auto val_set = last_masterchain_state_->get_validator_set(shard);
+      auto validator_id = get_validator(shard, val_set);
+
+      if (!validator_id.is_zero()) {
+        auto legacy_val_group_id = get_validator_set_id(shard, val_set, legacy_opts_hash, key_seqno, opts);
+        auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
+
+
+        auto it = validator_groups_.find(legacy_val_group_id);
+        if (it != validator_groups_.end()) {
+          new_validator_groups_.emplace(val_group_id, std::move(it->second));
+        } else {
+          auto it2 = next_validator_groups_.find(legacy_val_group_id);
+          if (it2 != next_validator_groups_.end()) {
+            if (!it2->second.empty()) {
+              td::actor::send_closure(it2->second, &ValidatorGroup::start, prev, last_masterchain_block_id_,
+                                      last_masterchain_state_->get_unix_time());
+            }
+            new_validator_groups_.emplace(val_group_id, std::move(it2->second));
+          } else {
+            auto G = create_validator_group(val_group_id, shard, val_set, opts, started_);
+            if (!G.empty()) {
+              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_,
+                                      last_masterchain_state_->get_unix_time());
+            }
+            new_validator_groups_.emplace(val_group_id, std::move(G));
+          }
+        }
+      }
+    }
+  }
 
   if (allow_validate_) {
     for (auto &desc : new_shards) {
