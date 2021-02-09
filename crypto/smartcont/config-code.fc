@@ -601,7 +601,9 @@ _ unpack_proposal(slice pstatus) inline_ref {
       voters_list = cons(voter_id, voters_list);
     }
   } until (~ f);
-  var (rounds_remaining, losses, wins) = (rest~load_uint(8), rest~load_uint(8), rest~load_uint(8));
+  ;; Note there is a bug in config contract currently deployed in testnet2:
+  ;; wins and losses are messed up
+  var (rounds_remaining, wins, losses) = (rest~load_uint(8), rest~load_uint(8), rest~load_uint(8));
   rest.end_parse();
   var (param_id, param_val, param_hash) = parse_config_proposal(proposal);
   return [expires, critical?, [param_id, param_val, param_hash], vset_id, voters_list, weight_remaining, rounds_remaining, losses, wins];
