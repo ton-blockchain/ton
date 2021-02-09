@@ -3461,7 +3461,7 @@ bool TestNode::ValidatorLoadInfo::store_record(const td::Bits256& key, const blo
   if (it == vset_map.end()) {
     return false;
   }
-  created.at(it->second) = std::make_pair<td::int64, td::int64>(mc_cnt.total, shard_cnt.total);
+  created.at(it->second) = std::make_pair(mc_cnt.total, shard_cnt.total);
   return true;
 }
 
