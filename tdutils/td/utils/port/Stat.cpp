@@ -58,6 +58,8 @@
 #define PSAPI_VERSION 1
 #endif
 #include <psapi.h>
+#pragma comment( lib, "psapi.lib" )
+
 
 #endif
 
