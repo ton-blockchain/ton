@@ -1,0 +1,77 @@
+name: C/C++ CI Win64 Compile
+
+on: [push]
+
+defaults:
+  run:
+    shell: cmd
+    
+jobs:
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+      - name: Get Current OS version
+        run: |
+          systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
+
+      - name: Check out current repository
+        uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
+        
+      - name: Check out zlib repository
+        uses: actions/checkout@v2
+        with:
+          repository: desktop-app/zlib
+          path: zlib
+          
+      - name: Setup msbuild.exe
+        uses: microsoft/setup-msbuild@v1.0.2
+                
+      - name: Compile zlib Win64
+        run: |
+          cd zlib\contrib\vstudio\vc14
+          msbuild zlibstat.vcxproj /p:Configuration=Debug /p:platform=x64        
+          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64
+          
+      - name: Install OpenSSL Win64
+        run: |
+          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1i.msi
+          msiexec /i openssl.msi /quiet /qn /norestart
+          
+      - name: Build ton
+        run: |
+          set root=%cd%
+          echo %root%
+          mkdir build
+          cd build
+          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" -DCMAKE_BUILD_TYPE=Release ..
+          
+      - name: Compile ton
+        run: |       
+          cd build   
+          cmake --build .
+        continue-on-error: true          
+          
+      - name: Show executables
+        run: |
+          cd build          
+          dir *.exe /a-D /S /B
+          
+      - name: Check if validator-engine.exe exists
+        run: |
+          set root=%cd%
+          copy %root%\build\validator-engine\Debug\validator-engine.exe test
+          
+      - name: Find & copy binaries
+        run: |
+          mkdir artifacts
+          for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-win64-binaries
+          path: artifacts

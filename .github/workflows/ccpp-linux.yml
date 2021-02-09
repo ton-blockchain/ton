@@ -1,0 +1,46 @@
+name: C/C++ CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+      with:
+        depth: 1
+        submodules: 'recursive'
+    - name: Run Cppcheck
+      uses: Bedzior/run-cppcheck@master
+      with:
+        enabled checks: all
+        enable inconclusive: true
+        generate report: true
+    - name: Upload report
+      uses: actions/upload-artifact@v1
+      with:
+        name: report
+        path: output
+    - name: mkdir
+      run: |
+        mkdir build
+    - name: cmake
+      run: | 
+        cd build
+        cmake ..
+    - name: make -j4
+      run: |
+        cd build
+        make -j4
+    - name: find & copy binaries
+      run: |
+        mkdir artifacts
+        cp --parents build/crypto/fift build/crypto/adjust-block build/crypto/dump-block build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/tddb/io-bench build/http/http-proxy build/tdnet/udp_ping_pong build/tdnet/tcp_ping_pong build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/pack-viewer build/utils/json2tlo build/adnl/adnl-proxy build/adnl/adnl-pong artifacts
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries
+        path: artifacts
