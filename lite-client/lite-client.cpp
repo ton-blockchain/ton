@@ -3675,11 +3675,12 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
 }
 
 bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
-  return true; // todo: (tolya-yanot) temporary reduction of fine
-
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
+
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   if (severe) {
     fine = td::make_refint(2500 * 1000000000LL);  // GR$2500
     fine_part = (1 << 30);                        // 1/4 of stake
