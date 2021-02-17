@@ -3675,6 +3675,8 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
 }
 
 bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
@@ -3699,6 +3701,8 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
 }
 
 bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part) {
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
   return compute_punishment(interval, severe, computed_fine, computed_fine_part) &&
@@ -3731,7 +3735,7 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
   }
   int severity = (severe ? 2 : 1);
   td::RefInt256 fine = td::make_refint(1000000000);
-  unsigned fine_part = 0xffffffff / 16;  // 1/16
+  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
   if (!compute_punishment(interval, severe, fine, fine_part)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
