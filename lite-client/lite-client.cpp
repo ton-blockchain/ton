@@ -3678,6 +3678,9 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
+
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   if (severe) {
     fine = td::make_refint(2500 * 1000000000LL);  // GR$2500
     fine_part = (1 << 30);                        // 1/4 of stake
@@ -3699,6 +3702,8 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
 }
 
 bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part) {
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
   return compute_punishment(interval, severe, computed_fine, computed_fine_part) &&
@@ -3730,8 +3735,8 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
     return td::Status::Error("non-positive time interval");
   }
   int severity = (severe ? 2 : 1);
-  td::RefInt256 fine = td::make_refint(1000000000);
-  unsigned fine_part = 0xffffffff / 16;  // 1/16
+  td::RefInt256 fine = td::make_refint(101000000000);
+  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
   if (!compute_punishment(interval, severe, fine, fine_part)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
