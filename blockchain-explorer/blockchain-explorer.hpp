@@ -45,7 +45,6 @@
 #else
 #define MHD_RESULT int
 #endif
-#define MHD_RESULT enum MHD_Result
 
 extern bool local_scripts_;
 
