@@ -5,13 +5,12 @@ on: [push]
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
 
     steps:
     - name: Check out repository
       uses: actions/checkout@v2
-      with:
-        depth: 1
+      with:      
         submodules: 'recursive'
     - name: Run Cppcheck
       uses: Bedzior/run-cppcheck@master
