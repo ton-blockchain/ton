@@ -442,3 +442,4 @@ endif()
 
 install(TARGETS fift func RUNTIME DESTINATION bin)
 install(DIRECTORY fift/lib/ DESTINATION lib/fift)
+install(DIRECTORY smartcont DESTINATION share/ton)

@@ -165,3 +165,4 @@ install(FILES "TonlibConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/TonlibConfigVers
 
 # Add SOVERSION to shared libraries
 set_property(TARGET tonlibjson PROPERTY SOVERSION ${TON_VERSION})
+install(TARGETS tonlib-cli RUNTIME DESTINATION bin)
