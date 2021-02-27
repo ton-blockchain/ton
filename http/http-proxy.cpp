@@ -264,6 +264,10 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
+  p.add_option('V', "version", "shows http-proxy build version", [&]() {
+    std::cout << "http-proxy build version: [" << BUILD_VERSION << "]\n";
+    std::exit(0);
+  });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});

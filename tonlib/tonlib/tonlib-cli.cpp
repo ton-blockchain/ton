@@ -2308,6 +2308,10 @@ int main(int argc, char* argv[]) {
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
   });
+  p.add_option('V', "version", "show tonlib-cli build version", [&]() {
+    std::cout << "Fift build version: [" << BUILD_VERSION << "]\n";
+    std::exit(0);
+  });
   p.add_checked_option('C', "config-force", "set lite server config, drop config related blockchain cache",
                        [&](td::Slice arg) {
                          TRY_RESULT(data, td::read_file_str(arg.str()));

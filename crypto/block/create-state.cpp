@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -804,7 +804,8 @@ void usage(const char* progname) {
                "\t-I<source-search-path>\tSets colon-separated library source include path. If not indicated, "
                "$FIFTPATH is used instead.\n"
                "\t-L<library-fif-file>\tPre-loads a library source file\n"
-               "\t-v<verbosity-level>\tSet verbosity level\n";
+               "\t-v<verbosity-level>\tSet verbosity level\n"
+               "\t-V<version>\tShow create-state build version\n";
   std::exit(2);
 }
 
@@ -842,7 +843,7 @@ int main(int argc, char* const argv[]) {
 
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  while (!script_mode && (i = getopt(argc, argv, "hinsI:L:v:")) != -1) {
+  while (!script_mode && (i = getopt(argc, argv, "hinsI:L:v:V")) != -1) {
     switch (i) {
       case 'i':
         interactive = true;
@@ -863,6 +864,10 @@ int main(int argc, char* const argv[]) {
         break;
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
+        break;
+      case 'V':
+        std::cout << "create-state build version: [" << BUILD_VERSION << "]\n";
+        std::exit(0);
         break;
       case 'h':
       default:
