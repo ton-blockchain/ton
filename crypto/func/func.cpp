@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -40,9 +40,9 @@ std::ostream* outs = &std::cout;
 std::string generated_from, boc_output_filename;
 
 /*
- * 
+ *
  *   OUTPUT CODE GENERATOR
- * 
+ *
  */
 
 void generate_output_func(SymDef* func_sym) {
@@ -171,7 +171,8 @@ void usage(const char* progname) {
          "-S\tInclude stack layout comments in the output code\n"
          "-R\tInclude operation rewrite comments in the output code\n"
          "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
-         "-A and -P.\n";
+         "-A and -P.\n"
+         "\t-V<version>\tShow func build version\n";
   std::exit(2);
 }
 
@@ -180,7 +181,7 @@ std::string output_filename;
 int main(int argc, char* const argv[]) {
   int i;
   bool interactive = false;
-  while ((i = getopt(argc, argv, "Ahi:Io:O:PRSvW:")) != -1) {
+  while ((i = getopt(argc, argv, "Ahi:Io:O:PRSvW:V")) != -1) {
     switch (i) {
       case 'A':
         funC::asm_preamble = true;
@@ -212,6 +213,10 @@ int main(int argc, char* const argv[]) {
       case 'W':
         funC::boc_output_filename = optarg;
         funC::asm_preamble = funC::program_envelope = true;
+        break;
+      case 'V':
+        std::cout << "Func build version: [" << BUILD_VERSION << "]\n";
+        std::exit(0);
         break;
       case 'h':
       default:

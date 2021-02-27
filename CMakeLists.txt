@@ -4,6 +4,8 @@ project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 #set(OPENSSL_USE_STATIC_LIBS TRUE)
 
+ADD_DEFINITIONS( -DBUILD_VERSION=\"3.0.0\" )
+
 # Prevent in-source build
 get_filename_component(TON_REAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
 get_filename_component(TON_REAL_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}" REALPATH)
@@ -112,7 +114,7 @@ add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
 set(CRC32C_FOUND 1)
 
 if (TON_USE_ROCKSDB)
-  if (ANDROID) 
+  if (ANDROID)
     set(PORTABLE ON CACHE BOOL "portable")
   endif()
   set(WITH_GFLAGS OFF CACHE BOOL "build with GFlags")
