@@ -1929,12 +1929,12 @@ const MasterConfig& get_default_master_config() {
       "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
     },
     "init_block" : {
-       "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
-       "seqno": 8536841,
-       "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
-       "workchain": -1,
-       "shard": -9223372036854775808
-   },
+	    "root_hash": "jvVQl+xDrVGdpXAsrreAQkLGVeZ/RjKOMEJY+Y3QTMI=",
+	    "seqno": 10176065,
+	    "file_hash": "MMhXPS8zAC2UVB+6u3+KoY0EJWypGMskptxMdzgFCa0=",
+	    "workchain": -1,
+	    "shard": -9223372036854775808
+    },
    "hardforks": [
       {
         "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
