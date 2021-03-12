@@ -1928,10 +1928,10 @@ const MasterConfig& get_default_master_config() {
       "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
       "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
     },
-    "init_block" : {
-	    "root_hash": "jvVQl+xDrVGdpXAsrreAQkLGVeZ/RjKOMEJY+Y3QTMI=",
-	    "seqno": 10176065,
-	    "file_hash": "MMhXPS8zAC2UVB+6u3+KoY0EJWypGMskptxMdzgFCa0=",
+   "init_block" : {
+	    "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
+	    "seqno": 10171687,
+	    "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
 	    "workchain": -1,
 	    "shard": -9223372036854775808
     },
