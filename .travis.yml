@@ -1,0 +1,118 @@
+if: tag IS blank
+language: cpp
+compiler: clang
+
+matrix:
+  include:
+    - os: linux
+      dist: bionic
+      addons:
+        apt:
+          packages:
+            - ninja-build
+            - pkg-config
+            - libssl-dev
+            - zlib1g-dev
+            - libreadline-dev
+            - libmicrohttpd-dev
+            - gperf
+    - os: osx
+      osx_image: xcode11.2
+      addons:
+        homebrew:
+          packages:
+            - ninja
+            - cmake
+            - openssl
+    - os: osx
+      osx_image: xcode10.2
+      addons:
+        homebrew:
+          packages:
+            - ninja
+            - cmake
+            - openssl
+    - os: osx
+      osx_image: xcode9.4
+      addons:
+        homebrew:
+          packages:
+            - ninja
+            - cmake
+            - openssl
+
+install:
+  - env
+  - ${CC} --version
+  - ${CC} -v
+  - ${CXX} --version
+  - ${CXX} -v
+  - | 
+    if [[ "${TRAVIS_OS_NAME}" == "linux" ]]; then
+      export RELEASE_FILE=ton_linux_${TRAVIS_DIST}.tar.gz
+      wget https://test.ton.org/ton-lite-client-test1.config.json
+      wget https://test.ton.org/ton-global.config.json
+    elif [[ "${TRAVIS_OS_NAME}" == "osx" ]]; then
+      export RELEASE_FILE=ton_osx_$(sw_vers -productVersion)_${TRAVIS_OSX_IMAGE}.tar.gz
+      export PKG_CONFIG_PATH="/usr/local/opt/openssl/lib/pkgconfig"
+      wget https://test.ton.org/ton-lite-client-test1.config.json
+      wget https://test.ton.org/ton-global.config.json
+    fi
+
+script:
+  - mkdir build
+  - cd build
+  - cmake -G "Ninja" ..
+  - ninja
+# Also compatible with regular CMake build (slower)
+#  - cmake .. 
+#  - cmake --build .
+# todo: test?
+  - mkdir -p release/lib
+  - |
+    mv lite-client/lite-client \
+       crypto/fift \
+       crypto/tlbc \
+       crypto/create-state \
+       crypto/dump-block \
+       crypto/func \
+       validator-engine/validator-engine \
+       validator-engine-console/validator-engine-console \
+       tonlib/tonlib-cli \
+       utils/generate-random-id \
+       adnl/adnl-proxy \
+       adnl/adnl-pong \
+       tdnet/tcp_ping_pong \
+       tdnet/udp_ping_pong \
+       dht-server/dht-server \
+       ../ton-lite-client-test1.config.json \
+       ../ton-global.config.json \
+       release/
+  - |
+    mv ../crypto/fift/lib/* \
+       ../crypto/smartcont/stdlib.fc \
+       release/lib/
+  - tar -czvf $RELEASE_FILE release
+
+# Skipped files:
+# ./tl/generate/generate_common
+# ./tl/generate/tonlib_generate_java_api
+# ../tl/generate/scheme
+# ./utils/json2tlo
+
+# todo: deploy
+# For example, deploy every build to Github Releases
+# before_deploy:
+#   - git config --local user.name "ton"
+#   - git config --local user.email "ton@localhost"
+#   - export TRAVIS_TAG=${TRAVIS_TAG:-build-$TRAVIS_BUILD_NUMBER}
+#   - git tag -f $TRAVIS_TAG
+
+# deploy:
+#   provider: releases
+#   name: TON binaries
+#   body: <changelog>
+#   api_key:
+#     secure: <key>
+#   file: $RELEASE_FILE
+#   skip_cleanup: true
