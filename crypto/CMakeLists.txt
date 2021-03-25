@@ -316,6 +316,7 @@ target_link_libraries(pow-miner PRIVATE ton_crypto ton_block pow-miner-lib)
 
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
+  target_link_libraries_system(pow-miner wingetopt)
 endif()
 
 add_library(ton_block ${BLOCK_SOURCE})
@@ -430,6 +431,7 @@ target_include_directories(adjust-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 target_link_libraries(adjust-block PUBLIC ton_crypto fift-lib ton_block)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(dump-block wingetopt)
+  target_link_libraries_system(adjust-block wingetopt)
 endif()
 
 add_executable(test-weight-distr block/test-weight-distr.cpp)
