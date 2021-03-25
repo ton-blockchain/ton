@@ -41,6 +41,7 @@
 #include "auto/tl/ton_api_json.h"
 #include "adnl/adnl.h"
 #include <map>
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -97,8 +98,8 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
-  p.add_option('V', "version", "shows adnl-pong build version", [&]() {
-    std::cout << "adnl-pong build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows adnl-pong build information", [&]() {
+    std::cout << "adnl-pong build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

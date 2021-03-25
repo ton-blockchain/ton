@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <list>
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -265,7 +266,7 @@ int main(int argc, char *argv[]) {
     SET_VERBOSITY_LEVEL(v);
   });
   p.add_option('V', "version", "shows http-proxy build version", [&]() {
-    std::cout << "http-proxy build version: [" << BUILD_VERSION << "]\n";
+    std::cout << "http-proxy build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

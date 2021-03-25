@@ -48,6 +48,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
+#include "git.h"
 
 Config::Config() {
   out_port = 3278;
@@ -1182,8 +1183,8 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
-  p.add_option('V', "version", "shows dht-server build version", [&]() {
-    std::cout << "dht-server build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows dht-server build information", [&]() {
+    std::cout << "dht-server build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

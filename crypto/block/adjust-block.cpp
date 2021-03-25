@@ -34,6 +34,7 @@
 #include "vm/cp0.h"
 #include "td/utils/crypto.h"
 #include <getopt.h>
+#include "git.h"
 
 using td::Ref;
 using namespace std::literals::string_literals;
@@ -144,7 +145,7 @@ int main(int argc, char* const argv[]) {
   int i, vseqno_incr = 1;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
   std::string in_fname, out_fname;
-  while ((i = getopt(argc, argv, "hi:v:")) != -1) {
+  while ((i = getopt(argc, argv, "hi:v:V")) != -1) {
     switch (i) {
       case 'h':
         usage();
@@ -155,6 +156,10 @@ int main(int argc, char* const argv[]) {
         break;
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
+        break;
+      case 'V':
+        std::cout << "adjust-block build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::exit(0);
         break;
       default:
         usage();

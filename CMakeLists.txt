@@ -4,7 +4,15 @@ project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 #set(OPENSSL_USE_STATIC_LIBS TRUE)
 
-ADD_DEFINITIONS( -DBUILD_VERSION=\"3.0.0\" )
+# Define the two required variables before including the source code for watching a git repository.
+set(PRE_CONFIGURE_FILE "git.cc.in")
+set(POST_CONFIGURE_FILE "${CMAKE_CURRENT_BINARY_DIR}/git.cc")
+include(git_watcher.cmake)
+
+# Create a library out of the compiled post-configure file.
+add_library(git STATIC ${POST_CONFIGURE_FILE})
+target_include_directories(git PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_dependencies(git check_git)
 
 # Prevent in-source build
 get_filename_component(TON_REAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)

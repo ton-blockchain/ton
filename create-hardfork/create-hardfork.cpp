@@ -55,6 +55,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include "git.h"
 
 int verbosity;
 
@@ -263,8 +264,8 @@ int main(int argc, char *argv[]) {
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
   });
-  p.add_option('V', "version", "shows create-hardfork build version", [&]() {
-    std::cout << "create-hardfork build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows create-hardfork build information", [&]() {
+    std::cout << "create-hardfork build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('D', "db", "root for dbs",

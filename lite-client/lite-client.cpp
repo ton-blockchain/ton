@@ -69,6 +69,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include "git.h"
 
 using namespace std::literals::string_literals;
 using td::Ref;
@@ -4200,8 +4201,9 @@ int main(int argc, char* argv[]) {
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
-  p.add_option('V', "version", "shows lite-client build version", [&]() {
-    std::cout << "lite-client build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows lite-client build information", [&]() {
+    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    
     std::exit(0);
   });
   p.add_option('i', "idx", "set liteserver idx", [&](td::Slice arg) {

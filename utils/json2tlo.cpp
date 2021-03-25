@@ -39,6 +39,7 @@
 #include "tl/tl_json.h"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
+#include "git.h"
 
 int main(int argc, char *argv[]) {
   std::string in_f;
@@ -51,8 +52,8 @@ int main(int argc, char *argv[]) {
   p.add_option('i', "in", "input", [&](td::Slice key) { in_f = key.str(); });
   p.add_option('o', "out", "output", [&](td::Slice key) { out_f = key.str(); });
   p.add_option('r', "reverse", "read tlo, print json", [&]() { reverse_ = !reverse_; });
-  p.add_option('V', "version", "shows json2tlo build version", [&]() {
-    std::cout << "json2tlo build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows json2tlo build information", [&]() {
+    std::cout << "json2tlo build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

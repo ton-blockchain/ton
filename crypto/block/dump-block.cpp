@@ -34,6 +34,7 @@
 #include "mc-config.h"
 #include "vm/cp0.h"
 #include <getopt.h>
+#include "git.h"
 
 using td::Ref;
 using namespace std::literals::string_literals;
@@ -247,7 +248,7 @@ void usage() {
   std::cout << "usage: dump-block [-t<typename>][-S][<boc-file>]\n\tor dump-block -h\n\tDumps specified blockchain "
                "block or state "
                "from <boc-file>, or runs some tests\n\t-S\tDump a blockchain state instead of a block\n"
-               "\t-V<version>\tShow fift build version\n";
+               "\t-V<version>\tShow fift build information\n";
   std::exit(2);
 }
 
@@ -282,7 +283,7 @@ int main(int argc, char* const argv[]) {
         dump = 0;
         break;
       case 'V':
-        std::cout << "dump-block build version: [" << BUILD_VERSION << "]\n";
+        std::cout << "dump-block build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       case 'h':

@@ -31,6 +31,7 @@
 #include "parser/symtable.h"
 #include <getopt.h>
 #include <fstream>
+#include "git.h"
 
 namespace funC {
 
@@ -172,7 +173,7 @@ void usage(const char* progname) {
          "-R\tInclude operation rewrite comments in the output code\n"
          "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
          "-A and -P.\n"
-         "\t-V<version>\tShow func build version\n";
+         "\t-V<version>\tShow func build information\n";
   std::exit(2);
 }
 
@@ -215,7 +216,7 @@ int main(int argc, char* const argv[]) {
         funC::asm_preamble = funC::program_envelope = true;
         break;
       case 'V':
-        std::cout << "Func build version: [" << BUILD_VERSION << "]\n";
+        std::cout << "Func build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       case 'h':
