@@ -53,6 +53,8 @@
 #include "td/utils/Parser.h"
 #include "td/utils/port/path.h"
 
+#include "git.h"
+
 void usage(const char* progname) {
   std::cerr << "A simple Fift interpreter. Type `bye` to quit, or `words` to get a list of all commands\n";
   std::cerr
@@ -66,7 +68,7 @@ void usage(const char* progname) {
                "\t-d<ton-db-path>\tUse a ton database\n"
                "\t-s\tScript mode: use first argument as a fift source file and import remaining arguments as $n)\n"
                "\t-v<verbosity-level>\tSet verbosity level\n"
-               "\t-V<version>\tShow fift build version\n";
+               "\t-V<version>\tShow fift build information\n";
   std::exit(2);
 }
 
@@ -118,7 +120,7 @@ int main(int argc, char* const argv[]) {
         new_verbosity_level = VERBOSITY_NAME(FATAL) + td::to_integer<int>(td::Slice(optarg));
         break;
       case 'V':
-        std::cout << "Fift build version: [" << BUILD_VERSION << "]\n";
+        std::cout << "Fift build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
 

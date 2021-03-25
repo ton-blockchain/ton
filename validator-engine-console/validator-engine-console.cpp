@@ -59,6 +59,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include "git.h"
 
 int verbosity;
 
@@ -256,8 +257,8 @@ int main(int argc, char* argv[]) {
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
   });
-  p.add_option('V', "version", "shows validator-engine-console build version", [&]() {
-    std::cout << "validator-engine-console build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows validator-engine-console build information", [&]() {
+    std::cout << "validator-engine-console build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_checked_option('a', "address", "server address", [&](td::Slice arg) {

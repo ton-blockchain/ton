@@ -43,6 +43,7 @@
 #include "adnl-proxy-types.h"
 #include "adnl-received-mask.h"
 #include <map>
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -303,8 +304,8 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
-  p.add_option('V', "version", "shows adnl-proxy build version", [&]() {
-    std::cout << "adnl-proxy build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows adnl-proxy build information", [&]() {
+    std::cout << "adnl-proxy build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

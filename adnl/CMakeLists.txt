@@ -89,12 +89,12 @@ target_link_libraries(adnl PUBLIC tdactor ton_crypto tl_api tdnet tddb keys keyr
 add_executable(adnl-proxy ${ADNL_PROXY_SOURCE})
 target_include_directories(adnl-proxy PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(adnl-proxy PUBLIC tdactor ton_crypto tl_api tdnet common
-  tl-utils)
+  tl-utils git)
 
 add_executable(adnl-pong adnl-pong.cpp)
 target_include_directories(adnl-pong PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(adnl-pong PUBLIC tdactor ton_crypto tl_api tdnet common
-  tl-utils adnl dht)
+  tl-utils adnl dht git)
 
 add_library(adnltest STATIC ${ADNL_TEST_SOURCE})
 target_include_directories(adnltest PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
@@ -105,4 +105,4 @@ endif()
 add_library(adnllite STATIC ${ADNL_LITE_SOURCE})
 
 target_include_directories(adnllite PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(adnllite PUBLIC tdactor ton_crypto tl_lite_api tdnet keys )
+target_link_libraries(adnllite PUBLIC tdactor ton_crypto tl_lite_api tdnet keys)

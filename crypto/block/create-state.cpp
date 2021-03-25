@@ -59,6 +59,7 @@
 #include "block-parse.h"
 #include "block-auto.h"
 #include "mc-config.h"
+#include "git.h"
 
 #if defined(_INTERNAL_COMPILE) || defined(_TONLIB_COMPILE)
 #define WITH_TONLIB
@@ -805,7 +806,7 @@ void usage(const char* progname) {
                "$FIFTPATH is used instead.\n"
                "\t-L<library-fif-file>\tPre-loads a library source file\n"
                "\t-v<verbosity-level>\tSet verbosity level\n"
-               "\t-V<version>\tShow create-state build version\n";
+               "\t-V<version>\tShow create-state build information\n";
   std::exit(2);
 }
 
@@ -865,8 +866,8 @@ int main(int argc, char* const argv[]) {
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
         break;
-      case 'V':
-        std::cout << "create-state build version: [" << BUILD_VERSION << "]\n";
+      case 'V':        
+        std::cout << "create-state build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       case 'h':

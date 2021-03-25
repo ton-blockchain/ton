@@ -39,6 +39,7 @@
 #include "td/utils/filesystem.h"
 #include "keys/encryptor.h"
 #include "keys/keys.hpp"
+#include "git.h"
 
 int main(int argc, char *argv[]) {
   ton::PrivateKey pk;
@@ -59,8 +60,8 @@ int main(int argc, char *argv[]) {
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
   });
-  p.add_option('V', "version", "shows generate-random-id build version", [&]() {
-    std::cout << "generate-random-id build version: [" << BUILD_VERSION << "]\n";
+  p.add_option('V', "version", "shows generate-random-id build information", [&]() {
+    std::cout << "generate-random-id build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('n', "name", "path to save private keys to", [&](td::Slice arg) { name = arg.str(); });
