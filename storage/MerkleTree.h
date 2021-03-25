@@ -39,7 +39,7 @@ class MerkleTree {
   MerkleTree(size_t chunks_count, td::Ref<vm::Cell> root_proof);
 
   struct Chunk {
-    td::size_t index{0};
+    std::size_t index{0};
     td::Bits256 hash;
   };
 
@@ -47,7 +47,7 @@ class MerkleTree {
 
   MerkleTree() = default;
   void init_begin(size_t chunks_count);
-  void init_add_chunk(td::size_t index, td::Slice hash);
+  void init_add_chunk(std::size_t index, td::Slice hash);
   void init_finish();
 
   // merge external proof with an existing proof
@@ -70,20 +70,20 @@ class MerkleTree {
 
  private:
   td::uint64 total_blocks_;
-  td::size_t n_;  // n = 2^log_n
+  std::size_t n_;  // n = 2^log_n
   td::uint32 log_n_;
-  td::size_t mark_id_{0};
-  std::vector<td::size_t> mark_;          // n_ * 2
+  std::size_t mark_id_{0};
+  std::vector<std::size_t> mark_;          // n_ * 2
   std::vector<td::Ref<vm::Cell>> proof_;  // n_ * 2
 
   td::optional<td::Bits256> root_hash_;
   td::Ref<vm::Cell> root_proof_;
 
   td::Status validate_proof(td::Ref<vm::Cell> new_root);
-  bool has_chunk(td::size_t index) const;
-  void remove_chunk(td::size_t index);
+  bool has_chunk(std::size_t index) const;
+  void remove_chunk(std::size_t index);
 
-  void add_chunk(td::size_t index, td::Slice hash);
+  void add_chunk(std::size_t index, td::Slice hash);
   void init_proof();
 
   td::Ref<vm::Cell> merge(td::Ref<vm::Cell> root, size_t index);
