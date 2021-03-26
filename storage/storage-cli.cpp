@@ -750,7 +750,7 @@ class StorageCli : public td::actor::Actor {
     auto file_id_str = parser.read_word();
     size_t file_id = std::numeric_limits<size_t>::max();
     if (file_id_str != "*") {
-      TRY_RESULT_PROMISE_ASSIGN(promise, file_id, td::to_integer_safe<td::size_t>(file_id_str));
+      TRY_RESULT_PROMISE_ASSIGN(promise, file_id, td::to_integer_safe<std::size_t>(file_id_str));
     }
     TRY_RESULT_PROMISE(promise, priority, td::to_integer_safe<td::uint8>(parser.read_word()));
     if (priority == 255) {
