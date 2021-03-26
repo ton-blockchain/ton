@@ -1,6 +1,6 @@
 name: C/C++ CI Windows Server 2019 x64 Compile
 
-on: [push]
+on: [push,workflow_dispatch]
 
 defaults:
   run:
