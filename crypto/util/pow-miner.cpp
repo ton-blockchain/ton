@@ -163,7 +163,7 @@ int main(int argc, char* const argv[]) {
         break;
       case 'w':
         threads = atoi(optarg);
-        CHECK(threads > 0 && threads <= 128);
+        CHECK(threads > 0 && threads <= 256);
         break;
       case 't': {
         int timeout = atoi(optarg);
