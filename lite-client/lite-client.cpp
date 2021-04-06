@@ -3679,6 +3679,9 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
     return false;  // no punishments for less than 1000 seconds
   }
 
+  fine = td::make_refint(101 * 1000000000LL);  // 101
+  fine_part = 0;
+
   return true; // todo: (tolya-yanot) temporary reduction of fine
 
   if (severe) {
@@ -3702,8 +3705,6 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
 }
 
 bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part) {
-  return true; // todo: (tolya-yanot) temporary reduction of fine
-
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
   return compute_punishment(interval, severe, computed_fine, computed_fine_part) &&
