@@ -1,6 +1,6 @@
-name: C/C++ CI Win64 Compile
+name: C/C++ CI Windows Server 2019 x64 Compile
 
-on: [push]
+on: [push,workflow_dispatch]
 
 defaults:
   run:
@@ -9,7 +9,7 @@ defaults:
 jobs:
   build:
 
-    runs-on: windows-latest
+    runs-on: windows-2019
 
     steps:
       - name: Get Current OS version
@@ -38,7 +38,7 @@ jobs:
           
       - name: Install OpenSSL Win64
         run: |
-          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1j.msi
+          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1k.msi
           msiexec /i openssl.msi /quiet /qn /norestart
           
       - name: Build ton

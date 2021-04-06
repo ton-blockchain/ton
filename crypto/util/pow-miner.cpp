@@ -37,7 +37,7 @@
 #include <thread>
 #include <cstdlib>
 #include <getopt.h>
-
+#include "git.h"
 #include "Miner.h"
 
 const char* progname;
@@ -46,7 +46,7 @@ int usage() {
   std::cerr
       << "usage: " << progname
       << " [-v][-B][-w<threads>] [-t<timeout>] <my-address> <pow-seed> <pow-complexity> <iterations> [<miner-addr> "
-         "<output-ext-msg-boc>]\n"
+         "<output-ext-msg-boc>] [-V]\n"
          "Outputs a valid <rdata> value for proof-of-work testgiver after computing at most <iterations> hashes "
          "or terminates with non-zero exit code\n";
   std::exit(2);
@@ -156,14 +156,14 @@ int main(int argc, char* const argv[]) {
   progname = argv[0];
   int i, threads = 0;
   bool bounce = false, benchmark = false;
-  while ((i = getopt(argc, argv, "bnvw:t:Bh")) != -1) {
+  while ((i = getopt(argc, argv, "bnvw:t:Bh:V")) != -1) {
     switch (i) {
       case 'v':
         ++verbosity;
         break;
       case 'w':
         threads = atoi(optarg);
-        CHECK(threads > 0 && threads <= 128);
+        CHECK(threads > 0 && threads <= 256);
         break;
       case 't': {
         int timeout = atoi(optarg);
@@ -179,6 +179,10 @@ int main(int argc, char* const argv[]) {
         break;
       case 'n':
         bounce = false;
+        break;
+      case 'V':
+        std::cout << "pow-miner build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::exit(0);
         break;
       case 'h':
         return usage();

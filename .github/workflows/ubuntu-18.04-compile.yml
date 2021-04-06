@@ -1,6 +1,6 @@
-name: C/C++ CI
+name: C/C++ CI Ubuntu 18.04 Compile
 
-on: [push]
+on: [push,workflow_dispatch]
 
 jobs:
   build:

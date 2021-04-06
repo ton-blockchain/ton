@@ -61,6 +61,7 @@
 #include <cinttypes>
 #include <iostream>
 #include <map>
+#include "git.h"
 
 using tonlib_api::make_object;
 
@@ -2307,6 +2308,10 @@ int main(int argc, char* argv[]) {
     auto verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
+  });
+  p.add_option('V', "version", "show tonlib-cli build information", [&]() {
+    std::cout << "tonlib-cli build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_checked_option('C', "config-force", "set lite server config, drop config related blockchain cache",
                        [&](td::Slice arg) {

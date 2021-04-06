@@ -278,7 +278,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     return;
   }
 
-  auto r_total_size = td::narrow_cast_safe<td::size_t>(part.total_size_);
+  auto r_total_size = td::narrow_cast_safe<std::size_t>(part.total_size_);
   if (r_total_size.is_error()) {
     return;
   }
