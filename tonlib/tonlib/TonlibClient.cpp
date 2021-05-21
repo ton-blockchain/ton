@@ -1906,14 +1906,19 @@ const MasterConfig& get_default_master_config() {
   "validator": {
     "@type": "validator.config.global",
     "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
+      "file_hash": "BzgfRpFgyNjHI7aR5KQhq4Wtr2wN+sXzLaW+rfHvP5A=",
       "seqno": 0,
-      "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
-      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+      "root_hash": "WPsS1IiRjT0MSD6Xvys4QYQh7rrc9x0ybzXojwJ4gH0=",
+      "workchain": -1,
+      "shard": -9223372036854775808
     },
-    "init_block":
-{"workchain":-1,"shard":-9223372036854775808,"seqno":870721,"root_hash":"jYKhSQ1xeSPprzgjqiUOnAWwc2yqs7nCVAU21k922s4=","file_hash":"kHidF02CZpaz2ia9jtXUJLp0AiWMWwfzprTUIsddHSo="}
+    "init_block": {
+      "file_hash": "BzgfRpFgyNjHI7aR5KQhq4Wtr2wN+sXzLaW+rfHvP5A=",
+      "seqno": 0,
+      "root_hash": "WPsS1IiRjT0MSD6Xvys4QYQh7rrc9x0ybzXojwJ4gH0=",
+      "workchain": -1,
+      "shard": -9223372036854775808
+    }
   }
 })abc");
     res.add_config("mainnet", R"abc({
