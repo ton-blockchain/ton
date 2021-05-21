@@ -1906,14 +1906,49 @@ const MasterConfig& get_default_master_config() {
   "validator": {
     "@type": "validator.config.global",
     "zero_state": {
+      "file_hash": "BzgfRpFgyNjHI7aR5KQhq4Wtr2wN+sXzLaW+rfHvP5A=",
+      "seqno": 0,
+      "root_hash": "WPsS1IiRjT0MSD6Xvys4QYQh7rrc9x0ybzXojwJ4gH0=",
+      "workchain": -1,
+      "shard": -9223372036854775808
+    },
+    "init_block": {
+      "file_hash": "BzgfRpFgyNjHI7aR5KQhq4Wtr2wN+sXzLaW+rfHvP5A=",
+      "seqno": 0,
+      "root_hash": "WPsS1IiRjT0MSD6Xvys4QYQh7rrc9x0ybzXojwJ4gH0=",
+      "workchain": -1,
+      "shard": -9223372036854775808
+    }
+  }
+})abc");
+    res.add_config("mainnet", R"abc({
+  "liteservers": [
+  ],
+  "validator": {
+    "@type": "validator.config.global",
+    "zero_state": {
       "workchain": -1,
       "shard": -9223372036854775808,
       "seqno": 0,
-      "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
-      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+      "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
+      "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
     },
-    "init_block":
-{"workchain":-1,"shard":-9223372036854775808,"seqno":870721,"root_hash":"jYKhSQ1xeSPprzgjqiUOnAWwc2yqs7nCVAU21k922s4=","file_hash":"kHidF02CZpaz2ia9jtXUJLp0AiWMWwfzprTUIsddHSo="}
+   "init_block" : {
+      "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
+      "seqno": 10171687,
+      "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
+      "workchain": -1,
+      "shard": -9223372036854775808
+    },
+   "hardforks": [
+      {
+        "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
+         "seqno": 8536841,
+         "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
+         "workchain": -1,
+         "shard": -9223372036854775808
+     }
+   ]
   }
 })abc");
     res.add_config("testnet2", R"abc({
@@ -1929,11 +1964,11 @@ const MasterConfig& get_default_master_config() {
       "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
     },
    "init_block" : {
-	    "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
-	    "seqno": 10171687,
-	    "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
-	    "workchain": -1,
-	    "shard": -9223372036854775808
+      "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
+      "seqno": 10171687,
+      "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
+      "workchain": -1,
+      "shard": -9223372036854775808
     },
    "hardforks": [
       {
@@ -2054,9 +2089,6 @@ td::Result<TonlibClient::FullConfig> TonlibClient::validate_config(tonlib_api::o
   res.config = std::move(new_config);
   res.use_callbacks_for_network = config->use_callbacks_for_network_;
   res.wallet_id = td::as<td::uint32>(res.config.zero_state_id.root_hash.as_slice().data());
-  if (res.config.name == "mainnet") {
-    res.wallet_id = 0x4BA92D89 + 1;  // user will subtract -1 for basechain
-  }
   res.rwallet_init_public_key = "Puasxr0QfFZZnYISRphVse7XHKfW7pZU5SJarVHXvQ+rpzkD";
   res.last_state_key = std::move(last_state_key);
   res.last_state = std::move(state);
