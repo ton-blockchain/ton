@@ -3675,7 +3675,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
   }
 }
 
-bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
+bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
@@ -3705,10 +3705,44 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
   return true;
 }
 
-bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part) {
+bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, Ref<vm::Cell> punishment_params) {
+  if(punishment_params.is_null()) {
+    return compute_punishment_default(interval, severe, fine, fine_part);
+  }
+  block::gen::MisbehaviourPunishmentConfig::Record rec;
+  if (!tlb::unpack_cell(punishment_params, rec)) {
+      return false;
+  }
+
+  if(interval <= rec.unpunishable_interval) {
+      return false;
+  }
+
+  fine = block::tlb::t_Grams.as_integer(rec.default_flat_fine);
+  fine_part = rec.default_proportional_fine;
+
+  if (severe) {
+    fine = fine * rec.severity_flat_mult;
+    fine_part = fine_part * rec.severity_proportional_mult;
+  }
+
+  if (interval >= rec.long_interval) {
+    fine = fine * rec.long_flat_mult;
+    fine_part = fine_part * rec.long_proportional_mult;
+    return true;
+  }
+  if (interval >= rec.medium_interval) {
+    fine = fine * rec.medium_flat_mult;
+    fine_part = fine_part * rec.medium_proportional_mult;
+    return true;
+  }
+  return true;
+}
+
+bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part, Ref<vm::Cell> punishment_params) {
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
-  return compute_punishment(interval, severe, computed_fine, computed_fine_part) &&
+  return compute_punishment(interval, severe, computed_fine, computed_fine_part, punishment_params) &&
          std::llabs((long long)fine_part - (long long)computed_fine_part) <=
              (std::max(fine_part, computed_fine_part) >> 3) &&
          fine * 7 <= computed_fine * 8 && computed_fine * 7 <= fine * 8;
@@ -3736,10 +3770,13 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
   if (interval <= 0) {
     return td::Status::Error("non-positive time interval");
   }
+
+  auto punishment_params = info2.config->get_config_param(40);
+
   int severity = (severe ? 2 : 1);
   td::RefInt256 fine = td::make_refint(101000000000);
   unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
-  if (!compute_punishment(interval, severe, fine, fine_part)) {
+  if (!compute_punishment(interval, severe, fine, fine_part, punishment_params)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
   Ref<vm::Cell> cpl_descr, complaint;
@@ -4053,7 +4090,7 @@ td::Status TestNode::continue_check_validator_load_proof(std::unique_ptr<Validat
     if (suggested_fine.is_null()) {
       return td::Status::Error("cannot parse suggested fine");
     }
-    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part)) {
+    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part, info2->config->get_config_param(40))) {
       LOG(ERROR) << "proposed punishment (fine " << td::dec_string(suggested_fine)
                  << ", fine_part=" << (double)rec.suggested_fine_part / (1LL << 32) << " is too harsh";
       show_vote(root->get_hash().bits(), false);
