@@ -696,6 +696,13 @@ consensus_config_new#d7 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
   fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
   max_block_bytes:uint32 max_collated_bytes:uint32 = ConsensusConfig;
 
+consensus_config_v3#d8 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
+  round_candidates:(## 8) { round_candidates >= 1 }
+  next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
+  fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
+  max_block_bytes:uint32 max_collated_bytes:uint32 
+  proto_version:uint16 = ConsensusConfig;
+
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
 
@@ -710,6 +717,18 @@ _ next_temp_validators:ValidatorSet = ConfigParam 37;
 validator_temp_key#3 adnl_addr:bits256 temp_public_key:SigPubKey seqno:# valid_until:uint32 = ValidatorTempKey;
 signed_temp_key#4 key:^ValidatorTempKey signature:CryptoSignature = ValidatorSignedTempKey;
 _ (HashmapE 256 ValidatorSignedTempKey) = ConfigParam 39;
+
+misbehaviour_punishment_config_v1#01 
+  default_flat_fine:Grams default_proportional_fine:uint32
+  severity_multiplicator:uint8
+  unpunishable_interval:uint16
+  long_interval:uint16 long_mult:uint8
+  medium_interval:uint16 medium_mult:uint8
+   = MisbehaviourPunishmentConfig;
+_ MisbehaviourPunishmentConfig = ConfigParam 40;
+
+oracle_set_v1#_ flat_stake:Grams min_auth_num:uint16 seqno:uint32 oracles:(HashmapE 16 uint256) = ExtChainOracleSet;
+_ ExtChainOracleSet = ConfigParam 71; // Ethereum oracles
 
 //
 //  PROOFS
