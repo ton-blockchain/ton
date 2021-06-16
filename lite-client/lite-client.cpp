@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -69,6 +69,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include "git.h"
 
 using namespace std::literals::string_literals;
 using td::Ref;
@@ -3461,7 +3462,7 @@ bool TestNode::ValidatorLoadInfo::store_record(const td::Bits256& key, const blo
   if (it == vset_map.end()) {
     return false;
   }
-  created.at(it->second) = std::make_pair<td::int64, td::int64>(mc_cnt.total, shard_cnt.total);
+  created.at(it->second) = std::make_pair(mc_cnt.total, shard_cnt.total);
   return true;
 }
 
@@ -3678,6 +3679,12 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
+
+  fine = td::make_refint(101 * 1000000000LL);  // 101
+  fine_part = 0;
+
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   if (severe) {
     fine = td::make_refint(2500 * 1000000000LL);  // GR$2500
     fine_part = (1 << 30);                        // 1/4 of stake
@@ -3730,8 +3737,8 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
     return td::Status::Error("non-positive time interval");
   }
   int severity = (severe ? 2 : 1);
-  td::RefInt256 fine = td::make_refint(1000000000);
-  unsigned fine_part = 0xffffffff / 16;  // 1/16
+  td::RefInt256 fine = td::make_refint(101000000000);
+  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
   if (!compute_punishment(interval, severe, fine, fine_part)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
@@ -4193,6 +4200,11 @@ int main(int argc, char* argv[]) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
+  });
+  p.add_option('V', "version", "shows lite-client build information", [&]() {
+    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    
+    std::exit(0);
   });
   p.add_option('i', "idx", "set liteserver idx", [&](td::Slice arg) {
     auto idx = td::to_integer<int>(arg);

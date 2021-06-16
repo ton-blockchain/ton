@@ -51,6 +51,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include "git.h"
 
 namespace ton_rldp = ton::rldp2;
 
@@ -749,7 +750,7 @@ class StorageCli : public td::actor::Actor {
     auto file_id_str = parser.read_word();
     size_t file_id = std::numeric_limits<size_t>::max();
     if (file_id_str != "*") {
-      TRY_RESULT_PROMISE_ASSIGN(promise, file_id, td::to_integer_safe<td::size_t>(file_id_str));
+      TRY_RESULT_PROMISE_ASSIGN(promise, file_id, td::to_integer_safe<std::size_t>(file_id_str));
     }
     TRY_RESULT_PROMISE(promise, priority, td::to_integer_safe<td::uint8>(parser.read_word()));
     if (priority == 255) {
@@ -836,6 +837,10 @@ int main(int argc, char *argv[]) {
     auto verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
+  });
+  p.add_option('V', "version", "shows storage-cli build information", [&]() {
+    std::cout << "storage-cli build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_option('C', "config", "set ton config", [&](td::Slice arg) { options.config = arg.str(); });
   p.add_option('D', "db", "root for dbs", [&](td::Slice fname) { options.db_root = fname.str(); });

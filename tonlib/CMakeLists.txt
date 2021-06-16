@@ -69,7 +69,7 @@ if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
 endif()
 
 add_executable(tonlib-cli tonlib/tonlib-cli.cpp)
-target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal pow-miner-lib)
+target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal pow-miner-lib git)
 
 if (NOT CMAKE_CROSSCOMPILING)
   if (TONLIB_ENABLE_JNI)
@@ -165,3 +165,4 @@ install(FILES "TonlibConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/TonlibConfigVers
 
 # Add SOVERSION to shared libraries
 set_property(TARGET tonlibjson PROPERTY SOVERSION ${TON_VERSION})
+install(TARGETS tonlib-cli RUNTIME DESTINATION bin)

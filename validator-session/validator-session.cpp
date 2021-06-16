@@ -881,19 +881,26 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
 }
 
 td::Bits256 ValidatorSessionOptions::get_hash() const {
-  if (!new_catchain_ids) {
-    return create_hash_tl_object<ton_api::validatorSession_config>(
-        catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
-        max_round_attempts, max_block_size, max_collated_data_size);
+  if(!proto_version) {
+    if (!new_catchain_ids) {
+        return create_hash_tl_object<ton_api::validatorSession_config>(
+            catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
+            max_round_attempts, max_block_size, max_collated_data_size);
+    } else {
+        return create_hash_tl_object<ton_api::validatorSession_configNew>(
+            catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
+            max_round_attempts, max_block_size, max_collated_data_size, new_catchain_ids);
+    }
   } else {
-    return create_hash_tl_object<ton_api::validatorSession_configNew>(
-        catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
-        max_round_attempts, max_block_size, max_collated_data_size, new_catchain_ids);
-  }
+        return create_hash_tl_object<ton_api::validatorSession_configVersioned>(
+            catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
+            max_round_attempts, max_block_size, max_collated_data_size, proto_version);
+    }
+
 }
 
 ValidatorSessionOptions::ValidatorSessionOptions(const ValidatorSessionConfig &conf) {
-  CHECK(!conf.proto_version);
+  proto_version = conf.proto_version;
   catchain_idle_timeout = conf.catchain_idle_timeout;
   catchain_max_deps = conf.catchain_max_deps;
   max_block_size = conf.max_block_size;

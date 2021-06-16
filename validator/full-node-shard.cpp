@@ -960,7 +960,7 @@ void FullNodeShardImpl::got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id
     it->second.query_failed();
   } else {
     it->second.update_proto_version(*F.move_as_ok().get());
-    it->second.update_roundtrip(t);
+    it->second.query_success(t);
   }
 }
 
