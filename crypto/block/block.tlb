@@ -720,10 +720,10 @@ _ (HashmapE 256 ValidatorSignedTempKey) = ConfigParam 39;
 
 misbehaviour_punishment_config_v1#01 
   default_flat_fine:Grams default_proportional_fine:uint32
-  severity_flat_mult:uint8 severity_proportional_mult:uint8
+  severity_flat_mult:uint16 severity_proportional_mult:uint16
   unpunishable_interval:uint16
-  long_interval:uint16 long_flat_mult:uint8 long_proportional_mult:uint8
-  medium_interval:uint16 medium_flat_mult:uint8 medium_proportional_mult:uint8
+  long_interval:uint16 long_flat_mult:uint16 long_proportional_mult:uint16
+  medium_interval:uint16 medium_flat_mult:uint16 medium_proportional_mult:uint16
    = MisbehaviourPunishmentConfig;
 _ MisbehaviourPunishmentConfig = ConfigParam 40;
 

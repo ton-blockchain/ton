@@ -3722,18 +3722,18 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
   fine_part = rec.default_proportional_fine;
 
   if (severe) {
-    fine = fine * rec.severity_flat_mult;
-    fine_part = fine_part * rec.severity_proportional_mult;
+    fine = fine * rec.severity_flat_mult; fine >>= 8;
+    fine_part = fine_part * rec.severity_proportional_mult; fine_part >>= 8;
   }
 
   if (interval >= rec.long_interval) {
-    fine = fine * rec.long_flat_mult;
-    fine_part = fine_part * rec.long_proportional_mult;
+    fine = fine * rec.long_flat_mult; fine >>= 8;
+    fine_part = fine_part * rec.long_proportional_mult; fine_part >>= 8;
     return true;
   }
   if (interval >= rec.medium_interval) {
-    fine = fine * rec.medium_flat_mult;
-    fine_part = fine_part * rec.medium_proportional_mult;
+    fine = fine * rec.medium_flat_mult; fine >>= 8;
+    fine_part = fine_part * rec.medium_proportional_mult; fine_part >>= 8;
     return true;
   }
   return true;
