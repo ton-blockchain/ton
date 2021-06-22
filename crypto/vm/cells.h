@@ -29,7 +29,9 @@
 //   d1, d2,
 //   (level == 0 || special_type == PrunnedBranch) ? data : cell_(level - 1).hash,
 //   for child in refs:
-//     child.depth, child.hash
+//     child.depth
+//   for child in refs:
+//     child.hash
 // )
 // lower hashes of Prunned branch are calculated from its data
 // cell_i.ref[j] = (special_type == MerkleProof || special_type == MerkleUpdate) ? cell.ref[j]_(i+1) : cell.ref[j]_i

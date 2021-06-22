@@ -61,6 +61,7 @@
 \def\Sha{\opsc{sha256}}
 \def\CellRepr{\opsc{CellRepr}}
 \def\Lvl{\opsc{Lvl}}
+\def\Depth{\opsc{Depth}}
 \def\height{\opsc{height}}
 \def\len{\opsc{len}}
 \def\leaf{\opsc{Leaf}}
@@ -448,14 +449,22 @@ for an ordinary cell $c$ containing $r$ references to cells $c_1$, \dots, $c_r$.
 
 A cell's level affects the number of {\em higher hashes\/} it has. More precisely, a level $l$ cell has $l$ higher hashes $\Hash_1(c)$, \dots, $\Hash_l(c)$ in addition to its representation hash $\Hash(c)=\Hash_\infty(c)$. Cells of non-zero level appear inside {\em Merkle proofs\/} and {\em Merkle updates}, after some branches of the tree of cells representing a value of an abstract data type are pruned.
 
+\nxsubpoint\label{sp:cell.depth}\emb{The depth of a cell}
+The same way, every cell $c$ has another attribute $\Depth(c)$. The depth of a cell is always equal to the maximum of the levels of all its children $c_i$ plus one:
+\begin{equation}
+  \Depth(c)=\max_{1\leq i\leq r}\Depth(c_i)\quad+1.
+\end{equation}
+If $r=0$, $\Depth(c)=0$. 
+
 \nxsubpoint\label{sp:std.cell.repr}\emb{Standard cell representation}
 When a cell needs to be transferred by a network protocol or stored in a disk file, it must be {\em serialized}. The standard representation $\CellRepr(c)=\CellRepr_\infty(c)$ of a cell $c$ as an octet (byte) sequence is constructed as follows:
 \begin{enumerate}
 \item Two descriptor bytes $d_1$ and $d_2$ are serialized first. Byte $d_1$ equals $r+8s+32l$, where $0\leq r\leq 4$ is the quantity of cell references contained in the cell, $0\leq l\leq 3$ is the level of the cell, and $0\leq s\leq 1$ is $1$ for exotic cells and $0$ for ordinary cells. Byte $d_2$ equals $\lfloor b/8\rfloor+\lceil b/8\rceil$, where $0\leq b\leq 1023$ is the quantity of data bits in~$c$.
 \item Then the data bits are serialized as $\lceil b/8\rceil$ 8-bit octets (bytes). If $b$ is not a multiple of eight, a binary \texttt{1} and up to six binary \texttt{0}s are appended to the data bits. After that, the data is split into $\lceil b/8\rceil$ eight-bit groups, and each group is interpreted as an unsigned big-endian integer $0\dots 255$ and stored into an octet.
+\item Then for each of the $r$ cell references 2 bytes encoding $\Depth(c_i)$ explained above in~\ptref{sp:cell.depth}.
 \item Finally, each of the $r$ cell references is represented by 32 bytes containing the 256-bit {\em representation hash\/} $\Hash(c_i)$, explained below in~\ptref{sp:repr.hash}, of the cell $c_i$ referred to.
 \end{enumerate}
-In this way, $2+\lceil b/8\rceil+32r$ bytes of $\CellRepr(c)$ are obtained.
+In this way, $2+\lceil b/8\rceil+(2+32)r$ bytes of $\CellRepr(c)$ are obtained.
 
 \nxsubpoint\label{sp:repr.hash}\emb{The representation hash of a cell}
 The 256-bit {\em representation hash\/} or simply {\em hash\/} $\Hash(c)$ of a cell~$c$ is recursively defined as the $\Sha$ of the standard representation of the cell~$c$:
