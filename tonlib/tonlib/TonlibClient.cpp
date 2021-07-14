@@ -43,6 +43,11 @@
 #include "ton/ton-shard.h"
 
 #include "vm/boc.h"
+#include "vm/cellops.h"
+#include "vm/cells/MerkleProof.h"
+#include "vm/vm.h"
+#include "vm/cp0.h"
+#include "vm/memo.h"
 
 #include "td/utils/as.h"
 #include "td/utils/Random.h"
@@ -53,6 +58,11 @@
 #include "td/utils/port/path.h"
 
 #include "common/util.h"
+
+template <class Type>
+using lite_api_ptr = ton::lite_api::object_ptr<Type>;
+template <class Type>
+using tonlib_api_ptr = ton::tonlib_api::object_ptr<Type>;
 
 namespace tonlib {
 namespace int_api {
@@ -3960,23 +3970,220 @@ td::Status TonlibClient::do_request(const tonlib_api::liteServer_getInfo& reques
   return td::Status::OK();
 }
 
+auto to_bits256(td::Slice data, td::Slice name) -> td::Result<td::Bits256> {
+  if (data.size() != 32) {
+    return TonlibError::InvalidField(name, "wrong length (not 32 bytes)");
+  }
+  return td::Bits256(data.ubegin());
+}
+
 td::Status TonlibClient::do_request(tonlib_api::withBlock& request,
                                     td::Promise<object_ptr<tonlib_api::Object>>&& promise) {
   if (!request.id_) {
     return TonlibError::EmptyField("id");
   }
-  auto to_bits256 = [](td::Slice data, td::Slice name) -> td::Result<td::Bits256> {
-    if (data.size() != 32) {
-      return TonlibError::InvalidField(name, "wrong length (not 32 bytes)");
-    }
-    return td::Bits256(data.ubegin());
-  };
   TRY_RESULT(root_hash, to_bits256(request.id_->root_hash_, "root_hash"));
   TRY_RESULT(file_hash, to_bits256(request.id_->file_hash_, "file_hash"));
   ton::BlockIdExt block_id(request.id_->workchain_, request.id_->shard_, request.id_->seqno_, root_hash, file_hash);
   make_any_request(*request.function_, {std::move(block_id)}, std::move(promise));
   return td::Status::OK();
 }
+
+auto to_tonlib_api(const ton::lite_api::tonNode_blockIdExt& blk) -> tonlib_api_ptr<tonlib_api::ton_blockIdExt> {
+  return tonlib_api::make_object<tonlib_api::ton_blockIdExt>(
+      blk.workchain_, blk.shard_, blk.seqno_, blk.root_hash_.as_slice().str(), blk.file_hash_.as_slice().str());
+}
+
+/*auto to_tonlib_api(const ton::BlockIdExt& blk) -> tonlib_api_ptr<tonlib_api::ton_blockIdExt> {
+  return tonlib_api::make_object<tonlib_api::ton_blockIdExt>(
+      blk.workchain, blk.shard, blk.seqno, blk.root_hash.as_slice().str(), blk.file_hash.as_slice().str());
+}*/
+
+auto to_tonlib_api(const ton::lite_api::tonNode_zeroStateIdExt& zeroStateId)
+    -> tonlib_api_ptr<tonlib_api::ton_blockIdExt> {
+  return tonlib_api::make_object<tonlib_api::ton_blockIdExt>( //TODO check wether shard indeed 0???
+      zeroStateId.workchain_, 0, 0, zeroStateId.root_hash_.as_slice().str(), zeroStateId.file_hash_.as_slice().str());
+}
+
+auto to_lite_api(const tonlib_api::ton_blockIdExt& blk) -> td::Result<lite_api_ptr<ton::lite_api::tonNode_blockIdExt>> {
+  TRY_RESULT(root_hash, to_bits256(blk.root_hash_, "blk.root_hash"))
+  TRY_RESULT(file_hash, to_bits256(blk.file_hash_, "blk.file_hash"))
+  return ton::lite_api::make_object<ton::lite_api::tonNode_blockIdExt>(
+      blk.workchain_, blk.shard_, blk.seqno_, root_hash, file_hash);
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfo& masterchain_info,
+                        td::Promise<object_ptr<tonlib_api::blocks_masterchainInfo>>&& promise) {
+  client_.send_query(ton::lite_api::liteServer_getMasterchainInfo(),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_masterchainInfo>&& masterchain_info) {
+                       return tonlib_api::make_object<tonlib_api::blocks_masterchainInfo>(
+                           to_tonlib_api(*masterchain_info->last_), masterchain_info->state_root_hash_.as_slice().str(),
+                           to_tonlib_api(*masterchain_info->init_));
+                     }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise) {
+  TRY_RESULT(block, to_lite_api(*request.id_))
+  client_.send_query(ton::lite_api::liteServer_getAllShardsInfo(std::move(block)),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_allShardsInfo>&& all_shards_info) {
+                        td::BufferSlice proof = std::move((*all_shards_info).proof_);
+                        td::BufferSlice data = std::move((*all_shards_info).data_);
+                        if (data.empty()) {
+                          //return td::Status::Error("shard configuration is empty");
+                        } else {
+                          auto R = vm::std_boc_deserialize(data.clone());
+                          if (R.is_error()) {
+                            //return td::Status::Error("cannot deserialize shard configuration");
+                          }
+                          auto root = R.move_as_ok();
+                          block::ShardConfig sh_conf;
+                          if (!sh_conf.unpack(vm::load_cell_slice_ref(root))) {
+                            //return td::Status::Error("cannot extract shard block list from shard configuration");
+                          } else {
+                            auto ids = sh_conf.get_shard_hash_ids(true);
+                            tonlib_api::blocks_shards shards;
+                            for (auto id : ids) {
+                              auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
+                              if (ref.not_null()) {
+                                shards.shards_.push_back(to_tonlib_api(ref->top_block_id()));
+                              }
+                            }
+                           return tonlib_api::make_object<tonlib_api::blocks_shards>(std::move(shards));
+                          }
+                        }
+                     }));
+  return td::Status::OK();
+}
+
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& request,
+                        td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise) {
+  client_.send_query(ton::lite_api::liteServer_lookupBlock(
+                       request.mode_,
+                       ton::lite_api::make_object<ton::lite_api::tonNode_blockId>((*request.id_).workchain_, (*request.id_).shard_, (*request.id_).seqno_),
+                       (td::uint64)(request.lt_),
+                       (td::uint32)(request.utime_)),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& header) {
+                        const auto& id = header->id_;
+                        return to_tonlib_api(*id);
+                        //tonlib_api::make_object<tonlib_api::ton_blockIdExt>(
+                        //  ton::tonlib_api::ton_blockIdExt(id->workchain_, id->)
+                        //);
+                     }));
+  return td::Status::OK();
+}
+
+auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid)
+    -> tonlib_api_ptr<tonlib_api::blocks_shortTxId> {
+  return tonlib_api::make_object<tonlib_api::blocks_shortTxId>( 
+      txid.mode_, txid.account_.as_slice().str(), txid.lt_, txid.hash_.as_slice().str());
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise) {
+  TRY_RESULT(block, to_lite_api(*request.id_))
+  TRY_RESULT(account, to_bits256((*request.after_).account_, "account"));
+  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, (*request.after_).lt_);
+  client_.send_query(ton::lite_api::liteServer_listBlockTransactions(
+                       std::move(block),
+                       request.mode_,
+                       request.count_,
+                       std::move(after),
+                       false,
+                       false),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
+                        const auto& id = bTxes->id_;
+                        //for (auto id : ids) {
+                        tonlib_api::blocks_transactions r;
+                        r.id_ = to_tonlib_api(*id);
+                        r.req_count_ = bTxes->req_count_;
+                        r.incomplete_ = bTxes->incomplete_;
+                        for (auto& id: bTxes->ids_) {
+                          //tonlib_api::blocks_shortTxId txid = tonlib_api::blocks_shortTxId(id->mode_, id->account_.as_slice().str(), id->lt_, id->hash_.as_slice().str());
+                          //r.transactions_.push_back(txid);
+                          r.transactions_.push_back(to_tonlib_api(*id));
+                        }
+                        return tonlib_api::make_object<tonlib_api::blocks_transactions>(std::move(r));
+                     }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise) {
+  TRY_RESULT(block, to_lite_api(*request.id_))
+  client_.send_query(ton::lite_api::liteServer_getBlockHeader(
+                       std::move(block),
+                       0xffff),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& hdr) {
+                       auto blk_id = ton::create_block_id(hdr->id_);
+                       auto R = vm::std_boc_deserialize(std::move(hdr->header_proof_));
+                       tonlib_api::blocks_header header;
+                       if (R.is_error()) {
+                            LOG(WARNING) << "R.is_error() ";
+                       } else {
+                          auto root = R.move_as_ok();
+                          try {
+                            ton::RootHash vhash{root->get_hash().bits()};
+                            auto virt_root = vm::MerkleProof::virtualize(root, 1);
+                            if (virt_root.is_null()) {
+                              LOG(WARNING) << "virt root is null";
+                            } else {
+                              std::vector<ton::BlockIdExt> prev;
+                              ton::BlockIdExt mc_blkid;
+                              bool after_split;
+                              auto res = block::unpack_block_prev_blk_ext(virt_root, blk_id, prev, mc_blkid, after_split);
+                              if (res.is_error()) {
+                                LOG(WARNING) << "res.is_error() ";
+                              } else {
+                                block::gen::Block::Record blk;
+                                block::gen::BlockInfo::Record info;
+                                if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info))) {
+                                  LOG(WARNING) << "unpack failed";
+                                } else {
+                                  header.id_ = to_tonlib_api(blk_id);
+                                  header.global_id_ = blk.global_id;
+                                  header.version_ = info.version;
+                                  header.after_merge_ = info.after_merge;
+                                  header.after_split_ = info.after_split;
+                                  header.before_split_ = info.before_split;
+                                  header.want_merge_ = info.want_merge;
+                                  header.want_split_ = info.want_split;
+                                  header.validator_list_hash_short_ = info.gen_validator_list_hash_short;
+                                  header.catchain_seqno_ = info.gen_catchain_seqno;
+                                  header.min_ref_mc_seqno_ = info.min_ref_mc_seqno;
+                                  header.start_lt_ = info.start_lt;
+                                  header.end_lt_ = info.end_lt;
+                                  header.vert_seqno_ = info.vert_seq_no;
+                                  if(!info.not_master) {
+                                   header.prev_key_block_seqno_ = info.prev_key_block_seqno;
+                                  }
+                                  for (auto id : prev) {
+                                    header.prev_blocks_.push_back(to_tonlib_api(id));
+                                  }
+                                  //if(info.before_split) {
+                                  //} else {
+                                  //}
+                                  return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
+                                }
+                              }
+                            }
+                          } catch (vm::VmError& err) {
+                           auto E = err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
+                           LOG(ERROR) << std::move(E);
+                          } catch (vm::VmVirtError& err) {
+                           auto E = err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
+                           LOG(ERROR) << std::move(E);
+                          } catch (...) {
+                            LOG(WARNING) << "exception catched ";
+                          }
+                       }
+                       return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
+                     }));
+  return td::Status::OK();
+}
+
 
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::runTests& request, P&&) {
