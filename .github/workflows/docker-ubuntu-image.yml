@@ -3,7 +3,7 @@ name: Build Docker Ubuntu Image
 on:
   push:
     branches:
-      - '*'
+      - 'master'
 
 env:
   REGISTRY: ghcr.io
