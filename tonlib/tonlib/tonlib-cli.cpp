@@ -1096,7 +1096,7 @@ class TonlibCli : public td::actor::Actor {
     std::vector<tonlib_api::object_ptr<tonlib_api::msg_message>> messages;
     messages.push_back(
         make_object<tonlib_api::msg_message>(channels_[pchan_id].to_address(), "", value,
-                                             make_object<tonlib_api::msg_dataRaw>(query->body_, query->init_state_)));
+                                             make_object<tonlib_api::msg_dataRaw>(query->body_, query->init_state_), -1));
     auto action = make_object<tonlib_api::actionMsg>(std::move(messages), true);
     send_query(
         make_object<tonlib_api::createQuery>(addr.input_key(), std::move(addr.address), 60, std::move(action), nullptr),
@@ -2217,7 +2217,7 @@ class TonlibCli : public td::actor::Actor {
         data = make_object<tonlib_api::msg_dataText>(message.str());
       }
       messages.push_back(
-          make_object<tonlib_api::msg_message>(std::move(address.address), "", amount.nano, std::move(data)));
+          make_object<tonlib_api::msg_message>(std::move(address.address), "", amount.nano, std::move(data), -1));
       return td::Status::OK();
     };
 

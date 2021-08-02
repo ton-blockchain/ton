@@ -40,6 +40,9 @@ td::Result<td::Ref<vm::Cell>> WalletV3::make_a_gift_message(const td::Ed25519::P
     if (gift.gramms == -1) {
       send_mode += 128;
     }
+    if (gift.send_mode > -1) {
+      send_mode = gift.send_mode;
+    }
     cb.store_long(send_mode, 8).store_ref(create_int_message(gift));
   }
 
