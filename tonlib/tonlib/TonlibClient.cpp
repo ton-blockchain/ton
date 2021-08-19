@@ -2081,14 +2081,15 @@ td::Result<TonlibClient::FullConfig> TonlibClient::validate_config(tonlib_api::o
   }
   state.vert_seqno = vert_seqno;
 
-  //TODO: this could be useful to override master config
-  if (false && new_config.init_block_id.is_valid() &&
+  bool user_defined_init_block = false;
+  if (new_config.init_block_id.is_valid() &&
       state.last_key_block_id.id.seqno < new_config.init_block_id.id.seqno) {
     state.last_key_block_id = new_config.init_block_id;
+    user_defined_init_block = true;
     LOG(INFO) << "Use init block from USER config: " << new_config.init_block_id.to_str();
   }
 
-  if (o_master_config) {
+  if (o_master_config && !user_defined_init_block) {
     auto master_config = o_master_config.unwrap();
     if (master_config.init_block_id.is_valid() &&
         state.last_key_block_id.id.seqno < master_config.init_block_id.id.seqno) {
