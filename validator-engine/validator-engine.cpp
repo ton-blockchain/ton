@@ -1324,6 +1324,9 @@ td::Status ValidatorEngine::load_global_config() {
   for (auto seq : unsafe_catchains_) {
     validator_options_.write().add_unsafe_resync_catchain(seq);
   }
+  for (auto rot : unsafe_catchain_rotations_) {
+    validator_options_.write().add_unsafe_catchain_rotate(rot.first, rot.second.first, rot.second.second);
+  }
   if (truncate_seqno_ > 0) {
     validator_options_.write().truncate_db(truncate_seqno_);
   }
@@ -3362,6 +3365,18 @@ int main(int argc, char *argv[]) {
       'U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
         TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));
         acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      'F', "unsafe-catchain-rotate", "use forceful and DANGEROUS catchain rotation", [&](td::Slice params) {
+        auto pos1 = params.find(':');
+        TRY_RESULT(b_seq, td::to_integer_safe<ton::BlockSeqno>(params.substr(0, pos1)));
+        params = params.substr(++pos1, params.size());
+        auto pos2 = params.find(':');
+        TRY_RESULT(cc_seq, td::to_integer_safe<ton::CatchainSeqno>(params.substr(0, pos2)));
+        params = params.substr(++pos2, params.size());
+        auto h = std::stoi(params.substr(0, params.size()).str());
+        acts.push_back([&x, b_seq, cc_seq, h]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain_rotation, b_seq, cc_seq, h); });
         return td::Status::OK();
       });
   td::uint32 threads = 7;
