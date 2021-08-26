@@ -203,6 +203,14 @@ td::Result<block::PublicKey> public_key_from_bytes(td::Slice bytes) {
   return key_bytes;
 }
 
+td::Result<ton::WalletV3::InitData> to_init_data(const tonlib_api::wallet_v3_initialAccountState& wallet_state) {
+  TRY_RESULT(key_bytes, get_public_key(wallet_state.public_key_));
+  ton::WalletV3::InitData init_data;
+  init_data.public_key = td::SecureString(key_bytes.key);
+  init_data.wallet_id = static_cast<td::uint32>(wallet_state.wallet_id_);
+  return std::move(init_data);
+}
+
 td::Result<ton::RestrictedWallet::InitData> to_init_data(const tonlib_api::rwallet_initialAccountState& rwallet_state) {
   TRY_RESULT(init_key_bytes, get_public_key(rwallet_state.init_public_key_));
   TRY_RESULT(key_bytes, get_public_key(rwallet_state.public_key_));
@@ -495,6 +503,23 @@ class AccountState {
         initial_account_state,
         td::overloaded(
             [](auto& x) {},
+            [&](tonlib_api::wallet_v3_initialAccountState& v3wallet) {
+              for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::WalletV3)) {
+                auto init_data = to_init_data(v3wallet);
+                if (init_data.is_error()) {
+                  continue;
+                }
+                auto wallet = ton::WalletV3::create(init_data.move_as_ok(), revision);
+                if (!(wallet->get_address(ton::masterchainId) == address_ ||
+                      wallet->get_address(ton::basechainId) == address_)) {
+                  continue;
+                }
+                wallet_type_ = WalletType::WalletV3;
+                wallet_revision_ = revision;
+                set_new_state(wallet->get_state());
+                break;
+              }
+            },
             [&](tonlib_api::rwallet_initialAccountState& rwallet) {
               for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::RestrictedWallet)) {
                 auto r_init_data = to_init_data(rwallet);
