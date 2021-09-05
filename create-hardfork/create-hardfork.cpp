@@ -43,6 +43,10 @@
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
 
+#include "ton/ton-types.h"
+#include "ton/ton-tl.hpp"
+#include "ton/ton-io.hpp"
+
 #include "validator/fabric.h"
 #include "validator/impl/collator.h"
 #include "crypto/vm/cp0.h"
@@ -77,6 +81,8 @@ class HardforkCreator : public td::actor::Actor {
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
 
   std::string db_root_ = "/var/ton-work/db/";
+  std::string global_config_;
+  td::Ref<ton::validator::ValidatorManagerOptions> opts_;
   td::BufferSlice bs_;
   std::vector<td::BufferSlice> ext_msgs_;
   std::vector<td::BufferSlice> top_shard_descrs_;
@@ -90,6 +96,9 @@ class HardforkCreator : public td::actor::Actor {
  public:
   void set_db_root(std::string db_root) {
     db_root_ = db_root;
+  }
+  void set_global_config_path(std::string path) {
+    global_config_ = path;
   }
   void set_shard(ton::ShardIdFull shard) {
     LOG(DEBUG) << "setting shard to " << shard.to_str();
@@ -141,6 +150,49 @@ class HardforkCreator : public td::actor::Actor {
   void do_save_file() {
   }
 
+  td::Status create_validator_options() {
+    if(!global_config_.length()) {
+      opts_ = ton::validator::ValidatorManagerOptions::create(
+        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
+        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+     return td::Status::OK();
+    }
+    TRY_RESULT_PREFIX(conf_data, td::read_file(global_config_), "failed to read: ");
+    TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
+
+    ton::ton_api::config_global conf;
+    TRY_STATUS_PREFIX(ton::ton_api::from_json(conf, conf_json.get_object()), "json does not fit TL scheme: ");
+
+    auto zero_state = ton::create_block_id(conf.validator_->zero_state_);
+    ton::BlockIdExt init_block;
+    if (!conf.validator_->init_block_) {
+      LOG(INFO) << "no init block in config. using zero state";
+      init_block = zero_state;
+    } else {
+      init_block = ton::create_block_id(conf.validator_->init_block_);
+    }
+    opts_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
+    std::vector<ton::BlockIdExt> h;
+    for (auto &x : conf.validator_->hardforks_) {
+      auto b = ton::create_block_id(x);
+       if (!b.is_masterchain()) {
+        return td::Status::Error(ton::ErrorCode::error,
+                                 "[validator/hardforks] section contains not masterchain block id");
+      }
+      if (!b.is_valid_full()) {
+        return td::Status::Error(ton::ErrorCode::error, "[validator/hardforks] section contains invalid block_id");
+      }
+      for (auto &y : h) {
+        if (y.is_valid() && y.seqno() >= b.seqno()) {
+          y.invalidate();
+        }
+      }
+      h.push_back(b);
+    }
+    opts_.write().set_hardforks(std::move(h));
+    return td::Status::OK();
+  }
+
   void run() {
     td::mkdir(db_root_).ensure();
     ton::errorlog::ErrorLog::create(db_root_);
@@ -149,9 +201,13 @@ class HardforkCreator : public td::actor::Actor {
       do_save_file();
     }
 
-    auto opts = ton::validator::ValidatorManagerOptions::create(
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+    auto Sr = create_validator_options();
+    if (Sr.is_error()) {
+      LOG(ERROR) << "failed to load global config'" << global_config_ << "': " << Sr;
+      std::_Exit(2);
+    }
+
+    auto opts = opts_;
     opts.write().set_initial_sync_disabled(true);
     validator_manager_ =
         ton::validator::ValidatorManagerHardforkFactory::create(opts, shard_, shard_top_block_id_, db_root_);
@@ -270,6 +326,8 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('D', "db", "root for dbs",
                [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::set_db_root, fname.str()); });
+  p.add_option('C', "config", "global config path",
+               [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::set_global_config_path, fname.str()); });
   p.add_option('m', "ext-message", "binary file with serialized inbound external message",
                [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::load_ext_message, fname.str()); });
   p.add_option(
