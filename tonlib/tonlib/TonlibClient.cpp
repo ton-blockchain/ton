@@ -2559,6 +2559,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
   struct Action {
     block::StdAddress destination;
     td::int64 amount;
+    td::int32 send_mode{-1};
 
     bool is_encrypted{false};
     bool should_encrypt;
@@ -2610,6 +2611,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       auto key = td::Ed25519::PublicKey(td::SecureString(public_key.key));
       res.o_public_key = std::move(key);
     }
+    res.send_mode = message.send_mode_;
     auto status = downcast_call2<td::Status>(
         *message.data_, td::overloaded(
                             [&](tonlib_api::msg_dataRaw& text) {
@@ -3045,6 +3047,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       auto& destination = destinations_[i];
       gift.destination = destinations_[i]->get_address();
       gift.gramms = action.amount;
+      gift.send_mode = action.send_mode;
 
       // Temporary turn off this dangerous transfer
       if (false && action.amount == source_->get_balance()) {

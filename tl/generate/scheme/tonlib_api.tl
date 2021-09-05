@@ -105,7 +105,7 @@ msg.dataDecrypted proof:bytes data:msg.Data = msg.DataDecrypted;
 msg.dataEncryptedArray elements:vector<msg.dataEncrypted> = msg.DataEncryptedArray;
 msg.dataDecryptedArray elements:vector<msg.dataDecrypted> = msg.DataDecryptedArray;
 
-msg.message destination:accountAddress public_key:string amount:int64 data:msg.Data = msg.Message;
+msg.message destination:accountAddress public_key:string amount:int64 data:msg.Data send_mode:int32 = msg.Message;
 
 //
 // DNS
