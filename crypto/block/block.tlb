@@ -727,8 +727,10 @@ misbehaviour_punishment_config_v1#01
    = MisbehaviourPunishmentConfig;
 _ MisbehaviourPunishmentConfig = ConfigParam 40;
 
-oracle_set_v1#_ flat_stake:Grams min_auth_num:uint16 seqno:uint32 oracles:(HashmapE 16 uint256) = ExtChainOracleSet;
-_ ExtChainOracleSet = ConfigParam 71; // Ethereum oracles
+oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;
+_ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
+_ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
+_ OracleBridgeParams = ConfigParam 73; // Polygon bridge
 
 //
 //  PROOFS
