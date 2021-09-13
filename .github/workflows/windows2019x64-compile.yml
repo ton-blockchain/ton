@@ -38,7 +38,7 @@ jobs:
           
       - name: Install OpenSSL Win64
         run: |
-          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1k.msi
+          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1L.msi
           msiexec /i openssl.msi /quiet /qn /norestart
           
       - name: Build ton
