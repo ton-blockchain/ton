@@ -2298,6 +2298,10 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
   }
   register_new_msgs(*trans);
   update_max_lt(acc->last_trans_end_lt_);
+  // temporary patch to stop producing dangerous block
+  if (acc->status == block::Account::acc_nonexist) {
+    block_full_ = true;
+  }
   return trans_root;
 }
 
@@ -2446,6 +2450,10 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   // 6. insert OutMsg into OutMsgDescr
   if (!insert_out_msg(cb.finalize())) {
     return -1;
+  }
+  // 6.5. check for temporary patch can be left here
+  if (block_full_) {
+    return 3;
   }
   // 7. check whether the block is full now
   if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
