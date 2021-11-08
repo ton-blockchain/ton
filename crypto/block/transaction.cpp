@@ -395,6 +395,7 @@ bool Account::init_new(ton::UnixTime now) {
   }
   state_hash = addr_orig;
   status = orig_status = acc_nonexist;
+  split_depth_set_ = false;
   created = true;
   return true;
 }
@@ -2243,6 +2244,8 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
     acc.tock = new_tock;
   } else {
     acc.tick = acc.tock = false;
+    acc.split_depth_set_ = false;
+    acc.created = true;
   }
   end_lt = 0;
   acc.push_transaction(root, start_lt);
