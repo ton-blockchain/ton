@@ -34,7 +34,7 @@ class DataCell : public Cell {
     td::bitstring::bits_store_long(dest, depth, depth_bits);
   }
   static td::uint16 load_depth(const td::uint8* src) {
-    return td::bitstring::bits_load_ulong(src, depth_bits) & 0xff;
+    return td::bitstring::bits_load_ulong(src, depth_bits) & 0xffff;
   }
 
  protected:
