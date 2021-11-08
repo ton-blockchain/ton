@@ -1312,7 +1312,10 @@ bool AnyIntView<Tr>::mod_div_any(const AnyIntView<Tr>& yp, AnyIntView<Tr>& quot,
       if (k > quot.max_size()) {
         return invalidate_bool();
       }
-      quot.set_size(k);
+      quot.set_size(max(k,1));
+      for(int qi=0; qi< max(k,1); qi++) {
+        quot.digits[qi]=0;
+      }
     } else {
       if (k >= quot.max_size()) {
         return invalidate_bool();
