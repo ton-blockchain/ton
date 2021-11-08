@@ -1912,22 +1912,29 @@ const MasterConfig& get_default_master_config() {
       "workchain": -1,
       "shard": -9223372036854775808
     },
-      "init_block":{
-         "file_hash":"x97xobbkPDggz7/u6KQzlT3pBmM5XfGE6vN7AiuTMU0=",
-         "seqno":1907338,
-         "root_hash":"BuZOCJvbg0ys2JBnfocqCf1T4rt0OzLLslOG3CjcSgU=",
-         "workchain":-1,
-         "shard":-9223372036854775808
-      },
-      "hardforks":[
-         {
-            "file_hash":"x97xobbkPDggz7/u6KQzlT3pBmM5XfGE6vN7AiuTMU0=",
-            "seqno":1907338,
-            "root_hash":"BuZOCJvbg0ys2JBnfocqCf1T4rt0OzLLslOG3CjcSgU=",
-            "workchain":-1,
-            "shard":-9223372036854775808
-         }
-      ]
+"init_block":{
+   "file_hash":"CXvKA37GFugspx6U7sv4Sh7KIVqR1R+Pj4AmGx2Ezi0=",
+   "seqno":2908533,
+   "root_hash":"oFi1uMHmELXV/AfjuvTZREmRY7TtNgq608sFjnRJCAo=",
+   "workchain":-1,
+   "shard":-9223372036854775808
+},
+"hardforks":[
+   {
+      "file_hash":"x97xobbkPDggz7/u6KQzlT3pBmM5XfGE6vN7AiuTMU0=",
+      "seqno":1907338,
+      "root_hash":"BuZOCJvbg0ys2JBnfocqCf1T4rt0OzLLslOG3CjcSgU=",
+      "workchain":-1,
+      "shard":-9223372036854775808
+   },
+   {
+     "file_hash": "CXvKA37GFugspx6U7sv4Sh7KIVqR1R+Pj4AmGx2Ezi0=",
+     "seqno": 2908533,
+     "root_hash": "oFi1uMHmELXV/AfjuvTZREmRY7TtNgq608sFjnRJCAo=",
+     "workchain": -1,
+     "shard": -9223372036854775808
+   }
+]
   }
 })abc");
     res.add_config("mainnet", R"abc({
