@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "overlay-manager.h"
+#include "auto/tl/ton_api.h"
 #include "overlay.h"
 
 #include "adnl/utils.hpp"
@@ -268,17 +269,21 @@ void OverlayManager::save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort o
   db_.set(key, create_serialize_tl_object<ton_api::overlay_db_nodes>(std::move(obj)));
 }
 
-Certificate::Certificate(PublicKey issued_by, td::int32 expire_at, td::uint32 max_size, td::BufferSlice signature)
+Certificate::Certificate(PublicKey issued_by, td::int32 expire_at, td::uint32 max_size, td::uint32 flags,
+                         td::BufferSlice signature)
     : issued_by_(issued_by)
     , expire_at_(expire_at)
     , max_size_(max_size)
+    , flags_(flags)
     , signature_(td::SharedSlice(signature.as_slice())) {
 }
 
-Certificate::Certificate(PublicKeyHash issued_by, td::int32 expire_at, td::uint32 max_size, td::BufferSlice signature)
+Certificate::Certificate(PublicKeyHash issued_by, td::int32 expire_at, td::uint32 max_size, td::uint32 flags,
+                         td::BufferSlice signature)
     : issued_by_(issued_by)
     , expire_at_(expire_at)
     , max_size_(max_size)
+    , flags_(flags)
     , signature_(td::SharedSlice(signature.as_slice())) {
 }
 
@@ -290,9 +295,19 @@ void Certificate::set_issuer(PublicKey issuer) {
   issued_by_ = issuer;
 }
 
+constexpr td::uint32 cert_default_flags(td::uint32 max_size) {
+  return (max_size > Overlays::max_simple_broadcast_size() ? CertificateFlags::AllowFec : 0) |
+         CertificateFlags::Trusted;
+}
+
 td::BufferSlice Certificate::to_sign(OverlayIdShort overlay_id, PublicKeyHash issued_to) const {
-  return create_serialize_tl_object<ton_api::overlay_certificateId>(overlay_id.tl(), issued_to.tl(), expire_at_,
-                                                                    max_size_);
+  if (flags_ == cert_default_flags(max_size_)) {
+    return create_serialize_tl_object<ton_api::overlay_certificateId>(overlay_id.tl(), issued_to.tl(), expire_at_,
+                                                                      max_size_);
+  } else {
+    return create_serialize_tl_object<ton_api::overlay_certificateIdV2>(overlay_id.tl(), issued_to.tl(), expire_at_,
+                                                                        max_size_, flags_);
+  }
 }
 
 const PublicKeyHash Certificate::issuer_hash() const {
@@ -307,32 +322,48 @@ const PublicKey &Certificate::issuer() const {
 
 td::Result<std::shared_ptr<Certificate>> Certificate::create(tl_object_ptr<ton_api::overlay_Certificate> cert) {
   std::shared_ptr<Certificate> res;
-  ton_api::downcast_call(*cert.get(), td::overloaded([&](ton_api::overlay_emptyCertificate &obj) { res = nullptr; },
-                                                     [&](ton_api::overlay_certificate &obj) {
-                                                       res = std::make_shared<Certificate>(
-                                                           PublicKey{obj.issued_by_}, obj.expire_at_,
-                                                           static_cast<td::uint32>(obj.max_size_),
-                                                           std::move(obj.signature_));
-                                                     }));
+  ton_api::downcast_call(*cert.get(),
+                         td::overloaded([&](ton_api::overlay_emptyCertificate &obj) { res = nullptr; },
+                                        [&](ton_api::overlay_certificate &obj) {
+                                          res = std::make_shared<Certificate>(PublicKey{obj.issued_by_}, obj.expire_at_,
+                                                                              static_cast<td::uint32>(obj.max_size_),
+                                                                              cert_default_flags(obj.max_size_),
+                                                                              std::move(obj.signature_));
+                                        },
+                                        [&](ton_api::overlay_certificateV2 &obj) {
+                                          res = std::make_shared<Certificate>(PublicKey{obj.issued_by_}, obj.expire_at_,
+                                                                              static_cast<td::uint32>(obj.max_size_),
+                                                                              static_cast<td::uint32>(obj.flags_),
+                                                                              std::move(obj.signature_));
+                                        }));
   return std::move(res);
 }
 
-td::Status Certificate::check(PublicKeyHash node, OverlayIdShort overlay_id, td::int32 unix_time,
-                              td::uint32 size) const {
+BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overlay_id, td::int32 unix_time,
+                                        td::uint32 size, bool is_fec) const {
   if (size > max_size_) {
-    return td::Status::Error(ErrorCode::protoviolation, "too big broadcast size");
+    return BroadcastCheckResult::Forbidden;
   }
   if (unix_time > expire_at_) {
-    return td::Status::Error(ErrorCode::protoviolation, "too old certificate");
+    return BroadcastCheckResult::Forbidden;
+  }
+  if (is_fec && !(flags_ & CertificateFlags::AllowFec)) {
+    return BroadcastCheckResult::Forbidden;
   }
 
-  TRY_RESULT(E, issued_by_.get<PublicKey>().create_encryptor());
+  auto R1 = issued_by_.get<PublicKey>().create_encryptor();
+  if (R1.is_error()) {
+    return BroadcastCheckResult::Forbidden;
+  }
+  auto E = R1.move_as_ok();
 
   auto B = to_sign(overlay_id, node);
 
-  TRY_STATUS(E->check_signature(B.as_slice(), signature_.as_slice()));
+  if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
+    return BroadcastCheckResult::Forbidden;
+  }
 
-  return td::Status::OK();
+  return (flags_ & CertificateFlags::Trusted) ? BroadcastCheckResult::Allowed : BroadcastCheckResult::NeedCheck;
 }
 
 tl_object_ptr<ton_api::overlay_Certificate> Certificate::tl() const {

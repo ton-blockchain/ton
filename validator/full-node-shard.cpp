@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.h"
+#include "overlays.h"
 #include "td/utils/SharedSlice.h"
 #include "full-node-shard.hpp"
 #include "full-node-shard-queries.hpp"
@@ -79,6 +81,10 @@ void FullNodeShardImpl::create_overlay() {
     void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
       td::actor::send_closure(node_, &FullNodeShardImpl::receive_broadcast, src, std::move(data));
     }
+    void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                         td::Promise<td::Unit> promise) override {
+      td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
+    }
     Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
     }
 
@@ -93,6 +99,17 @@ void FullNodeShardImpl::create_overlay() {
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
   }
+}
+
+void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
+  auto B = fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true);
+  if (B.is_error()) {
+    return promise.set_error(B.move_as_error_prefix("failed to parse external message broadcast: "));
+  }
+
+  auto q = B.move_as_ok();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
+                          std::move(q->message_->data_), std::move(promise));
 }
 
 void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
@@ -804,8 +821,9 @@ void FullNodeShardImpl::sign_new_certificate(PublicKeyHash sign_by) {
     return;
   }
 
-  ton::overlay::Certificate cert{sign_by, static_cast<td::int32>(td::Clocks::system() + 3600),
-                                 overlay::Overlays::max_fec_broadcast_size(), td::BufferSlice{}};
+  ton::overlay::Certificate cert{
+      sign_by, static_cast<td::int32>(td::Clocks::system() + 3600), overlay::Overlays::max_fec_broadcast_size(),
+      overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec, td::BufferSlice{}};
   auto to_sign = cert.to_sign(overlay_id_, local_id_);
 
   auto P = td::PromiseCreator::lambda(
@@ -845,7 +863,7 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
     authorized_keys.emplace(key, overlay::Overlays::max_fec_broadcast_size());
   }
 
-  rules_ = overlay::OverlayPrivacyRules{1 << 14, std::move(authorized_keys)};
+  rules_ = overlay::OverlayPrivacyRules{1 << 14, 0, std::move(authorized_keys)};
   td::actor::send_closure(overlays_, &overlay::Overlays::set_privacy_rules, adnl_id_, overlay_id_, rules_);
 
   if (update_cert) {
@@ -949,8 +967,7 @@ void FullNodeShardImpl::update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, do
   }
 }
 
-void FullNodeShardImpl::got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, double t,
-                                                   td::BufferSlice data) {
+void FullNodeShardImpl::got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, double t, td::BufferSlice data) {
   auto it = neighbours_.find(adnl_id);
   if (it == neighbours_.end()) {
     return;

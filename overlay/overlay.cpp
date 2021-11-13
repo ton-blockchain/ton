@@ -391,25 +391,21 @@ td::Status OverlayImpl::check_date(td::uint32 date) {
   return td::Status::OK();
 }
 
-td::Status OverlayImpl::check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size) {
+BroadcastCheckResult OverlayImpl::check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size,
+                                                        bool is_fec) {
   if (size == 0) {
-    return td::Status::Error(ErrorCode::protoviolation, "empty broadcast");
+    return BroadcastCheckResult::Forbidden;
   }
   auto short_id = source.compute_short_id();
 
-  auto r = rules_.max_size(source.compute_short_id());
-  if (r >= size) {
-    return td::Status::OK();
+  auto r = rules_.check_rules(source.compute_short_id(), size, is_fec);
+  if (!cert || r == BroadcastCheckResult::Allowed) {
+    return r;
   }
-  if (!cert) {
-    return td::Status::Error(ErrorCode::protoviolation, "source is not eligible");
-  }
-  TRY_STATUS(cert->check(short_id, overlay_id_, static_cast<td::int32>(td::Clocks::system()), size));
-  auto issuer_short = cert->issuer_hash();
-  if (rules_.max_size(issuer_short) < size) {
-    return td::Status::Error(ErrorCode::protoviolation, "bad certificate");
-  }
-  return td::Status::OK();
+
+  auto r2 = cert->check(short_id, overlay_id_, static_cast<td::int32>(td::Clocks::system()), size, is_fec);
+  r2 = broadcast_check_result_min(r2, rules_.check_rules(cert->issuer_hash(), size, is_fec));
+  return broadcast_check_result_max(r, r2);
 }
 
 td::Status OverlayImpl::check_delivered(BroadcastHash hash) {
@@ -537,6 +533,25 @@ std::shared_ptr<Certificate> OverlayImpl::get_certificate(PublicKeyHash source) 
 
 void OverlayImpl::set_privacy_rules(OverlayPrivacyRules rules) {
   rules_ = std::move(rules);
+}
+
+void OverlayImpl::check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise) {
+  callback_->check_broadcast(src, overlay_id_, std::move(data), std::move(promise));
+}
+
+void OverlayImpl::broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R) {
+  {
+    auto it = broadcasts_.find(hash);
+    if (it != broadcasts_.end()) {
+      it->second->broadcast_checked(std::move(R));
+    }
+  }
+  {
+    auto it = fec_broadcasts_.find(hash);
+    if (it != fec_broadcasts_.end()) {
+      it->second->broadcast_checked(std::move(R));
+    }
+  }
 }
 
 }  // namespace overlay

@@ -20,6 +20,8 @@
 
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/utils/port/Poll.h"
 #include "validator-group.hpp"
 #include "shard-client.hpp"
 #include "manager-init.h"
@@ -325,6 +327,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
+  void check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) override {
+    promise.set_value(td::Unit());
+  }
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
 

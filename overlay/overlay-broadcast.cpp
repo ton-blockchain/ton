@@ -17,8 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "overlay-broadcast.hpp"
+#include "adnl/adnl-node-id.hpp"
+#include "common/util.h"
 #include "overlay.hpp"
 #include "keys/encryptor.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
+#include "td/utils/Status.h"
+#include "td/utils/port/Stat.h"
 
 namespace ton {
 
@@ -33,7 +39,13 @@ td::Status BroadcastSimple::check_duplicate() {
 }
 
 td::Status BroadcastSimple::check_source() {
-  return overlay_->check_source_eligible(source_, cert_.get(), data_size());
+  auto r = overlay_->check_source_eligible(source_, cert_.get(), data_size(), false);
+  if (r == BroadcastCheckResult::Forbidden) {
+    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+  }
+
+  is_valid_ = r == BroadcastCheckResult::Allowed;
+  return td::Status::OK();
 }
 
 td::BufferSlice BroadcastSimple::to_sign() {
@@ -66,6 +78,14 @@ td::Status BroadcastSimple::distribute() {
   return td::Status::OK();
 }
 
+void BroadcastSimple::broadcast_checked(td::Result<td::Unit> R) {
+  if (R.is_error()) {
+    return;
+  }
+  is_valid_ = true;
+  run_continue().ignore();
+}
+
 tl_object_ptr<ton_api::overlay_broadcast> BroadcastSimple::tl() const {
   return create_tl_object<ton_api::overlay_broadcast>(source_.tl(), cert_ ? cert_->tl() : Certificate::empty_tl(),
                                                       flags_, data_.clone(), date_, signature_.clone());
@@ -73,6 +93,25 @@ tl_object_ptr<ton_api::overlay_broadcast> BroadcastSimple::tl() const {
 
 td::BufferSlice BroadcastSimple::serialize() {
   return serialize_tl_object(tl(), true);
+}
+
+td::Status BroadcastSimple::run_continue() {
+  TRY_STATUS(distribute());
+  deliver();
+  return td::Status::OK();
+}
+
+td::Status BroadcastSimple::run() {
+  TRY_STATUS(run_checks());
+  if (!is_valid_) {
+    auto P = td::PromiseCreator::lambda(
+        [id = broadcast_hash_, overlay_id = actor_id(overlay_)](td::Result<td::Unit> R) mutable {
+          td::actor::send_closure(std::move(overlay_id), &OverlayImpl::broadcast_checked, id, std::move(R));
+        });
+    overlay_->check_broadcast(source_.compute_short_id(), data_.clone(), std::move(P));
+    return td::Status::OK();
+  }
+  return run_continue();
 }
 
 td::Status BroadcastSimple::create(OverlayImpl *overlay, tl_object_ptr<ton_api::overlay_broadcast> broadcast) {
@@ -86,7 +125,7 @@ td::Status BroadcastSimple::create(OverlayImpl *overlay, tl_object_ptr<ton_api::
 
   auto B = std::make_unique<BroadcastSimple>(broadcast_hash, src, std::move(cert), broadcast->flags_,
                                              std::move(broadcast->data_), broadcast->date_,
-                                             std::move(broadcast->signature_), overlay);
+                                             std::move(broadcast->signature_), false, overlay);
   TRY_STATUS(B->run());
   overlay->register_simple_broadcast(std::move(B));
   return td::Status::OK();
@@ -100,7 +139,7 @@ td::Status BroadcastSimple::create_new(td::actor::ActorId<OverlayImpl> overlay,
   auto date = static_cast<td::uint32>(td::Clocks::system());
 
   auto B = std::make_unique<BroadcastSimple>(broadcast_hash, PublicKey{}, nullptr, flags, std::move(data), date,
-                                             td::BufferSlice{}, nullptr);
+                                             td::BufferSlice{}, false, nullptr);
 
   auto to_sign = B->to_sign();
   auto P = td::PromiseCreator::lambda(
