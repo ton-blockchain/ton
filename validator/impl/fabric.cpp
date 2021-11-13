@@ -116,6 +116,10 @@ td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data) {
   return std::move(res);
 }
 
+void run_check_external_message(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
+  ExtMessageQ::run_message(std::move(data), std::move(manager), std::move(promise));
+}
+
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
   TRY_RESULT(res, IhrMessageQ::create_ihr_message(std::move(data)));
   return std::move(res);
@@ -235,6 +239,11 @@ void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_b
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise) {
   LiteQuery::run_query(std::move(data), std::move(manager), std::move(promise));
+}
+
+void run_fetch_account_state(WorkchainId wc, StdSmcAddress  addr, td::actor::ActorId<ValidatorManager> manager,
+                             td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise) {
+  LiteQuery::fetch_account_state(wc, addr, std::move(manager), std::move(promise));
 }
 
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,

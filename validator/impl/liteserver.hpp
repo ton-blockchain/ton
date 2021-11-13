@@ -26,6 +26,8 @@
 #include "block.hpp"
 #include "shard.hpp"
 #include "proof.hpp"
+#include "block/block-auto.h"
+
 
 namespace ton {
 
@@ -37,6 +39,9 @@ class LiteQuery : public td::actor::Actor {
   td::actor::ActorId<ton::validator::ValidatorManager> manager_;
   td::Timestamp timeout_;
   td::Promise<td::BufferSlice> promise_;
+
+  td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> acc_state_promise_;
+
   int pending_{0};
   int mode_{0};
   WorkchainId acc_workchain_;
@@ -71,8 +76,13 @@ class LiteQuery : public td::actor::Actor {
   };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::Promise<td::BufferSlice> promise);
+  LiteQuery(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
+            td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
                         td::Promise<td::BufferSlice> promise);
+
+  static void fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
+                                  td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
 
  private:
   bool fatal_error(td::Status error);
@@ -87,6 +97,7 @@ class LiteQuery : public td::actor::Actor {
   void perform_getVersion();
   void perform_getMasterchainInfo(int mode);
   void continue_getMasterchainInfo(Ref<MasterchainState> mc_state, BlockIdExt blkid, int mode);
+  void gotMasterchainInfoForAccountState(Ref<MasterchainState> mc_state, BlockIdExt blkid, int mode);
   void perform_getBlock(BlockIdExt blkid);
   void continue_getBlock(BlockIdExt blkid, Ref<BlockData> block);
   void perform_getBlockHeader(BlockIdExt blkid, int mode);
@@ -99,6 +110,7 @@ class LiteQuery : public td::actor::Actor {
   void continue_getAccountState_0(Ref<MasterchainState> mc_state, BlockIdExt blkid);
   void continue_getAccountState();
   void finish_getAccountState(td::BufferSlice shard_proof);
+  void perform_fetchAccountState();
   void perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode, td::int64 method_id,
                             td::BufferSlice params);
   void finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root,
