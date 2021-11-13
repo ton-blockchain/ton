@@ -191,6 +191,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<CI_key, td::uint32> control_permissions_;
 
   double state_ttl_ = 0;
+  double max_mempool_num_ = 0;
   double block_ttl_ = 0;
   double sync_ttl_ = 0;
   double archive_ttl_ = 0;
@@ -222,6 +223,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_db_root(std::string db_root);
   void set_state_ttl(double t) {
     state_ttl_ = t;
+  }
+  void set_max_mempool_num(double t) {
+    max_mempool_num_ = t;
   }
   void set_block_ttl(double t) {
     block_ttl_ = t;

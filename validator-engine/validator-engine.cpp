@@ -1309,6 +1309,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
   }
+  if (max_mempool_num_ != 0) {
+    validator_options_.write().set_max_mempool_num(max_mempool_num_);
+  }
   if (block_ttl_ != 0) {
     validator_options_.write().set_block_ttl(block_ttl_);
   }
@@ -3335,6 +3338,10 @@ int main(int argc, char *argv[]) {
   p.add_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600", [&](td::Slice fname) {
     auto v = td::to_double(fname);
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
+  });
+  p.add_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice fname) {
+    auto v = td::to_double(fname);
+    acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
   });
   p.add_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=7*86400",
                [&](td::Slice fname) {

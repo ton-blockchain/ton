@@ -366,6 +366,9 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
   if (!is_validator()) {
     return;
   }
+  if( ext_messages_.size() > max_mempool_num() ) {
+    return;
+  }
   auto R = create_ext_message(std::move(data));
   if (R.is_error()) {
     VLOG(VALIDATOR_NOTICE) << "dropping bad ihr message: " << R.move_as_error();

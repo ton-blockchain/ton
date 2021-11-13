@@ -580,6 +580,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   double block_ttl() const {
     return opts_->block_ttl();
   }
+  double max_mempool_num() const {
+    return opts_->max_mempool_num();
+  }
 
  private:
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
