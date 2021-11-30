@@ -42,6 +42,14 @@ class FullNodeImpl : public FullNode {
   void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
   void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
 
+  void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
+                                      td::uint32 expiry_at, td::uint32 max_size,
+                                      td::Promise<td::BufferSlice> promise) override;
+  void import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
+                                        std::shared_ptr<ton::overlay::Certificate> cert,
+                                        td::Promise<td::Unit> promise) override;
+
+
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
   void add_shard(ShardIdFull shard);

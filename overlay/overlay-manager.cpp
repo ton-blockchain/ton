@@ -21,13 +21,18 @@
 #include "overlay.h"
 
 #include "adnl/utils.hpp"
+#include "td/actor/actor.h"
+#include "td/actor/common.h"
 #include "td/utils/Random.h"
 
 #include "td/db/RocksDb.h"
 
+#include "td/utils/Status.h"
 #include "td/utils/overloaded.h"
 
 #include "keys/encryptor.h"
+#include "td/utils/port/Poll.h"
+#include <vector>
 
 namespace ton {
 
@@ -267,6 +272,52 @@ void OverlayManager::save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort o
 
   auto key = create_hash_tl_object<ton_api::overlay_db_key_nodes>(local_id.bits256_value(), overlay_id.bits256_value());
   db_.set(key, create_serialize_tl_object<ton_api::overlay_db_nodes>(std::move(obj)));
+}
+
+void OverlayManager::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) {
+  class Cb : public td::actor::Actor {
+   public:
+    Cb(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) : promise_(std::move(promise)) {
+    }
+    void incr_pending() {
+      pending_++;
+    }
+    void decr_pending() {
+      if (!--pending_) {
+        promise_.set_result(create_tl_object<ton_api::engine_validator_overlaysStats>(std::move(res_)));
+        stop();
+      }
+    }
+    void receive_answer(tl_object_ptr<ton_api::engine_validator_overlayStats> res) {
+      if (res) {
+        res_.push_back(std::move(res));
+      }
+      decr_pending();
+    }
+
+   private:
+    std::vector<tl_object_ptr<ton_api::engine_validator_overlayStats>> res_;
+    size_t pending_{1};
+    td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise_;
+  };
+
+  auto act = td::actor::create_actor<Cb>("overlaysstatsmerger", std::move(promise)).release();
+
+  for (auto &a : overlays_) {
+    for (auto &b : a.second) {
+      td::actor::send_closure(act, &Cb::incr_pending);
+      td::actor::send_closure(b.second, &Overlay::get_stats,
+                              [act](td::Result<tl_object_ptr<ton_api::engine_validator_overlayStats>> R) {
+                                if (R.is_ok()) {
+                                  td::actor::send_closure(act, &Cb::receive_answer, R.move_as_ok());
+                                } else {
+                                  td::actor::send_closure(act, &Cb::receive_answer, nullptr);
+                                }
+                              });
+    }
+  }
+
+  td::actor::send_closure(act, &Cb::decr_pending);
 }
 
 Certificate::Certificate(PublicKey issued_by, td::int32 expire_at, td::uint32 max_size, td::uint32 flags,

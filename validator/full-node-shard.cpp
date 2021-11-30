@@ -115,6 +115,7 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
 void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
   adnl_id_ = adnl_id;
+  local_id_ = adnl_id_.pubkey_hash();
   create_overlay();
 }
 
@@ -846,6 +847,38 @@ void FullNodeShardImpl::signed_new_certificate(ton::overlay::Certificate cert) {
   LOG(WARNING) << "updated certificate";
   cert_ = std::make_shared<overlay::Certificate>(std::move(cert));
   td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
+}
+
+void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) {
+  auto sign_by = sign_cert_by_;
+  if (sign_by.is_zero()) {
+    promise.set_error(td::Status::Error("Node has no key with signing authority"));
+    return;
+  }
+
+  ton::overlay::Certificate cert{
+      sign_by, static_cast<td::int32>(expire_at), max_size,
+      overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec, td::BufferSlice{}};
+  auto to_sign = cert.to_sign(overlay_id_, signed_key);
+
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), expire_at = expire_at, max_size = max_size, promise = std::move(promise)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error_prefix("failed to create certificate: failed to sign: "));
+        } else {
+          auto p = R.move_as_ok();
+          auto c = ton::create_serialize_tl_object<ton::ton_api::overlay_certificate>(p.second.tl(), static_cast<td::int32>(expire_at), max_size, std::move(p.first));
+          promise.set_value(std::move(c));
+        }
+      });
+  td::actor::send_closure(keyring_, &ton::keyring::Keyring::sign_add_get_public_key, sign_by, std::move(to_sign),
+                          std::move(P));
+}
+
+void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(overlays_, &ton::overlay::Overlays::update_certificate,
+                                     adnl_id_, overlay_id_, signed_key, cert);
+  promise.set_value( td::Unit()  );
 }
 
 void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) {

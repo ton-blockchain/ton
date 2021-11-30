@@ -63,6 +63,7 @@ class Overlay : public td::actor::Actor {
   virtual void add_certificate(PublicKeyHash key, std::shared_ptr<Certificate>) = 0;
   virtual void set_privacy_rules(OverlayPrivacyRules rules) = 0;
   virtual void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) = 0;
+  virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
 };
@@ -70,4 +71,3 @@ class Overlay : public td::actor::Actor {
 }  // namespace overlay
 
 }  // namespace ton
-

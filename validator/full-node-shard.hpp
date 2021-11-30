@@ -170,6 +170,10 @@ class FullNodeShardImpl : public FullNodeShard {
   void alarm() override;
 
   void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) override;
+
+  void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) override;
+  void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert, td::Promise<td::Unit> promise) override;
+
   void sign_new_certificate(PublicKeyHash sign_by);
   void signed_new_certificate(ton::overlay::Certificate cert);
 

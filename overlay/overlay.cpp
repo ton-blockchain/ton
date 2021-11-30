@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.h"
 #include "td/utils/Random.h"
 
 #include "adnl/utils.hpp"
@@ -25,6 +26,7 @@
 #include "auto/tl/ton_api.hpp"
 
 #include "keys/encryptor.h"
+#include "td/utils/StringBuilder.h"
 
 namespace ton {
 
@@ -552,6 +554,19 @@ void OverlayImpl::broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::
       it->second->broadcast_checked(std::move(R));
     }
   }
+}
+
+void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) {
+  auto res = create_tl_object<ton_api::engine_validator_overlayStats>();
+  res->adnl_id_ = local_id_.bits256_value();
+  res->overlay_id_ = overlay_id_.bits256_value();
+  res->overlay_id_full_ = id_full_.pubkey().tl();
+  peers_.iterate([&](const adnl::AdnlNodeIdShort &key, const OverlayPeer &peer) { res->nodes_.push_back(key.tl()); });
+
+  res->stats_.push_back(
+      create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_.size()));
+
+  promise.set_value(std::move(res));
 }
 
 }  // namespace overlay
