@@ -259,6 +259,11 @@ set(FIFT_TEST_SOURCE
   PARENT_SCOPE
 )
 
+set(BIGINT_TEST_SOURCE
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/test-bigint.cpp
+  PARENT_SCOPE
+)
+
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

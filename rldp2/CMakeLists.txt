@@ -51,7 +51,7 @@ target_include_directories(rldp PUBLIC
   ${OPENSSL_INCLUDE_DIR}
 )
 if (GSL_FOUND)
-  target_link_libraries(rldp2 PRIVATE GSL::gsl)
+  target_link_libraries(rldp2 PRIVATE gsl)
   target_compile_definitions(rldp2 PRIVATE -DTON_HAVE_GSL=1)
 endif()
 target_link_libraries(rldp2 PUBLIC tdutils tdactor fec adnl tl_api)
