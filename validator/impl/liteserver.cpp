@@ -1150,7 +1150,7 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   long long gas_limit = client_method_gas_limit;
   LOG(DEBUG) << "creating VM with gas limit " << gas_limit;
   // **** INIT VM ****
-  vm::GasLimits gas{gas_limit};
+  vm::GasLimits gas{gas_limit, gas_limit};
   vm::VmState vm{std::move(code), std::move(stack_), gas, 1, std::move(data), vm::VmLog::Null()};
   auto c7 = prepare_vm_c7(gen_utime, gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()), balance);
   vm.set_c7(c7);  // tuple with SmartContractInfo

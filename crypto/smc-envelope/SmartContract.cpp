@@ -207,7 +207,7 @@ SmartContract::Answer SmartContract::run_get_method(Args args) const {
     args.c7 = prepare_vm_c7(now, args.balance);
   }
   if (!args.limits) {
-    args.limits = vm::GasLimits{1000000};
+    args.limits = vm::GasLimits{1000000, 1000000};
   }
   if (!args.stack) {
     args.stack = td::Ref<vm::Stack>(true);
