@@ -4073,7 +4073,6 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from(td::ConstBitPtr
                                                                  Ref<vm::CellSlice> extra) {
   auto ptr = std::make_unique<block::Account>(workchain(), addr);
   if (account.is_null()) {
-    ptr->created = true;
     if (!ptr->init_new(now_)) {
       return nullptr;
     }
@@ -4308,7 +4307,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
   }
   if (is_first && is_masterchain() && account.is_special && account.tick &&
-      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) && !account.created) {
+      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) && account.orig_status == block::Account::acc_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                   << " is the first transaction for this special tick account in this block, but the "
                                      "transaction is not a tick transaction");
