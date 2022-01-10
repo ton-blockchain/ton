@@ -4261,6 +4261,8 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('p', "pub", "remote public key",
                [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::set_public_key, td::BufferSlice{arg}); });
+  p.add_option('b', "b64", "remote public key as base64",
+               [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::decode_public_key, td::BufferSlice{arg}); });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
     td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
