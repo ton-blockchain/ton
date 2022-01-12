@@ -20,13 +20,22 @@ jobs:
         ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=10.15
         make build_libs -j4
 
-    - name: Build TON
+    - name: Build all
       run: |
         rootPath=`pwd`
         mkdir build
         cd build
         cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
         make -j4
+
+    - name: Build native-lib
+      run: |
+        rootPath=`pwd`
+        mkdir build
+        cd build
+        cmake -DTON_ONLY_TONLIB=ON -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
+        make -j4 prepare_cross_compiling
+        make -j4 native-lib
         
     - name: Find & copy binaries
       run: |

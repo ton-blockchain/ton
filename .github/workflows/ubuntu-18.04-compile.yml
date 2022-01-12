@@ -26,14 +26,23 @@ jobs:
     - name: mkdir
       run: |
         mkdir build
-    - name: cmake
+    - name: cmake all
       run: | 
         cd build
         cmake ..
-    - name: make -j4
+    - name: make all
       run: |
         cd build
         make -j4
+    - name: cmake ton only
+      run: |
+        cd build
+        cmake -DTON_ONLY_TONLIB=ON ..
+    - name: make native-lib
+      run: |
+        cd build
+        make -j4 prepare_cross_compiling
+        make -j4 native-lib
     - name: find & copy binaries
       run: |
         mkdir artifacts
