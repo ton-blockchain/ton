@@ -5,7 +5,7 @@ on: [push,workflow_dispatch]
 defaults:
   run:
     shell: cmd
-    
+
 jobs:
   build:
 
@@ -20,56 +20,77 @@ jobs:
         uses: actions/checkout@v2
         with:
           submodules: 'recursive'
-        
+
       - name: Check out zlib repository
         uses: actions/checkout@v2
         with:
           repository: desktop-app/zlib
           path: zlib
-          
+
       - name: Setup msbuild.exe
         uses: microsoft/setup-msbuild@v1.0.2
-                
+
       - name: Compile zlib Win64
         run: |
           cd zlib\contrib\vstudio\vc14
-          msbuild zlibstat.vcxproj /p:Configuration=Debug /p:platform=x64        
-          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64
-          
+          msbuild zlibstat.vcxproj /p:Configuration=Debug /p:platform=x64 -p:PlatformToolset=v142
+          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
+
       - name: Install OpenSSL Win64
         run: |
-          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1L.msi
+          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1m.msi
           msiexec /i openssl.msi /quiet /qn /norestart
-          
+
       - name: Build ton
         run: |
           set root=%cd%
           echo %root%
           mkdir build
           cd build
-          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" -DCMAKE_BUILD_TYPE=Release ..
-          
+          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
+
       - name: Compile ton
         run: |       
           cd build   
-          cmake --build .
-        continue-on-error: true          
-          
+          cmake --build . --config Release
+        continue-on-error: true
+
+      - name: Compile native-lib
+        run: |
+          set root=%cd%
+          set JAVA_AWT_LIBRARY=NotNeeded
+          set JAVA_JVM_LIBRARY=NotNeeded
+          set JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+          set JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+          set JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/win32
+          git fetch --all
+          git pull --all
+          git checkout wallets
+          cd example/android/
+          mkdir build
+          cd build
+          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DTON_ONLY_TONLIB=ON ..
+          cmake --build . --target native-lib --config Release
+
       - name: Show executables
         run: |
-          cd build          
+          cd build
+          del Release\test-*
           dir *.exe /a-D /S /B
-          
+          dir *.dll /a-D /S /B
+
       - name: Check if validator-engine.exe exists
         run: |
           set root=%cd%
-          copy %root%\build\validator-engine\Debug\validator-engine.exe test
-          
+          copy %root%\build\validator-engine\Release\validator-engine.exe test
+
       - name: Find & copy binaries
         run: |
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
-          
+          copy build\tonlib\Release\tonlibjson.dll artifacts
+          copy example\android\build\Release\native-lib.dll artifacts
+
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
