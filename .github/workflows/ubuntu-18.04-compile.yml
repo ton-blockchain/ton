@@ -26,18 +26,39 @@ jobs:
     - name: mkdir
       run: |
         mkdir build
-    - name: cmake
+    - name: cmake all
       run: | 
         cd build
-        cmake ..
-    - name: make -j4
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+    - name: make all
       run: |
         cd build
-        make -j4
+        make -j4 fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+
+    - name: build native-lib
+      run: |
+        export JAVA_AWT_LIBRARY=NotNeeded
+        export JAVA_JVM_LIBRARY=NotNeeded
+        export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+        git fetch --all
+        git pull --all
+        git checkout wallets
+        cd example/android/
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DTON_ONLY_TONLIB=ON ..
+        cmake --build . --target prepare_cross_compiling
+        cmake --build . --target native-lib
+
     - name: find & copy binaries
       run: |
-        mkdir artifacts
-        cp --parents build/crypto/fift build/crypto/adjust-block build/crypto/dump-block build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/tddb/io-bench build/http/http-proxy build/tdnet/udp_ping_pong build/tdnet/tcp_ping_pong build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/pack-viewer build/utils/json2tlo build/adnl/adnl-proxy build/adnl/adnl-pong artifacts
+        mkdir -p artifacts/tonlib-java
+        cp --parents build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts
+        cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
+        cp example/android/build/libnative-lib.so artifacts/tonlib-java/
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
