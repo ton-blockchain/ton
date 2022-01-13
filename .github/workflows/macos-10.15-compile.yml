@@ -37,6 +37,8 @@ jobs:
         export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
         export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
         export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+        git fetch --all
+        git pull --all
         git checkout wallets
         cd example/android/
         mkdir build
