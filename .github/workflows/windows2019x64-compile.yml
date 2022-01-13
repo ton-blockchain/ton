@@ -57,10 +57,18 @@ jobs:
 
       - name: Compile native-lib
         run: |
+          export JAVA_AWT_LIBRARY=NotNeeded
+          export JAVA_JVM_LIBRARY=NotNeeded
+          export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+          export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+          export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+          git checkout wallets
+          cd example/android/
+          mkdir build
           cd build
-          cmake -DZLIB_FOUND=1 -DTON_ONLY_TONLIB=ON -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . --target prepare_cross_compiling --config Release
-          cmake --build . --target native-lib --config Release
+          cmake -DTON_ONLY_TONLIB=ON ..
+          cmake --build . --target prepare_cross_compiling
+          cmake --build . --target native-lib
         continue-on-error: true
           
       - name: Show executables
@@ -80,6 +88,8 @@ jobs:
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
           copy build\tonlib\Release\tonlibjson.dll artifacts
+          copy example\android\src\drinkless\org\ton\TonApi.java artifacts
+          copy example\android\build\libnative-lib.dll artifacts
           
       - name: Upload artifacts
         uses: actions/upload-artifact@master

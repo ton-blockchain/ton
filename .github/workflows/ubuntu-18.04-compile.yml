@@ -34,19 +34,28 @@ jobs:
       run: |
         cd build
         make -j4
-    - name: cmake ton only
+    - name: build native-lib
       run: |
+        export JAVA_AWT_LIBRARY=NotNeeded
+        export JAVA_JVM_LIBRARY=NotNeeded
+        export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+        git checkout wallets
+        cd example/android/
+        mkdir build
         cd build
         cmake -DTON_ONLY_TONLIB=ON ..
-    - name: make native-lib
-      run: |
-        cd build
-        make -j4 prepare_cross_compiling
-        make -j4 native-lib
+        cmake --build . --target prepare_cross_compiling
+        cmake --build . --target native-lib
+
     - name: find & copy binaries
       run: |
         mkdir artifacts
         cp --parents build/crypto/fift build/crypto/adjust-block build/crypto/dump-block build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/tddb/io-bench build/http/http-proxy build/tdnet/udp_ping_pong build/tdnet/tcp_ping_pong build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/pack-viewer build/utils/json2tlo build/adnl/adnl-proxy build/adnl/adnl-pong artifacts
+        cp example/android/src/drinkless/org/ton/TonApi.java artifacts
+        cp example/android/build/libnative-lib.so artifacts
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
