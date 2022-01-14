@@ -52,7 +52,7 @@ jobs:
       - name: Compile ton
         run: |       
           cd build   
-          cmake --build . --config Release
+          cmake --config Release --build .
         continue-on-error: true
 
       - name: Compile native-lib
