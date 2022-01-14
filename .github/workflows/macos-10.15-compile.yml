@@ -30,6 +30,7 @@ jobs:
 
     - name: Build native-lib
       run: |
+        rootPath=`pwd`
         export JAVA_AWT_LIBRARY=NotNeeded
         export JAVA_JVM_LIBRARY=NotNeeded
         export JAVA_INCLUDE_PATH=${JAVA_HOME}/include

@@ -52,7 +52,7 @@ jobs:
       - name: Compile ton
         run: |       
           cd build   
-          cmake --config Release --build .
+          cmake --build .
         continue-on-error: true
 
       - name: Compile native-lib
@@ -71,8 +71,7 @@ jobs:
           cmake -DTON_ONLY_TONLIB=ON ..
           cmake --build . --target prepare_cross_compiling
           cmake --build . --target native-lib
-        continue-on-error: true
-          
+
       - name: Show executables
         run: |
           cd build
