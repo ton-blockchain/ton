@@ -7,7 +7,11 @@ cmake_minimum_required(VERSION 3.4.1 FATAL_ERROR)
 
 option(TONLIB_ENABLE_JNI "Enable JNI-compatible TonLib API" ON)
 
-string(APPEND CMAKE_CXX_FLAGS " -std=c++14 -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wconversion -Wno-sign-conversion -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+  string(APPEND CMAKE_CXX_FLAGS " -std=c++14 -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+else()
+  string(APPEND CMAKE_CXX_FLAGS " -std=c++14 -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wconversion -Wno-sign-conversion -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+endif()
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
   string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,--gc-sections -Wl,--exclude-libs,ALL")
 endif()
@@ -42,7 +46,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
   add_custom_command(TARGET native-lib POST_BUILD
           COMMAND ${CMAKE_COMMAND} -E rename $<TARGET_FILE:native-lib> $<TARGET_FILE:native-lib>.debug
           COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:native-lib>.debug -o $<TARGET_FILE:native-lib>)
-else()
+elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   add_custom_command(TARGET native-lib POST_BUILD
           COMMAND ${CMAKE_COMMAND} -E rename $<TARGET_FILE:native-lib> $<TARGET_FILE:native-lib>.debug
           COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:native-lib>.debug -o $<TARGET_FILE:native-lib>)
