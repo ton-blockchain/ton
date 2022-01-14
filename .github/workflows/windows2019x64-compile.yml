@@ -57,6 +57,7 @@ jobs:
 
       - name: Compile native-lib
         run: |
+          set root=%cd%
           set JAVA_AWT_LIBRARY=NotNeeded
           set JAVA_JVM_LIBRARY=NotNeeded
           set JAVA_INCLUDE_PATH=${JAVA_HOME}/include
