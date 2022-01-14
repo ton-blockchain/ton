@@ -30,13 +30,11 @@ jobs:
 
     - name: Build native-lib
       run: |
-        rootPath=`pwd`
-
         export JAVA_AWT_LIBRARY=NotNeeded
         export JAVA_JVM_LIBRARY=NotNeeded
         export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
         export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
-        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/darwin
         git fetch --all
         git pull --all
         git checkout wallets
@@ -49,10 +47,10 @@ jobs:
 
     - name: Find & copy binaries
       run: |
-        mkdir artifacts
+        mkdir -p artifacts/tonlib-java
         rsync -r --exclude 'CMakeFiles' --exclude 'Makefile' --exclude '*.a' --exclude '*.cmake' --exclude 'third-party' --exclude 'test-*' --exclude '*.cc' --exclude '*.json' --exclude '*.txt' build/* artifacts/        
-        cp example/android/src/drinkless/org/ton/TonApi.java artifacts/
-        cp example/android/build/libnative-lib.so artifacts/
+        cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
+        cp example/android/build/libnative-lib.so artifacts/tonlib-java/
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master

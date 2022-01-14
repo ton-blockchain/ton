@@ -61,7 +61,7 @@ jobs:
           set JAVA_JVM_LIBRARY=NotNeeded
           set JAVA_INCLUDE_PATH=${JAVA_HOME}/include
           set JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
-          set JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+          set JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/win32
           git fetch --all
           git pull --all
           git checkout wallets
