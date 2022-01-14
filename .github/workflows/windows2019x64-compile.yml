@@ -69,9 +69,8 @@ jobs:
           cd example/android/
           mkdir build
           cd build
-          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" -DTON_ONLY_TONLIB=ON -DCMAKE_BUILD_TYPE=Release ..
-          cmake --target prepare_cross_compiling --build .
-          cmake --target native-lib --build .
+          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DTON_ONLY_TONLIB=ON ..
+          cmake --build .
 
       - name: Show executables
         run: |
