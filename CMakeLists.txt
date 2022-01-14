@@ -285,7 +285,11 @@ endif()
 if (NOT MSVC)
   add_cxx_compiler_flag("-Wall")
 endif()
-add_cxx_compiler_flag("-Wextra")
+
+if(CMAKE_COMPILER_IS_GNUCXX)
+    add_cxx_compiler_flag("-Wextra")
+endif(CMAKE_COMPILER_IS_GNUCXX)
+
 add_cxx_compiler_flag("-Wimplicit-fallthrough=2")
 add_cxx_compiler_flag("-Wpointer-arith")
 add_cxx_compiler_flag("-Wcast-qual")
