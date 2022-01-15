@@ -287,7 +287,7 @@ if (NOT MSVC)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX)
-    add_cxx_compiler_flag("-Wextra")
+  add_cxx_compiler_flag("-Wextra")
 endif(CMAKE_COMPILER_IS_GNUCXX)
 
 add_cxx_compiler_flag("-Wimplicit-fallthrough=2")
