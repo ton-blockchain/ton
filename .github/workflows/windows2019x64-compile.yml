@@ -70,7 +70,6 @@ jobs:
           mkdir build
           cd build
           cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DTON_ONLY_TONLIB=ON ..
-#          cmake --build . --target prepare_cross_compiling --config Release
           cmake --build . --target native-lib --config Release
 
       - name: Show executables
@@ -90,7 +89,6 @@ jobs:
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
           copy build\tonlib\Release\tonlibjson.dll artifacts
-#          copy example\android\src\drinkless\org\ton\TonApi.java artifacts
           copy example\android\build\Release\native-lib.dll artifacts
           
       - name: Upload artifacts
