@@ -29,11 +29,12 @@ jobs:
     - name: cmake all
       run: | 
         cd build
-        cmake ..
+        cmake -DCMAKE_BUILD_TYPE=Release ..
     - name: make all
       run: |
         cd build
         make -j4
+
     - name: build native-lib
       run: |
         export JAVA_AWT_LIBRARY=NotNeeded

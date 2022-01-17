@@ -70,7 +70,7 @@ jobs:
           mkdir build
           cd build
           cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DTON_ONLY_TONLIB=ON ..
-          cmake --build . --target prepare_cross_compiling --config Release
+#          cmake --build . --target prepare_cross_compiling --config Release
           cmake --build . --target native-lib --config Release
 
       - name: Show executables
@@ -79,19 +79,19 @@ jobs:
           del Release\test-*
           dir *.exe /a-D /S /B
           dir *.dll /a-D /S /B
-          
+
       - name: Check if validator-engine.exe exists
         run: |
           set root=%cd%
           copy %root%\build\validator-engine\Debug\validator-engine.exe test
-          
+
       - name: Find & copy binaries
         run: |
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
           copy build\tonlib\Release\tonlibjson.dll artifacts
-          copy example\android\src\drinkless\org\ton\TonApi.java artifacts
-          copy example\android\build\libnative-lib.dll artifacts
+#          copy example\android\src\drinkless\org\ton\TonApi.java artifacts
+          copy example\android\build\Release\native-lib.dll artifacts
           
       - name: Upload artifacts
         uses: actions/upload-artifact@master
