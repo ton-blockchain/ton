@@ -33,7 +33,7 @@ jobs:
     - name: make all
       run: |
         cd build
-        make -j4 fift func tonlib validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+        make -j4 fift func tonlib tonlibjson validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
 
     - name: build native-lib
       run: |
