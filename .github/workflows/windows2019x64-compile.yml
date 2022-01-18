@@ -33,12 +33,12 @@ jobs:
       - name: Compile zlib Win64
         run: |
           cd zlib\contrib\vstudio\vc14
-          msbuild zlibstat.vcxproj /p:Configuration=Debug /p:platform=x64        
-          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64
+          msbuild zlibstat.vcxproj /p:Configuration=Debug /p:platform=x64 -p:PlatformToolset=v142
+          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
           
       - name: Install OpenSSL Win64
         run: |
-          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1L.msi
+          curl -o openssl.msi https://slproweb.com/download/Win64OpenSSL-1_1_1m.msi
           msiexec /i openssl.msi /quiet /qn /norestart
           
       - name: Build ton
