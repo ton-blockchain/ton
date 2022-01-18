@@ -20,19 +20,39 @@ jobs:
         ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=10.15
         make build_libs -j4
 
-    - name: Build TON
+    - name: Build all
       run: |
         rootPath=`pwd`
         mkdir build
         cd build
         cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
         make -j4
-        
+
+    - name: Build native-lib
+      run: |
+        rootPath=`pwd`
+        export JAVA_AWT_LIBRARY=NotNeeded
+        export JAVA_JVM_LIBRARY=NotNeeded
+        export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/darwin
+        git fetch --all
+        git pull --all
+        git checkout wallets
+        cd example/android/
+        mkdir build
+        cd build
+        cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release -DTON_ONLY_TONLIB=ON ..
+        cmake --build . --target prepare_cross_compiling
+        cmake --build . --target native-lib
+
     - name: Find & copy binaries
       run: |
-        mkdir artifacts
+        mkdir -p artifacts/tonlib-java
         rsync -r --exclude 'CMakeFiles' --exclude 'Makefile' --exclude '*.a' --exclude '*.cmake' --exclude 'third-party' --exclude 'test-*' --exclude '*.cc' --exclude '*.json' --exclude '*.txt' build/* artifacts/        
-        
+        cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
+        cp example/android/build/libnative-lib.dylib artifacts/tonlib-java/
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
