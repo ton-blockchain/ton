@@ -52,30 +52,51 @@ td::Ref<vm::Stack> prepare_vm_stack(td::RefInt256 amount, td::Ref<vm::CellSlice>
   return stack_ref;
 }
 
-td::Ref<vm::Tuple> prepare_vm_c7(td::uint32 now, td::uint64 balance) {
-  // TODO: fix initialization of c7
+td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
   td::BitArray<256> rand_seed;
   rand_seed.as_slice().fill(0);
   td::RefInt256 rand_seed_int{true};
   rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false);
+
+  td::uint32 now = 0;
+  if (args.now) {
+    now = args.now.unwrap();
+  }
+
+  vm::CellBuilder cb;
+  if (args.address) {
+    td::BigInt256 dest_addr;
+    dest_addr.import_bits((*args.address).addr.as_bitslice());
+    cb.store_ones(1)
+        .store_zeroes(2)
+        .store_long((*args.address).workchain, 8)
+        .store_int256(dest_addr, 256);
+  }
+  auto address = cb.finalize();
+  auto config = td::Ref<vm::Cell>();
+
+  if (args.config) {
+    config = (*args.config)->get_root_cell();
+  }
+
   auto tuple = vm::make_tuple_ref(
       td::make_refint(0x076ef1ea),                           // [ magic:0x076ef1ea
       td::make_refint(0),                                    //   actions:Integer
       td::make_refint(0),                                    //   msgs_sent:Integer
       td::make_refint(now),                                  //   unixtime:Integer
-      td::make_refint(0),                                    //   block_lt:Integer
-      td::make_refint(0),                                    //   trans_lt:Integer
+      td::make_refint(0),             //TODO:                //   block_lt:Integer
+      td::make_refint(0),             //TODO:                //   trans_lt:Integer
       std::move(rand_seed_int),                              //   rand_seed:Integer
-      block::CurrencyCollection(balance).as_vm_tuple(),      //   balance_remaining:[Integer (Maybe Cell)]
-      vm::load_cell_slice_ref(vm::CellBuilder().finalize())  //  myself:MsgAddressInt
-                                                             //vm::StackEntry::maybe(td::Ref<vm::Cell>())
+      block::CurrencyCollection(args.balance).as_vm_tuple(),      //   balance_remaining:[Integer (Maybe Cell)]
+      vm::load_cell_slice_ref(address),  //  myself:MsgAddressInt
+      vm::StackEntry::maybe(config)       //vm::StackEntry::maybe(td::Ref<vm::Cell>())
   );                                                         //  global_config:(Maybe Cell) ] = SmartContractInfo;
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
   return vm::make_tuple_ref(std::move(tuple));
 }
 
 SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7,
-                                    vm::GasLimits gas, bool ignore_chksig) {
+                                    vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries) {
   auto gas_credit = gas.gas_credit;
   vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
@@ -108,11 +129,14 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   vm::VmState vm{state.code, std::move(stack), gas, 1, state.data, log};
   vm.set_c7(std::move(c7));
   vm.set_chksig_always_succeed(ignore_chksig);
+  if (!libraries.is_null())
+    vm.register_library_collection(libraries);
   try {
     res.code = ~vm.run();
   } catch (...) {
     LOG(FATAL) << "catch unhandled exception";
   }
+  td::ConstBitPtr mlib = vm.get_missing_library();
   res.new_state = std::move(state);
   res.stack = vm.get_stack_ref();
   gas = vm.get_gas_limits();
@@ -128,13 +152,17 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     LOG(DEBUG) << "VM accepted: " << res.accepted;
     LOG(DEBUG) << "VM success: " << res.success;
   }
+  if (!mlib.is_null()) {
+    LOG(DEBUG) << "Missing library: " << mlib.to_hex(256);
+    res.missing_library = mlib;
+  }
   if (res.success) {
     res.new_state.data = vm.get_c4();
     res.actions = vm.get_d(5);
     LOG(DEBUG) << "output actions:\n"
                << block::gen::OutList{res.output_actions_count(res.actions)}.as_string_ref(res.actions);
   }
-  LOG_IF(ERROR, gas_credit != 0 && (res.accepted && !res.success))
+  LOG_IF(ERROR, gas_credit != 0 && (res.accepted && !res.success) && mlib.is_null())
       << "Accepted but failed with code " << res.code << "\n"
       << res.gas_used << "\n";
   return res;
@@ -176,12 +204,8 @@ td::Ref<vm::Cell> SmartContract::get_init_state() const {
 }
 
 SmartContract::Answer SmartContract::run_method(Args args) {
-  td::uint32 now = 0;
-  if (args.now) {
-    now = args.now.unwrap();
-  }
   if (!args.c7) {
-    args.c7 = prepare_vm_c7(now, args.balance);
+    args.c7 = prepare_vm_c7(args);
   }
   if (!args.limits) {
     bool is_internal = args.get_method_id().ok() == 0;
@@ -193,18 +217,15 @@ SmartContract::Answer SmartContract::run_method(Args args) {
   CHECK(args.method_id);
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   auto res =
-      run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig);
+      run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
+                    args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{});
   state_ = res.new_state;
   return res;
 }
 
 SmartContract::Answer SmartContract::run_get_method(Args args) const {
-  td::uint32 now = 0;
-  if (args.now) {
-    now = args.now.unwrap();
-  }
   if (!args.c7) {
-    args.c7 = prepare_vm_c7(now, args.balance);
+    args.c7 = prepare_vm_c7(args);
   }
   if (!args.limits) {
     args.limits = vm::GasLimits{1000000, 1000000};
@@ -214,7 +235,8 @@ SmartContract::Answer SmartContract::run_get_method(Args args) const {
   }
   CHECK(args.method_id);
   args.stack.value().write().push_smallint(args.method_id.unwrap());
-  return run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig);
+  return run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
+                       args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{});
 }
 
 SmartContract::Answer SmartContract::run_get_method(td::Slice method, Args args) const {

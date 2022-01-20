@@ -107,6 +107,7 @@ class TonlibClient : public td::actor::Actor {
     td::optional<ton::BlockIdExt> block_id;
   };
   QueryContext query_context_;
+  vm::Dictionary libraries{256};
 
   // network
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> raw_client_;

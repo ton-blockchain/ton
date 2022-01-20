@@ -861,13 +861,13 @@ class Query {
     }
     return res;
   }
-  td::Result<std::pair<Fee, std::vector<Fee>>> estimate_fees(bool ignore_chksig, const block::Config& cfg) {
+  td::Result<std::pair<Fee, std::vector<Fee>>> estimate_fees(bool ignore_chksig, std::shared_ptr<const block::Config>& cfg, vm::Dictionary& libraries) {
     // gas fees
     bool is_masterchain = raw_.source->get_address().workchain == ton::masterchainId;
-    TRY_RESULT(gas_limits_prices, cfg.get_gas_limits_prices(is_masterchain));
-    TRY_RESULT(storage_prices, cfg.get_storage_prices());
-    TRY_RESULT(masterchain_msg_prices, cfg.get_msg_prices(true));
-    TRY_RESULT(basechain_msg_prices, cfg.get_msg_prices(false));
+    TRY_RESULT(gas_limits_prices, cfg->get_gas_limits_prices(is_masterchain));
+    TRY_RESULT(storage_prices, cfg->get_storage_prices());
+    TRY_RESULT(masterchain_msg_prices, cfg->get_msg_prices(true));
+    TRY_RESULT(basechain_msg_prices, cfg->get_msg_prices(false));
     block::MsgPrices* msg_prices[2] = {&basechain_msg_prices, &masterchain_msg_prices};
     auto storage_fee_256 = block::StoragePrices::compute_storage_fees(
         raw_.source->get_sync_time(), storage_prices, raw_.source->raw().storage_stat,
@@ -888,7 +888,9 @@ class Query {
                                                                         .set_limits(gas_limits)
                                                                         .set_balance(raw_.source->get_balance())
                                                                         .set_now(raw_.source->get_sync_time())
-                                                                        .set_ignore_chksig(ignore_chksig));
+                                                                        .set_ignore_chksig(ignore_chksig)
+                                                                        .set_address(raw_.source->get_address())
+                                                                        .set_config(cfg).set_libraries(libraries));
     td::int64 fwd_fee = 0;
     if (res.success) {
       LOG(DEBUG) << "output actions:\n"
@@ -910,7 +912,7 @@ class Query {
 
     for (auto& destination : raw_.destinations) {
       bool dest_is_masterchain = destination && destination->get_address().workchain == ton::masterchainId;
-      TRY_RESULT(dest_gas_limits_prices, cfg.get_gas_limits_prices(dest_is_masterchain));
+      TRY_RESULT(dest_gas_limits_prices, cfg->get_gas_limits_prices(dest_is_masterchain));
       auto dest_storage_fee_256 =
           destination ? block::StoragePrices::compute_storage_fees(
                             destination->get_sync_time(), storage_prices, destination->raw().storage_stat,
@@ -3266,7 +3268,7 @@ void TonlibClient::query_estimate_fees(td::int64 id, bool ignore_chksig, td::Res
     return;
   }
   TRY_RESULT_PROMISE(promise, state, std::move(r_state));
-  TRY_RESULT_PROMISE_PREFIX(promise, fees, TRY_VM(it->second->estimate_fees(ignore_chksig, *state.config)),
+  TRY_RESULT_PROMISE_PREFIX(promise, fees, TRY_VM(it->second->estimate_fees(ignore_chksig, state.config, libraries)),
                             TonlibError::Internal());
   promise.set_value(tonlib_api::make_object<tonlib_api::query_fees>(
       fees.first.to_tonlib_api(), td::transform(fees.second, [](auto& x) { return x.to_tonlib_api(); })));
@@ -3493,14 +3495,29 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
   args.set_stack(std::move(stack));
   args.set_balance(it->second->get_balance());
   args.set_now(it->second->get_sync_time());
-  auto res = smc->run_get_method(std::move(args));
+  args.set_address(it->second->get_address());
 
-  // smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
-  std::vector<object_ptr<tonlib_api::tvm_StackEntry>> res_stack;
-  for (auto& entry : res.stack->as_span()) {
-    res_stack.push_back(to_tonlib_api(entry));
+  auto code = smc->get_state().code;
+  if (code.not_null()) {
+    std::vector<td::Bits256> libraryList;
   }
-  promise.set_value(tonlib_api::make_object<tonlib_api::smc_runResult>(res.gas_used, std::move(res_stack), res.code));
+
+  args.set_libraries(libraries);
+
+  client_.with_last_config([smc=std::move(smc), args=std::move(args),
+                            promise = std::move(promise)](td::Result<LastConfigState> r_state) mutable {
+    TRY_RESULT_PROMISE(promise, state, std::move(r_state));
+    args.set_config(state.config);
+
+    auto res = smc->run_get_method(std::move(args));
+
+    // smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
+    std::vector<object_ptr<tonlib_api::tvm_StackEntry>> res_stack;
+    for (auto& entry : res.stack->as_span()) {
+      res_stack.push_back(to_tonlib_api(entry));
+    }
+    promise.set_value(tonlib_api::make_object<tonlib_api::smc_runResult>(res.gas_used, std::move(res_stack), res.code));
+  });
   return td::Status::OK();
 }
 

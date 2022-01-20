@@ -96,6 +96,7 @@ class VmState final : public VmStateInterface {
   td::int64 loaded_cells_count{0};
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
+  td::ConstBitPtr missing_library{0};
 
  public:
   enum {
@@ -320,6 +321,9 @@ class VmState final : public VmStateInterface {
   }
   Ref<OrdCont> ref_to_cont(Ref<Cell> cell) const {
     return td::make_ref<OrdCont>(load_cell_slice_ref(std::move(cell)), get_cp());
+  }
+  td::ConstBitPtr get_missing_library() const {
+    return missing_library;
   }
 
  private:
