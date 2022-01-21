@@ -25,6 +25,7 @@ adnl.message.answer query_id:int256 answer:bytes = adnl.Message;
 liteServer.error code:int message:string = liteServer.Error; 
 
 liteServer.accountId workchain:int id:int256 = liteServer.AccountId;
+liteServer.libraryEntry hash:int256 data:bytes = liteServer.LibraryEntry;
 
 liteServer.masterchainInfo last:tonNode.blockIdExt state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfo;
 liteServer.masterchainInfoExt mode:# version:int capabilities:long last:tonNode.blockIdExt last_utime:int now:int state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfoExt;
@@ -50,6 +51,7 @@ liteServer.blockLinkForward to_key_block:Bool from:tonNode.blockIdExt to:tonNode
 liteServer.partialBlockProof complete:Bool from:tonNode.blockIdExt to:tonNode.blockIdExt steps:(vector liteServer.BlockLink) = liteServer.PartialBlockProof;
 liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
 liteServer.validatorStats mode:# id:tonNode.blockIdExt count:int complete:Bool state_proof:bytes data_proof:bytes = liteServer.ValidatorStats;
+liteServer.libraryResult result:(vector liteServer.libraryEntry) = liteServer.LibraryResult;
 
 liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 
@@ -75,6 +77,7 @@ liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode
 liteServer.getConfigAll mode:# id:tonNode.blockIdExt = liteServer.ConfigInfo;
 liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
 liteServer.getValidatorStats#091a58bc mode:# id:tonNode.blockIdExt limit:int start_after:mode.0?int256 modified_after:mode.2?int = liteServer.ValidatorStats;
+liteServer.getLibraries library_list:(vector int256) = liteServer.LibraryResult;
 
 liteServer.queryPrefix = Object; 
 liteServer.query data:bytes = Object;

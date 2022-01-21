@@ -129,8 +129,9 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   vm::VmState vm{state.code, std::move(stack), gas, 1, state.data, log};
   vm.set_c7(std::move(c7));
   vm.set_chksig_always_succeed(ignore_chksig);
-  if (!libraries.is_null())
+  if (!libraries.is_null()) {
     vm.register_library_collection(libraries);
+  }
   try {
     res.code = ~vm.run();
   } catch (...) {

@@ -198,6 +198,9 @@ void LiteQuery::start_up() {
             this->perform_runSmcMethod(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
                                        q.account_->id_, q.mode_, q.method_id_, std::move(q.params_));
           },
+          [&](lite_api::liteServer_getLibraries& q) {
+            this->perform_getLibraries(q.library_list_);
+          },
           [&](auto& obj) { this->abort_query(td::Status::Error(ErrorCode::protoviolation, "unknown query")); }));
 }
 
@@ -779,6 +782,73 @@ void LiteQuery::perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, St
     return;
   }
   perform_getAccountState(blkid, workchain, addr, mode | 0x10000);
+}
+
+void LiteQuery::perform_getLibraries(std::vector<td::Bits256> library_list) {
+  LOG(INFO) << "started a getLibraries(<list of " << library_list.size() << " parameters>) liteserver query";
+  if (library_list.size() > 16) {
+    LOG(INFO) << "too many libraries requested, returning only first 16";
+    library_list.resize(16);
+  }
+  sort( library_list.begin(), library_list.end() );
+  library_list.erase( unique( library_list.begin(), library_list.end() ), library_list.end() );
+  td::actor::send_closure_later(
+      manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+      [Self = actor_id(this), library_list](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) -> void {
+        if (res.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+        } else {
+          auto pair = res.move_as_ok();
+          td::actor::send_closure_later(Self, &LiteQuery::continue_getLibraries, std::move(pair.first),
+                                        pair.second, library_list);
+        }
+      });
+}
+
+void LiteQuery::continue_getLibraries(Ref<ton::validator::MasterchainState> mc_state, BlockIdExt blkid, std::vector<td::Bits256> library_list) {
+  LOG(INFO) << "obtained last masterchain block = " << blkid.to_str();
+  base_blk_id_ = blkid;
+  CHECK(mc_state.not_null());
+  mc_state_ = Ref<MasterchainStateQ>(std::move(mc_state));
+  CHECK(mc_state_.not_null());
+
+  auto rconfig = block::ConfigInfo::extract_config(mc_state_->root_cell(), block::ConfigInfo::needLibraries);
+  if (rconfig.is_error()) {
+    fatal_error("cannot extract library list block configuration from masterchain state");
+    return;
+  }
+  auto config = rconfig.move_as_ok();
+
+  if (false) {
+    std::ostringstream os;
+    vm::load_cell_slice(config->get_libraries_root()).print_rec(os);
+    LOG(INFO) << "\n" << os.str();
+
+    auto lib_dict = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
+    for (auto k: *lib_dict) {
+      std::ostringstream oss;
+      k.second->print_rec(oss);
+      LOG(INFO) << "library " << k.first.to_hex(256) << ": \n" << oss.str();
+    }
+  }
+
+  std::vector<ton::tl_object_ptr<ton::lite_api::liteServer_libraryEntry>> a;
+  for (const auto& hash : library_list) {
+    LOG(INFO) << "looking for library " << hash.to_hex();
+    auto libres = config->lookup_library(hash);
+    if (libres.is_null()) {
+      LOG(INFO) << "library lookup result is null";
+      continue;
+    }
+    auto data = vm::std_boc_serialize(libres);
+    if (data.is_error()) {
+      LOG(WARNING) << "library serialization failed: " << data.move_as_error().to_string();
+      continue;
+    }
+    a.push_back(ton::create_tl_object<ton::lite_api::liteServer_libraryEntry>(hash, data.move_as_ok()));
+  }
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_libraryResult>(std::move(a));
+  finish_query(std::move(b));
 }
 
 void LiteQuery::perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt) {

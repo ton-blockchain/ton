@@ -115,6 +115,8 @@ class LiteQuery : public td::actor::Actor {
                             td::BufferSlice params);
   void finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root,
                            UnixTime gen_utime, LogicalTime gen_lt);
+  void perform_getLibraries(std::vector<td::Bits256> library_list);
+  void continue_getLibraries(Ref<MasterchainState> mc_state, BlockIdExt blkid, std::vector<td::Bits256> library_list);
   void perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt);
   void continue_getOneTransaction();
   void perform_getTransactions(WorkchainId workchain, StdSmcAddress addr, LogicalTime lt, Bits256 hash, unsigned count);

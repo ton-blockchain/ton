@@ -322,7 +322,8 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(tonlib_api::pchan_unpackPromise& request,
                         td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise);
 
-
+  void perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,
+                             td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise);
 
   void do_dns_request(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
                       block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
@@ -357,6 +358,9 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise);
 
   void proxy_request(td::int64 query_id, std::string data);
+
+  void load_libs_from_disk();
+  void store_libs_to_disk();
 
   friend class TonlibQueryActor;
   struct Target {
