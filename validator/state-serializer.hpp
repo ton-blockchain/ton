@@ -65,6 +65,9 @@ class AsyncStateSerializer : public td::actor::Actor {
   void got_self_state(AsyncSerializerState state);
   void got_init_handle(BlockHandle handle);
 
+  void request_masterchain_state();
+  void request_shard_state(BlockIdExt shard);
+
   void next_iteration();
   void got_top_masterchain_handle(BlockIdExt block_id);
   void got_masterchain_handle(BlockHandle handle_);
