@@ -1439,17 +1439,9 @@ void TonlibClient::init_last_block(LastBlockState state) {
 }
 void TonlibClient::init_last_config() {
   ref_cnt_++;
-  class Callback : public LastConfig::Callback {
-   public:
-    Callback(td::actor::ActorShared<TonlibClient> client) : client_(std::move(client)) {
-    }
-
-   private:
-    td::actor::ActorShared<TonlibClient> client_;
-  };
   raw_last_config_ =
       td::actor::create_actor<LastConfig>(td::actor::ActorOptions().with_name("LastConfig").with_poll(false),
-                                          get_client_ref(), td::make_unique<Callback>(td::actor::actor_shared(this)));
+                                          get_client_ref());
 }
 
 void TonlibClient::on_result(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Object> response) {
@@ -4196,6 +4188,32 @@ auto to_lite_api(const tonlib_api::ton_blockIdExt& blk) -> td::Result<lite_api_p
   TRY_RESULT(file_hash, to_bits256(blk.file_hash_, "blk.file_hash"))
   return ton::lite_api::make_object<ton::lite_api::tonNode_blockIdExt>(
       blk.workchain_, blk.shard_, blk.seqno_, root_hash, file_hash);
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
+                        td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
+  TRY_RESULT(lite_block, to_lite_api(*request.id_))
+  auto block = create_block_id(std::move(lite_block));
+  auto param = request.param_;
+  std::vector<int32_t> params = { param };
+
+  client_.send_query(ton::lite_api::liteServer_getConfigParams(0, std::move(lite_block), std::move(params)),
+                     promise.wrap([block, param](auto r_config) { 
+    auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
+                                                  r_config->config_proof_.as_slice());
+    if (state.is_error()) {
+      LOG(ERROR) << "block::check_extract_state_proof failed: " << state.error();
+    }
+    auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
+    if (config.is_error()) {
+      LOG(ERROR) << "block::Config::extract_from_state failed: " << config.error();
+    }
+    tonlib_api::configInfo config_result;
+    config_result.config_ = tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(config.move_as_ok()->get_config_param(param)));
+    return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+  }));
+
+  return td::Status::OK();
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfo& masterchain_info,
