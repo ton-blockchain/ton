@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/abseil-cpp" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/crc32c" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/crc32c/third_party/benchmark" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/crc32c/third_party/glog" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/crc32c/third_party/googletest" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/libraptorq" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/libraptorq/external/lz4" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third-party/rocksdb" vcs="Git" />
+  </component>
+</project>
