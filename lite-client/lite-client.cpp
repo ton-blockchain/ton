@@ -2165,91 +2165,6 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
   }
 }
 
-void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, td::BufferSlice proof,
-                                   td::BufferSlice transaction, ton::WorkchainId workchain, ton::StdSmcAddress addr,
-                                   ton::LogicalTime trans_lt, bool dump) {
-  LOG(INFO) << "got transaction " << trans_lt << " for " << workchain << ":" << addr.to_hex()
-            << " with respect to block " << blkid.to_str();
-  if (blkid != req_blkid) {
-    LOG(ERROR) << "obtained TransactionInfo for a different block " << blkid.to_str() << " instead of requested "
-               << req_blkid.to_str();
-    return;
-  }
-  if (!ton::shard_contains(blkid.shard_full(), ton::extract_addr_prefix(workchain, addr))) {
-    LOG(ERROR) << "received data from block " << blkid.to_str() << " that cannot contain requested account "
-               << workchain << ":" << addr.to_hex();
-    return;
-  }
-  Ref<vm::Cell> root;
-  if (!transaction.empty()) {
-    auto R = vm::std_boc_deserialize(std::move(transaction));
-    if (R.is_error()) {
-      LOG(ERROR) << "cannot deserialize transaction";
-      return;
-    }
-    root = R.move_as_ok();
-    CHECK(root.not_null());
-  }
-  auto P = vm::std_boc_deserialize(std::move(proof));
-  if (P.is_error()) {
-    LOG(ERROR) << "cannot deserialize block transaction proof";
-    return;
-  }
-  auto proof_root = P.move_as_ok();
-  try {
-    auto block_root = vm::MerkleProof::virtualize(std::move(proof_root), 1);
-    if (block_root.is_null()) {
-      LOG(ERROR) << "transaction block proof is invalid";
-      return;
-    }
-    auto res1 = block::check_block_header_proof(block_root, blkid);
-    if (res1.is_error()) {
-      LOG(ERROR) << "error in transaction block header proof : " << res1.move_as_error().to_string();
-      return;
-    }
-    auto trans_root_res = block::get_block_transaction_try(std::move(block_root), workchain, addr, trans_lt);
-    if (trans_root_res.is_error()) {
-      LOG(ERROR) << trans_root_res.move_as_error().message();
-      return;
-    }
-    auto trans_root = trans_root_res.move_as_ok();
-    if (trans_root.is_null() && root.not_null()) {
-      LOG(ERROR) << "error checking transaction proof: proof claims there is no such transaction, but we have got "
-                    "transaction data with hash "
-                 << root->get_hash().bits().to_hex(256);
-      return;
-    }
-    if (trans_root.not_null() && root.is_null()) {
-      LOG(ERROR) << "error checking transaction proof: proof claims there is such a transaction with hash "
-                 << trans_root->get_hash().bits().to_hex(256)
-                 << ", but we have got no "
-                    "transaction data";
-      return;
-    }
-    if (trans_root.not_null() && trans_root->get_hash().bits().compare(root->get_hash().bits(), 256)) {
-      LOG(ERROR) << "transaction hash mismatch: Merkle proof expects " << trans_root->get_hash().bits().to_hex(256)
-                 << " but received data has " << root->get_hash().bits().to_hex(256);
-      return;
-    }
-  } catch (vm::VmError err) {
-    LOG(ERROR) << "error while traversing block transaction proof : " << err.get_msg();
-    return;
-  } catch (vm::VmVirtError err) {
-    LOG(ERROR) << "virtualization error while traversing block transaction proof : " << err.get_msg();
-    return;
-  }
-  auto out = td::TerminalIO::out();
-  if (root.is_null()) {
-    out << "transaction not found" << std::endl;
-  } else {
-    out << "transaction is ";
-    std::ostringstream outp;
-    block::gen::t_Transaction.print_ref(print_limit_, outp, root, 0);
-    vm::load_cell_slice(root).print_rec(print_limit_, outp);
-    out << outp.str();
-  }
-}
-
 bool unpack_addr(std::ostream& os, Ref<vm::CellSlice> csr) {
   ton::WorkchainId wc;
   ton::StdSmcAddress addr;
@@ -2343,6 +2258,112 @@ std::string message_info_str(Ref<vm::Cell> msg, int mode) {
     return "<cannot unpack message>";
   } else {
     return os.str();
+  }
+}
+
+void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, td::BufferSlice proof,
+                                   td::BufferSlice transaction, ton::WorkchainId workchain, ton::StdSmcAddress addr,
+                                   ton::LogicalTime trans_lt, bool dump) {
+  LOG(INFO) << "got transaction " << trans_lt << " for " << workchain << ":" << addr.to_hex()
+            << " with respect to block " << blkid.to_str();
+  if (blkid != req_blkid) {
+    LOG(ERROR) << "obtained TransactionInfo for a different block " << blkid.to_str() << " instead of requested "
+               << req_blkid.to_str();
+    return;
+  }
+  if (!ton::shard_contains(blkid.shard_full(), ton::extract_addr_prefix(workchain, addr))) {
+    LOG(ERROR) << "received data from block " << blkid.to_str() << " that cannot contain requested account "
+               << workchain << ":" << addr.to_hex();
+    return;
+  }
+  Ref<vm::Cell> root;
+  if (!transaction.empty()) {
+    auto R = vm::std_boc_deserialize(std::move(transaction));
+    if (R.is_error()) {
+      LOG(ERROR) << "cannot deserialize transaction";
+      return;
+    }
+    root = R.move_as_ok();
+    CHECK(root.not_null());
+  }
+  auto P = vm::std_boc_deserialize(std::move(proof));
+  if (P.is_error()) {
+    LOG(ERROR) << "cannot deserialize block transaction proof";
+    return;
+  }
+  auto proof_root = P.move_as_ok();
+  try {
+    auto block_root = vm::MerkleProof::virtualize(std::move(proof_root), 1);
+    if (block_root.is_null()) {
+      LOG(ERROR) << "transaction block proof is invalid";
+      return;
+    }
+    auto res1 = block::check_block_header_proof(block_root, blkid);
+    if (res1.is_error()) {
+      LOG(ERROR) << "error in transaction block header proof : " << res1.move_as_error().to_string();
+      return;
+    }
+    auto trans_root_res = block::get_block_transaction_try(std::move(block_root), workchain, addr, trans_lt);
+    if (trans_root_res.is_error()) {
+      LOG(ERROR) << trans_root_res.move_as_error().message();
+      return;
+    }
+    auto trans_root = trans_root_res.move_as_ok();
+    if (trans_root.is_null() && root.not_null()) {
+      LOG(ERROR) << "error checking transaction proof: proof claims there is no such transaction, but we have got "
+                    "transaction data with hash "
+                 << root->get_hash().bits().to_hex(256);
+      return;
+    }
+    if (trans_root.not_null() && root.is_null()) {
+      LOG(ERROR) << "error checking transaction proof: proof claims there is such a transaction with hash "
+                 << trans_root->get_hash().bits().to_hex(256)
+                 << ", but we have got no "
+                    "transaction data";
+      return;
+    }
+    if (trans_root.not_null() && trans_root->get_hash().bits().compare(root->get_hash().bits(), 256)) {
+      LOG(ERROR) << "transaction hash mismatch: Merkle proof expects " << trans_root->get_hash().bits().to_hex(256)
+                 << " but received data has " << root->get_hash().bits().to_hex(256);
+      return;
+    }
+  } catch (vm::VmError err) {
+    LOG(ERROR) << "error while traversing block transaction proof : " << err.get_msg();
+    return;
+  } catch (vm::VmVirtError err) {
+    LOG(ERROR) << "virtualization error while traversing block transaction proof : " << err.get_msg();
+    return;
+  }
+  auto out = td::TerminalIO::out();
+  if (root.is_null()) {
+    out << "transaction not found" << std::endl;
+  } else {
+    out << "transaction is ";
+    std::ostringstream outp;
+    block::gen::t_Transaction.print_ref(print_limit_, outp, root, 0);
+    vm::load_cell_slice(root).print_rec(print_limit_, outp);
+    out << outp.str();
+	
+	// Copy from got_last_transactions
+	block::gen::Transaction::Record trans;
+    if (!tlb::unpack_cell(root, trans)) {
+      LOG(ERROR) << "cannot unpack transaction";
+      return;
+    }
+    out << "  time=" << trans.now << " outmsg_cnt=" << trans.outmsg_cnt << std::endl;
+    auto in_msg = trans.r1.in_msg->prefetch_ref();
+    if (in_msg.is_null()) {
+      out << "  (no inbound message)" << std::endl;
+    } else {
+      out << "  inbound message: " << message_info_str(in_msg, 2 * 0) << std::endl;
+      out << "    " << block::gen::t_Message_Any.as_string_ref(in_msg, 4);  // indentation = 4 spaces
+    }
+    vm::Dictionary dict{trans.r1.out_msgs, 15};
+    for (int x = 0; x < trans.outmsg_cnt && x < 100; x++) {
+      auto out_msg = dict.lookup_ref(td::BitArray<15>{x});
+      out << "  outbound message #" << x << ": " << message_info_str(out_msg, 1 * 0) << std::endl;
+      out << "    " << block::gen::t_Message_Any.as_string_ref(out_msg, 4);
+    }
   }
 }
 
