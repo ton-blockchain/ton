@@ -95,8 +95,8 @@ void print_stats() {
   if (passed < 1e-9) {
     passed = 1;
   }
-  std::cerr << "[ hashes computed: " << hashes_computed << " ]" << std::endl;
-  std::cerr << "[ speed: " << static_cast<double>(hashes_computed) / passed << " hps ]" << std::endl;
+  std::cout << "[ hashes computed: " << hashes_computed << " ]" << std::endl;
+  std::cout << "[ speed: " << static_cast<double>(hashes_computed) / passed << " hps ]" << std::endl;
 }
 
 int found(td::Slice data) {
@@ -116,7 +116,7 @@ int found(td::Slice data) {
           && cb.store_ref_bool(std::move(body))                  // body:^Cell
           && cb.finalize_to(ext_msg));
     auto boc = vm::std_boc_serialize(std::move(ext_msg), 2).move_as_ok();
-    std::cerr << "Saving " << boc.size() << " bytes of serialized external message into file `" << boc_filename << "`"
+    std::cout << "Saving " << boc.size() << " bytes of serialized external message into file `" << boc_filename << "`"
               << std::endl;
     td::write_file(boc_filename, boc).ensure();
   }
@@ -214,7 +214,7 @@ int main(int argc, char* const argv[]) {
   }
 
   if (verbosity >= 2) {
-    std::cerr << "[ expected required hashes for success: " << hash_rate << " ]" << std::endl;
+    std::cout << "[ expected required hashes for success: " << hash_rate << " ]" << std::endl;
   }
   if (benchmark) {
     td::bench(MinerBench());
