@@ -694,9 +694,9 @@ x{E30F} @Defop(ref*2) IFREFELSEREF
   [] execute
 } : @run-cont-op
 { triple 1 ' @run-cont-op does create } : @def-cont-op
-{ } { PUSHCONT IF } { IFREF } @def-cont-op IF-cont
+{ DROP } { PUSHCONT IF } { IFREF } @def-cont-op IF-cont
 { IFRET } { PUSHCONT IFJMP } { IFJMPREF } @def-cont-op IFJMP-cont
-{ } { PUSHCONT IFNOT } { IFNOTREF } @def-cont-op IFNOT-cont
+{ DROP } { PUSHCONT IFNOT } { IFNOTREF } @def-cont-op IFNOT-cont
 { IFNOTRET } { PUSHCONT IFNOTJMP } { IFNOTJMPREF } @def-cont-op IFNOTJMP-cont
 { dup 2over rot } : 3dup
 
