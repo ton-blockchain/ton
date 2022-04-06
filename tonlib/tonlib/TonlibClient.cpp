@@ -2302,9 +2302,10 @@ struct ToRawTransactions {
           return td::Status::Error("Failed to unpack CommonMsgInfo::ext_out_msg_info");
         }
         TRY_RESULT(src, to_std_address(msg_info.src));
+        auto created_lt = static_cast<td::int64>(msg_info.created_lt);
         return tonlib_api::make_object<tonlib_api::raw_message>(
             tonlib_api::make_object<tonlib_api::accountAddress>(src),
-            tonlib_api::make_object<tonlib_api::accountAddress>(), 0, 0, 0, 0, std::move(body_hash), get_data(src));
+            tonlib_api::make_object<tonlib_api::accountAddress>(), 0, 0, 0, created_lt, std::move(body_hash), get_data(src));
       }
     }
 
