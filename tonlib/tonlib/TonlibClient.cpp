@@ -2350,7 +2350,7 @@ struct ToRawTransactions {
 
       if (trans.outmsg_cnt != 0) {
         vm::Dictionary dict{trans.r1.out_msgs, 15};
-        for (int x = 0; x < trans.outmsg_cnt && x < 100; x++) {
+        for (int x = 0; x < trans.outmsg_cnt; x++) {
           TRY_RESULT(out_msg, to_raw_message(dict.lookup_ref(td::BitArray<15>{x})));
           fees += out_msg->fwd_fee_;
           fees += out_msg->ihr_fee_;
