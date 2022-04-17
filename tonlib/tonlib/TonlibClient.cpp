@@ -3437,7 +3437,8 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
           [&](tonlib_api::tvm_stackEntryUnsupported& cell) { return td::Status::Error("Unsuppored stack entry"); },
           [&](tonlib_api::tvm_stackEntrySlice& cell) -> td::Result<vm::StackEntry> {
             TRY_RESULT(res, vm::std_boc_deserialize(cell.slice_->bytes_));
-            return vm::StackEntry{std::move(res)};
+            auto slice = vm::load_cell_slice_ref(std::move(res));
+            return vm::StackEntry{std::move(slice)};
           },
           [&](tonlib_api::tvm_stackEntryCell& cell) -> td::Result<vm::StackEntry> {
             TRY_RESULT(res, vm::std_boc_deserialize(cell.cell_->bytes_));
