@@ -4351,6 +4351,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
                                   header.id_ = to_tonlib_api(blk_id);
                                   header.global_id_ = blk.global_id;
                                   header.version_ = info.version;
+                                  header.flags_ = info.flags;
                                   header.after_merge_ = info.after_merge;
                                   header.after_split_ = info.after_split;
                                   header.before_split_ = info.before_split;
@@ -4361,6 +4362,8 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
                                   header.min_ref_mc_seqno_ = info.min_ref_mc_seqno;
                                   header.start_lt_ = info.start_lt;
                                   header.end_lt_ = info.end_lt;
+                                  header.gen_utime_ = info.gen_utime;
+                                  header.is_key_block_ = info.key_block;
                                   header.vert_seqno_ = info.vert_seq_no;
                                   if(!info.not_master) {
                                    header.prev_key_block_seqno_ = info.prev_key_block_seqno;
