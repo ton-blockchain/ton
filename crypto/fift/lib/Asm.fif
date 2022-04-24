@@ -654,7 +654,7 @@ x{DB32} dup @Defop BRANCH @Defop RETBOOL
 x{DB34} @Defop CALLCC
 x{DB35} @Defop JMPXDATA
 { dup 1+ 0= { 16 + } if
-  <b x{DB36} rot 4 u, swap 4 u, @addopb
+  <b x{DB36} s, rot 4 u, swap 4 u, @addopb
 } : CALLCCARGS
 x{DB38} @Defop CALLXVARARGS
 x{DB39} @Defop RETVARARGS
@@ -746,10 +746,10 @@ x{E304} @Defop CONDSEL
 x{E305} @Defop CONDSELCHK
 x{E308} @Defop IFRETALT
 x{E309} @Defop IFNOTRETALT
-{ <b x{E39_} swap 5 u, @addopb } : IFBITJMP
-{ <b x{E3B_} swap 5 u, @addopb } : IFNBITJMP
-{ <b x{E3D_} swap 5 u, swap ref, @addopb } : IFBITJMPREF
-{ <b x{E3F_} swap 5 u, swap ref, @addopb } : IFNBITJMPREF
+{ <b x{E39_} s, swap 5 u, @addopb } : IFBITJMP
+{ <b x{E3B_} s, swap 5 u, @addopb } : IFNBITJMP
+{ <b x{E3D_} s, swap 5 u, swap ref, @addopb } : IFBITJMPREF
+{ <b x{E3F_} s, swap 5 u, swap ref, @addopb } : IFNBITJMPREF
 
 x{E4} @Defop REPEAT
 x{E5} dup @Defop REPEATEND @Defop REPEAT:
