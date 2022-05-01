@@ -38,6 +38,8 @@ extern bool op_rewrite_comments;
 
 constexpr int optimize_depth = 20;
 
+const std::string func_version{"0.1.0"};
+
 enum Keyword {
   _Eof = -1,
   _Ident = 0,
@@ -106,7 +108,8 @@ enum Keyword {
   _Operator,
   _Infix,
   _Infixl,
-  _Infixr
+  _Infixr,
+  _PragmaHashtag
 };
 
 void define_keywords();
