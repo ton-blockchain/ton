@@ -61,6 +61,7 @@
 #include <cinttypes>
 #include <iostream>
 #include <map>
+#include "git.h"
 
 using tonlib_api::make_object;
 
@@ -1095,7 +1096,7 @@ class TonlibCli : public td::actor::Actor {
     std::vector<tonlib_api::object_ptr<tonlib_api::msg_message>> messages;
     messages.push_back(
         make_object<tonlib_api::msg_message>(channels_[pchan_id].to_address(), "", value,
-                                             make_object<tonlib_api::msg_dataRaw>(query->body_, query->init_state_)));
+                                             make_object<tonlib_api::msg_dataRaw>(query->body_, query->init_state_), -1));
     auto action = make_object<tonlib_api::actionMsg>(std::move(messages), true);
     send_query(
         make_object<tonlib_api::createQuery>(addr.input_key(), std::move(addr.address), 60, std::move(action), nullptr),
@@ -2216,7 +2217,7 @@ class TonlibCli : public td::actor::Actor {
         data = make_object<tonlib_api::msg_dataText>(message.str());
       }
       messages.push_back(
-          make_object<tonlib_api::msg_message>(std::move(address.address), "", amount.nano, std::move(data)));
+          make_object<tonlib_api::msg_message>(std::move(address.address), "", amount.nano, std::move(data), -1));
       return td::Status::OK();
     };
 
@@ -2307,6 +2308,10 @@ int main(int argc, char* argv[]) {
     auto verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
+  });
+  p.add_option('V', "version", "show tonlib-cli build information", [&]() {
+    std::cout << "tonlib-cli build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_checked_option('C', "config-force", "set lite server config, drop config related blockchain cache",
                        [&](td::Slice arg) {

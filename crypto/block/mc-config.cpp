@@ -310,7 +310,7 @@ td::Status Config::visit_validator_params() const {
 ton::ValidatorSessionConfig Config::get_consensus_config() const {
   auto cc = get_config_param(29);
   ton::ValidatorSessionConfig c;
-  auto set = [&c](auto& r, bool new_cc_ids) {
+  auto set = [&c](auto& r) {
     c.catchain_idle_timeout = r.consensus_timeout_ms * 0.001;
     c.catchain_max_deps = r.catchain_max_deps;
     c.round_candidates = r.round_candidates;
@@ -319,13 +319,23 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
     c.max_round_attempts = r.fast_attempts;
     c.max_block_size = r.max_block_bytes;
     c.max_collated_data_size = r.max_collated_bytes;
-    c.new_catchain_ids = new_cc_ids;
+    return true;
+  };
+  auto set_new_cc_ids = [&c] (auto& r) {
+    c.new_catchain_ids = r.new_catchain_ids;
+    return true;
+  };
+  auto set_proto = [&c](auto& r) {
+    c.proto_version = r.proto_version;
     return true;
   };
   if (cc.not_null()) {
+    block::gen::ConsensusConfig::Record_consensus_config_v3 r2;
     block::gen::ConsensusConfig::Record_consensus_config_new r1;
     block::gen::ConsensusConfig::Record_consensus_config r0;
-    (tlb::unpack_cell(cc, r1) && set(r1, r1.new_catchain_ids)) || (tlb::unpack_cell(cc, r0) && set(r0, false));
+    (tlb::unpack_cell(cc, r2) && set(r2) && set_new_cc_ids(r2) && set_proto(r2)) ||
+    (tlb::unpack_cell(cc, r1) && set(r1) && set_new_cc_ids(r1)) ||
+    (tlb::unpack_cell(cc, r0) && set(r0));
   }
   return c;
 }

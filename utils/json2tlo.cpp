@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -39,6 +39,7 @@
 #include "tl/tl_json.h"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
+#include "git.h"
 
 int main(int argc, char *argv[]) {
   std::string in_f;
@@ -51,6 +52,10 @@ int main(int argc, char *argv[]) {
   p.add_option('i', "in", "input", [&](td::Slice key) { in_f = key.str(); });
   p.add_option('o', "out", "output", [&](td::Slice key) { out_f = key.str(); });
   p.add_option('r', "reverse", "read tlo, print json", [&]() { reverse_ = !reverse_; });
+  p.add_option('V', "version", "shows json2tlo build information", [&]() {
+    std::cout << "json2tlo build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
+  });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});

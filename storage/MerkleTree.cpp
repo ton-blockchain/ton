@@ -138,7 +138,7 @@ void MerkleTree::init_finish() {
   CHECK(root_hash_);
 }
 
-void MerkleTree::remove_chunk(td::size_t index) {
+void MerkleTree::remove_chunk(std::size_t index) {
   CHECK(index < n_);
   index += n_;
   while (proof_[index].not_null()) {
@@ -147,13 +147,13 @@ void MerkleTree::remove_chunk(td::size_t index) {
   }
 }
 
-bool MerkleTree::has_chunk(td::size_t index) const {
+bool MerkleTree::has_chunk(std::size_t index) const {
   CHECK(index < n_);
   index += n_;
   return proof_[index].not_null();
 }
 
-void MerkleTree::add_chunk(td::size_t index, td::Slice hash) {
+void MerkleTree::add_chunk(std::size_t index, td::Slice hash) {
   CHECK(hash.size() == 32);
   CHECK(index < n_);
   index += n_;

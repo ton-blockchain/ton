@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -62,6 +62,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
+#include "git.h"
 
 Config::Config() {
   out_port = 3278;
@@ -1322,6 +1323,9 @@ td::Status ValidatorEngine::load_global_config() {
   }
   for (auto seq : unsafe_catchains_) {
     validator_options_.write().add_unsafe_resync_catchain(seq);
+  }
+  for (auto rot : unsafe_catchain_rotations_) {
+    validator_options_.write().add_unsafe_catchain_rotate(rot.first, rot.second.first, rot.second.second);
   }
   if (truncate_seqno_ > 0) {
     validator_options_.write().truncate_db(truncate_seqno_);
@@ -3276,7 +3280,7 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 65536));
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 786432));
 
   std::vector<std::function<void()>> acts;
 
@@ -3285,6 +3289,10 @@ int main(int argc, char *argv[]) {
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
+  });
+  p.add_option('V', "version", "shows validator-engine build information", [&]() {
+    std::cout << "validator-engine build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -3357,6 +3365,18 @@ int main(int argc, char *argv[]) {
       'U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
         TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));
         acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      'F', "unsafe-catchain-rotate", "use forceful and DANGEROUS catchain rotation", [&](td::Slice params) {
+        auto pos1 = params.find(':');
+        TRY_RESULT(b_seq, td::to_integer_safe<ton::BlockSeqno>(params.substr(0, pos1)));
+        params = params.substr(++pos1, params.size());
+        auto pos2 = params.find(':');
+        TRY_RESULT(cc_seq, td::to_integer_safe<ton::CatchainSeqno>(params.substr(0, pos2)));
+        params = params.substr(++pos2, params.size());
+        auto h = std::stoi(params.substr(0, params.size()).str());
+        acts.push_back([&x, b_seq, cc_seq, h]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain_rotation, b_seq, cc_seq, h); });
         return td::Status::OK();
       });
   td::uint32 threads = 7;

@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -69,6 +69,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include "git.h"
 
 using namespace std::literals::string_literals;
 using td::Ref;
@@ -3461,7 +3462,7 @@ bool TestNode::ValidatorLoadInfo::store_record(const td::Bits256& key, const blo
   if (it == vset_map.end()) {
     return false;
   }
-  created.at(it->second) = std::make_pair<td::int64, td::int64>(mc_cnt.total, shard_cnt.total);
+  created.at(it->second) = std::make_pair(mc_cnt.total, shard_cnt.total);
   return true;
 }
 
@@ -3674,10 +3675,16 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
   }
 }
 
-bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
+bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
+
+  fine = td::make_refint(101 * 1000000000LL);  // 101
+  fine_part = 0;
+
+  return true; // todo: (tolya-yanot) temporary reduction of fine
+
   if (severe) {
     fine = td::make_refint(2500 * 1000000000LL);  // GR$2500
     fine_part = (1 << 30);                        // 1/4 of stake
@@ -3698,10 +3705,44 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
   return true;
 }
 
-bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part) {
+bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, Ref<vm::Cell> punishment_params) {
+  if(punishment_params.is_null()) {
+    return compute_punishment_default(interval, severe, fine, fine_part);
+  }
+  block::gen::MisbehaviourPunishmentConfig::Record rec;
+  if (!tlb::unpack_cell(punishment_params, rec)) {
+      return false;
+  }
+
+  if(interval <= rec.unpunishable_interval) {
+      return false;
+  }
+
+  fine = block::tlb::t_Grams.as_integer(rec.default_flat_fine);
+  fine_part = rec.default_proportional_fine;
+
+  if (severe) {
+    fine = fine * rec.severity_flat_mult; fine >>= 8;
+    fine_part = fine_part * rec.severity_proportional_mult; fine_part >>= 8;
+  }
+
+  if (interval >= rec.long_interval) {
+    fine = fine * rec.long_flat_mult; fine >>= 8;
+    fine_part = fine_part * rec.long_proportional_mult; fine_part >>= 8;
+    return true;
+  }
+  if (interval >= rec.medium_interval) {
+    fine = fine * rec.medium_flat_mult; fine >>= 8;
+    fine_part = fine_part * rec.medium_proportional_mult; fine_part >>= 8;
+    return true;
+  }
+  return true;
+}
+
+bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part, Ref<vm::Cell> punishment_params) {
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
-  return compute_punishment(interval, severe, computed_fine, computed_fine_part) &&
+  return compute_punishment(interval, severe, computed_fine, computed_fine_part, punishment_params) &&
          std::llabs((long long)fine_part - (long long)computed_fine_part) <=
              (std::max(fine_part, computed_fine_part) >> 3) &&
          fine * 7 <= computed_fine * 8 && computed_fine * 7 <= fine * 8;
@@ -3729,10 +3770,13 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
   if (interval <= 0) {
     return td::Status::Error("non-positive time interval");
   }
+
+  auto punishment_params = info2.config->get_config_param(40);
+
   int severity = (severe ? 2 : 1);
-  td::RefInt256 fine = td::make_refint(1000000000);
-  unsigned fine_part = 0xffffffff / 16;  // 1/16
-  if (!compute_punishment(interval, severe, fine, fine_part)) {
+  td::RefInt256 fine = td::make_refint(101000000000);
+  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
+  if (!compute_punishment(interval, severe, fine, fine_part, punishment_params)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
   Ref<vm::Cell> cpl_descr, complaint;
@@ -4046,7 +4090,7 @@ td::Status TestNode::continue_check_validator_load_proof(std::unique_ptr<Validat
     if (suggested_fine.is_null()) {
       return td::Status::Error("cannot parse suggested fine");
     }
-    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part)) {
+    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part, info2->config->get_config_param(40))) {
       LOG(ERROR) << "proposed punishment (fine " << td::dec_string(suggested_fine)
                  << ", fine_part=" << (double)rec.suggested_fine_part / (1LL << 32) << " is too harsh";
       show_vote(root->get_hash().bits(), false);
@@ -4193,6 +4237,11 @@ int main(int argc, char* argv[]) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
+  });
+  p.add_option('V', "version", "shows lite-client build information", [&]() {
+    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    
+    std::exit(0);
   });
   p.add_option('i', "idx", "set liteserver idx", [&](td::Slice arg) {
     auto idx = td::to_integer<int>(arg);

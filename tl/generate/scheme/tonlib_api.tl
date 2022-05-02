@@ -105,7 +105,7 @@ msg.dataDecrypted proof:bytes data:msg.Data = msg.DataDecrypted;
 msg.dataEncryptedArray elements:vector<msg.dataEncrypted> = msg.DataEncryptedArray;
 msg.dataDecryptedArray elements:vector<msg.dataDecrypted> = msg.DataDecryptedArray;
 
-msg.message destination:accountAddress public_key:string amount:int64 data:msg.Data = msg.Message;
+msg.message destination:accountAddress public_key:string amount:int64 data:msg.Data send_mode:int32 = msg.Message;
 
 //
 // DNS
@@ -202,6 +202,14 @@ data bytes:secureBytes = Data;
 
 liteServer.info now:int53 version:int32 capabilities:int64 = liteServer.Info;
 
+
+blocks.masterchainInfo last:ton.BlockIdExt state_root_hash:bytes init:ton.BlockIdExt = blocks.MasterchainInfo;
+blocks.shards shards:vector<ton.BlockIdExt> = blocks.Shards;
+blocks.accountTransactionId account:bytes lt:int64 = blocks.AccountTransactionId;
+blocks.shortTxId mode:# account:mode.0?bytes lt:mode.1?int64 hash:mode.2?bytes = liteServer.TransactionId;
+blocks.transactions id:ton.blockIdExt req_count:int32 incomplete:Bool transactions:vector<blocks.shortTxId> = blocks.Transactions;
+blocks.header id:ton.blockIdExt global_id:int32 version:int32 after_merge:Bool after_split:Bool before_split:Bool want_merge:Bool want_split:Bool validator_list_hash_short:int32 catchain_seqno:int32 min_ref_mc_seqno:int32 is_key_block:Bool prev_key_block_seqno:int32 start_lt:int64 end_lt:int64 vert_seqno:# prev_blocks:vector<ton.blockIdExt> = blocks.Header;
+//blocks.shortData header:blocks.Header transactions:blocks.Header = blocks.BlockData;
 ---functions---
 
 init options:options = options.Info;
@@ -277,6 +285,13 @@ pchan.validatePromise public_key:bytes promise:pchan.promise = Ok;
 
 pchan.packPromise promise:pchan.promise = Data;
 pchan.unpackPromise data:secureBytes = pchan.Promise;
+
+
+blocks.getMasterchainInfo = blocks.MasterchainInfo;
+blocks.getShards id:ton.blockIdExt = blocks.Shards;
+blocks.lookupBlock mode:int32 id:ton.blockId lt:int64 utime:int32 = ton.BlockIdExt;
+blocks.getTransactions id:ton.blockIdExt mode:# count:# after:blocks.accountTransactionId = blocks.Transactions;
+blocks.getBlockHeader id:ton.blockIdExt = blocks.Header;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;

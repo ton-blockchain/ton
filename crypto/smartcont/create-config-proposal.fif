@@ -16,7 +16,7 @@ begin-options
     "Creates a critical parameter change proposal" option-help
   "x" "--expires-in" { parse-int =: expire-in } short-long-option-arg
     "Sets proposal expiration time in seconds (default " expire-in (.) $+ +")" option-help
-  "H" "--old-hash" { (hex-number) not abort"256-bit hex number expected as hash" =: old-hash }
+  "H" "--old-hash" { (hex-number) 1 = not .s abort"256-bit hex number expected as hash" =: old-hash }
      short-long-option-arg
      "Sets the required cell hash of existing parameter value (0 means no value)" option-help 
   "h" "--help" { usage } short-long-option
