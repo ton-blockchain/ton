@@ -27,7 +27,7 @@ jobs:
       run: |
         mkdir build
     - name: cmake all
-      run: | 
+      run: |
         cd build
         cmake -DCMAKE_BUILD_TYPE=Release ..
     - name: make all

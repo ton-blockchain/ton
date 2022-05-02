@@ -1970,6 +1970,35 @@ const MasterConfig& get_default_master_config() {
            "shard": -9223372036854775808
          }
       ]
+      "file_hash": "BzgfRpFgyNjHI7aR5KQhq4Wtr2wN+sXzLaW+rfHvP5A=",
+      "seqno": 0,
+      "root_hash": "WPsS1IiRjT0MSD6Xvys4QYQh7rrc9x0ybzXojwJ4gH0=",
+      "workchain": -1,
+      "shard": -9223372036854775808
+    },
+"init_block":{
+   "file_hash":"CXvKA37GFugspx6U7sv4Sh7KIVqR1R+Pj4AmGx2Ezi0=",
+   "seqno":2908533,
+   "root_hash":"oFi1uMHmELXV/AfjuvTZREmRY7TtNgq608sFjnRJCAo=",
+   "workchain":-1,
+   "shard":-9223372036854775808
+},
+"hardforks":[
+   {
+      "file_hash":"x97xobbkPDggz7/u6KQzlT3pBmM5XfGE6vN7AiuTMU0=",
+      "seqno":1907338,
+      "root_hash":"BuZOCJvbg0ys2JBnfocqCf1T4rt0OzLLslOG3CjcSgU=",
+      "workchain":-1,
+      "shard":-9223372036854775808
+   },
+   {
+     "file_hash": "CXvKA37GFugspx6U7sv4Sh7KIVqR1R+Pj4AmGx2Ezi0=",
+     "seqno": 2908533,
+     "root_hash": "oFi1uMHmELXV/AfjuvTZREmRY7TtNgq608sFjnRJCAo=",
+     "workchain": -1,
+     "shard": -9223372036854775808
+   }
+]
   }
 })abc");
     res.add_config("mainnet", R"abc({
@@ -4122,7 +4151,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& reques
 
 auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid)
     -> tonlib_api_ptr<tonlib_api::blocks_shortTxId> {
-  return tonlib_api::make_object<tonlib_api::blocks_shortTxId>( 
+  return tonlib_api::make_object<tonlib_api::blocks_shortTxId>(
       txid.mode_, txid.account_.as_slice().str(), txid.lt_, txid.hash_.as_slice().str());
 }
 

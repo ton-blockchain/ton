@@ -49,7 +49,7 @@ jobs:
     - name: Find & copy binaries
       run: |
         mkdir -p artifacts/tonlib-java
-        rsync -r --exclude 'CMakeFiles' --exclude 'Makefile' --exclude '*.a' --exclude '*.cmake' --exclude 'third-party' --exclude 'test-*' --exclude '*.cc' --exclude '*.json' --exclude '*.txt' build/* artifacts/        
+        rsync -r --exclude 'CMakeFiles' --exclude 'Makefile' --exclude '*.a' --exclude '*.cmake' --exclude 'third-party' --exclude 'test-*' --exclude '*.cc' --exclude '*.json' --exclude '*.txt' build/* artifacts/
         cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
         cp example/android/build/libnative-lib.dylib artifacts/tonlib-java/
 

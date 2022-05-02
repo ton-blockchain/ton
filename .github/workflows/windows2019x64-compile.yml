@@ -50,8 +50,8 @@ jobs:
           cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
 
       - name: Compile ton
-        run: |       
-          cd build   
+        run: |
+          cd build
           cmake --build . --config Release
         continue-on-error: true
 
