@@ -1080,6 +1080,31 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
   }
 }
 
+void interpret_fetch_slice(vm::Stack& stack, int mode) {
+  unsigned refs = ((mode & 1) ? stack.pop_smallint_range(4) : 0);
+  unsigned bits = stack.pop_smallint_range(1023);
+  auto cs = stack.pop_cellslice();
+  if (!cs->have(bits, refs)) {
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
+    stack.push_bool(false);
+    if (!(mode & 4)) {
+      throw IntError{"end of data while fetching subslice from cell"};
+    }
+  } else {
+    if (mode & 2) {
+      stack.push(cs.write().fetch_subslice(bits, refs));
+      stack.push(std::move(cs));
+    } else {
+      stack.push(cs->prefetch_subslice(bits, refs));
+    }
+    if (mode & 4) {
+      stack.push_bool(true);
+    }
+  }
+}
+
 void interpret_cell_empty(vm::Stack& stack) {
   auto cs = stack.pop_cellslice();
   stack.push_bool(cs->empty_ext());
@@ -2463,6 +2488,28 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
   }
 }
 
+void interpret_vmop_len(vm::Stack& stack) {
+  int cp = stack.pop_smallint_range(0x7fffffff, -0x80000000);
+  auto cs = stack.pop_cellslice();
+  auto dispatch = vm::DispatchTable::get_table(cp);
+  if (!dispatch) {
+    throw IntError{"unknown vm codepage"};
+  }
+  stack.push_smallint(dispatch->instr_len(*cs));
+}
+
+void interpret_vmop_dump(vm::Stack& stack) {
+  int cp = stack.pop_smallint_range(0x7fffffff, -0x80000000);
+  auto cs = stack.pop_cellslice();
+  auto dispatch = vm::DispatchTable::get_table(cp);
+  if (!dispatch) {
+    throw IntError{"unknown vm codepage"};
+  }
+  auto dump = dispatch->dump_instr(cs.write());
+  stack.push_cellslice(std::move(cs));
+  stack.push_string(std::move(dump));
+}
+
 void do_interpret_db_run_vm_parallel(std::ostream* stream, vm::Stack& stack, vm::TonDb* ton_db_ptr, int threads_n,
                                      int tasks_n) {
   if (!ton_db_ptr || !*ton_db_ptr) {
@@ -2940,6 +2987,14 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("ref@+ ", std::bind(interpret_fetch_ref, _1, 2));
   d.def_stack_word("ref@? ", std::bind(interpret_fetch_ref, _1, 4));
   d.def_stack_word("ref@?+ ", std::bind(interpret_fetch_ref, _1, 6));
+  d.def_stack_word("s@ ", std::bind(interpret_fetch_slice, _1, 0));
+  d.def_stack_word("sr@ ", std::bind(interpret_fetch_slice, _1, 1));
+  d.def_stack_word("s@+ ", std::bind(interpret_fetch_slice, _1, 2));
+  d.def_stack_word("sr@+ ", std::bind(interpret_fetch_slice, _1, 3));
+  d.def_stack_word("s@? ", std::bind(interpret_fetch_slice, _1, 4));
+  d.def_stack_word("sr@? ", std::bind(interpret_fetch_slice, _1, 5));
+  d.def_stack_word("s@?+ ", std::bind(interpret_fetch_slice, _1, 6));
+  d.def_stack_word("sr@?+ ", std::bind(interpret_fetch_slice, _1, 7));
   d.def_stack_word("s> ", interpret_cell_check_empty);
   d.def_stack_word("empty? ", interpret_cell_empty);
   d.def_stack_word("remaining ", interpret_cell_remaining);
@@ -3108,6 +3163,8 @@ void init_words_vm(Dictionary& d, bool enable_debug) {
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
   d.def_stack_word("vmcont, ", interpret_store_vm_cont);
   d.def_stack_word("vmcont@ ", interpret_fetch_vm_cont);
+  d.def_stack_word("(vmoplen) ", interpret_vmop_len);
+  d.def_stack_word("(vmopdump) ", interpret_vmop_dump);
 }
 
 void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* const argv[]) {

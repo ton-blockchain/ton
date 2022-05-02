@@ -378,8 +378,8 @@ int exec_if_bit_jmp(VmState* st, unsigned args) {
 }
 
 std::string dump_if_bit_jmp(CellSlice& cs, unsigned args) {
-  std::ostringstream os{args & 0x20 ? "IFN" : " IF"};
-  os << "BITJMP " << (args & 0x1f);
+  std::ostringstream os;
+  os << "IF" << (args & 0x20 ? "N" : "") << "BITJMP " << (args & 0x1f);
   return os.str();
 }
 
@@ -408,8 +408,8 @@ std::string dump_if_bit_jmpref(CellSlice& cs, unsigned args, int pfx_bits) {
   }
   cs.advance(pfx_bits);
   cs.advance_refs(1);
-  std::ostringstream os{args & 0x20 ? "IFN" : " IF"};
-  os << "BITJMPREF " << (args & 0x1f);
+  std::ostringstream os;
+  os << "IF" << (args & 0x20 ? "N" : "") << "BITJMPREF " << (args & 0x1f);
   return os.str();
 }
 
@@ -597,8 +597,8 @@ int exec_setcontargs(VmState* st, unsigned args) {
 
 std::string dump_setcontargs(CellSlice& cs, unsigned args, const char* name) {
   int copy = (args >> 4) & 15, more = ((args + 1) & 15) - 1;
-  std::ostringstream os{name};
-  os << ' ' << copy << ',' << more;
+  std::ostringstream os;
+  os << name << ' ' << copy << ',' << more;
   return os.str();
 }
 
@@ -1065,8 +1065,8 @@ std::string dump_throw_any(CellSlice& cs, unsigned args) {
   bool has_param = args & 1;
   bool has_cond = args & 6;
   bool throw_cond = args & 2;
-  std::ostringstream os{has_param ? "THROWARG" : "THROW"};
-  os << "ANY";
+  std::ostringstream os;
+  os << "THROW" << (has_param ? "ARG" : "") << "ANY";
   if (has_cond) {
     os << (throw_cond ? "IF" : "IFNOT");
   }
