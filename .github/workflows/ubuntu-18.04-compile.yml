@@ -23,22 +23,23 @@ jobs:
       with:
         name: report
         path: output
-    - name: mkdir
-      run: |
-        mkdir build
-    - name: cmake all
+    - name: install ninja       
+      run: |   
+        sudo apt install -y ninja-build
+    - name: Configure
       run: | 
+        mkdir build
         cd build
-        cmake -DCMAKE_BUILD_TYPE=Release ..
-    - name: make all
+        cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
+    - name: Build
       run: |
         cd build
-        make -j4 fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+        ninja fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork blockchain-explorer
 
     - name: find & copy binaries
       run: |
         mkdir artifacts
-        cp build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts
+        cp build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/blockchain-explorer/blockchain-explorer artifacts
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
