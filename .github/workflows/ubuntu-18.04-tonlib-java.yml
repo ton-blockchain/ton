@@ -1,0 +1,50 @@
+name: Ubuntu 18.04 tonlib-java
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'wallets'
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+      with:      
+        submodules: 'recursive'
+
+    - name: Install libraries
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
+
+    - name: Configure & Build
+      run: |
+        export JAVA_AWT_LIBRARY=NotNeeded
+        export JAVA_JVM_LIBRARY=NotNeeded
+        export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+
+        cd example/android/
+        mkdir build
+        cd build
+        cmake -DTON_ONLY_TONLIB=ON ..
+        cmake --build . --target prepare_cross_compiling
+        cmake --build . --target native-lib
+
+    - name: find & copy binaries
+      run: |
+        mkdir -p artifacts/tonlib-java        
+        cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
+        cp example/android/build/libnative-lib.so artifacts/tonlib-java/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: tonlib-ubuntu-java
+        path: artifacts
