@@ -1,6 +1,10 @@
 name: Windows Server 2019 x64 tonlib-java
 
-on: [push,workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'wallets'
 
 defaults:
   run:

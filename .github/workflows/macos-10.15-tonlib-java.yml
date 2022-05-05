@@ -1,7 +1,11 @@
 name: macOS-10.15 tonlib-java
 
-on: [push,workflow_dispatch]
 
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'wallets'
 jobs:
   build:
 
@@ -47,7 +51,7 @@ jobs:
         run: |
           mkdir -p artifacts/tonlib-java
           cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
-          cp example/android/build/libnative-lib.so artifacts/tonlib-java/
+          cp example/android/build/libnative-lib.dylib artifacts/tonlib-java/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
