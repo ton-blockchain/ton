@@ -49,7 +49,7 @@ jobs:
           set JAVA_JVM_LIBRARY=NotNeeded
           set JAVA_INCLUDE_PATH=${JAVA_HOME}/include
           set JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
-          set JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/win64
+          set JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/win32
 
           set root=%cd%
           echo %root%
