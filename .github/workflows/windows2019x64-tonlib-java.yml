@@ -57,14 +57,12 @@ jobs:
           mkdir build
           cd build
           cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1/x64/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1/x64/lib/libcrypto.lib -DTON_ONLY_TONLIB=ON -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
-          cmake --build . --target prepare_cross_compiling
-          cmake --build . --target native-lib
+          cmake --build . --target native-lib --config Release
 
       - name: Find & copy binaries
         run: |
-          mkdir -p artifacts/tonlib-java          
-          cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
-          cp example/android/build/libnative-lib.dll artifacts/tonlib-java/
+          mkdir -p artifacts/tonlib-java                    
+          cp example/android/build/Release/libnative-lib.dll artifacts/tonlib-java/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
