@@ -1,4 +1,4 @@
-name: C/C++ CI macOS-10.15 Compile
+name: macOS-10.15 tonlib-java
 
 on: [push,workflow_dispatch]
 
@@ -35,7 +35,7 @@ jobs:
           export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
           export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/darwin
 
-          cd ../example/android/
+          cd example/android/
           mkdir build
           cd build
 

@@ -34,7 +34,7 @@ jobs:
         export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
         export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
 
-        cd ../example/android/
+        cd example/android/
         mkdir build
         cd build
         cmake -DTON_ONLY_TONLIB=ON ..
