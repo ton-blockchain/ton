@@ -61,11 +61,11 @@ jobs:
 
       - name: Find & copy binaries
         run: |
-          mkdir -p artifacts/tonlib-java                    
-          cp example/android/build/Release/native-lib.dll artifacts/tonlib-java/
+          mkdir tonlib-java                    
+          cp example/android/build/Release/native-lib.dll tonlib-java/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
           name: tonlib-win64-java
-          path: artifacts
+          path: tonlib-java
