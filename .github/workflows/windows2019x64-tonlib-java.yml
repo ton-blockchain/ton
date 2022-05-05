@@ -41,7 +41,7 @@ jobs:
       - name: Install precompiled OpenSSL Win64
         run: |                    
           curl  -Lo openssl-1.1.1o.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/openssl-1.1.1o.zip
-          jar xf openssl-1.1.1o.zip                 
+          jar xf openssl-1.1.1o.zip
 
       - name: Configure & Build
         run: |
@@ -62,7 +62,7 @@ jobs:
       - name: Find & copy binaries
         run: |
           mkdir -p artifacts/tonlib-java                    
-          cp example/android/build/Release/libnative-lib.dll artifacts/tonlib-java/
+          cp example/android/build/Release/native-lib.dll artifacts/tonlib-java/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
