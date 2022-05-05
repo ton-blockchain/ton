@@ -60,10 +60,10 @@ jobs:
         run: |
           mkdir -p artifacts/tonlib-java          
           cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
-          cp example/android/build/libnative-lib.so artifacts/tonlib-java/
+          cp example/android/build/libnative-lib.dll artifacts/tonlib-java/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-win64-binaries
+          name: tonlib-win64-java
           path: artifacts

@@ -52,5 +52,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-macos-binaries
+          name: tonlib-macos-java
           path: artifacts
