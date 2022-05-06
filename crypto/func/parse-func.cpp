@@ -19,6 +19,9 @@
 #include "func.h"
 #include "td/utils/crypto.h"
 #include "common/refint.h"
+#include "openssl/digest.hpp"
+#include "block/block.h"
+#include "block-parse.h"
 #include <fstream>
 
 namespace sym {
@@ -229,6 +232,83 @@ void parse_global_var_decl(Lexer& lex) {
   lex.next();
 }
 
+extern int const_cnt;
+Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
+
+void parse_const_decl(Lexer& lex) {
+  SrcLocation loc = lex.cur().loc;
+  int wanted_type = Expr::_None;
+  if (lex.tp() == _Int) {
+    wanted_type = Expr::_Const;
+    lex.next();
+  } else if (lex.tp() == _Slice) {
+    wanted_type = Expr::_SliceConst;
+    lex.next();
+  }
+  if (lex.tp() != _Ident) {
+    lex.expect(_Ident, "constant name");
+  }
+  loc = lex.cur().loc;
+  SymDef* sym_def = sym::define_global_symbol(lex.cur().val, false, loc);
+  if (!sym_def) {
+    lex.cur().error_at("cannot define global symbol `", "`");
+  }
+  if (sym_def->value) {
+    lex.cur().error_at("global symbol `", "` already exists");
+  }
+  lex.next();
+  if (lex.tp() != '=') {
+    lex.cur().error_at("expected = instead of ", "");
+  }
+  lex.next();
+  CodeBlob code;
+  // Handles processing and resolution of literals and consts
+  auto x = parse_expr(lex, code, false); // also does lex.next() !
+  if (x->flags != Expr::_IsRvalue) {
+    lex.cur().error("expression is not strictly Rvalue");
+  }
+  if ((wanted_type == Expr::_Const) && (x->cls == Expr::_Apply))
+    wanted_type = Expr::_None; // Apply is additionally checked to result in an integer
+  if ((wanted_type != Expr::_None) && (x->cls != wanted_type)) {
+    lex.cur().error("expression type does not match wanted type");
+  }
+  if (x->cls == Expr::_Const) { // Integer constant
+    sym_def->value = new SymValConst{const_cnt++, x->intval};
+  } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
+    sym_def->value = new SymValConst{const_cnt++, x->strval};
+  } else if (x->cls == Expr::_Apply) {
+    code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
+    auto tmp_vars = x->pre_compile(code);
+    code.emplace_back(loc, Op::_Return, std::move(tmp_vars));
+    code.emplace_back(loc, Op::_Nop); // This is neccessary to prevent SIGSEGV!
+    // It is REQUIRED to execute "optimizations" as in func.cpp
+    code.simplify_var_types();
+    code.prune_unreachable_code();
+    code.split_vars(true);
+    for (int i = 0; i < 16; i++) {
+      code.compute_used_code_vars();
+      code.fwd_analyze();
+      code.prune_unreachable_code();
+    }
+    code.mark_noreturn();
+    AsmOpList out_list(0, &code.vars);
+    code.generate_code(out_list);
+    if (out_list.list_.size() != 1) {
+      lex.cur().error("precompiled expression must result in single operation");
+    }
+    auto op = out_list.list_[0];
+    if (!op.is_const()) {
+      lex.cur().error("precompiled expression must result in compilation time constant");
+    }
+    if (op.origin.is_null() || !op.origin->is_valid()) {
+      lex.cur().error("precompiled expression did not result in a valid integer constant");
+    }
+    sym_def->value = new SymValConst{const_cnt++, op.origin};
+  } else {
+    lex.cur().error("integer or slice literal or constant expected");
+  }
+}
+
 FormalArgList parse_formal_args(Lexer& lex) {
   FormalArgList args;
   lex.expect('(', "formal argument list");
@@ -244,6 +324,18 @@ FormalArgList parse_formal_args(Lexer& lex) {
   }
   lex.expect(')');
   return args;
+}
+
+void parse_const_decls(Lexer& lex) {
+  lex.expect(_Const);
+  while (true) {
+    parse_const_decl(lex);
+    if (lex.tp() != ',') {
+      break;
+    }
+    lex.expect(',');
+  }
+  lex.expect(';');
 }
 
 TypeExpr* extract_total_arg_type(const FormalArgList& arg_list) {
@@ -322,8 +414,6 @@ Expr* make_func_apply(Expr* fun, Expr* x) {
   return res;
 }
 
-Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
-
 // parse ( E { , E } ) | () | [ E { , E } ] | [] | id | num | _
 Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
   if (lex.tp() == '(' || lex.tp() == '[') {
@@ -388,6 +478,87 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     return res;
   }
+  if (t == Lexem::String) {
+    std::string str = lex.cur().str;
+    int str_type = lex.cur().val;
+    Expr* res;
+    switch (str_type) {
+      case 0:
+      case 's':
+      case 'a':
+      {
+        res = new Expr{Expr::_SliceConst, lex.cur().loc};
+        res->e_type = TypeExpr::new_atomic(_Slice);
+        break;
+      }
+      case 'u':
+      case 'h':
+      case 'H':
+      case 'c':
+      {
+        res = new Expr{Expr::_Const, lex.cur().loc};
+        res->e_type = TypeExpr::new_atomic(_Int);
+        break;
+      }
+      default:
+      {
+        res = new Expr{Expr::_Const, lex.cur().loc};
+        res->e_type = TypeExpr::new_atomic(_Int);
+        lex.cur().error("invalid string type `" + std::string(1, static_cast<char>(str_type)) + "`");
+        return res;
+      }
+    }
+    res->flags = Expr::_IsRvalue;
+    switch (str_type) {
+      case 0: {
+        res->strval = td::hex_encode(str);
+        break;
+      }
+      case 's': {
+        res->strval = str;
+        unsigned char buff[128];
+        int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
+        if (bits < 0) {
+          lex.cur().error_at("Invalid hex bitstring constant `", "`");
+        }
+        break;
+      }
+      case 'a': {  // MsgAddressInt
+        block::StdAddress a;
+        if (a.parse_addr(str)) {
+          res->strval = block::tlb::MsgAddressInt().pack_std_address(a)->as_bitslice().to_hex();
+        } else {
+          lex.cur().error_at("invalid standard address `", "`");
+        }
+        break;
+      }
+      case 'u': {
+        res->intval = td::hex_string_to_int256(td::hex_encode(str));
+        if (!str.size()) {
+          lex.cur().error("empty integer ascii-constant");
+        }
+        if (res->intval.is_null()) {
+          lex.cur().error_at("too long integer ascii-constant `", "`");
+        }
+        break;
+      }
+      case 'h':
+      case 'H':
+      {
+        unsigned char hash[32];
+        digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
+        res->intval = td::bits_to_refint(hash, (str_type == 'h') ? 32 : 256, false);
+        break;
+      }
+      case 'c':
+      {
+        res->intval = td::make_refint(td::crc32(td::Slice{str}));
+        break;
+      }
+    }
+    lex.next();
+    return res;
+  }
   if (t == '_') {
     Expr* res = new Expr{Expr::_Hole, lex.cur().loc};
     res->val = -1;
@@ -426,6 +597,25 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       res->e_type = val->get_type();
       res->sym = sym;
       res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImpure;
+      lex.next();
+      return res;
+    }
+    if (sym && dynamic_cast<SymValConst*>(sym->value)) {
+      auto val = dynamic_cast<SymValConst*>(sym->value);
+      Expr* res = new Expr{Expr::_None, lex.cur().loc};
+      res->flags = Expr::_IsRvalue;
+      if (val->type == _Int) {
+        res->cls = Expr::_Const;
+        res->intval = val->get_int_value();
+      }
+      else if (val->type == _Slice) {
+        res->cls = Expr::_SliceConst;
+        res->strval = val->get_str_value();
+      }
+      else {
+        lex.cur().error("Invalid symbolic constant type");
+      }
+      res->e_type = TypeExpr::new_atomic(val->type);
       lex.next();
       return res;
     }
@@ -1425,6 +1615,8 @@ bool parse_source(std::istream* is, src::FileDescr* fdescr) {
       parse_pragma(lex);
     } else if (lex.tp() == _Global) {
       parse_global_var_decls(lex);
+    } else if (lex.tp() == _Const) {
+      parse_const_decls(lex);
     } else {
       parse_func_def(lex);
     }

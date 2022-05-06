@@ -55,10 +55,10 @@ std::ostream& operator<<(std::ostream& os, AsmOp::SReg stack_reg) {
   }
 }
 
-AsmOp AsmOp::Const(int arg, std::string push_op) {
+AsmOp AsmOp::Const(int arg, std::string push_op, td::RefInt256 origin) {
   std::ostringstream os;
   os << arg << ' ' << push_op;
-  return AsmOp::Const(os.str());
+  return AsmOp::Const(os.str(), origin);
 }
 
 AsmOp AsmOp::make_stk2(int a, int b, const char* str, int delta) {
@@ -166,27 +166,27 @@ AsmOp AsmOp::UnTuple(int a) {
 
 AsmOp AsmOp::IntConst(td::RefInt256 x) {
   if (x->signed_fits_bits(8)) {
-    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT");
+    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT", x);
   }
   if (!x->is_valid()) {
-    return AsmOp::Const("PUSHNAN");
+    return AsmOp::Const("PUSHNAN", x);
   }
   int k = is_pos_pow2(x);
   if (k >= 0) {
-    return AsmOp::Const(k, "PUSHPOW2");
+    return AsmOp::Const(k, "PUSHPOW2", x);
   }
   k = is_pos_pow2(x + 1);
   if (k >= 0) {
-    return AsmOp::Const(k, "PUSHPOW2DEC");
+    return AsmOp::Const(k, "PUSHPOW2DEC", x);
   }
   k = is_pos_pow2(-x);
   if (k >= 0) {
-    return AsmOp::Const(k, "PUSHNEGPOW2");
+    return AsmOp::Const(k, "PUSHNEGPOW2", x);
   }
   if (!x->mod_pow2_short(23)) {
-    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINTX");
+    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINTX", x);
   }
-  return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT");
+  return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT", x);
 }
 
 AsmOp AsmOp::BoolConst(bool f) {
