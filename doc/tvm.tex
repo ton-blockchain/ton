@@ -1531,6 +1531,7 @@ Examples:
 \item {\tt A934$tt$} --- same as {\tt RSHIFT $tt+1$}: ($x$ -- $\lfloor x\cdot 2^{-tt-1}\rfloor$).
 \item {\tt A938$tt$} --- {\tt MODPOW2 $tt+1$}: ($x$ -- $x\bmod 2^{tt+1}$).
 \item {\tt A985} --- {\tt MULDIVR} ($x$ $y$ $z$ -- $q'$), where $q'=\lfloor xy/z+1/2\rfloor$.
+\item {\tt A988} --- {\tt MULMOD} ($x$ $y$ $z$ -- $r$), where $r=xy\bmod z=xy-qz$, $q=\lfloor xy/z\rfloor$. This operation always succeeds for $z\neq0$ and returns the correct value of~$r$, even if the intermediate result $xy$ or the quotient $q$ do not fit into 257 bits.
 \item {\tt A98C} --- {\tt MULDIVMOD} ($x$ $y$ $z$ -- $q$ $r$), where $q:=\lfloor x\cdot y/z\rfloor$, $r:=x\cdot y\bmod z$ (same as {\tt */MOD} in Forth).
 \item {\tt A9A4} --- {\tt MULRSHIFT} ($x$ $y$ $z$ -- $\lfloor xy\cdot2^{-z}\rfloor$) for $0\leq z\leq 256$.
 \item {\tt A9A5} --- {\tt MULRSHIFTR} ($x$ $y$ $z$ -- $\lfloor xy\cdot2^{-z}+1/2\rfloor$) for $0\leq z\leq 256$.
@@ -1576,10 +1577,12 @@ We opted to make all arithmetic operations ``non-quiet'' (signaling) by default,
 \begin{itemize}
 \item {\tt B7xx} --- {\tt QUIET} prefix, transforming any arithmetic operation into its ``quiet'' variant, indicated by prefixing a {\tt Q} to its mnemonic. Such operations return {\tt NaN}s instead of throwing integer overflow exceptions if the results do not fit in {\it Integer\/}s, or if one of their arguments is a {\tt NaN}. Notice that this does not extend to shift amounts and other parameters that must be within a small range (e.g., 0--1023). Also notice that this does not disable type-checking exceptions if a value of a type other than {\it Integer\/} is supplied. 
 \item {\tt B7A0} --- {\tt QADD} ($x$ $y$ -- $x+y$), always works if $x$ and $y$ are {\it Integer\/}s, but returns a {\tt NaN} if the addition cannot be performed.
+\item {\tt B7A8} --- {\tt QMUL} ($x$ $y$ -- $xy$), returns the product of $x$ and $y$ if $-2^{256}\leq xy<2^{256}$. Otherwise returns a {\tt NaN}, even if $x=0$ and $y$ is a {\tt NaN}.
 \item {\tt B7A904} --- {\tt QDIV} ($x$ $y$ -- $\lfloor x/y\rfloor$), returns a {\tt NaN} if $y=0$, or if $y=-1$ and $x=-2^{256}$, or if either of $x$ or $y$ is a {\tt NaN}.
+\item {\tt B7A98C} --- {\tt QMULDIVMOD} ($x$ $y$ $z$ -- $q$ $r$), where $q:=\lfloor x\cdot y/z\rfloor$, $r:=x\cdot y\bmod z$. If $z=0$, or if at least one of $x$, $y$, or $z$ is a {\tt NaN}, both $q$ and $r$ are set to {\tt NaN}. Otherwise the correct value of $r$ is always returned, but $q$ is replaced with {\tt NaN} if $q<-2^{256}$ or $q\geq2^{256}$.
 \item {\tt B7B0} --- {\tt QAND} ($x$ $y$ -- $x\&y$), bitwise ``and'' (similar to {\tt AND}), but returns a {\tt NaN} if either $x$ or $y$ is a {\tt NaN} instead of throwing an integer overflow exception. However, if one of the arguments is zero, and the other is a {\tt NaN}, the result is zero.
 \item {\tt B7B1} --- {\tt QOR} ($x$ $y$ -- $x\vee y$), bitwise ``or''. If $x=-1$ or $y=-1$, the result is always $-1$, even if the other argument is a {\tt NaN}.
-\item {\tt B7B507} --- {\tt QUFITS 8} ($x$ -- $x'$), checks whether $x$ is an unsigned byte (i.e., whether $0\leq x<2^8$), and replaces $x$ with a {\tt NaN} if this is not the case; leaves $x$ intact otherwise (i.e., if $x$ is an unsigned byte).
+\item {\tt B7B507} --- {\tt QUFITS 8} ($x$ -- $x'$), checks whether $x$ is an unsigned byte (i.e., whether $0\leq x<2^8$), and replaces $x$ with a {\tt NaN} if this is not the case; leaves $x$ intact otherwise (i.e., if $x$ is an unsigned byte or a {\tt NaN}).
 \end{itemize}
 
 \mysubsection{Comparison primitives}

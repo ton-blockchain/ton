@@ -26,9 +26,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-engine-console-query.h"
+#include "auto/tl/ton_api.h"
+#include "td/utils/StringBuilder.h"
 #include "validator-engine-console.h"
 #include "terminal/terminal.h"
 #include "td/utils/filesystem.h"
+#include "overlay/overlays.h"
 
 #include <cctype>
 
@@ -718,5 +721,195 @@ td::Status CheckDhtServersQuery::receive(td::BufferSlice data) {
   for (auto &s : f->servers_) {
     td::TerminalIO::out() << "id=" << s->id_ << " status=" << (s->status_ ? "SUCCESS" : "FAIL") << "\n";
   }
+  return td::Status::OK();
+}
+
+td::Status SignCertificateQuery::run() {
+  TRY_RESULT_ASSIGN(overlay_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(id_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(expire_at_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(max_size_, tokenizer_.get_token<td::uint32>());
+  TRY_RESULT_ASSIGN(signer_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_RESULT_ASSIGN(out_file_, tokenizer_.get_token<std::string>());
+  return td::Status::OK();
+}
+
+td::Status SignCertificateQuery::send() {
+  auto cid = ton::create_serialize_tl_object<ton::ton_api::overlay_certificateId>(overlay_, id_, expire_at_, max_size_);
+  auto sign = ton::create_serialize_tl_object<ton::ton_api::engine_validator_sign>(signer_.tl(), std::move(cid));
+  auto pub = ton::create_serialize_tl_object<ton::ton_api::engine_validator_exportPublicKey>(signer_.tl());
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(pub),
+      td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &SignCertificateQuery::handle_error, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &SignCertificateQuery::receive_pubkey, R.move_as_ok());
+        }
+      }));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(sign),
+      td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &SignCertificateQuery::handle_error, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &SignCertificateQuery::receive_signature, R.move_as_ok());
+        }
+      }));
+  return td::Status::OK();
+}
+
+void SignCertificateQuery::receive_pubkey(td::BufferSlice R) {
+  auto f = ton::fetch_tl_object<ton::ton_api::PublicKey>(R.as_slice(), true);
+  if (f.is_error()) {
+    handle_error(f.move_as_error_prefix("Failed to get pubkey: "));
+    return;
+  }
+  pubkey_ = f.move_as_ok();
+  has_pubkey_ = true;
+  if(has_signature_) {
+    save_certificate();
+  }
+}
+
+
+td::Status SignCertificateQuery::receive(td::BufferSlice data) {
+  UNREACHABLE();
+}
+
+void SignCertificateQuery::receive_signature(td::BufferSlice R) {
+  auto f = ton::fetch_tl_object<ton::ton_api::engine_validator_signature>(R.as_slice(), true);
+  if(f.is_error()){
+    handle_error(f.move_as_error_prefix("Failed to get signature: "));
+    return;
+  }
+  signature_ = std::move(f.move_as_ok()->signature_);
+  if(has_pubkey_) {
+    save_certificate();
+  }
+}
+
+void SignCertificateQuery::save_certificate() {
+  auto c = ton::create_serialize_tl_object<ton::ton_api::overlay_certificate>(
+        std::move(pubkey_), expire_at_, max_size_, std::move(signature_));
+  auto w = td::write_file(out_file_, c.as_slice());
+  if(w.is_error()) {
+    handle_error(w.move_as_error_prefix("Failed to write certificate to file: "));
+    return;
+  }
+  td::TerminalIO::out() << "saved certificate\n";
+  stop();
+}
+
+td::Status ImportCertificateQuery::run() {
+  TRY_RESULT_ASSIGN(overlay_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(id_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(kh_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_RESULT_ASSIGN(in_file_, tokenizer_.get_token<std::string>());
+  return td::Status::OK();
+}
+
+td::Status ImportCertificateQuery::send() {
+  TRY_RESULT(data, td::read_file(in_file_));
+  TRY_RESULT_PREFIX(cert, ton::fetch_tl_object<ton::ton_api::overlay_Certificate>(data.as_slice(), true),
+                    "incorrect certificate");
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importCertificate>(
+                overlay_,
+                ton::create_tl_object<ton::ton_api::adnl_id_short>(id_),
+                ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(kh_.tl()),
+                std::move(cert)
+           );
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+td::Status GetOverlaysStatsQuery::run() {
+  return td::Status::OK();
+}
+
+td::Status GetOverlaysStatsQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getOverlaysStats>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_overlaysStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  for (auto &s : f->overlays_) {
+    td::StringBuilder sb;
+    sb << "overlay_id=" << s->overlay_id_ << " adnl_id=" << s->adnl_id_ << "\n";
+    sb << "  nodes:";
+    for (auto &n : s->nodes_) {
+      sb << "   " << n->id_ << "\n";
+    }
+    sb << "  stats:\n";
+    for (auto &t : s->stats_) {
+      sb << "    " << t->key_ << "\t" << t->value_ << "\n";
+    }
+    td::TerminalIO::output(sb.as_cslice());
+  }
+  return td::Status::OK();
+}
+
+
+td::Status ImportCertificateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully sent certificate to overlay manager\n";
+  return td::Status::OK();
+}
+
+
+td::Status SignShardOverlayCertificateQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>() );
+  TRY_RESULT_ASSIGN(key_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_RESULT_ASSIGN(expire_at_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(max_size_, tokenizer_.get_token<td::uint32>());
+  TRY_RESULT_ASSIGN(out_file_, tokenizer_.get_token<std::string>());
+
+  return td::Status::OK();
+}
+
+td::Status SignShardOverlayCertificateQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_signShardOverlayCertificate>
+             (wc_, shard_, ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(key_.tl()), expire_at_, max_size_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SignShardOverlayCertificateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(c, ton::fetch_tl_object<ton::ton_api::overlay_certificate>(data.as_slice(), true),
+                    "received incorrect cert: ");
+  auto w = td::write_file(out_file_, data.as_slice());
+  if(w.is_error()) {
+    return w.move_as_error_prefix("Failed to write certificate to file: ");
+  }
+  td::TerminalIO::out() << "saved certificate\n";
+
+  return td::Status::OK();
+}
+
+td::Status ImportShardOverlayCertificateQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>() );
+  TRY_RESULT_ASSIGN(key_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_RESULT_ASSIGN(in_file_, tokenizer_.get_token<std::string>());
+
+  return td::Status::OK();
+}
+
+td::Status ImportShardOverlayCertificateQuery::send() {
+  TRY_RESULT(data, td::read_file(in_file_));
+  TRY_RESULT_PREFIX(cert, ton::fetch_tl_object<ton::ton_api::overlay_Certificate>(data.as_slice(), true),
+                    "incorrect certificate");
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importShardOverlayCertificate>
+             (wc_, shard_, ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(key_.tl()), std::move(cert));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully sent certificate to overlay manager\n";
   return td::Status::OK();
 }

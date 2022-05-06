@@ -366,17 +366,32 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
   if (!is_validator()) {
     return;
   }
+  if( ext_messages_.size() > max_mempool_num() ) {
+    return;
+  }
   auto R = create_ext_message(std::move(data));
   if (R.is_error()) {
     VLOG(VALIDATOR_NOTICE) << "dropping bad ihr message: " << R.move_as_error();
     return;
   }
-  auto M = std::make_unique<MessageExt<ExtMessage>>(R.move_as_ok());
-  auto id = M->ext_id();
-  if (ext_messages_hashes_.count(id.hash) == 0) {
-    ext_messages_.emplace(id, std::move(M));
-    ext_messages_hashes_.emplace(id.hash, id);
+  add_external_message(R.move_as_ok());
+}
+
+void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg) {
+  auto message = std::make_unique<MessageExt<ExtMessage>>(msg);
+  auto id = message->ext_id();
+  auto address = message->address();
+  unsigned long per_address_limit = 256;
+  if(ext_addr_messages_.count(address) < per_address_limit) {
+    if (ext_messages_hashes_.count(id.hash) == 0) {
+      ext_messages_.emplace(id, std::move(message));
+      ext_messages_hashes_.emplace(id.hash, id);
+      ext_addr_messages_[address].emplace(id.hash, id);
+    }
   }
+}
+void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) {
+  run_check_external_message(std::move(data), actor_id(this), std::move(promise));
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
@@ -756,6 +771,7 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
       break;
     }
     if (it->second->expired()) {
+      ext_addr_messages_[it->second->address()].erase(it->first.hash);
       ext_messages_hashes_.erase(it->first.hash);
       it = ext_messages_.erase(it);
       continue;
@@ -804,17 +820,20 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
   for (auto &hash : to_delete) {
     auto it = ext_messages_hashes_.find(hash);
     if (it != ext_messages_hashes_.end()) {
+      ext_addr_messages_[ext_messages_[it->second]->address()].erase(it->first);
       CHECK(ext_messages_.erase(it->second));
       ext_messages_hashes_.erase(it);
     }
   }
+  unsigned long soft_mempool_limit = 1024;
   for (auto &hash : to_delay) {
     auto it = ext_messages_hashes_.find(hash);
     if (it != ext_messages_hashes_.end()) {
       auto it2 = ext_messages_.find(it->second);
-      if (it2->second->can_postpone()) {
+      if ((ext_messages_.size() < soft_mempool_limit) && it2->second->can_postpone()) {
         it2->second->postpone();
       } else {
+        ext_addr_messages_[it2->second->address()].erase(it2->first.hash);
         ext_messages_.erase(it2);
         ext_messages_hashes_.erase(it);
       }
@@ -1349,6 +1368,7 @@ void ValidatorManagerImpl::send_get_next_key_blocks_request(BlockIdExt block_id,
 
 void ValidatorManagerImpl::send_external_message(td::Ref<ExtMessage> message) {
   callback_->send_ext_message(message->shard(), message->serialize());
+  add_external_message(std::move(message));
 }
 
 void ValidatorManagerImpl::send_ihr_message(td::Ref<IhrMessage> message) {

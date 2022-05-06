@@ -2100,7 +2100,7 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
     return {};
   }
   auto csr = libraries_dict_->lookup(root_hash, 256);
-  if (csr.is_null() || csr->prefetch_ulong(8) != 0 || !csr->have_refs()) {  // shared_lib_descr$00 lib:^Cell
+  if (csr.is_null() || csr->prefetch_ulong(2) != 0 || !csr->have_refs()) {  // shared_lib_descr$00 lib:^Cell
     return {};
   }
   auto lib = csr->prefetch_ref();

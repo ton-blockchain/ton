@@ -20,6 +20,8 @@
 
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/utils/port/Poll.h"
 #include "validator-group.hpp"
 #include "shard-client.hpp"
 #include "manager-init.h"
@@ -71,6 +73,9 @@ class MessageExt {
   }
   auto hash() const {
     return message_->hash();
+  }
+  auto address() const {
+    return std::make_pair(message_->wc(), message_->addr());
   }
   bool is_active() {
     if (!active_) {
@@ -208,6 +213,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   // DATA FOR COLLATOR
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
   std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
+  std::map<std::pair<ton::WorkchainId,ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>> ext_addr_messages_;
   std::map<ExtMessage::Hash, MessageId<ExtMessage>> ext_messages_hashes_;
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
@@ -325,6 +331,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
+  void add_external_message(td::Ref<ExtMessage> message);
+  void check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) override;
+
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
 
@@ -574,6 +583,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   double block_ttl() const {
     return opts_->block_ttl();
+  }
+  double max_mempool_num() const {
+    return opts_->max_mempool_num();
   }
 
  private:

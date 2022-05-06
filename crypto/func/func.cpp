@@ -173,6 +173,7 @@ void usage(const char* progname) {
          "-R\tInclude operation rewrite comments in the output code\n"
          "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
          "-A and -P.\n"
+         "\t-s\tOutput semantic version of FunC and exit\n"
          "\t-V<version>\tShow func build information\n";
   std::exit(2);
 }
@@ -182,7 +183,7 @@ std::string output_filename;
 int main(int argc, char* const argv[]) {
   int i;
   bool interactive = false;
-  while ((i = getopt(argc, argv, "Ahi:Io:O:PRSvW:V")) != -1) {
+  while ((i = getopt(argc, argv, "Ahi:Io:O:PRsSvW:V")) != -1) {
     switch (i) {
       case 'A':
         funC::asm_preamble = true;
@@ -215,8 +216,13 @@ int main(int argc, char* const argv[]) {
         funC::boc_output_filename = optarg;
         funC::asm_preamble = funC::program_envelope = true;
         break;
+      case 's':
+        std::cout << funC::func_version << "\n";
+        std::exit(0);
+        break;
       case 'V':
-        std::cout << "Func build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::cout << "FunC semantic version: v" << funC::func_version << "\n";
+        std::cout << "Build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       case 'h':

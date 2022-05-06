@@ -54,7 +54,16 @@ td::Status OverlayFecBroadcastPart::check_duplicate() {
 }
 
 td::Status OverlayFecBroadcastPart::check_source() {
-  TRY_STATUS(overlay_->check_source_eligible(source_, cert_.get(), broadcast_size_));
+  auto r = overlay_->check_source_eligible(source_, cert_.get(), broadcast_size_, true);
+  if (r == BroadcastCheckResult::Forbidden) {
+    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+  }
+
+  // FIXME
+  if (r == BroadcastCheckResult::NeedCheck) {
+    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+  }
+
   if (bcast_) {
     TRY_STATUS(bcast_->is_eligible_sender(source_));
   }

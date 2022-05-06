@@ -604,6 +604,7 @@ Ref<Cell> VmState::load_library(td::ConstBitPtr hash) {
       return lib;
     }
   }
+  missing_library = hash;
   return {};
 }
 

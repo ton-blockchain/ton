@@ -16,19 +16,25 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #include "external-message.hpp"
+#include "collator-impl.h"
 #include "vm/boc.h"
 #include "block/block-parse.h"
 #include "block/block-auto.h"
 #include "block/block-db.h"
+#include "fabric.h"
+#include "td/actor/actor.h"
+#include "td/utils/Random.h"
+#include "crypto/openssl/rand.hpp"
 
 namespace ton {
 
 namespace validator {
 using td::Ref;
 
-ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix)
-    : root_(std::move(root)), addr_prefix_(addr_prefix), data_(std::move(data)) {
+ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix, ton::WorkchainId wc, ton::StdSmcAddress addr)
+    : root_(std::move(root)), addr_prefix_(addr_prefix), data_(std::move(data)), wc_(wc), addr_(addr) {
   hash_ = block::compute_file_hash(data_);
 }
 
@@ -70,7 +76,95 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   if (!dest_prefix.is_valid()) {
     return td::Status::Error("destination of an inbound external message is an invalid blockchain address");
   }
-  return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix};
+  ton::StdSmcAddress addr;
+  ton::WorkchainId wc;
+  if(!block::tlb::t_MsgAddressInt.extract_std_address(info.dest, wc, addr)) {
+    return td::Status::Error(PSLICE() << "Can't parse destination address");
+  }
+
+  return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr};
+}
+
+void ExtMessageQ::run_message(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
+                              td::Promise<td::Unit> promise) {
+  auto R = create_ext_message(std::move(data));
+  if (R.is_error()) {
+    return promise.set_error(R.move_as_error_prefix("failed to parse external message "));
+  }
+  auto M = R.move_as_ok();
+  auto root = M->root_cell();
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
+  tlb::unpack_cell_inexact(root, info); // checked in create message
+  ton::StdSmcAddress addr = M->addr();
+  ton::WorkchainId wc = M->wc();
+
+  run_fetch_account_state(wc, addr, manager,
+      [promise = std::move(promise), msg_root = root, wc = wc](td::Result<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> res) mutable {
+        if (res.is_error()) {
+          promise.set_error(td::Status::Error(PSLICE() << "Failed to get account state"));
+        } else {
+          auto tuple = res.move_as_ok();
+          block::Account acc;
+          auto shard_acc = std::move(std::get<0>(tuple));
+          auto utime = std::get<1>(tuple);
+          auto lt = std::get<2>(tuple);
+          auto config = std::move(std::get<3>(tuple));
+          if(!acc.unpack(shard_acc, {}, utime, false)) {
+            promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
+          } else {
+            if(run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config))) {
+              promise.set_value(td::Unit());
+            } else {
+              promise.set_error(td::Status::Error(PSLICE() << "External message was not accepted"));
+            }
+          }
+        }
+      }
+  );
+}
+
+bool ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
+                                         block::Account* acc,
+                                         UnixTime utime, LogicalTime lt,
+                                         td::Ref<vm::Cell> msg_root,
+                                         std::unique_ptr<block::ConfigInfo> config) {
+
+   Ref<vm::Cell> old_mparams;
+   std::vector<block::StoragePrices> storage_prices_;
+   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
+   td::BitArray<256> rand_seed_;
+   block::ComputePhaseConfig compute_phase_cfg_;
+   block::ActionPhaseConfig action_phase_cfg_;
+   td::RefInt256 masterchain_create_fee, basechain_create_fee;
+
+   auto fetch_res = Collator::impl_fetch_config_params(std::move(config), &old_mparams,
+                                                 &storage_prices_, &storage_phase_cfg_,
+                                                 &rand_seed_, &compute_phase_cfg_,
+                                                 &action_phase_cfg_, &masterchain_create_fee,
+                                                 &basechain_create_fee, wc);
+   if(fetch_res.is_error()) {
+    auto error = fetch_res.move_as_error();
+    LOG(DEBUG) << "Cannot fetch config params" << error.message();
+    return false;
+   }
+
+   auto res = Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt,
+                                                    &storage_phase_cfg_, &compute_phase_cfg_,
+                                                    &action_phase_cfg_,
+                                                    true, lt);
+   if(res.is_error()) {
+    auto error = res.move_as_error();
+    LOG(DEBUG) << "Cannot run message on account" << error.message();
+    return false;
+   }
+   std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+
+   auto trans_root = trans->commit(*acc);
+   if (trans_root.is_null()) {
+     LOG(DEBUG) << "cannot commit new transaction for smart contract ";
+     return false;
+   }
+   return true;
 }
 
 }  // namespace validator

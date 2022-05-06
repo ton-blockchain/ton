@@ -81,6 +81,27 @@ void AsyncStateSerializer::alarm() {
   td::actor::send_closure(manager_, &ValidatorManager::get_top_masterchain_block, std::move(P));
 }
 
+void AsyncStateSerializer::request_masterchain_state() {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &AsyncStateSerializer::fail_handler,
+                                  R.move_as_error_prefix("failed to get masterchain state: "));
+        } else {
+          td::actor::send_closure(SelfId, &AsyncStateSerializer::got_masterchain_state,
+                                  td::Ref<MasterchainState>(R.move_as_ok()));
+        }
+      });
+      td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, masterchain_handle_, std::move(P));
+}
+
+void AsyncStateSerializer::request_shard_state(BlockIdExt shard) {
+        auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+          R.ensure();
+          td::actor::send_closure(SelfId, &AsyncStateSerializer::got_shard_handle, R.move_as_ok());
+        });
+        return td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, shard, true, std::move(P));
+}
+
 void AsyncStateSerializer::next_iteration() {
   if (running_) {
     return;
@@ -102,29 +123,26 @@ void AsyncStateSerializer::next_iteration() {
   if (attempt_ < max_attempt() && last_key_block_id_.id.seqno < last_block_id_.id.seqno &&
       need_serialize(masterchain_handle_)) {
     if (masterchain_state_.is_null()) {
-      running_ = true;
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
-        if (R.is_error()) {
-          td::actor::send_closure(SelfId, &AsyncStateSerializer::fail_handler,
-                                  R.move_as_error_prefix("failed to get masterchain state: "));
-        } else {
-          td::actor::send_closure(SelfId, &AsyncStateSerializer::got_masterchain_state,
-                                  td::Ref<MasterchainState>(R.move_as_ok()));
-        }
-      });
-      td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, masterchain_handle_, std::move(P));
+          // block next attempts immediately, but send actual request later
+          running_ = true;
+          delay_action(
+            [SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_masterchain_state); },
+            // Masterchain is more important and much lighter than shards
+            // thus lower delay
+            td::Timestamp::in(td::Random::fast(0, 600)));
       return;
     }
     while (next_idx_ < shards_.size()) {
       if (!need_monitor(shards_[next_idx_].shard_full())) {
         next_idx_++;
       } else {
-        running_ = true;
-        auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
-          R.ensure();
-          td::actor::send_closure(SelfId, &AsyncStateSerializer::got_shard_handle, R.move_as_ok());
-        });
-        td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, shards_[next_idx_], true, std::move(P));
+          // block next attempts immediately, but send actual request later
+          running_ = true;
+          delay_action(
+            [SelfId = actor_id(this), shard = shards_[next_idx_]]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_shard_state, shard); },
+            // Shards are less important and heavier than master
+            // thus higher delay
+            td::Timestamp::in(td::Random::fast(0, 4 * 3600)));
         return;
       }
     }

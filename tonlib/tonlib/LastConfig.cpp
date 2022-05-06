@@ -39,7 +39,7 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const LastConfigState& stat
   return sb;
 }
 
-LastConfig::LastConfig(ExtClientRef client, td::unique_ptr<Callback> callback) : callback_(std::move(callback)) {
+LastConfig::LastConfig(ExtClientRef client) {
   client_.set_client(client);
   VLOG(last_block) << "State: " << state_;
 }
@@ -62,9 +62,7 @@ void LastConfig::with_last_block(td::Result<LastBlockState> r_last_block) {
   }
 
   auto last_block = r_last_block.move_as_ok();
-  auto params = params_;
-  client_.send_query(ton::lite_api::liteServer_getConfigParams(0, create_tl_lite_block_id(last_block.last_block_id),
-                                                               std::move(params)),
+  client_.send_query(ton::lite_api::liteServer_getConfigAll(0, create_tl_lite_block_id(last_block.last_block_id)),
                      [this](auto r_config) { this->on_config(std::move(r_config)); });
 }
 

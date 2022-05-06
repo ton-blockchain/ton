@@ -353,6 +353,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
   }
   switch (cl) {
     case _IntConst:
+    case _SliceConst:
     case _GlobVar:
     case _Call:
     case _CallInd:
@@ -540,6 +541,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
   bool reach;
   switch (op.cl) {
     case Op::_IntConst:
+    case Op::_SliceConst:
     case Op::_GlobVar:
     case Op::_SetGlob:
     case Op::_Call:
@@ -707,6 +709,10 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       values.add_newval(left[0]).set_const(int_const);
       break;
     }
+    case _SliceConst: {
+      values.add_newval(left[0]).set_const(str_const);
+      break;
+    }
     case _Call: {
       prepare_args(values);
       auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
@@ -848,6 +854,7 @@ bool Op::mark_noreturn() {
       // fallthrough
     case _Import:
     case _IntConst:
+    case _SliceConst:
     case _Let:
     case _Tuple:
     case _UnTuple:

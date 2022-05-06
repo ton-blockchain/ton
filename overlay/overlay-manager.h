@@ -91,6 +91,7 @@ class OverlayManager : public Overlays {
 
   void register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                         td::actor::ActorOwn<Overlay> overlay);
+  void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) override;
 
   struct PrintId {};
 

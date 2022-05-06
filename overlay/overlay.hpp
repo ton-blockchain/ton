@@ -144,8 +144,11 @@ class OverlayImpl : public Overlay {
   void print(td::StringBuilder &sb) override;
 
   td::Status check_date(td::uint32 date);
-  td::Status check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size);
+  BroadcastCheckResult check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size, bool is_fec);
   td::Status check_delivered(BroadcastHash hash);
+
+  void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
+  void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
 
   BroadcastFec *get_fec_broadcast(BroadcastHash hash);
   void register_fec_broadcast(std::unique_ptr<BroadcastFec> bcast);
@@ -186,6 +189,8 @@ class OverlayImpl : public Overlay {
   }
   std::shared_ptr<Certificate> get_certificate(PublicKeyHash local_id);
   td::Result<Encryptor *> get_encryptor(PublicKey source);
+
+  void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) override;
 
  private:
   template <class T>
