@@ -149,6 +149,7 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
     abort_query(F.move_as_error());
     return;
   }
+  prev_logged_timer_ = td::Timer();
 
   ton_api::downcast_call(
       *F.move_as_ok().get(),
@@ -188,8 +189,12 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
   sum_ += data.size();
   parts_.push_back(std::move(data));
 
-  if (sum_ % (1 << 22) == 0) {
-    LOG(DEBUG) << "downloading state " << block_id_ << ": total=" << sum_;
+  double elapsed = prev_logged_timer_.elapsed();
+  if (elapsed > 10.0) {
+    prev_logged_timer_ = td::Timer();
+    LOG(INFO) << "downloading state " << block_id_ << ": total=" << sum_ <<
+        " (" << double(sum_ - prev_logged_sum_) / elapsed << " B/s)";
+    prev_logged_sum_ = sum_;
   }
 
   if (last_part) {
