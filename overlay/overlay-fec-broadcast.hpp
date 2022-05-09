@@ -106,6 +106,7 @@ class BroadcastFec : public td::ListNode {
     CHECK(encoder_ != nullptr);
     ready_ = true;
     decoder_ = nullptr;
+    data_ = D.data.clone();
     return std::move(D.data);
   }
 
@@ -185,7 +186,10 @@ class BroadcastFec : public td::ListNode {
     }
   }
 
-  void broadcast_checked(td::Result<td::Unit> R) {
+  void broadcast_checked(td::Result<td::Unit> R);
+  void set_overlay(OverlayImpl *overlay, bool untrusted) {
+    overlay_ = overlay;
+    untrusted_ = untrusted;
   }
 
  private:
@@ -208,6 +212,10 @@ class BroadcastFec : public td::ListNode {
 
   td::uint32 next_seqno_ = 0;
   td::uint64 received_parts_ = 0;
+
+  OverlayImpl *overlay_;
+  bool untrusted_{false};
+  td::BufferSlice data_;
 };
 
 class OverlayFecBroadcastPart : public td::ListNode {
@@ -228,6 +236,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
   td::BufferSlice signature_;
 
   bool is_short_;
+  bool untrusted_{false};
 
   BroadcastFec *bcast_;
   OverlayImpl *overlay_;
@@ -280,7 +289,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
     signature_ = std::move(signature);
   }
   void update_overlay(OverlayImpl *overlay);
-
+  
   tl_object_ptr<ton_api::overlay_broadcastFec> export_tl();
   tl_object_ptr<ton_api::overlay_broadcastFecShort> export_tl_short();
   td::BufferSlice export_serialized();
@@ -290,7 +299,9 @@ class OverlayFecBroadcastPart : public td::ListNode {
   td::Status run() {
     TRY_STATUS(run_checks());
     TRY_STATUS(apply());
-    TRY_STATUS(distribute());
+    if(!untrusted_) {
+      TRY_STATUS(distribute());
+    }
     return td::Status::OK();
   }
 
