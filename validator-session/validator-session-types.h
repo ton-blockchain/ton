@@ -53,6 +53,8 @@ struct ValidatorSessionOptions {
 
   bool new_catchain_ids = false;
 
+  td::uint32 proto_version = 0;
+
   td::Bits256 get_hash() const;
 };
 

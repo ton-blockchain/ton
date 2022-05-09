@@ -259,6 +259,11 @@ set(FIFT_TEST_SOURCE
   PARENT_SCOPE
 )
 
+set(BIGINT_TEST_SOURCE
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/test-bigint.cpp
+  PARENT_SCOPE
+)
+
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -284,7 +289,7 @@ target_link_libraries(fift-lib PUBLIC ton_crypto ton_db tdutils ton_block)
 set_target_properties(fift-lib PROPERTIES OUTPUT_NAME fift)
 
 add_executable(fift fift/fift-main.cpp)
-target_link_libraries(fift PUBLIC fift-lib)
+target_link_libraries(fift PUBLIC fift-lib git)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
 endif()
@@ -293,9 +298,14 @@ add_library(src_parser ${PARSER_SOURCE})
 target_include_directories(src_parser PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(src_parser PUBLIC ton_crypto)
 
+add_library(ton_block ${BLOCK_SOURCE})
+target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
+
 add_executable(func func/func.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(func PUBLIC ton_crypto src_parser)
+target_link_libraries(func PUBLIC ton_crypto src_parser git ton_block)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(func wingetopt)
 endif()
@@ -307,16 +317,17 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
 endif()
 
-add_executable(pow-miner util/pow-miner.cpp util/Miner.cpp util/Miner.h)
-target_link_libraries(pow-miner PUBLIC ton_crypto ton_block)
+add_library(pow-miner-lib util/Miner.cpp util/Miner.h)
+target_include_directories(pow-miner-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(pow-miner-lib PUBLIC ton_crypto ton_block)
+
+add_executable(pow-miner util/pow-miner.cpp)
+target_link_libraries(pow-miner PRIVATE ton_crypto ton_block pow-miner-lib git)
+
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
+  target_link_libraries_system(pow-miner wingetopt)
 endif()
-
-add_library(ton_block ${BLOCK_SOURCE})
-target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
 
 set(TURN_OFF_LSAN cd .)
 if (TON_USE_ASAN AND NOT WIN32)
@@ -399,12 +410,12 @@ add_executable(create-state block/create-state.cpp)
 target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 if (INTERNAL_COMPILE)
-  target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib)
+  target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib git)
 else()
   if (TONLIB_COMPILE) 
-    target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib)
+    target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib git)
   else()
-    target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block)
+    target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block git)
   endif()
 endif()
 if (WINGETOPT_FOUND)
@@ -414,7 +425,7 @@ endif()
 add_executable(dump-block block/dump-block.cpp)
 target_include_directories(dump-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(dump-block PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(dump-block PUBLIC ton_crypto fift-lib ton_block git)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(dump-block wingetopt)
 endif()
@@ -422,18 +433,20 @@ endif()
 add_executable(adjust-block block/adjust-block.cpp)
 target_include_directories(adjust-block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(adjust-block PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(adjust-block PUBLIC ton_crypto fift-lib ton_block git)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(dump-block wingetopt)
+  target_link_libraries_system(adjust-block wingetopt)
 endif()
 
 add_executable(test-weight-distr block/test-weight-distr.cpp)
 target_include_directories(test-weight-distr PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(test-weight-distr PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(test-weight-distr PUBLIC ton_crypto fift-lib ton_block git)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(test-weight-distr wingetopt)
 endif()
 
-install(TARGETS fift func RUNTIME DESTINATION bin)
+install(TARGETS fift func pow-miner RUNTIME DESTINATION bin)
 install(DIRECTORY fift/lib/ DESTINATION lib/fift)
+install(DIRECTORY smartcont DESTINATION share/ton)

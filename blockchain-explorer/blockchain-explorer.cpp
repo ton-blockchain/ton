@@ -260,7 +260,7 @@ class CoreActor : public CoreActorInterface {
   CoreActor() {
   }
 
-  static int get_arg_iterate(void* cls, enum MHD_ValueKind kind, const char* key, const char* value) {
+  static MHD_RESULT get_arg_iterate(void* cls, enum MHD_ValueKind kind, const char* key, const char* value) {
     auto X = static_cast<std::map<std::string, std::string>*>(cls);
     if (key && value && std::strlen(key) > 0 && std::strlen(value) > 0) {
       X->emplace(key, urldecode(td::Slice{value}, false));
@@ -277,7 +277,7 @@ class CoreActor : public CoreActorInterface {
     ~HttpRequestExtra() {
       MHD_destroy_post_processor(postprocessor);
     }
-    static int iterate_post(void* coninfo_cls, enum MHD_ValueKind kind, const char* key, const char* filename,
+    static MHD_RESULT iterate_post(void* coninfo_cls, enum MHD_ValueKind kind, const char* key, const char* filename,
                             const char* content_type, const char* transfer_encoding, const char* data, uint64_t off,
                             size_t size) {
       auto ptr = static_cast<HttpRequestExtra*>(coninfo_cls);
@@ -305,10 +305,10 @@ class CoreActor : public CoreActorInterface {
     }
   }
 
-  static int process_http_request(void* cls, struct MHD_Connection* connection, const char* url, const char* method,
+  static MHD_RESULT process_http_request(void* cls, struct MHD_Connection* connection, const char* url, const char* method,
                                   const char* version, const char* upload_data, size_t* upload_data_size, void** ptr) {
     struct MHD_Response* response = nullptr;
-    int ret;
+    MHD_RESULT ret;
 
     bool is_post = false;
     if (std::strcmp(method, "GET") == 0) {

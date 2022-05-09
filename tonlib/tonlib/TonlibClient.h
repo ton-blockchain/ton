@@ -77,6 +77,16 @@ class TonlibClient : public td::actor::Actor {
     std::string rwallet_init_public_key;
   };
 
+  template <class T, class P>
+  void make_request(T&& request, P&& promise) {
+    td::Promise<typename std::decay_t<T>::ReturnType> new_promise = std::move(promise);
+
+    auto status = do_request(std::forward<T>(request), std::move(new_promise));
+    if (status.is_error()) {
+      new_promise.operator()(std::move(status));
+    }
+  }
+
  private:
   enum class State { Uninited, Running, Closed } state_ = State::Uninited;
   td::unique_ptr<TonlibCallback> callback_;
@@ -97,6 +107,7 @@ class TonlibClient : public td::actor::Actor {
     td::optional<ton::BlockIdExt> block_id;
   };
   QueryContext query_context_;
+  vm::Dictionary libraries{256};
 
   // network
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> raw_client_;
@@ -203,15 +214,6 @@ class TonlibClient : public td::actor::Actor {
 
   void make_any_request(tonlib_api::Function& function, QueryContext query_context,
                         td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise);
-  template <class T, class P>
-  void make_request(T&& request, P&& promise) {
-    td::Promise<typename std::decay_t<T>::ReturnType> new_promise = std::move(promise);
-
-    auto status = do_request(std::forward<T>(request), std::move(new_promise));
-    if (status.is_error()) {
-      new_promise.operator()(std::move(status));
-    }
-  }
 
   td::Result<FullConfig> validate_config(tonlib_api::object_ptr<tonlib_api::config> config);
   void set_config(FullConfig config);
@@ -320,6 +322,9 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(tonlib_api::pchan_unpackPromise& request,
                         td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise);
 
+  void perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,
+                             td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise);
+
   void do_dns_request(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
                       block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
   struct DnsFinishData {
@@ -341,7 +346,24 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(tonlib_api::withBlock& request, td::Promise<object_ptr<tonlib_api::Object>>&& promise);
 
+  td::Status do_request(const tonlib_api::blocks_getMasterchainInfo& masterchain_info,
+                        td::Promise<object_ptr<tonlib_api::blocks_masterchainInfo>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getShards& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_lookupBlock& block_header,
+                        td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getTransactions& block_data,
+                        td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getBlockHeader& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise);
+
+  td::Status do_request(const tonlib_api::getConfigParam& request,
+                        td::Promise<object_ptr<tonlib_api::configInfo>>&& promise);
+
   void proxy_request(td::int64 query_id, std::string data);
+
+  void load_libs_from_disk();
+  void store_libs_to_disk();
 
   friend class TonlibQueryActor;
   struct Target {

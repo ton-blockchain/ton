@@ -168,6 +168,11 @@ void VarDescr::set_const(td::RefInt256 value) {
   }
 }
 
+void VarDescr::set_const(std::string value) {
+  str_const = value;
+  val = _Const;
+}
+
 void VarDescr::set_const_nan() {
   set_const(td::make_refint());
 }
@@ -341,6 +346,11 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
       os << pfx << dis << "CONST ";
       show_var_list(os, left, vars);
       os << " := " << int_const << std::endl;
+      break;
+    case _SliceConst:
+      os << pfx << dis << "SCONST ";
+      show_var_list(os, left, vars);
+      os << " := " << str_const << std::endl;
       break;
     case _Import:
       os << pfx << dis << "IMPORT ";

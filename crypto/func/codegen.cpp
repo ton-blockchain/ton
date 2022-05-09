@@ -302,6 +302,15 @@ bool Op::generate_code_step(Stack& stack) {
       }
       return true;
     }
+    case _SliceConst: {
+      auto p = next_var_info[left[0]];
+      if (!p || p->is_unused()) {
+        return true;
+      }
+      stack.o << AsmOp::Const("x{" + str_const + "} PUSHSLICE");
+      stack.push_new_var(left[0]);
+      return true;
+    }
     case _GlobVar:
       if (dynamic_cast<const SymValGlobVar*>(fun_ref->value)) {
         bool used = false;

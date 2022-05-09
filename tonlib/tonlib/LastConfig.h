@@ -36,17 +36,10 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const LastConfigState& stat
 
 class LastConfig : public td::actor::Actor {
  public:
-  class Callback {
-   public:
-    virtual ~Callback() {
-    }
-  };
-
-  explicit LastConfig(ExtClientRef client, td::unique_ptr<Callback> callback);
+  explicit LastConfig(ExtClientRef client);
   void get_last_config(td::Promise<LastConfigState> promise);
 
  private:
-  td::unique_ptr<Callback> callback_;
   ExtClient client_;
   LastConfigState state_;
 

@@ -227,7 +227,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
     }
     if (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time())) {
       auto ttl = ValidatorManager::persistent_state_ttl(h->unix_time());
-      double time_to_download = 3600;
+      double time_to_download = 3600 * 3;
       if (ttl > td::Clocks::system() + time_to_download) {
         handle = h;
         break;
@@ -259,7 +259,7 @@ void ValidatorManagerMasterchainReiniter::download_masterchain_state() {
     }
   });
   td::actor::create_actor<DownloadShardState>("downloadstate", block_id_, block_id_, 2, manager_,
-                                              td::Timestamp::in(3600), std::move(P))
+                                              td::Timestamp::in(3600 * 3), std::move(P))
       .release();
 }
 
@@ -267,7 +267,7 @@ void ValidatorManagerMasterchainReiniter::downloaded_masterchain_state(td::Ref<S
   state_ = td::Ref<MasterchainState>{std::move(state)};
   CHECK(handle_->received_state());
   CHECK(handle_->is_applied());
-
+  LOG(INFO) << "downloaded masterchain state";
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_all_shards);
@@ -276,6 +276,7 @@ void ValidatorManagerMasterchainReiniter::downloaded_masterchain_state(td::Ref<S
 }
 
 void ValidatorManagerMasterchainReiniter::downloaded_all_shards() {
+  LOG(INFO) << "downloaded all shards";
   td::actor::send_closure(manager_, &ValidatorManager::update_gc_block_handle, handle_,
                           [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             R.ensure();
@@ -286,6 +287,7 @@ void ValidatorManagerMasterchainReiniter::downloaded_all_shards() {
 void ValidatorManagerMasterchainReiniter::finish() {
   CHECK(handle_->id().id.seqno == 0 || handle_->is_key_block());
   promise_.set_value(ValidatorManagerInitResult{handle_, state_, std::move(client_), handle_, state_, handle_});
+  LOG(INFO) << "persistent state download finished";
   stop();
 }
 

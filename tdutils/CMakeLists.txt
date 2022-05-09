@@ -251,6 +251,7 @@ set(TDUTILS_SOURCE
   td/utils/ThreadLocalStorage.h
   td/utils/ThreadSafeCounter.h
   td/utils/Time.h
+  td/utils/date.h
   td/utils/TimedStat.h
   td/utils/Timer.h
   td/utils/TsFileLog.h

@@ -270,7 +270,7 @@ struct LogEventString {
       return -static_cast<int64>(need_size);
     }
     dest.truncate(need_size);
-    td::as<unsigned>(dest.data()) = tag;
+    td::as<unsigned>(dest.data()) = unsigned(tag);
     td::as<int>(dest.data() + 4) = td::narrow_cast<int>(data.size());
     dest.substr(8).copy_from(data);
     return dest.size();

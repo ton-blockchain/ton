@@ -66,8 +66,8 @@ class TerminalIOImpl : public TerminalIO, td::ObserverBase {
   void on_net() {
     loop();
   }
-  TerminalIOImpl(std::string prompt, bool use_readline, std::unique_ptr<Callback> callback)
-      : prompt_(prompt), use_readline_(use_readline), callback_(std::move(callback)) {
+  TerminalIOImpl(std::string prompt, bool use_readline, bool no_input, std::unique_ptr<Callback> callback)
+      : prompt_(prompt), use_readline_(use_readline), no_input_(no_input), callback_(std::move(callback)) {
   }
 
   int stdin_getc();
@@ -83,6 +83,7 @@ class TerminalIOImpl : public TerminalIO, td::ObserverBase {
 
   std::string prompt_;
   bool use_readline_ = false;
+  bool no_input_ = false;
   std::unique_ptr<Callback> callback_;
   std::mutex out_mutex_;
 

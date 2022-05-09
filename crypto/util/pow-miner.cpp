@@ -1,3 +1,30 @@
+/* 
+    This file is part of TON Blockchain source code.
+
+    TON Blockchain is free software; you can redistribute it and/or
+    modify it under the terms of the GNU General Public License
+    as published by the Free Software Foundation; either version 2
+    of the License, or (at your option) any later version.
+
+    TON Blockchain is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
+
+    In addition, as a special exception, the copyright holders give permission 
+    to link the code of portions of this program with the OpenSSL library. 
+    You must obey the GNU General Public License in all respects for all 
+    of the code used other than OpenSSL. If you modify file(s) with this 
+    exception, you may extend this exception to your version of the file(s), 
+    but you are not obligated to do so. If you do not wish to do so, delete this 
+    exception statement from your version. If you delete this exception statement 
+    from all source files in the program, then also delete it here.
+
+    Copyright 2017-2020 Telegram Systems LLP
+*/
 #include "common/bigint.hpp"
 #include "common/refint.h"
 #include "block/block.h"
@@ -10,7 +37,7 @@
 #include <thread>
 #include <cstdlib>
 #include <getopt.h>
-
+#include "git.h"
 #include "Miner.h"
 
 const char* progname;
@@ -19,7 +46,7 @@ int usage() {
   std::cerr
       << "usage: " << progname
       << " [-v][-B][-w<threads>] [-t<timeout>] <my-address> <pow-seed> <pow-complexity> <iterations> [<miner-addr> "
-         "<output-ext-msg-boc>]\n"
+         "<output-ext-msg-boc>] [-V]\n"
          "Outputs a valid <rdata> value for proof-of-work testgiver after computing at most <iterations> hashes "
          "or terminates with non-zero exit code\n";
   std::exit(2);
@@ -129,14 +156,14 @@ int main(int argc, char* const argv[]) {
   progname = argv[0];
   int i, threads = 0;
   bool bounce = false, benchmark = false;
-  while ((i = getopt(argc, argv, "bnvw:t:Bh")) != -1) {
+  while ((i = getopt(argc, argv, "bnvw:t:Bh:V")) != -1) {
     switch (i) {
       case 'v':
         ++verbosity;
         break;
       case 'w':
         threads = atoi(optarg);
-        CHECK(threads > 0 && threads <= 128);
+        CHECK(threads > 0 && threads <= 256);
         break;
       case 't': {
         int timeout = atoi(optarg);
@@ -152,6 +179,10 @@ int main(int argc, char* const argv[]) {
         break;
       case 'n':
         bounce = false;
+        break;
+      case 'V':
+        std::cout << "pow-miner build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::exit(0);
         break;
       case 'h':
         return usage();

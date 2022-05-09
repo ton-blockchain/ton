@@ -219,9 +219,11 @@ overlay.broadcastFec.partId broadcast_hash:int256 data_hash:int256 seqno:int = o
 overlay.broadcast.toSign hash:int256 date:int = overlay.broadcast.ToSign;
 
 overlay.certificate issued_by:PublicKey expire_at:int max_size:int signature:bytes = overlay.Certificate;
+overlay.certificateV2 issued_by:PublicKey expire_at:int max_size:int flags:int signature:bytes = overlay.Certificate;
 overlay.emptyCertificate = overlay.Certificate;
 
 overlay.certificateId overlay_id:int256 node:int256 expire_at:int max_size:int = overlay.CertificateId;
+overlay.certificateIdV2 overlay_id:int256 node:int256 expire_at:int max_size:int flags:int = overlay.CertificateId;
 
 overlay.unicast data:bytes = overlay.Broadcast;
 overlay.broadcast src:PublicKey certificate:overlay.Certificate flags:int data:bytes date:int signature:bytes = overlay.Broadcast;
@@ -307,6 +309,8 @@ validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes coll
 
 validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
+validatorSession.configVersioned catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
+        max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 validatorSession.configNew catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int new_catchain_ids:Bool = validatorSession.Config;
 
@@ -616,6 +620,11 @@ engine.validator.proposalVote perm_key:int256 to_send:bytes = engine.validator.P
 engine.validator.dhtServerStatus id:int256 status:int = engine.validator.DhtServerStatus;
 engine.validator.dhtServersStatus servers:(vector engine.validator.dhtServerStatus) = engine.validator.DhtServersStatus;
 
+engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 nodes:(vector adnl.id.short) 
+                              stats:(vector engine.validator.oneStat) = engine.validator.OverlayStats;
+engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
+
+
 ---functions---
 
 engine.validator.getTime = engine.validator.Time;
@@ -657,7 +666,13 @@ engine.validator.createComplaintVote election_id:int vote:bytes = engine.validat
 
 engine.validator.checkDhtServers id:int256 = engine.validator.DhtServersStatus;
 
+engine.validator.getOverlaysStats = engine.validator.OverlaysStats;
+
 engine.validator.controlQuery data:bytes = Object;
+
+engine.validator.importCertificate overlay_id:int256 local_id:adnl.id.short signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
+engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash expire_at:int max_size:int = overlay.Certificate;
+engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
 ---types---
 

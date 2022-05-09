@@ -56,6 +56,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual double sync_blocks_before() const = 0;
   virtual double block_ttl() const = 0;
   virtual double state_ttl() const = 0;
+  virtual double max_mempool_num() const = 0;
   virtual double archive_ttl() const = 0;
   virtual double key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
@@ -81,6 +82,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_sync_blocks_before(double value) = 0;
   virtual void set_block_ttl(double value) = 0;
   virtual void set_state_ttl(double value) = 0;
+  virtual void set_max_mempool_num(double value) = 0;
   virtual void set_archive_ttl(double value) = 0;
   virtual void set_key_proof_ttl(double value) = 0;
   virtual void set_initial_sync_disabled(bool value) = 0;
@@ -94,9 +96,9 @@ struct ValidatorManagerOptions : public td::CntObject {
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
       std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard = [](ShardIdFull, CatchainSeqno,
                                                                                        ShardCheckMode) { return true; },
-      bool allow_blockchain_init = false, double sync_blocks_before = 300,
-      double block_ttl = 86400 * 7, double state_ttl = 3600,
-      double archive_ttl = 86400 * 365, double key_proof_ttl = 86400 * 3650,
+      bool allow_blockchain_init = false, double sync_blocks_before = 300, double block_ttl = 86400 * 7,
+      double state_ttl = 3600, double archive_ttl = 86400 * 365, double key_proof_ttl = 86400 * 3650,
+      double max_mempool_num = 999999,
       bool initial_sync_disabled = false);
 };
 
@@ -176,6 +178,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void new_external_message(td::BufferSlice data) = 0;
+  virtual void check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) = 0;
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
 

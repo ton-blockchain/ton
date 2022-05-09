@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,19 +14,24 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-engine.hpp"
 
+#include "auto/tl/ton_api.h"
+#include "overlay-manager.h"
+#include "td/actor/actor.h"
+#include "tl-utils/tl-utils.hpp"
+#include "tl/TlObject.h"
 #include "ton/ton-types.h"
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
@@ -62,6 +67,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
+#include "git.h"
 
 Config::Config() {
   out_port = 3278;
@@ -1308,6 +1314,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
   }
+  if (max_mempool_num_ != 0) {
+    validator_options_.write().set_max_mempool_num(max_mempool_num_);
+  }
   if (block_ttl_ != 0) {
     validator_options_.write().set_block_ttl(block_ttl_);
   }
@@ -1322,6 +1331,9 @@ td::Status ValidatorEngine::load_global_config() {
   }
   for (auto seq : unsafe_catchains_) {
     validator_options_.write().add_unsafe_resync_catchain(seq);
+  }
+  for (auto rot : unsafe_catchain_rotations_) {
+    validator_options_.write().add_unsafe_catchain_rotate(rot.first, rot.second.first, rot.second.second);
   }
   if (truncate_seqno_ > 0) {
     validator_options_.write().truncate_db(truncate_seqno_);
@@ -3136,6 +3148,135 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createCom
       .release();
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_importCertificate &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  auto r = ton::overlay::Certificate::create(std::move(query.cert_));
+  if(r.is_error()) {
+    promise.set_value(create_control_query_error(r.move_as_error_prefix("Invalid certificate: ")));
+  }
+  //TODO force Overlays::update_certificate to return result
+  /*auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+        } else {
+          promise.set_value(
+            ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+        }
+      });
+  */
+  td::actor::send_closure(overlay_manager_, &ton::overlay::Overlays::update_certificate,
+                            ton::adnl::AdnlNodeIdShort{query.local_id_->id_},
+                            ton::overlay::OverlayIdShort{query.overlay_id_},
+                            ton::PublicKeyHash{query.signed_key_->key_hash_},
+                            r.move_as_ok());
+  promise.set_value(
+            ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true)
+  );
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_importShardOverlayCertificate &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  auto r = ton::overlay::Certificate::create(std::move(query.cert_));
+  if(r.is_error()) {
+    promise.set_value(create_control_query_error(r.move_as_error_prefix("Invalid certificate: ")));
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to import cert: ")));
+    } else {
+      promise.set_value(
+          ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+    }
+  });
+  ton::ShardIdFull shard_id{ton::WorkchainId{query.workchain_}, static_cast<ton::ShardId>(query.shard_)};
+  td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_shard_overlay_certificate,
+                            shard_id, ton::PublicKeyHash{query.signed_key_->key_hash_}, r.move_as_ok(), std::move(P));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_signShardOverlayCertificate &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  ton::ShardIdFull shard_id{ton::WorkchainId{query.workchain_}, static_cast<ton::ShardId>(query.shard_)};
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to import cert: ")));
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
+  td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::sign_shard_overlay_certificate,
+                            shard_id, ton::PublicKeyHash{query.signed_key_->key_hash_}, query.expire_at_, query.max_size_, std::move(P));
+}
+
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getOverlaysStats &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
+    return;
+  }
+
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  td::actor::send_closure(overlay_manager_, &ton::overlay::Overlays::get_stats,
+                          [promise = std::move(promise)](
+                              td::Result<ton::tl_object_ptr<ton::ton_api::engine_validator_overlaysStats>> R) mutable {
+                            if (R.is_ok()) {
+                              promise.set_value(ton::serialize_tl_object(R.move_as_ok(), true));
+                            } else {
+                              promise.set_value(create_control_query_error(
+                                  td::Status::Error(ton::ErrorCode::notready, "overlay manager not ready")));
+                            }
+                          });
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -3276,7 +3417,7 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 65536));
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 786432));
 
   std::vector<std::function<void()>> acts;
 
@@ -3285,6 +3426,11 @@ int main(int argc, char *argv[]) {
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
+  });
+  p.add_option('V', "version", "shows validator-engine build information", [&]() {
+    std::cout << "validator-engine build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -3328,6 +3474,10 @@ int main(int argc, char *argv[]) {
     auto v = td::to_double(fname);
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
   });
+  p.add_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice fname) {
+    auto v = td::to_double(fname);
+    acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
+  });
   p.add_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=7*86400",
                [&](td::Slice fname) {
                  auto v = td::to_double(fname);
@@ -3359,6 +3509,20 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
         return td::Status::OK();
       });
+  p.add_checked_option('F', "unsafe-catchain-rotate", "use forceful and DANGEROUS catchain rotation",
+                       [&](td::Slice params) {
+                         auto pos1 = params.find(':');
+                         TRY_RESULT(b_seq, td::to_integer_safe<ton::BlockSeqno>(params.substr(0, pos1)));
+                         params = params.substr(++pos1, params.size());
+                         auto pos2 = params.find(':');
+                         TRY_RESULT(cc_seq, td::to_integer_safe<ton::CatchainSeqno>(params.substr(0, pos2)));
+                         params = params.substr(++pos2, params.size());
+                         auto h = std::stoi(params.substr(0, params.size()).str());
+                         acts.push_back([&x, b_seq, cc_seq, h]() {
+                           td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain_rotation, b_seq, cc_seq, h);
+                         });
+                         return td::Status::OK();
+                       });
   td::uint32 threads = 7;
   p.add_checked_option(
       't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {

@@ -26,6 +26,7 @@
 #include "td/utils/crypto.h"
 
 #include "block/block.h"
+#include "block/mc-config.h"
 
 namespace ton {
 class SmartContract : public td::CntObject {
@@ -48,6 +49,7 @@ class SmartContract : public td::CntObject {
     td::Ref<vm::Cell> actions;
     td::int32 code;
     td::int64 gas_used;
+    td::ConstBitPtr missing_library{0};
     static int output_actions_count(td::Ref<vm::Cell> list);
   };
 
@@ -60,6 +62,10 @@ class SmartContract : public td::CntObject {
     bool ignore_chksig{false};
     td::uint64 amount{0};
     td::uint64 balance{0};
+
+    td::optional<block::StdAddress> address;
+    td::optional<std::shared_ptr<const block::Config>> config;
+    td::optional<vm::Dictionary> libraries;
 
     Args() {
     }
@@ -104,6 +110,18 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_balance(td::uint64 balance) {
       this->balance = balance;
+      return std::move(*this);
+    }
+    Args&& set_address(block::StdAddress address) {
+      this->address = address;
+      return std::move(*this);
+    }
+    Args&& set_config(std::shared_ptr<const block::Config>& config) {
+      this->config = config;
+      return std::move(*this);
+    }
+    Args&& set_libraries(vm::Dictionary libraries) {
+      this->libraries = libraries;
       return std::move(*this);
     }
 

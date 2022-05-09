@@ -36,6 +36,7 @@ class WalletInterface : public SmartContract {
   struct Gift {
     block::StdAddress destination;
     td::int64 gramms;
+    td::int32 send_mode{-1};
 
     bool is_encrypted{false};
     std::string message;

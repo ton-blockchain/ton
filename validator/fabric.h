@@ -46,6 +46,8 @@ td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_bloc
 
 td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_set);
 
+void run_check_external_message(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
+
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
                             td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
@@ -81,6 +83,8 @@ void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_b
                           td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
+void run_fetch_account_state(WorkchainId wc, StdSmcAddress  addr, td::actor::ActorId<ValidatorManager> manager,
+                             td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,

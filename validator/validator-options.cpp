@@ -27,10 +27,11 @@ namespace validator {
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(
     BlockIdExt zero_block_id, BlockIdExt init_block_id,
     std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard, bool allow_blockchain_init,
-    double sync_blocks_before, double block_ttl, double state_ttl,
+    double sync_blocks_before, double block_ttl, double state_ttl, double max_mempool_num,
     double archive_ttl, double key_proof_ttl, bool initial_sync_disabled) {
   return td::make_ref<ValidatorManagerOptionsImpl>(zero_block_id, init_block_id, std::move(check_shard),
                                                    allow_blockchain_init, sync_blocks_before, block_ttl, state_ttl,
+                                                   max_mempool_num,
                                                    archive_ttl, key_proof_ttl, initial_sync_disabled);
 }
 

@@ -1,0 +1,47 @@
+name: C/C++ CI Ubuntu 18.04 Compile
+
+on: [push,workflow_dispatch]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+      with:      
+        submodules: 'recursive'
+    - name: Run Cppcheck
+      uses: Bedzior/run-cppcheck@master
+      with:
+        enabled checks: all
+        enable inconclusive: true
+        generate report: true
+    - name: Upload report
+      uses: actions/upload-artifact@v1
+      with:
+        name: report
+        path: output
+    - name: mkdir
+      run: |
+        mkdir build
+    - name: cmake all
+      run: | 
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+    - name: make all
+      run: |
+        cd build
+        make -j4 fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+
+    - name: find & copy binaries
+      run: |
+        mkdir artifacts
+        cp build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries
+        path: artifacts

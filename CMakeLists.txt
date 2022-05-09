@@ -4,6 +4,16 @@ project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 #set(OPENSSL_USE_STATIC_LIBS TRUE)
 
+# Define the two required variables before including the source code for watching a git repository.
+set(PRE_CONFIGURE_FILE "git.cc.in")
+set(POST_CONFIGURE_FILE "${CMAKE_CURRENT_BINARY_DIR}/git.cc")
+include(git_watcher.cmake)
+
+# Create a library out of the compiled post-configure file.
+add_library(git STATIC ${POST_CONFIGURE_FILE})
+target_include_directories(git PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_dependencies(git check_git)
+
 # Prevent in-source build
 get_filename_component(TON_REAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
 get_filename_component(TON_REAL_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}" REALPATH)
@@ -112,7 +122,7 @@ add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
 set(CRC32C_FOUND 1)
 
 if (TON_USE_ROCKSDB)
-  if (ANDROID) 
+  if (ANDROID)
     set(PORTABLE ON CACHE BOOL "portable")
   endif()
   set(WITH_GFLAGS OFF CACHE BOOL "build with GFlags")
@@ -413,6 +423,9 @@ target_link_libraries(test-vm PRIVATE ton_crypto fift-lib)
 add_executable(test-smartcont test/test-td-main.cpp ${SMARTCONT_TEST_SOURCE})
 target_link_libraries(test-smartcont PRIVATE smc-envelope fift-lib ton_db)
 
+add_executable(test-bigint ${BIGINT_TEST_SOURCE})
+target_link_libraries(test-bigint PRIVATE ton_crypto)
+
 add_executable(test-cells test/test-td-main.cpp ${CELLS_TEST_SOURCE})
 target_link_libraries(test-cells PRIVATE ton_crypto)
 
@@ -513,6 +526,7 @@ if (HAS_PARENT)
           ${FEC_TEST_SOURCE}
           ${ED25519_TEST_SOURCE}
           ${TONDB_TEST_SOURCE}
+          ${BIGNUM_TEST_SOURCE}
           ${CELLS_TEST_SOURCE} # ${TONVM_TEST_SOURCE} ${FIFT_TEST_SOURCE} ${TONLIB_ONLINE_TEST_SOURCE}
           PARENT_SCOPE)
 endif()
@@ -526,6 +540,7 @@ set(TEST_OPTIONS "--regression ${CMAKE_CURRENT_SOURCE_DIR}/test/regression-tests
 separate_arguments(TEST_OPTIONS)
 add_test(test-ed25519-crypto crypto/test-ed25519-crypto)
 add_test(test-ed25519 test-ed25519)
+add_test(test-bigint test-bigint)
 add_test(test-vm test-vm ${TEST_OPTIONS})
 add_test(test-fift test-fift ${TEST_OPTIONS})
 add_test(test-cells test-cells ${TEST_OPTIONS})

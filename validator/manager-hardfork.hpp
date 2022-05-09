@@ -144,6 +144,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
+  void check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) override {
+    UNREACHABLE();
+  }
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
     UNREACHABLE();

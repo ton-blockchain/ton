@@ -22,4 +22,4 @@ target_link_libraries(tonhttp PUBLIC tdactor ton_crypto tl_api tdnet )
 
 add_executable(http-proxy http-proxy.cpp)
 target_include_directories(http-proxy PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(http-proxy PRIVATE tonhttp)
+target_link_libraries(http-proxy PRIVATE tonhttp git)

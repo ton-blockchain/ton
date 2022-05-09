@@ -11,3 +11,4 @@ crypto/smartcont/auto/
 test/regression-tests.cache/
 *.swp
 **/*build*/
+.idea

@@ -185,6 +185,9 @@ class BroadcastFec : public td::ListNode {
     }
   }
 
+  void broadcast_checked(td::Result<td::Unit> R) {
+  }
+
  private:
   bool ready_ = false;
 
@@ -311,4 +314,3 @@ class OverlayFecBroadcastPart : public td::ListNode {
 }  // namespace overlay
 
 }  // namespace ton
-

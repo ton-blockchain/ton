@@ -46,6 +46,17 @@ class DecTree {
       }
     }
 
+    template <typename FuncT>
+    void iterate(const FuncT &cb) {
+      if (left_) {
+        left_->iterate(cb);
+      }
+      cb(key_, value_);
+      if (right_) {
+        right_->iterate(cb);
+      }
+    }
+
     Node(KeyType key, ValueType value, uint32 y) : size_(1), key_(std::move(key)), value_(std::move(value)), y_(y) {
     }
   };
@@ -222,6 +233,15 @@ class DecTree {
   }
   bool exists(const KeyType &key) const {
     return get_node(root_, key) != nullptr;
+  }
+
+  template <typename FuncT>
+  void iterate(const FuncT &cb) {
+    if (size() == 0) {
+      return;
+    } else {
+      root_->iterate(cb);
+    }
   }
 };
 
