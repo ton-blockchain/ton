@@ -108,6 +108,7 @@ class OverlayPrivacyRules {
   }
 
   BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) {
+
     auto it = authorized_keys_.find(hash);
     if (it == authorized_keys_.end()) {
       if (size > max_unath_size_) {

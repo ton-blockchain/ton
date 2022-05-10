@@ -896,7 +896,7 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
     authorized_keys.emplace(key, overlay::Overlays::max_fec_broadcast_size());
   }
 
-  rules_ = overlay::OverlayPrivacyRules{1 << 14, 0, std::move(authorized_keys)};
+  rules_ = overlay::OverlayPrivacyRules{overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec, std::move(authorized_keys)};
   td::actor::send_closure(overlays_, &overlay::Overlays::set_privacy_rules, adnl_id_, overlay_id_, rules_);
 
   if (update_cert) {
