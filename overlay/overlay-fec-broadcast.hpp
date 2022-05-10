@@ -82,13 +82,17 @@ class BroadcastFec : public td::ListNode {
     }
   }
 
-  td::Status add_part(td::uint32 seqno, td::BufferSlice data) {
+  td::Status add_part(td::uint32 seqno, td::BufferSlice data,
+                      td::BufferSlice serialized_fec_part_short,
+                      td::BufferSlice serialized_fec_part) {
     CHECK(decoder_);
     td::fec::Symbol s;
     s.id = seqno;
     s.data = std::move(data);
 
     decoder_->add_symbol(std::move(s));
+    parts_[seqno] = std::pair<td::BufferSlice, td::BufferSlice>(std::move(serialized_fec_part_short),
+                                                                std::move(serialized_fec_part));
 
     return td::Status::OK();
   }
@@ -187,10 +191,11 @@ class BroadcastFec : public td::ListNode {
   }
 
   void broadcast_checked(td::Result<td::Unit> R);
-  void set_overlay(OverlayImpl *overlay, bool untrusted) {
+  void set_overlay(OverlayImpl *overlay) {
     overlay_ = overlay;
-    untrusted_ = untrusted;
   }
+
+  td::Status distribute_part(td::uint32 seqno);
 
  private:
   bool ready_ = false;
@@ -213,8 +218,8 @@ class BroadcastFec : public td::ListNode {
   td::uint32 next_seqno_ = 0;
   td::uint64 received_parts_ = 0;
 
+  std::map<td::uint32, std::pair<td::BufferSlice, td::BufferSlice>> parts_;
   OverlayImpl *overlay_;
-  bool untrusted_{false};
   td::BufferSlice data_;
 };
 
