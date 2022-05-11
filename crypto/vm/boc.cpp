@@ -475,15 +475,128 @@ std::string BagOfCells::extract_string() const {
   return std::string{serialized.data(), serialized.data() + serialized.size()};
 }
 
-void BagOfCells::store_uint(unsigned long long value, unsigned bytes) {
-  unsigned char* ptr = store_ptr += bytes;
-  store_chk();
-  while (bytes) {
-    *--ptr = value & 0xff;
-    value >>= 8;
-    --bytes;
+namespace {
+struct BufferWriter {
+  BufferWriter(unsigned char* store_start, unsigned char* store_end)
+      : store_start(store_start), store_ptr(store_start), store_end(store_end) {}
+
+  size_t position() const {
+    return store_ptr - store_start;
   }
-  DCHECK(!bytes);
+  size_t remaining() const {
+    return store_end - store_ptr;
+  }
+  void chk() const {
+    DCHECK(store_ptr <= store_end);
+  }
+  bool empty() const {
+    return store_ptr == store_end;
+  }
+  void store_uint(unsigned long long value, unsigned bytes) {
+    unsigned char* ptr = store_ptr += bytes;
+    chk();
+    while (bytes) {
+      *--ptr = value & 0xff;
+      value >>= 8;
+      --bytes;
+    }
+    DCHECK(!bytes);
+  }
+  void store_bytes(unsigned char const* data, size_t s) {
+    store_ptr += s;
+    chk();
+    memcpy(store_ptr - s, data, s);
+  }
+  unsigned get_crc32() const {
+    return td::crc32c(td::Slice{store_start, store_ptr});
+  }
+
+ private:
+  unsigned char* store_start;
+  unsigned char* store_ptr;
+  unsigned char* store_end;
+};
+
+struct FileWriter {
+  FileWriter(td::FileFd& fd, size_t expected_size)
+      : fd(fd), expected_size(expected_size) {}
+
+  ~FileWriter() {
+    flush();
+  }
+
+  size_t position() const {
+    return flushed_size + writer.position();
+  }
+  size_t remaining() const {
+    return expected_size - position();
+  }
+  void chk() const {
+    DCHECK(position() <= expected_size);
+  }
+  bool empty() const {
+    return remaining() == 0;
+  }
+  void store_uint(unsigned long long value, unsigned bytes) {
+    flush_if_needed(bytes);
+    writer.store_uint(value, bytes);
+  }
+  void store_bytes(unsigned char const* data, size_t s) {
+    flush_if_needed(s);
+    writer.store_bytes(data, s);
+  }
+  unsigned get_crc32() const {
+    unsigned char const* start = buf.data();
+    unsigned char const* end = start + writer.position();
+    return td::crc32c_extend(current_crc32, td::Slice(start, end));
+  }
+
+  td::Status finalize() {
+    flush();
+    return std::move(res);
+  }
+
+ private:
+  void flush_if_needed(size_t s) {
+    DCHECK(s <= BUF_SIZE);
+    if (s > BUF_SIZE - writer.position()) {
+      flush();
+    }
+  }
+
+  void flush() {
+    chk();
+    unsigned char* start = buf.data();
+    unsigned char* end = start + writer.position();
+    if (start == end) {
+      return;
+    }
+    flushed_size += end - start;
+    current_crc32 = td::crc32c_extend(current_crc32, td::Slice(start, end));
+    if (res.is_ok()) {
+      while (end > start) {
+        auto R = fd.write(td::Slice(start, end));
+        if (R.is_error()) {
+          res = R.move_as_error();
+          break;
+        }
+        size_t s = R.move_as_ok();
+        start += s;
+      }
+    }
+    writer = BufferWriter(buf.data(), buf.data() + buf.size());
+  }
+
+  td::FileFd& fd;
+  size_t expected_size;
+  size_t flushed_size = 0;
+  unsigned current_crc32 = td::crc32c(td::Slice());
+
+  static const size_t BUF_SIZE = 1 << 22;
+  std::vector<unsigned char> buf = std::vector<unsigned char>(BUF_SIZE, '\0');
+  BufferWriter writer = BufferWriter(buf.data(), buf.data() + buf.size());
+  td::Status res = td::Status::OK();
+};
 }
 
 //serialized_boc#672fb0ac has_idx:(## 1) has_crc32c:(## 1)
@@ -497,13 +610,16 @@ void BagOfCells::store_uint(unsigned long long value, unsigned bytes) {
 //  index:(cells * ##(off_bytes * 8))
 //  cell_data:(tot_cells_size * [ uint8 ])
 //  = BagOfCells;
-std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_size, int mode) {
-  std::size_t size_est = estimate_serialized_size(mode);
-  if (!size_est || size_est > buff_size) {
-    return 0;
-  }
-  init_store(buffer, buffer + size_est);
-  store_uint(info.magic, 4);
+template<typename WriterT>
+std::size_t BagOfCells::serialize_to_impl(WriterT& writer, int mode) {
+  auto store_ref = [&](unsigned long long value) {
+    writer.store_uint(value, info.ref_byte_size);
+  };
+  auto store_offset = [&](unsigned long long value) {
+    writer.store_uint(value, info.offset_byte_size);
+  };
+
+  writer.store_uint(info.magic, 4);
 
   td::uint8 byte{0};
   if (info.has_index) {
@@ -520,9 +636,9 @@ std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_siz
     return 0;
   }
   byte |= static_cast<td::uint8>(info.ref_byte_size);
-  store_uint(byte, 1);
+  writer.store_uint(byte, 1);
 
-  store_uint(info.offset_byte_size, 1);
+  writer.store_uint(info.offset_byte_size, 1);
   store_ref(cell_count);
   store_ref(root_count);
   store_ref(0);
@@ -532,7 +648,7 @@ std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_siz
     DCHECK(k >= 0 && k < cell_count);
     store_ref(k);
   }
-  DCHECK(store_ptr - buffer == (long long)info.index_offset);
+  DCHECK(writer.position() == info.index_offset);
   DCHECK((unsigned)cell_count == cell_list_.size());
   if (info.has_index) {
     std::size_t offs = 0;
@@ -551,8 +667,8 @@ std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_siz
     }
     DCHECK(offs == info.data_size);
   }
-  DCHECK(store_ptr - buffer == (long long)info.data_offset);
-  unsigned char* keep_ptr = store_ptr;
+  DCHECK(writer.position() == info.data_offset);
+  size_t keep_position = writer.position();
   for (int i = 0; i < cell_count; ++i) {
     const auto& dc_info = cell_list_[cell_count - 1 - i];
     const Ref<DataCell>& dc = dc_info.dc_ref;
@@ -560,9 +676,9 @@ std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_siz
     if (dc_info.is_root_cell && (mode & Mode::WithTopHash)) {
       with_hash = true;
     }
-    int s = dc->serialize(store_ptr, 256, with_hash);
-    store_ptr += s;
-    store_chk();
+    unsigned char buf[256];
+    int s = dc->serialize(buf, 256, with_hash);
+    writer.store_bytes(buf, s);
     DCHECK(dc->size_refs() == dc_info.ref_num);
     // std::cerr << (dc_info.is_special() ? '*' : ' ') << i << '<' << (int)dc_info.wt << ">:";
     for (unsigned j = 0; j < dc_info.ref_num; ++j) {
@@ -573,16 +689,38 @@ std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_siz
     }
     // std::cerr << std::endl;
   }
-  store_chk();
-  DCHECK(store_ptr - keep_ptr == (long long)info.data_size);
-  DCHECK(store_end - store_ptr == (info.has_crc32c ? 4 : 0));
+  writer.chk();
+  DCHECK(writer.position() - keep_position == info.data_size);
+  DCHECK(writer.remaining() == (info.has_crc32c ? 4 : 0));
   if (info.has_crc32c) {
-    // compute crc32c of buffer .. store_ptr
-    unsigned crc = td::crc32c(td::Slice{buffer, store_ptr});
-    store_uint(td::bswap32(crc), 4);
+    unsigned crc = writer.get_crc32();
+    writer.store_uint(td::bswap32(crc), 4);
   }
-  DCHECK(store_empty());
-  return store_ptr - buffer;
+  DCHECK(writer.empty());
+  return writer.position();
+}
+
+std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_size, int mode) {
+  std::size_t size_est = estimate_serialized_size(mode);
+  if (!size_est || size_est > buff_size) {
+    return 0;
+  }
+  BufferWriter writer{buffer, buffer + size_est};
+  return serialize_to_impl(writer, mode);
+}
+
+td::Status BagOfCells::serialize_to_file(td::FileFd& fd, int mode) {
+  std::size_t size_est = estimate_serialized_size(mode);
+  if (!size_est) {
+    return td::Status::Error("no cells to serialize to this bag of cells");
+  }
+  FileWriter writer{fd, size_est};
+  size_t s = serialize_to_impl(writer, mode);
+  TRY_STATUS(writer.finalize());
+  if (s != size_est) {
+    return td::Status::Error("error while serializing a bag of cells: actual serialized size differs from estimated");
+  }
+  return td::Status::OK();
 }
 
 unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned bytes) {

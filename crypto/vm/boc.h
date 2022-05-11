@@ -23,6 +23,7 @@
 #include "td/utils/buffer.h"
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
+#include "td/utils/port/FileFd.h"
 
 namespace vm {
 using td::Ref;
@@ -216,8 +217,6 @@ class BagOfCells {
   int max_depth{1024};
   Info info;
   unsigned long long data_bytes{0};
-  unsigned char* store_ptr{nullptr};
-  unsigned char* store_end{nullptr};
   td::HashMap<Hash, int> cells;
   struct CellInfo {
     Ref<DataCell> dc_ref;
@@ -267,6 +266,9 @@ class BagOfCells {
   std::string serialize_to_string(int mode = 0);
   td::Result<td::BufferSlice> serialize_to_slice(int mode = 0);
   std::size_t serialize_to(unsigned char* buffer, std::size_t buff_size, int mode = 0);
+  td::Status serialize_to_file(td::FileFd& fd, int mode = 0);
+  template<typename WriterT>
+  std::size_t serialize_to_impl(WriterT& writer, int mode = 0);
   std::string extract_string() const;
 
   td::Result<long long> deserialize(const td::Slice& data, int max_roots = default_max_roots);
@@ -295,23 +297,6 @@ class BagOfCells {
     cell_list_.clear();
   }
   td::uint64 compute_sizes(int mode, int& r_size, int& o_size);
-  void init_store(unsigned char* from, unsigned char* to) {
-    store_ptr = from;
-    store_end = to;
-  }
-  void store_chk() const {
-    DCHECK(store_ptr <= store_end);
-  }
-  bool store_empty() const {
-    return store_ptr == store_end;
-  }
-  void store_uint(unsigned long long value, unsigned bytes);
-  void store_ref(unsigned long long value) {
-    store_uint(value, info.ref_byte_size);
-  }
-  void store_offset(unsigned long long value) {
-    store_uint(value, info.offset_byte_size);
-  }
   void reorder_cells();
   int revisit(int cell_idx, int force = 0);
   unsigned long long get_idx_entry_raw(int index);
