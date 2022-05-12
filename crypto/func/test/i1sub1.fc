@@ -1,0 +1,6 @@
+;; DO NOT COMPILE DIRECTLY!
+;; Compile i1.fc
+
+() sub1() impure {
+  i = 1;
+}

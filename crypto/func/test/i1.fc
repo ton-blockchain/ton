@@ -1,0 +1,14 @@
+global int i;
+
+#include "i1sub1.fc";
+
+() sub0() impure { i = 0; }
+
+#include "i1sub2.fc";
+
+() main() impure {
+  sub0();
+  sub1();
+  sub2();
+  i = 9;
+}

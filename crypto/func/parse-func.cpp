@@ -23,6 +23,7 @@
 #include "block/block.h"
 #include "block-parse.h"
 #include <fstream>
+#include <climits>
 
 namespace sym {
 
@@ -1607,12 +1608,35 @@ void parse_pragma(Lexer& lex) {
 
 std::vector<const src::FileDescr*> source_fdescr;
 
+std::vector<std::string> source_files;
+std::stack<src::SrcLocation> inclusion_locations;
+
+void parse_include(Lexer& lex, const src::FileDescr* fdescr) {
+  auto include = lex.cur();
+  lex.expect(_IncludeHashtag);
+  if (lex.tp() != _String) {
+    lex.expect(_String, "source file name");
+  }
+  std::string val = lex.cur().str;
+  std::string parent_dir = fdescr->filename;
+  if (parent_dir.rfind('/') != std::string::npos) {
+    val = parent_dir.substr(0, parent_dir.rfind('/') + 1) + val;
+  }
+  lex.next();
+  lex.expect(';');
+  if (!parse_source_file(val.c_str(), include)) {
+    include.error(std::string{"failed parsing included file `"} + val + "`");
+  }
+}
+
 bool parse_source(std::istream* is, src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
   Lexer lex{reader, true, ";,()[] ~."};
   while (lex.tp() != _Eof) {
     if (lex.tp() == _PragmaHashtag) {
       parse_pragma(lex);
+    } else if (lex.tp() == _IncludeHashtag) {
+      parse_include(lex, fdescr);
     } else if (lex.tp() == _Global) {
       parse_global_var_decls(lex);
     } else if (lex.tp() == _Const) {
@@ -1624,17 +1648,48 @@ bool parse_source(std::istream* is, src::FileDescr* fdescr) {
   return true;
 }
 
-bool parse_source_file(const char* filename) {
+bool parse_source_file(const char* filename, src::Lexem lex) {
   if (!filename || !*filename) {
-    throw src::Fatal{"source file name is an empty string"};
+    auto msg = "source file name is an empty string";
+    if (lex.tp) {
+      lex.error(msg);
+    } else {
+      throw src::Fatal{msg};
+    }
   }
+  char realpath_buf[PATH_MAX] = {0, };
+  realpath(filename, realpath_buf);
+  std::string real_filename = std::string{realpath_buf};
+  if (std::count(source_files.begin(), source_files.end(), real_filename)) {
+    if (verbosity >= 2) {
+      if (lex.tp) {
+        lex.loc.show_warning(std::string{"skipping file "} + real_filename + " because it was already included");
+      } else {
+        std::cerr << "warning: skipping file " << real_filename << " because it was already included" << std::endl;
+      }
+    }
+    return true;
+  }
+  if (lex.tp) { // included
+    funC::generated_from += std::string{"incl:"};
+  }
+  funC::generated_from += std::string{"`"} + filename + "` ";
+  source_files.push_back(real_filename);
   src::FileDescr* cur_source = new src::FileDescr{filename};
   source_fdescr.push_back(cur_source);
   std::ifstream ifs{filename};
   if (ifs.fail()) {
-    throw src::Fatal{std::string{"cannot open source file `"} + filename + "`"};
+    auto msg = std::string{"cannot open source file `"} + filename + "`";
+    if (lex.tp) {
+      lex.error(msg);
+    } else {
+      throw src::Fatal{msg};
+    }
   }
-  return parse_source(&ifs, cur_source);
+  inclusion_locations.push(lex.loc);
+  bool res = parse_source(&ifs, cur_source);
+  inclusion_locations.pop();
+  return res;
 }
 
 bool parse_source_stdin() {
