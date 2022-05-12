@@ -23,7 +23,7 @@
 #include "block/block.h"
 #include "block-parse.h"
 #include <fstream>
-#include <climits>
+#include "td/utils/port/path.h"
 
 namespace sym {
 
@@ -1657,9 +1657,7 @@ bool parse_source_file(const char* filename, src::Lexem lex) {
       throw src::Fatal{msg};
     }
   }
-  char realpath_buf[PATH_MAX] = {0, };
-  realpath(filename, realpath_buf);
-  std::string real_filename = std::string{realpath_buf};
+  std::string real_filename = td::realpath(td::CSlice(filename)).move_as_ok();
   if (std::count(source_files.begin(), source_files.end(), real_filename)) {
     if (verbosity >= 2) {
       if (lex.tp) {

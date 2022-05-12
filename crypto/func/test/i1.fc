@@ -12,3 +12,5 @@ global int i;
   sub2();
   i = 9;
 }
+
+#include "../test/i1sub2.fc";
