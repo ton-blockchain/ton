@@ -191,7 +191,6 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
   CHECK(shards_.size() == 0);
 
   auto vec = masterchain_state_->get_shards();
-  shards_.push_back(masterchain_handle_->id());
   for (auto &v : vec) {
     shards_.push_back(v->top_block_id());
   }
