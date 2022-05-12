@@ -195,15 +195,16 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
     shards_.push_back(v->top_block_id());
   }
 
-  auto B = masterchain_state_->serialize();
-  B.ensure();
+  auto write_data = [state = masterchain_state_] (td::FileFd& fd) {
+    return state->serialize_to_file(fd);
+  };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &AsyncStateSerializer::stored_masterchain_state);
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, masterchain_handle_->id(),
-                          masterchain_handle_->id(), B.move_as_ok(), std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, masterchain_handle_->id(),
+                          masterchain_handle_->id(), write_data, std::move(P));
 }
 
 void AsyncStateSerializer::stored_masterchain_state() {
@@ -224,13 +225,15 @@ void AsyncStateSerializer::got_shard_handle(BlockHandle handle) {
 }
 
 void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardState> state) {
-  auto B = state->serialize().move_as_ok();
+  auto write_data = [state] (td::FileFd& fd) {
+    return state->serialize_to_file(fd);
+  };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &AsyncStateSerializer::success_handler);
   });
-  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, handle->id(),
-                          masterchain_handle_->id(), std::move(B), std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, handle->id(),
+                          masterchain_handle_->id(), write_data, std::move(P));
   LOG(INFO) << "storing persistent state for " << masterchain_handle_->id().seqno() << ":" << handle->id().id.shard;
   next_idx_++;
 }

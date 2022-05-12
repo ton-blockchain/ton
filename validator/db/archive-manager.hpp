@@ -45,6 +45,9 @@ class ArchiveManager : public td::actor::Actor {
   void add_zero_state(BlockIdExt block_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice data,
                             td::Promise<td::Unit> promise);
+  void add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                std::function<td::Status(td::FileFd&)> write_state,
+                                td::Promise<td::Unit> promise);
   void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise);
   void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::BufferSlice> promise);
   void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
@@ -137,6 +140,8 @@ class ArchiveManager : public td::actor::Actor {
   PackageId get_max_temp_file_desc_idx();
   PackageId get_prev_temp_file_desc_idx(PackageId id);
 
+  void add_persistent_state_impl(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise,
+                                 std::function<void(std::string, td::Promise<std::string>)> create_writer);
   void written_perm_state(FileReferenceShort id);
 
   void persistent_state_gc(FileHash last);

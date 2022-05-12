@@ -680,6 +680,13 @@ void ValidatorManagerImpl::store_persistent_state_file(BlockIdExt block_id, Bloc
                           std::move(promise));
 }
 
+void ValidatorManagerImpl::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                           std::function<td::Status(td::FileFd&)> write_data,
+                                                           td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_persistent_state_file_gen, block_id, masterchain_block_id,
+                          std::move(write_data), std::move(promise));
+}
+
 void ValidatorManagerImpl::store_zero_state_file(BlockIdExt block_id, td::BufferSlice state,
                                                  td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_zero_state_file, block_id, std::move(state), std::move(promise));

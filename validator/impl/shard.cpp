@@ -26,6 +26,7 @@
 #include "vm/cells/MerkleUpdate.h"
 #include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "td/utils/filesystem.h"
 
 #define LAZY_STATE_DESERIALIZE 1
 
@@ -299,6 +300,30 @@ td::Result<td::BufferSlice> ShardStateQ::serialize() const {
   // data = st_res.move_as_ok();
   // return data.clone();
   return st_res.move_as_ok();
+}
+
+td::Status ShardStateQ::serialize_to_file(td::FileFd& fd) const {
+  td::PerfWarningTimer perf_timer_{"serializestate", 0.1};
+  if (!data.is_null()) {
+    auto cur_data = data.clone();
+    while (cur_data.size() > 0) {
+      TRY_RESULT(s, fd.write(cur_data.as_slice()));
+      cur_data.confirm_read(s);
+    }
+    return td::Status::OK();
+  }
+  if (root.is_null()) {
+    return td::Status::Error(-666, "cannot serialize an uninitialized state");
+  }
+  vm::BagOfCells new_boc;
+  new_boc.set_root(root);
+  TRY_STATUS(new_boc.import_cells());
+  auto st_res = new_boc.serialize_to_file(fd, 31);
+  if (st_res.is_error()) {
+    LOG(ERROR) << "cannot serialize a shardchain state";
+    return st_res.move_as_error();
+  }
+  return td::Status::OK();
 }
 
 MasterchainStateQ::MasterchainStateQ(const BlockIdExt& _id, td::BufferSlice _data)
