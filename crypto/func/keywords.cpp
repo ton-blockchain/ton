@@ -127,7 +127,9 @@ void define_keywords() {
       .add_keyword("infixl", Kw::_Infixl)
       .add_keyword("infixr", Kw::_Infixr)
       .add_keyword("const", Kw::_Const);
-  sym::symbols.add_keyword("#pragma", Kw::_PragmaHashtag);
+
+  sym::symbols.add_keyword("#pragma", Kw::_PragmaHashtag)
+      .add_keyword("#include", Kw::_IncludeHashtag);
 }
 
 }  // namespace funC

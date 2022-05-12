@@ -178,6 +178,18 @@ void usage(const char* progname) {
   std::exit(2);
 }
 
+void output_inclusion_stack() {
+  while (!funC::inclusion_locations.empty()) {
+    src::SrcLocation loc = funC::inclusion_locations.top();
+    funC::inclusion_locations.pop();
+    if (loc.fdescr) {
+      std::cerr << "note: included from ";
+      loc.show(std::cerr);
+      std::cerr << std::endl;
+    }
+  }
+}
+
 std::string output_filename;
 
 int main(int argc, char* const argv[]) {
@@ -241,7 +253,7 @@ int main(int argc, char* const argv[]) {
   int ok = 0, proc = 0;
   try {
     while (optind < argc) {
-      funC::generated_from += std::string{"`"} + argv[optind] + "` ";
+      // funC::generated_from += std::string{"`"} + argv[optind] + "` ";
       ok += funC::parse_source_file(argv[optind++]);
       proc++;
     }
@@ -268,14 +280,17 @@ int main(int argc, char* const argv[]) {
     funC::generate_output();
   } catch (src::Fatal& fatal) {
     std::cerr << "fatal: " << fatal << std::endl;
+    output_inclusion_stack();
     std::exit(1);
   } catch (src::Error& error) {
     std::cerr << error << std::endl;
+    output_inclusion_stack();
     std::exit(1);
   } catch (funC::UnifyError& unif_err) {
     std::cerr << "fatal: ";
     unif_err.print_message(std::cerr);
     std::cerr << std::endl;
+    output_inclusion_stack();
     std::exit(1);
   }
 }
