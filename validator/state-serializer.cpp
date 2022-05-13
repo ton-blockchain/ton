@@ -122,7 +122,7 @@ void AsyncStateSerializer::next_iteration() {
   CHECK(masterchain_handle_->id() == last_block_id_);
   if (attempt_ < max_attempt() && last_key_block_id_.id.seqno < last_block_id_.id.seqno &&
       need_serialize(masterchain_handle_)) {
-    if (masterchain_state_.is_null()) {
+    if (!have_masterchain_state_) {
           // block next attempts immediately, but send actual request later
           running_ = true;
           delay_action(
@@ -162,7 +162,7 @@ void AsyncStateSerializer::next_iteration() {
   }
   if (masterchain_handle_->inited_next_left()) {
     last_block_id_ = masterchain_handle_->one_next(true);
-    masterchain_state_ = td::Ref<MasterchainState>{};
+    have_masterchain_state_ = false;
     masterchain_handle_ = nullptr;
     saved_to_db_ = false;
     shards_.clear();
@@ -186,16 +186,16 @@ void AsyncStateSerializer::got_masterchain_handle(BlockHandle handle) {
 }
 
 void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state) {
-  masterchain_state_ = state;
+  have_masterchain_state_ = true;
   CHECK(next_idx_ == 0);
   CHECK(shards_.size() == 0);
 
-  auto vec = masterchain_state_->get_shards();
+  auto vec = state->get_shards();
   for (auto &v : vec) {
     shards_.push_back(v->top_block_id());
   }
 
-  auto write_data = [state = masterchain_state_] (td::FileFd& fd) {
+  auto write_data = [state] (td::FileFd& fd) {
     return state->serialize_to_file(fd);
   };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
