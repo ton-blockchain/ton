@@ -39,7 +39,7 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const LastConfigState& stat
   return sb;
 }
 
-LastConfig::LastConfig(ExtClientRef client) {
+LastConfig::LastConfig(ExtClientRef client, td::unique_ptr<Callback> callback) : callback_(std::move(callback)) {
   client_.set_client(client);
   VLOG(last_block) << "State: " << state_;
 }
