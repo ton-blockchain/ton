@@ -127,9 +127,7 @@ void AsyncStateSerializer::next_iteration() {
           running_ = true;
           delay_action(
             [SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_masterchain_state); },
-            // Masterchain is more important and much lighter than shards
-            // thus lower delay
-            td::Timestamp::in(td::Random::fast(0, 600)));
+            td::Timestamp::in(td::Random::fast(0, 3600)));
       return;
     }
     while (next_idx_ < shards_.size()) {
@@ -140,8 +138,6 @@ void AsyncStateSerializer::next_iteration() {
           running_ = true;
           delay_action(
             [SelfId = actor_id(this), shard = shards_[next_idx_]]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_shard_state, shard); },
-            // Shards are less important and heavier than master
-            // thus higher delay
             td::Timestamp::in(td::Random::fast(0, 4 * 3600)));
         return;
       }
