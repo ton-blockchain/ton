@@ -1439,9 +1439,17 @@ void TonlibClient::init_last_block(LastBlockState state) {
 }
 void TonlibClient::init_last_config() {
   ref_cnt_++;
+  class Callback : public LastConfig::Callback {
+   public:
+    Callback(td::actor::ActorShared<TonlibClient> client) : client_(std::move(client)) {
+    }
+
+   private:
+    td::actor::ActorShared<TonlibClient> client_;
+  };
   raw_last_config_ =
       td::actor::create_actor<LastConfig>(td::actor::ActorOptions().with_name("LastConfig").with_poll(false),
-                                          get_client_ref());
+                                          get_client_ref(), td::make_unique<Callback>(td::actor::actor_shared(this)));
 }
 
 void TonlibClient::on_result(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Object> response) {
