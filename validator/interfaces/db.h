@@ -53,6 +53,9 @@ class Db : public td::actor::Actor {
 
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;
+  virtual void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                               std::function<td::Status(td::FileFd&)> write_data,
+                                               td::Promise<td::Unit> promise) = 0;
   virtual void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,

@@ -87,6 +87,7 @@ class ShardStateQ : virtual public ShardState {
   td::Result<Ref<ShardState>> merge_with(const ShardState& with) const override;
   td::Result<std::pair<Ref<ShardState>, Ref<ShardState>>> split() const override;
   td::Result<td::BufferSlice> serialize() const override;
+  td::Status serialize_to_file(td::FileFd& fd) const override;
 };
 
 #if TD_MSVC

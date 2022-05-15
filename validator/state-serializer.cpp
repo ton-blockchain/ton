@@ -122,14 +122,12 @@ void AsyncStateSerializer::next_iteration() {
   CHECK(masterchain_handle_->id() == last_block_id_);
   if (attempt_ < max_attempt() && last_key_block_id_.id.seqno < last_block_id_.id.seqno &&
       need_serialize(masterchain_handle_)) {
-    if (masterchain_state_.is_null()) {
+    if (!have_masterchain_state_) {
           // block next attempts immediately, but send actual request later
           running_ = true;
           delay_action(
             [SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_masterchain_state); },
-            // Masterchain is more important and much lighter than shards
-            // thus lower delay
-            td::Timestamp::in(td::Random::fast(0, 600)));
+            td::Timestamp::in(td::Random::fast(0, 3600)));
       return;
     }
     while (next_idx_ < shards_.size()) {
@@ -140,8 +138,6 @@ void AsyncStateSerializer::next_iteration() {
           running_ = true;
           delay_action(
             [SelfId = actor_id(this), shard = shards_[next_idx_]]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_shard_state, shard); },
-            // Shards are less important and heavier than master
-            // thus higher delay
             td::Timestamp::in(td::Random::fast(0, 4 * 3600)));
         return;
       }
@@ -162,7 +158,7 @@ void AsyncStateSerializer::next_iteration() {
   }
   if (masterchain_handle_->inited_next_left()) {
     last_block_id_ = masterchain_handle_->one_next(true);
-    masterchain_state_ = td::Ref<MasterchainState>{};
+    have_masterchain_state_ = false;
     masterchain_handle_ = nullptr;
     saved_to_db_ = false;
     shards_.clear();
@@ -186,25 +182,25 @@ void AsyncStateSerializer::got_masterchain_handle(BlockHandle handle) {
 }
 
 void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state) {
-  masterchain_state_ = state;
+  have_masterchain_state_ = true;
   CHECK(next_idx_ == 0);
   CHECK(shards_.size() == 0);
 
-  auto vec = masterchain_state_->get_shards();
-  shards_.push_back(masterchain_handle_->id());
+  auto vec = state->get_shards();
   for (auto &v : vec) {
     shards_.push_back(v->top_block_id());
   }
 
-  auto B = masterchain_state_->serialize();
-  B.ensure();
+  auto write_data = [state] (td::FileFd& fd) {
+    return state->serialize_to_file(fd);
+  };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &AsyncStateSerializer::stored_masterchain_state);
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, masterchain_handle_->id(),
-                          masterchain_handle_->id(), B.move_as_ok(), std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, masterchain_handle_->id(),
+                          masterchain_handle_->id(), write_data, std::move(P));
 }
 
 void AsyncStateSerializer::stored_masterchain_state() {
@@ -225,13 +221,15 @@ void AsyncStateSerializer::got_shard_handle(BlockHandle handle) {
 }
 
 void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardState> state) {
-  auto B = state->serialize().move_as_ok();
+  auto write_data = [state] (td::FileFd& fd) {
+    return state->serialize_to_file(fd);
+  };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &AsyncStateSerializer::success_handler);
   });
-  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, handle->id(),
-                          masterchain_handle_->id(), std::move(B), std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, handle->id(),
+                          masterchain_handle_->id(), write_data, std::move(P));
   LOG(INFO) << "storing persistent state for " << masterchain_handle_->id().seqno() << ":" << handle->id().id.shard;
   next_idx_++;
 }
