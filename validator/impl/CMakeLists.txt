@@ -13,6 +13,7 @@ set(TON_VALIDATOR_SOURCE
   external-message.cpp
   fabric.cpp
   ihr-message.cpp
+  large-boc-serializer.cpp
   liteserver.cpp
   message-queue.cpp
   proof.cpp
@@ -31,6 +32,7 @@ set(TON_VALIDATOR_SOURCE
   config.hpp
   external-message.hpp
   ihr-message.hpp
+  large-boc-serializer.hpp
   liteserver.hpp
   message-queue.hpp
   proof.hpp

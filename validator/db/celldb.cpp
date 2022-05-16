@@ -102,6 +102,10 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
   promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
 }
 
+void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  promise.set_result(boc_->get_cell_db_reader());
+}
+
 void CellDbIn::alarm() {
   auto R = get_block(last_gc_);
   R.ensure();
@@ -262,6 +266,10 @@ void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise
 
 void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
   td::actor::send_closure(cell_db_, &CellDbIn::store_cell, block_id, std::move(cell), std::move(promise));
+}
+
+void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::get_cell_db_reader, std::move(promise));
 }
 
 void CellDb::start_up() {
