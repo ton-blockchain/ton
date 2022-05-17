@@ -42,6 +42,7 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   td::uint32 next_idx_ = 0;
 
+  std::shared_ptr<vm::CellDbReader> cell_db_reader_ = nullptr;
   BlockHandle masterchain_handle_;
   bool have_masterchain_state_ = false;
 
@@ -70,6 +71,7 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   void next_iteration();
   void got_top_masterchain_handle(BlockIdExt block_id);
+  void got_cell_db_reader(std::shared_ptr<vm::CellDbReader> cell_db_reader);
   void got_masterchain_handle(BlockHandle handle_);
   void got_masterchain_state(td::Ref<MasterchainState> state);
   void stored_masterchain_state();

@@ -530,6 +530,10 @@ void ValidatorManagerImpl::get_block_handle(BlockIdExt id, bool force, td::Promi
   td::actor::send_closure(db_, &Db::get_block_handle, id, std::move(P));
 }
 
+void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  td::actor::send_closure(db_, &Db::get_cell_db_reader, std::move(promise));
+}
+
 void ValidatorManagerImpl::register_block_handle(BlockHandle handle, td::Promise<BlockHandle> promise) {
   auto it = handles_.find(handle->id());
   if (it != handles_.end()) {
