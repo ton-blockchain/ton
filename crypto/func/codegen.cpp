@@ -528,6 +528,7 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _If: {
+      bool inline_func = stack.mode & Stack::_InlineFunc;
       if (block0->is_empty() && block1->is_empty()) {
         return true;
       }
@@ -542,71 +543,58 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
-      if (block1->is_empty()) {
+      if (inline_func && (block0->noreturn() || block1->noreturn())) {
+        bool is0 = block1->is_empty();
+        Op* block_noreturn = is0 ? block0.get() : block1.get();
+        Op* block_other = is0 ? block1.get() : block0.get();
+        stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
+        stack.o.indent();
+        Stack stack_copy{stack};
+        block_noreturn->generate_code_all(stack_copy);
+        stack.o.undent();
+        if (block_other->is_empty() && next->is_empty()) {
+          stack.o << "}>";
+        } else {
+          stack.o << "}>ELSE<{";
+          stack.o.indent();
+          Stack stack_copy_2{stack};
+          block_other->generate_code_all(stack_copy_2);
+          if (!block_other->noreturn()){
+            next->generate_code_all(stack_copy_2);
+          }
+          stack.o.undent();
+          stack.o << "}>";
+        }
+        return false;
+      }
+      if (block1->is_empty() || block0->is_empty()) {
+        bool is0 = block1->is_empty();
+        Op* block = is0 ? block0.get() : block1.get();
         // if (left) block0; ...
-        if (block0->noreturn()) {
-          stack.o << "IFJMP:<{";
-          stack.o.indent();
-          Stack stack_copy{stack};
-          block0->generate_code_all(stack_copy);
-          stack.o.undent();
-          stack.o << "}>";
-          return true;
-        }
-        stack.o << "IF:<{";
-        stack.o.indent();
-        Stack stack_copy{stack}, stack_target{stack};
-        stack_target.disable_output();
-        stack_target.drop_vars_except(next->var_info);
-        block0->generate_code_all(stack_copy);
-        stack_copy.drop_vars_except(var_info);
-        stack_copy.opt_show();
-        if (stack_copy == stack) {
-          stack.o.undent();
-          stack.o << "}>";
-          return true;
-        }
-        // stack_copy.drop_vars_except(next->var_info);
-        stack_copy.enforce_state(stack_target.vars());
-        stack_copy.opt_show();
-        if (stack_copy.vars() == stack.vars()) {
-          stack.o.undent();
-          stack.o << "}>";
-          stack.merge_const(stack_copy);
-          return true;
-        }
-        stack.o.undent();
-        stack.o << "}>ELSE<{";
-        stack.o.indent();
-        stack.merge_state(stack_copy);
-        stack.opt_show();
-        stack.o.undent();
-        stack.o << "}>";
-        return true;
-      }
-      if (block0->is_empty()) {
         // if (!left) block1; ...
-        if (block1->noreturn()) {
-          stack.o << "IFNOTJMP:<{";
+        if (block->noreturn()) {
+          stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
           stack.o.indent();
           Stack stack_copy{stack};
-          block1->generate_code_all(stack_copy);
+          block->generate_code_all(stack_copy);
           stack.o.undent();
           stack.o << "}>";
           return true;
         }
-        stack.o << "IFNOT:<{";
+        stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
         stack.o.indent();
         Stack stack_copy{stack}, stack_target{stack};
         stack_target.disable_output();
         stack_target.drop_vars_except(next->var_info);
-        block1->generate_code_all(stack_copy);
+        block->generate_code_all(stack_copy);
         stack_copy.drop_vars_except(var_info);
         stack_copy.opt_show();
-        if (stack_copy.vars() == stack.vars()) {
+        if ((is0 && stack_copy == stack) || (!is0 && stack_copy.vars() == stack.vars())) {
           stack.o.undent();
           stack.o << "}>";
-          stack.merge_const(stack_copy);
+          if (!is0) {
+            stack.merge_const(stack_copy);
+          }
           return true;
         }
         // stack_copy.drop_vars_except(next->var_info);
@@ -627,23 +615,15 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << "}>";
         return true;
       }
-      if (block0->noreturn()) {
-        stack.o << "IFJMP:<{";
+      if (block0->noreturn() || block1->noreturn()) {
+        bool is0 = block0->noreturn();
+        stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         stack.o.indent();
         Stack stack_copy{stack};
-        block0->generate_code_all(stack_copy);
+        (is0 ? block0 : block1)->generate_code_all(stack_copy);
         stack.o.undent();
         stack.o << "}>";
-        return block1->generate_code_all(stack);
-      }
-      if (block1->noreturn()) {
-        stack.o << "IFNOTJMP:<{";
-        stack.o.indent();
-        Stack stack_copy{stack};
-        block1->generate_code_all(stack_copy);
-        stack.o.undent();
-        stack.o << "}>";
-        return block0->generate_code_all(stack);
+        return (is0 ? block1 : block0)->generate_code_all(stack);
       }
       stack.o << "IF:<{";
       stack.o.indent();

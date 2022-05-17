@@ -101,10 +101,19 @@ void generate_output_func(SymDef* func_sym) {
     }
     bool inline_ref = (func_val->flags & 2);
     *outs << std::string(indent * 2, ' ') << name << " PROC" << (inline_ref ? "REF" : "") << ":<{\n";
-    code.generate_code(
-        *outs,
-        (stack_layout_comments ? Stack::_StkCmt | Stack::_CptStkCmt : 0) | (opt_level < 2 ? Stack::_DisableOpt : 0),
-        indent + 1);
+    int mode = 0;
+    if (stack_layout_comments) {
+      mode |= Stack::_StkCmt | Stack::_CptStkCmt;
+    }
+    if (opt_level < 2) {
+      mode |= Stack::_DisableOpt;
+    }
+    auto fv = dynamic_cast<const SymValCodeFunc*>(func_sym->value);
+    // Flags: 1 - inline, 2 - inline_ref
+    if (fv && (fv->flags & 1) && code.ops->noreturn()) {
+      mode |= Stack::_InlineFunc;
+    }
+    code.generate_code(*outs, mode, indent + 1);
     *outs << std::string(indent * 2, ' ') << "}>\n";
     if (verbosity >= 2) {
       std::cerr << "--------------\n";

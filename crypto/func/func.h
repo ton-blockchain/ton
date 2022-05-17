@@ -1498,7 +1498,10 @@ void optimize_code(AsmOpList& ops);
 struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
-  enum { _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _Garbage = -0x10000 };
+  enum {
+    _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _InlineFunc = 512,
+    _Garbage = -0x10000
+  };
   int mode;
   Stack(AsmOpList& _o, int _mode = 0) : o(_o), mode(_mode) {
   }
