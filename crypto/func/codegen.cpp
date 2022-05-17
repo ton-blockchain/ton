@@ -764,11 +764,9 @@ bool Op::generate_code_step(Stack& stack) {
   }
 }
 
-bool Op::generate_code_all(Stack& stack) {
+void Op::generate_code_all(Stack& stack) {
   if (generate_code_step(stack) && next) {
-    return next->generate_code_all(stack);
-  } else {
-    return false;
+    next->generate_code_all(stack);
   }
 }
 
