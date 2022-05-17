@@ -617,13 +617,16 @@ bool Op::generate_code_step(Stack& stack) {
       }
       if (block0->noreturn() || block1->noreturn()) {
         bool is0 = block0->noreturn();
+        Op* block_noreturn = is0 ? block0.get() : block1.get();
+        Op* block_other = is0 ? block1.get() : block0.get();
         stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         stack.o.indent();
         Stack stack_copy{stack};
-        (is0 ? block0 : block1)->generate_code_all(stack_copy);
+        block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
         stack.o << "}>";
-        return (is0 ? block1 : block0)->generate_code_all(stack);
+        block_other->generate_code_all(stack);
+        return !(block_other->noreturn() | next->is_empty()) ;
       }
       stack.o << "IF:<{";
       stack.o.indent();
