@@ -5,7 +5,7 @@ RUN apt-get update && \
 ENV CC clang-6.0
 ENV CXX clang++-6.0
 WORKDIR /
-RUN git clone --recursive https://github.com/newton-blockchain/ton
+RUN git clone --recursive https://github.com/ton-blockchain/ton
 WORKDIR /ton
 
 RUN mkdir build && \
