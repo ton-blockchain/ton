@@ -613,7 +613,7 @@ struct Op {
     return !(flags & _Impure);
   }
   bool generate_code_step(Stack& stack);
-  bool generate_code_all(Stack& stack);
+  void generate_code_all(Stack& stack);
   Op& last() {
     return next ? next->last() : *this;
   }
