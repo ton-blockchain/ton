@@ -334,9 +334,14 @@ x{A926} @Defop RSHIFTC
 x{A935} @Defop(8u+1) RSHIFTR#
 x{A936} @Defop(8u+1) RSHIFTC#
 x{A938} @Defop(8u+1) MODPOW2#
+x{A939} @Defop(8u+1) MODPOW2R#
+x{A93A} @Defop(8u+1) MODPOW2C#
 x{A984} @Defop MULDIV
 x{A985} @Defop MULDIVR
+x{A988} @Defop MULMOD
 x{A98C} @Defop MULDIVMOD
+x{A98D} @Defop MULDIVMODR
+x{A98E} @Defop MULDIVMODC
 x{A9A4} @Defop MULRSHIFT
 x{A9A5} @Defop MULRSHIFTR
 x{A9A6} @Defop MULRSHIFTC
@@ -649,7 +654,7 @@ x{DB32} dup @Defop BRANCH @Defop RETBOOL
 x{DB34} @Defop CALLCC
 x{DB35} @Defop JMPXDATA
 { dup 1+ 0= { 16 + } if
-  <b x{DB36} rot 4 u, swap 4 u, @addopb
+  <b x{DB36} s, rot 4 u, swap 4 u, @addopb
 } : CALLCCARGS
 x{DB38} @Defop CALLXVARARGS
 x{DB39} @Defop RETVARARGS
@@ -689,9 +694,9 @@ x{E30F} @Defop(ref*2) IFREFELSEREF
   [] execute
 } : @run-cont-op
 { triple 1 ' @run-cont-op does create } : @def-cont-op
-{ } { PUSHCONT IF } { IFREF } @def-cont-op IF-cont
+{ DROP } { PUSHCONT IF } { IFREF } @def-cont-op IF-cont
 { IFRET } { PUSHCONT IFJMP } { IFJMPREF } @def-cont-op IFJMP-cont
-{ } { PUSHCONT IFNOT } { IFNOTREF } @def-cont-op IFNOT-cont
+{ DROP } { PUSHCONT IFNOT } { IFNOTREF } @def-cont-op IFNOT-cont
 { IFNOTRET } { PUSHCONT IFNOTJMP } { IFNOTJMPREF } @def-cont-op IFNOTJMP-cont
 { dup 2over rot } : 3dup
 
@@ -741,10 +746,10 @@ x{E304} @Defop CONDSEL
 x{E305} @Defop CONDSELCHK
 x{E308} @Defop IFRETALT
 x{E309} @Defop IFNOTRETALT
-{ <b x{E39_} swap 5 u, @addopb } : IFBITJMP
-{ <b x{E3B_} swap 5 u, @addopb } : IFNBITJMP
-{ <b x{E3D_} swap 5 u, swap ref, @addopb } : IFBITJMPREF
-{ <b x{E3F_} swap 5 u, swap ref, @addopb } : IFNBITJMPREF
+{ <b x{E39_} s, swap 5 u, @addopb } : IFBITJMP
+{ <b x{E3B_} s, swap 5 u, @addopb } : IFNBITJMP
+{ <b x{E3D_} s, swap 5 u, swap ref, @addopb } : IFBITJMPREF
+{ <b x{E3F_} s, swap 5 u, swap ref, @addopb } : IFNBITJMPREF
 
 x{E4} @Defop REPEAT
 x{E5} dup @Defop REPEATEND @Defop REPEAT:

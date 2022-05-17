@@ -54,10 +54,20 @@ td::Status OverlayFecBroadcastPart::check_duplicate() {
 }
 
 td::Status OverlayFecBroadcastPart::check_source() {
-  TRY_STATUS(overlay_->check_source_eligible(source_, cert_.get(), broadcast_size_));
+  auto r = overlay_->check_source_eligible(source_, cert_.get(), broadcast_size_, true);
+  if (r == BroadcastCheckResult::Forbidden) {
+    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+  }
+
+  if (r == BroadcastCheckResult::NeedCheck) {
+    untrusted_ = true;
+    return td::Status::OK();
+  }
+
   if (bcast_) {
     TRY_STATUS(bcast_->is_eligible_sender(source_));
   }
+
   return td::Status::OK();
 }
 
@@ -68,6 +78,7 @@ td::Status OverlayFecBroadcastPart::check_signature() {
 }
 
 td::Status OverlayFecBroadcastPart::run_checks() {
+
   TRY_STATUS(check_time());
   TRY_STATUS(check_duplicate());
   TRY_STATUS(check_source());
@@ -75,7 +86,52 @@ td::Status OverlayFecBroadcastPart::run_checks() {
   return td::Status::OK();
 }
 
+void BroadcastFec::broadcast_checked(td::Result<td::Unit> R) {
+  if (R.is_error()) {
+    return;
+  }
+  overlay_->deliver_broadcast(get_source().compute_short_id(), data_.clone());
+  auto manager = overlay_->overlay_manager();
+  while (!parts_.empty()) {
+       distribute_part(parts_.begin()->first);
+  }
+}
+
+// Do we need status here??
+td::Status  BroadcastFec::distribute_part(td::uint32 seqno) {
+  auto i = parts_.find(seqno);
+  if (i == parts_.end()) {
+    // should not get here
+    return td::Status::OK();
+  }
+  auto tls = std::move(i->second);
+  parts_.erase(i);
+  td::BufferSlice data_short = std::move(tls.first);
+  td::BufferSlice data = std::move(tls.second);
+
+  auto nodes = overlay_->get_neighbours(5);
+  auto manager = overlay_->overlay_manager();
+
+  for (auto &n : nodes) {
+    if (neighbour_completed(n)) {
+      continue;
+    }
+    if (neighbour_received(n)) {
+      td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay_->local_id(), overlay_->overlay_id(),
+                              data_short.clone());
+    } else {
+      if (hash_.count_leading_zeroes() >= 12) {
+        VLOG(OVERLAY_INFO) << "broadcast " << hash_ << ": sending part " << seqno << " to " << n;
+      }
+      td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay_->local_id(), overlay_->overlay_id(),
+                              data.clone());
+    }
+  }
+  return td::Status::OK();
+}
+
 td::Status OverlayFecBroadcastPart::apply() {
+
   if (!bcast_) {
     bcast_ = overlay_->get_fec_broadcast(broadcast_hash_);
   }
@@ -98,7 +154,8 @@ td::Status OverlayFecBroadcastPart::apply() {
   }
 
   if (!bcast_->finalized()) {
-    TRY_STATUS(bcast_->add_part(seqno_, data_.clone()));
+    bcast_->set_overlay(overlay_);
+    TRY_STATUS(bcast_->add_part(seqno_, data_.clone(), export_serialized_short(), export_serialized()));
     auto R = bcast_->finish();
     if (R.is_error()) {
       auto S = R.move_as_error();
@@ -106,44 +163,22 @@ td::Status OverlayFecBroadcastPart::apply() {
         return S;
       }
     } else {
-      overlay_->deliver_broadcast(bcast_->get_source().compute_short_id(), R.move_as_ok());
+      if(untrusted_) {
+        auto P = td::PromiseCreator::lambda(
+              [id = broadcast_hash_, overlay_id = actor_id(overlay_)](td::Result<td::Unit> RR) mutable {
+                td::actor::send_closure(std::move(overlay_id), &OverlayImpl::broadcast_checked, id, std::move(RR));
+              });
+        overlay_->check_broadcast(bcast_->get_source().compute_short_id(), R.move_as_ok(), std::move(P));
+      } else {
+        overlay_->deliver_broadcast(bcast_->get_source().compute_short_id(), R.move_as_ok());
+      }
     }
   }
-
   return td::Status::OK();
 }
 
 td::Status OverlayFecBroadcastPart::distribute() {
-  auto B = export_serialized();
-  auto nodes = overlay_->get_neighbours(5);
-
-  auto manager = overlay_->overlay_manager();
-
-  td::BufferSlice data;
-  td::BufferSlice data_short;
-
-  for (auto &n : nodes) {
-    if (bcast_->neighbour_completed(n)) {
-      continue;
-    }
-    if (bcast_->neighbour_received(n)) {
-      if (data_short.size() == 0) {
-        data_short = export_serialized_short();
-      }
-      td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay_->local_id(), overlay_->overlay_id(),
-                              data_short.clone());
-    } else {
-      if (data.size() == 0) {
-        data = export_serialized();
-      }
-
-      if (broadcast_hash_.count_leading_zeroes() >= 12) {
-        VLOG(OVERLAY_INFO) << "broadcast " << broadcast_hash_ << ": sending part " << part_hash_ << " to " << n;
-      }
-      td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay_->local_id(), overlay_->overlay_id(),
-                              data.clone());
-    }
-  }
+  TRY_STATUS(bcast_->distribute_part(seqno_));
   return td::Status::OK();
 }
 
@@ -179,7 +214,6 @@ td::BufferSlice OverlayFecBroadcastPart::to_sign() {
 td::Status OverlayFecBroadcastPart::create(OverlayImpl *overlay,
                                            tl_object_ptr<ton_api::overlay_broadcastFec> broadcast) {
   TRY_STATUS(overlay->check_date(broadcast->date_));
-
   auto source = PublicKey{broadcast->src_};
   auto part_data_hash = sha256_bits256(broadcast->data_.as_slice());
 

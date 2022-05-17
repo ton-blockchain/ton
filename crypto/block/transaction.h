@@ -213,17 +213,16 @@ struct Account {
   bool is_special{false};
   bool tick{false};
   bool tock{false};
-  bool created{false};
   bool split_depth_set_{false};
   unsigned char split_depth_{0};
   int verbosity{3 * 0};
   ton::UnixTime now_{0};
   ton::WorkchainId workchain{ton::workchainInvalid};
   td::BitArray<32> addr_rewrite;     // rewrite (anycast) data, split_depth bits
-  ton::StdSmcAddress addr;           // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`)
-  ton::StdSmcAddress addr_orig;      // address indicated in smart-contract data
-  Ref<vm::CellSlice> my_addr;        // address as stored in the smart contract (MsgAddressInt)
-  Ref<vm::CellSlice> my_addr_exact;  // exact address without anycast info
+  ton::StdSmcAddress addr;           // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`); it is the key in ShardAccounts
+  ton::StdSmcAddress addr_orig;      // address indicated in smart-contract data (must coincide with hash of StateInit)
+  Ref<vm::CellSlice> my_addr;        // address as stored in the smart contract (MsgAddressInt); corresponds to `addr_orig` + anycast info
+  Ref<vm::CellSlice> my_addr_exact;  // exact address without anycast info; corresponds to `addr` and has no anycast (rewrite) info
   ton::LogicalTime last_trans_end_lt_;
   ton::LogicalTime last_trans_lt_;
   ton::Bits256 last_trans_hash_;
@@ -250,6 +249,7 @@ struct Account {
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
   bool unpack(Ref<vm::CellSlice> account, Ref<vm::CellSlice> extra, ton::UnixTime now, bool special = false);
   bool init_new(ton::UnixTime now);
+  bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;
   bool is_masterchain() const {
@@ -268,6 +268,7 @@ struct Account {
   friend struct Transaction;
   bool set_split_depth(int split_depth);
   bool check_split_depth(int split_depth) const;
+  bool forget_split_depth();
   bool init_rewrite_addr(int split_depth, td::ConstBitPtr orig_addr_rewrite);
 
  private:

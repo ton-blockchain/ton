@@ -394,6 +394,18 @@ class TestNode : public td::actor::Actor {
     }
     remote_public_key_ = R.move_as_ok();
   }
+  void decode_public_key(td::BufferSlice b64_key) {
+    auto R = [&]() -> td::Result<ton::PublicKey> {
+      std::string key_bytes = {(char)0xc6, (char)0xb4, (char)0x13, (char)0x48};
+      key_bytes = key_bytes + td::base64_decode(b64_key.as_slice().str()).move_as_ok();
+      return ton::PublicKey::import(key_bytes);
+    }();
+
+    if (R.is_error()) {
+      LOG(FATAL) << "bad b64 server public key: " << R.move_as_error();
+    }
+    remote_public_key_ = R.move_as_ok();
+  }
   void set_fail_timeout(td::Timestamp ts) {
     fail_timeout_ = ts;
     alarm_timestamp().relax(fail_timeout_);

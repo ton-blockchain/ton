@@ -98,8 +98,8 @@ void ShardClient::start_up_init_mode() {
       });
 
       td::actor::create_actor<DownloadShardState>("downloadstate", shard->top_block_id(),
-                                                  masterchain_block_handle_->id(), 2, manager_, td::Timestamp::in(3600),
-                                                  std::move(P))
+                                                  masterchain_block_handle_->id(), 2, manager_,
+                                                  td::Timestamp::in(3600 * 3), std::move(P))
           .release();
     }
   }

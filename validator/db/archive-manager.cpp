@@ -336,6 +336,28 @@ void ArchiveManager::add_zero_state(BlockIdExt block_id, td::BufferSlice data, t
 
 void ArchiveManager::add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice data,
                                           td::Promise<td::Unit> promise) {
+  auto create_writer = [&](std::string path, td::Promise<std::string> P) {
+    td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/",
+                                           std::move(path), std::move(data), std::move(P))
+        .release();
+  };
+  add_persistent_state_impl(block_id, masterchain_block_id, std::move(promise), std::move(create_writer));
+}
+
+void ArchiveManager::add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                              std::function<td::Status(td::FileFd&)> write_state,
+                                              td::Promise<td::Unit> promise) {
+  auto create_writer = [&](std::string path, td::Promise<std::string> P) {
+    td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/",
+                                           std::move(path), std::move(write_state), std::move(P))
+        .release();
+  };
+  add_persistent_state_impl(block_id, masterchain_block_id, std::move(promise), std::move(create_writer));
+}
+
+void ArchiveManager::add_persistent_state_impl(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                               td::Promise<td::Unit> promise,
+                                               std::function<void(std::string, td::Promise<std::string>)> create_writer) {
   auto id = FileReference{fileref::PersistentState{block_id, masterchain_block_id}};
   auto hash = id.hash();
   if (perm_states_.find(hash) != perm_states_.end()) {
@@ -353,8 +375,7 @@ void ArchiveManager::add_persistent_state(BlockIdExt block_id, BlockIdExt master
           promise.set_value(td::Unit());
         }
       });
-  td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/", path, std::move(data), std::move(P))
-      .release();
+  create_writer(std::move(path), std::move(P));
 }
 
 void ArchiveManager::get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) {

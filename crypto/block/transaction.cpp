@@ -271,7 +271,7 @@ bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth,
 }
 
 bool Account::init_rewrite_addr(int split_depth, td::ConstBitPtr orig_addr_rewrite) {
-  if (split_depth_set_ || !created || !set_split_depth(split_depth)) {
+  if (split_depth_set_ || !set_split_depth(split_depth)) {
     return false;
   }
   addr_orig = addr;
@@ -304,15 +304,8 @@ bool Account::unpack(Ref<vm::CellSlice> shard_account, Ref<vm::CellSlice> extra,
   total_state = orig_total_state = account;
   auto acc_cs = load_cell_slice(std::move(account));
   if (block::gen::t_Account.get_tag(acc_cs) == block::gen::Account::account_none) {
-    status = acc_nonexist;
-    last_paid = 0;
-    last_trans_end_lt_ = 0;
     is_special = special;
-    if (workchain != ton::workchainInvalid) {
-      addr_orig = addr;
-      addr_rewrite = addr.cbits();
-    }
-    return compute_my_addr() && acc_cs.size_ext() == 1;
+    return acc_cs.size_ext() == 1 && init_new(now);
   }
   block::gen::Account::Record_account acc;
   block::gen::AccountStorage::Record storage;
@@ -328,6 +321,7 @@ bool Account::unpack(Ref<vm::CellSlice> shard_account, Ref<vm::CellSlice> extra,
     case block::gen::AccountState::account_uninit:
       status = orig_status = acc_uninit;
       state_hash = addr;
+      forget_split_depth();
       break;
     case block::gen::AccountState::account_frozen:
       status = orig_status = acc_frozen;
@@ -396,9 +390,41 @@ bool Account::init_new(ton::UnixTime now) {
   state_hash = addr_orig;
   status = orig_status = acc_nonexist;
   split_depth_set_ = false;
-  created = true;
   return true;
 }
+
+bool Account::forget_split_depth() {
+  split_depth_set_ = false;
+  split_depth_ = 0;
+  addr_orig = addr;
+  my_addr = my_addr_exact;
+  addr_rewrite = addr.bits();
+  return true;
+}
+
+bool Account::deactivate() {
+  if (status == acc_active) {
+    return false;
+  }
+  // forget special (tick/tock) info
+  tick = tock = false;
+  if (status == acc_nonexist || status == acc_uninit) {
+    // forget split depth and address rewriting info
+    forget_split_depth();
+    // forget specific state hash for deleted or uninitialized accounts (revert to addr)
+    state_hash = addr;
+  }
+  // forget code and data (only active accounts remember these)
+  code.clear();
+  data.clear();
+  library.clear();
+  // if deleted, balance must be zero
+  if (status == acc_nonexist && !balance.is_zero()) {
+    return false;
+  }
+  return true;
+}
+
 
 bool Account::belongs_to_shard(ton::ShardIdFull shard) const {
   return workchain == shard.workchain && ton::shard_is_ancestor(shard.shard, addr);
@@ -2214,7 +2240,7 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   CHECK((const void*)&acc == (const void*)&account);
   // export all fields modified by the Transaction into original account
   // NB: this is the only method that modifies account
-  if (orig_addr_rewrite_set && new_split_depth >= 0 && acc.status == Account::acc_nonexist &&
+  if (orig_addr_rewrite_set && new_split_depth >= 0 && acc.status != Account::acc_active &&
       acc_status == Account::acc_active) {
     LOG(DEBUG) << "setting address rewriting info for newly-activated account " << acc.addr.to_hex()
                << " with split_depth=" << new_split_depth
@@ -2243,9 +2269,7 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
     acc.tick = new_tick;
     acc.tock = new_tock;
   } else {
-    acc.tick = acc.tock = false;
-    acc.split_depth_set_ = false;
-    acc.created = true;
+    CHECK(acc.deactivate());
   }
   end_lt = 0;
   acc.push_transaction(root, start_lt);

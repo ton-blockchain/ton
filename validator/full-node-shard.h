@@ -42,6 +42,10 @@ class FullNodeShard : public td::actor::Actor {
   virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
   virtual void send_broadcast(BlockBroadcast broadcast) = 0;
 
+  virtual void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert, td::Promise<td::Unit> promise) = 0;
+
+
   virtual void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<ReceivedBlock> promise) = 0;
   virtual void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,

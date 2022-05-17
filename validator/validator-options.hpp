@@ -50,6 +50,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   double state_ttl() const override {
     return state_ttl_;
   }
+  double max_mempool_num() const override {
+    return max_mempool_num_;
+  }
   double archive_ttl() const override {
     return archive_ttl_;
   }
@@ -130,6 +133,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_state_ttl(double value) override {
     state_ttl_ = value;
   }
+  void set_max_mempool_num(double value) override {
+    max_mempool_num_ = value;
+  }
   void set_archive_ttl(double value) override {
     archive_ttl_ = value;
   }
@@ -163,7 +169,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard,
                               bool allow_blockchain_init, double sync_blocks_before,
-                              double block_ttl, double state_ttl,
+                              double block_ttl, double state_ttl, double max_mempool_num,
                               double archive_ttl, double key_proof_ttl,
                               bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
@@ -173,6 +179,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
       , sync_blocks_before_(sync_blocks_before)
       , block_ttl_(block_ttl)
       , state_ttl_(state_ttl)
+      , max_mempool_num_(max_mempool_num)
       , archive_ttl_(archive_ttl)
       , key_proof_ttl_(key_proof_ttl)
       , initial_sync_disabled_(initial_sync_disabled) {
@@ -186,6 +193,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   double sync_blocks_before_;
   double block_ttl_;
   double state_ttl_;
+  double max_mempool_num_;
   double archive_ttl_;
   double key_proof_ttl_;
   bool initial_sync_disabled_;

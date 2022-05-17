@@ -362,6 +362,11 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
       code.close_pop_cur(args[2]->here);
       return rvect;
     }
+    case _SliceConst: {
+      auto rvect = new_tmp_vect(code);
+      code.emplace_back(here, Op::_SliceConst, rvect, strval);
+      return rvect;
+    }
     default:
       std::cerr << "expression constructor is " << cls << std::endl;
       throw src::Fatal{"cannot compile expression with unknown constructor"};

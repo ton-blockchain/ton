@@ -247,6 +247,11 @@ const Lexem& Lexer::next() {
     }
     lexem.set(std::string{src.get_ptr() + 1, end}, src.here(), qc == '`' ? Lexem::Unknown : Lexem::String);
     src.set_ptr(end + 1);
+    c = src.cur_char();
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+      lexem.val = c;
+      src.set_ptr(end + 2);
+    }
     // std::cerr << lexem.name_str() << ' ' << lexem.str << std::endl;
     return lexem;
   }

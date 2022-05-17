@@ -1556,68 +1556,92 @@ bool Collator::init_lt() {
 }
 
 bool Collator::fetch_config_params() {
-  old_mparams_ = config_->get_config_param(9);
-  {
-    auto res = config_->get_storage_prices();
-    if (res.is_error()) {
+  auto res = impl_fetch_config_params(std::move(config_),
+                                      &old_mparams_, &storage_prices_, &storage_phase_cfg_,
+                                      &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_,
+                                      &masterchain_create_fee_, &basechain_create_fee_,
+                                      workchain()
+                                     );
+  if (res.is_error()) {
       return fatal_error(res.move_as_error());
+  }
+  config_ = res.move_as_ok();
+  return true;
+}
+
+td::Result<std::unique_ptr<block::ConfigInfo>>
+           Collator::impl_fetch_config_params(std::unique_ptr<block::ConfigInfo> config,
+                                              Ref<vm::Cell>* old_mparams,
+                                              std::vector<block::StoragePrices>* storage_prices,
+                                              block::StoragePhaseConfig* storage_phase_cfg,
+                                              td::BitArray<256>* rand_seed,
+                                              block::ComputePhaseConfig* compute_phase_cfg,
+                                              block::ActionPhaseConfig* action_phase_cfg,
+                                              td::RefInt256* masterchain_create_fee,
+                                              td::RefInt256* basechain_create_fee,
+                                              WorkchainId wc) {
+  *old_mparams = config->get_config_param(9);
+  {
+    auto res = config->get_storage_prices();
+    if (res.is_error()) {
+      return res.move_as_error();
     }
-    storage_prices_ = res.move_as_ok();
+    *storage_prices = res.move_as_ok();
   }
   {
     // generate rand seed
-    prng::rand_gen().strong_rand_bytes(rand_seed_.data(), 32);
-    LOG(DEBUG) << "block random seed set to " << rand_seed_.to_hex();
+    prng::rand_gen().strong_rand_bytes(rand_seed->data(), 32);
+    LOG(DEBUG) << "block random seed set to " << rand_seed->to_hex();
   }
   {
     // compute compute_phase_cfg / storage_phase_cfg
-    auto cell = config_->get_config_param(is_masterchain() ? 20 : 21);
+    auto cell = config->get_config_param(wc == ton::masterchainId ? 20 : 21);
     if (cell.is_null()) {
-      return fatal_error("cannot fetch current gas prices and limits from masterchain configuration");
+      return td::Status::Error(-668, "cannot fetch current gas prices and limits from masterchain configuration");
     }
-    if (!compute_phase_cfg_.parse_GasLimitsPrices(std::move(cell), storage_phase_cfg_.freeze_due_limit,
-                                                  storage_phase_cfg_.delete_due_limit)) {
-      return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
+    if (!compute_phase_cfg->parse_GasLimitsPrices(std::move(cell), storage_phase_cfg->freeze_due_limit,
+                                                  storage_phase_cfg->delete_due_limit)) {
+      return td::Status::Error(-668, "cannot unpack current gas prices and limits from masterchain configuration");
     }
-    compute_phase_cfg_.block_rand_seed = rand_seed_;
-    compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
-    compute_phase_cfg_.global_config = config_->get_root_cell();
+    compute_phase_cfg->block_rand_seed = *rand_seed;
+    compute_phase_cfg->libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
+    compute_phase_cfg->global_config = config->get_root_cell();
   }
   {
     // compute action_phase_cfg
     block::gen::MsgForwardPrices::Record rec;
-    auto cell = config_->get_config_param(24);
+    auto cell = config->get_config_param(24);
     if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-      return fatal_error("cannot fetch masterchain message transfer prices from masterchain configuration");
+      return td::Status::Error(-668, "cannot fetch masterchain message transfer prices from masterchain configuration");
     }
-    action_phase_cfg_.fwd_mc =
+    action_phase_cfg->fwd_mc =
         block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
-    cell = config_->get_config_param(25);
+    cell = config->get_config_param(25);
     if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-      return fatal_error("cannot fetch standard message transfer prices from masterchain configuration");
+      return td::Status::Error(-668, "cannot fetch standard message transfer prices from masterchain configuration");
     }
-    action_phase_cfg_.fwd_std =
+    action_phase_cfg->fwd_std =
         block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
-    action_phase_cfg_.workchains = &config_->get_workchain_list();
-    action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg->workchains = &config->get_workchain_list();
+    action_phase_cfg->bounce_msg_body = (config->has_capability(ton::capBounceMsgBody) ? 256 : 0);
   }
   {
     // fetch block_grams_created
-    auto cell = config_->get_config_param(14);
+    auto cell = config->get_config_param(14);
     if (cell.is_null()) {
-      basechain_create_fee_ = masterchain_create_fee_ = td::zero_refint();
+      *basechain_create_fee = *masterchain_create_fee = td::zero_refint();
     } else {
       block::gen::BlockCreateFees::Record create_fees;
       if (!(tlb::unpack_cell(cell, create_fees) &&
-            block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, masterchain_create_fee_) &&
-            block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, basechain_create_fee_))) {
-        return fatal_error("cannot unpack BlockCreateFees from configuration parameter #14");
+            block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, *masterchain_create_fee) &&
+            block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, *basechain_create_fee))) {
+        return td::Status::Error(-668, "cannot unpack BlockCreateFees from configuration parameter #14");
       }
     }
   }
-  return true;
+  return std::move(config);
 }
 
 bool Collator::compute_minted_amount(block::CurrencyCollection& to_mint) {
@@ -1920,7 +1944,6 @@ std::unique_ptr<block::Account> Collator::make_account_from(td::ConstBitPtr addr
   }
   auto ptr = std::make_unique<block::Account>(workchain(), addr);
   if (account.is_null()) {
-    ptr->created = true;
     if (!ptr->init_new(now_)) {
       return nullptr;
     }
@@ -2218,75 +2241,25 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
   }
   block::Account* acc = acc_res.move_as_ok();
   assert(acc);
-  if (acc->last_trans_end_lt_ >= start_lt && acc->transactions.empty()) {
-    fatal_error(PSTRING() << "last transaction time in the state of account " << workchain() << ":" << addr.to_hex()
-                          << " is too large");
-    return {};
-  }
-  auto trans_min_lt = start_lt;
-  if (external) {
-    // transactions processing external messages must have lt larger than all processed internal messages
-    trans_min_lt = std::max(trans_min_lt, last_proc_int_msg_.first);
-  }
-  std::unique_ptr<block::Transaction> trans =
-      std::make_unique<block::Transaction>(*acc, block::Transaction::tr_ord, trans_min_lt + 1, now_, msg_root);
-  bool ihr_delivered = false;  // FIXME
-  if (!trans->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
-    if (external) {
-      // inbound external message was not accepted
-      LOG(DEBUG) << "inbound external message rejected by account " << addr.to_hex()
-                 << " before smart-contract execution";
+
+
+  auto res = impl_create_ordinary_transaction(msg_root, acc, now_, start_lt,
+                                                    &storage_phase_cfg_, &compute_phase_cfg_,
+                                                    &action_phase_cfg_,
+                                                    external, last_proc_int_msg_.first
+                                                   );
+  if(res.is_error()) {
+    auto error = res.move_as_error();
+    if(error.code() == -701) {
+      // ignorable errors
+      LOG(DEBUG) << error.message();
       return {};
     }
-    fatal_error("cannot unpack input message for a new transaction");
+    fatal_error(std::move(error));
     return {};
   }
-  if (trans->bounce_enabled) {
-    if (!trans->prepare_storage_phase(storage_phase_cfg_, true)) {
-      fatal_error("cannot create storage phase of a new transaction for smart contract "s + addr.to_hex());
-      return {};
-    }
-    if (!external && !trans->prepare_credit_phase()) {
-      fatal_error("cannot create credit phase of a new transaction for smart contract "s + addr.to_hex());
-      return {};
-    }
-  } else {
-    if (!external && !trans->prepare_credit_phase()) {
-      fatal_error("cannot create credit phase of a new transaction for smart contract "s + addr.to_hex());
-      return {};
-    }
-    if (!trans->prepare_storage_phase(storage_phase_cfg_, true, true)) {
-      fatal_error("cannot create storage phase of a new transaction for smart contract "s + addr.to_hex());
-      return {};
-    }
-  }
-  if (!trans->prepare_compute_phase(compute_phase_cfg_)) {
-    fatal_error("cannot create compute phase of a new transaction for smart contract "s + addr.to_hex());
-    return {};
-  }
-  if (!trans->compute_phase->accepted) {
-    if (external) {
-      // inbound external message was not accepted
-      LOG(DEBUG) << "inbound external message rejected by transaction " << addr.to_hex();
-      return {};
-    } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
-      fatal_error("new ordinary transaction for smart contract "s + addr.to_hex() +
-                  " has not been accepted by the smart contract (?)");
-      return {};
-    }
-  }
-  if (trans->compute_phase->success && !trans->prepare_action_phase(action_phase_cfg_)) {
-    fatal_error("cannot create action phase of a new transaction for smart contract "s + addr.to_hex());
-    return {};
-  }
-  if (trans->bounce_enabled && !trans->compute_phase->success && !trans->prepare_bounce_phase(action_phase_cfg_)) {
-    fatal_error("cannot create bounce phase of a new transaction for smart contract "s + addr.to_hex());
-    return {};
-  }
-  if (!trans->serialize()) {
-    fatal_error("cannot serialize new transaction for smart contract "s + addr.to_hex());
-    return {};
-  }
+  std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+
   if (!trans->update_limits(*block_limit_status_)) {
     fatal_error("cannot update block limit status to include the new transaction");
     return {};
@@ -2296,13 +2269,79 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
     fatal_error("cannot commit new transaction for smart contract "s + addr.to_hex());
     return {};
   }
+
   register_new_msgs(*trans);
   update_max_lt(acc->last_trans_end_lt_);
-  // temporary patch to stop producing dangerous block
-  if (acc->status == block::Account::acc_nonexist) {
-    block_full_ = true;
-  }
   return trans_root;
+}
+
+// If td::status::error_code == 669 - Fatal Error block can not be produced
+// if td::status::error_code == 701 - Transaction can not be included into block, but it's ok (external or too early internal)
+td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
+                                                         block::Account* acc,
+                                                         UnixTime utime, LogicalTime lt,
+                                                         block::StoragePhaseConfig* storage_phase_cfg,
+                                                         block::ComputePhaseConfig* compute_phase_cfg,
+                                                         block::ActionPhaseConfig* action_phase_cfg,
+                                                         bool external, LogicalTime after_lt) {
+  if (acc->last_trans_end_lt_ >= lt && acc->transactions.empty()) {
+    return td::Status::Error(-669, PSTRING() << "last transaction time in the state of account " << acc->workchain << ":" << acc->addr.to_hex()
+                          << " is too large");
+  }
+  auto trans_min_lt = lt;
+  if (external) {
+    // transactions processing external messages must have lt larger than all processed internal messages
+    trans_min_lt = std::max(trans_min_lt, after_lt);
+  }
+
+  std::unique_ptr<block::Transaction> trans =
+      std::make_unique<block::Transaction>(*acc, block::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
+  bool ihr_delivered = false;  // FIXME
+  if (!trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
+    if (external) {
+      // inbound external message was not accepted
+      return td::Status::Error(-701,"inbound external message rejected by account "s + acc->addr.to_hex() +
+                                                           " before smart-contract execution");
+      }
+    return td::Status::Error(-669,"cannot unpack input message for a new transaction");
+  }
+  if (trans->bounce_enabled) {
+    if (!trans->prepare_storage_phase(*storage_phase_cfg, true)) {
+      return td::Status::Error(-669,"cannot create storage phase of a new transaction for smart contract "s + acc->addr.to_hex());
+      }
+    if (!external && !trans->prepare_credit_phase()) {
+      return td::Status::Error(-669,"cannot create credit phase of a new transaction for smart contract "s + acc->addr.to_hex());
+      }
+  } else {
+    if (!external && !trans->prepare_credit_phase()) {
+      return td::Status::Error(-669,"cannot create credit phase of a new transaction for smart contract "s + acc->addr.to_hex());
+      }
+    if (!trans->prepare_storage_phase(*storage_phase_cfg, true, true)) {
+      return td::Status::Error(-669,"cannot create storage phase of a new transaction for smart contract "s + acc->addr.to_hex());
+      }
+  }
+  if (!trans->prepare_compute_phase(*compute_phase_cfg)) {
+    return td::Status::Error(-669,"cannot create compute phase of a new transaction for smart contract "s + acc->addr.to_hex());
+  }
+  if (!trans->compute_phase->accepted) {
+    if (external) {
+      // inbound external message was not accepted
+        return td::Status::Error(-701,"inbound external message rejected by transaction "s + acc->addr.to_hex());
+      } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
+        return td::Status::Error(-669,"new ordinary transaction for smart contract "s + acc->addr.to_hex() +
+                  " has not been accepted by the smart contract (?)");
+      }
+  }
+  if (trans->compute_phase->success && !trans->prepare_action_phase(*action_phase_cfg)) {
+    return td::Status::Error(-669,"cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
+  }
+  if (trans->bounce_enabled && !trans->compute_phase->success && !trans->prepare_bounce_phase(*action_phase_cfg)) {
+    return td::Status::Error(-669,"cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
+  }
+  if (!trans->serialize()) {
+    return td::Status::Error(-669,"cannot serialize new transaction for smart contract "s + acc->addr.to_hex());
+  }
+  return std::move(trans);
 }
 
 void Collator::update_max_lt(ton::LogicalTime lt) {
@@ -2450,10 +2489,6 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   // 6. insert OutMsg into OutMsgDescr
   if (!insert_out_msg(cb.finalize())) {
     return -1;
-  }
-  // 6.5. check for temporary patch can be left here
-  if (block_full_) {
-    return 3;
   }
   // 7. check whether the block is full now
   if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {

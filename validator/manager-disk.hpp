@@ -124,6 +124,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
+  void check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) override {
+    UNREACHABLE();
+  }
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
 
@@ -140,6 +143,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                        td::Promise<td::Ref<ShardState>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                    td::Promise<td::Unit> promise) override;
+  void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                       std::function<td::Status(td::FileFd&)> write_data,
+                                       td::Promise<td::Unit> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<td::Ref<ShardState>> promise) override;

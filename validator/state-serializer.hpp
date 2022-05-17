@@ -43,7 +43,7 @@ class AsyncStateSerializer : public td::actor::Actor {
   td::uint32 next_idx_ = 0;
 
   BlockHandle masterchain_handle_;
-  td::Ref<MasterchainState> masterchain_state_;
+  bool have_masterchain_state_ = false;
 
   std::vector<BlockIdExt> shards_;
 
@@ -64,6 +64,9 @@ class AsyncStateSerializer : public td::actor::Actor {
   void start_up() override;
   void got_self_state(AsyncSerializerState state);
   void got_init_handle(BlockHandle handle);
+
+  void request_masterchain_state();
+  void request_shard_state(BlockIdExt shard);
 
   void next_iteration();
   void got_top_masterchain_handle(BlockIdExt block_id);

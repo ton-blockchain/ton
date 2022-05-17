@@ -134,6 +134,11 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateProposalVoteQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateComplaintVoteQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CheckDhtServersQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SignCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetOverlaysStatsQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportShardOverlayCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SignShardOverlayCertificateQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
@@ -258,7 +263,8 @@ int main(int argc, char* argv[]) {
     std::exit(2);
   });
   p.add_option('V', "version", "shows validator-engine-console build information", [&]() {
-    std::cout << "validator-engine-console build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "validator-engine-console build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_checked_option('a', "address", "server address", [&](td::Slice arg) {

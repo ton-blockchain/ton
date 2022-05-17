@@ -72,6 +72,9 @@ class DownloadState : public td::actor::Actor {
   td::BufferSlice state_;
   std::vector<td::BufferSlice> parts_;
   td::uint64 sum_ = 0;
+
+  td::uint64 prev_logged_sum_ = 0;
+  td::Timer prev_logged_timer_;
 };
 
 }  // namespace fullnode

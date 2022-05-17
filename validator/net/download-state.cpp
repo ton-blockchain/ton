@@ -53,7 +53,7 @@ DownloadState::DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_i
 void DownloadState::abort_query(td::Status reason) {
   if (promise_) {
     if (reason.code() == ErrorCode::notready || reason.code() == ErrorCode::timeout) {
-      VLOG(FULL_NODE_DEBUG) << "failed to download state " << block_id_ << "from " << download_from_ << ": " << reason;
+      VLOG(FULL_NODE_DEBUG) << "failed to download state " << block_id_ << " from " << download_from_ << ": " << reason;
     } else {
       VLOG(FULL_NODE_NOTICE) << "failed to download state " << block_id_ << " from " << download_from_ << ": "
                              << reason;
@@ -115,6 +115,7 @@ void DownloadState::got_block_handle(BlockHandle handle) {
 
 void DownloadState::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
+  LOG(INFO) << "downloading state " << block_id_ << " from " << download_from_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
@@ -148,6 +149,7 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
     abort_query(F.move_as_error());
     return;
   }
+  prev_logged_timer_ = td::Timer();
 
   ton_api::downcast_call(
       *F.move_as_ok().get(),
@@ -187,6 +189,14 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
   sum_ += data.size();
   parts_.push_back(std::move(data));
 
+  double elapsed = prev_logged_timer_.elapsed();
+  if (elapsed > 10.0) {
+    prev_logged_timer_ = td::Timer();
+    LOG(INFO) << "downloading state " << block_id_ << ": total=" << sum_ <<
+        " (" << double(sum_ - prev_logged_sum_) / elapsed << " B/s)";
+    prev_logged_sum_ = sum_;
+  }
+
   if (last_part) {
     td::BufferSlice res{td::narrow_cast<std::size_t>(sum_)};
     auto S = res.as_slice();
@@ -224,6 +234,7 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
 
 void DownloadState::got_block_state(td::BufferSlice data) {
   state_ = std::move(data);
+  LOG(INFO) << "finished downloading state " << block_id_ << ": total=" << sum_;
   finish_query();
 }
 

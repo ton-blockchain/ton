@@ -387,18 +387,16 @@ int exec_muldivmod(VmState* st, unsigned args, int quiet) {
   auto z = stack.pop_int();
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0}, quot;
   tmp.add_mul(*x, *y);
   auto q = td::make_refint();
-  tmp.mod_div(*z, q.unique_write(), round_mode);
+  tmp.mod_div(*z, quot, round_mode);
   switch ((args >> 2) & 3) {
     case 1:
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), quiet);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), quiet);
       break;
     case 3:
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), quiet);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), quiet);
       // fallthrough
     case 2:
       stack.push_int_quiet(td::make_refint(tmp), quiet);
@@ -459,7 +457,7 @@ int exec_mulshrmod(VmState* st, unsigned args, int mode) {
     }
       // fallthrough
     case 2:
-      tmp.mod_pow2(z, round_mode).normalize();
+      tmp.normalize().mod_pow2(z, round_mode).normalize();
       stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
   }
@@ -520,21 +518,17 @@ int exec_shldivmod(VmState* st, unsigned args, int mode) {
   }
   auto z = stack.pop_int();
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{*x};
+  typename td::BigInt256::DoubleInt tmp{*x}, quot;
   tmp <<= y;
   switch ((args >> 2) & 3) {
     case 1: {
-      auto q = td::make_refint();
-      tmp.mod_div(*z, q.unique_write(), round_mode);
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), mode & 1);
+      tmp.mod_div(*z, quot, round_mode);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), mode & 1);
       break;
     }
     case 3: {
-      auto q = td::make_refint();
-      tmp.mod_div(*z, q.unique_write(), round_mode);
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), mode & 1);
+      tmp.mod_div(*z, quot, round_mode);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), mode & 1);
       stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     }
