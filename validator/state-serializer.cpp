@@ -21,7 +21,6 @@
 #include "adnl/utils.hpp"
 #include "ton/ton-io.hpp"
 #include "common/delay.h"
-#include "impl/large-boc-serializer.hpp"
 
 namespace ton {
 
@@ -217,7 +216,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
   }
 
   auto write_data = [hash = state->root_cell()->get_hash(), cell_db_reader = cell_db_reader_] (td::FileFd& fd) {
-    return serialize_large_boc_to_file(cell_db_reader, hash, fd, 31);
+    return vm::std_boc_serialize_to_file_large(cell_db_reader, hash, fd, 31);
   };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
@@ -249,7 +248,7 @@ void AsyncStateSerializer::got_shard_handle(BlockHandle handle) {
 void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardState> state) {
   LOG(INFO) << "serializing shard state " << handle->id().id;
   auto write_data = [hash = state->root_cell()->get_hash(), cell_db_reader = cell_db_reader_] (td::FileFd& fd) {
-    return serialize_large_boc_to_file(cell_db_reader, hash, fd, 31);
+    return vm::std_boc_serialize_to_file_large(cell_db_reader, hash, fd, 31);
   };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Unit> R) {
     R.ensure();

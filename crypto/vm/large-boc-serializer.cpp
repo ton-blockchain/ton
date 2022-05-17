@@ -1,26 +1,42 @@
-#include "large-boc-serializer.hpp"
-#include "td/utils/HashMap.h"
-#include "crypto/vm/cellslice.h"
-#include "crypto/vm/boc.h"
-#include "td/utils/crypto.h"
-#include "td/utils/port/Stat.h"
+/*
+    This file is part of TON Blockchain Library.
 
-namespace ton {
-namespace validator {
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+*/
+#include "vm/boc.h"
+#include "vm/boc-writers.h"
+#include "vm/cellslice.h"
+#include "td/utils/misc.h"
+
+namespace vm {
 
 namespace {
+// LargeBocSerializer implements serialization of the bag of cells in the standard way
+// (equivalent to the implementation in crypto/vm/boc.cpp)
+// Changes in this file may require corresponding changes in boc.cpp
 class LargeBocSerializer {
  public:
-  using Hash = vm::Cell::Hash;
+  using Hash = Cell::Hash;
 
-  explicit LargeBocSerializer(std::shared_ptr<vm::CellDbReader> reader) : reader(std::move(reader)) {}
+  explicit LargeBocSerializer(std::shared_ptr<CellDbReader> reader) : reader(std::move(reader)) {}
 
   void add_root(Hash root);
   td::Status import_cells();
   td::Status serialize(td::FileFd& fd, int mode);
 
  private:
-  std::shared_ptr<vm::CellDbReader> reader;
+  std::shared_ptr<CellDbReader> reader;
   struct CellInfo {
     std::array<int, 4> ref_idx;
     int idx;
@@ -37,11 +53,12 @@ class LargeBocSerializer {
       return !wt;
     }
     unsigned get_ref_num() const {
-      unsigned ref_num = 4;
-      while (ref_num > 0 && ref_idx[ref_num - 1] == -1) {
-        --ref_num;
+      for (unsigned i = 0; i < 4; ++i) {
+        if (ref_idx[i] == -1) {
+          return i;
+        }
       }
-      return ref_num;
+      return 4;
     }
   };
   std::map<Hash, CellInfo> cells;
@@ -77,7 +94,7 @@ td::Status LargeBocSerializer::import_cells() {
 }
 
 td::Result<int> LargeBocSerializer::import_cell(Hash hash, int depth) {
-  if (depth > vm::Cell::max_depth) {
+  if (depth > Cell::max_depth) {
     return td::Status::Error("error while importing a cell into a bag of cells: cell depth too large");
   }
   auto it = cells.find(hash);
@@ -90,7 +107,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash hash, int depth) {
     return td::Status::Error(
         "error while importing a cell into a bag of cells: cell has non-zero virtualization level");
   }
-  vm::CellSlice cs(std::move(cell));
+  CellSlice cs(std::move(cell));
   std::array<int, 4> refs;
   std::fill(refs.begin(), refs.end(), -1);
   DCHECK(cs.size_refs() <= 4);
@@ -122,10 +139,10 @@ void LargeBocSerializer::reorder_cells() {
   int_hashes = 0;
   for (int i = cell_count - 1; i >= 0; --i) {
     CellInfo& dci = cell_list[i]->second;
-    int s = dci.get_ref_num(), c = s, sum = vm::BagOfCells::max_cell_whs - 1, mask = 0;
+    int s = dci.get_ref_num(), c = s, sum = BagOfCells::max_cell_whs - 1, mask = 0;
     for (int j = 0; j < s; ++j) {
       CellInfo& dcj = cell_list[dci.ref_idx[j]]->second;
-      int limit = (vm::BagOfCells::max_cell_whs - 1 + j) / s;
+      int limit = (BagOfCells::max_cell_whs - 1 + j) / s;
       if (dcj.wt <= limit) {
         sum -= dcj.wt;
         --c;
@@ -150,7 +167,7 @@ void LargeBocSerializer::reorder_cells() {
     for (int j = 0; j < s; ++j) {
       sum += cell_list[dci.ref_idx[j]]->second.wt;
     }
-    DCHECK(sum <= vm::BagOfCells::max_cell_whs);
+    DCHECK(sum <= BagOfCells::max_cell_whs);
     if (sum <= dci.wt) {
       dci.wt = (unsigned char)sum;
     } else {
@@ -237,7 +254,7 @@ int LargeBocSerializer::revisit(int cell_idx, int force) {
 }
 
 td::uint64 LargeBocSerializer::compute_sizes(int mode, int& r_size, int& o_size) {
-  using Mode = vm::BagOfCells::Mode;
+  using Mode = BagOfCells::Mode;
   int rs = 0, os = 0;
   if (roots.empty() || !data_bytes) {
     r_size = o_size = 0;
@@ -248,7 +265,7 @@ td::uint64 LargeBocSerializer::compute_sizes(int mode, int& r_size, int& o_size)
   }
   td::uint64 hashes =
       (((mode & Mode::WithTopHash) ? top_hashes : 0) + ((mode & Mode::WithIntHashes) ? int_hashes : 0)) *
-      (vm::Cell::hash_bytes + vm::Cell::depth_bytes);
+      (Cell::hash_bytes + Cell::depth_bytes);
   td::uint64 data_bytes_adj = data_bytes + (unsigned long long)int_refs * rs + hashes;
   td::uint64 max_offset = (mode & Mode::WithCacheBits) ? data_bytes_adj * 2 : data_bytes_adj;
   while (max_offset >= (1ULL << (os << 3))) {
@@ -263,119 +280,9 @@ td::uint64 LargeBocSerializer::compute_sizes(int mode, int& r_size, int& o_size)
   return data_bytes_adj;
 }
 
-struct BufferWriter {
-  BufferWriter(unsigned char* store_start, unsigned char* store_end)
-      : store_start(store_start), store_ptr(store_start), store_end(store_end) {}
-
-  size_t position() const {
-    return store_ptr - store_start;
-  }
-  size_t remaining() const {
-    return store_end - store_ptr;
-  }
-  void chk() const {
-    DCHECK(store_ptr <= store_end);
-  }
-  bool empty() const {
-    return store_ptr == store_end;
-  }
-  void store_uint(unsigned long long value, unsigned bytes) {
-    unsigned char* ptr = store_ptr += bytes;
-    chk();
-    while (bytes) {
-      *--ptr = value & 0xff;
-      value >>= 8;
-      --bytes;
-    }
-    DCHECK(!bytes);
-  }
-  void store_bytes(unsigned char const* data, size_t s) {
-    store_ptr += s;
-    chk();
-    memcpy(store_ptr - s, data, s);
-  }
-  unsigned get_crc32() const {
-    return td::crc32c(td::Slice{store_start, store_ptr});
-  }
-
- private:
-  unsigned char* store_start;
-  unsigned char* store_ptr;
-  unsigned char* store_end;
-};
-
-struct FileWriter {
-  explicit FileWriter(td::FileFd& fd) : fd(fd) {}
-
-  ~FileWriter() {
-    flush();
-  }
-
-  size_t position() const {
-    return flushed_size + writer.position();
-  }
-  void store_uint(unsigned long long value, unsigned bytes) {
-    flush_if_needed(bytes);
-    writer.store_uint(value, bytes);
-  }
-  void store_bytes(unsigned char const* data, size_t s) {
-    flush_if_needed(s);
-    writer.store_bytes(data, s);
-  }
-  unsigned get_crc32() const {
-    unsigned char const* start = buf.data();
-    unsigned char const* end = start + writer.position();
-    return td::crc32c_extend(current_crc32, td::Slice(start, end));
-  }
-
-  td::Status finalize() {
-    flush();
-    return std::move(res);
-  }
-
- private:
-  void flush_if_needed(size_t s) {
-    DCHECK(s <= BUF_SIZE);
-    if (s > BUF_SIZE - writer.position()) {
-      flush();
-    }
-  }
-
-  void flush() {
-    unsigned char* start = buf.data();
-    unsigned char* end = start + writer.position();
-    if (start == end) {
-      return;
-    }
-    flushed_size += end - start;
-    current_crc32 = td::crc32c_extend(current_crc32, td::Slice(start, end));
-    if (res.is_ok()) {
-      while (end > start) {
-        auto R = fd.write(td::Slice(start, end));
-        if (R.is_error()) {
-          res = R.move_as_error();
-          break;
-        }
-        size_t s = R.move_as_ok();
-        start += s;
-      }
-    }
-    writer = BufferWriter(buf.data(), buf.data() + buf.size());
-  }
-
-  td::FileFd& fd;
-  size_t flushed_size = 0;
-  unsigned current_crc32 = td::crc32c(td::Slice());
-
-  static const size_t BUF_SIZE = 1 << 22;
-  std::vector<unsigned char> buf = std::vector<unsigned char>(BUF_SIZE, '\0');
-  BufferWriter writer = BufferWriter(buf.data(), buf.data() + buf.size());
-  td::Status res = td::Status::OK();
-};
-
 td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
-  using Mode = vm::BagOfCells::Mode;
-  vm::BagOfCells::Info info;
+  using Mode = BagOfCells::Mode;
+  BagOfCells::Info info;
   if ((mode & Mode::WithCacheBits) && !(mode & Mode::WithIndex)) {
     return td::Status::Error("invalid flags");
   }
@@ -397,7 +304,7 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
   if (info.has_index) {
     info.data_offset += (long long)cell_count * info.offset_byte_size;
   }
-  info.magic = vm::BagOfCells::Info::boc_generic;
+  info.magic = BagOfCells::Info::boc_generic;
   info.data_size = data_bytes_adj;
   info.total_size = info.data_offset + data_bytes_adj + crc_size;
   auto res = td::narrow_cast_safe<size_t>(info.total_size);
@@ -405,7 +312,7 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
     return td::Status::Error("bag of cells is too large");
   }
 
-  FileWriter writer{fd};
+  boc_writers::FileWriter writer{fd, info.total_size};
   auto store_ref = [&](unsigned long long value) {
     writer.store_uint(value, info.ref_byte_size);
   };
@@ -450,7 +357,7 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
       }
       int hash_size = 0;
       if (with_hash) {
-        hash_size = (vm::Cell::hash_bytes + vm::Cell::depth_bytes) * dc_info.hcnt;
+        hash_size = (Cell::hash_bytes + Cell::depth_bytes) * dc_info.hcnt;
       }
       offs += dc_info.serialized_size + hash_size + dc_info.get_ref_num() * info.ref_byte_size;
       auto fixed_offset = offs;
@@ -487,12 +394,13 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
     unsigned crc = writer.get_crc32();
     writer.store_uint(td::bswap32(crc), 4);
   }
+  DCHECK(writer.empty());
   return writer.finalize();
 }
 }
 
-td::Status serialize_large_boc_to_file(std::shared_ptr<vm::CellDbReader> reader, vm::Cell::Hash root_hash,
-                                       td::FileFd& fd, int mode) {
+td::Status std_boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash,
+                                           td::FileFd& fd, int mode) {
   CHECK(reader != nullptr)
   LargeBocSerializer serializer(reader);
   serializer.add_root(root_hash);
@@ -500,5 +408,4 @@ td::Status serialize_large_boc_to_file(std::shared_ptr<vm::CellDbReader> reader,
   return serializer.serialize(fd, mode);
 }
 
-}
 }
