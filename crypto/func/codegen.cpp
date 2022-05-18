@@ -280,6 +280,7 @@ bool Op::generate_code_step(Stack& stack) {
   switch (cl) {
     case _Nop:
     case _Import:
+      stack.remember_import_pos();
       return true;
     case _Return: {
       stack.enforce_state(left);
@@ -529,13 +530,15 @@ bool Op::generate_code_step(Stack& stack) {
     }
     case _If: {
       bool inline_func = stack.mode & Stack::_InlineFunc;
+      bool need_retalt = !next->noreturn() && (block0->noreturn() != block1->noreturn());
       if (block0->is_empty() && block1->is_empty()) {
         return true;
       }
-      if (!next->noreturn() && (block0->noreturn() != block1->noreturn())) {
-        // simple fix of unbalanced returns in if/else branches
-        // (to be replaced with a finer condition working in loop bodies)
-        throw src::ParseError{where, "`if` and `else` branches should both return or both not return"};
+      if(need_retalt) {
+        if(inline_func) {
+          stack.set_wrap_execute();
+        }
+        stack.set_samealt();
       }
       var_idx_t x = left[0];
       stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
@@ -552,6 +555,7 @@ bool Op::generate_code_step(Stack& stack) {
         Stack stack_copy{stack};
         stack_copy.mode &= ~Stack::_InlineFunc;
         block_noreturn->generate_code_all(stack_copy);
+        stack.mode |= stack_copy.mode & Stack::_AltSet;
         stack.o.undent();
         if (block_other->is_empty() && next->is_empty()) {
           stack.o << "}>";
@@ -564,6 +568,7 @@ bool Op::generate_code_step(Stack& stack) {
           if (!block_other->noreturn()){
             next->generate_code_all(stack_copy_2);
           }
+          stack.mode |= stack_copy.mode & Stack::_AltSet;
           stack.o.undent();
           stack.o << "}>";
         }
@@ -580,6 +585,7 @@ bool Op::generate_code_step(Stack& stack) {
           Stack stack_copy{stack};
           stack_copy.mode &= ~Stack::_InlineFunc;
           block->generate_code_all(stack_copy);
+          stack.mode |= stack_copy.mode & Stack::_AltSet;
           stack.o.undent();
           stack.o << "}>";
           return true;
@@ -593,6 +599,7 @@ bool Op::generate_code_step(Stack& stack) {
         block->generate_code_all(stack_copy);
         stack_copy.drop_vars_except(var_info);
         stack_copy.opt_show();
+        stack.mode |= stack_copy.mode & Stack::_AltSet;
         if ((is0 && stack_copy == stack) || (!is0 && stack_copy.vars() == stack.vars())) {
           stack.o.undent();
           stack.o << "}>";
@@ -628,10 +635,11 @@ bool Op::generate_code_step(Stack& stack) {
         Stack stack_copy{stack};
         stack_copy.mode &= ~Stack::_InlineFunc;
         block_noreturn->generate_code_all(stack_copy);
+        stack.mode |= stack_copy.mode & Stack::_AltSet;
         stack.o.undent();
         stack.o << "}>";
         block_other->generate_code_all(stack);
-        return !(block_other->noreturn() || next->is_empty()) ;
+        return !block_other->noreturn();
       }
       stack.o << "IF:<{";
       stack.o.indent();
@@ -647,6 +655,7 @@ bool Op::generate_code_step(Stack& stack) {
       block1->generate_code_all(stack);
       stack.merge_state(stack_copy);
       stack.opt_show();
+      stack.mode |= stack_copy.mode & Stack::_AltSet;
       stack.o.undent();
       stack.o << "}>";
       return true;
@@ -791,6 +800,7 @@ void CodeBlob::generate_code(AsmOpList& out, int mode) {
     stack.push_new_var(x);
   }
   ops->generate_code_all(stack);
+  stack.apply_wrappers();
   if (!(mode & Stack::_DisableOpt)) {
     optimize_code(out);
   }
