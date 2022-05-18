@@ -1615,9 +1615,9 @@ struct Stack {
     }
   }
   void set_wrap_execute() {
-    prefix << "PUSHCONT {";
+    prefix << "CONT:<{";
     mode |= _WrapExecute;
-    postfix << "} EXECUTE";
+    postfix << "}> EXECUTE";
   }
   void apply_wrappers() {
     for(auto i : prefix.list_) {
