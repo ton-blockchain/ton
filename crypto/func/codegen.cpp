@@ -550,6 +550,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
         stack.o.indent();
         Stack stack_copy{stack};
+        stack_copy.mode &= ~Stack::_InlineFunc;
         block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
         if (block_other->is_empty() && next->is_empty()) {
@@ -558,6 +559,7 @@ bool Op::generate_code_step(Stack& stack) {
           stack.o << "}>ELSE<{";
           stack.o.indent();
           Stack stack_copy_2{stack};
+          stack_copy_2.mode &= ~Stack::_InlineFunc;
           block_other->generate_code_all(stack_copy_2);
           if (!block_other->noreturn()){
             next->generate_code_all(stack_copy_2);
@@ -576,6 +578,7 @@ bool Op::generate_code_step(Stack& stack) {
           stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
           stack.o.indent();
           Stack stack_copy{stack};
+          stack_copy.mode &= ~Stack::_InlineFunc;
           block->generate_code_all(stack_copy);
           stack.o.undent();
           stack.o << "}>";
@@ -586,6 +589,7 @@ bool Op::generate_code_step(Stack& stack) {
         Stack stack_copy{stack}, stack_target{stack};
         stack_target.disable_output();
         stack_target.drop_vars_except(next->var_info);
+        stack_copy.mode &= ~Stack::_InlineFunc;
         block->generate_code_all(stack_copy);
         stack_copy.drop_vars_except(var_info);
         stack_copy.opt_show();
@@ -622,21 +626,24 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         stack.o.indent();
         Stack stack_copy{stack};
+        stack_copy.mode &= ~Stack::_InlineFunc;
         block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
         stack.o << "}>";
         block_other->generate_code_all(stack);
-        return !(block_other->noreturn() | next->is_empty()) ;
+        return !(block_other->noreturn() || next->is_empty()) ;
       }
       stack.o << "IF:<{";
       stack.o.indent();
       Stack stack_copy{stack};
+      stack_copy.mode &= ~Stack::_InlineFunc;
       block0->generate_code_all(stack_copy);
       stack_copy.drop_vars_except(next->var_info);
       stack_copy.opt_show();
       stack.o.undent();
       stack.o << "}>ELSE<{";
       stack.o.indent();
+      stack.mode &= ~Stack::_InlineFunc;
       block1->generate_code_all(stack);
       stack.merge_state(stack_copy);
       stack.opt_show();
@@ -657,6 +664,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -681,6 +689,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -705,6 +714,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o.indent();
         stack.forget_const();
         auto layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
         block0->generate_code_all(stack);
         layout1.push_back(left[0]);
         stack.enforce_state(std::move(layout1));
@@ -735,6 +745,7 @@ bool Op::generate_code_step(Stack& stack) {
       stack.o << "WHILE:<{";
       stack.o.indent();
       stack.forget_const();
+      stack.mode &= ~Stack::_InlineFunc;
       block0->generate_code_all(stack);
       stack.rearrange_top(x, !next->var_info[x] && !block1->var_info[x]);
       stack.opt_show();
@@ -765,7 +776,10 @@ bool Op::generate_code_step(Stack& stack) {
 }
 
 void Op::generate_code_all(Stack& stack) {
-  if (generate_code_step(stack) && next) {
+  int saved_mode = stack.mode;
+  auto cont = generate_code_step(stack);
+  stack.mode = (stack.mode & ~Stack::_ModeSave) | (saved_mode & Stack::_ModeSave);
+  if (cont && next) {
     next->generate_code_all(stack);
   }
 }
