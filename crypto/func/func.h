@@ -1168,6 +1168,19 @@ struct AsmOpList {
   void set_indent(int new_indent) {
     indent_ = new_indent;
   }
+  long int get_position() {
+    return std::distance(list_.begin(), list_.end()) - 1;
+  }
+  void insert(long int pos, std::string str) {
+    auto ip = list_.begin() + pos;
+    list_.insert(ip, AsmOp(AsmOp::a_custom, 255, 255, str));
+    ip->indent = ( ip + 1 == list_.end())? indent_ : (ip + 1)->indent;
+  }
+  void insert(long int pos, const AsmOp& op) {
+    auto ip = list_.begin() + pos;
+    list_.insert(ip, op);
+    ip->indent = ( ip + 1 == list_.end())? indent_ : (ip + 1)->indent;
+  }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const AsmOpList& op_list) {
@@ -1500,10 +1513,13 @@ struct Stack {
   AsmOpList& o;
   enum {
     _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _InlineFunc = 512,
+    _AltSet = 1024, _WrapExecute = 2048,
     _ModeSave = _InlineFunc,
     _Garbage = -0x10000
   };
   int mode;
+  long int last_import_pos{-1};
+  AsmOpList prefix{}, postfix{};
   Stack(AsmOpList& _o, int _mode = 0) : o(_o), mode(_mode) {
   }
   Stack(AsmOpList& _o, const StackLayoutExt& _s, int _mode = 0) : s(_s), o(_o), mode(_mode) {
@@ -1574,6 +1590,42 @@ struct Stack {
   }
   bool operator==(const Stack& y) const & {
     return s == y.s;
+  }
+  void remember_import_pos() {
+    if(last_import_pos < 0) {
+      last_import_pos = o.get_position();
+    }
+  }
+  void add_at_import_pos(std::string str) {
+    o.insert(last_import_pos, str);
+  }
+  void add_at_import_pos(AsmOp& op) {
+    o.insert(last_import_pos, op);
+  }
+  bool alt_set() {
+    return bool(mode & _AltSet);
+  }
+  void set_alt() {
+    mode |= _AltSet;
+  }
+  void set_samealt() {
+    if(!alt_set()) {
+      prefix << "SAMEALT";
+      mode |= _AltSet;
+    }
+  }
+  void set_wrap_execute() {
+    prefix << "CONT:<{";
+    mode |= _WrapExecute;
+    postfix << "}> EXECUTE";
+  }
+  void apply_wrappers() {
+    for(auto i : prefix.list_) {
+      add_at_import_pos(i);
+    }
+    for(auto i : postfix.list_) {
+      o.add(i);
+    }
   }
 };
 
