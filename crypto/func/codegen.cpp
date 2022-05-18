@@ -544,29 +544,23 @@ bool Op::generate_code_step(Stack& stack) {
       stack.s.pop_back();
       stack.modified();
       if (inline_func && (block0->noreturn() || block1->noreturn())) {
-        bool is0 = block1->is_empty();
+        bool is0 = block0->noreturn();
         Op* block_noreturn = is0 ? block0.get() : block1.get();
         Op* block_other = is0 ? block1.get() : block0.get();
+        stack.mode &= ~Stack::_InlineFunc;
         stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
         stack.o.indent();
         Stack stack_copy{stack};
-        stack_copy.mode &= ~Stack::_InlineFunc;
         block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
-        if (block_other->is_empty() && next->is_empty()) {
-          stack.o << "}>";
-        } else {
-          stack.o << "}>ELSE<{";
-          stack.o.indent();
-          Stack stack_copy_2{stack};
-          stack_copy_2.mode &= ~Stack::_InlineFunc;
-          block_other->generate_code_all(stack_copy_2);
-          if (!block_other->noreturn()){
-            next->generate_code_all(stack_copy_2);
-          }
-          stack.o.undent();
-          stack.o << "}>";
+        stack.o << "}>ELSE<{";
+        stack.o.indent();
+        block_other->generate_code_all(stack);
+        if (!block_other->noreturn()) {
+          next->generate_code_all(stack);
         }
+        stack.o.undent();
+        stack.o << "}>";
         return false;
       }
       if (block1->is_empty() || block0->is_empty()) {
