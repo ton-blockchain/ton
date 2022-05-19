@@ -1121,6 +1121,7 @@ struct AsmOpList {
   int indent_{0};
   const std::vector<TmpVar>* var_names_{nullptr};
   std::vector<Const> constants_;
+  bool retalt_{false};
   void out(std::ostream& os, int mode = 0) const;
   AsmOpList(int indent = 0, const std::vector<TmpVar>* var_names = nullptr) : indent_(indent), var_names_(var_names) {
   }
@@ -1168,18 +1169,18 @@ struct AsmOpList {
   void set_indent(int new_indent) {
     indent_ = new_indent;
   }
-  long int get_position() {
-    return std::distance(list_.begin(), list_.end()) - 1;
+  void insert(size_t pos, std::string str) {
+    insert(pos, AsmOp(AsmOp::a_custom, 255, 255, str));
   }
-  void insert(long int pos, std::string str) {
+  void insert(size_t pos, const AsmOp& op) {
     auto ip = list_.begin() + pos;
-    list_.insert(ip, AsmOp(AsmOp::a_custom, 255, 255, str));
-    ip->indent = ( ip + 1 == list_.end())? indent_ : (ip + 1)->indent;
+    ip = list_.insert(ip, op);
+    ip->indent = (ip == list_.begin()) ? indent_ : (ip - 1)->indent;
   }
-  void insert(long int pos, const AsmOp& op) {
-    auto ip = list_.begin() + pos;
-    list_.insert(ip, op);
-    ip->indent = ( ip + 1 == list_.end())? indent_ : (ip + 1)->indent;
+  void indent_all() {
+    for (auto &op : list_) {
+      ++op.indent;
+    }
   }
 };
 
@@ -1513,13 +1514,10 @@ struct Stack {
   AsmOpList& o;
   enum {
     _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _InlineFunc = 512,
-    _AltSet = 1024, _WrapExecute = 2048,
     _ModeSave = _InlineFunc,
     _Garbage = -0x10000
   };
   int mode;
-  long int last_import_pos{-1};
-  AsmOpList prefix{}, postfix{};
   Stack(AsmOpList& _o, int _mode = 0) : o(_o), mode(_mode) {
   }
   Stack(AsmOpList& _o, const StackLayoutExt& _s, int _mode = 0) : s(_s), o(_o), mode(_mode) {
@@ -1591,40 +1589,15 @@ struct Stack {
   bool operator==(const Stack& y) const & {
     return s == y.s;
   }
-  void remember_import_pos() {
-    if(last_import_pos < 0) {
-      last_import_pos = o.get_position();
-    }
-  }
-  void add_at_import_pos(std::string str) {
-    o.insert(last_import_pos, str);
-  }
-  void add_at_import_pos(AsmOp& op) {
-    o.insert(last_import_pos, op);
-  }
-  bool alt_set() {
-    return bool(mode & _AltSet);
-  }
-  void set_alt() {
-    mode |= _AltSet;
-  }
-  void set_samealt() {
-    if(!alt_set()) {
-      prefix << "SAMEALT";
-      mode |= _AltSet;
-    }
-  }
-  void set_wrap_execute() {
-    prefix << "CONT:<{";
-    mode |= _WrapExecute;
-    postfix << "}> EXECUTE";
-  }
   void apply_wrappers() {
-    for(auto i : prefix.list_) {
-      add_at_import_pos(i);
-    }
-    for(auto i : postfix.list_) {
-      o.add(i);
+    if (o.retalt_) {
+      o.insert(0, "SAMEALTSAVE");
+      if (mode & _InlineFunc) {
+        o.indent_all();
+        o.insert(0, "CONT:<{");
+        o << "}>";
+        o << "EXECUTE";
+      }
     }
   }
 };
