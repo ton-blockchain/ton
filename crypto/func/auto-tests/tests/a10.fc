@@ -1,0 +1,17 @@
+_ main(int a, int x) {
+  int y = 0;
+  int z = 0;
+  while ((y = x * x) > a) {
+    x -= 1;
+    z = 1;
+  }
+  return (y, z);
+}
+
+{-
+    method_id | in     | out
+TESTCASE |  0 | 101 15 | 100 1
+TESTCASE |  0 | 101 14 | 100 1
+TESTCASE |  0 | 101 10 | 100 0
+TESTCASE |  0 | 100 10 | 100 0
+-}

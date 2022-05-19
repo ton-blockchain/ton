@@ -1,0 +1,12 @@
+int foo1() method_id(1) { return 111; }
+int foo2() method_id(3) { return 222; }
+int foo3() method_id(10) { return 333; }
+int main() { return 999; }
+
+{-
+    method_id | in | out
+TESTCASE | 1  |    | 111
+TESTCASE | 3  |    | 222
+TESTCASE | 10 |    | 333
+TESTCASE | 0  |    | 999
+-}
