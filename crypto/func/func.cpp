@@ -99,8 +99,15 @@ void generate_output_func(SymDef* func_sym) {
     if (verbosity >= 2) {
       std::cerr << "\n---------- resulting code for " << name << " -------------\n";
     }
+    bool inline_func = (func_val->flags & 1);
     bool inline_ref = (func_val->flags & 2);
-    *outs << std::string(indent * 2, ' ') << name << " PROC" << (inline_ref ? "REF" : "") << ":<{\n";
+    const char* modifier = "";
+    if (inline_func) {
+      modifier = "INLINE";
+    } else if (inline_ref) {
+      modifier = "REF";
+    }
+    *outs << std::string(indent * 2, ' ') << name << " PROC" << modifier << ":<{\n";
     int mode = 0;
     if (stack_layout_comments) {
       mode |= Stack::_StkCmt | Stack::_CptStkCmt;
