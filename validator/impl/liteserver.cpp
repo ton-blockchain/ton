@@ -465,7 +465,7 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
            td::actor::send_closure(Self, &LiteQuery::abort_query,
                                     res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
-          auto crm = ton::validator::create_ext_message(std::move(data));
+          auto crm = ton::validator::create_ext_message(data.clone());
           if (crm.is_error()) {
              //UNREACHABLE, checks in check_external_message,
              td::actor::send_closure(Self, &LiteQuery::abort_query,
