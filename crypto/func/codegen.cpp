@@ -277,13 +277,14 @@ bool Op::generate_code_step(Stack& stack) {
   stack.drop_vars_except(var_info);
   stack.opt_show();
   const auto& next_var_info = next->var_info;
+  bool inline_func = stack.mode & Stack::_InlineFunc;
   switch (cl) {
     case _Nop:
     case _Import:
       return true;
     case _Return: {
       stack.enforce_state(left);
-      if (stack.o.retalt_) {
+      if (stack.o.retalt_ && (stack.mode & Stack::_NeedRetAlt)) {
         stack.o << "RETALT";
       }
       stack.opt_show();
@@ -531,12 +532,10 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _If: {
-      bool inline_func = stack.mode & Stack::_InlineFunc;
       if (block0->is_empty() && block1->is_empty()) {
         return true;
       }
-      bool need_retalt = !next->noreturn() && (block0->noreturn() != block1->noreturn());
-      if (need_retalt) {
+      if (!next->noreturn() && (block0->noreturn() != block1->noreturn())) {
         stack.o.retalt_ = true;
       }
       var_idx_t x = left[0];
@@ -575,6 +574,7 @@ bool Op::generate_code_step(Stack& stack) {
           stack.o.indent();
           Stack stack_copy{stack};
           stack_copy.mode &= ~Stack::_InlineFunc;
+          stack_copy.mode |= next->noreturn() ? 0 : Stack::_NeedRetAlt;
           block->generate_code_all(stack_copy);
           stack.o.undent();
           stack.o << "}>";
@@ -623,6 +623,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o.indent();
         Stack stack_copy{stack};
         stack_copy.mode &= ~Stack::_InlineFunc;
+        stack_copy.mode |= (block_other->noreturn() || next->noreturn()) ? 0 : Stack::_NeedRetAlt;
         block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
         stack.o << "}>";
@@ -655,12 +656,16 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       if (true || !next->is_empty()) {
         stack.o << "REPEAT:<{";
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
         stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -680,12 +685,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Again: {
       stack.drop_vars_except(block0->var_info);
       stack.opt_show();
-      if (!next->is_empty()) {
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
+      if (!next->is_empty() || inline_func) {
         stack.o << "AGAIN:<{";
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
         stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -705,12 +714,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Until: {
       // stack.drop_vars_except(block0->var_info);
       // stack.opt_show();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       if (true || !next->is_empty()) {
         stack.o << "UNTIL:<{";
         stack.o.indent();
         stack.forget_const();
         auto layout1 = stack.vars();
         stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         layout1.push_back(left[0]);
         stack.enforce_state(std::move(layout1));
@@ -738,10 +751,14 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       StackLayout layout1 = stack.vars();
       bool next_empty = false && next->is_empty();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       stack.o << "WHILE:<{";
       stack.o.indent();
       stack.forget_const();
       stack.mode &= ~Stack::_InlineFunc;
+      stack.mode |= Stack::_NeedRetAlt;
       block0->generate_code_all(stack);
       stack.rearrange_top(x, !next->var_info[x] && !block1->var_info[x]);
       stack.opt_show();

@@ -1513,8 +1513,9 @@ struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
   enum {
-    _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _InlineFunc = 512,
-    _ModeSave = _InlineFunc,
+    _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
+    _InlineFunc = 512, _NeedRetAlt = 1024,
+    _ModeSave = _InlineFunc | _NeedRetAlt,
     _Garbage = -0x10000
   };
   int mode;
