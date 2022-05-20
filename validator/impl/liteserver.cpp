@@ -464,13 +464,14 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
       [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Unit> res) mutable {
         if(res.is_error()) {
            td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                    res.move_as_error_prefix("cannot apply external message to current state : "s));
+                                   res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
           auto crm = ton::validator::create_ext_message(std::move(data));
           if (crm.is_error()) {
              //UNREACHABLE, checks in check_external_message,
              td::actor::send_closure(Self, &LiteQuery::abort_query,
-                        crm.move_as_error());
+                                     crm.move_as_error());
+             return;
           }
           LOG(INFO) << "sending an external message to validator manager";
           td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, crm.move_as_ok());
