@@ -2326,7 +2326,12 @@ td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_t
   if (!trans->compute_phase->accepted) {
     if (external) {
       // inbound external message was not accepted
-        return td::Status::Error(-701,"inbound external message rejected by transaction "s + acc->addr.to_hex());
+      auto const& cp = *trans->compute_phase;
+      return td::Status::Error(
+          -701,
+          PSLICE() << "inbound external message rejected by transaction " << acc->addr.to_hex() << ":\n" <<
+              "exitcode=" << cp.exit_code << ", steps=" << cp.vm_steps << ", gas_used=" << cp.gas_used <<
+              (cp.vm_log.empty() ? "" : "\nVM Log (truncated):\n..." + cp.vm_log));
       } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
         return td::Status::Error(-669,"new ordinary transaction for smart contract "s + acc->addr.to_hex() +
                   " has not been accepted by the smart contract (?)");
