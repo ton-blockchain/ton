@@ -24,6 +24,8 @@
 
 #include "rldp/rldp.h"
 
+#include <list>
+
 namespace ton {
 
 namespace validator {
