@@ -145,9 +145,9 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
                                                  &action_phase_cfg_, &masterchain_create_fee,
                                                  &basechain_create_fee, wc);
    if(fetch_res.is_error()) {
-    auto error = fetch_res.move_as_error();
-    LOG(DEBUG) << "Cannot fetch config params" << error.message();
-    return error;
+     auto error = fetch_res.move_as_error();
+     LOG(DEBUG) << "Cannot fetch config params: " << error.message();
+     return error.move_as_error_prefix("Cannot fetch config params: ");
    }
    compute_phase_cfg_.with_vm_log = true;
 
@@ -156,16 +156,16 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
                                                     &action_phase_cfg_,
                                                     true, lt);
    if(res.is_error()) {
-    auto error = res.move_as_error();
-    LOG(DEBUG) << "Cannot run message on account" << error.message();
-    return error;
+     auto error = res.move_as_error();
+     LOG(DEBUG) << "Cannot run message on account: " << error.message();
+     return error.move_as_error_prefix("Cannot run message on account: ");
    }
    std::unique_ptr<block::Transaction> trans = res.move_as_ok();
 
    auto trans_root = trans->commit(*acc);
    if (trans_root.is_null()) {
-     LOG(DEBUG) << "cannot commit new transaction for smart contract ";
-     return td::Status::Error("cannot commit new transaction for smart contract ");
+     LOG(DEBUG) << "Cannot commit new transaction for smart contract";
+     return td::Status::Error("Cannot commit new transaction for smart contract");
    }
    return td::Status::OK();
 }
