@@ -458,18 +458,20 @@ void LiteQuery::continue_getZeroState(BlockIdExt blkid, td::BufferSlice state) {
 
 void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   LOG(INFO) << "started a sendMessage(<" << data.size() << " bytes>) liteserver query";
- td::actor::send_closure_later(
-      manager_, &ValidatorManager::check_external_message, data.clone(),
-      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Unit> res) {
+  auto copy = data.clone();
+  td::actor::send_closure_later(
+      manager_, &ValidatorManager::check_external_message, std::move(copy),
+      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Unit> res) mutable {
         if(res.is_error()) {
            td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                    res.move_as_error_prefix("cannot apply external message to current state : "s));
+                                   res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
-          auto crm = ton::validator::create_ext_message(data.clone());
+          auto crm = ton::validator::create_ext_message(std::move(data));
           if (crm.is_error()) {
              //UNREACHABLE, checks in check_external_message,
              td::actor::send_closure(Self, &LiteQuery::abort_query,
-                        crm.move_as_error());
+                                     crm.move_as_error());
+             return;
           }
           LOG(INFO) << "sending an external message to validator manager";
           td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, crm.move_as_ok());
