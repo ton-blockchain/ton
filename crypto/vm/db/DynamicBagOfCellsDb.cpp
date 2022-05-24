@@ -31,12 +31,6 @@
 namespace vm {
 namespace {
 
-class CellDbReader {
- public:
-  virtual ~CellDbReader() = default;
-  virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
-};
-
 struct DynamicBocExtCellExtra {
   std::shared_ptr<CellDbReader> reader;
 };
@@ -174,6 +168,10 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     // the current bag of cells.
     reset_cell_db_reader();
     return td::Status::OK();
+  }
+
+  std::shared_ptr<CellDbReader> get_cell_db_reader() override {
+    return cell_db_reader_;
   }
 
   td::Status set_loader(std::unique_ptr<CellLoader> loader) override {
