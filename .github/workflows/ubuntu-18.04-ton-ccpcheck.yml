@@ -1,0 +1,31 @@
+name: Ubuntu 18.04 TON ccpcheck
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+      with:      
+        submodules: 'recursive'
+
+    - name: Run Cppcheck
+      uses: Bedzior/run-cppcheck@master
+      with:
+        enabled checks: all
+        enable inconclusive: true
+        generate report: true
+
+    - name: Upload report
+      uses: actions/upload-artifact@v1
+      with:
+        name: ton-ccpcheck-report
+        path: output
