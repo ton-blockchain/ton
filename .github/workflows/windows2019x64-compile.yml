@@ -73,6 +73,7 @@ jobs:
         run: |
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
+          copy build\tonlib\Release\tonlibjson.dll artifacts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
