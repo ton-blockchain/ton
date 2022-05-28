@@ -97,6 +97,15 @@ option(TON_USE_TSAN "Use \"ON\" to enable ThreadSanitizer." OFF)
 option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
 
+#BEGIN M1 support
+EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )
+
+if (ARCHITECTURE MATCHES "arm64")
+    set(TON_ARCH "apple-m1")
+    set(CMAKE_CXX_STANDARD 14)
+endif()
+#END M1 support
+
 if (TON_USE_ABSEIL)
   message("Add abseil-cpp")
   add_subdirectory(third-party/abseil-cpp EXCLUDE_FROM_ALL)
@@ -204,7 +213,7 @@ find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 if (TON_ARCH AND NOT MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")
 endif()
 if (THREADS_HAVE_PTHREAD_ARG)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
