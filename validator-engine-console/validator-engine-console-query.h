@@ -918,6 +918,15 @@ class GetOverlaysStatsQuery : public Query {
   static std::string get_help() {
     return "getoverlaysstats\tgets stats for all overlays";
   }
+  static std::string time_to_human(int unixtime) {
+    char time_buffer[80];
+    time_t rawtime = unixtime;
+    struct tm tInfo;
+    struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+    assert(timeinfo == &tInfo);
+    strftime(time_buffer, 80, "%c", timeinfo);
+    return std::string(time_buffer);
+  }
   std::string name() const override {
     return get_name();
   }

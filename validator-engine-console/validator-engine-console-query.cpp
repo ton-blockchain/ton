@@ -835,11 +835,25 @@ td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
                     "received incorrect answer: ");
   for (auto &s : f->overlays_) {
     td::StringBuilder sb;
-    sb << "overlay_id=" << s->overlay_id_ << " adnl_id=" << s->adnl_id_ << "\n";
+    sb << "overlay_id: " << s->overlay_id_ << " adnl_id: " << s->adnl_id_ << "\n";
     sb << "  nodes:";
+    
+    td::uint32 overlay_t_out_bytes = 0;
+    td::uint32 overlay_t_out_pckts = 0;
+    td::uint32 overlay_t_in_bytes = 0;
+    td::uint32 overlay_t_in_pckts = 0;
+    
     for (auto &n : s->nodes_) {
-      sb << "   " << n->id_ << "\n";
+      sb << "   adnl_id: " << n->adnl_id_ << " ip_addr: " << n->ip_addr_ << " last_in_query: " << n->last_in_query_ << " (" << time_to_human(n->last_in_query_) << ")" << " last_out_query: " << n->last_out_query_ << " (" << time_to_human(n->last_out_query_) << ")" << "\n   throughput:\n    out: " << n->t_out_bytes_ << " bytes/sec, " << n->t_out_pckts_ << " pckts/sec\n    in: " << n->t_in_bytes_ << " bytes/sec, " << n->t_in_pckts_ << " pckts/sec\n";
+      
+      overlay_t_out_bytes += n->t_out_bytes_;
+      overlay_t_out_pckts += n->t_out_pckts_;
+      
+      overlay_t_in_bytes += n->t_in_bytes_;
+      overlay_t_in_pckts += n->t_in_pckts_;
     }
+    sb << "  total_throughput:\n   out: " << overlay_t_out_bytes << " bytes/sec, " << overlay_t_out_pckts << " pckts/sec\n   in: " << overlay_t_in_bytes << " bytes/sec, " << overlay_t_in_pckts << " pckts/sec\n";
+     
     sb << "  stats:\n";
     for (auto &t : s->stats_) {
       sb << "    " << t->key_ << "\t" << t->value_ << "\n";

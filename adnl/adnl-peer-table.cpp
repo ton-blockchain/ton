@@ -376,6 +376,14 @@ void AdnlPeerTableImpl::create_tunnel(AdnlNodeIdShort dst, td::uint32 size,
                                       td::Promise<std::pair<td::actor::ActorOwn<AdnlTunnel>, AdnlAddress>> promise) {
 }
 
+td::string AdnlPeerTableImpl::get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id) {
+  auto it = peers_.find(p_id);
+  if (it == peers_.end()) {
+    return "0.0.0.0:0";
+  }
+  return it->second.get_actor_unsafe().get_conn_ip_str(l_id);
+}
+
 }  // namespace adnl
 
 }  // namespace ton

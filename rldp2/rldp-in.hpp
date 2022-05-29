@@ -90,6 +90,8 @@ class RldpIn : public RldpImpl {
 
   void add_id(adnl::AdnlNodeIdShort local_id) override;
 
+  td::string get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id) override;
+
   RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
 

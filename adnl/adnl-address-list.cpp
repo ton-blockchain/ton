@@ -39,6 +39,9 @@ class AdnlNetworkConnectionUdp : public AdnlNetworkConnection {
   void start_up() override {
     callback_->on_change_state(true);
   }
+  td::string get_ip_str() override {
+    return PSTRING() << addr_.get_ip_str().str() << addr_.get_port();
+  }
 
   AdnlNetworkConnectionUdp(td::actor::ActorId<AdnlNetworkManager> network_manager, td::uint32 ip, td::uint16 port,
                            std::unique_ptr<AdnlNetworkConnection::Callback> callback);
@@ -87,6 +90,9 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
     encryptor_ = R.move_as_ok();
     pub_key_hash_ = pub_key_.compute_short_id();
     //ready_.store(true, std::memory_order_release);
+  }
+  td::string get_ip_str() override {
+    return "tunnel";
   }
 
   AdnlNetworkConnectionTunnel(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,

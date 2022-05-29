@@ -236,6 +236,28 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
 
 void OverlayImpl::alarm() {
   bcast_gc();
+  
+  if(update_throughput_at_.is_in_past()) {
+    double t_elapsed = td::Time::now() - last_throughput_update_.at();
+    
+    peers_.iterate([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
+      peer.throughput_out_bytes = static_cast<td::uint32>(peer.throughput_out_bytes_ctr / t_elapsed);
+      peer.throughput_in_bytes = static_cast<td::uint32>(peer.throughput_in_bytes_ctr / t_elapsed);
+      
+      peer.throughput_out_packets = static_cast<td::uint32>(peer.throughput_out_packets_ctr / t_elapsed);
+      peer.throughput_in_packets = static_cast<td::uint32>(peer.throughput_in_packets_ctr / t_elapsed);
+      
+      peer.throughput_out_bytes_ctr = 0;
+      peer.throughput_in_bytes_ctr = 0;
+      
+      peer.throughput_out_packets_ctr = 0;
+      peer.throughput_in_packets_ctr = 0;
+    });
+    
+    update_throughput_at_ = td::Timestamp::in(1.0);
+    last_throughput_update_ = td::Timestamp::now();
+  }
+  
   if (public_) {
     if (peers_.size() > 0) {
       auto P = get_random_peer();
@@ -561,7 +583,22 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   res->adnl_id_ = local_id_.bits256_value();
   res->overlay_id_ = overlay_id_.bits256_value();
   res->overlay_id_full_ = id_full_.pubkey().tl();
-  peers_.iterate([&](const adnl::AdnlNodeIdShort &key, const OverlayPeer &peer) { res->nodes_.push_back(key.tl()); });
+  peers_.iterate([&](const adnl::AdnlNodeIdShort &key, const OverlayPeer &peer) {
+    auto node_obj = create_tl_object<ton_api::engine_validator_overlayStatsNode>();
+    node_obj->adnl_id_ = key.bits256_value();
+    node_obj->t_out_bytes_ = peer.throughput_out_bytes;
+    node_obj->t_in_bytes_ = peer.throughput_in_bytes;
+    
+    node_obj->t_out_pckts_ = peer.throughput_out_packets;
+    node_obj->t_in_pckts_ = peer.throughput_in_packets;
+   
+    node_obj->ip_addr_ = adnl_.get_actor_unsafe().get_conn_ip_str(local_id_, key);
+    
+    node_obj->last_in_query_ = static_cast<td::uint32>(peer.last_in_query_at.at_unix());
+    node_obj->last_out_query_ = static_cast<td::uint32>(peer.last_out_query_at.at_unix());
+ 
+    res->nodes_.push_back(std::move(node_obj));
+  });
 
   res->stats_.push_back(
       create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_.size()));
