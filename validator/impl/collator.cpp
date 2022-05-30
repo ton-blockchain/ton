@@ -3161,7 +3161,6 @@ bool Collator::create_mc_state_extra() {
                       " contains an invalid configuration in its data, IGNORING CHANGES";
     ignore_cfg_changes = true;
   } else {
-    int i = 0;
     cfg0 = cfg_dict.lookup_ref(td::BitArray<32>{(long long) 0});
   }
   bool changed_cfg = false;
