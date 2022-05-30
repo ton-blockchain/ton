@@ -3026,9 +3026,9 @@ void Collator::register_new_msgs(block::Transaction& trans) {
 }
 
 /*
- * 
+ *
  *  Generate (parts of) new state and block
- * 
+ *
  */
 
 bool store_ext_blk_ref_to(vm::CellBuilder& cb, const ton::BlockIdExt& id_ext, ton::LogicalTime end_lt) {
@@ -3161,8 +3161,8 @@ bool Collator::create_mc_state_extra() {
                       " contains an invalid configuration in its data, IGNORING CHANGES";
     ignore_cfg_changes = true;
   } else {
-    int i = 0; 	  
-    cfg0 = cfg_dict.lookup_ref(td::BitArray<32>(i));
+    int i = 0;
+    cfg0 = cfg_dict.lookup_ref(td::BitArray<32>{(long long) 0});
   }
   bool changed_cfg = false;
   if (cfg0.not_null()) {
@@ -4037,9 +4037,9 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved) {
 }
 
 /*
- * 
+ *
  *  Collator register methods
- * 
+ *
  */
 
 td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash) {
