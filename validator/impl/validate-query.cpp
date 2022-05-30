@@ -4956,7 +4956,8 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return reject_query("no important parameters have been changed, but the block is marked as a key block");
   }
   vm::Dictionary dict1{ocfg_root, 32};
-  auto param0 = dict1.lookup_ref(td::BitArray<32>{1 - 1});
+  int i = 0;
+  auto param0 = dict1.lookup_ref(td::BitArray<32>{i});
   if (param0.is_null()) {
     if (cfg_acc_changed) {
       return reject_query("new state of old configuration smart contract "s + old_cfg_addr.to_hex() +
