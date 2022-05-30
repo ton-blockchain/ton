@@ -51,7 +51,7 @@ class AdnlNetworkConnection : public td::actor::Actor {
   virtual bool is_alive() const = 0;
   virtual bool is_active() const = 0;
 
-  virtual td::string get_ip_str() = 0;
+  virtual void get_ip_str(td::Promise<td::string> promise) = 0;
   virtual ~AdnlNetworkConnection() = default;
 };
 

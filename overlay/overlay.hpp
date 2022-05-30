@@ -94,6 +94,8 @@ class OverlayPeer {
   
   td::Timestamp last_in_query_at = td::Timestamp::now();
   td::Timestamp last_out_query_at = td::Timestamp::now();
+  
+  td::string ip_addr_str = "undefined";
 
  private:
   OverlayNode node_;
@@ -124,7 +126,7 @@ class OverlayImpl : public Overlay {
 
   void alarm() override;
   void start_up() override {
-    update_throughput_at_ = td::Timestamp::in(1.0);
+    update_throughput_at_ = td::Timestamp::in(50.0);
     last_throughput_update_ = td::Timestamp::now();
     
     if (public_) {

@@ -259,8 +259,8 @@ void RldpIn::add_id(adnl::AdnlNodeIdShort local_id) {
   local_ids_.insert(local_id);
 }
 
-td::string RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id) {  
-  return adnl_.get_actor_unsafe().get_conn_ip_str(l_id, p_id);
+void RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) {  
+  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::get_conn_ip_str, l_id, p_id, std::move(promise));
 }
 
 std::unique_ptr<adnl::Adnl::Callback> RldpIn::make_adnl_callback() {

@@ -725,23 +725,26 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
   (priority ? priority_addr_list_ : addr_list_) = addr_list;
 }
 
-td::string AdnlPeerPairImpl::get_conn_ip_str() {
+void AdnlPeerPairImpl::get_conn_ip_str(td::Promise<td::string> promise) {
   if (conns_.size() == 0 && priority_conns_.size() == 0) {
-    return "0.0.0.0:0";
+    promise.set_value("undefined");
+    return;
   }
   
   for (auto &conn : priority_conns_) {
     if (conn.ready()) {
-      return conn.conn.get_actor_unsafe().get_ip_str();
+      td::actor::send_closure(conn.conn, &AdnlNetworkConnection::get_ip_str, std::move(promise));
+      return;
     }
   }
   for (auto &conn : conns_) {
     if (conn.ready()) {
-      return conn.conn.get_actor_unsafe().get_ip_str();
+      td::actor::send_closure(conn.conn, &AdnlNetworkConnection::get_ip_str, std::move(promise));
+      return;
     }
   }
   
-  return "0.0.0.0:0";
+  promise.set_value("undefined");
 }
 
 void AdnlPeerImpl::update_id(AdnlNodeIdFull id) {
@@ -860,13 +863,14 @@ void AdnlPeerImpl::update_dht_node(td::actor::ActorId<dht::Dht> dht_node) {
   }
 }
 
-td::string AdnlPeerImpl::get_conn_ip_str(AdnlNodeIdShort l_id) {
+void AdnlPeerImpl::get_conn_ip_str(AdnlNodeIdShort l_id, td::Promise<td::string> promise) {
   auto it = peer_pairs_.find(l_id);
   if (it == peer_pairs_.end()) {
-    return "0.0.0.0:0";
+    promise.set_value("undefined");
+    return;
   } 
 
-  return it->second.get_actor_unsafe().get_conn_ip_str();
+  td::actor::send_closure(it->second, &AdnlPeerPair::get_conn_ip_str, std::move(promise));
 }
 
 void AdnlPeerImpl::update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_mode,

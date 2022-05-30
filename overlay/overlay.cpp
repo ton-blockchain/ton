@@ -252,9 +252,16 @@ void OverlayImpl::alarm() {
       
       peer.throughput_out_packets_ctr = 0;
       peer.throughput_in_packets_ctr = 0;
+      
+      auto P = td::PromiseCreator::lambda([&](td::Result<td::string> result) {
+        result.ensure();
+        peer.ip_addr_str = result.move_as_ok();
+      });
+      
+      td::actor::send_closure(adnl_, &adnl::AdnlSenderInterface::get_conn_ip_str, local_id_, key, std::move(P));
     });
     
-    update_throughput_at_ = td::Timestamp::in(1.0);
+    update_throughput_at_ = td::Timestamp::in(50.0);
     last_throughput_update_ = td::Timestamp::now();
   }
   
@@ -592,7 +599,7 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     node_obj->t_out_pckts_ = peer.throughput_out_packets;
     node_obj->t_in_pckts_ = peer.throughput_in_packets;
    
-    node_obj->ip_addr_ = adnl_.get_actor_unsafe().get_conn_ip_str(local_id_, key);
+    node_obj->ip_addr_ = peer.ip_addr_str;
     
     node_obj->last_in_query_ = static_cast<td::uint32>(peer.last_in_query_at.at_unix());
     node_obj->last_out_query_ = static_cast<td::uint32>(peer.last_out_query_at.at_unix());
