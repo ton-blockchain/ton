@@ -22,8 +22,8 @@ namespace ton {
 
 namespace catchain {
 
-std::unique_ptr<CatChainBlock> CatChainBlock::create(td::uint32 src, td::uint32 fork, PublicKeyHash src_hash,
-                                                     CatChainBlockHeight height, CatChainBlockHash hash,
+std::unique_ptr<CatChainBlock> CatChainBlock::create(td::uint32 src, td::uint32 fork, const PublicKeyHash &src_hash,
+                                                     CatChainBlockHeight height, const CatChainBlockHash &hash,
                                                      td::SharedSlice payload, CatChainBlock *prev,
                                                      std::vector<CatChainBlock *> deps,
                                                      std::vector<CatChainBlockHeight> vt) {
@@ -31,10 +31,10 @@ std::unique_ptr<CatChainBlock> CatChainBlock::create(td::uint32 src, td::uint32 
                                              std::move(deps), std::move(vt));
 }
 
-CatChainBlockImpl::CatChainBlockImpl(td::uint32 src, td::uint32 fork, PublicKeyHash src_hash,
-                                     CatChainBlockHeight height, CatChainBlockHash hash, td::SharedSlice payload,
-                                     CatChainBlock *prev, std::vector<CatChainBlock *> deps,
-                                     std::vector<CatChainBlockHeight> vt)
+CatChainBlockImpl::CatChainBlockImpl(td::uint32 src, td::uint32 fork, const PublicKeyHash &src_hash,
+                                     CatChainBlockHeight height, const CatChainBlockHash &hash,
+                                     td::SharedSlice payload, CatChainBlock *prev,
+                                     std::vector<CatChainBlock *> deps, std::vector<CatChainBlockHeight> vt)
     : src_(src)
     , fork_(fork)
     , src_hash_(src_hash)
@@ -47,7 +47,7 @@ CatChainBlockImpl::CatChainBlockImpl(td::uint32 src, td::uint32 fork, PublicKeyH
 }
 
 bool CatChainBlockImpl::is_descendant_of(CatChainBlock *block) {
-  auto fork = block->fork();
+  td::uint32 fork = block->fork();
   if (fork >= vt_.size()) {
     return false;
   }

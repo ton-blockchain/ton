@@ -337,6 +337,9 @@ void ValidatorSessionImpl::candidate_decision_fail(td::uint32 round, ValidatorSe
   }
   LOG(ERROR) << this << ": failed candidate " << hash << ": " << result;
   pending_approve_.erase(hash);
+  if (result.size() > MAX_REJECT_REASON_SIZE) {
+    result.resize(MAX_REJECT_REASON_SIZE);
+  }
   pending_reject_.emplace(hash, td::BufferSlice{result});
   rejected_.insert(hash);
 }
@@ -840,10 +843,8 @@ void ValidatorSessionImpl::start() {
   auto w = description().export_catchain_nodes();
 
   catchain_ = catchain::CatChain::create(
-      make_catchain_callback(),
-      catchain::CatChainOptions{description().opts().catchain_idle_timeout, description().opts().catchain_max_deps},
-      keyring_, adnl_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_, db_suffix_,
-      allow_unsafe_self_blocks_resync_);
+      make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_, overlay_manager_, std::move(w),
+      local_id(), unique_hash_, db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
 
   check_all();
 }
@@ -883,26 +884,27 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
 td::Bits256 ValidatorSessionOptions::get_hash() const {
   if(!proto_version) {
     if (!new_catchain_ids) {
-        return create_hash_tl_object<ton_api::validatorSession_config>(
-            catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
-            max_round_attempts, max_block_size, max_collated_data_size);
+      return create_hash_tl_object<ton_api::validatorSession_config>(
+          catchain_opts.idle_timeout, catchain_opts.max_deps, round_candidates, next_candidate_delay,
+          round_attempt_duration, max_round_attempts, max_block_size, max_collated_data_size);
     } else {
-        return create_hash_tl_object<ton_api::validatorSession_configNew>(
-            catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
-            max_round_attempts, max_block_size, max_collated_data_size, new_catchain_ids);
+      return create_hash_tl_object<ton_api::validatorSession_configNew>(
+          catchain_opts.idle_timeout, catchain_opts.max_deps, round_candidates, next_candidate_delay,
+          round_attempt_duration, max_round_attempts, max_block_size, max_collated_data_size, new_catchain_ids);
     }
   } else {
-        return create_hash_tl_object<ton_api::validatorSession_configVersioned>(
-            catchain_idle_timeout, catchain_max_deps, round_candidates, next_candidate_delay, round_attempt_duration,
-            max_round_attempts, max_block_size, max_collated_data_size, proto_version);
-    }
-
+    return create_hash_tl_object<ton_api::validatorSession_configVersioned>(
+        create_tl_object<ton_api::validatorSession_catchainOptions>(
+            catchain_opts.idle_timeout, catchain_opts.max_deps, catchain_opts.max_serialized_block_size,
+            catchain_opts.block_hash_covers_data, catchain_opts.max_block_height_coeff, catchain_opts.debug_disable_db),
+        round_candidates, next_candidate_delay, round_attempt_duration,
+        max_round_attempts, max_block_size, max_collated_data_size, proto_version);
+  }
 }
 
 ValidatorSessionOptions::ValidatorSessionOptions(const ValidatorSessionConfig &conf) {
   proto_version = conf.proto_version;
-  catchain_idle_timeout = conf.catchain_idle_timeout;
-  catchain_max_deps = conf.catchain_max_deps;
+  catchain_opts = conf.catchain_opts;
   max_block_size = conf.max_block_size;
   max_collated_data_size = conf.max_collated_data_size;
   max_round_attempts = conf.max_round_attempts;

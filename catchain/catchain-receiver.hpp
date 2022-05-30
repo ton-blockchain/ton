@@ -33,7 +33,7 @@ namespace ton {
 
 namespace catchain {
 
-class CatChainReceiverImpl : public CatChainReceiver {
+class CatChainReceiverImpl final : public CatChainReceiver {
  public:
   PrintId print_id() const override {
     return PrintId{incarnation_, local_id_};
@@ -62,7 +62,7 @@ class CatChainReceiverImpl : public CatChainReceiver {
     return sources_[source_id].get();
   }
   PublicKeyHash get_source_hash(td::uint32 source_id) const override;
-  CatChainReceiverSource *get_source_by_hash(PublicKeyHash source_hash) const;
+  CatChainReceiverSource *get_source_by_hash(const PublicKeyHash &source_hash) const;
   CatChainReceiverSource *get_source_by_adnl_id(adnl::AdnlNodeIdShort source_hash) const;
 
   td::uint32 add_fork() override;
@@ -72,39 +72,39 @@ class CatChainReceiverImpl : public CatChainReceiver {
   void receive_message_from_overlay(adnl::AdnlNodeIdShort src, td::BufferSlice data);
   void receive_query_from_overlay(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                   td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlock &query,
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlock query, td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlocks query,
                      td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlocks &query,
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlockHistory query,
                      td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlockHistory &query,
-                     td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getDifference &query,
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getDifference query,
                      td::Promise<td::BufferSlice> promise);
   template <class T>
-  void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
+  void process_query(adnl::AdnlNodeIdShort src, const T &query, td::Promise<td::BufferSlice> promise) {
     //LOG(WARNING) << this << ": unknown query from " << src;
     callback_->on_custom_query(get_source_by_adnl_id(src)->get_hash(), serialize_tl_object(&query, true),
                                std::move(promise));
   }
-  void receive_broadcast_from_overlay(PublicKeyHash src, td::BufferSlice data);
+  void receive_broadcast_from_overlay(const PublicKeyHash &src, td::BufferSlice data);
 
   void receive_block(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
   void receive_block_answer(adnl::AdnlNodeIdShort src, td::BufferSlice);
-  //void send_block(PublicKeyHash src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
+  //void send_block(const PublicKeyHash &src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
 
   CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block> block, td::SharedSlice payload) override;
   CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block_dep> block) override;
 
-  td::Status validate_block_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) override;
-  td::Status validate_block_sync(tl_object_ptr<ton_api::catchain_block> &block, td::Slice payload) override;
+  td::Status validate_block_sync(const tl_object_ptr<ton_api::catchain_block_dep> &dep) const override;
+  td::Status validate_block_sync(const tl_object_ptr<ton_api::catchain_block> &block,
+                                 const td::Slice &payload) const override;
 
   void send_fec_broadcast(td::BufferSlice data) override;
-  void send_custom_query_data(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise,
+  void send_custom_query_data(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
                               td::Timestamp timeout, td::BufferSlice query) override;
-  void send_custom_query_data_via(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise,
+  void send_custom_query_data_via(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
                                   td::Timestamp timeout, td::BufferSlice query, td::uint64 max_answer_size,
                                   td::actor::ActorId<adnl::AdnlSenderInterface> via) override;
-  void send_custom_message_data(PublicKeyHash dst, td::BufferSlice query) override;
+  void send_custom_message_data(const PublicKeyHash &dst, td::BufferSlice query) override;
 
   void run_scheduler();
   void add_block(td::BufferSlice data, std::vector<CatChainBlockHash> deps) override;
@@ -116,8 +116,6 @@ class CatChainReceiverImpl : public CatChainReceiver {
   void debug_add_fork_cont(tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
   void on_blame(td::uint32 src) override {
     callback_->blame(src);
-  }
-  void blame_node(td::uint32 idx) override {
   }
   const CatChainOptions &opts() const override {
     return opts_;
@@ -141,11 +139,11 @@ class CatChainReceiverImpl : public CatChainReceiver {
 
   CatChainReceivedBlock *get_block(CatChainBlockHash hash) const;
 
-  CatChainReceiverImpl(std::unique_ptr<Callback> callback, CatChainOptions opts,
+  CatChainReceiverImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<overlay::Overlays>, std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                       CatChainBlockHash unique_hash, std::string db_root, std::string db_suffix,
-                       bool allow_unsafe_self_blocks_resync);
+                       td::actor::ActorId<overlay::Overlays> overlays, const std::vector<CatChainNode> &ids,
+                       const PublicKeyHash &local_id, const CatChainBlockHash &unique_hash, std::string db_root,
+                       std::string db_suffix, bool allow_unsafe_self_blocks_resync);
 
  private:
   std::unique_ptr<overlay::Overlays::Callback> make_callback() {
@@ -164,7 +162,7 @@ class CatChainReceiverImpl : public CatChainReceiver {
       void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
         td::actor::send_closure(id_, &CatChainReceiverImpl::receive_broadcast_from_overlay, src, std::move(data));
       }
-      Callback(td::actor::ActorId<CatChainReceiverImpl> id) : id_(std::move(id)) {
+      explicit Callback(td::actor::ActorId<CatChainReceiverImpl> id) : id_(std::move(id)) {
       }
 
      private:
@@ -199,7 +197,7 @@ class CatChainReceiverImpl : public CatChainReceiver {
   CatChainReceivedBlock *root_block_;
   CatChainReceivedBlock *last_sent_block_;
 
-  CatChainSessionId incarnation_;
+  CatChainSessionId incarnation_{};
 
   std::unique_ptr<Callback> callback_;
   CatChainOptions opts_;
