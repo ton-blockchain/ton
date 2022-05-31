@@ -253,9 +253,9 @@ void OverlayImpl::alarm() {
       peer.throughput_out_packets_ctr = 0;
       peer.throughput_in_packets_ctr = 0;
       
-      auto P = td::PromiseCreator::lambda([&](td::Result<td::string> result) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), peer_id = key](td::Result<td::string> result) {
         result.ensure();
-        peer.ip_addr_str = result.move_as_ok();
+        td::actor::send_closure(SelfId, &Overlay::update_peer_ip_str, peer_id, result.move_as_ok());
       });
       
       td::actor::send_closure(adnl_, &adnl::AdnlSenderInterface::get_conn_ip_str, local_id_, key, std::move(P));

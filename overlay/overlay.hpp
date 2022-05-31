@@ -237,6 +237,13 @@ class OverlayImpl : public Overlay {
       }
     }
   }
+  
+  void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override {
+    auto fpeer = peers_.get(peer_id);
+    if(fpeer) {
+      fpeer->ip_addr_str = ip_str;
+    }
+  }
 
  private:
   template <class T>

@@ -66,6 +66,7 @@ class Overlay : public td::actor::Actor {
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) = 0;
   virtual void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) = 0;
   virtual void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) = 0;
+  virtual void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
 };
