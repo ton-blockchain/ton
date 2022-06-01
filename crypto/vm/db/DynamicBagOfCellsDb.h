@@ -21,6 +21,7 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/actor/PromiseFuture.h"
 
 namespace vm {
 class CellLoader;
@@ -64,6 +65,16 @@ class DynamicBagOfCellsDb {
   virtual td::Status set_loader(std::unique_ptr<CellLoader> loader) = 0;
 
   static std::unique_ptr<DynamicBagOfCellsDb> create();
+
+  class AsyncExecutor {
+   public:
+    virtual ~AsyncExecutor() {}
+    virtual void execute_async(std::function<void()> f) = 0;
+    virtual void execute_sync(std::function<void()> f) = 0;
+  };
+
+  virtual void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
+                               td::Promise<Ref<DataCell>> promise) = 0;
 };
 
 }  // namespace vm
