@@ -932,6 +932,34 @@ class GetOverlaysStatsQuery : public Query {
   }
 };
 
+class GetOverlaysStatsJsonQuery : public Query {
+ public:
+  GetOverlaysStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getoverlaysstatsjson";
+  }
+  static std::string get_help() {
+    return "getoverlaysstatsjson\tgets stats for all overlays and writes to json file";
+  }
+  static std::string time_to_human(int unixtime) {
+    char time_buffer[80];
+    time_t rawtime = unixtime;
+    struct tm tInfo;
+    struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+    assert(timeinfo == &tInfo);
+    strftime(time_buffer, 80, "%c", timeinfo);
+    return std::string(time_buffer);
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
 class SignCertificateQuery : public Query {
  public:
   SignCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

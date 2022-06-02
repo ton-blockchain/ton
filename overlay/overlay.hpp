@@ -92,6 +92,9 @@ class OverlayPeer {
   td::uint32 throughput_out_packets_ctr = 0;
   td::uint32 throughput_in_packets_ctr = 0;
   
+  td::uint32 broadcast_errors = 0;
+  td::uint32 fec_broadcast_errors = 0;
+ 
   td::Timestamp last_in_query_at = td::Timestamp::now();
   td::Timestamp last_out_query_at = td::Timestamp::now();
   
@@ -110,7 +113,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules);
+              OverlayPrivacyRules rules, td::string scope = "undefined");
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -169,6 +172,8 @@ class OverlayImpl : public Overlay {
 
   void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
+
+  void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
 
   BroadcastFec *get_fec_broadcast(BroadcastHash hash);
   void register_fec_broadcast(std::unique_ptr<BroadcastFec> bcast);
@@ -346,6 +351,7 @@ class OverlayImpl : public Overlay {
   bool public_;
   bool semi_public_ = false;
   OverlayPrivacyRules rules_;
+  td::string scope_;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {

@@ -37,10 +37,10 @@ td::actor::ActorOwn<Overlay> Overlay::create(td::actor::ActorId<keyring::Keyring
                                              td::actor::ActorId<OverlayManager> manager,
                                              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                                              OverlayIdFull overlay_id, std::unique_ptr<Overlays::Callback> callback,
-                                             OverlayPrivacyRules rules) {
+                                             OverlayPrivacyRules rules, td::string scope) {
   auto R = td::actor::create_actor<OverlayImpl>("overlay", keyring, adnl, manager, dht_node, local_id,
                                                 std::move(overlay_id), true, std::vector<adnl::AdnlNodeIdShort>(),
-                                                std::move(callback), std::move(rules));
+                                                std::move(callback), std::move(rules), scope);
   return td::actor::ActorOwn<Overlay>(std::move(R));
 }
 
@@ -60,7 +60,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
                          td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
                          adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
                          std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-                         OverlayPrivacyRules rules)
+                         OverlayPrivacyRules rules, td::string scope)
     : keyring_(keyring)
     , adnl_(adnl)
     , manager_(manager)
@@ -69,7 +69,8 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , id_full_(std::move(overlay_id))
     , callback_(std::move(callback))
     , public_(pub)
-    , rules_(std::move(rules)) {
+    , rules_(std::move(rules))
+    , scope_(scope) {
   overlay_id_ = id_full_.compute_short_id();
 
   VLOG(OVERLAY_INFO) << this << ": creating " << (public_ ? "public" : "private");
@@ -161,17 +162,17 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcast> bcast) {
-  return BroadcastSimple::create(this, std::move(bcast));
+  return BroadcastSimple::create(this, message_from, std::move(bcast));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastFec> b) {
-  return OverlayFecBroadcastPart::create(this, std::move(b));
+  return OverlayFecBroadcastPart::create(this, message_from, std::move(b));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastFecShort> b) {
-  return OverlayFecBroadcastPart::create(this, std::move(b));
+  return OverlayFecBroadcastPart::create(this, message_from, std::move(b));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
@@ -570,6 +571,17 @@ void OverlayImpl::check_broadcast(PublicKeyHash src, td::BufferSlice data, td::P
   callback_->check_broadcast(src, overlay_id_, std::move(data), std::move(promise));
 }
 
+void OverlayImpl::update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec) {
+  auto src_peer = peers_.get(peer_id);
+  if(src_peer) {
+    if(is_fec) {
+      src_peer->fec_broadcast_errors++;
+    } else {
+      src_peer->broadcast_errors++;
+    }
+  }
+}
+
 void OverlayImpl::broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R) {
   {
     auto it = broadcasts_.find(hash);
@@ -590,6 +602,7 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   res->adnl_id_ = local_id_.bits256_value();
   res->overlay_id_ = overlay_id_.bits256_value();
   res->overlay_id_full_ = id_full_.pubkey().tl();
+  res->scope_ = scope_;
   peers_.iterate([&](const adnl::AdnlNodeIdShort &key, const OverlayPeer &peer) {
     auto node_obj = create_tl_object<ton_api::engine_validator_overlayStatsNode>();
     node_obj->adnl_id_ = key.bits256_value();
@@ -603,6 +616,9 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     
     node_obj->last_in_query_ = static_cast<td::uint32>(peer.last_in_query_at.at_unix());
     node_obj->last_out_query_ = static_cast<td::uint32>(peer.last_out_query_at.at_unix());
+    
+    node_obj->bdcst_errors_ = peer.broadcast_errors;
+    node_obj->fec_bdcst_errors_ = peer.fec_broadcast_errors;
  
     res->nodes_.push_back(std::move(node_obj));
   });
