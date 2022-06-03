@@ -113,7 +113,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules, td::string scope = "undefined");
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }");
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }

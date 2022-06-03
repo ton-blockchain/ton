@@ -958,6 +958,9 @@ class GetOverlaysStatsJsonQuery : public Query {
   std::string name() const override {
     return get_name();
   }
+  
+private:
+ std::string file_name_;
 };
 
 class SignCertificateQuery : public Query {

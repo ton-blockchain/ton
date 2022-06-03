@@ -865,6 +865,8 @@ td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
 }
 
 td::Status GetOverlaysStatsJsonQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
@@ -877,8 +879,17 @@ td::Status GetOverlaysStatsJsonQuery::send() {
 td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_overlaysStats>(data.as_slice(), true),
                     "received incorrect answer: ");
+  std::ofstream sb(file_name_);
+  
+  sb << "[\n";
+  bool rtail = false;
   for (auto &s : f->overlays_) {
-    std::ofstream sb("overlaysstats.json");
+    if(rtail) {
+      sb << ",\n";
+    } else {
+      rtail = true;
+    }
+    
     sb << "{\n  \"overlay_id\": \"" << s->overlay_id_ << "\",\n  \"adnl_id\": \"" << s->adnl_id_ << "\",\n  \"scope\": " << s->scope_ << ",\n";
     sb << "  \"nodes\": [\n";
     
@@ -895,7 +906,7 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
         tail = true;
       }
       
-      sb << "   {\n    \"adnl_id\": " << n->adnl_id_ << ",\n    \"ip_addr\": " << n->ip_addr_ << ",\n    \"broadcast_errors\": " << n->bdcst_errors_ << ",\n    \"fec_broadcast_errors\": " << n->fec_bdcst_errors_ << ",\n    \"last_in_query_unix\": " << n->last_in_query_ << ",\n    \"last_in_query_human\": \"" << time_to_human(n->last_in_query_) << "\",\n" << "    \"last_out_query_unix\": " << n->last_out_query_ << ",\n    \"last_out_query_human\": \"" << time_to_human(n->last_out_query_) << "\",\n" << "\n    \"throughput\": { \"out_bytes_sec\": " << n->t_out_bytes_ << ", \"out_pckts_sec\": " << n->t_out_pckts_ << ", \"in_bytes_sec\": " << n->t_in_bytes_ << ", \"in_pckts_sec\": " << n->t_in_pckts_ << " }\n   }";
+      sb << "   {\n    \"adnl_id\": \"" << n->adnl_id_ << "\",\n    \"ip_addr\": \"" << n->ip_addr_ << "\",\n    \"broadcast_errors\": " << n->bdcst_errors_ << ",\n    \"fec_broadcast_errors\": " << n->fec_bdcst_errors_ << ",\n    \"last_in_query_unix\": " << n->last_in_query_ << ",\n    \"last_in_query_human\": \"" << time_to_human(n->last_in_query_) << "\",\n" << "    \"last_out_query_unix\": " << n->last_out_query_ << ",\n    \"last_out_query_human\": \"" << time_to_human(n->last_out_query_) << "\",\n" << "\n    \"throughput\": { \"out_bytes_sec\": " << n->t_out_bytes_ << ", \"out_pckts_sec\": " << n->t_out_pckts_ << ", \"in_bytes_sec\": " << n->t_in_bytes_ << ", \"in_pckts_sec\": " << n->t_in_pckts_ << " }\n   }";
       
       overlay_t_out_bytes += n->t_out_bytes_;
       overlay_t_out_pckts += n->t_out_pckts_;
@@ -921,10 +932,11 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
     }
     sb << "\n  }\n";
     sb << "}\n";
-    sb << std::flush;
-    
-    td::TerminalIO::output(std::string("wrote stats to ./overlaysstats.json\n"));
   }
+  sb << "]\n";
+  sb << std::flush;
+  
+  td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
   return td::Status::OK();
 }
 
