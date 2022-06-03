@@ -150,9 +150,9 @@ void ValidateQuery::finish_query() {
 }
 
 /*
- * 
+ *
  *   INITIAL PARSE & LOAD REQUIRED DATA
- * 
+ *
  */
 
 void ValidateQuery::start_up() {
@@ -982,9 +982,9 @@ bool ValidateQuery::check_this_shard_mc_info() {
 }
 
 /*
- * 
+ *
  *  METHODS CALLED FROM try_validate() stage 0
- * 
+ *
  */
 
 bool ValidateQuery::compute_prev_state() {
@@ -1844,9 +1844,9 @@ bool ValidateQuery::check_utime_lt() {
 }
 
 /*
- * 
+ *
  *  METHODS CALLED FROM try_validate() stage 1
- * 
+ *
  */
 
 // almost the same as in Collator
@@ -4956,7 +4956,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return reject_query("no important parameters have been changed, but the block is marked as a key block");
   }
   vm::Dictionary dict1{ocfg_root, 32};
-  auto param0 = dict1.lookup_ref(td::BitArray<32>{1 - 1});
+  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long) 0});
   if (param0.is_null()) {
     if (cfg_acc_changed) {
       return reject_query("new state of old configuration smart contract "s + old_cfg_addr.to_hex() +
@@ -5431,10 +5431,10 @@ bool ValidateQuery::check_mc_block_extra() {
 }
 
 /*
- * 
+ *
  *   MAIN VALIDATOR FUNCTION
  *     (invokes other methods in a suitable order)
- * 
+ *
  */
 
 bool ValidateQuery::try_validate() {

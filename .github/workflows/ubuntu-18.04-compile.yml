@@ -12,28 +12,21 @@ jobs:
       uses: actions/checkout@v2
       with:      
         submodules: 'recursive'
-    - name: Run Cppcheck
-      uses: Bedzior/run-cppcheck@master
-      with:
-        enabled checks: all
-        enable inconclusive: true
-        generate report: true
-    - name: Upload report
-      uses: actions/upload-artifact@v1
-      with:
-        name: report
-        path: output
-    - name: mkdir
+
+    - name: Install libraries
       run: |
+        sudo apt update
+        sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
+
+    - name: Configure & Build
+      run: |
+        export CC=$(which clang)
+        export CXX=$(which clang++)
+        export CCACHE_DISABLE=1
         mkdir build
-    - name: cmake all
-      run: | 
         cd build
-        cmake -DCMAKE_BUILD_TYPE=Release ..
-    - name: make all
-      run: |
-        cd build
-        make -j4 fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+        cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
+        ninja fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
 
     - name: find & copy binaries
       run: |

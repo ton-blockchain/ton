@@ -1,6 +1,10 @@
 name: C/C++ CI macOS-10.15 Compile
 
-on: [push,workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
 
 jobs:
   build:

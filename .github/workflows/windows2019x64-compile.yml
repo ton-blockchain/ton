@@ -1,6 +1,10 @@
 name: C/C++ CI Windows Server 2019 x64 Compile
 
-on: [push,workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
 
 defaults:
   run:
@@ -49,8 +53,8 @@ jobs:
           cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1/x64/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1/x64/lib/libcrypto.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
 
       - name: Build
-        run: |       
-          cd build   
+        run: |
+          cd build
           cmake --build . --target fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork --config Release
 
       - name: Show executables
@@ -69,6 +73,7 @@ jobs:
         run: |
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
+          copy build\tonlib\Release\tonlibjson.dll artifacts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
