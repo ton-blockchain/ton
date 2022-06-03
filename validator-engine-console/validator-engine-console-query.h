@@ -944,7 +944,7 @@ class GetOverlaysStatsJsonQuery : public Query {
     return "getoverlaysstatsjson";
   }
   static std::string get_help() {
-    return "getoverlaysstatsjson\tgets stats for all overlays and writes to json file";
+    return "getoverlaysstatsjson <outfile>\tgets stats for all overlays and writes to json file";
   }
   static std::string time_to_human(int unixtime) {
     char time_buffer[80];
