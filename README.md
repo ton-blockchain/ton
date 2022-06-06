@@ -1,5 +1,7 @@
 # TON
 
+Select language: EN | [CN](./README_zh_CN.md)
+
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
 ## Updates flow:
