@@ -2277,7 +2277,7 @@ The ``global variables'' may be helpful in implementing some high-level smart-co
 The message and address manipulation primitives listed below serialize and deserialize values according to the following TL-B scheme (cf.~\ptref{sp:tlb.brief}):
 \begin{verbatim}
 addr_none$00 = MsgAddressExt;
-addr_extern$01 len:(## 8) external_address:(bits len) 
+addr_extern$01 len:(## 9) external_address:(bits len) 
              = MsgAddressExt;
 anycast_info$_ depth:(#<= 30) { depth >= 1 }
    rewrite_pfx:(bits depth) = Anycast;

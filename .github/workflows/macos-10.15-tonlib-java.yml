@@ -1,0 +1,60 @@
+name: macOS-10.15 tonlib-java
+
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'wallets'
+jobs:
+  build:
+
+    runs-on: macos-10.15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
+
+      - name: Compile OpenSSL
+        run: |
+          git clone https://github.com/openssl/openssl openssl_1_1_1
+          cd openssl_1_1_1
+          git checkout OpenSSL_1_1_1-stable
+          ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=10.15
+          make build_libs -j4
+
+      - name: Configure & Build
+        run: |
+          rootPath=`pwd`
+
+          export CC=$(which clang)
+          export CXX=$(which clang++)
+          export CCACHE_DISABLE=1
+
+          export JAVA_AWT_LIBRARY=NotNeeded
+          export JAVA_JVM_LIBRARY=NotNeeded
+          export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+          export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+          export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/darwin
+
+          cd example/android/
+          mkdir build
+          cd build
+
+          cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DTON_ONLY_TONLIB=ON ..
+          cmake --build . --target prepare_cross_compiling
+          cmake --build . --target native-lib --config Release
+
+      - name: find & copy binaries
+        run: |
+          mkdir -p artifacts/tonlib-java
+          cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-java/
+          cp example/android/build/libnative-lib.dylib artifacts/tonlib-java/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: tonlib-macos-java
+          path: artifacts

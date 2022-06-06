@@ -1,0 +1,71 @@
+name: Windows 2019 tonlib-java
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'wallets'
+
+defaults:
+  run:
+    shell: cmd
+
+jobs:
+  build:
+
+    runs-on: windows-2019
+
+    steps:
+      - name: Get Current OS version
+        run: |
+          systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
+      - name: Check out current repository
+        uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
+
+      - name: Check out zlib repository
+        uses: actions/checkout@v2
+        with:
+          repository: desktop-app/zlib
+          path: zlib
+
+      - name: Setup msbuild.exe
+        uses: microsoft/setup-msbuild@v1.0.2
+
+      - name: Compile zlib Win64
+        run: |
+          cd zlib\contrib\vstudio\vc14
+          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
+
+      - name: Install precompiled OpenSSL Win64
+        run: |                    
+          curl  -Lo openssl-1.1.1o.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/openssl-1.1.1o.zip
+          jar xf openssl-1.1.1o.zip
+
+      - name: Configure & Build
+        run: |
+          set JAVA_AWT_LIBRARY=NotNeeded
+          set JAVA_JVM_LIBRARY=NotNeeded
+          set JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+          set JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+          set JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/win32
+
+          set root=%cd%
+          echo %root%
+          cd example/android
+          mkdir build
+          cd build
+          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1/x64/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1/x64/lib/libcrypto.lib -DTON_ONLY_TONLIB=ON -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
+          cmake --build . --target native-lib --config Release
+
+      - name: Find & copy binaries
+        run: |
+          mkdir tonlib-java                    
+          cp example/android/build/Release/native-lib.dll tonlib-java/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: tonlib-win64-java
+          path: tonlib-java
