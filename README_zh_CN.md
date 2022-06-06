@@ -1,6 +1,6 @@
 # TON
 
-选择文档语言: [英文](../README.md) | 简体中文 | [其他语言...](./README_zh_CN.md)   
+选择文档语言: [英文](../README.md) | 简体中文 (./README_zh_CN.md)   
 
 
 主TON monorepo，包含node/validator、lite-client、tonlib、FunC编译器等代码。
