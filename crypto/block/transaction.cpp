@@ -914,8 +914,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // See crypto/block/mc-config.cpp#2115 (get_prev_blocks_info)
     // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
     // [ last_mc_blocks:[BlockId...]
-    //   last_shard_blocks:[BlockId...]
-    //   prev_key_block:[BlockId...] ] : PrevBlocksInfo
+    //   prev_key_block:BlockId ] : PrevBlocksInfo
     tuple.push_back(cfg.prev_blocks_info.not_null() ? vm::StackEntry(cfg.prev_blocks_info) : vm::StackEntry());
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));

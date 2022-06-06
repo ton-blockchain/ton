@@ -2115,8 +2115,7 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
 td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
   // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
   // [ last_mc_blocks:[BlockId...]
-  //   last_shard_blocks:[BlockId...]
-  //   prev_key_block:[BlockId...] ] : PrevBlocksInfo
+  //   prev_key_block:BlockId ] : PrevBlocksInfo
   auto block_id_to_tuple = [](const ton::BlockIdExt & block_id) -> vm::Ref<vm::Tuple> {
     return vm::make_tuple_ref(
         td::make_refint(block_id.id.workchain),
@@ -2126,7 +2125,6 @@ td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
         td::bits_to_refint(block_id.file_hash.bits(), 256));
   };
   std::vector<vm::StackEntry> last_mc_blocks;
-  std::vector<vm::StackEntry> last_shard_blocks;
 
   last_mc_blocks.push_back(block_id_to_tuple(block_id));
   for (ton::BlockSeqno seqno = block_id.id.seqno; seqno > 0 && last_mc_blocks.size() < 16; ) {
@@ -2145,7 +2143,6 @@ td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
   }
   return vm::make_tuple_ref(
       td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks)),
-      td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_shard_blocks)),
       block_id_to_tuple(last_key_block));
 }
 
