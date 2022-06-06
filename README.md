@@ -1,4 +1,6 @@
-# TON
+<h1 align="center">
+TON
+</h1>
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
