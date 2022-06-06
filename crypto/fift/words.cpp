@@ -43,6 +43,7 @@
 #include "vm/atom.h"
 
 #include "block/block.h"
+#include "common/global-version.h"
 
 #include "td/utils/filesystem.h"
 #include "td/utils/misc.h"
@@ -2425,13 +2426,15 @@ std::vector<Ref<vm::Cell>> get_vm_libraries() {
 // +128 = pop hard gas limit (enabled by ACCEPT) from stack as well
 // +256 = enable stack trace
 // +512 = enable debug instructions
+// +1024 = load global_version from stack
 void interpret_run_vm(IntCtx& ctx, int mode) {
   if (mode < 0) {
-    mode = ctx.stack.pop_smallint_range(0x3ff);
+    mode = ctx.stack.pop_smallint_range(0x7ff);
   }
   bool with_data = mode & 4;
   Ref<vm::Tuple> c7;
   Ref<vm::Cell> data, actions;
+  int global_version = (mode & 1024) ? ctx.stack.pop_smallint_range(ton::SUPPORTED_VERSION) : ton::SUPPORTED_VERSION;
   long long gas_max = (mode & 128) ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
   long long gas_limit = (mode & 8) ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
   if (!(mode & 128)) {
@@ -2450,7 +2453,7 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
   auto log = create_vm_log((mode & 64) && ctx.error_stream ? &ostream_logger : nullptr);
   vm::GasLimits gas{gas_limit, gas_max};
   int res = vm::run_vm_code(cs, ctx.stack, (mode & 3) | ((mode & 0x300) >> 6), &data, log, nullptr, &gas,
-                            get_vm_libraries(), std::move(c7), &actions);
+                            get_vm_libraries(), std::move(c7), &actions, global_version);
   ctx.stack.push_smallint(res);
   if (with_data) {
     ctx.stack.push_cell(std::move(data));

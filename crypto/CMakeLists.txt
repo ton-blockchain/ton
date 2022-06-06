@@ -66,6 +66,9 @@ set(TON_CRYPTO_SOURCE
   tl/tlbc-data.h
   tl/tlblib.hpp
 
+  keccak/keccak.h
+  keccak/keccak.cpp
+
   vm/arithops.h
   vm/atom.h
   vm/boc.h
@@ -126,7 +129,12 @@ set(TON_CRYPTO_SOURCE
 
   vm/db/StaticBagOfCellsDb.h
   vm/db/StaticBagOfCellsDb.cpp
-)
+
+  vm/Hasher.h
+  vm/Hasher.cpp
+
+  ellcurve/secp256k1.h
+  ellcurve/secp256k1.cpp)
 
 set(TON_DB_SOURCE
   vm/db/DynamicBagOfCellsDb.cpp
@@ -270,7 +278,7 @@ set(BIGINT_TEST_SOURCE
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
+target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils secp256k1)
 if (NOT WIN32)
   target_link_libraries(ton_crypto PUBLIC dl z)
 endif()

@@ -676,7 +676,7 @@ bool ValidateQuery::try_unpack_mc_state() {
         mc_state_root_,
         block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
             block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
-            block::ConfigInfo::needCapabilities |
+            block::ConfigInfo::needCapabilities | block::ConfigInfo::needPrevBlocks |
             (is_masterchain() ? block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc : 0));
     if (res.is_error()) {
       return fatal_error(-666, "cannot extract configuration from reference masterchain state "s + mc_blkid_.to_str() +
@@ -772,6 +772,15 @@ bool ValidateQuery::fetch_config_params() {
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.global_config = config_->get_root_cell();
+    compute_phase_cfg_.global_version = config_->get_global_version();
+    if (compute_phase_cfg_.global_version >= 4) {
+      auto prev_blocks_info = config_->get_prev_blocks_info();
+      if (prev_blocks_info.is_error()) {
+        return fatal_error(prev_blocks_info.move_as_error_prefix(
+            "cannot fetch prev blocks info from masterchain configuration: "));
+      }
+      compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
+    }
   }
   {
     // compute action_phase_cfg

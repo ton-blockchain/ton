@@ -107,6 +107,9 @@ struct ComputePhaseConfig {
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
   bool with_vm_log{false};
+  int global_version = 0;
+  Ref<vm::Tuple> prev_blocks_info;
+
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();

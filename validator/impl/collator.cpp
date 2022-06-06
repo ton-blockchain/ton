@@ -523,6 +523,7 @@ bool Collator::unpack_last_mc_state() {
       mc_state_root,
       block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
           block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needCapabilities |
+          block::ConfigInfo::needPrevBlocks |
           (is_masterchain() ? block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc : 0));
   if (res.is_error()) {
     td::Status err = res.move_as_error();
@@ -1606,6 +1607,15 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
     compute_phase_cfg->global_config = config->get_root_cell();
+    compute_phase_cfg->global_version = config->get_global_version();
+    if (compute_phase_cfg->global_version >= 4) {
+      auto prev_blocks_info = config->get_prev_blocks_info();
+      if (prev_blocks_info.is_error()) {
+        return prev_blocks_info.move_as_error_prefix(
+            td::Status::Error(-668, "cannot fetch prev blocks info from masterchain configuration: "));
+      }
+      compute_phase_cfg->prev_blocks_info = prev_blocks_info.move_as_ok();
+    }
   }
   {
     // compute action_phase_cfg

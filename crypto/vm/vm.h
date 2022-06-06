@@ -97,6 +97,7 @@ class VmState final : public VmStateInterface {
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   td::ConstBitPtr missing_library{0};
+  int global_version{0};
 
  public:
   enum {
@@ -283,6 +284,12 @@ class VmState final : public VmStateInterface {
   void preclear_cr(const ControlRegs& save) {
     cr &= save;
   }
+  int get_global_version() const {
+    return global_version;
+  }
+  void set_global_version(int version) {
+    global_version = version;
+  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
@@ -332,10 +339,10 @@ class VmState final : public VmStateInterface {
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr);
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr, int global_version = 0);
 int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr);
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr, int global_version = 0);
 
 Ref<vm::Cell> lookup_library_in(td::ConstBitPtr key, Ref<vm::Cell> lib_root);
 

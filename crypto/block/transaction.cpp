@@ -894,7 +894,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     throw CollatorError{"cannot generate valid SmartContractInfo"};
     return {};
   }
-  auto tuple = vm::make_tuple_ref(
+  std::vector<vm::StackEntry> tuple = {
       td::make_refint(0x076ef1ea),                // [ magic:0x076ef1ea
       td::zero_refint(),                          //   actions:Integer
       td::zero_refint(),                          //   msgs_sent:Integer
@@ -903,10 +903,24 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
       td::make_refint(start_lt),                  //   trans_lt:Integer
       std::move(rand_seed_int),                   //   rand_seed:Integer
       balance.as_vm_tuple(),                      //   balance_remaining:[Integer (Maybe Cell)]
-      my_addr,                                    //  myself:MsgAddressInt
-      vm::StackEntry::maybe(cfg.global_config));  //  global_config:(Maybe Cell) ] = SmartContractInfo;
-  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
-  return vm::make_tuple_ref(std::move(tuple));
+      my_addr,                                    //   myself:MsgAddressInt
+      vm::StackEntry::maybe(cfg.global_config)    //   global_config:(Maybe Cell) ] = SmartContractInfo;
+  };
+  if (cfg.global_version >= 4) {
+    tuple.push_back(new_code);                            // code:Cell
+    tuple.push_back(msg_balance_remaining.as_vm_tuple()); // in_msg_value:[Integer (Maybe Cell)]
+    tuple.push_back(storage_phase->fees_collected);       // storage_fees:Integer
+
+    // See crypto/block/mc-config.cpp#2115 (get_prev_blocks_info)
+    // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
+    // [ last_mc_blocks:[BlockId...]
+    //   last_shard_blocks:[BlockId...]
+    //   prev_key_block:[BlockId...] ] : PrevBlocksInfo
+    tuple.push_back(cfg.prev_blocks_info.not_null() ? vm::StackEntry(cfg.prev_blocks_info) : vm::StackEntry());
+  }
+  auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
+  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
+  return vm::make_tuple_ref(std::move(tuple_ref));
 }
 
 int output_actions_count(Ref<vm::Cell> list) {
@@ -1044,6 +1058,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
   }
   vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
+  vm.set_global_version(cfg.global_version);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   // vm.incr_stack_trace(1);    // enable stack dump after each step
 
