@@ -93,7 +93,7 @@ void FullNodeShardImpl::create_overlay() {
   };
 
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_full_.clone(),
-                          std::make_unique<Callback>(actor_id(this)), rules_);
+                          std::make_unique<Callback>(actor_id(this)), rules_, PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard() << ", \"workchain_id\": " << get_workchain() << " }");
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl_id_);
   if (cert_) {

@@ -42,7 +42,7 @@ class Overlay : public td::actor::Actor {
                                              td::actor::ActorId<OverlayManager> manager,
                                              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                                              OverlayIdFull overlay_id, std::unique_ptr<Overlays::Callback> callback,
-                                             OverlayPrivacyRules rules);
+                                             OverlayPrivacyRules rules, td::string scope);
   static td::actor::ActorOwn<Overlay> create(td::actor::ActorId<keyring::Keyring> keyring,
                                              td::actor::ActorId<adnl::Adnl> adnl,
                                              td::actor::ActorId<OverlayManager> manager,
@@ -64,6 +64,9 @@ class Overlay : public td::actor::Actor {
   virtual void set_privacy_rules(OverlayPrivacyRules rules) = 0;
   virtual void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) = 0;
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) = 0;
+  virtual void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) = 0;
+  virtual void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) = 0;
+  virtual void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
 };

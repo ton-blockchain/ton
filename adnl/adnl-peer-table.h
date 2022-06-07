@@ -110,6 +110,7 @@ class AdnlPeerTable : public Adnl {
   virtual void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                              td::Promise<td::BufferSlice> promise) = 0;
   virtual void decrypt_message(AdnlNodeIdShort dst, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, td::Promise<td::string> promise) = 0;
 };
 
 }  // namespace adnl
