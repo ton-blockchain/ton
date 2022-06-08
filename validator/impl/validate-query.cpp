@@ -801,6 +801,7 @@ bool ValidateQuery::fetch_config_params() {
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
     action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg_.action_fine_enabled = config_->get_global_version() >= 4;
   }
   {
     // fetch block_grams_created

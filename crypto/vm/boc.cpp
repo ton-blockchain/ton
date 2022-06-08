@@ -1039,6 +1039,9 @@ bool CellStorageStat::add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup,
 bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, unsigned skip_count_root) {
   if (!(skip_count_root & 1)) {
     ++cells;
+    if (cells > max_cells) {
+      return false;
+    }
   }
   if (!(skip_count_root & 2)) {
     bits += cs.size();
@@ -1054,6 +1057,9 @@ bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, unsig
 bool CellStorageStat::add_used_storage(CellSlice&& cs, bool kill_dup, unsigned skip_count_root) {
   if (!(skip_count_root & 1)) {
     ++cells;
+    if (cells > max_cells) {
+      return false;
+    }
   }
   if (!(skip_count_root & 2)) {
     bits += cs.size();

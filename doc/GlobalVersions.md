@@ -16,3 +16,6 @@ Various features are enabled depending on the global version.
 * **11**: value of the incoming message.
 * **12**: fees collected in the storage phase.
 * **13**: information about previous blocks.
+
+### Fines in action phase
+If "send message" action fails, the account is required to pay for processing cells of the message.

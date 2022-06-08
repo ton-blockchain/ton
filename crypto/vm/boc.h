@@ -109,7 +109,10 @@ struct CellStorageStat {
   unsigned long long bits;
   unsigned long long public_cells;
   std::set<vm::Cell::Hash> seen;
-  CellStorageStat() : cells(0), bits(0), public_cells(0) {
+  unsigned long long max_cells;
+  CellStorageStat() : cells(0), bits(0), public_cells(0), max_cells(std::numeric_limits<unsigned long long>::max()) {
+  }
+  explicit CellStorageStat(unsigned long long max_cells) : cells(0), bits(0), public_cells(0), max_cells(max_cells) {
   }
   bool clear_seen() {
     seen.clear();

@@ -1135,6 +1135,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.total_fwd_fees = td::zero_refint();
   ap.total_action_fees = td::zero_refint();
   ap.reserved_balance.set_zero();
+  ap.action_fine = td::zero_refint();
 
   int n = 0;
   while (true) {
@@ -1211,11 +1212,20 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         ap.no_funds = true;
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
+      if (cfg.action_fine_enabled) {
+        ap.action_fine = std::min(ap.action_fine, balance.grams);
+        ap.total_action_fees = ap.action_fine;
+        balance.grams -= ap.action_fine;
+        total_fees += ap.action_fine;
+      }
       return true;
     }
   }
   ap.result_arg = 0;
   ap.result_code = 0;
+  if (cfg.action_fine_enabled) {
+    ap.total_action_fees += ap.action_fine;
+  }
   CHECK(ap.remaining_balance.grams->sgn() >= 0);
   CHECK(ap.reserved_balance.grams->sgn() >= 0);
   ap.remaining_balance += ap.reserved_balance;
@@ -1552,19 +1562,56 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
   // fetch message pricing info
   const MsgPrices& msg_prices = cfg.fetch_msg_prices(to_mc || account.is_masterchain());
-  // compute size of message
-  vm::CellStorageStat sstat;  // for message size
-  // preliminary storage estimation of the resulting message
-  sstat.add_used_storage(msg.init, true, 3);  // message init
-  sstat.add_used_storage(msg.body, true, 3);  // message body (the root cell itself is not counted)
-  if (!ext_msg) {
-    sstat.add_used_storage(info.value->prefetch_ref());
+  // If action fails, account is required to pay fine_per_cell for every visited cell
+  // Number of visited cells is limited depending on available funds
+  unsigned max_cells = max_msg_cells;
+  td::uint64 fine_per_cell = 0;
+  if (cfg.action_fine_enabled) {
+    fine_per_cell = (msg_prices.cell_price >> 16) / 4;
+    td::RefInt256 funds = ap.remaining_balance.grams;
+    if (!ext_msg && !(act_rec.mode & 0x80) && !(act_rec.mode & 1)) {
+      block::CurrencyCollection value;
+      CHECK(value.unpack(info.value));
+      CHECK(value.grams.not_null());
+      td::RefInt256 new_funds = value.grams;
+      if (act_rec.mode & 0x40) {
+        new_funds += msg_balance_remaining.grams;
+      }
+      funds = std::min(funds, new_funds);
+    }
+    if (funds->cmp(max_cells * fine_per_cell) < 0) {
+      max_cells = static_cast<unsigned>((funds / td::make_refint(fine_per_cell))->to_long());
+    }
   }
-  LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
-  if (sstat.bits > max_msg_bits || sstat.cells > max_msg_cells) {
-    LOG(DEBUG) << "message too large, invalid";
+  // compute size of message
+  vm::CellStorageStat sstat(max_cells);  // for message size
+  // preliminary storage estimation of the resulting message
+  bool stat_ok = sstat.add_used_storage(msg.init, true, 3);  // message init
+  stat_ok = stat_ok && sstat.add_used_storage(msg.body, true, 3);  // message body (the root cell itself is not counted)
+  if (!ext_msg) {
+    stat_ok = stat_ok && sstat.add_used_storage(info.value->prefetch_ref());
+  }
+  auto collect_fine = [&] {
+    if (cfg.action_fine_enabled) {
+      td::uint64 fine = fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells);
+      if (ap.remaining_balance.grams->cmp(fine) < 0) {
+        fine = ap.remaining_balance.grams->to_long();
+      }
+      ap.action_fine += fine;
+      ap.remaining_balance.grams -= fine;
+    }
+  };
+  if (!stat_ok && max_cells < max_msg_cells) {
+    LOG(DEBUG) << "not enough funds to process a message (max_cells=" << max_cells << ")";
+    collect_fine();
     return skip_invalid ? 0 : 40;
   }
+  if (sstat.bits > max_msg_bits || !stat_ok) {
+    LOG(DEBUG) << "message too large, invalid";
+    collect_fine();
+    return skip_invalid ? 0 : 40;
+  }
+  LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
 
   // compute forwarding fees
   auto fees_c = msg_prices.compute_fwd_ihr_fees(sstat.cells, sstat.bits, info.ihr_disabled);
@@ -1593,6 +1640,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // ...
     if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
       LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
+      collect_fine();
       return skip_invalid ? 0 : 37;
     }
     if (info.ihr_disabled) {
@@ -1616,6 +1664,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
         if (!req.is_valid()) {
           LOG(DEBUG)
               << "not enough value to transfer with the message: all of the inbound message value has been consumed";
+          collect_fine();
           return skip_invalid ? 0 : 37;
         }
       }
@@ -1631,6 +1680,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       // receiver pays the fees (but cannot)
       LOG(DEBUG) << "not enough value attached to the message to pay forwarding fees : have " << req.grams << ", need "
                  << fees_total;
+      collect_fine();
       return skip_invalid ? 0 : 37;  // not enough grams
     } else {
       // decrease message value
@@ -1641,6 +1691,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (ap.remaining_balance.grams < req_grams_brutto) {
       LOG(DEBUG) << "not enough grams to transfer with the message : remaining balance is "
                  << ap.remaining_balance.to_str() << ", need " << req_grams_brutto << " (including forwarding fees)";
+      collect_fine();
       return skip_invalid ? 0 : 37;  // not enough grams
     }
 
@@ -1650,6 +1701,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "not enough extra currency to send with the message: "
                  << block::CurrencyCollection{0, req.extra}.to_str() << " required, only "
                  << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str() << " available";
+      collect_fine();
       return skip_invalid ? 0 : 38;  // not enough (extra) funds
     }
     if (ap.remaining_balance.extra.not_null() || req.extra.not_null()) {
@@ -1672,7 +1724,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     vm::CellBuilder cb;
     if (!tlb::type_pack(cb, block::gen::t_MessageRelaxed_Any, msg)) {
       LOG(DEBUG) << "outbound message does not fit into a cell after rewriting";
-      return redoing < 2 ? -2 : (skip_invalid ? 0 : 39);
+      if (redoing == 2) {
+        collect_fine();
+        return skip_invalid ? 0 : 39;
+      }
+      return -2;
     }
 
     new_msg_bits = cb.size();
@@ -1694,6 +1750,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // external messages also have forwarding fees
     if (ap.remaining_balance.grams < fwd_fee) {
       LOG(DEBUG) << "not enough funds to pay for an outbound external message";
+      collect_fine();
       return skip_invalid ? 0 : 37;  // not enough grams
     }
     // repack message
@@ -1707,7 +1764,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     vm::CellBuilder cb;
     if (!tlb::type_pack(cb, block::gen::t_MessageRelaxed_Any, msg)) {
       LOG(DEBUG) << "outbound message does not fit into a cell after rewriting";
-      return redoing < 2 ? -2 : (skip_invalid ? 0 : 39);
+      if (redoing == 2) {
+        collect_fine();
+        return (skip_invalid ? 0 : 39);
+      }
+      return -2;
     }
 
     new_msg_bits = cb.size();
@@ -1722,12 +1783,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
   if (!block::tlb::t_Message.validate_ref(new_msg)) {
     LOG(ERROR) << "generated outbound message is not a valid (Message Any) according to hand-written check";
+    collect_fine();
     return -1;
   }
   if (!block::gen::t_Message_Any.validate_ref(new_msg)) {
     LOG(ERROR) << "generated outbound message is not a valid (Message Any) according to automated check";
     block::gen::t_Message_Any.print_ref(std::cerr, new_msg);
     vm::load_cell_slice(new_msg).print_rec(std::cerr);
+    collect_fine();
     return -1;
   }
   if (verbosity > 2) {

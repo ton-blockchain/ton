@@ -147,6 +147,7 @@ struct ActionPhaseConfig {
   MsgPrices fwd_std;
   MsgPrices fwd_mc;  // from/to masterchain
   const WorkchainSet* workchains{nullptr};
+  bool action_fine_enabled{false};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -202,6 +203,7 @@ struct ActionPhase {
   std::vector<Ref<vm::Cell>> out_msgs;
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
+  td::RefInt256 action_fine;
 };
 
 struct BouncePhase {

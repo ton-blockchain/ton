@@ -1636,6 +1636,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg->workchains = &config->get_workchain_list();
     action_phase_cfg->bounce_msg_body = (config->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg->action_fine_enabled = config->get_global_version() >= 4;
   }
   {
     // fetch block_grams_created
