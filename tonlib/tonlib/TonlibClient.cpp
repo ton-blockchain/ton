@@ -2962,6 +2962,7 @@ struct ToRawTransactions {
     std::vector<tonlib_api::object_ptr<tonlib_api::raw_message>> out_msgs;
     td::int64 fees = 0;
     td::int64 storage_fee = 0;
+    td::string address;
     if (info.transaction.not_null()) {
       data = to_bytes(info.transaction);
       block::gen::Transaction::Record trans;
@@ -3000,8 +3001,11 @@ struct ToRawTransactions {
         return td::Status::Error("Failed to fetch storage fee from transaction");
       }
       storage_fee = storage_fees->to_long();
+      auto std_address = block::StdAddress(info.blkid.id.workchain, trans.account_addr);
+      address = std_address.rserialize(true);
     }
     return tonlib_api::make_object<tonlib_api::raw_transaction>(
+        tonlib_api::make_object<tonlib_api::accountAddress>(std::move(address)),
         info.now, data,
         tonlib_api::make_object<tonlib_api::internal_transactionId>(info.prev_trans_lt,
                                                                     info.prev_trans_hash.as_slice().str()),
@@ -3027,6 +3031,79 @@ struct ToRawTransactions {
     }
 
     return tonlib_api::make_object<tonlib_api::raw_transactions>(std::move(transactions), std::move(transaction_id));
+  }
+
+  td::Result<tonlib_api::object_ptr<tonlib_api::raw_transaction>> to_raw_transaction_or_throw(
+      block::BlockTransaction::Info&& info) {
+    std::string data;
+
+    tonlib_api::object_ptr<tonlib_api::raw_message> in_msg;
+    std::vector<tonlib_api::object_ptr<tonlib_api::raw_message>> out_msgs;
+    td::int64 fees = 0;
+    td::int64 storage_fee = 0;
+    td::string address;
+    if (info.transaction.not_null()) {
+      data = to_bytes(info.transaction);
+      block::gen::Transaction::Record trans;
+      if (!tlb::unpack_cell(info.transaction, trans)) {
+        return td::Status::Error("Failed to unpack Transaction");
+      }
+
+      TRY_RESULT_ASSIGN(fees, to_balance(trans.total_fees));
+      //LOG(ERROR) << fees;
+
+      //std::ostringstream outp;
+      //block::gen::t_Transaction.print_ref(outp, info.transaction);
+      //LOG(INFO) << outp.str();
+
+      auto is_just = trans.r1.in_msg->prefetch_long(1);
+      if (is_just == trans.r1.in_msg->fetch_long_eof) {
+        return td::Status::Error("Failed to parse long");
+      }
+      if (is_just == -1) {
+        auto msg = trans.r1.in_msg->prefetch_ref();
+        TRY_RESULT(in_msg_copy, to_raw_message(trans.r1.in_msg->prefetch_ref()));
+        in_msg = std::move(in_msg_copy);
+      }
+
+      if (trans.outmsg_cnt != 0) {
+        vm::Dictionary dict{trans.r1.out_msgs, 15};
+        for (int x = 0; x < trans.outmsg_cnt; x++) {
+          TRY_RESULT(out_msg, to_raw_message(dict.lookup_ref(td::BitArray<15>{x})));
+          fees += out_msg->fwd_fee_;
+          fees += out_msg->ihr_fee_;
+          out_msgs.push_back(std::move(out_msg));
+        }
+      }
+      td::RefInt256 storage_fees;
+      if (!block::tlb::t_TransactionDescr.get_storage_fees(trans.description, storage_fees)) {
+        return td::Status::Error("Failed to fetch storage fee from transaction");
+      }
+      storage_fee = storage_fees->to_long();
+      auto std_address = block::StdAddress(info.blkid.id.workchain, trans.account_addr);
+      address = std_address.rserialize(true);
+    }
+    return tonlib_api::make_object<tonlib_api::raw_transaction>(
+        tonlib_api::make_object<tonlib_api::accountAddress>(std::move(address)),
+        info.now, data,
+        tonlib_api::make_object<tonlib_api::internal_transactionId>(info.lt,
+                                                                    info.hash.as_slice().str()),
+        fees, storage_fee, fees - storage_fee, std::move(in_msg), std::move(out_msgs));
+  }
+
+  td::Result<tonlib_api::object_ptr<tonlib_api::raw_transaction>> to_raw_transaction(block::BlockTransaction::Info&& info) {
+    return TRY_VM(to_raw_transaction_or_throw(std::move(info)));
+  }
+
+  td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::raw_transaction>>> to_raw_transactions(
+      block::BlockTransactionList::Info&& info) {
+    std::vector<tonlib_api::object_ptr<tonlib_api::raw_transaction>> transactions;
+    for (auto& transaction : info.transactions) {
+      TRY_RESULT(raw_transaction, to_raw_transaction(std::move(transaction)));
+      transactions.push_back(std::move(raw_transaction));
+    }
+
+    return std::move(transactions);
   }
 };
 
@@ -5329,6 +5406,43 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                           r.transactions_.push_back(to_tonlib_api(*id));
                         }
                         return tonlib_api::make_object<tonlib_api::blocks_transactions>(std::move(r));
+                     }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_transactionsExt>>&& promise) {
+  TRY_RESULT(block, to_lite_api(*request.id_))
+  TRY_RESULT(account, to_bits256((*request.after_).account_, "account"));
+  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, (*request.after_).lt_);
+  client_.send_query(ton::lite_api::liteServer_listBlockTransactionsExt(
+                       std::move(block),
+                       request.mode_,
+                       request.count_,
+                       std::move(after),
+                       false,
+                       false),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockTransactionsExt>&& bTxes) {
+                        const auto& id = bTxes->id_;
+                        tonlib_api::blocks_transactionsExt r;
+                        r.id_ = to_tonlib_api(*id);
+                        r.req_count_ = bTxes->req_count_;
+                        r.incomplete_ = bTxes->incomplete_;
+                        // bTxes->transactions to block::BlockTransactionList::Info
+                        block::BlockTransactionList list;
+                        list.blkid = create_block_id(id);
+                        list.transactions_boc = std::move(bTxes->transactions_->transactions_);
+                        auto info = list.validate();
+                        if (info.is_error()) {
+                          LOG(ERROR) << "info.is_error()";
+                        }
+                        // block::BlockTransactionList::Info to vector<raw_transaction>
+                        auto raw_transactions = ToRawTransactions(td::optional<td::Ed25519::PrivateKey>()).to_raw_transactions(info.move_as_ok());
+                        if (raw_transactions.is_error()) {
+                          LOG(ERROR) << "raw_transactions.is_error()";
+                        }
+                        r.transactions_ = raw_transactions.move_as_ok();
+                        return tonlib_api::make_object<tonlib_api::blocks_transactionsExt>(std::move(r));
                      }));
   return td::Status::OK();
 }

@@ -375,6 +375,8 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getTransactions& block_data,
                         td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getTransactionsExt& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_transactionsExt>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getBlockHeader& request,
                         td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getMasterchainBlockSignatures& request,

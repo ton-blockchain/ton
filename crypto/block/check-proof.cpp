@@ -315,6 +315,41 @@ td::Result<TransactionList::Info> TransactionList::validate() const {
   return std::move(res);
 }
 
+td::Result<BlockTransaction::Info> BlockTransaction::validate() {
+  if (root.is_null()) {
+    return td::Status::Error("transactions are expected to be non-empty");
+  }
+  block::gen::Transaction::Record trans;
+  if (!tlb::unpack_cell(root, trans)) {
+    return td::Status::Error("cannot unpack transaction #");
+  }
+  Info res;
+  res.blkid = blkid;
+  res.now = trans.now;
+  res.lt = trans.lt;
+  res.hash = root->get_hash().bits();
+  res.transaction = root;
+  return std::move(res);
+}
+
+td::Result<BlockTransactionList::Info> BlockTransactionList::validate() const {
+  auto R = vm::std_boc_deserialize_multi(std::move(transactions_boc));
+  if (R.is_error()) {
+    return td::Status::Error("cannot deserialize transactions BoC");
+  }
+  auto list = R.move_as_ok();
+  size_t c = 0;
+  Info res;
+  for (auto& root : list) {
+    BlockTransaction transaction;
+    transaction.root = root;
+    transaction.blkid = blkid;
+    TRY_RESULT(info, transaction.validate());
+    res.transactions.push_back(std::move(info));
+  }
+  return std::move(res);
+}
+
 td::Status BlockProofLink::validate(td::uint32* save_utime) const {
   if (save_utime) {
     *save_utime = 0;
