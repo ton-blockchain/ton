@@ -16,7 +16,9 @@
 
         src = ./.;
 
-        nativeBuildInputs = with host; [ cmake pkg-config git ];
+        nativeBuildInputs = with host;
+          [ cmake pkg-config git ] ++
+          [ dpkg ];
         buildInputs = with pkgs; [ openssl zlib ];
 
         cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" ] ++
