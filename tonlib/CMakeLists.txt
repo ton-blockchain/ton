@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
+option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
+
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
@@ -88,22 +90,18 @@ set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
 
 include(GenerateExportHeader)
 
-add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
+add_library(tonlibjson ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
 target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
+if (!BUILD_SHARED_LIBS)
+  target_compile_definitions(tonlibjson PUBLIC TONLIBJSON_STATIC_DEFINE)
+endif()
 target_include_directories(tonlibjson PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 if (APPLE)
   set_target_properties(tonlibjson PROPERTIES LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/tonlibclientjson_export_list")
 endif()
-
-add_library(tonlibjson_static STATIC ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
-target_link_libraries(tonlibjson_static PRIVATE tonlibjson_private)
-target_compile_definitions(tonlibjson_static PUBLIC TONLIBJSON_STATIC_DEFINE)
-target_include_directories(tonlibjson_static PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 add_library(TonlibJson INTERFACE)
 target_link_libraries(TonlibJson INTERFACE tonlibjson)
@@ -149,11 +147,17 @@ endif()
 
 install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
 
-install(EXPORT Tonlib
-  FILE TonlibTargets.cmake
-  NAMESPACE Tonlib::
-  DESTINATION lib/cmake/Tonlib
-)
+if (BUILD_SHARED_LIBS)
+  install(EXPORT Tonlib
+    FILE TonlibTargets.cmake
+    NAMESPACE Tonlib::
+    DESTINATION lib/cmake/Tonlib
+  )
+
+  # Add SOVERSION to shared libraries
+  set_property(TARGET tonlibjson PROPERTY SOVERSION ${TON_VERSION})
+endif()
+
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file("TonlibConfigVersion.cmake"
   VERSION ${TON_VERSION}
@@ -163,6 +167,4 @@ install(FILES "TonlibConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/TonlibConfigVers
   DESTINATION lib/cmake/Tonlib
 )
 
-# Add SOVERSION to shared libraries
-set_property(TARGET tonlibjson PROPERTY SOVERSION ${TON_VERSION})
 install(TARGETS tonlib-cli RUNTIME DESTINATION bin)

@@ -36,7 +36,7 @@ set(STORAGE_CLI_SOURCE
   storage-cli.cpp
 )
 
-add_library(storage ${STORAGE_SOURCE})
+add_library(storage STATIC ${STORAGE_SOURCE})
 target_link_libraries(storage tdutils tdactor tddb ton_crypto tl_api ${JEMALLOC_LIBRARIES})
 target_include_directories(storage PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
