@@ -1566,7 +1566,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   // Number of visited cells is limited depending on available funds
   unsigned max_cells = max_msg_cells;
   td::uint64 fine_per_cell = 0;
-  if (cfg.action_fine_enabled) {
+  if (cfg.action_fine_enabled && !account.is_special) {
     fine_per_cell = (msg_prices.cell_price >> 16) / 4;
     td::RefInt256 funds = ap.remaining_balance.grams;
     if (!ext_msg && !(act_rec.mode & 0x80) && !(act_rec.mode & 1)) {
@@ -1605,7 +1605,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     sstat.add_used_storage(info.value->prefetch_ref());
   }
   auto collect_fine = [&] {
-    if (cfg.action_fine_enabled) {
+    if (cfg.action_fine_enabled && !account.is_special) {
       td::uint64 fine = fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells);
       if (ap.remaining_balance.grams->cmp(fine) < 0) {
         fine = ap.remaining_balance.grams->to_long();
