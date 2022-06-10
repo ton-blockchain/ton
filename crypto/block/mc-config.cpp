@@ -2116,10 +2116,14 @@ td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
   // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
   // [ last_mc_blocks:[BlockId...]
   //   prev_key_block:BlockId ] : PrevBlocksInfo
-  auto block_id_to_tuple = [](const ton::BlockIdExt & block_id) -> vm::Ref<vm::Tuple> {
+  auto block_id_to_tuple = [](const ton::BlockIdExt& block_id) -> vm::Ref<vm::Tuple> {
+    td::RefInt256 shard = td::make_refint(block_id.id.shard);
+    if (shard->sgn() < 0) {
+      shard &= ((td::make_refint(1) << 64) - 1);
+    }
     return vm::make_tuple_ref(
         td::make_refint(block_id.id.workchain),
-        td::make_refint(block_id.id.shard),
+        std::move(shard),
         td::make_refint(block_id.id.seqno),
         td::bits_to_refint(block_id.root_hash.bits(), 256),
         td::bits_to_refint(block_id.file_hash.bits(), 256));

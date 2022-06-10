@@ -1497,7 +1497,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
             && cb.store_long_bool(3, 2)                    // (just (right ... ))
             && cb.store_ref_bool(std::move(cell))          // z:^StateInit
             && cb.finalize_to(cell));
-      msg.init = vm::load_cell_slice_ref(std::move(cell));
+      msg.init = vm::load_cell_slice_ref(cell);
     } else {
       redoing = 2;
     }
@@ -1514,7 +1514,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
           && cb.store_long_bool(1, 1)                    // (right ... )
           && cb.store_ref_bool(std::move(cell))          // x:^X
           && cb.finalize_to(cell));
-    msg.body = vm::load_cell_slice_ref(std::move(cell));
+    msg.body = vm::load_cell_slice_ref(cell);
   }
 
   block::gen::CommonMsgInfoRelaxed::Record_int_msg_info info;
@@ -1570,12 +1570,25 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     fine_per_cell = (msg_prices.cell_price >> 16) / 4;
     td::RefInt256 funds = ap.remaining_balance.grams;
     if (!ext_msg && !(act_rec.mode & 0x80) && !(act_rec.mode & 1)) {
+      if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
+        LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
+        return skip_invalid ? 0 : 37;
+      }
       block::CurrencyCollection value;
       CHECK(value.unpack(info.value));
       CHECK(value.grams.not_null());
       td::RefInt256 new_funds = value.grams;
       if (act_rec.mode & 0x40) {
         new_funds += msg_balance_remaining.grams;
+        if (compute_phase) {
+          new_funds -= compute_phase->gas_fees;
+        }
+        new_funds -= ap.action_fine;
+        if (new_funds->sgn() < 0) {
+          LOG(DEBUG)
+              << "not enough value to transfer with the message: all of the inbound message value has been consumed";
+          return skip_invalid ? 0 : 37;
+        }
       }
       funds = std::min(funds, new_funds);
     }
@@ -1586,10 +1599,10 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   // compute size of message
   vm::CellStorageStat sstat(max_cells);  // for message size
   // preliminary storage estimation of the resulting message
-  bool stat_ok = sstat.add_used_storage(msg.init, true, 3);  // message init
-  stat_ok = stat_ok && sstat.add_used_storage(msg.body, true, 3);  // message body (the root cell itself is not counted)
+  sstat.add_used_storage(msg.init, true, 3);  // message init
+  sstat.add_used_storage(msg.body, true, 3);  // message body (the root cell itself is not counted)
   if (!ext_msg) {
-    stat_ok = stat_ok && sstat.add_used_storage(info.value->prefetch_ref());
+    sstat.add_used_storage(info.value->prefetch_ref());
   }
   auto collect_fine = [&] {
     if (cfg.action_fine_enabled) {
@@ -1601,12 +1614,12 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       ap.remaining_balance.grams -= fine;
     }
   };
-  if (!stat_ok && max_cells < max_msg_cells) {
+  if (sstat.cells > max_cells && max_cells < max_msg_cells) {
     LOG(DEBUG) << "not enough funds to process a message (max_cells=" << max_cells << ")";
     collect_fine();
     return skip_invalid ? 0 : 40;
   }
-  if (sstat.bits > max_msg_bits || !stat_ok) {
+  if (sstat.bits > max_msg_bits || sstat.cells > max_cells) {
     LOG(DEBUG) << "message too large, invalid";
     collect_fine();
     return skip_invalid ? 0 : 40;
@@ -1659,8 +1672,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     } else if (act_rec.mode & 0x40) {
       // attach all remaining balance of the inbound message (in addition to the original value)
       req += msg_balance_remaining;
-      if (!(act_rec.mode & 1) && compute_phase) {
-        req -= compute_phase->gas_fees;
+      if (!(act_rec.mode & 1)) {
+        req -= ap.action_fine;
+        if (compute_phase) {
+          req -= compute_phase->gas_fees;
+        }
         if (!req.is_valid()) {
           LOG(DEBUG)
               << "not enough value to transfer with the message: all of the inbound message value has been consumed";
@@ -1920,6 +1936,9 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   auto msg_balance = msg_balance_remaining;
   if (compute_phase && compute_phase->gas_fees.not_null()) {
     msg_balance.grams -= compute_phase->gas_fees;
+  }
+  if (action_phase && action_phase->action_fine.not_null()) {
+    msg_balance.grams -= action_phase->action_fine;
   }
   if ((msg_balance.grams < 0) ||
       (msg_balance.grams->signed_fits_bits(64) && msg_balance.grams->to_long() < (long long)bp.fwd_fees)) {

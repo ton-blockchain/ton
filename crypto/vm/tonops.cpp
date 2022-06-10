@@ -101,11 +101,11 @@ void register_ton_gas_ops(OpcodeTable& cp0) {
 
 static const StackEntry& get_param(VmState* st, unsigned idx) {
   auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  return tuple_index(*t1, idx);
+  return tuple_index(t1, idx);
 }
 
 int exec_get_param(VmState* st, unsigned idx, const char* name) {
@@ -205,15 +205,15 @@ int exec_get_prev_blocks_info(VmState* st, unsigned idx, const char* name) {
   VM_LOG(st) << "execute " << name;
   Stack& stack = st->get_stack();
   auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  auto t2 = tuple_index(*tuple, 12).as_tuple_range(255);
+  auto t2 = tuple_index(t1, 13).as_tuple_range(255);
   if (t2.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  stack.push(tuple_index(*t2, idx));
+  stack.push(tuple_index(t2, idx));
   return 0;
 }
 
@@ -236,7 +236,7 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf832, 16, "CONFIGPARAM", std::bind(exec_get_config_param, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf833, 16, "CONFIGOPTPARAM", std::bind(exec_get_config_param, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS", std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 2, "PREVKEYBLOCK"))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf840, 16, "GETGLOBVAR", exec_get_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
@@ -247,11 +247,11 @@ static constexpr int randseed_idx = 6;
 
 td::RefInt256 generate_randu256(VmState* st) {
   auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  auto seedv = tuple_index(*t1, randseed_idx).as_int();
+  auto seedv = tuple_index(t1, randseed_idx).as_int();
   if (seedv.is_null()) {
     throw VmError{Excno::type_chk, "random seed is not an integer"};
   }
@@ -307,12 +307,12 @@ int exec_set_rand(VmState* st, bool mix) {
     throw VmError{Excno::range_chk, "new random seed out of range"};
   }
   auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
   if (mix) {
-    auto seedv = tuple_index(*t1, randseed_idx).as_int();
+    auto seedv = tuple_index(t1, randseed_idx).as_int();
     if (seedv.is_null()) {
       throw VmError{Excno::type_chk, "random seed is not an integer"};
     }
@@ -1034,10 +1034,10 @@ int exec_send_message(VmState* st) {
   if (!ext_msg) {
     if (mode & 128) {  // value is balance of the contract
       Ref<Tuple> balance = get_param(st, 7).as_tuple();
-      value = tuple_index(*balance, 0).as_int();
+      value = tuple_index(balance, 0).as_int();
     } else if (mode & 64) {  // value += value of incoming message
       Ref<Tuple> balance = get_param(st, 11).as_tuple();
-      value += tuple_index(*balance, 0).as_int();
+      value += tuple_index(balance, 0).as_int();
     }
   }
 
