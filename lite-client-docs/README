@@ -28,9 +28,9 @@ You might also build some extra utilities useful for smart-contract development:
 cmake --build . --target fift
 cmake --build . --target func
 
-4) Download the newest configuration file from https://ton-blockchain.github.io/global.config.json :
+4) Download the newest configuration file from https://ton.org/global-config.json :
 
-wget https://ton-blockchain.github.io/global.config.json
+wget https://ton.org/global-config.json
 
 5) Run the Lite Client:
 
