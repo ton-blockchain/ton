@@ -575,83 +575,92 @@ TEST(Tonlib, ConfigCache) {
                         nullptr, make_object<tonlib_api::keyStoreTypeDirectory>("testdir"))))
       .ensure();
 
+  auto mainnet = R"abc({
+    "liteservers": [
+    ],
+    "validator": {
+      "@type": "validator.config.global",
+      "zero_state": {
+        "workchain": -1,
+        "shard": -9223372036854775808,
+        "seqno": 0,
+        "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
+        "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
+      },
+      "hardforks": [
+        {
+          "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
+          "seqno": 8536841,
+          "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
+          "workchain": -1,
+          "shard": -9223372036854775808
+        }
+      ]
+    }
+  })abc";
   auto testnet = R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
-      "seqno": 0,
-      "root_hash": "VCSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
-      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    "liteservers": [
+    ],
+    "validator": {
+      "@type": "validator.config.global",
+      "zero_state": {
+        "workchain": -1,
+        "shard": -9223372036854775808,
+        "seqno": 0,
+        "root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
+        "file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg="
+      }
     }
-  }
-})abc";
-  auto testnet2 = R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
-      "seqno": 0,
-      "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
-      "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
+  })abc";
+  auto custom = R"abc({
+    "liteservers": [
+    ],
+    "validator": {
+      "@type": "validator.config.global",
+      "zero_state": {
+        "workchain": -1,
+        "shard": -9223372036854775808,
+        "seqno": 0,
+        "root_hash": "ZXSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
+        "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+      }
     }
-  }
-})abc";
-  auto testnet3 = R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
-      "seqno": 0,
-      "root_hash": "ZXSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
-      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
-    }
-  }
-})abc";
+  })abc";
   auto bad = R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
-      "seqno": 0,
-      "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+    "liteservers": [
+    ],
+    "validator": {
+      "@type": "validator.config.global",
+      "zero_state": {
+        "workchain": -1,
+        "shard": -9223372036854775808,
+        "seqno": 0,
+        "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+      }
     }
-  }
-})abc";
+  })abc";
   sync_send(client,
             make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(bad, "", true, false)))
       .ensure_error();
 
   sync_send(client,
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(mainnet, "", true, false)))
+      .ensure();
+  sync_send(client,
             make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet, "", true, false)))
       .ensure();
   sync_send(client,
-            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet2, "", true, false)))
-      .ensure();
-  sync_send(client,
-            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(testnet3, "", true, false)))
+            make_object<tonlib_api::options_validateConfig>(make_object<tonlib_api::config>(custom, "", true, false)))
       .ensure();
 
   sync_send(client, make_object<tonlib_api::options_validateConfig>(
-                        make_object<tonlib_api::config>(testnet2, "testnet", true, false)))
+                        make_object<tonlib_api::config>(mainnet, "testnet", true, false)))
       .ensure_error();
 
   sync_send(client, make_object<tonlib_api::options_setConfig>(
-                        make_object<tonlib_api::config>(testnet2, "testnet2", true, false)))
+                        make_object<tonlib_api::config>(testnet, "testnet", true, false)))
       .ensure();
   sync_send(client, make_object<tonlib_api::options_setConfig>(
-                        make_object<tonlib_api::config>(testnet3, "testnet2", true, false)))
+                        make_object<tonlib_api::config>(custom, "testnet", true, false)))
       .ensure_error();
 }
