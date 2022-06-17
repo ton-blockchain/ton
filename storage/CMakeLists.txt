@@ -51,5 +51,5 @@ set(STORAGE_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/storage.cpp
   PARENT_SCOPE
 )
-# Do not install it yet
-#install(TARGETS storage-cli RUNTIME DESTINATION bin)
+
+install(TARGETS storage-cli RUNTIME DESTINATION bin)
