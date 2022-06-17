@@ -26,6 +26,8 @@ extern "C" {
 
 TONLIBJSON_EXPORT void *tonlib_client_json_create();
 
+TONLIBJSON_EXPORT void tonlib_client_set_verbosity_level(int verbosity_level);
+
 TONLIBJSON_EXPORT void tonlib_client_json_send(void *client, const char *request);
 
 TONLIBJSON_EXPORT const char *tonlib_client_json_receive(void *client, double timeout);

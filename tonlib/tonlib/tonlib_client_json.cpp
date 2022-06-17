@@ -22,12 +22,18 @@
 
 #include "td/utils/Slice.h"
 
+#include "tonlib/Logging.h"
+
 extern "C" int tonlib_client_json_square(int x, const char *str) {
   return x * x;
 }
 
 void *tonlib_client_json_create() {
   return new tonlib::ClientJson();
+}
+
+void tonlib_client_set_verbosity_level(int verbosity_level) {
+  tonlib::Logging::set_verbosity_level(verbosity_level);
 }
 
 void tonlib_client_json_destroy(void *client) {
