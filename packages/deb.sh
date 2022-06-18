@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Build a deb package
 
-ARTIFACTS_PATH="$1"
+BUILD_PATH="$1"
 DEB_TEMPLATE_PATH="$2"
-DEB_DIR_PATH="$ARTIFACTS_PATH"/deb/$(basename "$DEB_TEMPLATE_PATH")
+NIX_RESULT_PATH="$3"
+DEB_DIR_PATH="$BUILD_PATH"/deb/$(basename "$DEB_TEMPLATE_PATH")
 
-mkdir "$ARTIFACTS_PATH"/deb
+mkdir "$BUILD_PATH"/deb
 cp -r "$DEB_TEMPLATE_PATH" "$DEB_DIR_PATH"
-mkdir -p "$DEB_DIR_PATH"/usr/bin
-find "$ARTIFACTS_PATH" -type f -executable -exec cp {} "$DEB_DIR_PATH"/usr/bin \;
+mkdir "$DEB_DIR_PATH"/usr
+cp -r "$NIX_RESULT_PATH"/{bin,lib,include,share} "$DEB_DIR_PATH"/usr
 dpkg-deb --build "$DEB_DIR_PATH"

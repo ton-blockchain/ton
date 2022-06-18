@@ -1,7 +1,7 @@
-name: "Nightly unit tests"
+name: "Unit tests, rolling dependencies"
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  pull_request:
+  push:
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -18,17 +18,4 @@ jobs:
         nix develop \
           --override-input nixpkgs https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz \
           --command bash -e -c '
-            cmake $cmakeFlags -S . -B build
-
-            cmake --build build -j4
-
-            pushd build
-            ctest
-            popd
-
-            cmake --install build --prefix install'
-    - name: Upload artifacts
-      uses: actions/upload-artifact@master
-      with:
-        name: ton-binaries
-        path: install
+            ctest --build-and-test . build --build-generator Ninja --build-options $cmakeFlags  --test-command ctest'

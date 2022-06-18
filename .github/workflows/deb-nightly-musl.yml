@@ -1,0 +1,27 @@
+name: "Nightly deb build (musl)"
+on:
+  schedule:
+    - cron: '0 0 * * *'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+    - uses: cachix/install-nix-action@v17
+    - uses: cachix/cachix-action@v10
+      with:
+        name: ton
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build .?submodules=1#packages.x86_64-linux-musl.ton --print-build-logs
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            mkdir packages-out
+            ./packages/deb.sh packages-out packages/deb/ton result'
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-packages
+        path: packages-out
