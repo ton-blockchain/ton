@@ -1,4 +1,4 @@
-name: "Nightly deb build (static glibc)"
+name: "Nightly deb and rpm build (static glibc)"
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -20,6 +20,10 @@ jobs:
           --command bash -e -c '
             mkdir packages-out
             ./packages/deb.sh packages-out packages/deb/ton result'
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result'
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:

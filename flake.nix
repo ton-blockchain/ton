@@ -19,7 +19,7 @@
           src = ./.;
 
           nativeBuildInputs = with host;
-            [ cmake ninja pkg-config git ] ++ [ dpkg ];
+            [ cmake ninja pkg-config git ] ++ [ dpkg rpm ];
           buildInputs = with pkgs;
             # at some point nixpkgs' pkgsStatic will build with static glibc
             # then we can skip these manual overrides
