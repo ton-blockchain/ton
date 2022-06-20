@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(MHD libmicrohttpd)
 
-find_package(MHD)
 
 if (MHD_FOUND)
 
@@ -15,9 +16,9 @@ if (MHD_FOUND)
     )
 
   add_executable(blockchain-explorer ${BLOCHAIN_EXPLORER_SOURCE})
-  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIRS})
+  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIRS} ${MHD_STATIC_INCLUDE_DIRS})
   target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils
-    ton_crypto ton_block ${MHD_LIBRARY})
+    ton_crypto ton_block ${MHD_LIBRARIES} ${MHD_STATIC_LIBRARIES})
 
   install(TARGETS blockchain-explorer RUNTIME DESTINATION bin)
 endif()

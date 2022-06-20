@@ -27,10 +27,12 @@
             if !staticGlibc then [
               openssl
               zlib
+              libmicrohttpd
             ] else [
               glibc.static
               (openssl.override { static = true; })
               (zlib.override { shared = false; })
+              pkgsStatic.libmicrohttpd
             ];
 
           cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" ]
