@@ -18,4 +18,8 @@ jobs:
         nix develop \
           --override-input nixpkgs https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz \
           --command bash -e -c '
-            ctest --build-and-test . build --build-generator Ninja --build-options $cmakeFlags  --test-command ctest'
+            cmake $cmakeFlags -GNinja -S . -B build
+            cmake --build build
+
+            cd build
+            ctest'
