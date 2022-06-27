@@ -451,7 +451,7 @@ block_extra in_msg_descr:^InMsgDescr
   created_by:bits256
   custom:(Maybe ^McBlockExtra) = BlockExtra;
 //
-value_flow ^[ from_prev_blk:CurrencyCollection 
+value_flow#b8e48dfb ^[ from_prev_blk:CurrencyCollection 
   to_next_blk:CurrencyCollection
   imported:CurrencyCollection
   exported:CurrencyCollection ]
