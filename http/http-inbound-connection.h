@@ -35,7 +35,8 @@ class HttpInboundConnection : public HttpConnection {
   td::Status receive_eof() override {
     found_eof_ = true;
     if (reading_payload_) {
-      if (reading_payload_->payload_type() != HttpPayload::PayloadType::pt_eof) {
+      if (reading_payload_->payload_type() != HttpPayload::PayloadType::pt_eof &&
+          reading_payload_->payload_type() != HttpPayload::PayloadType::pt_tunnel) {
         return td::Status::Error("unexpected EOF");
       } else {
         reading_payload_->complete_parse();
