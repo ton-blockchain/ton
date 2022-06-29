@@ -864,7 +864,7 @@ tl_object_ptr<ton_api::http_response> HttpResponse::store_tl() {
   } else {
     headers.push_back(HttpHeader{"Connection", "Close"}.store_tl());
   }
-  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers));
+  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), false);
 }
 
 td::Status HttpHeader::basic_check() {

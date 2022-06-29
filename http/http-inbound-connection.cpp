@@ -44,13 +44,22 @@ void HttpInboundConnection::send_server_error() {
   loop();
 }
 
-void HttpInboundConnection::send_proxy_error() {
-  static const auto s =
-      "HTTP/1.1 502 Bad Gateway\r\n"
-      "Connection: keep-alive\r\n"
-      "Content-length: 0\r\n"
-      "\r\n";
-  buffered_fd_.output_buffer().append(td::Slice(s, strlen(s)));
+void HttpInboundConnection::send_proxy_error(td::Status error) {
+  if (error.code() == ErrorCode::timeout) {
+    static const auto s =
+        "HTTP/1.1 504 Gateway Timeout\r\n"
+        "Connection: keep-alive\r\n"
+        "Content-length: 0\r\n"
+        "\r\n";
+    buffered_fd_.output_buffer().append(td::Slice(s, strlen(s)));
+  } else {
+    static const auto s =
+        "HTTP/1.1 502 Bad Gateway\r\n"
+        "Connection: keep-alive\r\n"
+        "Content-length: 0\r\n"
+        "\r\n";
+    buffered_fd_.output_buffer().append(td::Slice(s, strlen(s)));
+  }
   loop();
 }
 
@@ -83,7 +92,7 @@ td::Status HttpInboundConnection::receive(td::ChainBufferReader &input) {
           auto a = R.move_as_ok();
           td::actor::send_closure(SelfId, &HttpInboundConnection::send_answer, std::move(a.first), std::move(a.second));
         } else {
-          td::actor::send_closure(SelfId, &HttpInboundConnection::send_proxy_error);
+          td::actor::send_closure(SelfId, &HttpInboundConnection::send_proxy_error, R.move_as_error());
         }
       });
   http_callback_->receive_request(std::move(cur_request_), payload, std::move(P));

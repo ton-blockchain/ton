@@ -54,7 +54,7 @@ class HttpInboundConnection : public HttpConnection {
 
   void send_client_error();
   void send_server_error();
-  void send_proxy_error();
+  void send_proxy_error(td::Status error);
 
   void payload_written() override {
     writing_payload_ = nullptr;

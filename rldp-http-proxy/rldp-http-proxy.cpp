@@ -122,9 +122,14 @@ class HttpRemote : public td::actor::Actor {
 
  private:
   td::IPAddress addr_;
-  bool ready_ = false;
+  bool ready_ = true;
   td::actor::ActorOwn<ton::http::HttpClient> client_;
 };
+
+td::BufferSlice create_error_response(const std::string& proto_version, int code, const std::string& reason) {
+  return ton::create_serialize_tl_object<ton::ton_api::http_response>(
+      proto_version, code, reason, std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>(), true);
+}
 
 class HttpRldpPayloadReceiver : public td::actor::Actor {
  public:
@@ -499,7 +504,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
     }
     auto f = F.move_as_ok();
     auto R = ton::http::HttpResponse::create(
-        f->http_version_, f->status_code_, f->reason_, false, true, is_tunnel() && f->status_code_ == 200);
+        f->http_version_, f->status_code_, f->reason_, f->no_payload_, true, is_tunnel() && f->status_code_ == 200);
     if (R.is_error()) {
       abort_query(R.move_as_error());
       return;
@@ -529,9 +534,13 @@ class TcpToRldpRequestSender : public td::actor::Actor {
         td::actor::send_closure(SelfId, &TcpToRldpRequestSender::finished_payload_transfer);
       }
     });
-    td::actor::create_actor<HttpRldpPayloadReceiver>("HttpPayloadReceiver", response_payload_, id_, dst_, local_id_,
-                                                     adnl_, rldp_, is_tunnel())
-        .release();
+    if (f->no_payload_) {
+      response_payload_->complete_parse();
+    } else {
+      td::actor::create_actor<HttpRldpPayloadReceiver>("HttpPayloadReceiver", response_payload_, id_, dst_, local_id_,
+                                                       adnl_, rldp_, is_tunnel())
+          .release();
+    }
 
     promise_.set_value(std::make_pair(std::move(response_), std::move(response_payload_)));
     stop();
@@ -543,6 +552,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
 
   void abort_query(td::Status error) {
     LOG(INFO) << "aborting http over rldp query: " << error;
+    promise_.set_error(std::move(error));
     stop();
   }
 
@@ -808,9 +818,11 @@ class RldpToTcpRequestSender : public td::actor::Actor {
   }
 
   void got_result(std::pair<std::unique_ptr<ton::http::HttpResponse>, std::shared_ptr<ton::http::HttpPayload>> R) {
-    td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
-                                                   rldp_)
-        .release();
+    if (R.first->need_payload()) {
+      td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
+                                                     rldp_)
+          .release();
+    }
     auto f = ton::serialize_tl_object(R.first->store_tl(), true);
     promise_.set_value(std::move(f));
     stop();
@@ -818,7 +830,7 @@ class RldpToTcpRequestSender : public td::actor::Actor {
 
   void abort_query(td::Status error) {
     LOG(INFO) << "aborting http over rldp query: " << error;
-    promise_.set_error(std::move(error));
+    promise_.set_result(create_error_response(request_->proto_version(), 502, "Bad Gateway"));
     stop();
   }
 
@@ -1174,13 +1186,22 @@ class RldpHttpProxy : public td::actor::Actor {
                             td::Promise<td::BufferSlice> promise) {
     LOG(INFO) << "got HTTP request over rldp from " << src;
     TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::ton_api::http_request>(data, true));
-    TRY_RESULT_PROMISE(promise, request, ton::http::HttpRequest::create(f->method_, f->url_, f->http_version_));
-    for (auto &x : f->headers_) {
-      ton::http::HttpHeader h{x->name_, x->value_};
-      TRY_STATUS_PROMISE(promise, h.basic_check());
-      request->add_header(std::move(h));
+    std::unique_ptr<ton::http::HttpRequest> request;
+    auto S = [&]() {
+      TRY_RESULT_ASSIGN(request, ton::http::HttpRequest::create(f->method_, f->url_, f->http_version_));
+      for (auto &x : f->headers_) {
+        ton::http::HttpHeader h{x->name_, x->value_};
+        TRY_STATUS(h.basic_check());
+        request->add_header(std::move(h));
+      }
+      TRY_STATUS(request->complete_parse_header());
+      return td::Status::OK();
+    }();
+    if (S.is_error()) {
+      LOG(INFO) << "Failed to parse http request: " << S;
+      promise.set_result(create_error_response(f->http_version_, 400, "Bad Request"));
+      return;
     }
-    TRY_STATUS_PROMISE(promise, request->complete_parse_header());
     auto host = request->host();
     td::uint16 port = 80;
     if (host.empty()) {
@@ -1212,7 +1233,7 @@ class RldpHttpProxy : public td::actor::Actor {
           port = (td::uint16)std::stoul(host.substr(p + 1));
         } catch (const std::logic_error &) {
           port = 80;
-          promise.set_error(td::Status::Error(PSLICE() << "Invalid port '" << host.substr(p + 1) << "'"));
+          promise.set_result(create_error_response(f->http_version_, 400, "Bad Request"));
           return;
         }
         host = host.substr(0, p);
@@ -1224,19 +1245,19 @@ class RldpHttpProxy : public td::actor::Actor {
     if (it == hosts_.end()) {
       it = hosts_.find("*");
       if (it == hosts_.end()) {
-        promise.set_error(td::Status::Error(ton::ErrorCode::error, "unknown server name"));
+        promise.set_result(create_error_response(f->http_version_, 502, "Bad Gateway"));
         return;
       }
     }
     auto it2 = it->second.ports_.find(port);
     if (it2 == it->second.ports_.end()) {
-      promise.set_error(td::Status::Error(ton::ErrorCode::error, "unknown host:port"));
+      promise.set_result(create_error_response(f->http_version_, 502, "Bad Gateway"));
       return;
     }
     auto &server = it2->second;
     if (request->method() == "CONNECT") {
       LOG(INFO) << "starting HTTP tunnel over RLDP to " << server.remote_addr_;
-      start_tcp_tunnel(f->id_, src, dst, server.remote_addr_, std::move(promise));
+      start_tcp_tunnel(f->id_, src, dst, f->http_version_, server.remote_addr_, std::move(promise));
       return;
     }
 
@@ -1244,22 +1265,31 @@ class RldpHttpProxy : public td::actor::Actor {
       server.http_remote_ = td::actor::create_actor<HttpRemote>("remote", server.remote_addr_);
     }
 
-    TRY_RESULT_PROMISE(promise, payload, request->create_empty_payload());
+    auto payload = request->create_empty_payload();
+    if (payload.is_error()) {
+      promise.set_result(create_error_response(f->http_version_, 502, "Bad Gateway"));
+      return;
+    }
 
     LOG(INFO) << "starting HTTP over RLDP request";
     td::actor::create_actor<RldpToTcpRequestSender>("inboundreq", f->id_, dst, src, std::move(request),
-                                                    std::move(payload), std::move(promise), adnl_.get(), rldp_.get(),
+                                                    payload.move_as_ok(), std::move(promise), adnl_.get(), rldp_.get(),
                                                     server.http_remote_.get())
         .release();
   }
 
   void start_tcp_tunnel(td::Bits256 id, ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort local_id,
-                        td::IPAddress ip, td::Promise<td::BufferSlice> promise) {
-    TRY_RESULT_PROMISE(promise, fd, td::SocketFd::open(ip));
+                        std::string http_version, td::IPAddress ip, td::Promise<td::BufferSlice> promise) {
+    auto fd = td::SocketFd::open(ip);
+    if (fd.is_error()) {
+      promise.set_result(create_error_response(http_version, 502, "Bad Gateway"));
+      return;
+    }
     td::actor::create_actor<RldpTcpTunnel>(td::actor::ActorOptions().with_name("tunnel").with_poll(), id, src, local_id,
-                                           adnl_.get(), rldp_.get(), std::move(fd)).release();
+                                           adnl_.get(), rldp_.get(), fd.move_as_ok()).release();
     promise.set_result(ton::create_serialize_tl_object<ton::ton_api::http_response>(
-        "HTTP/1.1", 200, "Connection Established", std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>()));
+        http_version, 200, "Connection Established", std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>(),
+        false));
   }
 
   void add_adnl_addr(ton::adnl::AdnlNodeIdShort id) {
