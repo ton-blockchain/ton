@@ -4,6 +4,7 @@ string ? = String;
 int32 = Int32;
 int53 = Int53;
 int64 = Int64;
+int256 8*[ int32 ] = Int256;
 bytes = Bytes;
 secureString = SecureString;
 secureBytes = SecureBytes;
@@ -117,11 +118,11 @@ dns.entryDataNextResolver resolver:AccountAddress = dns.EntryData;
 dns.entryDataSmcAddress smc_address:AccountAddress = dns.EntryData;
 dns.entryDataAdnlAddress adnl_address:AdnlAddress = dns.EntryData;
 
-dns.entry name:string category:int32 entry:dns.EntryData = dns.Entry;
+dns.entry name:string category:int256 entry:dns.EntryData = dns.Entry;
 
 dns.actionDeleteAll = dns.Action;
 // use category = 0 to delete all entries
-dns.actionDelete name:string category:int32 = dns.Action;
+dns.actionDelete name:string category:int256 = dns.Action;
 dns.actionSet entry:dns.entry = dns.Action;
 
 dns.resolved entries:vector<dns.entry> = dns.Resolved;
@@ -283,7 +284,7 @@ smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
-dns.resolve account_address:accountAddress name:string category:int32 ttl:int32 = dns.Resolved;
+dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 
 pchan.signPromise input_key:InputKey promise:pchan.promise = pchan.Promise;
 pchan.validatePromise public_key:bytes promise:pchan.promise = Ok;
