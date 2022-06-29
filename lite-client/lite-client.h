@@ -213,13 +213,13 @@ class TestNode : public td::actor::Actor {
   bool register_config_param1(Ref<vm::Cell> value);
   bool register_config_param4(Ref<vm::Cell> value);
   bool dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid, std::string domain,
-                         int cat, int mode);
+                         td::Bits256 cat, int mode);
   bool dns_resolve_send(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid, std::string domain,
-                        std::string qdomain, int cat, int mode);
+                        std::string qdomain, td::Bits256 cat, int mode);
   void dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
-                          std::string domain, std::string qdomain, int cat, int mode, int used_bits,
+                          std::string domain, std::string qdomain, td::Bits256 cat, int mode, int used_bits,
                           Ref<vm::Cell> value);
-  bool show_dns_record(std::ostream& os, int cat, Ref<vm::Cell> value, bool raw_dump);
+  bool show_dns_record(std::ostream& os, td::Bits256 cat, Ref<vm::CellSlice> value, bool raw_dump);
   bool get_all_shards(std::string filename = "", bool use_last = true, ton::BlockIdExt blkid = {});
   void got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::BufferSlice data, std::string filename);
   bool parse_get_config_params(ton::BlockIdExt blkid, int mode = 0, std::string filename = "",
