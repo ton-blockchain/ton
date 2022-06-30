@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'master'
+      - 'testnet'
 
 jobs:
   build:
@@ -29,7 +30,7 @@ jobs:
         rootPath=`pwd`
         mkdir build
         cd build
-        cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
+        cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++ -std=c++17" -DCMAKE_BUILD_TYPE=Release ..
         make -j4
 
     - name: Find & copy binaries
