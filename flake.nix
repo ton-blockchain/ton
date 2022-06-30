@@ -10,9 +10,9 @@
 
   outputs = { self, nixpkgs, flake-compat, flake-utils }:
     let
-      ton = { host, pkgs ? host, staticGlibc ? false, staticMusl ? false }:
+      ton = { host, pkgs ? host, stdenv ? pkgs.stdenv, staticGlibc ? false, staticMusl ? false }:
         with host.lib;
-        pkgs.stdenv.mkDerivation {
+        stdenv.mkDerivation {
           pname = "ton";
           version = "dev";
 
@@ -36,33 +36,34 @@
             ];
 
           cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" ]
-            ++ optionals (staticMusl || staticGlibc) [
-              "-DCMAKE_CROSSCOMPILING=OFF"
+            ++ optionals staticMusl [
+              "-DCMAKE_CROSSCOMPILING=OFF" # pkgsStatic sets cross
+            ]
+            ++ optionals (staticGlibc || staticMusl) [
               "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
               "-DCMAKE_LINK_SEARCH_END_STATIC=ON"
-              "-DBUILD_SHARED_LIBS=OFF"
             ];
-          LDFLAGS =
-            optional staticGlibc "-static-libgcc -static-libstdc++ -static";
         };
     in with flake-utils.lib;
     eachSystem (with system; [ x86_64-linux x86_64-darwin ]) (system:
-      let pkgs = nixpkgs.legacyPackages.${system};
+      let host = nixpkgs.legacyPackages.${system};
       in {
         defaultPackage = ton {
-          inherit pkgs;
-          host = pkgs;
+          inherit host;
         };
       }) // (let host = nixpkgs.legacyPackages.x86_64-linux;
       in {
-        packages.x86_64-linux-static.ton = ton {
-          inherit host;
-          staticGlibc = true;
-        };
-        packages.x86_64-linux-musl.ton = ton {
-          inherit host;
-          pkgs = nixpkgs.legacyPackages.x86_64-linux.pkgsStatic;
-          staticMusl = true;
+        packages = {
+          x86_64-linux-static.ton = ton {
+            inherit host;
+            stdenv = host.makeStatic host.stdenv;
+            staticGlibc = true;
+          };
+          x86_64-linux-musl.ton = ton {
+            inherit host;
+            pkgs = nixpkgs.legacyPackages.x86_64-linux.pkgsStatic;
+            staticMusl = true;
+          };
         };
       });
 }
