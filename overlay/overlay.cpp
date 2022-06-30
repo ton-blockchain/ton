@@ -240,7 +240,8 @@ void OverlayImpl::alarm() {
   
   if(update_throughput_at_.is_in_past()) {
     double t_elapsed = td::Time::now() - last_throughput_update_.at();
-    
+
+    auto SelfId = actor_id(this);
     peers_.iterate([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
       peer.throughput_out_bytes = static_cast<td::uint32>(peer.throughput_out_bytes_ctr / t_elapsed);
       peer.throughput_in_bytes = static_cast<td::uint32>(peer.throughput_in_bytes_ctr / t_elapsed);
@@ -254,7 +255,7 @@ void OverlayImpl::alarm() {
       peer.throughput_out_packets_ctr = 0;
       peer.throughput_in_packets_ctr = 0;
       
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), peer_id = key](td::Result<td::string> result) {
+      auto P = td::PromiseCreator::lambda([SelfId, peer_id = key](td::Result<td::string> result) {
         result.ensure();
         td::actor::send_closure(SelfId, &Overlay::update_peer_ip_str, peer_id, result.move_as_ok());
       });
