@@ -53,7 +53,7 @@
           outputs = [ "bin" "out" ];
         };
     in with flake-utils.lib;
-    eachSystem (with system; [ x86_64-linux x86_64-darwin ]) (system:
+    eachSystem (with system; [ x86_64-linux x86_64-darwin aarch64-linux aarch64-darwin ]) (system:
       let host = nixpkgs.legacyPackages.${system};
       in { defaultPackage = ton { inherit host; }; })
     // (let host = nixpkgs.legacyPackages.x86_64-linux;
