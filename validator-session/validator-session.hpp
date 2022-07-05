@@ -154,6 +154,11 @@ class ValidatorSessionImpl : public ValidatorSession {
   bool catchain_started_ = false;
   bool allow_unsafe_self_blocks_resync_;
 
+  ValidatorSessionStats cur_stats_;
+  void stats_init();
+  void stats_add_round();
+  void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, int status);
+
  public:
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
                        std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
@@ -177,9 +182,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   void try_sign();
 
   void candidate_decision_fail(td::uint32 round, ValidatorSessionCandidateId hash, std::string result,
-                               td::BufferSlice proof);
+                               td::uint32 src, td::BufferSlice proof);
   void candidate_decision_ok(td::uint32 round, ValidatorSessionCandidateId hash, RootHash root_hash, FileHash file_hash,
-                             td::uint32 ok_from);
+                             td::uint32 src, td::uint32 ok_from);
   void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, td::uint32 ok_from,
                                  td::BufferSlice signature);
 
