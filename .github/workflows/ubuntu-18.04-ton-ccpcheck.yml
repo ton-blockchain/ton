@@ -3,8 +3,6 @@ name: Ubuntu 18.04 TON ccpcheck
 on:
   workflow_dispatch:
   push:
-    branches:
-      - 'master'
 
 jobs:
   build:
