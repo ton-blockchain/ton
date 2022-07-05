@@ -63,6 +63,19 @@ struct ValidatorSessionNode {
   ValidatorWeight weight;
 };
 
+struct ValidatorSessionStats {
+  td::uint32 round;
+  td::uint32 total_validators;
+  ValidatorWeight total_weight;
+  td::uint32 signatures;
+  ValidatorWeight signatures_weight;
+  td::uint32 approve_signatures;
+  ValidatorWeight approve_signatures_weight;
+
+  PublicKeyHash creator;
+  std::vector<PublicKeyHash> producers;
+};
+
 }  // namespace validatorsession
 
 }  // namespace ton

@@ -26,6 +26,7 @@
 #include "fabric.h"
 #include "manager.h"
 #include "validate-broadcast.hpp"
+#include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
 #include "state-serializer.hpp"
 #include "get-next-key-blocks.h"
@@ -33,13 +34,18 @@
 
 #include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "tl/tl_json.h"
 
 #include "td/utils/Random.h"
 #include "td/utils/port/path.h"
+#include "td/utils/JsonBuilder.h"
 
 #include "common/delay.h"
 
 #include "validator/stats-merger.h"
+
+#include <fstream>
 
 namespace ton {
 
@@ -2509,6 +2515,31 @@ void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timesta
   }
 
   shard_client_waiters_[seqno].waiting_.emplace_back(timeout, 0, std::move(promise));
+}
+
+void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
+                                                       validatorsession::ValidatorSessionStats stats) {
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
+    return;
+  }
+  std::vector<td::Bits256> producers;
+  for (const PublicKeyHash& id : stats.producers) {
+    producers.push_back(id.bits256_value());
+  }
+  auto obj = create_tl_object<ton_api::validatorSession_stats>(
+      create_tl_block_id_simple(block_id.id), stats.round, stats.total_validators, stats.total_weight,
+      stats.signatures, stats.signatures_weight, stats.approve_signatures, stats.approve_signatures_weight,
+      stats.creator.bits256_value(), std::move(producers));
+  std::string s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
+
+  LOG(INFO) << "Writing validator session stats for " << block_id.id;
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

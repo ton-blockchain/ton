@@ -73,6 +73,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool need_db_truncate() const = 0;
   virtual BlockSeqno get_truncate_seqno() const = 0;
   virtual BlockSeqno sync_upto() const = 0;
+  virtual std::string get_session_logs_file() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -91,6 +92,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) = 0;
   virtual void truncate_db(BlockSeqno seqno) = 0;
   virtual void set_sync_upto(BlockSeqno seqno) = 0;
+  virtual void set_session_logs_file(std::string f) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,

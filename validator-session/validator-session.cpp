@@ -746,36 +746,63 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
     CHECK(approve_sigs);
 
     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> export_sigs;
+    ValidatorWeight signatures_weight = 0;
     CHECK(sigs->size() == description().get_total_nodes());
     for (td::uint32 i = 0; i < description().get_total_nodes(); i++) {
       auto sig = sigs->at(i);
       if (sig) {
         CHECK(description().is_persistent(sig));
         export_sigs.emplace_back(description().get_source_id(i), sig->value().clone());
+        signatures_weight += description().get_node_weight(i);
       }
     }
 
     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> export_approve_sigs;
+    ValidatorWeight approve_signatures_weight = 0;
     CHECK(approve_sigs->size() == description().get_total_nodes());
     for (td::uint32 i = 0; i < description().get_total_nodes(); i++) {
       auto sig = approve_sigs->at(i);
       if (sig) {
         CHECK(description().is_persistent(sig));
         export_approve_sigs.emplace_back(description().get_source_id(i), sig->value().clone());
+        approve_signatures_weight += description().get_node_weight(i);
       }
     }
 
     auto it = blocks_[0].find(SentBlock::get_block_id(block));
     if (!block) {
       callback_->on_block_skipped(cur_round_);
-    } else if (it == blocks_[0].end()) {
-      callback_->on_block_committed(cur_round_, description().get_source_public_key(block->get_src_idx()),
-                                    block->get_root_hash(), block->get_file_hash(), td::BufferSlice(),
-                                    std::move(export_sigs), std::move(export_approve_sigs));
     } else {
-      callback_->on_block_committed(cur_round_, description().get_source_public_key(block->get_src_idx()),
-                                    block->get_root_hash(), block->get_file_hash(), it->second->data_.clone(),
-                                    std::move(export_sigs), std::move(export_approve_sigs));
+      ValidatorSessionStats stats;
+      stats.round = cur_round_;
+      stats.total_validators = description().get_total_nodes();
+      stats.total_weight = description().get_total_weight();
+      stats.signatures = (td::uint32)export_sigs.size();
+      stats.signatures_weight = signatures_weight;
+      stats.approve_signatures = (td::uint32)export_approve_sigs.size();
+      stats.approve_signatures_weight = approve_signatures_weight;
+      stats.creator = description().get_source_id(block->get_src_idx());
+      stats.producers.resize(description().get_max_priority() + 1, PublicKeyHash::zero());
+      for (td::uint32 i = 0; i < description().get_total_nodes(); i++) {
+        td::int32 priority = description().get_node_priority(i, cur_round_);
+        if (priority >= 0) {
+          CHECK((size_t)priority < stats.producers.size());
+          stats.producers[priority] = description().get_source_id(i);
+        }
+      }
+      while (!stats.producers.empty() && stats.producers.back().is_zero()) {
+        stats.producers.pop_back();
+      }
+
+      if (it == blocks_[0].end()) {
+        callback_->on_block_committed(cur_round_, description().get_source_public_key(block->get_src_idx()),
+                                      block->get_root_hash(), block->get_file_hash(), td::BufferSlice(),
+                                      std::move(export_sigs), std::move(export_approve_sigs), std::move(stats));
+      } else {
+        callback_->on_block_committed(cur_round_, description().get_source_public_key(block->get_src_idx()),
+                                      block->get_root_hash(), block->get_file_hash(), it->second->data_.clone(),
+                                      std::move(export_sigs), std::move(export_approve_sigs), std::move(stats));
+      }
     }
     cur_round_++;
     for (size_t i = 0; i < blocks_.size() - 1; i++) {

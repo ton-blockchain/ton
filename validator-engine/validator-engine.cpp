@@ -1338,6 +1338,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (truncate_seqno_ > 0) {
     validator_options_.write().truncate_db(truncate_seqno_);
   }
+  if (!session_logs_file_.empty()) {
+    validator_options_.write().set_session_logs_file(session_logs_file_);
+  }
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -3466,7 +3469,11 @@ int main(int argc, char *argv[]) {
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
   });
+  std::string session_logs_file;
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+    if (session_logs_file.empty()) {
+      session_logs_file = fname.str() + ".session-stats";
+    }
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
   });
@@ -3503,6 +3510,9 @@ int main(int argc, char *argv[]) {
                  auto v = td::to_integer<ton::BlockSeqno>(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_truncate_seqno, v); });
                });
+  p.add_option('\0', "session-logs", "file for validator session stats (default: {logname}.session-stats)",
+               [&](td::Slice fname) { session_logs_file = fname.str(); });
+  acts.push_back([&]() { td::actor::send_closure(x, &ValidatorEngine::set_session_logs_file, session_logs_file); });
   p.add_checked_option(
       'U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
         TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));

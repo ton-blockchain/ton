@@ -721,3 +721,9 @@ http.server.host domains:(vector string) ip:int port:int adnl_id:adnl.id.short =
 http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.server.host) = http.server.Config;
 
 ---functions---
+
+---types---
+
+validatorSession.stats id:tonNode.blockId round_id:int total_validators:int total_weight:long signatures:int
+    signatures_weight:long approve_signatures:int approve_signatures_weight:long
+    creator:int256 producers:(vector int256) = validatorSession.Stats;
