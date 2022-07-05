@@ -364,6 +364,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
+  void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
+    UNREACHABLE();
+  }
 
  private:
   PublicKeyHash local_id_;

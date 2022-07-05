@@ -111,6 +111,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   BlockSeqno sync_upto() const override {
     return sync_upto_;
   }
+  std::string get_session_logs_file() const override {
+    return session_logs_file_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -161,6 +164,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_sync_upto(BlockSeqno seqno) override {
     sync_upto_ = seqno;
   }
+  void set_session_logs_file(std::string f) override {
+    session_logs_file_ = std::move(f);
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -202,6 +208,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::map<CatchainSeqno, std::pair<BlockSeqno, td::uint32>> unsafe_catchain_rotates_;
   BlockSeqno truncate_{0};
   BlockSeqno sync_upto_{0};
+  std::string session_logs_file_;
 };
 
 }  // namespace validator
