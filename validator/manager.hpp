@@ -531,8 +531,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
 
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
+  void get_validator_sessions_info(
+      td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
 
- private:
+    private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
   td::Timestamp check_shard_clients_;

@@ -19,6 +19,7 @@
 #include "validator-session.hpp"
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
+#include "ton/ton-tl.hpp"
 
 namespace ton {
 
@@ -935,6 +936,18 @@ void ValidatorSessionImpl::stats_set_candidate_status(td::uint32 round, PublicKe
     it->block_timestamp = (td::uint64)td::Clocks::system();
   }
   it->block_status = status;
+}
+
+void ValidatorSessionImpl::get_session_info(
+    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) {
+  std::vector<td::Bits256> next_producers;
+  for (td::uint32 round = cur_round_; round < cur_round_ + 20; ++round) {
+    td::uint32 node = description().get_node_by_priority(round, 0);
+    next_producers.push_back(description().get_source_id(node).bits256_value());
+  }
+  promise.set_result(create_tl_object<ton_api::engine_validator_validatorSessionInfo>(
+      create_tl_block_id_simple(BlockId{}), description().get_source_id(local_idx()).bits256_value(),
+      cur_round_, std::move(next_producers)));
 }
 
 td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(

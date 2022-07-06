@@ -44,6 +44,7 @@ class ValidatorGroup : public td::actor::Actor {
                                 td::Promise<td::Unit> promise);
   void get_approved_candidate(PublicKey source, RootHash root_hash, FileHash file_hash,
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
+  BlockId create_next_block_id_simple() const;
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
 
   void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id, UnixTime min_ts);
@@ -55,6 +56,8 @@ class ValidatorGroup : public td::actor::Actor {
       create_session();
     }
   }
+
+  void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise);
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
                  td::Ref<ValidatorSet> validator_set, validatorsession::ValidatorSessionOptions config,
