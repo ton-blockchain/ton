@@ -214,6 +214,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
+  virtual void get_validator_sessions_info(
+      td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) = 0;
 };
 
 }  // namespace validator

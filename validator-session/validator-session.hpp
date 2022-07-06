@@ -159,6 +159,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   void stats_add_round();
   void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, int status);
 
+  void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) override;
+
  public:
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
                        std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,

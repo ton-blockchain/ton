@@ -2539,7 +2539,7 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
       stats.creator.bits256_value(), stats.total_validators, stats.total_weight, stats.signatures,
       stats.signatures_weight, stats.approve_signatures, stats.approve_signatures_weight, stats.first_round,
       std::move(rounds));
-  std::string s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  std::string s = td::json_encode<std::string>(td::ToJson(*obj), false);
   s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
 
   std::ofstream file;
@@ -2548,6 +2548,39 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
   file.close();
 
   LOG(INFO) << "Writing validator session stats for " << block_id.id;
+}
+
+void ValidatorManagerImpl::get_validator_sessions_info(
+    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) {
+  std::vector<td::actor::ActorId<ValidatorGroup>> groups;
+  for (const auto& g : validator_groups_) {
+    groups.push_back(g.second.get());
+  }
+  struct IntermediateData {
+    std::vector<td::actor::ActorId<ValidatorGroup>> groups;
+    std::vector<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> result;
+    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise;
+
+    static void step(IntermediateData data) {
+      if (data.groups.empty()) {
+        data.promise.set_result(
+            create_tl_object<ton_api::engine_validator_validatorSessionsInfo>(std::move(data.result)));
+        return;
+      }
+      auto group = std::move(data.groups.back());
+      data.groups.pop_back();
+      auto P = td::PromiseCreator::lambda(
+          [data =
+               std::move(data)](td::Result<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> R) mutable {
+            if (R.is_ok()) {
+              data.result.push_back(R.move_as_ok());
+            }
+            step(std::move(data));
+          });
+      td::actor::send_closure(group, &ValidatorGroup::get_session_info, std::move(P));
+    }
+  };
+  IntermediateData::step({std::move(groups), {}, std::move(promise)});
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

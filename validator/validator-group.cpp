@@ -21,6 +21,7 @@
 #include "ton/ton-io.hpp"
 #include "td/utils/overloaded.h"
 #include "common/delay.h"
+#include "ton/ton-tl.hpp"
 
 namespace ton {
 
@@ -159,14 +160,18 @@ void ValidatorGroup::get_approved_candidate(PublicKey source, RootHash root_hash
                           std::move(promise));
 }
 
-BlockIdExt ValidatorGroup::create_next_block_id(RootHash root_hash, FileHash file_hash) const {
+BlockId ValidatorGroup::create_next_block_id_simple() const {
   BlockSeqno seqno = 0;
   for (auto &p : prev_block_ids_) {
     if (seqno < p.id.seqno) {
       seqno = p.id.seqno;
     }
   }
-  return BlockIdExt{shard_.workchain, shard_.shard, seqno + 1, root_hash, file_hash};
+  return BlockId{shard_.workchain, shard_.shard, seqno + 1};
+}
+
+BlockIdExt ValidatorGroup::create_next_block_id(RootHash root_hash, FileHash file_hash) const {
+  return BlockIdExt{create_next_block_id_simple(), root_hash, file_hash};
 }
 
 std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::make_validator_session_callback() {
@@ -305,6 +310,25 @@ void ValidatorGroup::destroy() {
                  td::Timestamp::in(10.0));
   }
   stop();
+}
+
+void ValidatorGroup::get_session_info(
+    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) {
+  if (session_.empty() || !started_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "session not started"));
+  }
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), block_id = create_next_block_id_simple()](
+          td::Result<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error());
+          return;
+        }
+        auto info = R.move_as_ok();
+        info->current_block_ = create_tl_block_id_simple(block_id);
+        promise.set_result(std::move(info));
+      });
+  td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_session_info, std::move(P));
 }
 
 }  // namespace validator

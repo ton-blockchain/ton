@@ -32,6 +32,9 @@
 #include "terminal/terminal.h"
 #include "td/utils/filesystem.h"
 #include "overlay/overlays.h"
+#include "ton/ton-tl.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "tl/tl_json.h"
 
 #include <cctype>
 #include <fstream>
@@ -1003,5 +1006,25 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "successfully sent certificate to overlay manager\n";
+  return td::Status::OK();
+}
+
+td::Status GetValidatorSessionsInfoQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetValidatorSessionsInfoQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getValidatorSessionsInfo>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetValidatorSessionsInfoQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(
+      f, ton::fetch_tl_object<ton::ton_api::engine_validator_validatorSessionsInfo>(data.as_slice(), true),
+      "received incorrect answer: ");
+  std::string s = td::json_encode<std::string>(td::ToJson(*f), true);
+  td::TerminalIO::out() << "---------\n" << s << "--------\n";
   return td::Status::OK();
 }
