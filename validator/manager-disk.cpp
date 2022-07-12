@@ -153,7 +153,7 @@ void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<B
   });
   auto shard = candidate.id.shard_full();
   run_validate_query(shard, 0, last, prev, std::move(candidate), std::move(val_set), actor_id(this),
-                     td::Timestamp::in(10.0), std::move(P), true /* fake */);
+                     td::Timestamp::in(10.0), std::move(P), ValidateMode::fake);
 }
 
 void ValidatorManagerImpl::write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,

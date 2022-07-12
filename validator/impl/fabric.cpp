@@ -191,17 +191,18 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
 void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
                         std::vector<BlockIdExt> prev, BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
                         td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                        td::Promise<ValidateCandidateResult> promise, bool is_fake) {
+                        td::Promise<ValidateCandidateResult> promise, unsigned mode) {
   BlockSeqno seqno = 0;
   for (auto& p : prev) {
     if (p.seqno() > seqno) {
       seqno = p.seqno();
     }
   }
+  bool is_fake = mode & ValidateMode::fake;
   td::actor::create_actor<ValidateQuery>(
       PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str() << ":" << (seqno + 1), shard, min_ts,
       min_masterchain_block_id, std::move(prev), std::move(candidate), std::move(validator_set), std::move(manager),
-      timeout, std::move(promise), is_fake)
+      timeout, std::move(promise), mode)
       .release();
 }
 
