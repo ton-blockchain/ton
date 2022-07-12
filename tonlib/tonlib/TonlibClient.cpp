@@ -2623,11 +2623,10 @@ class GenericCreateSendGrams : public TonlibQueryActor {
     return downcast_call2<R>(action,
                              td::overloaded(
                                  [&](tonlib_api::dns_actionDeleteAll& del_all) -> R {
-                                   return ton::ManualDns::Action{"", 0, {}};
+                                   return ton::ManualDns::Action{"", td::Bits256::zero(), {}};
                                  },
                                  [&](tonlib_api::dns_actionDelete& del) -> R {
-                                   TRY_RESULT(category, td::narrow_cast_safe<td::int16>(del.category_));
-                                   return ton::ManualDns::Action{del.name_, category, {}};
+                                   return ton::ManualDns::Action{del.name_, del.category_, {}};
                                  },
                                  [&](tonlib_api::dns_actionSet& set) -> R {
                                    if (!set.entry_) {
@@ -2636,10 +2635,10 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                                    if (!set.entry_->entry_) {
                                      return TonlibError::EmptyField("entry.entry");
                                    }
-                                   TRY_RESULT(category, td::narrow_cast_safe<td::int16>(set.entry_->category_));
                                    TRY_RESULT(entry_data, to_dns_entry_data(*set.entry_->entry_));
                                    TRY_RESULT(data_cell, entry_data.as_cell());
-                                   return ton::ManualDns::Action{set.entry_->name_, category, std::move(data_cell)};
+                                   return ton::ManualDns::Action{set.entry_->name_, set.entry_->category_,
+                                                                 std::move(data_cell)};
                                  }));
   }
 
@@ -3629,29 +3628,29 @@ td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
   return res;
 }
 
-void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl,
-                                      td::optional<ton::BlockIdExt> block_id, DnsFinishData dns_finish_data,
+void TonlibClient::finish_dns_resolve(std::string name, td::Bits256 category, td::int32 ttl,
+                                      td::optional<ton::BlockIdExt> block_id, block::StdAddress address,
+                                      DnsFinishData dns_finish_data,
                                       td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
   block_id = dns_finish_data.block_id;
   // TODO: check if the smartcontract supports Dns interface
   // TODO: should we use some DnsInterface instead of ManualDns?
-  auto dns = ton::ManualDns::create(dns_finish_data.smc_state);
+  auto dns = ton::ManualDns::create(dns_finish_data.smc_state, std::move(address));
   TRY_RESULT_PROMISE(promise, entries, dns->resolve(name, category));
 
-  if (entries.size() == 1 && entries[0].category == -1 && entries[0].name != name && ttl > 0 &&
-      entries[0].data.type == ton::ManualDns::EntryData::Type::NextResolver) {
+  if (entries.size() == 1 && entries[0].partially_resolved && ttl > 0) {
     td::Slice got_name = entries[0].name;
-    if (got_name.size() >= name.size()) {
+    if (got_name.size() > name.size()) {
       TRY_STATUS_PROMISE(promise, TonlibError::Internal("domain is too long"));
     }
-    auto dot_position = name.size() - got_name.size() - 1;
-    auto suffix = name.substr(dot_position + 1);
-    auto prefix = name.substr(0, dot_position);
-    if (name[dot_position] != '.') {
-      TRY_STATUS_PROMISE(promise, td::Status::Error("next resolver error: domain split not at a component boundary "));
-    }
+    auto suffix_start = name.size() - got_name.size();
+    auto suffix = name.substr(suffix_start);
     if (suffix != got_name) {
       TRY_STATUS_PROMISE(promise, TonlibError::Internal("domain is not a suffix of the query"));
+    }
+    auto prefix = name.substr(0, suffix_start);
+    if (!prefix.empty() && prefix.back() != '.' && suffix[0] != '.') {
+      TRY_STATUS_PROMISE(promise, td::Status::Error("next resolver error: domain split not at a component boundary "));
     }
 
     auto address = entries[0].data.data.get<ton::ManualDns::EntryDataNextResolver>().resolver;
@@ -3667,12 +3666,13 @@ void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::
   promise.set_value(tonlib_api::make_object<tonlib_api::dns_resolved>(std::move(api_entries)));
 }
 
-void TonlibClient::do_dns_request(std::string name, td::int32 category, td::int32 ttl,
+void TonlibClient::do_dns_request(std::string name, td::Bits256 category, td::int32 ttl,
                                   td::optional<ton::BlockIdExt> block_id, block::StdAddress address,
                                   td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
   auto block_id_copy = block_id.copy();
   td::Promise<DnsFinishData> new_promise =
-      promise.send_closure(actor_id(this), &TonlibClient::finish_dns_resolve, name, category, ttl, std::move(block_id));
+      promise.send_closure(actor_id(this), &TonlibClient::finish_dns_resolve, name, category, ttl, std::move(block_id),
+                           address);
 
   if (0) {
     make_request(int_api::GetAccountState{address, std::move(block_id_copy), {}},
@@ -3683,7 +3683,7 @@ void TonlibClient::do_dns_request(std::string name, td::int32 category, td::int3
     return;
   }
 
-  TRY_RESULT_PROMISE(promise, args, ton::DnsInterface::resolve_args(name, category));
+  TRY_RESULT_PROMISE(promise, args, ton::DnsInterface::resolve_args(name, category, address));
   int_api::RemoteRunSmcMethod query;
   query.address = std::move(address);
   query.args = std::move(args);
@@ -3705,8 +3705,12 @@ td::Status TonlibClient::do_request(const tonlib_api::dns_resolve& request,
                                       request.ttl_, std::move(block_id)));
     return td::Status::OK();
   }
+  std::string name = request.name_;
+  if (name.empty() || name.back() != '.') {
+    name += '.';
+  }
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
-  do_dns_request(request.name_, request.category_, request.ttl_, std::move(block_id), account_address,
+  do_dns_request(name, request.category_, request.ttl_, std::move(block_id), account_address,
                  std::move(promise));
   return td::Status::OK();
 }

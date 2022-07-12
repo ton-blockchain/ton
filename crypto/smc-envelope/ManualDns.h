@@ -26,10 +26,14 @@
 #include "smc-envelope/SmartContract.h"
 
 #include "Ed25519.h"
+#include "common/checksum.h"
 
 #include <map>
 
 namespace ton {
+const td::Bits256 DNS_NEXT_RESOLVER_CATEGORY =
+    td::sha256_bits256(td::Slice("dns_next_resolver", strlen("dns_next_resolver")));
+
 class DnsInterface {
  public:
   struct EntryDataText {
@@ -90,8 +94,9 @@ class DnsInterface {
 
   struct Entry {
     std::string name;
-    td::int16 category;
+    td::Bits256 category;
     EntryData data;
+    bool partially_resolved = false;
     auto key() const {
       return std::tie(name, category);
     }
@@ -102,47 +107,48 @@ class DnsInterface {
       return key() == other.key() && data == other.data;
     }
     friend td::StringBuilder& operator<<(td::StringBuilder& sb, const Entry& entry) {
-      sb << entry.name << ":" << entry.category << ":" << entry.data;
+      sb << entry.name << ":" << entry.category.to_hex() << ":" << entry.data;
       return sb;
     }
   };
   struct RawEntry {
     std::string name;
-    td::int16 category;
-    td::Ref<vm::Cell> data;
+    td::Bits256 category;
+    td::Ref<vm::CellSlice> data;
+    bool partially_resolved = false;
   };
 
   struct ActionExt {
     std::string name;
-    td::int16 category;
+    td::Bits256 category;
     td::optional<EntryData> data;
     static td::Result<ActionExt> parse(td::Slice);
   };
 
   struct Action {
     std::string name;
-    td::int16 category;
+    td::Bits256 category;
     td::optional<td::Ref<vm::Cell>> data;
 
     bool does_create_category() const {
       CHECK(!name.empty());
-      CHECK(category != 0);
+      CHECK(!category.is_zero());
       return static_cast<bool>(data);
     }
     bool does_change_empty() const {
       CHECK(!name.empty());
-      CHECK(category != 0);
+      CHECK(!category.is_zero());
       return static_cast<bool>(data) && data.value().not_null();
     }
     void make_non_empty() {
       CHECK(!name.empty());
-      CHECK(category != 0);
+      CHECK(!category.is_zero());
       if (!data) {
         data = td::Ref<vm::Cell>();
       }
     }
     friend td::StringBuilder& operator<<(td::StringBuilder& sb, const Action& action) {
-      sb << action.name << ":" << action.category << ":";
+      sb << action.name << ":" << action.category.to_hex() << ":";
       if (action.data) {
         if (action.data.value().is_null()) {
           sb << "<null>";
@@ -156,15 +162,14 @@ class DnsInterface {
     }
   };
 
-  virtual ~DnsInterface() {
-  }
+  virtual ~DnsInterface() = default;
   virtual size_t get_max_name_size() const = 0;
-  virtual td::Result<std::vector<RawEntry>> resolve_raw(td::Slice name, td::int32 category) const = 0;
+  virtual td::Result<std::vector<RawEntry>> resolve_raw(td::Slice name, td::Bits256 category) const = 0;
   virtual td::Result<td::Ref<vm::Cell>> create_update_query(
       td::Ed25519::PrivateKey& pk, td::Span<Action> actions,
       td::uint32 valid_until = std::numeric_limits<td::uint32>::max()) const = 0;
 
-  td::Result<std::vector<Entry>> resolve(td::Slice name, td::int32 category) const;
+  td::Result<std::vector<Entry>> resolve(td::Slice name, td::Bits256 category) const;
 
   static std::string encode_name(td::Slice name);
   static std::string decode_name(td::Slice name);
@@ -172,13 +177,16 @@ class DnsInterface {
   static size_t get_default_max_name_size() {
     return 128;
   }
-  static SmartContract::Args resolve_args_raw(td::Slice encoded_name, td::int16 category);
-  static td::Result<SmartContract::Args> resolve_args(td::Slice name, td::int32 category);
+  static SmartContract::Args resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
+                                              block::StdAddress address = {});
+  static td::Result<SmartContract::Args> resolve_args(td::Slice name, td::Bits256 category,
+                                                      block::StdAddress address = {});
 };
 
 class ManualDns : public ton::SmartContract, public DnsInterface {
  public:
-  ManualDns(State state) : SmartContract(std::move(state)) {
+  ManualDns(State state, block::StdAddress address = {})
+      : SmartContract(std::move(state)), address_(std::move(address)) {
   }
 
   ManualDns* make_copy() const override {
@@ -186,8 +194,8 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
   }
 
   // creation
-  static td::Ref<ManualDns> create(State state) {
-    return td::Ref<ManualDns>(true, std::move(state));
+  static td::Ref<ManualDns> create(State state, block::StdAddress address = {}) {
+    return td::Ref<ManualDns>(true, std::move(state), std::move(address));
   }
   static td::Ref<ManualDns> create(td::Ref<vm::Cell> data = {}, int revision = 0);
   static td::Ref<ManualDns> create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id, int revision = 0);
@@ -208,9 +216,9 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
   td::Result<td::uint32> get_wallet_id() const;
   td::Result<td::uint32> get_wallet_id_or_throw() const;
 
-  td::Result<td::Ref<vm::Cell>> create_set_value_unsigned(td::int16 category, td::Slice name,
+  td::Result<td::Ref<vm::Cell>> create_set_value_unsigned(td::Bits256 category, td::Slice name,
                                                           td::Ref<vm::Cell> data) const;
-  td::Result<td::Ref<vm::Cell>> create_delete_value_unsigned(td::int16 category, td::Slice name) const;
+  td::Result<td::Ref<vm::Cell>> create_delete_value_unsigned(td::Bits256 category, td::Slice name) const;
   td::Result<td::Ref<vm::Cell>> create_delete_all_unsigned() const;
   td::Result<td::Ref<vm::Cell>> create_set_all_unsigned(td::Span<Action> entries) const;
   td::Result<td::Ref<vm::Cell>> create_delete_name_unsigned(td::Slice name) const;
@@ -222,8 +230,8 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
   static td::Ref<vm::Cell> create_init_data_fast(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id);
 
   size_t get_max_name_size() const override;
-  td::Result<std::vector<RawEntry>> resolve_raw(td::Slice name, td::int32 category_big) const override;
-  td::Result<std::vector<RawEntry>> resolve_raw_or_throw(td::Slice name, td::int32 category_big) const;
+  td::Result<std::vector<RawEntry>> resolve_raw(td::Slice name, td::Bits256 category) const override;
+  td::Result<std::vector<RawEntry>> resolve_raw_or_throw(td::Slice name, td::Bits256 category) const;
 
   td::Result<td::Ref<vm::Cell>> create_init_query(
       const td::Ed25519::PrivateKey& private_key,
@@ -235,10 +243,10 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
   template <class ActionT>
   struct CombinedActions {
     std::string name;
-    td::int16 category{0};
+    td::Bits256 category = td::Bits256::zero();
     td::optional<std::vector<ActionT>> actions;
     friend td::StringBuilder& operator<<(td::StringBuilder& sb, const CombinedActions& action) {
-      sb << action.name << ":" << action.category << ":";
+      sb << action.name << ":" << action.category.to_hex() << ":";
       if (action.actions) {
         sb << "<data>" << action.actions.value().size();
       } else {
@@ -251,7 +259,7 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
   template <class ActionT = Action>
   static std::vector<CombinedActions<ActionT>> combine_actions(td::Span<ActionT> actions) {
     struct Info {
-      std::set<td::int16> known_category;
+      std::set<td::Bits256> known_category;
       std::vector<ActionT> actions;
       bool closed{false};
       bool non_empty{false};
@@ -278,7 +286,7 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
       if (info.closed) {
         continue;
       }
-      if (action.category != 0 && action.does_create_category()) {
+      if (!action.category.is_zero() && action.does_create_category()) {
         info.non_empty = true;
       }
       if (!info.known_category.insert(action.category).second) {
@@ -330,6 +338,8 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
     return res;
   }
   td::Result<td::Ref<vm::Cell>> create_update_query(CombinedActions<Action>& combined) const;
+ private:
+  block::StdAddress address_;
 };
 
 }  // namespace ton
