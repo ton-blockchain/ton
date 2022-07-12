@@ -35,6 +35,22 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
     promise.set_error(td::Status::Error(ErrorCode::notready, "cannot collate block: group not started"));
     return;
   }
+  if (lite_mode_) {
+    auto P = td::PromiseCreator::lambda(
+        [promise = std::move(promise),
+         pubkey = Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}](td::Result<BlockCandidate> R) mutable {
+          if (R.is_error()) {
+            promise.set_error(R.move_as_error());
+          } else {
+            BlockCandidate candidate = R.move_as_ok();
+            candidate.pubkey = pubkey;
+            promise.set_result(std::move(candidate));
+          }
+        });
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_candidate, create_next_block_id_simple(),
+                            td::Timestamp::in(15.0), std::move(P));
+    return;
+  }
   run_collate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
                     Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
                     td::Timestamp::in(10.0), std::move(promise));
@@ -79,7 +95,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   block.id = next_block_id;
   run_validate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
-                     manager_, td::Timestamp::in(10.0), std::move(P));
+                     manager_, td::Timestamp::in(10.0), std::move(P), lite_mode_ ? ValidateMode::lite : 0);
 }
 
 void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block_data,

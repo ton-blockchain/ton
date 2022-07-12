@@ -141,6 +141,9 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ImportShardOverlayCertificateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignShardOverlayCertificateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetValidatorSessionsInfoQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GenerateBlockCandidateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetRequiredBlockCandidatesQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportBlockCandidateQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

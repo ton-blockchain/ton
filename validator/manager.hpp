@@ -534,7 +534,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
 
-    private:
+  void generate_block_candidate(BlockId block_id, td::Promise<BlockCandidate> promise) override;
+  void get_required_block_candidates(td::Promise<std::vector<BlockId>> promise) override;
+  void import_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) override;
+  void wait_block_candidate(BlockId block_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise) override;
+
+ private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
   td::Timestamp check_shard_clients_;
@@ -598,6 +603,9 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
+
+  std::map<BlockId, std::vector<std::pair<td::Promise<BlockCandidate>, td::Timestamp>>> pending_block_candidates_;
+  void cleanup_old_pending_candidates(BlockId block_id, td::Timestamp now);
 };
 
 }  // namespace validator
