@@ -25,6 +25,8 @@ namespace ton {
 
 namespace validator {
 
+enum ValidateMode { fake = 1, lite = 2 };
+
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_);
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
                                                                    std::string db_root);
@@ -73,7 +75,7 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
 void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
                         std::vector<BlockIdExt> prev, BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
                         td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                        td::Promise<ValidateCandidateResult> promise, bool is_fake = false);
+                        td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
 void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& min_masterchain_block_id,
                        std::vector<BlockIdExt> prev, Ed25519_PublicKey local_id, td::Ref<ValidatorSet> validator_set,
                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,

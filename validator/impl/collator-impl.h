@@ -205,7 +205,11 @@ class Collator final : public td::actor::Actor {
   unsigned block_create_total_{0};
   std::vector<ExtMessage::Hash> bad_ext_msgs_, delay_ext_msgs_;
   Ref<vm::Cell> shard_account_blocks_;  // ShardAccountBlocks
+
+  std::map<td::Bits256, Ref<BlockData>> blocks_with_state_proofs_;
+  std::vector<vm::MerkleProofBuilder> neighbor_proof_builders_;
   std::vector<Ref<vm::Cell>> collated_roots_;
+
   std::unique_ptr<ton::BlockCandidate> block_candidate;
 
   td::PerfWarningTimer perf_timer_{"collate", 0.1};
@@ -235,7 +239,8 @@ class Collator final : public td::actor::Actor {
   void after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res);
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, const ton::ShardIdFull& owner);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto);
-  void got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res);
+  void got_neighbor_block_data(td::Result<Ref<BlockData>> res);
+  void got_neighbor_block_state(int i, td::Result<Ref<ShardState>> res);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);

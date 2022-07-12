@@ -118,7 +118,7 @@ class ValidateQuery : public td::actor::Actor {
   ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                 BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
                 td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                td::Promise<ValidateCandidateResult> promise, bool is_fake = false);
+                td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
 
  private:
   int verbosity{3 * 1};
@@ -142,6 +142,7 @@ class ValidateQuery : public td::actor::Actor {
   bool is_key_block_{false};
   bool update_shard_cc_{false};
   bool is_fake_{false};
+  bool is_lite_{false};
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
@@ -286,6 +287,7 @@ class ValidateQuery : public td::actor::Actor {
   bool extract_collated_data();
   bool try_validate();
   bool compute_prev_state();
+  bool compute_prev_state_lite_mode();
   bool compute_next_state();
   bool unpack_merge_prev_state();
   bool unpack_prev_state();
@@ -368,6 +370,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
+
+  Ref<vm::Cell> get_virt_state_root(td::Bits256 block_root_hash);
 };
 
 }  // namespace validator
