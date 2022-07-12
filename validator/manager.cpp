@@ -2031,7 +2031,7 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
     auto G = td::actor::create_actor<ValidatorGroup>(
         "validatorgroup", shard, validator_id, session_id, validator_set, opts, keyring_, adnl_, rldp_, overlays_,
         db_root_, actor_id(this), init_session,
-        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()));
+        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), true);
     return G;
   }
 }
@@ -2581,6 +2581,119 @@ void ValidatorManagerImpl::get_validator_sessions_info(
     }
   };
   IntermediateData::step({std::move(groups), {}, std::move(promise)});
+}
+
+void ValidatorManagerImpl::generate_block_candidate(BlockId block_id, td::Promise<BlockCandidate> promise) {
+  if (!block_id.is_valid_full()) {
+    promise.set_error(td::Status::Error("invalid block id"));
+    return;
+  }
+  if (last_masterchain_state_.is_null()) {
+    promise.set_error(td::Status::Error("not started"));
+    return;
+  }
+  ShardIdFull shard_id = block_id.shard_full();
+  std::vector<BlockIdExt> prev;
+  auto shard = last_masterchain_state_->get_shard_from_config(shard_id);
+  if (shard.not_null()) {
+    if (shard->before_split()) {
+      promise.set_error(td::Status::Error("shard is before_split"));
+      return;
+    }
+    if (shard->before_merge()) {
+      promise.set_error(td::Status::Error("shard is before_merge"));
+      return;
+    }
+    prev.push_back(shard->top_block_id());
+  } else {
+    auto parent = shard_id.pfx_len() == 0 ? td::Ref<McShardHash>()
+                                          : last_masterchain_state_->get_shard_from_config(shard_parent(shard_id));
+    if (parent.not_null() && parent->before_split()) {
+      prev.push_back(parent->top_block_id());
+    } else {
+      auto child_l = last_masterchain_state_->get_shard_from_config(shard_child(shard_id, true));
+      auto child_r = last_masterchain_state_->get_shard_from_config(shard_child(shard_id, false));
+      if (child_l.not_null() && child_r.not_null() && child_l->before_merge() && child_r->before_merge()) {
+        prev.push_back(child_l->top_block_id());
+        prev.push_back(child_r->top_block_id());
+      }
+    }
+    if (prev.empty()) {
+      promise.set_error(td::Status::Error("no such shard"));
+      return;
+    }
+  }
+
+  BlockSeqno next_seqno = 0;
+  for (const BlockIdExt& prev_id : prev) {
+    next_seqno = std::max(next_seqno, prev_id.seqno() + 1);
+  }
+  if (next_seqno != block_id.seqno) {
+    promise.set_error(td::Status::Error(PSTRING() << "seqno mismatch: asked for seqno " << block_id.seqno
+                                                  << ", but actual next seqno is " << next_seqno));
+    return;
+  }
+
+  Ed25519_PublicKey local_id{Bits256::zero()};
+  td::Ref<ValidatorSet> validator_set = last_masterchain_state_->get_validator_set(shard_id);
+  if (validator_set.is_null()) {
+    promise.set_error(td::Status::Error("cannot get validator set"));
+    return;
+  }
+  run_collate_query(shard_id, last_masterchain_state_->get_unix_time(), last_masterchain_block_id_, std::move(prev),
+                    local_id, std::move(validator_set), actor_id(this), td::Timestamp::in(10.0), std::move(promise));
+}
+
+void ValidatorManagerImpl::get_required_block_candidates(td::Promise<std::vector<BlockId>> promise) {
+  std::vector<BlockId> block_ids;
+  for (const auto& p : pending_block_candidates_) {
+    block_ids.push_back(p.first);
+  }
+  promise.set_result(std::move(block_ids));
+}
+
+void ValidatorManagerImpl::import_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
+  auto it = pending_block_candidates_.find(candidate.id.id);
+  if (it != pending_block_candidates_.end()) {
+    while (!it->second.empty()) {
+      auto promise = std::move(it->second.back().first);
+      it->second.pop_back();
+      if (it->second.empty()) {
+        promise.set_result(std::move(candidate));
+      } else {
+        promise.set_result(candidate.clone());
+      }
+    }
+    pending_block_candidates_.erase(it);
+  }
+  promise.set_result(td::Unit());
+}
+
+void ValidatorManagerImpl::wait_block_candidate(BlockId block_id, td::Timestamp timeout,
+                                                td::Promise<BlockCandidate> promise) {
+  pending_block_candidates_[block_id].emplace_back(std::move(promise), timeout);
+  delay_action([SelfId = actor_id(this), block_id, timeout]() {
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::cleanup_old_pending_candidates, block_id, timeout);
+  }, timeout);
+}
+
+void ValidatorManagerImpl::cleanup_old_pending_candidates(BlockId block_id, td::Timestamp now) {
+  auto it = pending_block_candidates_.find(block_id);
+  if (it == pending_block_candidates_.end()) {
+    return;
+  }
+  it->second.erase(std::remove_if(it->second.begin(), it->second.end(),
+                                  [&](std::pair<td::Promise<BlockCandidate>, td::Timestamp> &p) {
+                                    if (p.second.is_in_past(now)) {
+                                      p.first.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
+                                      return true;
+                                    }
+                                    return false;
+                                  }),
+                   it->second.end());
+  if (it->second.empty()) {
+    pending_block_candidates_.erase(it);
+  }
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

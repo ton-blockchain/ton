@@ -216,6 +216,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
   virtual void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) = 0;
+
+  virtual void generate_block_candidate(BlockId block_id, td::Promise<BlockCandidate> promise) = 0;
+  virtual void get_required_block_candidates(td::Promise<std::vector<BlockId>> promise) = 0;
+  virtual void import_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) = 0;
 };
 
 }  // namespace validator

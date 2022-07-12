@@ -3307,6 +3307,94 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getValida
                           std::move(P));
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_generateBlockCandidate &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+  ton::BlockId block_id = ton::create_block_id_simple(query.block_id_);
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::generate_block_candidate,
+                          block_id, [promise = std::move(promise)](td::Result<ton::BlockCandidate> R) mutable {
+                            if (R.is_ok()) {
+                              auto block = R.move_as_ok();
+                              auto result = ton::create_serialize_tl_object<ton::ton_api::db_candidate>(
+                                  ton::PublicKey{ton::pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(),
+                                  ton::create_tl_block_id(block.id), std::move(block.data),
+                                  std::move(block.collated_data));
+                              promise.set_result(std::move(result));
+                            } else {
+                              promise.set_value(create_control_query_error(R.move_as_error()));
+                            }
+                          });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getRequiredBlockCandidates &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+  td::actor::send_closure(
+      validator_manager_, &ton::validator::ValidatorManagerInterface::get_required_block_candidates,
+      [promise = std::move(promise)](td::Result<std::vector<ton::BlockId>> R) mutable {
+        if (R.is_ok()) {
+          std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockId>> block_ids;
+          for (const ton::BlockId &block_id : R.move_as_ok()) {
+            block_ids.push_back(ton::create_tl_block_id_simple(block_id));
+          }
+          auto result = ton::create_serialize_tl_object<ton::ton_api::engine_validator_requiredBlockCandidates>(
+              std::move(block_ids));
+          promise.set_result(std::move(result));
+        } else {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+        }
+      });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_importBlockCandidate &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+
+  auto collated_data_hash = td::sha256_bits256(query.block_->collated_data_);
+  auto key = ton::PublicKey{query.block_->source_};
+  auto e_key = ton::Ed25519_PublicKey{key.ed25519_value().raw()};
+  ton::BlockCandidate candidate{e_key, ton::create_block_id(query.block_->id_), collated_data_hash,
+                                std::move(query.block_->data_), std::move(query.block_->collated_data_)};
+
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::import_block_candidate,
+                          std::move(candidate),
+                          [promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+                            if (R.is_ok()) {
+                              promise.set_result(ton::serialize_tl_object(
+                                  ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+                            } else {
+                              promise.set_value(create_control_query_error(R.move_as_error()));
+                            }
+                          });
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {

@@ -633,6 +633,8 @@ engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) =
 engine.validator.validatorSessionInfo current_block:tonNode.blockId self:int256 current_round:int next_producers:(vector int256) = engine.validator.ValidatorSessionInfo;
 engine.validator.validatorSessionsInfo sessions:(vector engine.validator.validatorSessionInfo) = engine.validator.ValidatorSessionsInfo;
 
+engine.validator.requiredBlockCandidates block_ids:(vector tonNode.blockId) = engine.validator.RequiredBlockCandidates;
+
 ---functions---
 
 engine.validator.getTime = engine.validator.Time;
@@ -683,6 +685,10 @@ engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key
 engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
 engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsInfo;
+
+engine.validator.generateBlockCandidate block_id:tonNode.BlockId = db.Candidate;
+engine.validator.getRequiredBlockCandidates = engine.validator.RequiredBlockCandidates;
+engine.validator.importBlockCandidate block:db.candidate = engine.validator.Success;
 
 ---types---
 

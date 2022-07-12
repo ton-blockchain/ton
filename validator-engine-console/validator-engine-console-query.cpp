@@ -1028,3 +1028,66 @@ td::Status GetValidatorSessionsInfoQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "---------\n" << s << "--------\n";
   return td::Status::OK();
 }
+
+td::Status GenerateBlockCandidateQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>() );
+  TRY_RESULT_ASSIGN(seqno_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(file_, tokenizer_.get_token<std::string>());
+  return td::Status::OK();
+}
+
+td::Status GenerateBlockCandidateQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_generateBlockCandidate>(
+      ton::create_tl_block_id_simple(ton::BlockId(wc_, shard_, seqno_)));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GenerateBlockCandidateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::db_candidate>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  TRY_STATUS_PREFIX(td::write_file(file_, data.as_slice()), "failed to write block to file");
+  td::TerminalIO::out() << "successfully written candidate to file\n";
+  return td::Status::OK();
+}
+
+td::Status GetRequiredBlockCandidatesQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetRequiredBlockCandidatesQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getRequiredBlockCandidates>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetRequiredBlockCandidatesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(
+      f, ton::fetch_tl_object<ton::ton_api::engine_validator_requiredBlockCandidates>(data.as_slice(), true),
+      "received incorrect answer: ");
+  td::TerminalIO::out() << td::json_encode<std::string>(td::ToJson(*f), true);
+  return td::Status::OK();
+}
+
+td::Status ImportBlockCandidateQuery::run() {
+  TRY_RESULT_ASSIGN(file_, tokenizer_.get_token<std::string>());
+  return td::Status::OK();
+}
+
+td::Status ImportBlockCandidateQuery::send() {
+  TRY_RESULT(data, td::read_file(file_));
+  TRY_RESULT_PREFIX(candidate, ton::fetch_tl_object<ton::ton_api::db_candidate>(data.as_slice(), true),
+                    "invalid file: ");
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importBlockCandidate>(std::move(candidate));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ImportBlockCandidateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully imported a block candidate\n";
+  return td::Status::OK();
+}
