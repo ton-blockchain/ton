@@ -1831,15 +1831,13 @@ void ValidatorManagerImpl::update_shards() {
           auto it2 = next_validator_groups_.find(legacy_val_group_id);
           if (it2 != next_validator_groups_.end()) {
             if (!it2->second.empty()) {
-              td::actor::send_closure(it2->second, &ValidatorGroup::start, prev, last_masterchain_block_id_,
-                                      last_masterchain_state_->get_unix_time());
+              td::actor::send_closure(it2->second, &ValidatorGroup::start, prev, last_masterchain_block_id_);
             }
             new_validator_groups_.emplace(val_group_id, std::move(it2->second));
           } else {
             auto G = create_validator_group(val_group_id, shard, val_set, opts, started_);
             if (!G.empty()) {
-              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_,
-                                      last_masterchain_state_->get_unix_time());
+              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_);
             }
             new_validator_groups_.emplace(val_group_id, std::move(G));
           }
@@ -1887,15 +1885,13 @@ void ValidatorManagerImpl::update_shards() {
           auto it2 = next_validator_groups_.find(val_group_id);
           if (it2 != next_validator_groups_.end()) {
             if (!it2->second.empty()) {
-              td::actor::send_closure(it2->second, &ValidatorGroup::start, prev, last_masterchain_block_id_,
-                                      last_masterchain_state_->get_unix_time());
+              td::actor::send_closure(it2->second, &ValidatorGroup::start, prev, last_masterchain_block_id_);
             }
             new_validator_groups_.emplace(val_group_id, std::move(it2->second));
           } else {
             auto G = create_validator_group(val_group_id, shard, val_set, opts, started_);
             if (!G.empty()) {
-              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_,
-                                      last_masterchain_state_->get_unix_time());
+              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_);
             }
             new_validator_groups_.emplace(val_group_id, std::move(G));
           }
@@ -2640,8 +2636,8 @@ void ValidatorManagerImpl::generate_block_candidate(BlockId block_id, td::Promis
     promise.set_error(td::Status::Error("cannot get validator set"));
     return;
   }
-  run_collate_query(shard_id, last_masterchain_state_->get_unix_time(), last_masterchain_block_id_, std::move(prev),
-                    local_id, std::move(validator_set), actor_id(this), td::Timestamp::in(10.0), std::move(promise));
+  run_collate_query(shard_id, last_masterchain_block_id_, std::move(prev), local_id, std::move(validator_set),
+                    actor_id(this), td::Timestamp::in(10.0), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_required_block_candidates(td::Promise<std::vector<BlockId>> promise) {

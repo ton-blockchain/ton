@@ -72,12 +72,12 @@ void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::Actor
                            td::Ref<ProofLink> rel_key_block_proof, bool skip_check_signatures = false);
 void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::actor::ActorId<ValidatorManager> manager,
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise);
-void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
-                        std::vector<BlockIdExt> prev, BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
+void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
+                        BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
                         td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                         td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
-void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& min_masterchain_block_id,
-                       std::vector<BlockIdExt> prev, Ed25519_PublicKey local_id, td::Ref<ValidatorSet> validator_set,
+void run_collate_query(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,
+                       Ed25519_PublicKey local_id, td::Ref<ValidatorSet> validator_set,
                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                        td::Promise<BlockCandidate> promise);
 void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,

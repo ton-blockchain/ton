@@ -51,7 +51,7 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
                             td::Timestamp::in(15.0), std::move(P));
     return;
   }
-  run_collate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
+  run_collate_query(shard_, min_masterchain_block_id_, prev_block_ids_,
                     Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
                     td::Timestamp::in(10.0), std::move(promise));
 }
@@ -94,8 +94,8 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   auto next_block_id = create_next_block_id(block.id.root_hash, block.id.file_hash);
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   block.id = next_block_id;
-  run_validate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
-                     manager_, td::Timestamp::in(10.0), std::move(P), lite_mode_ ? ValidateMode::lite : 0);
+  run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
+                     td::Timestamp::in(10.0), std::move(P), lite_mode_ ? ValidateMode::lite : 0);
 }
 
 void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block_data,
@@ -295,10 +295,9 @@ void ValidatorGroup::create_session() {
   }
 }
 
-void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id, UnixTime min_ts) {
+void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) {
   prev_block_ids_ = prev;
   min_masterchain_block_id_ = min_masterchain_block_id;
-  min_ts_ = min_ts;
   started_ = true;
 
   if (init_) {
