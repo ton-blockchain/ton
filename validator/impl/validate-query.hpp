@@ -115,7 +115,7 @@ class ValidateQuery : public td::actor::Actor {
   }
 
  public:
-  ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
+  ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                 BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
                 td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                 td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
@@ -125,7 +125,6 @@ class ValidateQuery : public td::actor::Actor {
   int pending{0};
   const ShardIdFull shard_;
   const BlockIdExt id_;
-  UnixTime min_ts;
   BlockIdExt min_mc_block_id;
   std::vector<BlockIdExt> prev_blocks;
   std::vector<Ref<ShardState>> prev_states;

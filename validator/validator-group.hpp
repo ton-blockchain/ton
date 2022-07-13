@@ -47,7 +47,7 @@ class ValidatorGroup : public td::actor::Actor {
   BlockId create_next_block_id_simple() const;
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
 
-  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id, UnixTime min_ts);
+  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id);
   void create_session();
   void destroy();
   void start_up() override {
@@ -103,7 +103,6 @@ class ValidatorGroup : public td::actor::Actor {
 
   std::vector<BlockIdExt> prev_block_ids_;
   BlockIdExt min_masterchain_block_id_;
-  UnixTime min_ts_;
 
   td::Ref<ValidatorSet> validator_set_;
   validatorsession::ValidatorSessionOptions config_;

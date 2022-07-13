@@ -49,13 +49,12 @@ std::string ErrorCtx::as_string() const {
   return a;
 }
 
-ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
+ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                              std::vector<BlockIdExt> prev, BlockCandidate candidate, Ref<ValidatorSet> validator_set,
                              td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                              td::Promise<ValidateCandidateResult> promise, unsigned mode)
     : shard_(shard)
     , id_(candidate.id)
-    , min_ts(min_ts)
     , min_mc_block_id(min_masterchain_block_id)
     , prev_blocks(std::move(prev))
     , block_candidate(std::move(candidate))

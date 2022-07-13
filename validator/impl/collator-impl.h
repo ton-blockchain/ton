@@ -64,7 +64,6 @@ class Collator final : public td::actor::Actor {
   bool libraries_changed_{false};
   bool prev_key_block_exists_{false};
   bool is_hardfork_{false};
-  UnixTime min_ts;
   BlockIdExt min_mc_block_id;
   std::vector<BlockIdExt> prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
@@ -86,7 +85,7 @@ class Collator final : public td::actor::Actor {
   static constexpr bool shard_splitting_enabled = true;
 
  public:
-  Collator(ShardIdFull shard, bool is_hardfork, td::uint32 min_ts, BlockIdExt min_masterchain_block_id,
+  Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
            std::vector<BlockIdExt> prev, Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   ~Collator() override = default;

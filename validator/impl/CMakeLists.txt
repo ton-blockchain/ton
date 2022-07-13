@@ -25,7 +25,6 @@ set(TON_VALIDATOR_SOURCE
   accept-block.hpp
   block.hpp
   check-proof.hpp
-  collate-query-impl.h
   collator-impl.h
   collator.h
   config.hpp

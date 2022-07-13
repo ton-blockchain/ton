@@ -54,13 +54,12 @@ static inline bool dbg(int c) {
   return true;
 }
 
-Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
+Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                    td::Promise<BlockCandidate> promise)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
-    , min_ts(min_ts)
     , min_mc_block_id{min_masterchain_block_id}
     , prev_blocks(std::move(prev))
     , created_by_(collator_id)
