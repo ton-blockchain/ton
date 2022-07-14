@@ -2371,9 +2371,9 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
   std::ostringstream os;
   block::gen::t_Message_Any.print_ref(os, body);
   LOG(ERROR) << os.str();
+  auto body_hash = body->get_hash().as_slice().str();
   make_request(int_api::SendMessage{std::move(body)}, 
-    promise.wrap([body = std::move(body)](auto res) {
-      auto body_hash = body->get_hash().as_slice().str();
+    promise.wrap([body_hash = std::move(body_hash)](auto res) {
       return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(body_hash));
     }));
   return td::Status::OK();
