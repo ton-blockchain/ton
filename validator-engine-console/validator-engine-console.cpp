@@ -168,7 +168,10 @@ bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Prom
   return true;
 }
 
-void ValidatorEngineConsole::got_result() {
+void ValidatorEngineConsole::got_result(bool success) {
+  if (!success && ex_mode_) {
+    std::_Exit(2);
+  }
   running_queries_--;
   if (!running_queries_ && ex_queries_.size() > 0) {
     auto data = std::move(ex_queries_[0]);
