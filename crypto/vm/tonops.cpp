@@ -474,7 +474,7 @@ int exec_store_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
   stack.check_underflow(2);
   auto x = stack.pop_int();
   auto cbr = stack.pop_builder();
-  unsigned len = ((x->bit_size(sgnd) + 7) >> 3);
+  unsigned len = (((unsigned)x->bit_size(sgnd) + 7) >> 3);
   if (len >= (1u << len_bits)) {
     throw VmError{Excno::range_chk};
   }
