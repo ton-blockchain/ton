@@ -162,20 +162,28 @@ void ValidatorSessionDescriptionImpl::update_hash(const RootObject *obj, HashTyp
 }
 
 void *ValidatorSessionDescriptionImpl::alloc(size_t size, size_t align, bool temp) {
+  CHECK(align && !(align & (align - 1))); // align should be a power of 2
+  auto get_padding = [&](const uint8_t* ptr) {
+    return (-(size_t)ptr) & (align - 1);
+  };
   if (temp) {
+    pdata_temp_ptr_ += get_padding(pdata_temp_ + pdata_temp_ptr_);
     auto s = pdata_temp_ptr_;
     pdata_temp_ptr_ += size;
     CHECK(s + size <= pdata_temp_size_);
     return static_cast<void *>(pdata_temp_ + s);
   } else {
     while (true) {
-      auto s = pdata_perm_ptr_;
-      pdata_perm_ptr_ += size;
-
-      if (pdata_perm_ptr_ <= pdata_perm_.size() * pdata_perm_size_) {
-        return static_cast<void *>(pdata_perm_[s / pdata_perm_size_] + (s % pdata_perm_size_));
+      size_t idx = pdata_perm_ptr_ / pdata_perm_size_;
+      if (idx < pdata_perm_.size()) {
+        auto ptr = pdata_perm_[idx] + (pdata_perm_ptr_ % pdata_perm_size_);
+        pdata_perm_ptr_ += get_padding(ptr);
+        ptr += get_padding(ptr);
+        pdata_perm_ptr_ += size;
+        if (pdata_perm_ptr_ <= pdata_perm_.size() * pdata_perm_size_) {
+          return static_cast<void *>(ptr);
+        }
       }
-
       pdata_perm_.push_back(new td::uint8[pdata_perm_size_]);
     }
   }
