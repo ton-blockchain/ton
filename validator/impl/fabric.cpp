@@ -151,6 +151,17 @@ void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
       .release();
 }
 
+void run_broadcast_only_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
+                                           td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
+                                           td::Ref<BlockSignatureSet> approve_signatures,
+                                           td::actor::ActorId<ValidatorManager> manager,
+                                           td::Promise<td::Unit> promise) {
+  td::actor::create_actor<AcceptBlockQuery>("broadcastaccept", AcceptBlockQuery::BroadcastOnly(), id, std::move(data),
+                                            prev, std::move(validator_set), std::move(signatures),
+                                            std::move(approve_signatures), manager, std::move(promise))
+      .release();
+}
+
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
                            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                            td::Promise<td::Unit> promise) {

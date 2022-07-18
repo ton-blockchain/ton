@@ -98,6 +98,15 @@ void OverlayManager::create_public_overlay(adnl::AdnlNodeIdShort local_id, Overl
                                    std::move(callback), std::move(rules), scope));
 }
 
+void OverlayManager::create_public_overlay_no_subscribe(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+                                                        OverlayPrivacyRules rules, td::string scope) {
+  CHECK(!dht_node_.empty());
+  auto id = overlay_id.compute_short_id();
+  register_overlay(local_id, id,
+                   Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id), nullptr,
+                                   std::move(rules), scope));
+}
+
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                             std::vector<adnl::AdnlNodeIdShort> nodes,
                                             std::unique_ptr<Callback> callback, OverlayPrivacyRules rules) {

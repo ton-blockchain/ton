@@ -149,6 +149,9 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
 
   if (R.is_error()) {
     // allow custom query to be here
+    if (!subscribed()) {
+      return;
+    }
     callback_->receive_query(src, overlay_id_, std::move(data), std::move(promise));
     return;
   }
@@ -225,6 +228,9 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
   }
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
+    if (!subscribed()) {
+      return;
+    }
     VLOG(OVERLAY_DEBUG) << this << ": received custom message";
     callback_->receive_message(src, overlay_id_, std::move(data));
     return;
@@ -268,7 +274,7 @@ void OverlayImpl::alarm() {
   }
   
   if (public_) {
-    if (peers_.size() > 0) {
+    if (peers_.size() > 0 && subscribed()) {
       auto P = get_random_peer();
       if (P) {
         send_random_peers(P->get_id(), {});
@@ -336,7 +342,7 @@ void OverlayImpl::receive_dht_nodes(td::Result<dht::DhtValue> res, bool dummy) {
 }
 
 void OverlayImpl::update_dht_nodes(OverlayNode node) {
-  if (!public_) {
+  if (!public_ || !subscribed()) {
     return;
   }
 
@@ -497,6 +503,9 @@ void OverlayImpl::send_new_fec_broadcast_part(PublicKeyHash local_id, Overlay::B
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data) {
+  if (!subscribed()) {
+    return;
+  }
   callback_->receive_broadcast(source, overlay_id_, std::move(data));
 }
 
@@ -569,6 +578,9 @@ void OverlayImpl::set_privacy_rules(OverlayPrivacyRules rules) {
 }
 
 void OverlayImpl::check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise) {
+  if (!subscribed()) {
+    return;
+  }
   callback_->check_broadcast(src, overlay_id_, std::move(data), std::move(promise));
 }
 
