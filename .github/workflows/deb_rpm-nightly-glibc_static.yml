@@ -6,7 +6,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      SSH_AUTH_SOCK: /tmp/ssh_agent.sock
     steps:
+    - run: |
+        sudo apt update
+        sudo apt install -y apt-utils # XXX: move to nix
     - uses: actions/checkout@v3
       with:
         submodules: 'recursive'
@@ -20,13 +25,43 @@ jobs:
         nix develop \
           --command bash -e -c '
             mkdir packages-out
-            ./packages/deb.sh packages-out packages/deb/ton result'
+            ./packages/deb.sh packages-out $PWD/packages/deb/ton $PWD/result*'
     - run: |
         nix develop \
           --command bash -e -c '
-            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result'
-    - name: Upload artifacts
+            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result*'
+    - if: ${{ !env.ACT }}
       uses: actions/upload-artifact@master
       with:
         name: ton-packages
-        path: packages-out
+        path: packages-out/*-install
+    - if: ${{ !env.ACT }}
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries
+        path: result*
+    - run: |
+        ssh-agent -a $SSH_AUTH_SOCK > /dev/null
+        ssh-add - <<< "${{ secrets.PACKAGES_REPO_KEY }}"
+        git config --global user.name ghactions
+        git config --global user.email actions@github.com
+    - run: |
+        git clone git@github.com:tonthemoon/ton-repo.git
+        cp -r packages-out/deb-install ton-repo/deb
+        cp -r packages-out/rpm-install ton-repo/rpm
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            cd ton-repo/deb
+            dpkg-scanpackages . > Packages
+            apt-ftparchive release . > Release'
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            cd ton-repo/rpm
+            createrepo_c .'
+    - run: |
+        cd ton-repo
+        git add .
+        git commit -m "Import nightly $(date -I)"
+        git push

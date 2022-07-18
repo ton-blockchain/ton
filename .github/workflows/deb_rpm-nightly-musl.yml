@@ -20,13 +20,13 @@ jobs:
         nix develop \
           --command bash -e -c '
             mkdir packages-out
-            ./packages/deb.sh packages-out packages/deb/ton result'
+            ./packages/deb.sh packages-out $PWD/packages/deb/ton $PWD/result*'
     - run: |
         nix develop \
           --command bash -e -c '
-            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result'
-    - name: Upload artifacts
+            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result*'
+    - if: ${{ !env.ACT }}
       uses: actions/upload-artifact@master
       with:
         name: ton-packages
-        path: packages-out
+        path: packages-out/*-install
