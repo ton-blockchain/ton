@@ -2367,7 +2367,7 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
 }
 
 void ValidatorManagerImpl::subscribe_to_shard(ShardIdFull shard) {
-  callback_->add_shard(shard);
+  callback_->subscribe_to_shard(shard);
 }
 
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {
@@ -2396,7 +2396,7 @@ void ValidatorManagerImpl::get_archive_slice(td::uint64 archive_id, td::uint64 o
 }
 
 bool ValidatorManagerImpl::is_validator() {
-  return temp_keys_.size() > 0 || permanent_keys_.size() > 0;
+  return true; // temp_keys_.size() > 0 || permanent_keys_.size() > 0;
 }
 
 PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {

@@ -202,6 +202,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_ = false;
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
+  bool masterchain_only_ = false;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -252,6 +253,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void add_key_to_set(ton::PublicKey key) {
     keys_[key.compute_short_id()] = key;
+  }
+  void set_masterchain_only() {
+    masterchain_only_ = true;
   }
   void start_up() override;
   ValidatorEngine() {

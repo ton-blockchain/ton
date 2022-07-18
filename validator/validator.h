@@ -111,8 +111,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual ~Callback() = default;
 
     virtual void initial_read_complete(BlockHandle top_masterchain_blocks) = 0;
-    virtual void add_shard(ShardIdFull shard) = 0;
-    virtual void del_shard(ShardIdFull shard) = 0;
+    virtual void subscribe_to_shard(ShardIdFull shard) = 0;
+    //virtual void del_shard(ShardIdFull shard) = 0;
 
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;

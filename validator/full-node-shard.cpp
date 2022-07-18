@@ -69,31 +69,41 @@ void Neighbour::update_roundtrip(double t) {
 }
 
 void FullNodeShardImpl::create_overlay() {
-  class Callback : public overlay::Overlays::Callback {
-   public:
-    void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
-      // just ignore
-    }
-    void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
-                       td::Promise<td::BufferSlice> promise) override {
-      td::actor::send_closure(node_, &FullNodeShardImpl::receive_query, src, std::move(data), std::move(promise));
-    }
-    void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
-      td::actor::send_closure(node_, &FullNodeShardImpl::receive_broadcast, src, std::move(data));
-    }
-    void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
-                         td::Promise<td::Unit> promise) override {
-      td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
-    }
-    Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
-    }
+  if (subscribed_) {
+    class Callback : public overlay::Overlays::Callback {
+     public:
+      void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id,
+                           td::BufferSlice data) override {
+        // just ignore
+      }
+      void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
+        td::actor::send_closure(node_, &FullNodeShardImpl::receive_query, src, std::move(data), std::move(promise));
+      }
+      void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
+        td::actor::send_closure(node_, &FullNodeShardImpl::receive_broadcast, src, std::move(data));
+      }
+      void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                           td::Promise<td::Unit> promise) override {
+        td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
+      }
+      Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
+      }
 
-   private:
-    td::actor::ActorId<FullNodeShardImpl> node_;
-  };
+     private:
+      td::actor::ActorId<FullNodeShardImpl> node_;
+    };
 
-  td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_full_.clone(),
-                          std::make_unique<Callback>(actor_id(this)), rules_, PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard() << ", \"workchain_id\": " << get_workchain() << " }");
+    td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_full_.clone(),
+                            std::make_unique<Callback>(actor_id(this)), rules_,
+                            PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
+                                      << ", \"workchain_id\": " << get_workchain() << " }");
+  } else {
+    td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_no_subscribe, adnl_id_,
+                            overlay_id_full_.clone(), rules_,
+                            PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
+                                      << ", \"workchain_id\": " << get_workchain() << " }");
+  }
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl_id_);
   if (cert_) {
@@ -116,6 +126,15 @@ void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promis
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
   adnl_id_ = adnl_id;
   local_id_ = adnl_id_.pubkey_hash();
+  create_overlay();
+}
+
+void FullNodeShardImpl::subscribe_to_shard() {
+  if (subscribed_ || !client_.empty()) {
+    return;
+  }
+  td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
+  subscribed_ = true;
   create_overlay();
 }
 
@@ -576,8 +595,14 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
+  auto block_id = create_block_id(query.block_->block_);
+  if (block_id.shard_full() != shard_) {
+    LOG(WARNING) << "dropping newShardBlockBroadcast: expected shard " << shard_.to_str() << ", got shard "
+                 << block_id.shard_full().to_str();
+    return;
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block,
-                          create_block_id(query.block_->block_), query.block_->cc_seqno_,
+                          block_id, query.block_->cc_seqno_,
                           std::move(query.block_->data_));
 }
 
@@ -588,6 +613,11 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
   }
 
   BlockIdExt block_id = create_block_id(query.id_);
+  if (block_id.shard_full() != shard_) {
+    LOG(WARNING) << "dropping blockBroadcast: expected shard " << shard_.to_str() << ", got shard "
+                 << block_id.shard_full().to_str();
+    return;
+  }
   BlockBroadcast B{block_id,
                    std::move(signatures),
                    static_cast<UnixTime>(query.catchain_seqno_),
@@ -815,6 +845,10 @@ void FullNodeShardImpl::start_up() {
     alarm_timestamp().relax(reload_neighbours_at_);
     alarm_timestamp().relax(ping_neighbours_at_);
   }
+}
+
+void FullNodeShardImpl::tear_down() {
+  td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
 }
 
 void FullNodeShardImpl::sign_new_certificate(PublicKeyHash sign_by) {
@@ -1053,7 +1087,7 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
                                      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                                      td::actor::ActorId<overlay::Overlays> overlays,
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                     td::actor::ActorId<adnl::AdnlExtClient> client)
+                                     td::actor::ActorId<adnl::AdnlExtClient> client, bool subscribe)
     : shard_(shard)
     , local_id_(local_id)
     , adnl_id_(adnl_id)
@@ -1063,16 +1097,18 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , rldp_(rldp)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
-    , client_(client) {
+    , client_(client)
+    , subscribed_(subscribe) {
 }
 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client) {
+    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
+    bool subscribe) {
   return td::actor::create_actor<FullNodeShardImpl>("tonnode", shard, local_id, adnl_id, zero_state_file_hash, keyring,
-                                                    adnl, rldp, overlays, validator_manager, client);
+                                                    adnl, rldp, overlays, validator_manager, client, subscribe);
 }
 
 }  // namespace fullnode

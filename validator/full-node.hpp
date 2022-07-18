@@ -52,7 +52,7 @@ class FullNodeImpl : public FullNode {
 
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
-  void add_shard(ShardIdFull shard);
+  void add_shard(ShardIdFull shard, bool subscribe = false);
   void del_shard(ShardIdFull shard);
 
   void sync_completed();

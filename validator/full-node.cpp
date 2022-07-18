@@ -120,14 +120,17 @@ void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
   td::actor::send_closure(it->second, &FullNodeShard::set_handle, top_handle, std::move(P));
 }
 
-void FullNodeImpl::add_shard(ShardIdFull shard) {
+void FullNodeImpl::add_shard(ShardIdFull shard, bool subscribe) {
   while (true) {
-    if (shards_.count(shard) == 0) {
+    auto it = shards_.find(shard);
+    if (it == shards_.end()) {
       shards_.emplace(shard, FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_,
-                                                   rldp_, overlays_, validator_manager_, client_));
+                                                   rldp_, overlays_, validator_manager_, client_, subscribe));
       if (all_validators_.size() > 0) {
         td::actor::send_closure(shards_[shard], &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
       }
+    } else if (subscribe) {
+      td::actor::send_closure(it->second, &FullNodeShard::subscribe_to_shard);
     } else {
       break;
     }
@@ -148,7 +151,7 @@ void FullNodeImpl::sync_completed() {
 }
 
 void FullNodeImpl::send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) {
-  auto shard = get_shard(ShardIdFull{masterchainId});
+  auto shard = get_shard(dst);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT ihr message to unknown shard";
     return;
@@ -166,7 +169,7 @@ void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice dat
 }
 
 void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
+  auto shard = get_shard(block_id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
     return;
@@ -175,7 +178,7 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 }
 
 void FullNodeImpl::send_broadcast(BlockBroadcast broadcast) {
-  auto shard = get_shard(ShardIdFull{masterchainId});
+  auto shard = get_shard(broadcast.block_id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
@@ -381,11 +384,8 @@ void FullNodeImpl::start_up() {
     void initial_read_complete(BlockHandle handle) override {
       td::actor::send_closure(id_, &FullNodeImpl::initial_read_complete, handle);
     }
-    void add_shard(ShardIdFull shard) override {
-      td::actor::send_closure(id_, &FullNodeImpl::add_shard, shard);
-    }
-    void del_shard(ShardIdFull shard) override {
-      td::actor::send_closure(id_, &FullNodeImpl::del_shard, shard);
+    void subscribe_to_shard(ShardIdFull shard) override {
+      td::actor::send_closure(id_, &FullNodeImpl::add_shard, shard, true);
     }
     void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_ihr_message, dst, std::move(data));
@@ -465,7 +465,7 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , validator_manager_(validator_manager)
     , client_(client)
     , db_root_(db_root) {
-  add_shard(ShardIdFull{masterchainId});
+  add_shard(ShardIdFull{masterchainId}, true);
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,

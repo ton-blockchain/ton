@@ -1300,10 +1300,10 @@ td::Status ValidatorEngine::load_global_config() {
 
   validator_options_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
   validator_options_.write().set_shard_check_function(
-      [](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
+      [masterchain_only = masterchain_only_](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
          ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
         if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
-          return true;
+          return shard.is_masterchain() || !masterchain_only;
         }
         CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
         return true;
@@ -3648,6 +3648,9 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
+  p.add_option('M', "masterchain-only", "don't track shardchains", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_masterchain_only); });
+  });
   td::uint32 threads = 7;
   p.add_checked_option(
       't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {

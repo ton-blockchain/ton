@@ -92,6 +92,28 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
   state_hash_.clear();
 }
 
+AcceptBlockQuery::AcceptBlockQuery(BroadcastOnly, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
+                                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
+                                   td::Ref<BlockSignatureSet> approve_signatures,
+                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
+    : id_(id)
+    , data_(std::move(data))
+    , prev_(std::move(prev))
+    , validator_set_(std::move(validator_set))
+    , signatures_(std::move(signatures))
+    , approve_signatures_(std::move(approve_signatures))
+    , is_fake_(false)
+    , is_fork_(false)
+    , send_broadcast_(true)
+    , broadcast_only_(false)
+    , manager_(manager)
+    , promise_(std::move(promise)) {
+  state_keep_old_hash_.clear();
+  state_old_hash_.clear();
+  state_hash_.clear();
+  CHECK(prev_.size() > 0);
+}
+
 bool AcceptBlockQuery::precheck_header() {
   VLOG(VALIDATOR_DEBUG) << "precheck_header()";
   // 0. sanity check
@@ -381,6 +403,15 @@ void AcceptBlockQuery::start_up() {
   }
   if (data_.not_null() && !precheck_header()) {
     fatal_error("invalid block header in AcceptBlock");
+    return;
+  }
+
+  if (broadcast_only_) {
+    if (!create_new_proof()) {
+      fatal_error("cannot generate proof for block "s + id_.to_str());
+      return;
+    }
+    applied();
     return;
   }
 
