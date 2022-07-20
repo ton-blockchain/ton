@@ -55,12 +55,14 @@ class ValidatorGroup : public td::actor::Actor {
       init_ = false;
       create_session();
     }
+    td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl::AdnlNodeIdShort(local_id_));
   }
 
   void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise);
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-                 td::Ref<ValidatorSet> validator_set, validatorsession::ValidatorSessionOptions config,
+                 td::Ref<ValidatorSet> validator_set, std::vector<CollatorNodeDescr> collator_set,
+                 validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                  std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
@@ -69,6 +71,7 @@ class ValidatorGroup : public td::actor::Actor {
       , local_id_(std::move(local_id))
       , session_id_(session_id)
       , validator_set_(std::move(validator_set))
+      , collator_set_(std::move(collator_set))
       , config_(std::move(config))
       , keyring_(keyring)
       , adnl_(adnl)
@@ -83,6 +86,8 @@ class ValidatorGroup : public td::actor::Actor {
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
+  void send_collate_query(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+  void receive_collate_query_response(td::uint32 round_id, td::BufferSlice data, td::Promise<BlockCandidate> promise);
 
   struct PostponedAccept {
     RootHash root_hash;
@@ -105,6 +110,7 @@ class ValidatorGroup : public td::actor::Actor {
   BlockIdExt min_masterchain_block_id_;
 
   td::Ref<ValidatorSet> validator_set_;
+  std::vector<CollatorNodeDescr> collator_set_;
   validatorsession::ValidatorSessionOptions config_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -120,6 +126,16 @@ class ValidatorGroup : public td::actor::Actor {
   bool allow_unsafe_self_blocks_resync_;
   bool lite_mode_ = false;
   td::uint32 last_known_round_id_ = 0;
+
+  typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
+  std::map<CacheKey, UnixTime> approved_candidates_cache_;
+  td::uint32 approved_candidates_cache_round_ = 0;
+
+  void update_approve_cache(td::uint32 round_id, CacheKey key, UnixTime value);
+
+  static CacheKey block_to_cache_key(const BlockCandidate& block) {
+    return std::make_tuple(block.pubkey.as_bits256(), block.id, sha256_bits256(block.data), block.collated_file_hash);
+  }
 };
 
 }  // namespace validator

@@ -81,6 +81,8 @@ class MasterchainState : virtual public ShardState {
                                    ton::LogicalTime* end_lt = nullptr) const = 0;
   virtual bool check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict = false) const = 0;
   virtual td::Result<td::Ref<ConfigHolder>> get_config_holder() const = 0;
+  virtual block::WorkchainSet get_workchain_list() const = 0;
+  virtual std::vector<CollatorNodeDescr> get_collator_set() const = 0;
   virtual td::Status prepare() {
     return td::Status::OK();
   }

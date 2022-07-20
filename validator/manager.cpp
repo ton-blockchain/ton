@@ -2025,7 +2025,8 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
     auto validator_id = get_validator(shard, validator_set);
     CHECK(!validator_id.is_zero());
     auto G = td::actor::create_actor<ValidatorGroup>(
-        "validatorgroup", shard, validator_id, session_id, validator_set, opts, keyring_, adnl_, rldp_, overlays_,
+        "validatorgroup", shard, validator_id, session_id, validator_set, last_masterchain_state_->get_collator_set(),
+        opts, keyring_, adnl_, rldp_, overlays_,
         db_root_, actor_id(this), init_session,
         opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), true);
     return G;
@@ -2690,6 +2691,15 @@ void ValidatorManagerImpl::cleanup_old_pending_candidates(BlockId block_id, td::
   if (it->second.empty()) {
     pending_block_candidates_.erase(it);
   }
+}
+
+void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
+  auto it = collator_nodes_.find(id);
+  if (it == collator_nodes_.end()) {
+    auto actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp_);
+    it = collator_nodes_.emplace(id, std::move(actor)).first;
+  }
+  td::actor::send_closure(it->second, &CollatorNode::add_shard, shard);
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

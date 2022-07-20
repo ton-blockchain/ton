@@ -28,6 +28,7 @@
 #include "state-serializer.hpp"
 #include "rldp/rldp.h"
 #include "token-manager.h"
+#include "collator-node.hpp"
 
 #include <map>
 #include <set>
@@ -539,6 +540,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void import_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) override;
   void wait_block_candidate(BlockId block_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise) override;
 
+  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -606,6 +609,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   std::map<BlockId, std::vector<std::pair<td::Promise<BlockCandidate>, td::Timestamp>>> pending_block_candidates_;
   void cleanup_old_pending_candidates(BlockId block_id, td::Timestamp now);
+
+  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollatorNode>> collator_nodes_;
 };
 
 }  // namespace validator

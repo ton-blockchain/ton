@@ -144,6 +144,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<GenerateBlockCandidateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetRequiredBlockCandidatesQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ImportBlockCandidateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<AddCollatorQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

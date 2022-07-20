@@ -53,6 +53,7 @@ set(VALIDATOR_HEADERS
   
   import-db-slice.hpp
 
+  collator-node.hpp
   manager-disk.h
   manager-disk.hpp
   manager-init.h
@@ -68,6 +69,7 @@ set(VALIDATOR_HEADERS
 set(VALIDATOR_SOURCE
   apply-block.cpp
   block-handle.cpp
+  collator-node.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
   shard-client.cpp

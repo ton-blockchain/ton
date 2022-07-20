@@ -220,6 +220,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void generate_block_candidate(BlockId block_id, td::Promise<BlockCandidate> promise) = 0;
   virtual void get_required_block_candidates(td::Promise<std::vector<BlockId>> promise) = 0;
   virtual void import_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) = 0;
+
+  virtual void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
 };
 
 }  // namespace validator
