@@ -66,6 +66,14 @@ struct Config {
     ton::UnixTime election_date;
     ton::UnixTime expire_at;
   };
+  struct Collator {
+    ton::PublicKeyHash adnl_id;
+    ton::ShardIdFull shard;
+
+    bool operator==(const Collator& b) const {
+      return adnl_id == b.adnl_id && shard == b.shard;
+    }
+  };
   struct Control {
     ton::PublicKeyHash key;
     std::map<ton::PublicKeyHash, td::uint32> clients;
@@ -81,6 +89,7 @@ struct Config {
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
+  std::vector<Collator> collators;
   ton::PublicKeyHash full_node = ton::PublicKeyHash::zero();
   std::vector<FullNodeSlave> full_node_slaves;
   std::map<td::int32, ton::PublicKeyHash> full_node_masters;
@@ -104,6 +113,7 @@ struct Config {
                                                  ton::UnixTime expire_at);
   td::Result<bool> config_add_validator_adnl_id(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,
                                                 ton::UnixTime expire_at);
+  td::Result<bool> config_add_collator(ton::PublicKeyHash addr, ton::ShardIdFull shard);
   td::Result<bool> config_add_full_node_adnl_id(ton::PublicKeyHash id);
   td::Result<bool> config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id);
   td::Result<bool> config_add_full_node_master(td::int32 port, ton::PublicKeyHash id);
@@ -293,6 +303,8 @@ class ValidatorEngine : public td::actor::Actor {
   void add_lite_server(ton::PublicKeyHash id, td::uint16 port);
   void start_lite_server();
   void started_lite_server();
+  void start_collator();
+  void started_collator();
 
   void add_control_interface(ton::PublicKeyHash id, td::uint16 port);
   void add_control_process(ton::PublicKeyHash id, td::uint16 port, ton::PublicKeyHash pub, td::int32 permissions);
@@ -418,6 +430,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_getRequiredBlockCandidates &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_importBlockCandidate &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addCollator &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

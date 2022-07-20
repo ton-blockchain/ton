@@ -572,6 +572,7 @@ engine.dht id:int256 = engine.Dht;
 engine.validatorTempKey key:int256 expire_at:int = engine.ValidatorTempKey;
 engine.validatorAdnlAddress id:int256 expire_at:int = engine.ValidatorAdnlAddress;
 engine.validator id:int256 temp_keys:(vector engine.validatorTempKey) adnl_addrs:(vector engine.validatorAdnlAddress) election_date:int expire_at:int = engine.Validator;
+engine.collator adnl_id:int256 workchain:int shard:long = engine.Validator;
 engine.liteServer id:int256 port:int = engine.LiteServer;
 engine.controlProcess id:int256 permissions:int = engine.ControlProcess;
 engine.controlInterface id:int256 port:int allowed:(vector engine.controlProcess) = engine.ControlInterface; 
@@ -582,7 +583,7 @@ engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNode
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
         dht:(vector engine.dht)
-        validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
+        validators:(vector engine.Validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config; 
@@ -690,6 +691,8 @@ engine.validator.generateBlockCandidate block_id:tonNode.BlockId = db.Candidate;
 engine.validator.getRequiredBlockCandidates = engine.validator.RequiredBlockCandidates;
 engine.validator.importBlockCandidate block:db.candidate = engine.validator.Success;
 
+engine.validator.addCollator adnl_id:int256 workchain:int shard:long = engine.validator.Success;
+
 ---types---
 
 storage.pong = storage.Pong;
@@ -741,3 +744,10 @@ validatorSession.statsRound timestamp:long producers:(vector validatorSession.st
 validatorSession.stats id:tonNode.blockId timestamp:long self:int256 creator:int256 total_validators:int total_weight:long
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
+
+collatorNode.generateBlockSuccess candidate:db.Candidate = collatorNode.GenerateBlockResult;
+collatorNode.generateBlockError code:int message:string = collatorNode.GenerateBlockResult;
+
+---functions---
+collatorNode.generateBlock workchain:int shard:long min_mc_id:tonNode.blockIdExt prev_blocks:(vector tonNode.blockIdExt)
+    creator:int256 = collatorNode.GenerateBlockResult;

@@ -448,7 +448,6 @@ bool ValidateQuery::init_parse() {
     return reject_query("after_merge value mismatch in block header");
   }
   rand_seed_ = extra.rand_seed;
-  created_by_ = extra.created_by;
   if (created_by_ != extra.created_by) {
     return reject_query("block candidate "s + id_.to_str() + " has creator " + created_by_.to_hex() +
                         " but the block header contains different value " + extra.created_by.to_hex());

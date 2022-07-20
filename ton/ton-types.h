@@ -397,6 +397,9 @@ struct Ed25519_PublicKey {
   bool operator==(const Ed25519_PublicKey& other) const {
     return _pubkey == other._pubkey;
   }
+  bool operator!=(const Ed25519_PublicKey& other) const {
+    return _pubkey != other._pubkey;
+  }
   bool clear() {
     _pubkey.set_zero();
     return true;
@@ -477,6 +480,11 @@ struct ValidatorSessionConfig {
   bool new_catchain_ids = false;
 
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
+};
+
+struct CollatorNodeDescr {
+  ShardIdFull shard;
+  NodeIdShort adnl_id;
 };
 
 }  // namespace ton

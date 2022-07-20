@@ -1163,3 +1163,27 @@ class ImportBlockCandidateQuery : public Query {
  private:
   std::string file_;
 };
+
+class AddCollatorQuery : public Query {
+ public:
+  AddCollatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "addcollator";
+  }
+  static std::string get_help() {
+    return "addcollator <adnl_id> <workchain> <shard>\tadd collator with given adnl_id and shard";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+  td::int32 wc_;
+  td::int64 shard_;
+};

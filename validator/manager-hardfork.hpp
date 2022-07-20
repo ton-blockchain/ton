@@ -443,6 +443,9 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
+  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
+    UNREACHABLE();
+  }
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;
