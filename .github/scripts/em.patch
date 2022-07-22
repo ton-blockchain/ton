@@ -1,0 +1,110 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b9f17a4..c60bac9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -80,7 +80,7 @@ else()
+ endif()
+ 
+ #BEGIN internal
+-option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
++option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." ON)
+ if (TON_ONLY_TONLIB)
+   set(NOT_TON_ONLY_TONLIB false)
+ else()
+@@ -257,10 +257,10 @@ elseif (CLANG OR GCC)
+     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -fvisibility=hidden -Wl,-dead_strip,-x,-S")
+   else()
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections")
+-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL")
++    #set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL")
+     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
+     if (NOT TON_USE_ASAN AND NOT TON_USE_TSAN AND NOT MEMPROF)
+-      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--exclude-libs,ALL")
++      #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--exclude-libs,ALL")
+     endif()
+   endif()
+ elseif (INTEL)
+diff --git a/crypto/CMakeLists.txt b/crypto/CMakeLists.txt
+index 76c8ae9..a6d1a05 100644
+--- a/crypto/CMakeLists.txt
++++ b/crypto/CMakeLists.txt
+@@ -335,12 +335,12 @@ if (TON_USE_ASAN AND NOT WIN32)
+ endif()
+ 
+ file(MAKE_DIRECTORY smartcont/auto)
+-if (NOT CMAKE_CROSSCOMPILING)
++#if (NOT CMAKE_CROSSCOMPILING)
+   set(GENERATE_TLB_CMD tlbc)
+   add_custom_command(
+     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
+     COMMAND ${TURN_OFF_LSAN}
+-    COMMAND ${GENERATE_TLB_CMD} -o block-auto -n block::gen -z block.tlb
++#    COMMAND ${GENERATE_TLB_CMD} -o block-auto -n block::gen -z block.tlb
+     COMMENT "Generate block tlb source files"
+     OUTPUT ${TLB_BLOCK_AUTO}
+     DEPENDS tlbc block/block.tlb
+@@ -397,7 +397,7 @@ if (NOT CMAKE_CROSSCOMPILING)
+   GenFif(DEST smartcont/auto/payment-channel-code SOURCE smartcont/payment-channel-code.fc NAME payment-channel)
+ 
+   GenFif(DEST smartcont/auto/simple-wallet-ext-code SOURCE smartcont/simple-wallet-ext-code.fc NAME simple-wallet-ext)
+-endif()
++#endif()
+ 
+ add_library(smc-envelope ${SMC_ENVELOPE_SOURCE})
+ target_include_directories(smc-envelope PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+diff --git a/tdutils/td/utils/port/config.h b/tdutils/td/utils/port/config.h
+index 2bd671b..956a28a 100644
+--- a/tdutils/td/utils/port/config.h
++++ b/tdutils/td/utils/port/config.h
+@@ -39,7 +39,7 @@
+   #define TD_EVENTFD_BSD 1
+ #elif TD_EMSCRIPTEN
+   #define TD_POLL_POLL 1
+-  #define TD_EVENTFD_UNSUPPORTED 1
++//  #define TD_EVENTFD_UNSUPPORTED 1
+ #elif TD_DARWIN
+   #define TD_POLL_KQUEUE 1
+   #define TD_EVENTFD_BSD 1
+@@ -51,7 +51,11 @@
+ #endif
+ 
+ #if TD_EMSCRIPTEN
+-  #define TD_THREAD_UNSUPPORTED 1
++//  #define TD_THREAD_UNSUPPORTED 1
++  #define TD_POLL_EPOLL 1
++  #define TD_EVENTFD_UNSUPPORTED 0
++  #define TD_THREAD_PTHREAD 1
++  #define TD_EVENTFD_LINUX 1
+ #elif TD_TIZEN || TD_LINUX || TD_DARWIN
+   #define TD_THREAD_PTHREAD 1
+ #else
+diff --git a/tonlib/CMakeLists.txt b/tonlib/CMakeLists.txt
+index 5b6530a..568cc69 100644
+--- a/tonlib/CMakeLists.txt
++++ b/tonlib/CMakeLists.txt
+@@ -88,7 +88,7 @@ set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
+ 
+ include(GenerateExportHeader)
+ 
+-add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
++add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
+ target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+ generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
+ target_include_directories(tonlibjson PUBLIC
+@@ -149,11 +149,11 @@ endif()
+ 
+ install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
+ 
+-install(EXPORT Tonlib
+-  FILE TonlibTargets.cmake
+-  NAMESPACE Tonlib::
+-  DESTINATION lib/cmake/Tonlib
+-)
++#install(EXPORT Tonlib
++#  FILE TonlibTargets.cmake
++#  NAMESPACE Tonlib::
++#  DESTINATION lib/cmake/Tonlib
++#)
+ include(CMakePackageConfigHelpers)
+ write_basic_package_version_file("TonlibConfigVersion.cmake"
+   VERSION ${TON_VERSION}

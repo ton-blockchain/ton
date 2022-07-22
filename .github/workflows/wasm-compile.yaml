@@ -1,0 +1,30 @@
+name: Wasm Compile
+
+on: [push,workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Execute fift-func-wasm-build-ubuntu.sh
+        run: |
+          mkdir wasm-build
+          cp .github/scripts/* wasm-build
+          cd wasm-build
+          chmod +x fift-func-wasm-build-ubuntu.sh 
+          ./fift-func-wasm-build-ubuntu.sh
+
+      - name: Find & copy binaries
+        run: |
+          cd /home/runner/work/ton/ton/wasm-build
+          mkdir artifacts
+          cp ton/build/crypto/fift.* ton/build/crypto/func.* artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: fift-func-wasm-binaries
+          path: wasm-build/artifacts
