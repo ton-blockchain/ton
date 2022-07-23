@@ -2,6 +2,27 @@
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
+## DEB and RPM packages
+
+### deb
+
+```sh
+echo 'deb [trusted=yes] https://tonthemoon.github.io/ton-repo/deb ./' > /etc/apt/sources.list.d/10-ton.list
+```
+
+### rpm
+
+```sh
+cat > /etc/yum.repos.d/ton.repo << EOF
+[ton]
+name=Ton
+baseurl=https://tonthemoon.github.io/ton-repo/rpm
+enabled=1
+type=rpm
+gpgcheck=0
+EOF
+```
+
 ## Updates flow:
 
 * **master branch** - mainnet is running on this stable branch.
