@@ -18,6 +18,7 @@ rpmbuild --define "_topdir $RPMBUILD_PATH" \
          --define "_prefix /usr" \
          --define "_exec_prefix /usr" \
          --define "_bindir /usr/bin" \
+         --define "releasever $(date +%s)" \
          -v -bb "$RPM_TEMPLATE_PATH"
 
 mkdir -p "$RPM_INSTALL_PATH"

@@ -1,6 +1,6 @@
 Name:           ton
 Version:        dev
-Release:        1
+Release:        %{releasever}
 Summary:        The Open Network
 
 License:        LGPLv2
