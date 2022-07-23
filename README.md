@@ -46,3 +46,10 @@ If a CI workflow fails not because of your changes but workflow issues, try to f
 
 * **C/C++ CI (ccpp-linux.yml)**: TBD
 * **C/C++ CI Win64 Compile (ccpp-win64.yml)**: TBD
+
+To locally build and upload nightly packages:
+
+```sh
+# https://github.com/nektos/act
+act workflow_dispatch -W .github/workflows/deb_rpm-nightly-glibc_static.yml --no-skip-checkout -s GITHUB_TOKEN="$GITHUB_TOKEN" -s PACKAGES_REPO_KEY="$PACKAGES_REPO_DEPLOY_KEY"
+```
