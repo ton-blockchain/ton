@@ -46,6 +46,9 @@ AdnlMessage::AdnlMessage(tl_object_ptr<ton_api::adnl_Message> message) {
           [&](ton_api::adnl_message_part &msg) {
             message_ = adnlmessage::AdnlMessagePart{msg.hash_, static_cast<td::uint32>(msg.total_size_),
                                                     static_cast<td::uint32>(msg.offset_), std::move(msg.data_)};
+          },
+          [&](ton_api::adnl_message_queryError &msg) {
+            message_ = adnlmessage::AdnlMessageQueryError{msg.query_id_};
           }));
 }
 

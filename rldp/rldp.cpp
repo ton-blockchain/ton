@@ -87,6 +87,13 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
   transfer(src, dst, timeout, std::move(B), transfer_id);
 }
 
+void RldpIn::reject_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
+                          adnl::AdnlQueryId query_id, TransferId transfer_id) {
+  auto B = serialize_tl_object(create_tl_object<ton_api::rldp_queryError>(query_id), true);
+
+  transfer(src, dst, timeout, std::move(B), transfer_id);
+}
+
 void RldpIn::alarm_query(adnl::AdnlQueryId query_id, TransferId transfer_id) {
   queries_.erase(query_id);
   max_size_.erase(transfer_id);
@@ -199,12 +206,16 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
       auto data = R.move_as_ok();
       if (data.size() > max_answer_size) {
         VLOG(RLDP_NOTICE) << "rldp query failed: answer too big";
+        td::actor::send_closure(SelfId, &RldpIn::reject_query, local_id, source, timeout, query_id,
+                                transfer_id ^ TransferId::ones());
       } else {
         td::actor::send_closure(SelfId, &RldpIn::answer_query, local_id, source, timeout, query_id,
                                 transfer_id ^ TransferId::ones(), std::move(data));
       }
     } else {
       VLOG(RLDP_NOTICE) << "rldp query failed: " << R.move_as_error();
+      td::actor::send_closure(SelfId, &RldpIn::reject_query, local_id, source, timeout, query_id,
+                              transfer_id ^ TransferId::ones());
     }
   });
   VLOG(RLDP_DEBUG) << "delivering rldp query";
@@ -220,6 +231,17 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
     queries_.erase(it);
   } else {
     VLOG(RLDP_INFO) << "received answer to unknown query " << message.query_id_;
+  }
+}
+
+void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
+                             ton_api::rldp_queryError &message) {
+  auto it = queries_.find(message.query_id_);
+  if (it != queries_.end()) {
+    td::actor::send_closure(it->second, &adnl::AdnlQuery::reject_query);
+    queries_.erase(it);
+  } else {
+    VLOG(RLDP_INFO) << "received reject to unknown query " << message.query_id_;
   }
 }
 

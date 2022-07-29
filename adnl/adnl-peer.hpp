@@ -104,6 +104,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void process_message(const adnlmessage::AdnlMessageQuery &message);
   void process_message(const adnlmessage::AdnlMessageAnswer &message);
   void process_message(const adnlmessage::AdnlMessagePart &message);
+  void process_message(const adnlmessage::AdnlMessageQueryError &message);
   void process_message(const AdnlMessage::Empty &message) {
     UNREACHABLE();
   }

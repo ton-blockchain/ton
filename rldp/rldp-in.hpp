@@ -78,6 +78,8 @@ class RldpIn : public RldpImpl {
                      td::uint64 max_answer_size) override;
   void answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
                     adnl::AdnlQueryId query_id, TransferId transfer_id, td::BufferSlice data);
+  void reject_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
+                    adnl::AdnlQueryId query_id, TransferId transfer_id);
 
   void alarm_query(adnl::AdnlQueryId query_id, TransferId transfer_id);
 
@@ -93,6 +95,8 @@ class RldpIn : public RldpImpl {
                        ton_api::rldp_query &message);
   void process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                        ton_api::rldp_answer &message);
+  void process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
+                       ton_api::rldp_queryError &message);
   void receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                        td::BufferSlice data);
 

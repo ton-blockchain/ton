@@ -524,10 +524,14 @@ void AdnlPeerPairImpl::process_message(const adnlmessage::AdnlMessageQuery &mess
                                        flags = static_cast<td::uint32>(0)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       LOG(WARNING) << "failed to answer query: " << R.move_as_error();
+      td::actor::send_closure(SelfId, &AdnlPeerPairImpl::send_message,
+                              OutboundAdnlMessage{adnlmessage::AdnlMessageQueryError{query_id}, flags});
     } else {
       auto data = R.move_as_ok();
       if (data.size() > Adnl::huge_packet_max_size()) {
         LOG(WARNING) << "dropping too big answer query: size=" << data.size();
+        td::actor::send_closure(SelfId, &AdnlPeerPairImpl::send_message,
+                                OutboundAdnlMessage{adnlmessage::AdnlMessageQueryError{query_id}, flags});
       } else {
         td::actor::send_closure(SelfId, &AdnlPeerPairImpl::send_message,
                                 OutboundAdnlMessage{adnlmessage::AdnlMessageAnswer{query_id, std::move(data)}, flags});
@@ -607,6 +611,18 @@ void AdnlPeerPairImpl::process_message(const adnlmessage::AdnlMessagePart &messa
       deliver_message(std::move(M));
     }
   }
+}
+
+void AdnlPeerPairImpl::process_message(const adnlmessage::AdnlMessageQueryError &message) {
+  auto Q = out_queries_.find(message.query_id());
+
+  if (Q == out_queries_.end()) {
+    VLOG(ADNL_NOTICE) << this << ": dropping IN query error: unknown query id " << message.query_id();
+    return;
+  }
+
+  td::actor::send_closure_later(Q->second, &AdnlQuery::reject_query);
+  out_queries_.erase(Q);
 }
 
 void AdnlPeerPairImpl::delete_query(AdnlQueryId id) {

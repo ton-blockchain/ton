@@ -170,6 +170,24 @@ class AdnlMessageAnswer {
   td::BufferSlice data_;
 };
 
+class AdnlMessageQueryError {
+ public:
+  explicit AdnlMessageQueryError(AdnlQueryId query_id) : query_id_(query_id) {
+  }
+  const auto &query_id() const {
+    return query_id_;
+  }
+  td::uint32 size() const {
+    return 36;
+  }
+  tl_object_ptr<ton_api::adnl_Message> tl() const {
+    return create_tl_object<ton_api::adnl_message_queryError>(query_id_);
+  }
+
+ private:
+  AdnlQueryId query_id_;
+};
+
 class AdnlMessagePart {
  public:
   AdnlMessagePart(td::Bits256 hash, td::uint32 total_size, td::uint32 offset, td::BufferSlice data)
@@ -220,7 +238,8 @@ class AdnlMessage {
  private:
   td::Variant<Empty, adnlmessage::AdnlMessageCreateChannel, adnlmessage::AdnlMessageConfirmChannel,
               adnlmessage::AdnlMessageCustom, adnlmessage::AdnlMessageNop, adnlmessage::AdnlMessageReinit,
-              adnlmessage::AdnlMessageQuery, adnlmessage::AdnlMessageAnswer, adnlmessage::AdnlMessagePart>
+              adnlmessage::AdnlMessageQuery, adnlmessage::AdnlMessageAnswer, adnlmessage::AdnlMessagePart,
+              adnlmessage::AdnlMessageQueryError>
       message_{Empty{}};
 
  public:
