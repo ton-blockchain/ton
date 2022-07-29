@@ -142,7 +142,9 @@ void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::BufferSlic
 void OverlayImpl::send_random_peers_cont(adnl::AdnlNodeIdShort src, OverlayNode node,
                                          td::Promise<td::BufferSlice> promise) {
   std::vector<tl_object_ptr<ton_api::overlay_node>> vec;
-  vec.emplace_back(node.tl());
+  if (!is_external()) {
+    vec.emplace_back(node.tl());
+  }
 
   for (td::uint32 i = 0; i < nodes_to_send(); i++) {
     auto P = get_random_peer();

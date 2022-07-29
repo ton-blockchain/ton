@@ -20,12 +20,15 @@
 #include "ton/ton-shard.h"
 #include "ton/ton-io.hpp"
 #include "td/actor/MultiPromise.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 
 namespace validator {
 
 namespace fullnode {
+
+static const double INACTIVE_SHARD_TTL = 120.0;
 
 void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) {
   if (local_keys_.count(key)) {
@@ -47,7 +50,9 @@ void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
   }
 
   for (auto &shard : shards_) {
-    td::actor::send_closure(shard.second, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    if (!shard.second.actor.empty()) {
+      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    }
   }
   promise.set_value(td::Unit());
 }
@@ -71,7 +76,9 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
   }
 
   for (auto &shard : shards_) {
-    td::actor::send_closure(shard.second, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    if (!shard.second.actor.empty()) {
+      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    }
   }
   promise.set_value(td::Unit());
 }
@@ -79,22 +86,25 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
 void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                                   td::uint32 expiry_at, td::uint32 max_size,
                                                   td::Promise<td::BufferSlice> promise) {
-    auto it = shards_.find(shard_id);
-    if(it == shards_.end()) {
-      promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
-      return;
-    }
-    td::actor::send_closure(it->second, &FullNodeShard::sign_overlay_certificate, signed_key, expiry_at, max_size, std::move(promise));
+  auto it = shards_.find(shard_id);
+  if(it == shards_.end() || it->second.actor.empty()) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
+    return;
+  }
+  td::actor::send_closure(it->second.actor, &FullNodeShard::sign_overlay_certificate, signed_key, expiry_at, max_size,
+                          std::move(promise));
 }
 
 void FullNodeImpl::import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                                     std::shared_ptr<ton::overlay::Certificate> cert,
                                                     td::Promise<td::Unit> promise) {
-    auto it = shards_.find(shard_id);
-    if(it == shards_.end()) {
-      promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
-    }
-    td::actor::send_closure(it->second, &FullNodeShard::import_overlay_certificate, signed_key, cert, std::move(promise));
+  auto it = shards_.find(shard_id);
+  if(it == shards_.end() || it->second.actor.empty()) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
+    return;
+  }
+  td::actor::send_closure(it->second.actor, &FullNodeShard::import_overlay_certificate, signed_key, cert,
+                          std::move(promise));
 }
 
 void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
@@ -105,7 +115,9 @@ void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td:
   ig.add_promise(std::move(promise));
 
   for (auto &s : shards_) {
-    td::actor::send_closure(s.second, &FullNodeShard::update_adnl_id, adnl_id, ig.get_promise());
+    if (!s.second.actor.empty()) {
+      td::actor::send_closure(s.second.actor, &FullNodeShard::update_adnl_id, adnl_id, ig.get_promise());
+    }
   }
   local_id_ = adnl_id_.pubkey_hash();
 }
@@ -116,34 +128,116 @@ void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
     td::actor::send_closure(SelfId, &FullNodeImpl::sync_completed);
   });
   auto it = shards_.find(ShardIdFull{masterchainId});
-  CHECK(it != shards_.end());
-  td::actor::send_closure(it->second, &FullNodeShard::set_handle, top_handle, std::move(P));
+  CHECK(it != shards_.end() && !it->second.actor.empty());
+  td::actor::send_closure(it->second.actor, &FullNodeShard::set_handle, top_handle, std::move(P));
 }
 
-void FullNodeImpl::add_shard(ShardIdFull shard, bool subscribe) {
-  while (true) {
-    auto it = shards_.find(shard);
-    if (it == shards_.end()) {
-      shards_.emplace(shard, FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_,
-                                                   rldp_, overlays_, validator_manager_, client_, subscribe));
-      if (all_validators_.size() > 0) {
-        td::actor::send_closure(shards_[shard], &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state) {
+  std::map<ShardIdFull, BlockIdExt> new_shards;
+  std::set<ShardIdFull> new_active;
+  new_shards[ShardIdFull(masterchainId)] = state->get_block_id();
+  new_active.insert(ShardIdFull(masterchainId));
+  std::set<WorkchainId> workchains;
+  auto cur_time = state->get_unix_time();
+
+  auto set_active = [&](ShardIdFull shard) {
+    while (new_active.insert(shard).second && shard.pfx_len() > 0) {
+      shard = shard_parent(shard);
+    }
+  };
+
+  for (auto &info : state->get_shards()) {
+    auto shard = info->shard();
+    workchains.insert(shard.workchain);
+    new_shards[shard] = info->top_block_id();
+    bool will_split = shard.pfx_len() < max_shard_pfx_len && ((info->fsm_state() == McShardHash::FsmState::fsm_split &&
+                      info->fsm_utime() < cur_time + 60) || info->before_split());
+    bool will_merge = shard.pfx_len() > 0 && ((info->fsm_state() == McShardHash::FsmState::fsm_merge &&
+                      info->fsm_utime() < cur_time + 60) || info->before_merge());
+    if (opts_->need_monitor(shard)) {
+      set_active(shard);
+    }
+    if (will_merge && opts_->need_monitor(shard_parent(shard))) {
+      set_active(shard);
+      set_active(shard_sibling(shard));
+    }
+    for (int id = 0; id < 2; ++id) {
+      if (will_split && opts_->need_monitor(shard_child(shard, id))) {
+        set_active(shard_child(shard, id));
       }
-    } else if (subscribe) {
-      td::actor::send_closure(it->second, &FullNodeShard::subscribe_to_shard);
+    }
+  }
+  for (const auto &wpair : state->get_workchain_list()) {
+    ton::WorkchainId wc = wpair.first;
+    const block::WorkchainInfo *winfo = wpair.second.get();
+    if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= cur_time) {
+      auto shard = ShardIdFull(wc);
+      new_shards[shard] = BlockIdExt(wc, shard.shard, 0, winfo->zerostate_root_hash, winfo->zerostate_file_hash);
+      if (opts_->need_monitor(shard)) {
+        set_active(shard);
+      }
+    }
+  }
+
+  auto info_set_active = [&](ShardIdFull shard, ShardInfo& info, bool active) {
+    if (info.active == active) {
+      return;
+    }
+    if (info.actor.empty()) {
+      add_shard_actor(shard, active);
+      return;
+    }
+    info.active = active;
+    td::actor::send_closure(info.actor, &FullNodeShard::set_active, active);
+    info.delete_at = active ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
+  };
+
+  for (auto shard : new_shards) {
+    auto &info = shards_[shard.first];
+    info.exists = true;
+    if (!info.active && new_active.count(shard.first)) {
+      td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_block_state_short, shard.second, 0,
+                              td::Timestamp::in(60.0), [](td::Result<td::Ref<ShardState>>){});
+    }
+  }
+
+  for (auto& p : shards_) {
+    ShardIdFull shard = p.first;
+    ShardInfo &info = p.second;
+    info.exists = new_shards.count(shard);
+    info_set_active(shard, info, new_active.count(shard));
+  }
+
+  for (ShardIdFull shard : new_active) {
+    info_set_active(shard, shards_[shard], true);
+  }
+
+  auto it = shards_.begin();
+  while (it != shards_.end()) {
+    if (!it->second.active && it->second.delete_at && it->second.delete_at.is_in_past()) {
+      it->second.actor.reset();
+      it->second.delete_at = td::Timestamp::never();
+    }
+    if (!it->second.exists && it->second.actor.empty()) {
+      it = shards_.erase(it);
     } else {
-      break;
+      ++it;
     }
-    if (shard.shard == shardIdAll) {
-      break;
-    }
-    shard = shard_parent(shard);
   }
 }
 
-void FullNodeImpl::del_shard(ShardIdFull shard) {
-  LOG(FATAL) << "deleting shards not implemented: shard=" << shard;
-  shards_.erase(shard);
+void FullNodeImpl::add_shard_actor(ShardIdFull shard, bool active) {
+  ShardInfo &info = shards_[shard];
+  if (!info.actor.empty()) {
+    return;
+  }
+  info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_, rldp_,
+                                     overlays_, validator_manager_, client_, active);
+  info.active = active;
+  info.delete_at = active ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
+  if (all_validators_.size() > 0) {
+    td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+  }
 }
 
 void FullNodeImpl::sync_completed() {
@@ -169,7 +263,7 @@ void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice dat
 }
 
 void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  auto shard = get_shard(block_id.shard_full());
+  auto shard = get_shard(ShardIdFull{masterchainId});
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
     return;
@@ -178,7 +272,7 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 }
 
 void FullNodeImpl::send_broadcast(BlockBroadcast broadcast) {
-  auto shard = get_shard(broadcast.block_id.shard_full());
+  auto shard = get_shard(broadcast.block_id.shard_full(), true);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
@@ -262,19 +356,38 @@ void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, std::string tm
                           std::move(promise));
 }
 
-td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
-  add_shard(ShardIdFull{shard.workchain, shardIdAll});
-  while (shards_.count(shard) == 0) {
-    if (shard.shard == shardIdAll) {
-      return td::actor::ActorId<FullNodeShard>{};
+td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool exact) {
+  if (!exact) {
+    ShardIdFull s = shard;
+    while (true) {
+      auto it = shards_.find(s);
+      if (it != shards_.end() && it->second.exists) {
+        if (it->second.actor.empty()) {
+          add_shard_actor(s, false);
+        }
+        if (!it->second.active) {
+          it->second.delete_at = td::Timestamp::in(INACTIVE_SHARD_TTL);
+        }
+        return it->second.actor.get();
+      }
+      if (s.pfx_len() == 0) {
+        break;
+      }
+      s = shard_parent(s);
     }
-    shard = shard_parent(shard);
   }
-  return shards_[shard].get();
+  auto &info = shards_[shard];
+  if (info.actor.empty()) {
+    add_shard_actor(shard, false);
+  }
+  if (!info.active) {
+    info.delete_at = td::Timestamp::in(INACTIVE_SHARD_TTL);
+  }
+  return info.actor.get();
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(AccountIdPrefixFull dst) {
-  return get_shard(shard_prefix(dst, 60));
+  return get_shard(shard_prefix(dst, max_shard_pfx_len));
 }
 
 void FullNodeImpl::got_key_block_proof(td::Ref<ProofLink> proof) {
@@ -307,7 +420,7 @@ void FullNodeImpl::got_key_block_proof(td::Ref<ProofLink> proof) {
   CHECK(all_validators_.size() > 0);
 
   for (auto &shard : shards_) {
-    td::actor::send_closure(shard.second, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
   }
 }
 
@@ -339,7 +452,9 @@ void FullNodeImpl::got_zero_block_state(td::Ref<ShardState> state) {
   CHECK(all_validators_.size() > 0);
 
   for (auto &shard : shards_) {
-    td::actor::send_closure(shard.second, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    if (!shard.second.actor.empty()) {
+      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    }
   }
 }
 
@@ -384,8 +499,8 @@ void FullNodeImpl::start_up() {
     void initial_read_complete(BlockHandle handle) override {
       td::actor::send_closure(id_, &FullNodeImpl::initial_read_complete, handle);
     }
-    void subscribe_to_shard(ShardIdFull shard) override {
-      td::actor::send_closure(id_, &FullNodeImpl::add_shard, shard, true);
+    void update_shard_configuration(td::Ref<MasterchainState> state) override {
+      td::actor::send_closure(id_, &FullNodeImpl::update_shard_configuration, std::move(state));
     }
     void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_ihr_message, dst, std::move(data));
@@ -443,20 +558,21 @@ void FullNodeImpl::start_up() {
     td::actor::ActorId<FullNodeImpl> id_;
   };
 
-  auto P = td::PromiseCreator::lambda([](td::Unit R) {});
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::install_callback,
-                          std::make_unique<Callback>(actor_id(this)), std::move(P));
+                          std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
 }
 
 FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                           td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
-                           td::actor::ActorId<overlay::Overlays> overlays,
+                           td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<keyring::Keyring> keyring,
+                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+                           td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                            td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                           td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root)
+                           td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
+                           td::Promise<td::Unit> started_promise)
     : local_id_(local_id)
     , adnl_id_(adnl_id)
     , zero_state_file_hash_(zero_state_file_hash)
+    , opts_(opts)
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp_(rldp)
@@ -464,20 +580,23 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , overlays_(overlays)
     , validator_manager_(validator_manager)
     , client_(client)
-    , db_root_(db_root) {
-  add_shard(ShardIdFull{masterchainId}, true);
+    , db_root_(db_root)
+    , started_promise_(std::move(started_promise)) {
+  add_shard_actor(ShardIdFull{masterchainId}, true);
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                                               FileHash zero_state_file_hash,
+                                               FileHash zero_state_file_hash, td::Ref<ValidatorManagerOptions> opts,
                                                td::actor::ActorId<keyring::Keyring> keyring,
                                                td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                                                td::actor::ActorId<dht::Dht> dht,
                                                td::actor::ActorId<overlay::Overlays> overlays,
                                                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root) {
-  return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, keyring, adnl, rldp,
-                                               dht, overlays, validator_manager, client, db_root);
+                                               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
+                                               td::Promise<td::Unit> started_promise) {
+  return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, opts, keyring, adnl,
+                                               rldp, dht, overlays, validator_manager, client, db_root,
+                                               std::move(started_promise));
 }
 
 }  // namespace fullnode

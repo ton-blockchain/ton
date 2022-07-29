@@ -64,10 +64,6 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                std::function<td::Status(td::FileFd&)> write_data,
                                                td::Promise<td::Unit> promise) = 0;
   virtual void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) = 0;
-  virtual void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<td::Ref<ShardState>> promise) = 0;
-  virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                      td::Promise<td::Ref<ShardState>> promise) = 0;
 
   virtual void set_block_data(BlockHandle handle, td::Ref<BlockData> data, td::Promise<td::Unit> promise) = 0;
   virtual void wait_block_data(BlockHandle handle, td::uint32 priority, td::Timestamp,
@@ -135,7 +131,7 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
-  virtual void subscribe_to_shard(ShardIdFull shard) = 0;
+  virtual void update_shard_configuration(td::Ref<MasterchainState> state) = 0;
 
   virtual void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) = 0;
   virtual void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) = 0;

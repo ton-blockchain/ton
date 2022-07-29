@@ -80,7 +80,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   void create_overlay();
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
-  virtual void subscribe_to_shard() override;
+  void set_active(bool active) override;
 
   //td::Result<Block> fetch_block(td::BufferSlice data);
   void prevalidate_block(BlockIdExt block_id, td::BufferSlice data, td::BufferSlice proof,
@@ -204,7 +204,7 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                     td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                    td::actor::ActorId<adnl::AdnlExtClient> client, bool subscribe);
+                    td::actor::ActorId<adnl::AdnlExtClient> client, bool active = true);
 
  private:
   bool use_new_download() const {
@@ -242,7 +242,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::Timestamp ping_neighbours_at_;
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 
-  bool subscribed_ = false;
+  bool active_ = false;
 };
 
 }  // namespace fullnode

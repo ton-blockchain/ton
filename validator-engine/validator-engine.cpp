@@ -1324,18 +1324,6 @@ td::Status ValidatorEngine::load_global_config() {
   }
 
   validator_options_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
-  validator_options_.write().set_shard_check_function(
-      [masterchain_only = masterchain_only_](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
-         ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
-        if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
-          return shard.is_masterchain() || !masterchain_only;
-        }
-        CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
-        return true;
-        /*ton::ShardIdFull p{ton::basechainId, ((cc_seqno * 1ull % 4) << 62) + 1};
-        auto s = ton::shard_prefix(p, 2);
-        return shard.is_masterchain() || ton::shard_intersects(shard, s);*/
-      });
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
   }
@@ -1387,6 +1375,39 @@ td::Status ValidatorEngine::load_global_config() {
   validator_options_.write().set_hardforks(std::move(h));
 
   return td::Status::OK();
+}
+
+void ValidatorEngine::init_validator_options() {
+  if (!masterchain_only_) {
+    validator_options_.write().set_shard_check_function(
+        [](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
+           ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
+          if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
+            return true;
+          }
+          CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
+          return true;
+        });
+  } else {
+    std::vector<ton::ShardIdFull> shards = {ton::ShardIdFull(ton::masterchainId)};
+    for (const auto& c : config_.collators) {
+      shards.push_back(c.shard);
+    }
+    validator_options_.write().set_shard_check_function(
+        [shards = std::move(shards)](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
+                                               ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
+          if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
+            for (auto s : shards) {
+              if (shard_is_ancestor(shard, s)) {
+                return true;
+              }
+            }
+            return false;
+          }
+          CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
+          return true;
+        });
+  }
 }
 
 void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
@@ -1671,6 +1692,7 @@ void ValidatorEngine::got_key(ton::PublicKey key) {
 }
 
 void ValidatorEngine::start() {
+  init_validator_options();
   read_config_ = true;
   start_adnl();
 }
@@ -1825,19 +1847,22 @@ void ValidatorEngine::start_full_node() {
       };
       full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
     }
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+      R.ensure();
+      td::actor::send_closure(SelfId, &ValidatorEngine::started_full_node);
+    });
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,
-        keyring_.get(), adnl_.get(), rldp_.get(),
+        validator_options_, keyring_.get(), adnl_.get(), rldp_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
-        overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
+        overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
+    for (auto &v : config_.validators) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
+                              [](td::Unit) {});
+    }
+  } else {
+    started_full_node();
   }
-
-  for (auto &v : config_.validators) {
-    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
-                            [](td::Unit) {});
-  }
-
-  started_full_node();
 }
 
 void ValidatorEngine::started_full_node() {

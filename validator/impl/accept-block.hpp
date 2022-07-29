@@ -48,20 +48,15 @@ class AcceptBlockQuery : public td::actor::Actor {
  public:
   struct IsFake {};
   struct ForceFork {};
-  struct BroadcastOnly{};
   AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
+                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast, bool apply,
                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
   AcceptBlockQuery(IsFake fake, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                    td::Promise<td::Unit> promise);
   AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
-  AcceptBlockQuery(BroadcastOnly, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                   td::Ref<BlockSignatureSet> approve_signatures, td::actor::ActorId<ValidatorManager> manager,
-                   td::Promise<td::Unit> promise);
 
  private:
   static constexpr td::uint32 priority() {
@@ -103,7 +98,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   bool is_fake_;
   bool is_fork_;
   bool send_broadcast_;
-  bool broadcast_only_{false};
+  bool apply_ = true;
   bool ancestors_split_{false}, is_key_block_{false};
   td::Timestamp timeout_ = td::Timestamp::in(600.0);
   td::actor::ActorId<ValidatorManager> manager_;

@@ -41,7 +41,7 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
+                                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -52,6 +52,7 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , is_fake_(false)
     , is_fork_(false)
     , send_broadcast_(send_broadcast)
+    , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise)) {
   state_keep_old_hash_.clear();
@@ -90,28 +91,6 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-}
-
-AcceptBlockQuery::AcceptBlockQuery(BroadcastOnly, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures,
-                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
-    : id_(id)
-    , data_(std::move(data))
-    , prev_(std::move(prev))
-    , validator_set_(std::move(validator_set))
-    , signatures_(std::move(signatures))
-    , approve_signatures_(std::move(approve_signatures))
-    , is_fake_(false)
-    , is_fork_(false)
-    , send_broadcast_(true)
-    , broadcast_only_(false)
-    , manager_(manager)
-    , promise_(std::move(promise)) {
-  state_keep_old_hash_.clear();
-  state_old_hash_.clear();
-  state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 bool AcceptBlockQuery::precheck_header() {
@@ -357,7 +336,9 @@ bool AcceptBlockQuery::check_send_error(td::actor::ActorId<AcceptBlockQuery> Sel
 }
 
 void AcceptBlockQuery::finish_query() {
-  ValidatorInvariants::check_post_accept(handle_);
+  if (apply_) {
+    ValidatorInvariants::check_post_accept(handle_);
+  }
   if (is_masterchain()) {
     CHECK(handle_->inited_proof());
   } else {
@@ -403,15 +384,6 @@ void AcceptBlockQuery::start_up() {
   }
   if (data_.not_null() && !precheck_header()) {
     fatal_error("invalid block header in AcceptBlock");
-    return;
-  }
-
-  if (broadcast_only_) {
-    if (!create_new_proof()) {
-      fatal_error("cannot generate proof for block "s + id_.to_str());
-      return;
-    }
-    applied();
     return;
   }
 
@@ -479,6 +451,10 @@ void AcceptBlockQuery::written_block_signatures() {
 void AcceptBlockQuery::written_block_info() {
   VLOG(VALIDATOR_DEBUG) << "written block info";
   if (data_.not_null()) {
+    if (!apply_) {
+      written_state({});
+      return;
+    }
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       check_send_error(SelfId, R) ||
           td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_prev_state, R.move_as_ok());
@@ -555,7 +531,7 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
     return;
   }
 
-  if (state_keep_old_hash_ != state_old_hash_) {
+  if (apply_ && state_keep_old_hash_ != state_old_hash_) {
     fatal_error(PSTRING() << "invalid previous state hash in newly-created proof: expected "
                           << state_->root_hash().to_hex() << ", found in update " << state_old_hash_.to_hex());
     return;

@@ -247,39 +247,7 @@ void ShardClient::get_processed_masterchain_block_id(td::Promise<BlockIdExt> pro
 }
 
 void ShardClient::build_shard_overlays() {
-  auto v = masterchain_state_->get_shards();
-  std::set<WorkchainId> workchains;
-
-  for (auto &x : v) {
-    auto shard = x->shard();
-    workchains.insert(shard.workchain);
-    if (opts_->need_monitor(shard)) {
-      auto d = masterchain_state_->soft_min_split_depth(shard.workchain);
-      auto l = shard_prefix_length(shard.shard);
-      if (l > d) {
-        shard = shard_prefix(shard, d);
-      }
-
-      if (created_overlays_.count(shard) == 0) {
-        created_overlays_.insert(shard);
-        td::actor::send_closure(manager_, &ValidatorManager::subscribe_to_shard, shard);
-      }
-    }
-  }
-
-  for (const auto &wpair : masterchain_state_->get_workchain_list()) {
-    ton::WorkchainId wc = wpair.first;
-    const block::WorkchainInfo *winfo = wpair.second.get();
-    if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= masterchain_state_->get_unix_time()) {
-      auto shard = ShardIdFull(wc);
-      if (opts_->need_monitor(shard) && created_overlays_.count(shard) == 0) {
-        td::actor::send_closure(manager_, &ValidatorManager::subscribe_to_shard, shard);
-        BlockIdExt block_id(shard.workchain, shard.shard, 0, winfo->zerostate_root_hash, winfo->zerostate_file_hash);
-        td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, block_id, 0,
-                                      td::Timestamp::in(5.0), [](td::Result<td::Ref<ShardState>>) {});
-      }
-    }
-  }
+  td::actor::send_closure(manager_, &ValidatorManager::update_shard_configuration, masterchain_state_);
 }
 
 void ShardClient::force_update_shard_client(BlockHandle handle, td::Promise<td::Unit> promise) {

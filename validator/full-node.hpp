@@ -52,8 +52,7 @@ class FullNodeImpl : public FullNode {
 
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
-  void add_shard(ShardIdFull shard, bool subscribe = false);
-  void del_shard(ShardIdFull shard);
+  void update_shard_configuration(td::Ref<MasterchainState> state);
 
   void sync_completed();
 
@@ -82,21 +81,31 @@ class FullNodeImpl : public FullNode {
   void start_up() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
-               td::actor::ActorId<overlay::Overlays> overlays,
+               td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<keyring::Keyring> keyring,
+               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+               td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
+               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
+               td::Promise<td::Unit> started_promise);
 
  private:
+  void add_shard_actor(ShardIdFull shard, bool active);
+
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
+  td::Ref<ValidatorManagerOptions> opts_;
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
-  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull dst);
+  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool exact = false);
 
-  std::map<ShardIdFull, td::actor::ActorOwn<FullNodeShard>> shards_;
+  struct ShardInfo {
+    bool exists = false;
+    td::actor::ActorOwn<FullNodeShard> actor;
+    bool active = false;
+    td::Timestamp delete_at = td::Timestamp::never();
+  };
+  std::map<ShardIdFull, ShardInfo> shards_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -112,6 +121,8 @@ class FullNodeImpl : public FullNode {
   std::vector<PublicKeyHash> all_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+
+  td::Promise<td::Unit> started_promise_;
 };
 
 }  // namespace fullnode
