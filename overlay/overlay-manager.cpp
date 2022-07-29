@@ -92,14 +92,15 @@ void OverlayManager::delete_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdSho
 void OverlayManager::create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                            std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) {
   CHECK(!dht_node_.empty());
+  CHECK(callback != nullptr);
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id,
                    Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
                                    std::move(callback), std::move(rules), scope));
 }
 
-void OverlayManager::create_public_overlay_no_subscribe(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                                        OverlayPrivacyRules rules, td::string scope) {
+void OverlayManager::create_public_overlay_external(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+                                                    OverlayPrivacyRules rules, td::string scope) {
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id,
@@ -266,12 +267,16 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
                                               td::uint32 max_peers,
                                               td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) {
   auto it = overlays_.find(local_id);
-  if (it != overlays_.end()) {
-    auto it2 = it->second.find(overlay_id);
-    if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second, &Overlay::get_overlay_random_peers, max_peers, std::move(promise));
-    }
+  if (it == overlays_.end()) {
+    promise.set_error(td::Status::Error(PSTRING() << "no such local id " << local_id));
+    return;
   }
+  auto it2 = it->second.find(overlay_id);
+  if (it2 == it->second.end()) {
+    promise.set_error(td::Status::Error(PSTRING() << "no such overlay " << overlay_id));
+    return;
+  }
+  td::actor::send_closure(it2->second, &Overlay::get_overlay_random_peers, max_peers, std::move(promise));
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,

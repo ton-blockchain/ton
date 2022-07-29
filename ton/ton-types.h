@@ -57,6 +57,8 @@ constexpr unsigned min_split_merge_interval = 30;  // split/merge interval must 
 constexpr unsigned max_split_merge_delay =
     1000;  // end of split/merge interval must be at most 1000 seconds in the future
 
+constexpr int max_shard_pfx_len = 60;
+
 enum GlobalCapabilities {
   capIhrEnabled = 1,
   capCreateStatsEnabled = 2,

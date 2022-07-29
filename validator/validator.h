@@ -111,8 +111,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual ~Callback() = default;
 
     virtual void initial_read_complete(BlockHandle top_masterchain_blocks) = 0;
-    virtual void subscribe_to_shard(ShardIdFull shard) = 0;
-    //virtual void del_shard(ShardIdFull shard) = 0;
+    virtual void update_shard_configuration(td::Ref<ton::validator::MasterchainState> state) = 0;
 
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
@@ -207,6 +206,11 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                               td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
                                           td::Promise<ConstBlockHandle> promise) = 0;
+
+  virtual void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
+                                td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                      td::Promise<td::Ref<ShardState>> promise) = 0;
 
   virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
   virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,

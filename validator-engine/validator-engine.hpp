@@ -276,6 +276,7 @@ class ValidatorEngine : public td::actor::Actor {
   void load_empty_local_config(td::Promise<td::Unit> promise);
   void load_local_config(td::Promise<td::Unit> promise);
   void load_config(td::Promise<td::Unit> promise);
+  void init_validator_options();
 
   void start();
 

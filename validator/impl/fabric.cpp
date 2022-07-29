@@ -127,10 +127,10 @@ td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                            td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
+                            td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast, bool apply,
                             td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>("accept", id, std::move(data), prev, std::move(validator_set),
-                                            std::move(signatures), std::move(approve_signatures), send_broadcast,
+                                            std::move(signatures), std::move(approve_signatures), send_broadcast, apply,
                                             manager, std::move(promise))
       .release();
 }
@@ -148,17 +148,6 @@ void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
                                      td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>("fork/accept", AcceptBlockQuery::ForceFork(), id, std::move(data),
                                             std::move(manager), std::move(promise))
-      .release();
-}
-
-void run_broadcast_only_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                           td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                           td::Ref<BlockSignatureSet> approve_signatures,
-                                           td::actor::ActorId<ValidatorManager> manager,
-                                           td::Promise<td::Unit> promise) {
-  td::actor::create_actor<AcceptBlockQuery>("broadcastaccept", AcceptBlockQuery::BroadcastOnly(), id, std::move(data),
-                                            prev, std::move(validator_set), std::move(signatures),
-                                            std::move(approve_signatures), manager, std::move(promise))
       .release();
 }
 

@@ -105,8 +105,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
 
 void ValidatorGroup::update_approve_cache(td::uint32 round_id, CacheKey key, UnixTime value) {
   if (approved_candidates_cache_round_ != round_id) {
-    approved_candidates_cache_round_ = round_id;
-    approved_candidates_cache_.clear();
+    return;
   }
   approved_candidates_cache_[key] = value;
 }
@@ -157,15 +156,9 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
     }
   });
 
-  if (shard_.is_masterchain() || lite_mode_) {
-    run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
-                           std::move(approve_sig_set), send_broadcast, manager_, std::move(P));
-  } else if (send_broadcast) {
-    run_broadcast_only_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_,
-                                          std::move(sig_set), std::move(approve_sig_set), manager_, std::move(P));
-  } else {
-    promise.set_value(td::Unit());
-  }
+  run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
+                         std::move(approve_sig_set), send_broadcast, shard_.is_masterchain() || !lite_mode_, manager_,
+                         std::move(P));
 }
 
 void ValidatorGroup::skip_round(td::uint32 round_id) {
@@ -386,7 +379,7 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
         td::actor::send_closure(SelfId, &ValidatorGroup::receive_collate_query_response, round_id, R.move_as_ok(),
                                 std::move(promise));
       });
-  LOG(INFO) << "collate query for " << shard_.to_str() << ": send query to " << collator;
+  LOG(INFO) << "collate query for " << create_next_block_id_simple().to_str() << ": send query to " << collator;
   size_t max_answer_size = config_.max_block_size + config_.max_collated_data_size + 256;
   td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, adnl::AdnlNodeIdShort(local_id_), collator, "collatequery",
                           std::move(P), timeout, std::move(query), max_answer_size);
@@ -412,6 +405,7 @@ void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::Buf
   auto key = PublicKey{b->source_};
   if (!key.is_ed25519()) {
     promise.set_error(td::Status::Error("collate query: block candidate source mismatch"));
+    return;
   }
   auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
   if (e_key != Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}) {

@@ -36,7 +36,7 @@ class FullNodeShard : public td::actor::Actor {
   virtual ShardIdFull get_shard_full() const = 0;
 
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
-  virtual void subscribe_to_shard() = 0;
+  virtual void set_active(bool active) = 0;
 
   virtual void send_ihr_message(td::BufferSlice data) = 0;
   virtual void send_external_message(td::BufferSlice data) = 0;
@@ -72,7 +72,7 @@ class FullNodeShard : public td::actor::Actor {
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
       td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
-      bool subscribe);
+      bool active = true);
 };
 
 }  // namespace fullnode

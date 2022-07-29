@@ -251,15 +251,13 @@ class OverlayImpl : public Overlay {
   }
 
  private:
-  bool subscribed() const {
-    return (bool)callback_;
+  bool is_external() const {
+    return callback_ == nullptr;
   }
 
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
-    if (!subscribed()) {
-      return;
-    }
+    CHECK(!is_external());
     callback_->receive_query(src, overlay_id_, serialize_tl_object(&query, true), std::move(promise));
   }
 

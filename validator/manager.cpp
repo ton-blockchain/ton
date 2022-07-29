@@ -377,7 +377,7 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
   }
   auto R = create_ext_message(std::move(data));
   if (R.is_error()) {
-    VLOG(VALIDATOR_NOTICE) << "dropping bad ihr message: " << R.move_as_error();
+    VLOG(VALIDATOR_NOTICE) << "dropping bad external message: " << R.move_as_error();
     return;
   }
   add_external_message(R.move_as_ok());
@@ -453,9 +453,9 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
     }
     shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}] = desc;
     VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id();
-    if (last_masterchain_block_handle_ && last_masterchain_seqno_ > 0 &&
-        desc->generated_at() < last_masterchain_block_handle_->unix_time() + 60) {
-      delay_action(
+    if (opts_->need_monitor(desc->block_id().shard_full()) && last_masterchain_block_handle_ &&
+        last_masterchain_seqno_ > 0 && desc->generated_at() < last_masterchain_block_handle_->unix_time() + 60) {
+        delay_action(
           [SelfId = actor_id(this), desc]() {
             auto P = td::PromiseCreator::lambda([](td::Result<td::Ref<ShardState>> R) {
               if (R.is_error()) {
@@ -2367,8 +2367,8 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
   }
 }
 
-void ValidatorManagerImpl::subscribe_to_shard(ShardIdFull shard) {
-  callback_->subscribe_to_shard(shard);
+void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state) {
+  callback_->update_shard_configuration(state);
 }
 
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {
@@ -2397,6 +2397,7 @@ void ValidatorManagerImpl::get_archive_slice(td::uint64 archive_id, td::uint64 o
 }
 
 bool ValidatorManagerImpl::is_validator() {
+  // TODO: change is_vaidator to other condition in some cases
   return true; // temp_keys_.size() > 0 || permanent_keys_.size() > 0;
 }
 
@@ -2700,6 +2701,9 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
     it = collator_nodes_.emplace(id, std::move(actor)).first;
   }
   td::actor::send_closure(it->second, &CollatorNode::add_shard, shard);
+  if (shard.is_masterchain()) {
+    collating_masterchain_ = true;
+  }
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
