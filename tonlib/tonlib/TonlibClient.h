@@ -311,6 +311,9 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::smc_runGetMethod& request,
                         td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise);
 
+  td::Status do_request(const tonlib_api::smc_getLibraries& request,
+                        td::Promise<object_ptr<tonlib_api::smc_libraryResult>>&& promise);
+
   td::Status do_request(const tonlib_api::dns_resolve& request,
                         td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
