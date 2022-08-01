@@ -356,6 +356,18 @@ void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, std::string tm
                           std::move(promise));
 }
 
+void FullNodeImpl::download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
+                                                td::Promise<td::Ref<OutMsgQueueProof>> promise) {
+  auto shard = get_shard(block_id.shard_full());
+  if (shard.empty()) {
+    VLOG(FULL_NODE_WARNING) << "dropping download msg queue query to unknown shard";
+    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
+    return;
+  }
+  td::actor::send_closure(shard, &FullNodeShard::download_out_msg_queue_proof, block_id, dst_shard, timeout,
+                          std::move(promise));
+}
+
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool exact) {
   if (!exact) {
     ShardIdFull s = shard;
@@ -544,6 +556,11 @@ void FullNodeImpl::start_up() {
     void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                           td::Promise<std::string> promise) override {
       td::actor::send_closure(id_, &FullNodeImpl::download_archive, masterchain_seqno, std::move(tmp_dir), timeout,
+                              std::move(promise));
+    }
+    void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
+                                      td::Promise<td::Ref<OutMsgQueueProof>> promise) override {
+      td::actor::send_closure(id_, &FullNodeImpl::download_out_msg_queue_proof, block_id, dst_shard, timeout,
                               std::move(promise));
     }
 

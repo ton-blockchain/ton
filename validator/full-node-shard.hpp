@@ -133,6 +133,8 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
+                     td::Promise<td::BufferSlice> promise);
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
@@ -164,6 +166,8 @@ class FullNodeShardImpl : public FullNodeShard {
                            td::Promise<std::vector<BlockIdExt>> promise) override;
   void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                         td::Promise<std::string> promise) override;
+  void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
+                                    td::Promise<td::Ref<OutMsgQueueProof>> promise) override;
 
   void set_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
