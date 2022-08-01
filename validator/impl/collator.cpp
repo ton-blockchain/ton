@@ -501,7 +501,13 @@ void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res) {
       prev_mc_block = prev_block_data[0];
       mc_block_root = prev_mc_block->root_cell();
     }
-    blocks_with_state_proofs_[prev_block_data[idx]->root_cell()->get_hash().bits()] = prev_block_data[idx];
+    Ref<vm::Cell> root = prev_block_data[idx]->root_cell();
+    auto proof = create_block_state_proof(root);
+    if (proof.is_error()) {
+      fatal_error(proof.move_as_error());
+      return;
+    }
+    block_state_proofs_.emplace(root->get_hash().bits(), proof.move_as_ok());
   }
   check_pending();
 }
@@ -613,54 +619,39 @@ bool Collator::request_neighbor_msg_queues() {
     }
     neighbors_.emplace_back(*shard_ptr);
   }
-  int i = 0;
+  unsigned i = 0;
   neighbor_proof_builders_.resize(neighbors_.size());
   for (block::McShardDescr& descr : neighbors_) {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
-    if (descr.blk_.seqno() != 0) {
-      ++pending;
-      send_closure_later(manager, &ValidatorManager::wait_block_data_short, descr.blk_, priority(), timeout,
-                         [self = get_self(), i](td::Result<Ref<BlockData>> res) {
-                           LOG(DEBUG) << "got answer to wait_block_data for neighbor #" << i;
-                           send_closure_later(std::move(self), &Collator::got_neighbor_block_data, std::move(res));
-                         });
-    }
     ++pending;
-    send_closure_later(manager, &ValidatorManager::wait_block_state_short, descr.blk_, priority(), timeout,
-                       [self = get_self(), i](td::Result<Ref<ShardState>> res) {
-                         LOG(DEBUG) << "got answer to wait_block_state for neighbor #" << i;
-                         send_closure_later(std::move(self), &Collator::got_neighbor_block_state, i, std::move(res));
+    send_closure_later(manager, &ValidatorManager::wait_out_msg_queue_proof, descr.blk_, shard_, priority(), timeout,
+                       [self = get_self(), i](td::Result<Ref<OutMsgQueueProof>> res) {
+                         LOG(DEBUG) << "got msg queue for neighbor #" << i;
+                         send_closure_later(std::move(self), &Collator::got_neighbor_msg_queue, i, std::move(res));
                        });
     ++i;
   }
   return true;
 }
 
-void Collator::got_neighbor_block_data(td::Result<Ref<BlockData>> res) {
+void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProof>> R) {
   --pending;
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
+  if (R.is_error()) {
+    fatal_error(R.move_as_error());
     return;
   }
-  auto block_data = res.move_as_ok();
-  blocks_with_state_proofs_[block_data->root_cell()->get_hash().bits()] = block_data;
-  check_pending();
-}
-
-void Collator::got_neighbor_block_state(int i, td::Result<Ref<ShardState>> res) {
-  --pending;
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
+  auto res = R.move_as_ok();
+  BlockIdExt block_id = neighbors_.at(i).blk_;
+  if (res->block_state_proof_.not_null()) {
+    block_state_proofs_.emplace(block_id.root_hash, res->block_state_proof_);
+  }
+  neighbor_proof_builders_.at(i) = vm::MerkleProofBuilder{res->state_root_};
+  auto state = ShardStateQ::fetch(block_id, {}, neighbor_proof_builders_.at(i).root());
+  if (state.is_error()) {
+    fatal_error(state.move_as_error());
     return;
   }
-  Ref<ShardState> state = res.move_as_ok();
-  neighbor_proof_builders_.at(i) = vm::MerkleProofBuilder{state->root_cell()};
-  auto new_state = ShardStateQ::fetch(state->get_block_id(), {}, neighbor_proof_builders_.at(i).root());
-  if (new_state.is_error()) {
-    fatal_error(new_state.move_as_error());
-    return;
-  }
-  auto outq_descr_res = new_state.move_as_ok()->message_queue();
+  auto outq_descr_res = state.move_as_ok()->message_queue();
   if (outq_descr_res.is_error()) {
     fatal_error(outq_descr_res.move_as_error());
     return;
@@ -3992,17 +3983,8 @@ bool Collator::create_collated_data() {
     collated_roots_.push_back(std::move(cell));
   }
   // 2. Proofs for hashes of states: previous states + neighbors
-  for (const auto& p : blocks_with_state_proofs_) {
-    vm::MerkleProofBuilder mpb{p.second->root_cell()};
-    block::gen::Block::Record block;
-    if (!tlb::unpack_cell(mpb.root(), block) || block.state_update->load_cell().is_error()) {
-      return fatal_error("cannot generate Merkle proof for previous block");
-    }
-    Ref<vm::Cell> proof = mpb.extract_proof();
-    if (proof.is_null()) {
-      return fatal_error("cannot generate Merkle proof for previous block");
-    }
-    collated_roots_.push_back(std::move(proof));
+  for (const auto& p : block_state_proofs_) {
+    collated_roots_.push_back(p.second);
   }
   // 3. Previous state proof (only shadchains)
   std::map<td::Bits256, Ref<vm::Cell>> proofs;

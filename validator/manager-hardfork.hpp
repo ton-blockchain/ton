@@ -182,6 +182,10 @@ class ValidatorManagerImpl : public ValidatorManager {
                         td::Promise<td::Ref<ShardState>> promise) override;
   void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
+  void wait_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::uint32 priority, td::Timestamp timeout,
+                                td::Promise<td::Ref<OutMsgQueueProof>> promise) override {
+    UNREACHABLE();
+  }
 
   void set_block_data(BlockHandle handle, td::Ref<BlockData> data, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
@@ -313,6 +317,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void send_block_broadcast(BlockBroadcast broadcast) override {
+  }
+  void send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard, td::uint32 priority,
+                                            td::Promise<td::Ref<OutMsgQueueProof>> promise) override {
+    UNREACHABLE();
   }
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override {

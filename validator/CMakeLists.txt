@@ -43,6 +43,7 @@ set(VALIDATOR_HEADERS
   fabric.h
   interfaces/db.h
   interfaces/external-message.h
+  interfaces/out-msg-queue-proof.h
   interfaces/proof.h
   interfaces/shard.h
   interfaces/signature-set.h

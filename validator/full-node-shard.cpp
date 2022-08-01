@@ -19,6 +19,7 @@
 #include "auto/tl/ton_api.h"
 #include "overlays.h"
 #include "td/utils/SharedSlice.h"
+#include "td/utils/overloaded.h"
 #include "full-node-shard.hpp"
 #include "full-node-shard-queries.hpp"
 
@@ -34,6 +35,7 @@
 #include "net/download-proof.hpp"
 #include "net/get-next-key-blocks.hpp"
 #include "net/download-archive-slice.hpp"
+#include "impl/out-msg-queue-proof.hpp"
 
 #include "td/utils/Random.h"
 
@@ -574,6 +576,31 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
                           query.offset_, query.max_size_, std::move(promise));
 }
 
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  BlockIdExt block_id = create_block_id(query.block_id_);
+  ShardIdFull dst_shard(query.dst_workchain_, query.dst_shard_);
+  if (!block_id.is_valid_ext()) {
+    promise.set_error(td::Status::Error("invalid block_id"));
+    return;
+  }
+  if (!dst_shard.is_valid_ext()) {
+    promise.set_error(td::Status::Error("invalid shard"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise)](td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(create_serialize_tl_object<ton_api::tonNode_outMsgQueueProofEmpty>());
+        } else {
+          promise.set_result(serialize_tl_object(R.move_as_ok(), true));
+        }
+      });
+  td::actor::create_actor<BuildOutMsgQueueProof>("buildqueueproof", block_id, dst_shard, validator_manager_,
+                                                 std::move(P))
+      .release();
+}
+
 void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                       td::Promise<td::BufferSlice> promise) {
   if (!active_) {
@@ -789,6 +816,32 @@ void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, std::stri
       "archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), timeout,
       validator_manager_, rldp_, overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
       .release();
+}
+
+void FullNodeShardImpl::download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
+                                                     td::Promise<td::Ref<OutMsgQueueProof>> promise) {
+  // TODO: maybe more complex download (like other requests here)
+  // TODO: estimate max size
+  auto &b = choose_neighbour();
+  auto P = td::PromiseCreator::lambda(
+      [=, promise = create_neighbour_promise(b, std::move(promise))](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(R.move_as_error());
+          return;
+        }
+        TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::tonNode_OutMsgQueueProof>(R.move_as_ok(), true));
+        ton_api::downcast_call(*f, td::overloaded(
+                                       [&](ton_api::tonNode_outMsgQueueProofEmpty &x) {
+                                         promise.set_error(td::Status::Error("node doesn't have this block"));
+                                       },
+                                       [&](ton_api::tonNode_outMsgQueueProof &x) {
+                                         promise.set_result(OutMsgQueueProof::fetch(block_id, dst_shard, x));
+                                       }));
+      });
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getOutMsgQueueProof>(
+      create_tl_block_id(block_id), dst_shard.workchain, dst_shard.shard);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, b.adnl_id, adnl_id_, overlay_id_,
+                          "get_msg_queue", std::move(P), timeout, std::move(query), 1 << 20, rldp_);
 }
 
 void FullNodeShardImpl::set_handle(BlockHandle handle, td::Promise<td::Unit> promise) {

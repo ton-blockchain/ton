@@ -29,6 +29,7 @@
 #include "liteserver.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "validator-session/validator-session-types.h"
+#include "impl/out-msg-queue-proof.hpp"
 
 namespace ton {
 
@@ -128,6 +129,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
   virtual void send_block_broadcast(BlockBroadcast broadcast) = 0;
+  virtual void send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard, td::uint32 priority,
+                                                    td::Promise<td::Ref<OutMsgQueueProof>> promise) = 0;
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
