@@ -146,7 +146,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     dht_vec.push_back(ton::create_tl_object<ton::ton_api::engine_dht>(x.tl()));
   }
 
-  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator>> val_vec;
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_Validator>> val_vec;
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;
