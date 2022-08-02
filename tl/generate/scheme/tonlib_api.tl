@@ -289,7 +289,7 @@ smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
-smc.getLibrary library_hash:int256 = smc.LibraryResult;
+smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
 
 dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 
