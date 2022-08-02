@@ -26,7 +26,7 @@ namespace ton {
 namespace validator {
 
 td::Result<td::Ref<OutMsgQueueProof>> OutMsgQueueProof::fetch(BlockIdExt block_id, ShardIdFull dst_shard,
-                                                              const ton_api::tonNode_outMsgQueueProof &f) {
+                                                              const ton_api::tonNode_outMsgQueueProof& f) {
   Ref<vm::Cell> block_state_proof;
   td::Bits256 state_root_hash;
   if (block_id.seqno() == 0) {
@@ -40,20 +40,30 @@ td::Result<td::Ref<OutMsgQueueProof>> OutMsgQueueProof::fetch(BlockIdExt block_i
   }
 
   TRY_RESULT(queue_proof, vm::std_boc_deserialize(f.queue_proof_.as_slice()));
-  auto state_root = vm::MerkleProof::virtualize(queue_proof, 1);
-  if (state_root.is_null()) {
+  auto virtual_root = vm::MerkleProof::virtualize(queue_proof, 1);
+  if (virtual_root.is_null()) {
     return td::Status::Error("invalid queue proof");
   }
-  if (state_root->get_hash().as_slice() != state_root_hash.as_slice()) {
+  if (virtual_root->get_hash().as_slice() != state_root_hash.as_slice()) {
     return td::Status::Error("state root hash mismatch");
   }
 
-  // TODO: validate
-  return Ref<OutMsgQueueProof>(true, std::move(state_root), std::move(block_state_proof));
+  // Validate proof
+  auto state_root = vm::CellSlice(vm::NoVm(), queue_proof).prefetch_ref(0);
+  TRY_RESULT_PREFIX(state, ShardStateQ::fetch(block_id, {}, state_root), "invalid proof: ");
+  TRY_RESULT_PREFIX(queue, state->message_queue(), "invalid proof: ");
+  auto queue_root = queue->root_cell();
+  if (queue_root->get_level() != 0) {
+    return td::Status::Error("invalid proof: msg queue has prunned branches");
+  }
+
+  return Ref<OutMsgQueueProof>(true, std::move(virtual_root), std::move(block_state_proof));
 }
 
-td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::serialize(
-    BlockIdExt block_id, ShardIdFull dst_shard, Ref<vm::Cell> state_root, Ref<vm::Cell> block_root) {
+td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::serialize(BlockIdExt block_id,
+                                                                                         ShardIdFull dst_shard,
+                                                                                         Ref<vm::Cell> state_root,
+                                                                                         Ref<vm::Cell> block_root) {
   vm::MerkleProofBuilder mpb{std::move(state_root)};
   TRY_RESULT(state, ShardStateQ::fetch(block_id, {}, mpb.root()));
   TRY_RESULT(outq_descr, state->message_queue());
