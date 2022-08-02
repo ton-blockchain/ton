@@ -1,4 +1,4 @@
-name: "Nightly deb and rpm build (static glibc)"
+name: "Nightly deb and rpm build (musl binaries + old glibc dylibs)"
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -20,7 +20,7 @@ jobs:
       with:
         name: ton
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - run: nix build .?submodules=1#packages.x86_64-linux-static.ton --print-build-logs
+    - run: nix build .?submodules=1#packages.x86_64-linux-oldglibc_staticbinaries --print-build-logs
     - run: |
         nix develop \
           --command bash -e -c '
