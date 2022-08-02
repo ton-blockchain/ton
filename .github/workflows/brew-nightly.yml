@@ -1,0 +1,45 @@
+name: "Nightly brew build"
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-12
+    env:
+      SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+    - uses: cachix/install-nix-action@v17
+    - uses: cachix/cachix-action@v10
+      with:
+        name: ton
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build .?submodules=1 --print-build-logs
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            mkdir packages-out
+            ./packages/brew.sh packages-out $PWD/packages/brew $PWD/result*'
+    - if: ${{ !env.ACT }}
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries
+        path: result*
+    - run: |
+        ssh-agent -a $SSH_AUTH_SOCK > /dev/null
+        ssh-add - <<< "${{ secrets.PACKAGES_REPO_KEY }}"
+        git config --global user.name ghactions
+        git config --global user.email actions@github.com
+    - run: |
+        git clone git@github.com:tonthemoon/ton-repo.git
+        mkdir -p ton-repo/{brew,Formula}
+        cp packages-out/brew-install/*.tar.gz ton-repo/brew
+        cp packages-out/brew-install/*.rb ton-repo/Formula
+    - run: |
+        cd ton-repo
+        git add .
+        git commit -m "Import nightly $(date -I)"
+        git push
