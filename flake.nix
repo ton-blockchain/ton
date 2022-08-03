@@ -1,6 +1,7 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
+    nixpkgs-trunk.url = "github:nixos/nixpkgs";
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
@@ -8,7 +9,7 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-compat, flake-utils }:
+  outputs = { self, nixpkgs-stable, nixpkgs-trunk, flake-compat, flake-utils }:
     let
       ton = { host, pkgs ? host, stdenv ? pkgs.stdenv, staticGlibc ? false
         , staticMusl ? false, staticExternalDeps ? staticGlibc }:
@@ -53,10 +54,20 @@
           outputs = [ "bin" "out" ];
         };
     in with flake-utils.lib;
-    eachSystem (with system; [ x86_64-linux x86_64-darwin aarch64-linux aarch64-darwin ]) (system:
-      let host = nixpkgs.legacyPackages.${system};
+    eachSystem
+    (with system; [ x86_64-linux x86_64-darwin aarch64-linux aarch64-darwin ])
+    (system:
+      let
+        host = import nixpkgs-stable {
+          inherit system;
+          overlays = [
+            (self: super: {
+              zchunk = nixpkgs-trunk.legacyPackages.${system}.zchunk;
+            })
+          ];
+        };
       in { defaultPackage = ton { inherit host; }; })
-    // (let host = nixpkgs.legacyPackages.x86_64-linux;
+    // (let host = nixpkgs-stable.legacyPackages.x86_64-linux;
     in {
       packages = rec {
         #test = host.mkShell { nativeBuildInputs = [ host.cmake ]; };
@@ -67,7 +78,7 @@
         };
         x86_64-linux-musl.ton = ton {
           inherit host;
-          pkgs = nixpkgs.legacyPackages.x86_64-linux.pkgsStatic;
+          pkgs = nixpkgs-stable.legacyPackages.x86_64-linux.pkgsStatic;
           staticMusl = true;
         };
         x86_64-linux-oldglibc.ton = (let
@@ -81,7 +92,7 @@
             sha256 = "1vp1h2gkkrckp8dzkqnpcc6xx5lph5d2z46sg2cwzccpr8ay58zy";
           }) { localSystem = "x86_64-linux"; });
           glibc227 = nixos1909.glibc // { pname = "glibc"; };
-          pkgs = import nixpkgs {
+          pkgs = import nixpkgs-stable {
             system = "x86_64-linux";
             overlays = [
               # XXX
