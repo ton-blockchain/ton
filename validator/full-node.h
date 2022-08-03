@@ -72,15 +72,12 @@ class FullNode : public td::actor::Actor {
     return 4ull << 30;
   }
 
-  static td::actor::ActorOwn<FullNode> create(ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                                              FileHash zero_state_file_hash, td::Ref<ValidatorManagerOptions> opts,
-                                              td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                                              td::actor::ActorId<dht::Dht> dht,
-                                              td::actor::ActorId<overlay::Overlays> overlays,
-                                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                              td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
-                                              td::Promise<td::Unit> started_promise);
+  static td::actor::ActorOwn<FullNode> create(
+      ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
+      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
+      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+      td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise);
 };
 
 }  // namespace fullnode

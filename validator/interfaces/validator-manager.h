@@ -134,7 +134,7 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
-  virtual void update_shard_configuration(td::Ref<MasterchainState> state) = 0;
+  virtual void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) = 0;
 
   virtual void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) = 0;
   virtual void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) = 0;

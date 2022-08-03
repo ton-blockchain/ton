@@ -372,7 +372,7 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
   if (!is_validator()) {
     return;
   }
-  if( ext_messages_.size() > max_mempool_num() ) {
+  if ((double)ext_messages_.size() > max_mempool_num()) {
     return;
   }
   auto R = create_ext_message(std::move(data));
@@ -453,7 +453,7 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
     }
     shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}] = desc;
     VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id();
-    if (opts_->need_monitor(desc->block_id().shard_full())) {
+    if (shards_to_monitor_.count(desc->block_id().shard_full())) {
       auto P = td::PromiseCreator::lambda([](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error()) {
           auto S = R.move_as_error();
@@ -612,7 +612,7 @@ void ValidatorManagerImpl::wait_out_msg_queue_proof(BlockIdExt block_id, ShardId
                                   std::move(R));
         });
     auto id = td::actor::create_actor<WaitOutMsgQueueProof>("waitmsgqueue", block_id, dst_shard,
-                                                            opts_->need_monitor(block_id.shard_full()), priority,
+                                                            shards_to_monitor_.count(block_id.shard_full()), priority,
                                                             actor_id(this), td::Timestamp::in(10.0), std::move(P))
                   .release();
     wait_out_msg_queue_proof_[key].actor_ = id;
@@ -1073,8 +1073,8 @@ void ValidatorManagerImpl::finished_wait_msg_queue(BlockIdExt block_id, ShardIdF
                                       std::move(R));
             });
         auto id = td::actor::create_actor<WaitOutMsgQueueProof>("waitmsgqueue", block_id, dst_shard,
-                                                                opts_->need_monitor(block_id.shard_full()), X.second,
-                                                                actor_id(this), X.first, std::move(P))
+                                                                shards_to_monitor_.count(block_id.shard_full()),
+                                                                X.second, actor_id(this), X.first, std::move(P))
                       .release();
         it->second.actor_ = id;
         return;
@@ -2425,8 +2425,10 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
   }
 }
 
-void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state) {
-  callback_->update_shard_configuration(state);
+void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state,
+                                                      std::set<ShardIdFull> shards_to_monitor) {
+  shards_to_monitor_ = shards_to_monitor;
+  callback_->update_shard_configuration(std::move(state), std::move(shards_to_monitor));
 }
 
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {

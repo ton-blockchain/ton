@@ -52,7 +52,7 @@ class FullNodeImpl : public FullNode {
 
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
-  void update_shard_configuration(td::Ref<MasterchainState> state);
+  void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
 
   void sync_completed();
 
@@ -83,9 +83,9 @@ class FullNodeImpl : public FullNode {
   void start_up() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<keyring::Keyring> keyring,
-               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-               td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
+               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
+               td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
                td::Promise<td::Unit> started_promise);
@@ -96,7 +96,6 @@ class FullNodeImpl : public FullNode {
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
-  td::Ref<ValidatorManagerOptions> opts_;
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
   td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool exact = false);
