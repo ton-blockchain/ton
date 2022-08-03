@@ -112,7 +112,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual ~Callback() = default;
 
     virtual void initial_read_complete(BlockHandle top_masterchain_blocks) = 0;
-    virtual void update_shard_configuration(td::Ref<ton::validator::MasterchainState> state) = 0;
+    virtual void update_shard_configuration(td::Ref<ton::validator::MasterchainState> state,
+                                            std::set<ShardIdFull> shards_to_monitor) = 0;
 
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;

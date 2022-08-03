@@ -91,7 +91,7 @@ void ShardClient::start_up_init_mode() {
 
   auto vec = masterchain_state_->get_shards();
   for (auto &shard : vec) {
-    if (opts_->need_monitor(shard->shard())) {
+    if (shards_to_monitor_.count(shard->shard())) {
       auto P = td::PromiseCreator::lambda([promise = ig.get_promise()](td::Result<td::Ref<ShardState>> R) mutable {
         R.ensure();
         promise.set_value(td::Unit());
@@ -192,7 +192,7 @@ void ShardClient::apply_all_shards() {
 
   auto vec = masterchain_state_->get_shards();
   for (auto &shard : vec) {
-    if (opts_->need_monitor(shard->shard())) {
+    if (shards_to_monitor_.count(shard->shard())) {
       auto Q = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = ig.get_promise(),
                                            shard = shard->shard()](td::Result<td::Ref<ShardState>> R) mutable {
         if (R.is_error()) {
@@ -247,7 +247,54 @@ void ShardClient::get_processed_masterchain_block_id(td::Promise<BlockIdExt> pro
 }
 
 void ShardClient::build_shard_overlays() {
-  td::actor::send_closure(manager_, &ValidatorManager::update_shard_configuration, masterchain_state_);
+  std::set<ShardIdFull> new_shards_to_monitor;
+  std::set<WorkchainId> workchains;
+  auto cur_time = masterchain_state_->get_unix_time();
+  new_shards_to_monitor.insert(ShardIdFull(masterchainId));
+  for (const auto &info : masterchain_state_->get_shards()) {
+    auto shard = info->shard();
+    workchains.insert(shard.workchain);
+    bool will_split = shard.pfx_len() < max_shard_pfx_len &&
+                      ((info->fsm_state() == McShardHash::FsmState::fsm_split && info->fsm_utime() < cur_time + 60) ||
+                       info->before_split());
+    bool will_merge = shard.pfx_len() > 0 &&
+                      ((info->fsm_state() == McShardHash::FsmState::fsm_merge && info->fsm_utime() < cur_time + 60) ||
+                       info->before_merge());
+    if (opts_->need_monitor(shard) || (will_merge && opts_->need_monitor(shard_parent(shard)))) {
+      new_shards_to_monitor.insert(shard);
+    }
+    if (will_merge && opts_->need_monitor(shard_parent(shard))) {
+      new_shards_to_monitor.insert(shard_parent(shard));
+    }
+    if (will_split) {
+      for (int id = 0; id < 2; ++id) {
+        if (opts_->need_monitor(shard_child(shard, id))) {
+          new_shards_to_monitor.insert(shard_child(shard, id));
+        }
+      }
+    }
+  }
+
+  std::vector<BlockIdExt> new_workchains;
+  for (const auto &wpair : masterchain_state_->get_workchain_list()) {
+    ton::WorkchainId wc = wpair.first;
+    const block::WorkchainInfo *winfo = wpair.second.get();
+    auto shard = ShardIdFull(wc);
+    if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= cur_time && opts_->need_monitor(shard)) {
+      new_shards_to_monitor.insert(shard);
+      if (shards_to_monitor_.count(shard) == 0) {
+        new_workchains.push_back(BlockIdExt(wc, shardIdAll, 0, winfo->zerostate_root_hash, winfo->zerostate_file_hash));
+      }
+    }
+  }
+
+  td::actor::send_closure(manager_, &ValidatorManager::update_shard_configuration, masterchain_state_,
+                          new_shards_to_monitor);
+  shards_to_monitor_ = std::move(new_shards_to_monitor);
+  for (BlockIdExt block_id : new_workchains) {
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, block_id, shard_client_priority(),
+                            td::Timestamp::in(60.0), [](td::Result<td::Ref<ShardState>>) {});
+  }
 }
 
 void ShardClient::force_update_shard_client(BlockHandle handle, td::Promise<td::Unit> promise) {
