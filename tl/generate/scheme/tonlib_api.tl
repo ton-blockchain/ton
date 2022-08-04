@@ -4,6 +4,7 @@ string ? = String;
 int32 = Int32;
 int53 = Int53;
 int64 = Int64;
+int256 8*[ int32 ] = Int256;
 bytes = Bytes;
 secureString = SecureString;
 secureBytes = SecureBytes;
@@ -53,6 +54,8 @@ raw.fullAccountState balance:int64 code:bytes data:bytes last_transaction_id:int
 raw.message source:accountAddress destination:accountAddress value:int64 fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes msg_data:msg.Data = raw.Message;
 raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
+
+raw.extMessageInfo body_hash:bytes = raw.ExtMessageInfo;
 
 pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
 
@@ -117,11 +120,11 @@ dns.entryDataNextResolver resolver:AccountAddress = dns.EntryData;
 dns.entryDataSmcAddress smc_address:AccountAddress = dns.EntryData;
 dns.entryDataAdnlAddress adnl_address:AdnlAddress = dns.EntryData;
 
-dns.entry name:string category:int32 entry:dns.EntryData = dns.Entry;
+dns.entry name:string category:int256 entry:dns.EntryData = dns.Entry;
 
 dns.actionDeleteAll = dns.Action;
 // use category = 0 to delete all entries
-dns.actionDelete name:string category:int32 = dns.Action;
+dns.actionDelete name:string category:int256 = dns.Action;
 dns.actionSet entry:dns.entry = dns.Action;
 
 dns.resolved entries:vector<dns.entry> = dns.Resolved;
@@ -245,7 +248,7 @@ getBip39Hints prefix:string = Bip39Hints;
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountState account_address:accountAddress = raw.FullAccountState;
 raw.getTransactions private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
-raw.sendMessage body:bytes  = Ok;
+raw.sendMessage body:bytes = raw.ExtMessageInfo;
 raw.createAndSendMessage destination:accountAddress initial_account_state:bytes data:bytes = Ok;
 raw.createQuery destination:accountAddress init_code:bytes init_data:bytes body:bytes = query.Info;
 
@@ -283,7 +286,7 @@ smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
-dns.resolve account_address:accountAddress name:string category:int32 ttl:int32 = dns.Resolved;
+dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 
 pchan.signPromise input_key:InputKey promise:pchan.promise = pchan.Promise;
 pchan.validatePromise public_key:bytes promise:pchan.promise = Ok;

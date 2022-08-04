@@ -1939,103 +1939,59 @@ class MasterConfig {
 const MasterConfig& get_default_master_config() {
   static MasterConfig config = [] {
     MasterConfig res;
-    res.add_config("testnet", R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "file_hash": "BzgfRpFgyNjHI7aR5KQhq4Wtr2wN+sXzLaW+rfHvP5A=",
-      "seqno": 0,
-      "root_hash": "WPsS1IiRjT0MSD6Xvys4QYQh7rrc9x0ybzXojwJ4gH0=",
-      "workchain": -1,
-      "shard": -9223372036854775808
-    },
-      "init_block":{
-         "file_hash":"CXvKA37GFugspx6U7sv4Sh7KIVqR1R+Pj4AmGx2Ezi0=",
-         "seqno":2908533,
-         "root_hash":"oFi1uMHmELXV/AfjuvTZREmRY7TtNgq608sFjnRJCAo=",
-         "workchain":-1,
-         "shard":-9223372036854775808
-      },
-      "hardforks":[
-         {
-            "file_hash":"x97xobbkPDggz7/u6KQzlT3pBmM5XfGE6vN7AiuTMU0=",
-            "seqno":1907338,
-            "root_hash":"BuZOCJvbg0ys2JBnfocqCf1T4rt0OzLLslOG3CjcSgU=",
-            "workchain":-1,
-            "shard":-9223372036854775808
-         },
-         {
-           "file_hash": "CXvKA37GFugspx6U7sv4Sh7KIVqR1R+Pj4AmGx2Ezi0=",
-           "seqno": 2908533,
-           "root_hash": "oFi1uMHmELXV/AfjuvTZREmRY7TtNgq608sFjnRJCAo=",
-           "workchain": -1,
-           "shard": -9223372036854775808
-         }
-      ]
-  }
-})abc");
     res.add_config("mainnet", R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
-      "seqno": 0,
-      "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
-      "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
-    },
-   "init_block" : {
-      "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
-      "seqno": 10171687,
-      "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
-      "workchain": -1,
-      "shard": -9223372036854775808
-    },
-   "hardforks": [
-      {
-        "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
-         "seqno": 8536841,
-         "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
-         "workchain": -1,
-         "shard": -9223372036854775808
-     }
-   ]
-  }
-})abc");
-    res.add_config("testnet2", R"abc({
-  "liteservers": [
-  ],
-  "validator": {
-    "@type": "validator.config.global",
-    "zero_state": {
-      "workchain": -1,
-      "shard": -9223372036854775808,
-      "seqno": 0,
-      "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
-      "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
-    },
-   "init_block" : {
-      "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
-      "seqno": 10171687,
-      "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
-      "workchain": -1,
-      "shard": -9223372036854775808
-    },
-   "hardforks": [
-      {
-        "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
-         "seqno": 8536841,
-         "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
-         "workchain": -1,
-         "shard": -9223372036854775808
-     }
-   ]
-  }
-})abc");
+      "liteservers": [
+      ],
+      "validator": {
+        "@type": "validator.config.global",
+        "zero_state": {
+          "workchain": -1,
+          "shard": -9223372036854775808,
+          "seqno": 0,
+          "root_hash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk=",
+          "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
+        },
+        "init_block" : {
+          "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
+          "seqno": 10171687,
+          "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
+          "workchain": -1,
+          "shard": -9223372036854775808
+        },
+        "hardforks": [
+          {
+            "file_hash": "t/9VBPODF7Zdh4nsnA49dprO69nQNMqYL+zk5bCjV/8=",
+            "seqno": 8536841,
+            "root_hash": "08Kpc9XxrMKC6BF/FeNHPS3MEL1/Vi/fQU/C9ELUrkc=",
+            "workchain": -1,
+            "shard": -9223372036854775808
+          }
+        ]
+      }
+    })abc");
+    res.add_config("testnet", R"abc({
+      "liteservers": [
+      ],
+      "validator": {
+        "@type": "validator.config.global",
+        "zero_state": {
+          "workchain": -1,
+          "shard": -9223372036854775808,
+          "seqno": 0,
+          "root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
+          "file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg="
+        },
+        "init_block" : {
+          "root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
+          "seqno": 0,
+          "file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg=",
+          "workchain": -1,
+          "shard": -9223372036854775808
+        },
+        "hardforks": [
+        ]
+      }
+    })abc");
     return res;
   }();
   return config;
@@ -2410,12 +2366,16 @@ auto to_any_promise(td::Promise<td::Unit>&& promise) {
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::raw_extMessageInfo>>&& promise) {
   TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.body_), TonlibError::InvalidBagOfCells("body"));
   std::ostringstream os;
   block::gen::t_Message_Any.print_ref(os, body);
   LOG(ERROR) << os.str();
-  make_request(int_api::SendMessage{std::move(body)}, to_any_promise(std::move(promise)));
+  auto body_hash = body->get_hash().as_slice().str();
+  make_request(int_api::SendMessage{std::move(body)}, 
+    promise.wrap([body_hash = std::move(body_hash)](auto res) {
+      return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(body_hash));
+    }));
   return td::Status::OK();
 }
 
@@ -2667,11 +2627,10 @@ class GenericCreateSendGrams : public TonlibQueryActor {
     return downcast_call2<R>(action,
                              td::overloaded(
                                  [&](tonlib_api::dns_actionDeleteAll& del_all) -> R {
-                                   return ton::ManualDns::Action{"", 0, {}};
+                                   return ton::ManualDns::Action{"", td::Bits256::zero(), {}};
                                  },
                                  [&](tonlib_api::dns_actionDelete& del) -> R {
-                                   TRY_RESULT(category, td::narrow_cast_safe<td::int16>(del.category_));
-                                   return ton::ManualDns::Action{del.name_, category, {}};
+                                   return ton::ManualDns::Action{del.name_, del.category_, {}};
                                  },
                                  [&](tonlib_api::dns_actionSet& set) -> R {
                                    if (!set.entry_) {
@@ -2680,10 +2639,10 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                                    if (!set.entry_->entry_) {
                                      return TonlibError::EmptyField("entry.entry");
                                    }
-                                   TRY_RESULT(category, td::narrow_cast_safe<td::int16>(set.entry_->category_));
                                    TRY_RESULT(entry_data, to_dns_entry_data(*set.entry_->entry_));
                                    TRY_RESULT(data_cell, entry_data.as_cell());
-                                   return ton::ManualDns::Action{set.entry_->name_, category, std::move(data_cell)};
+                                   return ton::ManualDns::Action{set.entry_->name_, set.entry_->category_,
+                                                                 std::move(data_cell)};
                                  }));
   }
 
@@ -3673,29 +3632,29 @@ td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
   return res;
 }
 
-void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl,
-                                      td::optional<ton::BlockIdExt> block_id, DnsFinishData dns_finish_data,
+void TonlibClient::finish_dns_resolve(std::string name, td::Bits256 category, td::int32 ttl,
+                                      td::optional<ton::BlockIdExt> block_id, block::StdAddress address,
+                                      DnsFinishData dns_finish_data,
                                       td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
   block_id = dns_finish_data.block_id;
   // TODO: check if the smartcontract supports Dns interface
   // TODO: should we use some DnsInterface instead of ManualDns?
-  auto dns = ton::ManualDns::create(dns_finish_data.smc_state);
+  auto dns = ton::ManualDns::create(dns_finish_data.smc_state, std::move(address));
   TRY_RESULT_PROMISE(promise, entries, dns->resolve(name, category));
 
-  if (entries.size() == 1 && entries[0].category == -1 && entries[0].name != name && ttl > 0 &&
-      entries[0].data.type == ton::ManualDns::EntryData::Type::NextResolver) {
+  if (entries.size() == 1 && entries[0].partially_resolved && ttl > 0) {
     td::Slice got_name = entries[0].name;
-    if (got_name.size() >= name.size()) {
+    if (got_name.size() > name.size()) {
       TRY_STATUS_PROMISE(promise, TonlibError::Internal("domain is too long"));
     }
-    auto dot_position = name.size() - got_name.size() - 1;
-    auto suffix = name.substr(dot_position + 1);
-    auto prefix = name.substr(0, dot_position);
-    if (name[dot_position] != '.') {
-      TRY_STATUS_PROMISE(promise, td::Status::Error("next resolver error: domain split not at a component boundary "));
-    }
+    auto suffix_start = name.size() - got_name.size();
+    auto suffix = name.substr(suffix_start);
     if (suffix != got_name) {
       TRY_STATUS_PROMISE(promise, TonlibError::Internal("domain is not a suffix of the query"));
+    }
+    auto prefix = name.substr(0, suffix_start);
+    if (!prefix.empty() && prefix.back() != '.' && suffix[0] != '.') {
+      TRY_STATUS_PROMISE(promise, td::Status::Error("next resolver error: domain split not at a component boundary "));
     }
 
     auto address = entries[0].data.data.get<ton::ManualDns::EntryDataNextResolver>().resolver;
@@ -3711,12 +3670,13 @@ void TonlibClient::finish_dns_resolve(std::string name, td::int32 category, td::
   promise.set_value(tonlib_api::make_object<tonlib_api::dns_resolved>(std::move(api_entries)));
 }
 
-void TonlibClient::do_dns_request(std::string name, td::int32 category, td::int32 ttl,
+void TonlibClient::do_dns_request(std::string name, td::Bits256 category, td::int32 ttl,
                                   td::optional<ton::BlockIdExt> block_id, block::StdAddress address,
                                   td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise) {
   auto block_id_copy = block_id.copy();
   td::Promise<DnsFinishData> new_promise =
-      promise.send_closure(actor_id(this), &TonlibClient::finish_dns_resolve, name, category, ttl, std::move(block_id));
+      promise.send_closure(actor_id(this), &TonlibClient::finish_dns_resolve, name, category, ttl, std::move(block_id),
+                           address);
 
   if (0) {
     make_request(int_api::GetAccountState{address, std::move(block_id_copy), {}},
@@ -3727,7 +3687,7 @@ void TonlibClient::do_dns_request(std::string name, td::int32 category, td::int3
     return;
   }
 
-  TRY_RESULT_PROMISE(promise, args, ton::DnsInterface::resolve_args(name, category));
+  TRY_RESULT_PROMISE(promise, args, ton::DnsInterface::resolve_args(name, category, address));
   int_api::RemoteRunSmcMethod query;
   query.address = std::move(address);
   query.args = std::move(args);
@@ -3749,8 +3709,12 @@ td::Status TonlibClient::do_request(const tonlib_api::dns_resolve& request,
                                       request.ttl_, std::move(block_id)));
     return td::Status::OK();
   }
+  std::string name = request.name_;
+  if (name.empty() || name.back() != '.') {
+    name += '.';
+  }
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
-  do_dns_request(request.name_, request.category_, request.ttl_, std::move(block_id), account_address,
+  do_dns_request(name, request.category_, request.ttl_, std::move(block_id), account_address,
                  std::move(promise));
   return td::Status::OK();
 }
