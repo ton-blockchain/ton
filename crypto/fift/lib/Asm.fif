@@ -1,15 +1,17 @@
 library TVM_Asm
 // simple TVM Assembler
 variable @atend
+variable @was-split
+false @was-split !
 { "not in asm context" abort } @atend !
 { `normal eq? not abort"must be terminated by }>" } : @normal?
 { @atend @ 1 { @atend ! @normal? } does @atend ! } : @pushatend
 { @pushatend <b } : <{
 { @atend @ execute } : @endblk
-{ `normal @endblk } : }>
+{ false @was-split ! `normal @endblk } : }>
 { }> b> } : }>c
 { }>c <s } : }>s
-{ @atend @ 2 { @atend ! rot b> ref, swap @endblk } does @atend ! <b } : @|
+{ @atend @ 2 { true @was-split ! @atend ! rot b> ref, swap @endblk } does @atend ! <b } : @|
 { @atend @ 3 { @atend ! 2swap rot execute } does @atend ! <b } : @doafter<{
 { over brembits <= } : @havebits
 { rot + -rot + swap } : pair+
@@ -1225,6 +1227,10 @@ variable asm-mode  1 asm-mode !
 } : PROGRAM{
 { over sbits < { s>c <b swap ref, b> <s } if } : @adj-long-proc
 { // i s l
+  dup 0< {
+    negate
+    @was-split @ { drop 0 } if
+  } if
   @adj-long-proc over @procdict @ @procdictkeylen
   idict!+ not abort"cannot define procedure, redefined?"
   @procdict !  2 2 @procinfo~!
@@ -1234,6 +1240,7 @@ variable asm-mode  1 asm-mode !
 { @have-procinfo? { 8 8 @procinfo~! } { drop } cond } : @proc-called
 { 1000 @def-proc } : PROC
 { 0 @def-proc } : PROCREF
+{ -1000 @def-proc } : PROCINLINE
 { @procdict @ @procdictkeylen idict@ abort"procedure already defined"
 } : @fail-ifdef
 { u@?+ { swap abort"first bits are not zeroes" } if } : @cut-zeroes
@@ -1243,6 +1250,7 @@ variable asm-mode  1 asm-mode !
 } : @PROC:<{
 { 1000 @PROC:<{ } : PROC:<{
 { 0 @PROC:<{ } : PROCREF:<{
+{ -1000 @PROC:<{ } : PROCINLINE:<{
 { dup @proc-called CALLDICT } dup : CALL : CALLDICT
 { dup @proc-called JMPDICT } dup : JMP : JMPDICT
 { dup @proc-called PREPAREDICT } dup : PREPARE : PREPAREDICT

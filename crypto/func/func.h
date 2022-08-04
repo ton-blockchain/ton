@@ -613,7 +613,7 @@ struct Op {
     return !(flags & _Impure);
   }
   bool generate_code_step(Stack& stack);
-  bool generate_code_all(Stack& stack);
+  void generate_code_all(Stack& stack);
   Op& last() {
     return next ? next->last() : *this;
   }
@@ -1121,6 +1121,7 @@ struct AsmOpList {
   int indent_{0};
   const std::vector<TmpVar>* var_names_{nullptr};
   std::vector<Const> constants_;
+  bool retalt_{false};
   void out(std::ostream& os, int mode = 0) const;
   AsmOpList(int indent = 0, const std::vector<TmpVar>* var_names = nullptr) : indent_(indent), var_names_(var_names) {
   }
@@ -1167,6 +1168,19 @@ struct AsmOpList {
   }
   void set_indent(int new_indent) {
     indent_ = new_indent;
+  }
+  void insert(size_t pos, std::string str) {
+    insert(pos, AsmOp(AsmOp::a_custom, 255, 255, str));
+  }
+  void insert(size_t pos, const AsmOp& op) {
+    auto ip = list_.begin() + pos;
+    ip = list_.insert(ip, op);
+    ip->indent = (ip == list_.begin()) ? indent_ : (ip - 1)->indent;
+  }
+  void indent_all() {
+    for (auto &op : list_) {
+      ++op.indent;
+    }
   }
 };
 
@@ -1498,7 +1512,12 @@ void optimize_code(AsmOpList& ops);
 struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
-  enum { _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256, _Garbage = -0x10000 };
+  enum {
+    _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
+    _InlineFunc = 512, _NeedRetAlt = 1024,
+    _ModeSave = _InlineFunc | _NeedRetAlt,
+    _Garbage = -0x10000
+  };
   int mode;
   Stack(AsmOpList& _o, int _mode = 0) : o(_o), mode(_mode) {
   }
@@ -1570,6 +1589,17 @@ struct Stack {
   }
   bool operator==(const Stack& y) const & {
     return s == y.s;
+  }
+  void apply_wrappers() {
+    if (o.retalt_) {
+      o.insert(0, "SAMEALTSAVE");
+      if (mode & _InlineFunc) {
+        o.indent_all();
+        o.insert(0, "CONT:<{");
+        o << "}>";
+        o << "EXECUTE";
+      }
+    }
   }
 };
 
