@@ -20,7 +20,7 @@ jobs:
       with:
         name: ton
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - run: nix build .?submodules=1#packages.x86_64-linux-oldglibc_staticbinaries --print-build-logs
+    - run: nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs
     - run: |
         nix develop \
           --command bash -e -c '
