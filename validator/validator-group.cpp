@@ -263,15 +263,16 @@ void ValidatorGroup::create_session() {
     validatorsession::ValidatorSessionNode n;
     n.pub_key = ValidatorFullId{el.key};
     n.weight = el.weight;
-    if (n.pub_key.compute_short_id() == local_id_) {
-      CHECK(!found);
-      found = true;
-      local_id_full_ = n.pub_key;
-    }
     if (el.addr.is_zero()) {
       n.adnl_id = adnl::AdnlNodeIdShort{n.pub_key.compute_short_id()};
     } else {
       n.adnl_id = adnl::AdnlNodeIdShort{el.addr};
+    }
+    if (n.pub_key.compute_short_id() == local_id_) {
+      CHECK(!found);
+      found = true;
+      local_id_full_ = n.pub_key;
+      local_adnl_id_ = n.adnl_id;
     }
     vec.emplace_back(std::move(n));
   }
@@ -292,6 +293,8 @@ void ValidatorGroup::create_session() {
   if (started_) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
+
+  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
 }
 
 void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) {
@@ -346,7 +349,11 @@ void ValidatorGroup::get_session_info(
 }
 
 void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeout,
-                                        td::Promise<BlockCandidate> promise) {
+                                        td::Promise<BlockCandidate> promise, unsigned max_retries) {
+  if (round_id < last_known_round_id_) {
+    promise.set_error(td::Status::Error("too old"));
+    return;
+  }
   adnl::AdnlNodeIdShort collator = adnl::AdnlNodeIdShort::zero();
   // TODO: some other way for storing and choosing collators for real network
   int cnt = 0;
@@ -356,10 +363,24 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
       ++cnt;
     }
   }
-
   if (collator.is_zero()) {
     promise.set_error(td::Status::Error(PSTRING() << "no collator for shard " << shard_.to_str()));
     return;
+  }
+
+  if (max_retries > 0) {
+    promise = td::PromiseCreator::lambda(
+        [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<BlockCandidate> R) mutable {
+          if (R.is_ok()) {
+            promise.set_result(R.move_as_ok());
+          } else if (timeout && timeout.is_in_past()) {
+            promise.set_result(R.move_as_error());
+          } else {
+            LOG(WARNING) << "collate query error, retrying: " << R.move_as_error();
+            td::actor::send_closure(SelfId, &ValidatorGroup::send_collate_query, round_id, timeout, std::move(promise),
+                                    max_retries - 1);
+          }
+        });
   }
 
   std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> prev_blocks;
@@ -381,7 +402,9 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
       });
   LOG(INFO) << "collate query for " << create_next_block_id_simple().to_str() << ": send query to " << collator;
   size_t max_answer_size = config_.max_block_size + config_.max_collated_data_size + 256;
-  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, adnl::AdnlNodeIdShort(local_id_), collator, "collatequery",
+  td::Timestamp query_timeout = td::Timestamp::in(10.0);
+  query_timeout.relax(timeout);
+  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_adnl_id_, collator, "collatequery",
                           std::move(P), timeout, std::move(query), max_answer_size);
 }
 

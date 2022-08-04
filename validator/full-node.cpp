@@ -407,7 +407,9 @@ void FullNodeImpl::got_key_block_proof(td::Ref<ProofLink> proof) {
   CHECK(all_validators_.size() > 0);
 
   for (auto &shard : shards_) {
-    td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    if (!shard.second.actor.empty()) {
+      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    }
   }
 }
 

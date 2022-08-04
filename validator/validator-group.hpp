@@ -55,7 +55,6 @@ class ValidatorGroup : public td::actor::Actor {
       init_ = false;
       create_session();
     }
-    td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl::AdnlNodeIdShort(local_id_));
   }
 
   void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise);
@@ -86,7 +85,8 @@ class ValidatorGroup : public td::actor::Actor {
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
-  void send_collate_query(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+  void send_collate_query(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+                          unsigned max_retries = 4);
   void receive_collate_query_response(td::uint32 round_id, td::BufferSlice data, td::Promise<BlockCandidate> promise);
 
   struct PostponedAccept {
@@ -120,6 +120,7 @@ class ValidatorGroup : public td::actor::Actor {
   std::string db_root_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorOwn<validatorsession::ValidatorSession> session_;
+  adnl::AdnlNodeIdShort local_adnl_id_;
 
   bool init_ = false;
   bool started_ = false;
