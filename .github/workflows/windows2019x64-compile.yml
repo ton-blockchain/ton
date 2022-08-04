@@ -50,7 +50,7 @@ jobs:
           echo %root%
           mkdir build
           cd build
-          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1/x64/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1/x64/lib/libcrypto.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
+          cmake -DZLIB_FOUND=1 -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARIES=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1/x64/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1/x64/lib/libcrypto.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
 
       - name: Build
         run: |
