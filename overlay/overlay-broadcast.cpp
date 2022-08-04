@@ -68,7 +68,7 @@ td::Status BroadcastSimple::run_checks() {
 
 td::Status BroadcastSimple::distribute() {
   auto B = serialize();
-  auto nodes = overlay_->get_neighbours(3);
+  auto nodes = overlay_->get_neighbours(5);
 
   auto manager = overlay_->overlay_manager();
   for (auto &n : nodes) {
