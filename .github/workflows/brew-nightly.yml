@@ -41,5 +41,5 @@ jobs:
     - run: |
         cd ton-repo
         git add .
-        git commit -m "Import nightly $(date -I)"
+        git commit -m "Import nightly $(date -u +'%Y-%m-%d')"
         git push
