@@ -21,6 +21,7 @@
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 #include "block/block-db.h"
+#include "block/transaction.h"
 #include "vm/cells.h"
 
 namespace ton {
@@ -44,6 +45,27 @@ class Collator : public td::actor::Actor {
   virtual td::Result<bool> register_ihr_message(td::Slice ihr_msg_boc) = 0;
   virtual td::Result<bool> register_shard_signatures_cell(Ref<vm::Cell> shard_blk_signatures) = 0;
   virtual td::Result<bool> register_shard_signatures(td::Slice shard_blk_signatures_boc) = 0;
+
+  static td::Result<std::unique_ptr<block::ConfigInfo>>
+                     impl_fetch_config_params(std::unique_ptr<block::ConfigInfo> config,
+                                              Ref<vm::Cell>* old_mparams,
+                                              std::vector<block::StoragePrices>* storage_prices,
+                                              block::StoragePhaseConfig* storage_phase_cfg,
+                                              td::BitArray<256>* rand_seed,
+                                              block::ComputePhaseConfig* compute_phase_cfg,
+                                              block::ActionPhaseConfig* action_phase_cfg,
+                                              td::RefInt256* masterchain_create_fee,
+                                              td::RefInt256* basechain_create_fee,
+                                              WorkchainId wc);
+
+  static td::Result<std::unique_ptr<block::Transaction>>
+                        impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
+                                                         block::Account* acc,
+                                                         UnixTime utime, LogicalTime lt,
+                                                         block::StoragePhaseConfig* storage_phase_cfg,
+                                                         block::ComputePhaseConfig* compute_phase_cfg,
+                                                         block::ActionPhaseConfig* action_phase_cfg,
+                                                         bool external, LogicalTime after_lt);
 };
 
 }  // namespace ton
