@@ -64,6 +64,7 @@ static td::BufferSlice serialize_error(td::Status error) {
 
 void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                  td::Promise<td::BufferSlice> promise) {
+  auto SelfId = actor_id(this);
   auto status = [&]() -> td::Status {
     TRY_RESULT(f, fetch_tl_object<ton_api::collatorNode_generateBlock>(std::move(data), true));
     ShardIdFull shard(f->workchain_, f->shard_);
@@ -92,7 +93,7 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
 
     LOG(INFO) << "Query from " << src << ": shard=" << shard.to_str() << ", min_mc_id=" << min_mc_id.to_str();
 
-    auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this), prev_blocks = std::move(prev_blocks),
+    auto P = td::PromiseCreator::lambda([=, prev_blocks = std::move(prev_blocks),
                                          promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable {
       if (R.is_error()) {
         LOG(WARNING) << "Query from " << src << ", error: " << R.error();
