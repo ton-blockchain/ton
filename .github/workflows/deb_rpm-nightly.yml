@@ -20,16 +20,16 @@ jobs:
       with:
         name: ton
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - run: nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs
+    - run: nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs -o result-x86_64
     - run: |
         nix develop \
           --command bash -e -c '
             mkdir packages-out
-            ./packages/deb.sh packages-out $PWD/packages/deb/ton $PWD/result*'
+            ./packages/deb.sh packages-out $PWD/packages/deb/ton $PWD/result-x86_64* amd64'
     - run: |
         nix develop \
           --command bash -e -c '
-            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result*'
+            ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result-x86_64* x86_64'
     - if: ${{ !env.ACT }}
       uses: actions/upload-artifact@master
       with:

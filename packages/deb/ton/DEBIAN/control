@@ -1,6 +1,6 @@
 Package: ton
 Version: 0-dev
-Architecture: amd64
+Architecture: ARCH
 Maintainer: FIXME
 Priority: optional
 Description: The Open Network
