@@ -106,6 +106,7 @@ struct ComputePhaseConfig {
   std::unique_ptr<vm::Dictionary> libraries;
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
+  bool ignore_chksig{false};
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();

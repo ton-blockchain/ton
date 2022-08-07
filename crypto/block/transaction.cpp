@@ -1003,6 +1003,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
 
   vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm::VmLog(), compute_vm_libraries(cfg)};
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
+  vm.set_chksig_always_succeed(cfg.ignore_chksig);
   // vm.incr_stack_trace(1);    // enable stack dump after each step
 
   LOG(DEBUG) << "starting VM";
