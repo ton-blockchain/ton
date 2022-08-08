@@ -37,11 +37,10 @@ inline ValidatorSessionCandidateId skip_round_candidate_id() {
 }
 
 struct ValidatorSessionOptions {
-  ValidatorSessionOptions() {
-  }
-  ValidatorSessionOptions(const ValidatorSessionConfig &conf);
-  double catchain_idle_timeout = 16.0;
-  td::uint32 catchain_max_deps = 4;
+  ValidatorSessionOptions() = default;
+  explicit ValidatorSessionOptions(const ValidatorSessionConfig &conf);
+
+  CatChainOptions catchain_opts;
 
   td::uint32 round_candidates = 3;
   double next_candidate_delay = 2.0;

@@ -122,8 +122,9 @@ class CatChainInst : public td::actor::Actor {
 
   void start_up() override {
     alarm_timestamp() = td::Timestamp::in(0.1);
-    ton::catchain::CatChainOptions opts;
+    ton::CatChainOptions opts;
     opts.debug_disable_db = true;
+    //opts.block_hash_covers_data = true;
 
     std::vector<ton::catchain::CatChainNode> nodes;
     for (auto &n : nodes_) {
@@ -157,13 +158,14 @@ class CatChainInst : public td::actor::Actor {
       void preprocess_block(ton::catchain::CatChainBlock *block) override {
         td::actor::send_closure(id_, &CatChainInst::preprocess_block, std::move(block));
       }
-      void process_broadcast(ton::PublicKeyHash src, td::BufferSlice data) override {
+      void process_broadcast(const ton::PublicKeyHash &src, td::BufferSlice data) override {
         UNREACHABLE();
       }
-      void process_message(ton::PublicKeyHash src, td::BufferSlice data) override {
+      void process_message(const ton::PublicKeyHash &src, td::BufferSlice data) override {
         UNREACHABLE();
       }
-      void process_query(ton::PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+      void process_query(const ton::PublicKeyHash &src, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
         UNREACHABLE();
       }
       void started() override {
