@@ -369,7 +369,7 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
-  if (!is_validator()) {
+  if (!is_collator()) {
     return;
   }
   if ((double)ext_messages_.size() > max_mempool_num()) {
@@ -388,7 +388,7 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg) {
   auto id = message->ext_id();
   auto address = message->address();
   unsigned long per_address_limit = 256;
-  if(ext_addr_messages_.count(address) < per_address_limit) {
+  if (ext_addr_messages_.count(address) < per_address_limit) {
     if (ext_messages_hashes_.count(id.hash) == 0) {
       ext_messages_.emplace(id, std::move(message));
       ext_messages_hashes_.emplace(id.hash, id);
@@ -401,7 +401,7 @@ void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Prom
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  if (!is_validator()) {
+  if (!is_collator()) {
     return;
   }
   auto R = create_ihr_message(std::move(data));
@@ -418,7 +418,7 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
 }
 
 void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  if (!is_validator()) {
+  if (!is_collator()) {
     return;
   }
   if (!last_masterchain_block_handle_) {
@@ -2086,7 +2086,7 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
         "validatorgroup", shard, validator_id, session_id, validator_set, last_masterchain_state_->get_collator_set(),
         opts, keyring_, adnl_, rldp_, overlays_,
         db_root_, actor_id(this), init_session,
-        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), true);
+        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_->validator_lite_mode());
     return G;
   }
 }
@@ -2457,14 +2457,14 @@ void ValidatorManagerImpl::get_archive_slice(td::uint64 archive_id, td::uint64 o
 }
 
 bool ValidatorManagerImpl::is_validator() {
-  // TODO: change is_vaidator to other condition in some cases
-  return true; // temp_keys_.size() > 0 || permanent_keys_.size() > 0;
+  return temp_keys_.size() > 0 || permanent_keys_.size() > 0;
+}
+
+bool ValidatorManagerImpl::is_collator() {
+  return !collator_nodes_.empty() || (!opts_->validator_lite_mode() && is_validator());
 }
 
 PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {
-  if (!opts_->need_validate(shard, val_set->get_catchain_seqno())) {
-    return PublicKeyHash::zero();
-  }
   for (auto &key : temp_keys_) {
     if (val_set->is_validator(key.bits256_value())) {
       return key;
@@ -2648,9 +2648,6 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
     it = collator_nodes_.emplace(id, std::move(actor)).first;
   }
   td::actor::send_closure(it->second, &CollatorNode::add_shard, shard);
-  if (shard.is_masterchain()) {
-    collating_masterchain_ = true;
-  }
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
