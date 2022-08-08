@@ -168,8 +168,6 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
 
-  virtual void wait_block_candidate(BlockId block_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise) = 0;
-
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);
   }

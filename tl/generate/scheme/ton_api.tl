@@ -704,10 +704,6 @@ engine.validator.importShardOverlayCertificate workchain:int shard:long signed_k
 
 engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsInfo;
 
-engine.validator.generateBlockCandidate block_id:tonNode.BlockId = db.Candidate;
-engine.validator.getRequiredBlockCandidates = engine.validator.RequiredBlockCandidates;
-engine.validator.importBlockCandidate block:db.candidate = engine.validator.Success;
-
 engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
 

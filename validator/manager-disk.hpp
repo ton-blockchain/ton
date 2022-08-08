@@ -379,18 +379,6 @@ class ValidatorManagerImpl : public ValidatorManager {
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override {
     UNREACHABLE();
   }
-  void generate_block_candidate(BlockId block_id, td::Promise<BlockCandidate> promise) override {
-    UNREACHABLE();
-  }
-  void get_required_block_candidates(td::Promise<std::vector<BlockId>> promise) override {
-    UNREACHABLE();
-  }
-  void import_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
-  void wait_block_candidate(BlockId block_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise) override {
-    UNREACHABLE();
-  }
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
     UNREACHABLE();
