@@ -96,6 +96,7 @@ struct Config {
   std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
+  std::vector<ton::ShardIdFull> shards_to_monitor;
 
   void decref(ton::PublicKeyHash key);
   void incref(ton::PublicKeyHash key) {
@@ -121,6 +122,7 @@ struct Config {
   td::Result<bool> config_add_control_interface(ton::PublicKeyHash key, td::int32 port);
   td::Result<bool> config_add_control_process(ton::PublicKeyHash key, td::int32 port, ton::PublicKeyHash id,
                                               td::uint32 permissions);
+  td::Result<bool> config_add_shard(ton::ShardIdFull shard);
   td::Result<bool> config_add_gc(ton::PublicKeyHash key);
   td::Result<bool> config_del_network_addr(td::IPAddress addr, std::vector<AdnlCategory> cats,
                                            std::vector<AdnlCategory> prio_cats);
@@ -135,10 +137,10 @@ struct Config {
   td::Result<bool> config_del_control_process(td::int32 port, ton::PublicKeyHash id);
   td::Result<bool> config_del_gc(ton::PublicKeyHash key);
 
-  ton::tl_object_ptr<ton::ton_api::engine_validator_config> tl() const;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_config_v2> tl() const;
 
   Config();
-  Config(ton::ton_api::engine_validator_config &config);
+  Config(const ton::ton_api::engine_validator_config_v2 &config);
 };
 
 class ValidatorEngine : public td::actor::Actor {
@@ -433,6 +435,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_importBlockCandidate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_addCollator &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addShard &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

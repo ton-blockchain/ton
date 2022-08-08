@@ -364,6 +364,7 @@ tonNode.blockSignature who:int256 signature:bytes = tonNode.BlockSignature;
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;
 tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode.ZeroStateIdExt;
+tonNode.shardId workchain:int shard:long = tonNode.ShardId;
 
 tonNode.blockDescriptionEmpty = tonNode.BlockDescription;
 tonNode.blockDescription id:tonNode.blockIdExt = tonNode.BlockDescription;
@@ -568,7 +569,8 @@ validator.config.global zero_state:tonNode.blockIdExt init_block:tonNode.blockId
 config.global adnl:adnl.config.global dht:dht.config.global validator:validator.config.global = config.Global;
 
 liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
-liteclient.config.global liteservers:(vector liteserver.desc) validator:validator.config.global = liteclient.config.Global;
+liteserver.descV2 id:PublicKey ip:int port:int shards:(vector tonNode.shardId) = liteserver.Desc;
+liteclient.config.global liteservers:(vector liteserver.Desc) validator:validator.config.global = liteclient.config.Global;
 
 engine.adnl id:int256 category:int = engine.Adnl;
 engine.addr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.Addr;
@@ -578,7 +580,7 @@ engine.dht id:int256 = engine.Dht;
 engine.validatorTempKey key:int256 expire_at:int = engine.ValidatorTempKey;
 engine.validatorAdnlAddress id:int256 expire_at:int = engine.ValidatorAdnlAddress;
 engine.validator id:int256 temp_keys:(vector engine.validatorTempKey) adnl_addrs:(vector engine.validatorAdnlAddress) election_date:int expire_at:int = engine.Validator;
-engine.collator adnl_id:int256 workchain:int shard:long = engine.Validator;
+engine.collator adnl_id:int256 shard:tonNode.shardId = engine.Collator;
 engine.liteServer id:int256 port:int = engine.LiteServer;
 engine.controlProcess id:int256 permissions:int = engine.ControlProcess;
 engine.controlInterface id:int256 port:int allowed:(vector engine.controlProcess) = engine.ControlInterface; 
@@ -592,7 +594,16 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         validators:(vector engine.Validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
-        gc:engine.gc = engine.validator.Config; 
+        gc:engine.gc = engine.validator.Config;
+
+engine.validator.config_v2 out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
+        dht:(vector engine.dht)
+        validators:(vector engine.validator) collators:(vector engine.collator)
+        fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
+        fullnodemasters:(vector engine.validator.fullNodeMaster)
+        liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
+        shards_to_monitor:(vector tonNode.shardId)
+        gc:engine.gc = engine.validator.Config;
 
 ---functions---
 ---types---
@@ -697,7 +708,8 @@ engine.validator.generateBlockCandidate block_id:tonNode.BlockId = db.Candidate;
 engine.validator.getRequiredBlockCandidates = engine.validator.RequiredBlockCandidates;
 engine.validator.importBlockCandidate block:db.candidate = engine.validator.Success;
 
-engine.validator.addCollator adnl_id:int256 workchain:int shard:long = engine.validator.Success;
+engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
+engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
 
 ---types---
 

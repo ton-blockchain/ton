@@ -38,6 +38,9 @@
 #include "td/utils/TsFileLog.h"
 #include "td/utils/Random.h"
 
+#include "ton/ton-tl.hpp"
+#include "tl/tl_json.h"
+
 #include "memprof/memprof.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -54,7 +57,7 @@ Config::Config() {
   out_port = 3278;
 }
 
-Config::Config(ton::ton_api::engine_validator_config &config) {
+Config::Config(const ton::ton_api::engine_validator_config_v2 &config) {
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
     out_port = 3278;
@@ -121,7 +124,7 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   }
 }
 
-ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
+ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
     if (x.second.proxy) {
@@ -146,7 +149,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     dht_vec.push_back(ton::create_tl_object<ton::ton_api::engine_dht>(x.tl()));
   }
 
-  std::vector<ton::tl_object_ptr<ton::ton_api::engine_Validator>> val_vec;
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator>> val_vec;
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;
@@ -597,14 +600,14 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
   }
   auto conf_json = conf_json_R.move_as_ok();
 
-  ton::ton_api::engine_validator_config conf;
-  auto S = ton::ton_api::from_json(conf, conf_json.get_object());
+  ton::tl_object_ptr<ton::ton_api::engine_validator_Config> conf;
+  auto S = td::from_json(conf, std::move(conf_json));
   if (S.is_error()) {
     promise.set_error(S.move_as_error_prefix("json does not fit TL scheme"));
     return;
   }
 
-  config_ = Config{conf};
+  config_ = Config{*ton::unpack_engine_validator_config(std::move(conf))};
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();

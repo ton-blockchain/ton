@@ -91,10 +91,10 @@ struct Config {
   td::Result<bool> config_del_control_process(td::int32 port, ton::PublicKeyHash id);
   td::Result<bool> config_del_gc(ton::PublicKeyHash key);
 
-  ton::tl_object_ptr<ton::ton_api::engine_validator_config> tl() const;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_Config> tl() const;
 
   Config();
-  Config(ton::ton_api::engine_validator_config &config);
+  Config(const ton::ton_api::engine_validator_config_v2 &config);
 };
 
 class DhtServer : public td::actor::Actor {

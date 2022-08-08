@@ -54,6 +54,7 @@
 #include "td/utils/Random.h"
 
 #include "auto/tl/lite_api.h"
+#include "tl/tl_json.h"
 
 #include "memprof/memprof.h"
 
@@ -74,7 +75,7 @@ Config::Config() {
   full_node = ton::PublicKeyHash::zero();
 }
 
-Config::Config(ton::ton_api::engine_validator_config &config) {
+Config::Config(const ton::ton_api::engine_validator_config_v2 &config) {
   full_node = ton::PublicKeyHash::zero();
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
@@ -87,7 +88,7 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
     std::vector<AdnlCategory> categories;
     std::vector<AdnlCategory> priority_categories;
     ton::ton_api::downcast_call(
-        *addr.get(),
+        *addr,
         td::overloaded(
             [&](const ton::ton_api::engine_addr &obj) {
               in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
@@ -125,24 +126,20 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   for (auto &dht : config.dht_) {
     config_add_dht_node(ton::PublicKeyHash{dht->id_}).ensure();
   }
-  for (auto &v : config.validators_) {
-    ton::ton_api::downcast_call(
-        *v, td::overloaded(
-                [&](ton::ton_api::engine_validator &val) {
-                  auto key = ton::PublicKeyHash{val.id_};
-                  config_add_validator_permanent_key(key, val.election_date_, val.expire_at_).ensure();
-                  for (auto &temp : val.temp_keys_) {
-                    config_add_validator_temp_key(key, ton::PublicKeyHash{temp->key_}, temp->expire_at_).ensure();
-                  }
-                  for (auto &adnl : val.adnl_addrs_) {
-                    config_add_validator_adnl_id(key, ton::PublicKeyHash{adnl->id_}, adnl->expire_at_).ensure();
-                  }
-                },
-                [&](ton::ton_api::engine_collator &col) {
-                  auto key = ton::PublicKeyHash{col.adnl_id_};
-                  ton::ShardIdFull shard(col.workchain_, col.shard_);
-                  config_add_collator(key, shard).ensure();
-                }));
+  for (auto &val : config.validators_) {
+    auto key = ton::PublicKeyHash{val->id_};
+    config_add_validator_permanent_key(key, val->election_date_, val->expire_at_).ensure();
+    for (auto &temp : val->temp_keys_) {
+      config_add_validator_temp_key(key, ton::PublicKeyHash{temp->key_}, temp->expire_at_).ensure();
+    }
+    for (auto &adnl : val->adnl_addrs_) {
+      config_add_validator_adnl_id(key, ton::PublicKeyHash{adnl->id_}, adnl->expire_at_).ensure();
+    }
+  }
+  for (auto &col : config.collators_) {
+    auto key = ton::PublicKeyHash{col->adnl_id_};
+    ton::ShardIdFull shard = ton::create_shard_id(col->shard_);
+    config_add_collator(key, shard).ensure();
   }
   config_add_full_node_adnl_id(ton::PublicKeyHash{config.fullnode_}).ensure();
 
@@ -169,6 +166,10 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
     }
   }
 
+  for (auto &shard : config.shards_to_monitor_) {
+    config_add_shard(ton::create_shard_id(shard)).ensure();
+  }
+
   if (config.gc_) {
     for (auto &gc : config.gc_->ids_) {
       config_add_gc(ton::PublicKeyHash{gc}).ensure();
@@ -176,7 +177,7 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   }
 }
 
-ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
+ton::tl_object_ptr<ton::ton_api::engine_validator_config_v2> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
     if (x.second.proxy) {
@@ -201,7 +202,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     dht_vec.push_back(ton::create_tl_object<ton::ton_api::engine_dht>(x.tl()));
   }
 
-  std::vector<ton::tl_object_ptr<ton::ton_api::engine_Validator>> val_vec;
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator>> val_vec;
   for (auto &val : validators) {
     std::vector<ton::tl_object_ptr<ton::ton_api::engine_validatorTempKey>> temp_vec;
     for (auto &t : val.second.temp_keys) {
@@ -214,9 +215,10 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     val_vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator>(
         val.first.tl(), std::move(temp_vec), std::move(adnl_val_vec), val.second.election_date, val.second.expire_at));
   }
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_collator>> col_vec;
   for (auto &col : collators) {
-    val_vec.push_back(ton::create_tl_object<ton::ton_api::engine_collator>(
-        col.adnl_id.tl(), col.shard.workchain, col.shard.shard));
+    col_vec.push_back(
+        ton::create_tl_object<ton::ton_api::engine_collator>(col.adnl_id.tl(), ton::create_tl_shard_id(col.shard)));
   }
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
@@ -245,14 +247,19 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
                                                                                        std::move(control_proc_vec)));
   }
 
+  std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_shardId>> shards_vec;
+  for (auto &shard : shards_to_monitor) {
+    shards_vec.push_back(ton::create_tl_shard_id(shard));
+  }
+
   auto gc_vec = ton::create_tl_object<ton::ton_api::engine_gc>(std::vector<td::Bits256>{});
   for (auto &id : gc) {
     gc_vec->ids_.push_back(id.tl());
   }
-  return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
-      std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
-      std::move(control_vec), std::move(gc_vec));
+  return ton::create_tl_object<ton::ton_api::engine_validator_config_v2>(
+      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
+      full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
+      std::move(control_vec), std::move(shards_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -525,6 +532,17 @@ td::Result<bool> Config::config_add_control_process(ton::PublicKeyHash key, td::
     v.clients.emplace(id, permissions);
     return true;
   }
+}
+
+td::Result<bool> Config::config_add_shard(ton::ShardIdFull shard) {
+  if (!shard.is_valid_ext()) {
+    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
+  }
+  if (std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard) != shards_to_monitor.end()) {
+    return false;
+  }
+  shards_to_monitor.push_back(shard);
+  return true;
 }
 
 td::Result<bool> Config::config_add_gc(ton::PublicKeyHash key) {
@@ -1393,6 +1411,11 @@ void ValidatorEngine::init_validator_options() {
     for (const auto& c : config_.collators) {
       shards.push_back(c.shard);
     }
+    for (const auto& s : config_.shards_to_monitor) {
+      shards.push_back(s);
+    }
+    std::sort(shards.begin(), shards.end());
+    shards.erase(std::unique(shards.begin(), shards.end()), shards.end());
     validator_options_.write().set_shard_check_function(
         [shards = std::move(shards)](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
                                                ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
@@ -1643,14 +1666,14 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
   }
   auto conf_json = conf_json_R.move_as_ok();
 
-  ton::ton_api::engine_validator_config conf;
-  auto S = ton::ton_api::from_json(conf, conf_json.get_object());
+  ton::tl_object_ptr<ton::ton_api::engine_validator_Config> conf;
+  auto S = td::from_json(conf, std::move(conf_json));
   if (S.is_error()) {
     promise.set_error(S.move_as_error_prefix("json does not fit TL scheme"));
     return;
   }
 
-  config_ = Config{conf};
+  config_ = Config{*ton::unpack_engine_validator_config(std::move(conf))};
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();
@@ -3471,15 +3494,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
   }
 
   auto id = ton::PublicKeyHash{query.adnl_id_};
-  auto shard = ton::ShardIdFull(query.workchain_, query.shard_);
-  if (!shard.is_valid_ext()) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "invalid shard")));
-    return;
-  }
-
+  auto shard = ton::create_shard_id(query.shard_);
   auto R = config_.config_add_collator(id, shard);
   if (R.is_error()) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    promise.set_value(create_control_query_error(R.move_as_error()));
     return;
   }
   if (!R.move_as_ok()) {
@@ -3497,6 +3515,27 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
       promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
     }
   });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addShard &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto shard = ton::create_shard_id(query.shard_);
+  auto R = config_.config_add_shard(shard);
+  if (R.is_error()) {
+    promise.set_value(create_control_query_error(R.move_as_error()));
+    return;
+  }
+  promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
@@ -3532,7 +3571,7 @@ void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNode
   }
   auto f = F.move_as_ok();
 
-  ton::ton_api::downcast_call(*f.get(), [&](auto &obj) {
+  ton::ton_api::downcast_call(*f, [&](auto &obj) {
     run_control_query(obj, std::move(data), src.pubkey_hash(), it->second, std::move(promise));
   });
 }
@@ -3752,7 +3791,7 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
-  p.add_option('M', "masterchain-only", "don't track shardchains", [&]() {
+  p.add_option('M', "not-all-shards", "monitor only a necessary set of shards instead of all", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_masterchain_only); });
   });
   td::uint32 threads = 7;
