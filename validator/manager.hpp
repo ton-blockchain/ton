@@ -491,6 +491,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void read_gc_list(std::vector<ValidatorSessionId> list);
 
   bool is_validator();
+  bool is_collator();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
@@ -610,7 +611,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollatorNode>> collator_nodes_;
-  bool collating_masterchain_ = false;
 
   std::set<ShardIdFull> shards_to_monitor_ = {ShardIdFull(masterchainId)};
 };

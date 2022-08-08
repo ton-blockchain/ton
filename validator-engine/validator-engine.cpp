@@ -1391,21 +1391,14 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
+  validator_options_.write().set_validator_lite_mode(validator_lite_mode_);
 
   return td::Status::OK();
 }
 
 void ValidatorEngine::init_validator_options() {
-  if (!masterchain_only_) {
-    validator_options_.write().set_shard_check_function(
-        [](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
-           ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
-          if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
-            return true;
-          }
-          CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
-          return true;
-        });
+  if (!not_all_shards_) {
+    validator_options_.write().set_shard_check_function([](ton::ShardIdFull shard) -> bool { return true; });
   } else {
     std::vector<ton::ShardIdFull> shards = {ton::ShardIdFull(ton::masterchainId)};
     for (const auto& c : config_.collators) {
@@ -1417,18 +1410,13 @@ void ValidatorEngine::init_validator_options() {
     std::sort(shards.begin(), shards.end());
     shards.erase(std::unique(shards.begin(), shards.end()), shards.end());
     validator_options_.write().set_shard_check_function(
-        [shards = std::move(shards)](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
-                                               ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
-          if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
-            for (auto s : shards) {
-              if (shard_is_ancestor(shard, s)) {
-                return true;
-              }
+        [shards = std::move(shards)](ton::ShardIdFull shard) -> bool {
+          for (auto s : shards) {
+            if (shard_is_ancestor(shard, s)) {
+              return true;
             }
-            return false;
           }
-          CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
-          return true;
+          return false;
         });
   }
 }
@@ -3704,7 +3692,10 @@ int main(int argc, char *argv[]) {
                          return td::Status::OK();
                        });
   p.add_option('M', "not-all-shards", "monitor only a necessary set of shards instead of all", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_masterchain_only); });
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_not_all_shards); });
+  });
+  p.add_option('\0', "lite-validator", "lite-mode validator (don't collate blocks, use collator nodes instead)", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_validator_lite_mode); });
   });
   td::uint32 threads = 7;
   p.add_checked_option(
