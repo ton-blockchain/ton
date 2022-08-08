@@ -1187,3 +1187,26 @@ class AddCollatorQuery : public Query {
   td::int32 wc_;
   td::int64 shard_;
 };
+
+class AddShardQuery : public Query {
+ public:
+  AddShardQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "addshard";
+  }
+  static std::string get_help() {
+    return "addshard <workchain> <shard>\tstart monitoring shard";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::int32 wc_;
+  td::int64 shard_;
+};
