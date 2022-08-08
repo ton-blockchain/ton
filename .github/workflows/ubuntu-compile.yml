@@ -1,0 +1,40 @@
+name: Ubuntu Compile
+
+on: [push,workflow_dispatch]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-18.04, ubuntu-20.04, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+      with:      
+        submodules: 'recursive'
+
+    - name: Install libraries
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
+    - name: Configure & Build
+      run: |
+        export CC=$(which clang)
+        export CXX=$(which clang++)
+        export CCACHE_DISABLE=1
+        mkdir build-${{ matrix.os }}
+        cd build-${{ matrix.os }}
+        cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
+        ninja fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+    - name: find & copy binaries
+      run: |
+        mkdir artifacts-${{ matrix.os }}
+        cp build-${{ matrix.os }}/crypto/fift build-${{ matrix.os }}/crypto/tlbc build-${{ matrix.os }}/crypto/func build-${{ matrix.os }}/crypto/create-state build-${{ matrix.os }}/validator-engine-console/validator-engine-console build-${{ matrix.os }}/tonlib/tonlib-cli build-${{ matrix.os }}/tonlib/libtonlibjson.so.0.5 build-${{ matrix.os }}/http/http-proxy build-${{ matrix.os }}/rldp-http-proxy/rldp-http-proxy build-${{ matrix.os }}/dht-server/dht-server build-${{ matrix.os }}/lite-client/lite-client build-${{ matrix.os }}/validator-engine/validator-engine build-${{ matrix.os }}/utils/generate-random-id build-${{ matrix.os }}/utils/json2tlo build-${{ matrix.os }}/adnl/adnl-proxy artifacts-${{ matrix.os }}
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries-${{ matrix.os }}
+        path: artifacts-${{ matrix.os }}

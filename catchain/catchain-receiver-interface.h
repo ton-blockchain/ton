@@ -35,33 +35,33 @@ class CatChainReceiverInterface : public td::actor::Actor {
                            CatChainBlockHash prev, std::vector<CatChainBlockHash> deps,
                            std::vector<CatChainBlockHeight> vt, td::SharedSlice data) = 0;
     virtual void blame(td::uint32 src_id) = 0;
-    virtual void on_custom_message(PublicKeyHash src, td::BufferSlice data) = 0;
-    virtual void on_custom_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
-    virtual void on_broadcast(PublicKeyHash src, td::BufferSlice data) = 0;
+    virtual void on_custom_query(const PublicKeyHash &src, td::BufferSlice data,
+                                 td::Promise<td::BufferSlice> promise) = 0;
+    virtual void on_broadcast(const PublicKeyHash &src, td::BufferSlice data) = 0;
     virtual void start() = 0;
     virtual ~Callback() = default;
   };
   virtual void add_block(td::BufferSlice payload, std::vector<CatChainBlockHash> deps) = 0;
   virtual void debug_add_fork(td::BufferSlice payload, CatChainBlockHeight height,
                               std::vector<CatChainBlockHash> deps) = 0;
-  virtual void blame_node(td::uint32 idx) = 0;
   virtual void send_fec_broadcast(td::BufferSlice data) = 0;
-  virtual void send_custom_query_data(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise,
+  virtual void send_custom_query_data(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
                                       td::Timestamp timeout, td::BufferSlice query) = 0;
-  virtual void send_custom_query_data_via(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise,
-                                          td::Timestamp timeout, td::BufferSlice query, td::uint64 max_answer_size,
+  virtual void send_custom_query_data_via(const PublicKeyHash &dst, std::string name,
+                                          td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
+                                          td::BufferSlice query, td::uint64 max_answer_size,
                                           td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
-  virtual void send_custom_message_data(PublicKeyHash dst, td::BufferSlice query) = 0;
+  virtual void send_custom_message_data(const PublicKeyHash &dst, td::BufferSlice query) = 0;
 
   virtual void destroy() = 0;
 
   static td::actor::ActorOwn<CatChainReceiverInterface> create(
-      std::unique_ptr<Callback> callback, CatChainOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
+      std::unique_ptr<Callback> callback, const CatChainOptions &opts, td::actor::ActorId<keyring::Keyring> keyring,
       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
-      std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root,
-      std::string db_suffix, bool allow_unsafe_self_blocks_resync);
+      const std::vector<CatChainNode> &ids, const PublicKeyHash &local_id, const CatChainSessionId &unique_hash,
+      std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
 
-  virtual ~CatChainReceiverInterface() = default;
+  ~CatChainReceiverInterface() override = default;
 };
 
 }  // namespace catchain

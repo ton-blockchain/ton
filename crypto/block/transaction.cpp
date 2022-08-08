@@ -25,6 +25,41 @@
 #include "ton/ton-shard.h"
 #include "vm/vm.h"
 
+namespace {
+class StringLoggerTail : public td::LogInterface {
+ public:
+  explicit StringLoggerTail(size_t max_size = 256) : buf(max_size, '\0') {}
+  void append(td::CSlice slice) override {
+    if (slice.size() > buf.size()) {
+      slice.remove_prefix(slice.size() - buf.size());
+    }
+    while (!slice.empty()) {
+      size_t s = std::min(buf.size() - pos, slice.size());
+      std::copy(slice.begin(), slice.begin() + s, buf.begin() + pos);
+      pos += s;
+      if (pos == buf.size()) {
+        pos = 0;
+        truncated = true;
+      }
+      slice.remove_prefix(s);
+    }
+  }
+  std::string get_log() const {
+    if (truncated) {
+      std::string res = buf;
+      std::rotate(res.begin(), res.begin() + pos, res.end());
+      return res;
+    } else {
+      return buf.substr(0, pos);
+    }
+  }
+ private:
+  std::string buf;
+  size_t pos = 0;
+  bool truncated = false;
+};
+}
+
 namespace block {
 using td::Ref;
 
@@ -1001,7 +1036,14 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   vm::GasLimits gas{(long long)cp.gas_limit, (long long)cp.gas_max, (long long)cp.gas_credit};
   LOG(DEBUG) << "creating VM";
 
-  vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm::VmLog(), compute_vm_libraries(cfg)};
+  std::unique_ptr<StringLoggerTail> logger;
+  auto vm_log = vm::VmLog();
+  if (cfg.with_vm_log) {
+    logger = std::make_unique<StringLoggerTail>();
+    vm_log.log_interface = logger.get();
+    vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
+  }
+  vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   // vm.incr_stack_trace(1);    // enable stack dump after each step
 
@@ -1024,6 +1066,9 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
   LOG(INFO) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success;
+  if (logger != nullptr) {
+    cp.vm_log = logger->get_log();
+  }
   if (cp.success) {
     cp.new_data = vm.get_committed_state().c4;  // c4 -> persistent data
     cp.actions = vm.get_committed_state().c5;   // c5 -> action list

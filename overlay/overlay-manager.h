@@ -51,7 +51,7 @@ class OverlayManager : public Overlays {
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override;
 
   void create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                             std::unique_ptr<Callback> callback, OverlayPrivacyRules rules) override;
+                             std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) override;
   void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                               OverlayPrivacyRules rules) override;

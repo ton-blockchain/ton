@@ -58,8 +58,8 @@ class CatChainBlock {
 
   virtual bool is_descendant_of(CatChainBlock *block) = 0;
 
-  static std::unique_ptr<CatChainBlock> create(td::uint32 src, td::uint32 fork_id, PublicKeyHash src_hash,
-                                               CatChainBlockHeight height, CatChainBlockHash hash,
+  static std::unique_ptr<CatChainBlock> create(td::uint32 src, td::uint32 fork_id, const PublicKeyHash &src_hash,
+                                               CatChainBlockHeight height, const CatChainBlockHash &hash,
                                                td::SharedSlice payload, CatChainBlock *prev,
                                                std::vector<CatChainBlock *> deps, std::vector<CatChainBlockHeight> vt);
 
@@ -73,9 +73,10 @@ class CatChain : public td::actor::Actor {
     virtual void process_blocks(std::vector<CatChainBlock *> blocks) = 0;
     virtual void finished_processing() = 0;
     virtual void preprocess_block(CatChainBlock *block) = 0;
-    virtual void process_broadcast(PublicKeyHash src, td::BufferSlice data) = 0;
-    virtual void process_message(PublicKeyHash src, td::BufferSlice data) = 0;
-    virtual void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
+    virtual void process_broadcast(const PublicKeyHash &src, td::BufferSlice data) = 0;
+    virtual void process_message(const PublicKeyHash &src, td::BufferSlice data) = 0;
+    virtual void process_query(const PublicKeyHash &src, td::BufferSlice data,
+                               td::Promise<td::BufferSlice> promise) = 0;
     virtual void started() = 0;
     virtual ~Callback() = default;
   };
@@ -89,22 +90,22 @@ class CatChain : public td::actor::Actor {
   virtual void debug_add_fork(td::BufferSlice payload, CatChainBlockHeight height) = 0;
 
   virtual void send_broadcast(td::BufferSlice data) = 0;
-  virtual void send_message(PublicKeyHash dst, td::BufferSlice data) = 0;
-  virtual void send_query(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise,
+  virtual void send_message(const PublicKeyHash &dst, td::BufferSlice data) = 0;
+  virtual void send_query(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
                           td::Timestamp timeout, td::BufferSlice query) = 0;
-  virtual void send_query_via(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise,
+  virtual void send_query_via(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
                               td::Timestamp timeout, td::BufferSlice query, td::uint64 max_answer_size,
                               td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
   virtual void destroy() = 0;
 
-  static td::actor::ActorOwn<CatChain> create(std::unique_ptr<Callback> callback, CatChainOptions opts,
+  static td::actor::ActorOwn<CatChain> create(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                                               td::actor::ActorId<keyring::Keyring> keyring,
                                               td::actor::ActorId<adnl::Adnl> adnl,
                                               td::actor::ActorId<overlay::Overlays> overlay_manager,
-                                              std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                              CatChainSessionId unique_hash, std::string db_root, std::string db_suffix,
-                                              bool allow_unsafe_self_blocks_resync);
-  virtual ~CatChain() = default;
+                                              std::vector<CatChainNode> ids, const PublicKeyHash &local_id,
+                                              const CatChainSessionId &unique_hash, std::string db_root,
+                                              std::string db_suffix, bool allow_unsafe_self_blocks_resync);
+  ~CatChain() override = default;
 };
 
 }  // namespace catchain

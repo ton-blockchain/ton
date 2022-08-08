@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <algorithm>
 #include "vm/boc.h"
+#include "vm/boc-writers.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "td/utils/bits.h"
@@ -180,6 +181,7 @@ int BagOfCells::add_root(td::Ref<vm::Cell> add_root) {
   return 1;
 }
 
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 td::Status BagOfCells::import_cells() {
   cells_clear();
   for (auto& root : roots) {
@@ -197,6 +199,7 @@ td::Status BagOfCells::import_cells() {
   return td::Status::OK();
 }
 
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 td::Result<int> BagOfCells::import_cell(td::Ref<vm::Cell> cell, int depth) {
   if (depth > max_depth) {
     return td::Status::Error("error while importing a cell into a bag of cells: cell depth too large");
@@ -246,6 +249,7 @@ td::Result<int> BagOfCells::import_cell(td::Ref<vm::Cell> cell, int depth) {
   return cell_count++;
 }
 
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 void BagOfCells::reorder_cells() {
   int_hashes = 0;
   for (int i = cell_count - 1; i >= 0; --i) {
@@ -323,6 +327,7 @@ void BagOfCells::reorder_cells() {
 // force=0 : previsit (recursively until special cells are found; then visit them)
 // force=1 : visit (allocate and process all children)
 // force=2 : allocate (assign a new index; can be run only after visiting)
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 int BagOfCells::revisit(int cell_idx, int force) {
   DCHECK(cell_idx >= 0 && cell_idx < cell_count);
   CellInfo& dci = cell_list_[cell_idx];
@@ -369,6 +374,7 @@ int BagOfCells::revisit(int cell_idx, int force) {
   return dci.new_idx = -3;  // mark as visited (and all children processed)
 }
 
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 td::uint64 BagOfCells::compute_sizes(int mode, int& r_size, int& o_size) {
   int rs = 0, os = 0;
   if (!root_count || !data_bytes) {
@@ -395,6 +401,7 @@ td::uint64 BagOfCells::compute_sizes(int mode, int& r_size, int& o_size) {
   return data_bytes_adj;
 }
 
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 std::size_t BagOfCells::estimate_serialized_size(int mode) {
   if ((mode & Mode::WithCacheBits) && !(mode & Mode::WithIndex)) {
     info.invalidate();
@@ -475,130 +482,6 @@ std::string BagOfCells::extract_string() const {
   return std::string{serialized.data(), serialized.data() + serialized.size()};
 }
 
-namespace {
-struct BufferWriter {
-  BufferWriter(unsigned char* store_start, unsigned char* store_end)
-      : store_start(store_start), store_ptr(store_start), store_end(store_end) {}
-
-  size_t position() const {
-    return store_ptr - store_start;
-  }
-  size_t remaining() const {
-    return store_end - store_ptr;
-  }
-  void chk() const {
-    DCHECK(store_ptr <= store_end);
-  }
-  bool empty() const {
-    return store_ptr == store_end;
-  }
-  void store_uint(unsigned long long value, unsigned bytes) {
-    unsigned char* ptr = store_ptr += bytes;
-    chk();
-    while (bytes) {
-      *--ptr = value & 0xff;
-      value >>= 8;
-      --bytes;
-    }
-    DCHECK(!bytes);
-  }
-  void store_bytes(unsigned char const* data, size_t s) {
-    store_ptr += s;
-    chk();
-    memcpy(store_ptr - s, data, s);
-  }
-  unsigned get_crc32() const {
-    return td::crc32c(td::Slice{store_start, store_ptr});
-  }
-
- private:
-  unsigned char* store_start;
-  unsigned char* store_ptr;
-  unsigned char* store_end;
-};
-
-struct FileWriter {
-  FileWriter(td::FileFd& fd, size_t expected_size)
-      : fd(fd), expected_size(expected_size) {}
-
-  ~FileWriter() {
-    flush();
-  }
-
-  size_t position() const {
-    return flushed_size + writer.position();
-  }
-  size_t remaining() const {
-    return expected_size - position();
-  }
-  void chk() const {
-    DCHECK(position() <= expected_size);
-  }
-  bool empty() const {
-    return remaining() == 0;
-  }
-  void store_uint(unsigned long long value, unsigned bytes) {
-    flush_if_needed(bytes);
-    writer.store_uint(value, bytes);
-  }
-  void store_bytes(unsigned char const* data, size_t s) {
-    flush_if_needed(s);
-    writer.store_bytes(data, s);
-  }
-  unsigned get_crc32() const {
-    unsigned char const* start = buf.data();
-    unsigned char const* end = start + writer.position();
-    return td::crc32c_extend(current_crc32, td::Slice(start, end));
-  }
-
-  td::Status finalize() {
-    flush();
-    return std::move(res);
-  }
-
- private:
-  void flush_if_needed(size_t s) {
-    DCHECK(s <= BUF_SIZE);
-    if (s > BUF_SIZE - writer.position()) {
-      flush();
-    }
-  }
-
-  void flush() {
-    chk();
-    unsigned char* start = buf.data();
-    unsigned char* end = start + writer.position();
-    if (start == end) {
-      return;
-    }
-    flushed_size += end - start;
-    current_crc32 = td::crc32c_extend(current_crc32, td::Slice(start, end));
-    if (res.is_ok()) {
-      while (end > start) {
-        auto R = fd.write(td::Slice(start, end));
-        if (R.is_error()) {
-          res = R.move_as_error();
-          break;
-        }
-        size_t s = R.move_as_ok();
-        start += s;
-      }
-    }
-    writer = BufferWriter(buf.data(), buf.data() + buf.size());
-  }
-
-  td::FileFd& fd;
-  size_t expected_size;
-  size_t flushed_size = 0;
-  unsigned current_crc32 = td::crc32c(td::Slice());
-
-  static const size_t BUF_SIZE = 1 << 22;
-  std::vector<unsigned char> buf = std::vector<unsigned char>(BUF_SIZE, '\0');
-  BufferWriter writer = BufferWriter(buf.data(), buf.data() + buf.size());
-  td::Status res = td::Status::OK();
-};
-}
-
 //serialized_boc#672fb0ac has_idx:(## 1) has_crc32c:(## 1)
 //  has_cache_bits:(## 1) flags:(## 2) { flags = 0 }
 //  size:(## 3) { size <= 4 }
@@ -610,6 +493,7 @@ struct FileWriter {
 //  index:(cells * ##(off_bytes * 8))
 //  cell_data:(tot_cells_size * [ uint8 ])
 //  = BagOfCells;
+// Changes in this function may require corresponding changes in crypto/vm/large-boc-serializer.cpp
 template<typename WriterT>
 std::size_t BagOfCells::serialize_to_impl(WriterT& writer, int mode) {
   auto store_ref = [&](unsigned long long value) {
@@ -705,7 +589,7 @@ std::size_t BagOfCells::serialize_to(unsigned char* buffer, std::size_t buff_siz
   if (!size_est || size_est > buff_size) {
     return 0;
   }
-  BufferWriter writer{buffer, buffer + size_est};
+  boc_writers::BufferWriter writer{buffer, buffer + size_est};
   return serialize_to_impl(writer, mode);
 }
 
@@ -714,7 +598,7 @@ td::Status BagOfCells::serialize_to_file(td::FileFd& fd, int mode) {
   if (!size_est) {
     return td::Status::Error("no cells to serialize to this bag of cells");
   }
-  FileWriter writer{fd, size_est};
+  boc_writers::FileWriter writer{fd, size_est};
   size_t s = serialize_to_impl(writer, mode);
   TRY_STATUS(writer.finalize());
   if (s != size_est) {

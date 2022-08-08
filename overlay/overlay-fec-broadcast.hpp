@@ -194,6 +194,9 @@ class BroadcastFec : public td::ListNode {
   void set_overlay(OverlayImpl *overlay) {
     overlay_ = overlay;
   }
+  void set_src_peer_id(adnl::AdnlNodeIdShort src_peer_id) {
+    src_peer_id_ = src_peer_id;
+  }
 
   td::Status distribute_part(td::uint32 seqno);
 
@@ -220,6 +223,7 @@ class BroadcastFec : public td::ListNode {
 
   std::map<td::uint32, std::pair<td::BufferSlice, td::BufferSlice>> parts_;
   OverlayImpl *overlay_;
+  adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
   td::BufferSlice data_;
 };
 
@@ -245,6 +249,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
 
   BroadcastFec *bcast_;
   OverlayImpl *overlay_;
+  adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
 
   td::Status check_time();
   td::Status check_duplicate();
@@ -260,7 +265,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
                           std::shared_ptr<Certificate> cert, Overlay::BroadcastDataHash data_hash, td::uint32 data_size,
                           td::uint32 flags, Overlay::BroadcastDataHash part_data_hash, td::BufferSlice data,
                           td::uint32 seqno, fec::FecType fec_type, td::uint32 date, td::BufferSlice signature,
-                          bool is_short, BroadcastFec *bcast, OverlayImpl *overlay)
+                          bool is_short, BroadcastFec *bcast, OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id)
       : broadcast_hash_(broadcast_hash)
       , part_hash_(part_hash)
       , source_(std::move(source))
@@ -276,7 +281,8 @@ class OverlayFecBroadcastPart : public td::ListNode {
       , signature_(std::move(signature))
       , is_short_(is_short)
       , bcast_(bcast)
-      , overlay_(overlay) {
+      , overlay_(overlay) 
+      , src_peer_id_(src_peer_id) {
   }
 
   td::uint32 data_size() const {
@@ -310,8 +316,8 @@ class OverlayFecBroadcastPart : public td::ListNode {
     return td::Status::OK();
   }
 
-  static td::Status create(OverlayImpl *overlay, tl_object_ptr<ton_api::overlay_broadcastFec> broadcast);
-  static td::Status create(OverlayImpl *overlay, tl_object_ptr<ton_api::overlay_broadcastFecShort> broadcast);
+  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcastFec> broadcast);
+  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcastFecShort> broadcast);
   static td::Status create_new(OverlayImpl *overlay, td::actor::ActorId<OverlayImpl> overlay_actor_id,
                                PublicKeyHash local_id, Overlay::BroadcastDataHash data_hash, td::uint32 size,
                                td::uint32 flags, td::BufferSlice part, td::uint32 seqno, fec::FecType fec_type,

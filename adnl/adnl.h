@@ -56,6 +56,7 @@ class AdnlSenderInterface : public td::actor::Actor {
   virtual void send_query_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, std::string name,
                              td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
                              td::uint64 max_answer_size) = 0;
+  virtual void get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, td::Promise<td::string> promise) = 0;
 };
 
 class AdnlTunnel : public td::actor::Actor {};

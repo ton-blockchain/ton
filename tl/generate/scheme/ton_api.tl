@@ -259,7 +259,7 @@ catchain.blockUpdate block:catchain.block = catchain.Update;
 catchain.block.data.badBlock block:catchain.block = catchain.block.inner.Data;
 catchain.block.data.fork left:catchain.block.Dep right:catchain.block.Dep = catchain.block.inner.Data;
 catchain.block.data.nop = catchain.block.inner.Data;
-catchain.block.data.vector msgs:(vector bytes) = catchain.block.inner.Data;
+//catchain.block.data.vector msgs:(vector bytes) = catchain.block.inner.Data;
 //catchain.block.data.custom = catchain.block.inner.Data;
 
 catchain.firstblock unique_hash:int256 nodes:(vector int256) = catchain.FirstBlock;
@@ -309,10 +309,13 @@ validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes coll
 
 validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
-validatorSession.configVersioned catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 validatorSession.configNew catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int new_catchain_ids:Bool = validatorSession.Config;
+
+validatorSession.catchainOptions idle_timeout:double max_deps:int max_block_size:int block_hash_covers_data:Bool
+        max_block_height_ceoff:int debug_disable_db:Bool = validatorSession.CatChainOptions;
+validatorSession.configVersioned catchain_opts:validatorSession.CatChainOptions round_candidates:int next_candidate_delay:double
+        round_attempt_duration:int max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 
 ---functions---
 
@@ -620,8 +623,9 @@ engine.validator.proposalVote perm_key:int256 to_send:bytes = engine.validator.P
 engine.validator.dhtServerStatus id:int256 status:int = engine.validator.DhtServerStatus;
 engine.validator.dhtServersStatus servers:(vector engine.validator.dhtServerStatus) = engine.validator.DhtServersStatus;
 
-engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 nodes:(vector adnl.id.short) 
-                              stats:(vector engine.validator.oneStat) = engine.validator.OverlayStats;
+engine.validator.overlayStatsNode adnl_id:int256 ip_addr:string bdcst_errors:int fec_bdcst_errors:int last_in_query:int last_out_query:int t_out_bytes:int t_in_bytes:int t_out_pckts:int t_in_pckts:int = engine.validator.OverlayStatsNode;
+
+engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 scope:string nodes:(vector engine.validator.overlayStatsNode) stats:(vector engine.validator.oneStat) = engine.validator.OverlayStats;
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 
 

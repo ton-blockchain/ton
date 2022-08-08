@@ -34,6 +34,7 @@
 #include "overlay/overlays.h"
 
 #include <cctype>
+#include <fstream>
 
 Tokenizer::Tokenizer(td::BufferSlice data) : data_(std::move(data)) {
   remaining_ = data_.as_slice();
@@ -835,17 +836,107 @@ td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
                     "received incorrect answer: ");
   for (auto &s : f->overlays_) {
     td::StringBuilder sb;
-    sb << "overlay_id=" << s->overlay_id_ << " adnl_id=" << s->adnl_id_ << "\n";
-    sb << "  nodes:";
+    sb << "overlay_id: " << s->overlay_id_ << " adnl_id: " << s->adnl_id_ << " scope: " << s->scope_ << "\n";
+    sb << "  nodes:\n";
+    
+    td::uint32 overlay_t_out_bytes = 0;
+    td::uint32 overlay_t_out_pckts = 0;
+    td::uint32 overlay_t_in_bytes = 0;
+    td::uint32 overlay_t_in_pckts = 0;
+    
     for (auto &n : s->nodes_) {
-      sb << "   " << n->id_ << "\n";
+      sb << "   adnl_id: " << n->adnl_id_ << " ip_addr: " << n->ip_addr_ << " broadcast_errors: " << n->bdcst_errors_ << " fec_broadcast_errors: " << n->fec_bdcst_errors_ << " last_in_query: " << n->last_in_query_ << " (" << time_to_human(n->last_in_query_) << ")" << " last_out_query: " << n->last_out_query_ << " (" << time_to_human(n->last_out_query_) << ")" << "\n   throughput:\n    out: " << n->t_out_bytes_ << " bytes/sec, " << n->t_out_pckts_ << " pckts/sec\n    in: " << n->t_in_bytes_ << " bytes/sec, " << n->t_in_pckts_ << " pckts/sec\n";
+      
+      overlay_t_out_bytes += n->t_out_bytes_;
+      overlay_t_out_pckts += n->t_out_pckts_;
+      
+      overlay_t_in_bytes += n->t_in_bytes_;
+      overlay_t_in_pckts += n->t_in_pckts_;
     }
+    sb << "  total_throughput:\n   out: " << overlay_t_out_bytes << " bytes/sec, " << overlay_t_out_pckts << " pckts/sec\n   in: " << overlay_t_in_bytes << " bytes/sec, " << overlay_t_in_pckts << " pckts/sec\n";
+     
     sb << "  stats:\n";
     for (auto &t : s->stats_) {
       sb << "    " << t->key_ << "\t" << t->value_ << "\n";
     }
     td::TerminalIO::output(sb.as_cslice());
   }
+  return td::Status::OK();
+}
+
+td::Status GetOverlaysStatsJsonQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetOverlaysStatsJsonQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getOverlaysStats>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_overlaysStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  std::ofstream sb(file_name_);
+  
+  sb << "[\n";
+  bool rtail = false;
+  for (auto &s : f->overlays_) {
+    if(rtail) {
+      sb << ",\n";
+    } else {
+      rtail = true;
+    }
+    
+    sb << "{\n  \"overlay_id\": \"" << s->overlay_id_ << "\",\n  \"adnl_id\": \"" << s->adnl_id_ << "\",\n  \"scope\": " << s->scope_ << ",\n";
+    sb << "  \"nodes\": [\n";
+    
+    td::uint32 overlay_t_out_bytes = 0;
+    td::uint32 overlay_t_out_pckts = 0;
+    td::uint32 overlay_t_in_bytes = 0;
+    td::uint32 overlay_t_in_pckts = 0;
+    
+    bool tail = false;
+    for (auto &n : s->nodes_) {
+      if(tail) {
+        sb << ",\n";
+      } else {
+        tail = true;
+      }
+      
+      sb << "   {\n    \"adnl_id\": \"" << n->adnl_id_ << "\",\n    \"ip_addr\": \"" << n->ip_addr_ << "\",\n    \"broadcast_errors\": " << n->bdcst_errors_ << ",\n    \"fec_broadcast_errors\": " << n->fec_bdcst_errors_ << ",\n    \"last_in_query_unix\": " << n->last_in_query_ << ",\n    \"last_in_query_human\": \"" << time_to_human(n->last_in_query_) << "\",\n" << "    \"last_out_query_unix\": " << n->last_out_query_ << ",\n    \"last_out_query_human\": \"" << time_to_human(n->last_out_query_) << "\",\n" << "\n    \"throughput\": { \"out_bytes_sec\": " << n->t_out_bytes_ << ", \"out_pckts_sec\": " << n->t_out_pckts_ << ", \"in_bytes_sec\": " << n->t_in_bytes_ << ", \"in_pckts_sec\": " << n->t_in_pckts_ << " }\n   }";
+      
+      overlay_t_out_bytes += n->t_out_bytes_;
+      overlay_t_out_pckts += n->t_out_pckts_;
+      
+      overlay_t_in_bytes += n->t_in_bytes_;
+      overlay_t_in_pckts += n->t_in_pckts_;
+    }
+    sb << "  ],\n";
+    
+    sb << "  \"total_throughput\": { \"out_bytes_sec\": " << overlay_t_out_bytes << ", \"out_pckts_sec\": " << overlay_t_out_pckts << ", \"in_bytes_sec\": " << overlay_t_in_bytes << ", \"in_pckts_sec\": " << overlay_t_in_pckts << " },\n";
+     
+    sb << "  \"stats\": {\n";
+    
+    tail = false;
+    for (auto &t : s->stats_) {
+      if(tail) {
+        sb << ",\n";
+      } else {
+        tail = true;
+      }
+      
+      sb << "   \"" << t->key_ << "\": \"" << t->value_ << "\"";
+    }
+    sb << "\n  }\n";
+    sb << "}\n";
+  }
+  sb << "]\n";
+  sb << std::flush;
+  
+  td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
   return td::Status::OK();
 }
 

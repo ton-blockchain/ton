@@ -79,6 +79,26 @@ class OverlayPeer {
   td::int32 get_version() const {
     return node_.version();
   }
+  
+  td::uint32 throughput_out_bytes = 0;
+  td::uint32 throughput_in_bytes = 0;
+  
+  td::uint32 throughput_out_packets = 0;
+  td::uint32 throughput_in_packets = 0;
+  
+  td::uint32 throughput_out_bytes_ctr = 0;
+  td::uint32 throughput_in_bytes_ctr = 0;
+  
+  td::uint32 throughput_out_packets_ctr = 0;
+  td::uint32 throughput_in_packets_ctr = 0;
+  
+  td::uint32 broadcast_errors = 0;
+  td::uint32 fec_broadcast_errors = 0;
+ 
+  td::Timestamp last_in_query_at = td::Timestamp::now();
+  td::Timestamp last_out_query_at = td::Timestamp::now();
+  
+  td::string ip_addr_str = "undefined";
 
  private:
   OverlayNode node_;
@@ -93,7 +113,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules);
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }");
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -109,6 +129,9 @@ class OverlayImpl : public Overlay {
 
   void alarm() override;
   void start_up() override {
+    update_throughput_at_ = td::Timestamp::in(50.0);
+    last_throughput_update_ = td::Timestamp::now();
+    
     if (public_) {
       update_db_at_ = td::Timestamp::in(60.0);
     }
@@ -149,6 +172,8 @@ class OverlayImpl : public Overlay {
 
   void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
+
+  void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
 
   BroadcastFec *get_fec_broadcast(BroadcastHash hash);
   void register_fec_broadcast(std::unique_ptr<BroadcastFec> bcast);
@@ -191,6 +216,39 @@ class OverlayImpl : public Overlay {
   td::Result<Encryptor *> get_encryptor(PublicKey source);
 
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) override;
+  
+  void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) override {
+    auto out_peer = peers_.get(peer_id);
+    if(out_peer) {
+      out_peer->throughput_out_bytes_ctr += msg_size;
+      out_peer->throughput_out_packets_ctr++;
+      
+      if(is_query)
+      {
+        out_peer->last_out_query_at = td::Timestamp::now();
+      }
+    }
+  }
+  
+  void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) override {
+    auto in_peer = peers_.get(peer_id);
+    if(in_peer) {
+      in_peer->throughput_in_bytes_ctr += msg_size;
+      in_peer->throughput_in_packets_ctr++;
+      
+      if(is_query)
+      {
+        in_peer->last_in_query_at = td::Timestamp::now();
+      }
+    }
+  }
+  
+  void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override {
+    auto fpeer = peers_.get(peer_id);
+    if(fpeer) {
+      fpeer->ip_addr_str = ip_str;
+    }
+  }
 
  private:
   template <class T>
@@ -236,6 +294,8 @@ class OverlayImpl : public Overlay {
   td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
   td::Timestamp next_dht_query_ = td::Timestamp::in(1.0);
   td::Timestamp update_db_at_;
+  td::Timestamp update_throughput_at_;
+  td::Timestamp last_throughput_update_;
 
   std::unique_ptr<Overlays::Callback> callback_;
 
@@ -291,6 +351,7 @@ class OverlayImpl : public Overlay {
   bool public_;
   bool semi_public_ = false;
   OverlayPrivacyRules rules_;
+  td::string scope_;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {
