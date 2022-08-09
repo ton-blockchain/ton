@@ -311,10 +311,12 @@ validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
 validatorSession.configNew catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int new_catchain_ids:Bool = validatorSession.Config;
+validatorSession.configVersioned catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
+        max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 
 validatorSession.catchainOptions idle_timeout:double max_deps:int max_block_size:int block_hash_covers_data:Bool
         max_block_height_ceoff:int debug_disable_db:Bool = validatorSession.CatChainOptions;
-validatorSession.configVersioned catchain_opts:validatorSession.CatChainOptions round_candidates:int next_candidate_delay:double
+validatorSession.configVersionedV2 catchain_opts:validatorSession.CatChainOptions round_candidates:int next_candidate_delay:double
         round_attempt_duration:int max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 
 ---functions---
