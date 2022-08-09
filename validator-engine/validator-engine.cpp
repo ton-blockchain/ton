@@ -177,7 +177,7 @@ Config::Config(const ton::ton_api::engine_validator_config_v2 &config) {
   }
 }
 
-ton::tl_object_ptr<ton::ton_api::engine_validator_config_v2> Config::tl() const {
+ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
     if (x.second.proxy) {
@@ -256,10 +256,18 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config_v2> Config::tl() const 
   for (auto &id : gc) {
     gc_vec->ids_.push_back(id.tl());
   }
-  return ton::create_tl_object<ton::ton_api::engine_validator_config_v2>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
-      full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
-      std::move(control_vec), std::move(shards_vec), std::move(gc_vec));
+
+  if (col_vec.empty() && shards_vec.empty()) {
+    return ton::create_tl_object<ton::ton_api::engine_validator_config>(
+        out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
+        full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
+        std::move(control_vec), std::move(gc_vec));
+  } else {
+    return ton::create_tl_object<ton::ton_api::engine_validator_config_v2>(
+        out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
+        full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
+        std::move(control_vec), std::move(shards_vec), std::move(gc_vec));
+  }
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
