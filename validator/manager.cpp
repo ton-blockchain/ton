@@ -1726,8 +1726,8 @@ void ValidatorManagerImpl::update_shards() {
   td::uint32 threshold = 9407194;
   bool force_group_id_upgrade = last_masterchain_seqno_ == threshold;
   auto legacy_opts_hash = opts.get_hash();
-  if(last_masterchain_seqno_ >= threshold) { //TODO move to get_consensus_config()
-      opts.proto_version = 1;
+  if (last_masterchain_seqno_ >= threshold) { //TODO move to get_consensus_config()
+    opts.proto_version = std::max<td::uint32>(opts.proto_version, 1);
   }
   auto opts_hash = opts.get_hash();
 
