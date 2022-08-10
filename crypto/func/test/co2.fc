@@ -1,0 +1,24 @@
+const val1 = 123456789;
+const val2 = 987654321;
+const val3 = 135792468;
+const val4 = 246813579;
+
+const prec_and = val1 & val2;
+const prec_or  = val1 | val2;
+const prec_xor = val1 ^ val2;
+const prec_logic = ((val1 & val2) | val3) ^ val4;
+const prec_nand = val1 & (~ val2);
+
+int get_and()  { return prec_and; }
+int get_or() { return prec_or; }
+int get_xor() { return prec_xor; }
+int get_logic() { return prec_logic; }
+int get_nand() { return prec_nand; }
+
+_ main() {
+    throw_unless(101, get_and() == 39471121);
+    throw_unless(102, get_or() == 1071639989);
+    throw_unless(103, get_xor() == 1032168868);
+    throw_unless(104, get_logic() == 82599134);
+    throw_unless(105, get_nand() == 83985668);
+}
