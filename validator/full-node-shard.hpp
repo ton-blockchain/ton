@@ -145,6 +145,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
   void check_broadcast(PublicKeyHash src, td::BufferSlice query, td::Promise<td::Unit> promise);
+  void remove_neighbour(adnl::AdnlNodeIdShort id);
 
   void send_ihr_message(td::BufferSlice data) override;
   void send_external_message(td::BufferSlice data) override;

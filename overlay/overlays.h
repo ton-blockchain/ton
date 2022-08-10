@@ -145,7 +145,7 @@ class Certificate {
                              bool is_fec) const;
   tl_object_ptr<ton_api::overlay_Certificate> tl() const;
   const PublicKey &issuer() const;
-  const PublicKeyHash issuer_hash() const;
+  PublicKeyHash issuer_hash() const;
 
   static td::Result<std::shared_ptr<Certificate>> create(tl_object_ptr<ton_api::overlay_Certificate> cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
@@ -169,6 +169,8 @@ class Overlays : public td::actor::Actor {
     virtual void check_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
                                  td::Promise<td::Unit> promise) {
       promise.set_value(td::Unit());
+    }
+    virtual void on_remove_peer(adnl::AdnlNodeIdShort src) {
     }
     virtual ~Callback() = default;
   };
@@ -195,7 +197,8 @@ class Overlays : public td::actor::Actor {
   virtual void create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                      std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) = 0;
   virtual void create_public_overlay_external(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                              OverlayPrivacyRules rules, td::string scope) = 0;
+                                              std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
+                                              td::string scope) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                       OverlayPrivacyRules rules) = 0;

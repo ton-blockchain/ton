@@ -113,7 +113,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }");
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }", bool is_external = false);
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -251,13 +251,8 @@ class OverlayImpl : public Overlay {
   }
 
  private:
-  bool is_external() const {
-    return callback_ == nullptr;
-  }
-
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
-    CHECK(!is_external());
     callback_->receive_query(src, overlay_id_, serialize_tl_object(&query, true), std::move(promise));
   }
 
@@ -357,6 +352,7 @@ class OverlayImpl : public Overlay {
   bool semi_public_ = false;
   OverlayPrivacyRules rules_;
   td::string scope_;
+  bool is_external_ = false;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {

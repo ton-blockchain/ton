@@ -25,7 +25,6 @@
 
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
 
 #include "adnl/utils.hpp"
 #include "net/download-block-new.hpp"
@@ -71,38 +70,41 @@ void Neighbour::update_roundtrip(double t) {
 }
 
 void FullNodeShardImpl::create_overlay() {
+  class Callback : public overlay::Overlays::Callback {
+   public:
+    void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id,
+                         td::BufferSlice data) override {
+      // just ignore
+    }
+    void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                       td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(node_, &FullNodeShardImpl::receive_query, src, std::move(data), std::move(promise));
+    }
+    void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
+      td::actor::send_closure(node_, &FullNodeShardImpl::receive_broadcast, src, std::move(data));
+    }
+    void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                         td::Promise<td::Unit> promise) override {
+      td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
+    }
+    void on_remove_peer(adnl::AdnlNodeIdShort src) override {
+      td::actor::send_closure(node_, &FullNodeShardImpl::remove_neighbour, src);
+    }
+    Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
+    }
+
+   private:
+    td::actor::ActorId<FullNodeShardImpl> node_;
+  };
+
   if (active_) {
-    class Callback : public overlay::Overlays::Callback {
-     public:
-      void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id,
-                           td::BufferSlice data) override {
-        // just ignore
-      }
-      void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
-                         td::Promise<td::BufferSlice> promise) override {
-        td::actor::send_closure(node_, &FullNodeShardImpl::receive_query, src, std::move(data), std::move(promise));
-      }
-      void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
-        td::actor::send_closure(node_, &FullNodeShardImpl::receive_broadcast, src, std::move(data));
-      }
-      void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
-                           td::Promise<td::Unit> promise) override {
-        td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
-      }
-      Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
-      }
-
-     private:
-      td::actor::ActorId<FullNodeShardImpl> node_;
-    };
-
     td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_full_.clone(),
                             std::make_unique<Callback>(actor_id(this)), rules_,
                             PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
                                       << ", \"workchain_id\": " << get_workchain() << " }");
   } else {
     td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_external, adnl_id_,
-                            overlay_id_full_.clone(), rules_,
+                            overlay_id_full_.clone(), std::make_unique<Callback>(actor_id(this)), rules_,
                             PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
                                       << ", \"workchain_id\": " << get_workchain() << " }");
   }
@@ -122,6 +124,10 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
   auto q = B.move_as_ok();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
                           std::move(q->message_->data_), std::move(promise));
+}
+
+void FullNodeShardImpl::remove_neighbour(adnl::AdnlNodeIdShort id) {
+  neighbours_.erase(id);
 }
 
 void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {

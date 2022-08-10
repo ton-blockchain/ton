@@ -418,7 +418,7 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
 }
 
 void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  if (!is_collator()) {
+  if (!is_collator() && !is_validator()) {
     return;
   }
   if (!last_masterchain_block_handle_) {
@@ -1794,6 +1794,7 @@ void ValidatorManagerImpl::update_shards() {
     opts.proto_version = std::max<td::uint32>(opts.proto_version, 1);
   }
   auto opts_hash = opts.get_hash();
+  extra_active_shards_.clear();
 
   std::map<ShardIdFull, std::vector<BlockIdExt>> new_shards;
   std::set<ShardIdFull> future_shards;
@@ -1848,6 +1849,11 @@ void ValidatorManagerImpl::update_shards() {
       default:
         LOG(FATAL) << "state=" << static_cast<td::uint32>(v->fsm_state());
     }
+    cleanup_last_validated_blocks(v->top_block_id().id);
+  }
+
+  for (const auto& s : last_validated_blocks_) {
+    extra_active_shards_.insert(s.first);
   }
 
   new_shards.emplace(ShardIdFull{masterchainId, shardIdAll}, std::vector<BlockIdExt>{last_masterchain_block_id_});
@@ -1920,6 +1926,7 @@ void ValidatorManagerImpl::update_shards() {
       auto validator_id = get_validator(shard, val_set);
 
       if (!validator_id.is_zero()) {
+        extra_active_shards_.insert(shard);
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
 
         if (force_recover) {
@@ -2012,7 +2019,25 @@ void ValidatorManagerImpl::update_shards() {
     });
     td::actor::send_closure(db_, &Db::update_destroyed_validator_sessions, gc_list_, std::move(P));
   }
-}  // namespace validator
+}
+
+void ValidatorManagerImpl::cleanup_last_validated_blocks(BlockId new_block) {
+  auto process_shard = [&, this](ShardIdFull shard) {
+    auto it = last_validated_blocks_.find(shard);
+    if (it != last_validated_blocks_.end() && it->second < new_block.seqno) {
+      last_validated_blocks_.erase(it);
+    }
+  };
+  ShardIdFull shard = new_block.shard_full();
+  process_shard(shard);
+  if (shard.pfx_len() > 0) {
+    process_shard(shard_parent(shard));
+  }
+  if (shard.pfx_len() < max_shard_pfx_len) {
+    process_shard(shard_child(shard, true));
+    process_shard(shard_child(shard, false));
+  }
+}
 
 void ValidatorManagerImpl::written_destroyed_validator_sessions(std::vector<td::actor::ActorId<ValidatorGroup>> list) {
   for (auto &v : list) {
@@ -2428,6 +2453,7 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
 void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state,
                                                       std::set<ShardIdFull> shards_to_monitor) {
   shards_to_monitor_ = shards_to_monitor;
+  shards_to_monitor.insert(extra_active_shards_.begin(), extra_active_shards_.end());
   callback_->update_shard_configuration(std::move(state), std::move(shards_to_monitor));
 }
 

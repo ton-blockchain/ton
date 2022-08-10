@@ -168,6 +168,8 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
 
+  virtual void validated_new_block(BlockIdExt block_id) = 0;
+
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);
   }
