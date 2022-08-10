@@ -30,7 +30,6 @@
 #include "td/utils/Status.h"
 #include "td/utils/overloaded.h"
 
-#include "keys/encryptor.h"
 #include "td/utils/port/Poll.h"
 #include <vector>
 
@@ -92,7 +91,6 @@ void OverlayManager::delete_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdSho
 void OverlayManager::create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                            std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) {
   CHECK(!dht_node_.empty());
-  CHECK(callback != nullptr);
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id,
                    Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
@@ -100,12 +98,13 @@ void OverlayManager::create_public_overlay(adnl::AdnlNodeIdShort local_id, Overl
 }
 
 void OverlayManager::create_public_overlay_external(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                                    OverlayPrivacyRules rules, td::string scope) {
+                                                    std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
+                                                    td::string scope) {
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id,
-                   Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id), nullptr,
-                                   std::move(rules), scope));
+                   Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+                                   std::move(callback), std::move(rules), scope, true));
 }
 
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -155,16 +154,23 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
 
   auto M = R.move_as_ok();
 
+  OverlayIdShort overlay_id{M->overlay_};
+  auto send_remove_peer = [&, this]() {
+    send_message(src, dst, overlay_id, create_serialize_tl_object<ton_api::overlay_message_removePeer>());
+  };
+
   auto it = overlays_.find(dst);
   if (it == overlays_.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": query to unknown overlay " << M->overlay_ << "@" << dst << " from " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad local_id " << dst));
+    send_remove_peer();
     return;
   }
-  auto it2 = it->second.find(OverlayIdShort{M->overlay_});
+  auto it2 = it->second.find(overlay_id);
   if (it2 == it->second.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << M->overlay_ << "@" << dst << " from " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << M->overlay_));
+    send_remove_peer();
     return;
   }
 
@@ -394,7 +400,7 @@ td::BufferSlice Certificate::to_sign(OverlayIdShort overlay_id, PublicKeyHash is
   }
 }
 
-const PublicKeyHash Certificate::issuer_hash() const {
+PublicKeyHash Certificate::issuer_hash() const {
   PublicKeyHash r;
   issued_by_.visit(
       td::overloaded([&](const PublicKeyHash &x) { r = x; }, [&](const PublicKey &x) { r = x.compute_short_id(); }));

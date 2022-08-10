@@ -38,10 +38,10 @@ td::actor::ActorOwn<Overlay> Overlay::create(td::actor::ActorId<keyring::Keyring
                                              td::actor::ActorId<OverlayManager> manager,
                                              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                                              OverlayIdFull overlay_id, std::unique_ptr<Overlays::Callback> callback,
-                                             OverlayPrivacyRules rules, td::string scope) {
+                                             OverlayPrivacyRules rules, td::string scope, bool is_external) {
   auto R = td::actor::create_actor<OverlayImpl>("overlay", keyring, adnl, manager, dht_node, local_id,
                                                 std::move(overlay_id), true, std::vector<adnl::AdnlNodeIdShort>(),
-                                                std::move(callback), std::move(rules), scope);
+                                                std::move(callback), std::move(rules), scope, is_external);
   return td::actor::ActorOwn<Overlay>(std::move(R));
 }
 
@@ -61,7 +61,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
                          td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
                          adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
                          std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-                         OverlayPrivacyRules rules, td::string scope)
+                         OverlayPrivacyRules rules, td::string scope, bool is_external)
     : keyring_(keyring)
     , adnl_(adnl)
     , manager_(manager)
@@ -71,10 +71,11 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , callback_(std::move(callback))
     , public_(pub)
     , rules_(std::move(rules))
-    , scope_(scope) {
+    , scope_(scope)
+    , is_external_(is_external) {
   overlay_id_ = id_full_.compute_short_id();
 
-  if (is_external()) {
+  if (is_external_) {
     CHECK(public_);
     VLOG(OVERLAY_INFO) << this << ": creating public external";
   } else {
@@ -92,7 +93,6 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeers &query,
                                 td::Promise<td::BufferSlice> promise) {
-  CHECK(!is_external());
   if (public_) {
     VLOG(OVERLAY_DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
                         << " in getRandomPeers query";
@@ -113,7 +113,6 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getR
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcast &query,
                                 td::Promise<td::BufferSlice> promise) {
-  CHECK(!is_external());
   auto it = broadcasts_.find(query.hash_);
   if (it == broadcasts_.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
@@ -135,15 +134,16 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getB
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcastList &query,
                                 td::Promise<td::BufferSlice> promise) {
-  CHECK(!is_external());
   VLOG(OVERLAY_WARNING) << this << ": DROPPING getBroadcastList query";
   promise.set_error(td::Status::Error(ErrorCode::protoviolation, "dropping get broadcast list query"));
 }
 
 void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
-  if (is_external()) {
+  if (is_external_) {
     LOG(OVERLAY_WARNING) << "dropping query in external overlay " << overlay_id_;
     promise.set_error(td::Status::Error("overlay is external"));
+    td::actor::send_closure(manager_, &Overlays::send_message, src, local_id_, overlay_id_,
+                            create_serialize_tl_object<ton_api::overlay_message_removePeer>());
     return;
   }
   if (!public_) {
@@ -171,32 +171,27 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcast> bcast) {
-  CHECK(!is_external());
   return BroadcastSimple::create(this, message_from, std::move(bcast));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastFec> b) {
-  CHECK(!is_external());
   return OverlayFecBroadcastPart::create(this, message_from, std::move(b));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastFecShort> b) {
-  CHECK(!is_external());
   return OverlayFecBroadcastPart::create(this, message_from, std::move(b));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastNotFound> bcast) {
-  CHECK(!is_external());
   return td::Status::Error(ErrorCode::protoviolation,
                            PSTRING() << "received strange message broadcastNotFound from " << message_from);
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_fec_received> msg) {
-  CHECK(!is_external());
   auto it = fec_broadcasts_.find(msg->hash_);
   if (it != fec_broadcasts_.end()) {
     VLOG(OVERLAY_DEBUG) << this << ": received fec opt-out message from " << message_from << " for broadcast "
@@ -211,7 +206,6 @@ td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_fec_completed> msg) {
-  CHECK(!is_external());
   auto it = fec_broadcasts_.find(msg->hash_);
   if (it != fec_broadcasts_.end()) {
     VLOG(OVERLAY_DEBUG) << this << ": received fec completed message from " << message_from << " for broadcast "
@@ -226,17 +220,12 @@ td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_unicast> msg) {
-  CHECK(!is_external());
   VLOG(OVERLAY_DEBUG) << this << ": received unicast from " << message_from;
   callback_->receive_message(message_from, overlay_id_, std::move(msg->data_));
   return td::Status::OK();
 }
 
 void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
-  if (is_external()) {
-    LOG(OVERLAY_WARNING) << "dropping message in external overlay " << overlay_id_;
-    return;
-  }
   if (!public_) {
     if (peers_.get(src) == nullptr) {
       VLOG(OVERLAY_WARNING) << this << ": received query in private overlay from unknown source " << src;
@@ -245,12 +234,28 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
   }
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
+    auto Y = fetch_tl_object<ton_api::overlay_message_removePeer>(data.clone(), true);
+    if (Y.is_ok()) {
+      VLOG(OVERLAY_DEBUG) << this << ": received removePeer message from " << src;
+      if (peers_.exists(src)) {
+        del_peer(src);
+        callback_->on_remove_peer(src);
+      }
+      return;
+    }
+  }
+
+  if (is_external_) {
+    LOG(OVERLAY_WARNING) << "dropping message in external overlay " << overlay_id_;
+    return;
+  }
+  if (X.is_error()) {
     VLOG(OVERLAY_DEBUG) << this << ": received custom message";
     callback_->receive_message(src, overlay_id_, std::move(data));
     return;
   }
   auto Q = X.move_as_ok();
-  ton_api::downcast_call(*Q.get(), [Self = this, &Q, &src](auto &object) {
+  ton_api::downcast_call(*Q, [Self = this, &Q, &src](auto &object) {
     Self->process_broadcast(src, move_tl_object_as<std::remove_reference_t<decltype(object)>>(Q));
   });
 }
@@ -344,7 +349,7 @@ void OverlayImpl::receive_dht_nodes(td::Result<dht::DhtValue> res, bool dummy) {
     VLOG(OVERLAY_NOTICE) << this << ": can not get value from DHT: " << res.move_as_error();
   }
 
-  if (is_external()) {
+  if (is_external_) {
     return;
   }
 
@@ -548,7 +553,7 @@ void OverlayImpl::send_new_fec_broadcast_part(PublicKeyHash local_id, Overlay::B
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data) {
-  if (is_external()) {
+  if (is_external_) {
     return;
   }
   callback_->receive_broadcast(source, overlay_id_, std::move(data));
@@ -623,7 +628,7 @@ void OverlayImpl::set_privacy_rules(OverlayPrivacyRules rules) {
 }
 
 void OverlayImpl::check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise) {
-  if (is_external()) {
+  if (is_external_) {
     promise.set_result(td::Unit());
     return;
   }

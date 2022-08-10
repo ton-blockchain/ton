@@ -543,6 +543,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
 
+  void validated_new_block(BlockIdExt block_id) override {
+    BlockSeqno &last = last_validated_blocks_[block_id.shard_full()];
+    last = std::max(last, block_id.seqno());
+  }
+
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
 
  private:
@@ -606,13 +611,17 @@ class ValidatorManagerImpl : public ValidatorManager {
   double max_mempool_num() const {
     return opts_->max_mempool_num();
   }
+  void cleanup_last_validated_blocks(BlockId new_block);
 
  private:
+
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollatorNode>> collator_nodes_;
 
   std::set<ShardIdFull> shards_to_monitor_ = {ShardIdFull(masterchainId)};
+  std::set<ShardIdFull> extra_active_shards_;
+  std::map<ShardIdFull, BlockSeqno> last_validated_blocks_;
 };
 
 }  // namespace validator

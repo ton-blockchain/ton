@@ -435,6 +435,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
     UNREACHABLE();
   }
+  void validated_new_block(BlockIdExt block_id) override {
+  }
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override {
     UNREACHABLE();

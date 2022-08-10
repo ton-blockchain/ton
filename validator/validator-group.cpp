@@ -59,10 +59,14 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
     approved_candidates_cache_round_ = round_id;
     approved_candidates_cache_.clear();
   }
+  auto next_block_id = create_next_block_id(block.id.root_hash, block.id.file_hash);
+  block.id = next_block_id;
+
   CacheKey cache_key = block_to_cache_key(block);
   auto it = approved_candidates_cache_.find(cache_key);
   if (it != approved_candidates_cache_.end()) {
     promise.set_result(it->second);
+    return;
   }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), round_id, block = block.clone(),
@@ -96,9 +100,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
     P.set_error(td::Status::Error(ErrorCode::notready, "validator group not started"));
     return;
   }
-  auto next_block_id = create_next_block_id(block.id.root_hash, block.id.file_hash);
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
-  block.id = next_block_id;
   run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
                      td::Timestamp::in(10.0), std::move(P), lite_mode_ ? ValidateMode::lite : 0);
 }
@@ -140,7 +142,10 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
 
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
                                         td::Ref<BlockSignatureSet> sig_set, td::Ref<BlockSignatureSet> approve_sig_set,
-                                        bool send_broadcast, td::Promise<td::Unit> promise) {
+                                        bool send_broadcast, td::Promise<td::Unit> promise, bool is_retry) {
+  if (!is_retry) {
+    td::actor::send_closure(manager_, &ValidatorManager::validated_new_block, block_id);
+  }
   auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this),
                                        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {
@@ -150,7 +155,7 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
       }
       LOG_CHECK(R.error().code() == ErrorCode::timeout || R.error().code() == ErrorCode::notready) << R.move_as_error();
       td::actor::send_closure(SelfId, &ValidatorGroup::accept_block_query, block_id, std::move(block), std::move(prev),
-                              std::move(sig_set), std::move(approve_sig_set), false, std::move(promise));
+                              std::move(sig_set), std::move(approve_sig_set), false, std::move(promise), true);
     } else {
       promise.set_value(R.move_as_ok());
     }
