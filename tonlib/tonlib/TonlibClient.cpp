@@ -415,6 +415,11 @@ class AccountState {
         get_wallet_revision());
   }
 
+  td::Result<tonlib_api::object_ptr<tonlib_api::tvm_cell>> to_shardAccountCell() const {
+    auto cell = vm::CellBuilder().store_ref(raw_.info.root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).finalize();
+    return tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(cell));
+  }
+
   //NB: Order is important! Used during guessAccountRevision
   enum WalletType {
     Empty,
@@ -2475,6 +2480,17 @@ td::Status TonlibClient::do_request(const tonlib_api::getAccountState& request,
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::getShardAccountCell& request,
+                                    td::Promise<object_ptr<tonlib_api::tvm_cell>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  make_request(int_api::GetAccountState{std::move(account_address), query_context_.block_id.copy(), {}},
+               promise.wrap([](auto&& res) { return res->to_shardAccountCell(); }));
+  return td::Status::OK();
+}
+
 td::Result<ton::ManualDns::EntryData> to_dns_entry_data(tonlib_api::dns_EntryData& entry_data) {
   using R = td::Result<ton::ManualDns::EntryData>;
   return downcast_call2<R>(
@@ -4171,7 +4187,7 @@ td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
   auto param = request.param_;
   std::vector<int32_t> params = { param };
 
-  client_.send_query(ton::lite_api::liteServer_getConfigParams(0, std::move(lite_block), std::move(params)),
+  client_.send_query(ton::lite_api::liteServer_getConfigParams(request.mode_, std::move(lite_block), std::move(params)),
                      promise.wrap([block, param](auto r_config) { 
     auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
                                                   r_config->config_proof_.as_slice());
@@ -4184,6 +4200,29 @@ td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
     }
     tonlib_api::configInfo config_result;
     config_result.config_ = tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(config.move_as_ok()->get_config_param(param)));
+    return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+  }));
+
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::getConfigAll& request,
+                        td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
+  TRY_RESULT(lite_block, to_lite_api(*request.id_))
+  auto block = create_block_id(std::move(lite_block));
+  client_.send_query(ton::lite_api::liteServer_getConfigAll(request.mode_, std::move(lite_block)),
+                     promise.wrap([block](auto r_config) { 
+    auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
+                                                  r_config->config_proof_.as_slice());
+    if (state.is_error()) {
+      LOG(ERROR) << "block::check_extract_state_proof failed: " << state.error();
+    }
+    auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
+    if (config.is_error()) {
+      LOG(ERROR) << "block::Config::extract_from_state failed: " << config.error();
+    }
+    tonlib_api::configInfo config_result;
+    config_result.config_ = tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(config.move_as_ok()->get_root_cell()));
     return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
   }));
 
