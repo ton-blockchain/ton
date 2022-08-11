@@ -285,6 +285,7 @@ getShardAccountCellByTransaction account_address:accountAddress transaction_id:i
 createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action initial_account_state:InitialAccountState = query.Info;
 
 getConfigParam mode:# id:ton.blockIdExt param:# = ConfigInfo;
+getConfigAll mode:# id:ton.blockIdExt = ConfigInfo;
 
 msg.decrypt input_key:InputKey data:msg.dataEncryptedArray = msg.DataDecryptedArray;
 msg.decryptWithProof proof:bytes data:msg.dataEncrypted = msg.Data;
