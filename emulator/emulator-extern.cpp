@@ -3,12 +3,6 @@
 #include "td/utils/Status.h"
 #include "transaction-emulator.h"
 
-/**
- * Creates TransactionEmulator object
- * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
- * @param config_params_boc Base64 encoded BoC serialized Config hashmap: (Hashmap 32 ^Cell)
- * @return Pointer to TransactionEmulator
- */
 void *transaction_emulator_create(const char *shard_account_boc, const char *config_params_boc) {
   auto config_params_decoded = td::base64_decode(td::Slice(config_params_boc));
   if (config_params_decoded.is_error()) {
@@ -66,49 +60,6 @@ void *transaction_emulator_create(const char *shard_account_boc, const char *con
   return new emulator::TransactionEmulator(std::move(account), std::move(global_config), vm::Dictionary{256}); // TODO: add libraries as input
 }
 
-/**
- * Getter for ShardAccount object
- * @param transaction_emulator Pointer to TransactionEmulator object
- * @return Base64 encodedBoC serialized ShardAccount object
- */
-const char *transaction_emulator_get_shard_account(void *transaction_emulator) {
-  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
-  auto account = emulator->get_account();
-  auto cell = vm::CellBuilder().store_ref(account.total_state).store_bits(account.last_trans_hash_.as_bitslice()).store_long(account.last_trans_lt_).finalize();
-  auto boc = vm::std_boc_serialize(std::move(cell), vm::BagOfCells::Mode::WithCRC32C);
-  if (boc.is_error()) {
-    LOG(ERROR) << "Can't serialize ShardAccount to boc" << boc.move_as_error();
-    return nullptr;
-  }
-  auto res = td::base64_encode(boc.move_as_ok().as_slice());
-  auto heap_res = new std::string(res);
-  return heap_res->c_str();
-}
-
-/**
- * Getter for Config object. 
- * @param transaction_emulator Pointer to TransactionEmulator object
- * @return Base64 encoded BoC serialized Config object.
- */
-const char *transaction_emulator_get_config(void *transaction_emulator) {
-  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
-  auto config = emulator->get_config();
-  auto boc = vm::std_boc_serialize(config->get_root_cell(), vm::BagOfCells::Mode::WithCRC32C);
-  if (boc.is_error()) {
-    LOG(ERROR) << "Can't serialize Config to boc" << boc.move_as_error();
-    return nullptr;
-  }
-  auto res = td::base64_encode(boc.move_as_ok().as_slice());
-  auto heap_res = new std::string(res);
-  return heap_res->c_str();
-}
-
-/**
- * Emulate transaction
- * @param transaction_emulator Pointer to TransactionEmulator object
- * @param message_boc Base64 encoded BoC serialized inbound Message (internal or external)
- * @return Base64 encoded BoC serialized Transaction object
- */
 const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *message_boc) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
   
@@ -130,6 +81,33 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
   }
 
   auto boc = vm::std_boc_serialize(transaction.move_as_ok(), vm::BagOfCells::Mode::WithCRC32C);
+  if (boc.is_error()) {
+    LOG(ERROR) << "Can't serialize Config to boc" << boc.move_as_error();
+    return nullptr;
+  }
+  auto res = td::base64_encode(boc.move_as_ok().as_slice());
+  auto heap_res = new std::string(res);
+  return heap_res->c_str();
+}
+
+const char *transaction_emulator_get_shard_account(void *transaction_emulator) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  auto account = emulator->get_account();
+  auto cell = vm::CellBuilder().store_ref(account.total_state).store_bits(account.last_trans_hash_.as_bitslice()).store_long(account.last_trans_lt_).finalize();
+  auto boc = vm::std_boc_serialize(std::move(cell), vm::BagOfCells::Mode::WithCRC32C);
+  if (boc.is_error()) {
+    LOG(ERROR) << "Can't serialize ShardAccount to boc" << boc.move_as_error();
+    return nullptr;
+  }
+  auto res = td::base64_encode(boc.move_as_ok().as_slice());
+  auto heap_res = new std::string(res);
+  return heap_res->c_str();
+}
+
+const char *transaction_emulator_get_config(void *transaction_emulator) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  auto config = emulator->get_config();
+  auto boc = vm::std_boc_serialize(config->get_root_cell(), vm::BagOfCells::Mode::WithCRC32C);
   if (boc.is_error()) {
     LOG(ERROR) << "Can't serialize Config to boc" << boc.move_as_error();
     return nullptr;
