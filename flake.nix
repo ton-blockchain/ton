@@ -55,12 +55,8 @@
 
           outputs = [ "bin" "out" ];
         };
-    in with flake-utils.lib;
-    eachSystem
-    (with system; [ x86_64-linux x86_64-darwin aarch64-linux aarch64-darwin ])
-    (system:
-      let
-        host = import nixpkgs-stable {
+      hostPkgs = system:
+        import nixpkgs-stable {
           inherit system;
           overlays = [
             (self: super: {
@@ -68,10 +64,15 @@
             })
           ];
         };
+    in with flake-utils.lib;
+    eachSystem
+    (with system; [ x86_64-linux x86_64-darwin aarch64-linux aarch64-darwin ])
+    (system:
+      let host = hostPkgs system;
       in { defaultPackage = ton { inherit host; }; })
     // (nixpkgs-stable.lib.recursiveUpdate
       (eachSystem (with system; [ x86_64-linux aarch64-linux ]) (system:
-        let host = nixpkgs-stable.legacyPackages.${system};
+        let host = hostPkgs system;
         in {
           packages = rec {
             #test = host.mkShell { nativeBuildInputs = [ host.cmake ]; };
@@ -126,7 +127,7 @@
             };
           };
         })) (eachSystem (with system; [ x86_64-darwin aarch64-darwin ]) (system:
-          let host = nixpkgs-stable.legacyPackages.${system};
+          let host = hostPkgs system;
           in {
             packages = rec {
               ton-static = ton {
