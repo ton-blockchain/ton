@@ -181,10 +181,17 @@ class ValidatorManagerImpl : public ValidatorManager {
       waiting_.resize(j);
     }
   };
+  template <typename ActorT, typename ResType>
+  struct WaitListCaching : public WaitList<ActorT, ResType> {
+    bool done_ = false;
+    ResType result_;
+    td::Timestamp remove_at_;
+  };
   std::map<BlockIdExt, WaitList<WaitBlockState, td::Ref<ShardState>>> wait_state_;
   std::map<BlockIdExt, WaitList<WaitBlockData, td::Ref<BlockData>>> wait_block_data_;
-  std::map<std::pair<BlockIdExt, ShardIdFull>, WaitList<WaitOutMsgQueueProof, td::Ref<OutMsgQueueProof>>>
+  std::map<std::pair<BlockIdExt, ShardIdFull>, WaitListCaching<WaitOutMsgQueueProof, td::Ref<OutMsgQueueProof>>>
       wait_out_msg_queue_proof_;
+  td::Timestamp cleanup_wait_caches_at_ = td::Timestamp::now();
 
   struct WaitBlockHandle {
     std::vector<td::Promise<BlockHandle>> waiting_;
