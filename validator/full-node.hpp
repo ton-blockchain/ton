@@ -52,7 +52,8 @@ class FullNodeImpl : public FullNode {
 
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
-  void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
+  void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor,
+                                  std::set<ShardIdFull> temporary_shards);
 
   void sync_completed();
 
@@ -91,7 +92,7 @@ class FullNodeImpl : public FullNode {
                td::Promise<td::Unit> started_promise);
 
  private:
-  void add_shard_actor(ShardIdFull shard, bool active);
+  void add_shard_actor(ShardIdFull shard, FullNodeShardMode mode);
 
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
@@ -103,7 +104,7 @@ class FullNodeImpl : public FullNode {
   struct ShardInfo {
     bool exists = false;
     td::actor::ActorOwn<FullNodeShard> actor;
-    bool active = false;
+    FullNodeShardMode mode = FullNodeShardMode::inactive;
     td::Timestamp delete_at = td::Timestamp::never();
   };
   std::map<ShardIdFull, ShardInfo> shards_;

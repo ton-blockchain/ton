@@ -75,7 +75,7 @@ Config::Config() {
   full_node = ton::PublicKeyHash::zero();
 }
 
-Config::Config(const ton::ton_api::engine_validator_config_v2 &config) {
+Config::Config(const ton::ton_api::engine_validator_configV2 &config) {
   full_node = ton::PublicKeyHash::zero();
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
@@ -263,7 +263,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
         full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
         std::move(control_vec), std::move(gc_vec));
   } else {
-    return ton::create_tl_object<ton::ton_api::engine_validator_config_v2>(
+    return ton::create_tl_object<ton::ton_api::engine_validator_configV2>(
         out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
         full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
         std::move(control_vec), std::move(shards_vec), std::move(gc_vec));

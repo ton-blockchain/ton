@@ -2453,8 +2453,7 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
 void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state,
                                                       std::set<ShardIdFull> shards_to_monitor) {
   shards_to_monitor_ = shards_to_monitor;
-  shards_to_monitor.insert(extra_active_shards_.begin(), extra_active_shards_.end());
-  callback_->update_shard_configuration(std::move(state), std::move(shards_to_monitor));
+  callback_->update_shard_configuration(std::move(state), std::move(shards_to_monitor), extra_active_shards_);
 }
 
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {

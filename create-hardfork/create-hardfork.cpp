@@ -237,7 +237,8 @@ class HardforkCreator : public td::actor::Actor {
                                 td::PromiseCreator::lambda([](td::Unit) {}));
       }
       void update_shard_configuration(td::Ref<ton::validator::MasterchainState> state,
-                                      std::set<ton::ShardIdFull> shards_to_monitor) override {
+                                      std::set<ton::ShardIdFull> shards_to_monitor,
+                                      std::set<ton::ShardIdFull> temporary_shards) override {
       }
       void send_ihr_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
       }

@@ -62,12 +62,12 @@ inline tl_object_ptr<ton_api::tonNode_shardId> create_tl_shard_id(const ShardIdF
   return create_tl_object<ton_api::tonNode_shardId>(s.workchain, s.shard);
 }
 
-inline tl_object_ptr<ton_api::engine_validator_config_v2> unpack_engine_validator_config(
+inline tl_object_ptr<ton_api::engine_validator_configV2> unpack_engine_validator_config(
     tl_object_ptr<ton_api::engine_validator_Config> config) {
-  tl_object_ptr<ton_api::engine_validator_config_v2> res;
+  tl_object_ptr<ton_api::engine_validator_configV2> res;
   ton_api::downcast_call(*config, td::overloaded(
                                       [&](ton_api::engine_validator_config &c) {
-                                        res = create_tl_object<ton_api::engine_validator_config_v2>(
+                                        res = create_tl_object<ton_api::engine_validator_configV2>(
                                             c.out_port_, std::move(c.addrs_), std::move(c.adnl_), std::move(c.dht_),
                                             std::move(c.validators_),
                                             std::vector<tl_object_ptr<ton_api::engine_collator>>(), c.fullnode_,
@@ -75,8 +75,8 @@ inline tl_object_ptr<ton_api::engine_validator_config_v2> unpack_engine_validato
                                             std::move(c.liteservers_), std::move(c.control_),
                                             std::vector<tl_object_ptr<ton_api::tonNode_shardId>>(), std::move(c.gc_));
                                       },
-                                      [&](ton_api::engine_validator_config_v2 &c) {
-                                        res = std::make_unique<ton_api::engine_validator_config_v2>(std::move(c));
+                                      [&](ton_api::engine_validator_configV2 &c) {
+                                        res = std::make_unique<ton_api::engine_validator_configV2>(std::move(c));
                                       }));
   return res;
 }
