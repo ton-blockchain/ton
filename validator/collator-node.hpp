@@ -33,11 +33,15 @@ class CollatorNode : public td::actor::Actor {
   void tear_down() override;
   void add_shard(ShardIdFull shard);
 
+  void new_masterchain_block_notification(td::Ref<MasterchainState> state);
+
  private:
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void receive_query_cont(adnl::AdnlNodeIdShort src, ShardIdFull shard, td::Ref<MasterchainState> min_mc_state,
                           std::vector<BlockIdExt> prev_blocks, Ed25519_PublicKey creator,
                           td::Promise<td::BufferSlice> promise);
+
+  bool collate_shard(ShardIdFull shard) const;
 
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<ValidatorManager> manager_;

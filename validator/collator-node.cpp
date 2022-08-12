@@ -58,6 +58,40 @@ void CollatorNode::add_shard(ShardIdFull shard) {
   shards_.push_back(shard);
 }
 
+void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> state) {
+  std::vector<BlockIdExt> top_blocks = {state->get_block_id()};
+  std::vector<ShardIdFull> next_shards;
+  if (collate_shard(ShardIdFull(masterchainId))) {
+    next_shards.push_back(ShardIdFull(masterchainId));
+  }
+  for (const auto& desc : state->get_shards()) {
+    top_blocks.push_back(desc->top_block_id());
+    ShardIdFull shard = desc->shard();
+    if (desc->before_split()) {
+      if (collate_shard(shard_child(shard, true))) {
+        next_shards.push_back(shard_child(shard, true));
+      }
+      if (collate_shard(shard_child(shard, false))) {
+        next_shards.push_back(shard_child(shard, false));
+      }
+    } else if (desc->before_merge()) {
+      if (is_left_child(shard) && collate_shard(shard_parent(shard))) {
+        next_shards.push_back(shard_parent(shard));
+      }
+    } else if (collate_shard(shard)) {
+      next_shards.push_back(shard);
+    }
+  }
+  for (const ShardIdFull& shard : next_shards) {
+    for (const BlockIdExt& neighbor : top_blocks) {
+      if (neighbor.shard_full() != shard && block::ShardConfig::is_neighbor(shard, neighbor.shard_full())) {
+        td::actor::send_closure(manager_, &ValidatorManager::wait_out_msg_queue_proof, neighbor, shard, 0,
+                                td::Timestamp::in(10.0), [](td::Ref<OutMsgQueueProof>) {});
+      }
+    }
+  }
+}
+
 static td::BufferSlice serialize_error(td::Status error) {
   return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
 }
@@ -71,14 +105,7 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     if (!shard.is_valid_ext()) {
       return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
     }
-    bool found = false;
-    for (ShardIdFull our_shard : shards_) {
-      if (shard_is_ancestor(shard, our_shard)) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
+    if (!collate_shard(shard)) {
       return td::Status::Error(PSTRING() << "this node doesn't collate shard " << shard.to_str());
     }
     if (f->prev_blocks_.size() != 1 && f->prev_blocks_.size() != 2) {
@@ -139,6 +166,15 @@ void CollatorNode::receive_query_cont(adnl::AdnlNodeIdShort src, ShardIdFull sha
 
   run_collate_query(shard, min_mc_state->get_block_id(), std::move(prev_blocks), creator,
                     min_mc_state->get_validator_set(shard), manager_, td::Timestamp::in(10.0), std::move(P));
+}
+
+bool CollatorNode::collate_shard(ShardIdFull shard) const {
+  for (ShardIdFull our_shard : shards_) {
+    if (shard_is_ancestor(shard, our_shard)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace validator

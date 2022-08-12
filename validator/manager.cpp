@@ -617,6 +617,9 @@ void ValidatorManagerImpl::wait_out_msg_queue_proof(BlockIdExt block_id, ShardId
                   .release();
     wait_out_msg_queue_proof_[key].actor_ = id;
     it = wait_out_msg_queue_proof_.find(key);
+  } else if (it->second.done_) {
+    promise.set_result(it->second.result_);
+    it->second.remove_at_ = td::Timestamp::in(30.0);
   }
 
   it->second.waiting_.emplace_back(timeout, priority, std::move(promise));
@@ -1079,13 +1082,16 @@ void ValidatorManagerImpl::finished_wait_msg_queue(BlockIdExt block_id, ShardIdF
         it->second.actor_ = id;
         return;
       }
+      wait_out_msg_queue_proof_.erase(it);
     } else {
       auto r = R.move_as_ok();
       for (auto &X : it->second.waiting_) {
         X.promise.set_result(r);
       }
+      it->second.done_ = true;
+      it->second.result_ = std::move(r);
+      it->second.remove_at_ = td::Timestamp::in(30.0);
     }
-    wait_out_msg_queue_proof_.erase(it);
   }
 }
 
@@ -1773,6 +1779,9 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
                             last_masterchain_block_handle_, last_masterchain_state_);
   }
+  for (auto &c : collator_nodes_) {
+    td::actor::send_closure(c.second, &CollatorNode::new_masterchain_block_notification, last_masterchain_state_);
+  }
 
   if (last_masterchain_seqno_ % 1024 == 0) {
     LOG(WARNING) << "applied masterchain block " << last_masterchain_block_id_;
@@ -2436,6 +2445,18 @@ void ValidatorManagerImpl::alarm() {
     }
   }
   alarm_timestamp().relax(check_shard_clients_);
+  if (cleanup_wait_caches_at_.is_in_past()) {
+    auto it = wait_out_msg_queue_proof_.begin();
+    while (it != wait_out_msg_queue_proof_.end()) {
+      if (it->second.done_ && it->second.remove_at_.is_in_past()) {
+        it = wait_out_msg_queue_proof_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    cleanup_wait_caches_at_ = td::Timestamp::in(10.0);
+  }
+  alarm_timestamp().relax(cleanup_wait_caches_at_);
 }
 
 void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) {
