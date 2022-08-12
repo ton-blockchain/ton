@@ -235,12 +235,12 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
     auto Y = fetch_tl_object<ton_api::overlay_message_removePeer>(data.clone(), true);
-    if (Y.is_ok()) {
+    if (Y.is_ok() && public_) {
       VLOG(OVERLAY_DEBUG) << this << ": received removePeer message from " << src;
       if (peers_.exists(src)) {
         del_peer(src);
-        callback_->on_remove_peer(src);
       }
+      callback_->on_remove_peer(src);
       return;
     }
   }

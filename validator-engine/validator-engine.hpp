@@ -140,7 +140,7 @@ struct Config {
   ton::tl_object_ptr<ton::ton_api::engine_validator_Config> tl() const;
 
   Config();
-  Config(const ton::ton_api::engine_validator_config_v2 &config);
+  Config(const ton::ton_api::engine_validator_configV2 &config);
 };
 
 class ValidatorEngine : public td::actor::Actor {

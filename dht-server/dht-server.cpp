@@ -57,7 +57,7 @@ Config::Config() {
   out_port = 3278;
 }
 
-Config::Config(const ton::ton_api::engine_validator_config_v2 &config) {
+Config::Config(const ton::ton_api::engine_validator_configV2 &config) {
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
     out_port = 3278;

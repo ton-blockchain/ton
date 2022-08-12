@@ -407,6 +407,7 @@ tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = to
 tonNode.dataFullEmpty = tonNode.DataFull;
 
 tonNode.capabilities version:int capabilities:long = tonNode.Capabilities;
+tonNode.capabilitiesV2 version:int capabilities:long have_state:Bool = tonNode.Capabilities;
 
 tonNode.success = tonNode.Success;
 
@@ -450,6 +451,7 @@ tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
 tonNode.getOutMsgQueueProof block_id:tonNode.blockIdExt dst_workchain:int dst_shard:long = tonNode.OutMsgQueueProof;
 
 tonNode.getCapabilities = tonNode.Capabilities;
+tonNode.getCapabilitiesV2 = tonNode.Capabilities;
 
 tonNode.slave.sendExtMessage message:tonNode.externalMessage = tonNode.Success;
 
@@ -598,7 +600,7 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
-engine.validator.config_v2 out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
+engine.validator.configV2 out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector engine.collator)
         fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
