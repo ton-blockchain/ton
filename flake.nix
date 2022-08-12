@@ -81,11 +81,15 @@
               stdenv = host.makeStatic host.stdenv;
               staticGlibc = true;
             };
-            ton-musl = ton {
-              inherit host;
-              pkgs = nixpkgs-stable.legacyPackages.${system}.pkgsStatic;
-              staticMusl = true;
-            };
+            ton-musl =
+              let pkgs = nixpkgs-stable.legacyPackages.${system}.pkgsStatic;
+              in ton {
+                inherit host;
+                inherit pkgs;
+                stdenv =
+                  pkgs.gcc12Stdenv; # doesn't build on aarch64-linux w/default GCC 9
+                staticMusl = true;
+              };
             ton-oldglibc = (let
               # look out for https://github.com/NixOS/nixpkgs/issues/129595 for progress on better infra for this
               #
