@@ -35,9 +35,8 @@ jobs:
         git config --global user.email actions@github.com
     - run: |
         git clone git@github.com:tonthemoon/ton-repo.git
-        mkdir -p ton-repo/{brew,Formula}
+        mkdir -p ton-repo/brew
         cp packages-out/brew-install/*.tar.gz ton-repo/brew
-        cp packages-out/brew-install/*.rb ton-repo/Formula
     - run: |
         cd ton-repo
         git add .
