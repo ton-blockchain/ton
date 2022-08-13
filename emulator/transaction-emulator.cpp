@@ -8,77 +8,48 @@ using td::Ref;
 using namespace std::string_literals;
 
 namespace emulator {
-td::Result<td::Ref<vm::Cell>> TransactionEmulator::emulate_transaction(td::Ref<vm::Cell> msg_root) {
+td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> msg_root) {
     auto cs = vm::load_cell_slice(msg_root);
-    bool external;
-    Ref<vm::CellSlice> src, dest;
-    switch (block::gen::t_CommonMsgInfo.get_tag(cs)) {
-        case block::gen::CommonMsgInfo::ext_in_msg_info: {
-            block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
-            if (!tlb::unpack(cs, info)) {
-                return td::Status::Error("cannot unpack inbound external message");
-            }
-            dest = std::move(info.dest);
-            external = true;
-            break;
-        }
-        case block::gen::CommonMsgInfo::int_msg_info: {
-            block::gen::CommonMsgInfo::Record_int_msg_info info;
-            if (!tlb::unpack(cs, info)) {
-                return td::Status::Error("cannot unpack internal message to be processed by an ordinary transaction");
-            }
-            src = std::move(info.src);
-            dest = std::move(info.dest);
-            external = false;
-            break;
-        }
-        default:
-            return td::Status::Error("only ext in and int message are supported");
-    }
-
-    ton::WorkchainId wc;
-    ton::StdSmcAddress addr;
-    if (!block::tlb::t_MsgAddressInt.extract_std_address(dest, wc, addr)) {
-        return td::Status::Error("cannot extract message address");
-    }
+    bool external = block::gen::t_CommonMsgInfo.get_tag(cs) == block::gen::CommonMsgInfo::ext_in_msg_info;
 
     td::Ref<vm::Cell> old_mparams;
-    std::vector<block::StoragePrices> storage_prices_;
-    block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
-    td::BitArray<256> rand_seed_;
-    block::ComputePhaseConfig compute_phase_cfg_;
-    block::ActionPhaseConfig action_phase_cfg_;
+    std::vector<block::StoragePrices> storage_prices;
+    block::StoragePhaseConfig storage_phase_cfg{&storage_prices};
+    td::BitArray<256> rand_seed;
+    block::ComputePhaseConfig compute_phase_cfg;
+    block::ActionPhaseConfig action_phase_cfg;
     td::RefInt256 masterchain_create_fee, basechain_create_fee;
     
     auto fetch_res = fetch_config_params(config_, &old_mparams,
-                                        &storage_prices_, &storage_phase_cfg_,
-                                        &rand_seed_, &compute_phase_cfg_,
-                                        &action_phase_cfg_, &masterchain_create_fee,
-                                        &basechain_create_fee, wc);
+                                        &storage_prices, &storage_phase_cfg,
+                                        &rand_seed, &compute_phase_cfg,
+                                        &action_phase_cfg, &masterchain_create_fee,
+                                        &basechain_create_fee, account.workchain);
     if(fetch_res.is_error()) {
         return fetch_res.move_as_error_prefix("cannot fetch config params ");
     }
 
-    compute_phase_cfg_.ignore_chksig = external;
+    compute_phase_cfg.ignore_chksig = external;
 
     vm::init_op_cp0();
 
     ton::UnixTime utime = (unsigned)std::time(nullptr);
-    ton::LogicalTime lt = account_.last_trans_lt_ + block::ConfigInfo::get_lt_align();
-    auto res = create_ordinary_transaction(msg_root, &account_, utime, lt,
-                                                    &storage_phase_cfg_, &compute_phase_cfg_,
-                                                    &action_phase_cfg_,
+    ton::LogicalTime lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
+    auto res = create_ordinary_transaction(msg_root, &account, utime, lt,
+                                                    &storage_phase_cfg, &compute_phase_cfg,
+                                                    &action_phase_cfg,
                                                     external, lt);
     if(res.is_error()) {
         return res.move_as_error_prefix("cannot run message on account ");
     }
     std::unique_ptr<block::Transaction> trans = res.move_as_ok();
 
-    auto trans_root = trans->commit(account_);
+    auto trans_root = trans->commit(account);
     if (trans_root.is_null()) {
         return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
     }
-    return trans_root;
+
+    return TransactionEmulator::EmulationResult{ std::move(trans_root), std::move(account) };
 }
 
 // as in collator::impl_fetch_config_params but using block::Config instead block::ConfigInfo

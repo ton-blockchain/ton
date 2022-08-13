@@ -1,9 +1,10 @@
 #include "emulator-extern.h"
 #include "td/utils/base64.h"
 #include "td/utils/Status.h"
+#include "td/utils/JsonBuilder.h"
 #include "transaction-emulator.h"
 
-void *transaction_emulator_create(const char *shard_account_boc, const char *config_params_boc) {
+void *transaction_emulator_create(const char *config_params_boc) {
   auto config_params_decoded = td::base64_decode(td::Slice(config_params_boc));
   if (config_params_decoded.is_error()) {
     LOG(ERROR) << "Can't decode base64 config params boc: " << config_params_decoded.move_as_error();
@@ -21,100 +22,125 @@ void *transaction_emulator_create(const char *shard_account_boc, const char *con
     return nullptr;
   }
 
-  auto shard_account_decoded = td::base64_decode(td::Slice(shard_account_boc));
-  if (shard_account_decoded.is_error()) {
-    LOG(ERROR) << "Can't decode base64 shard account boc: " << shard_account_decoded.move_as_error();
-    return nullptr;
-  }
-  auto shard_account_cell = vm::std_boc_deserialize(shard_account_decoded.move_as_ok());
-  if (shard_account_cell.is_error()) {
-    LOG(ERROR) << "Can't deserialize shard account boc: " << shard_account_cell.move_as_error();
-    return nullptr;
-  }
-  auto shard_account_slice = vm::load_cell_slice(shard_account_cell.ok_ref());
-  block::gen::ShardAccount::Record shard_account;
-  if (!tlb::unpack(shard_account_slice, shard_account)) {
-    LOG(ERROR) << "Can't unpack shard account";
-    return nullptr;
-  }
-  block::gen::Account::Record_account account_record;
-  auto account_slice = vm::load_cell_slice(shard_account.account);
-  if (!tlb::unpack(account_slice, account_record)) {
-    LOG(ERROR) << "Can't unpack shard account";
-    return nullptr;
-  }
-  ton::WorkchainId wc;
-  ton::StdSmcAddress addr;
-  if (!block::tlb::t_MsgAddressInt.extract_std_address(account_record.addr, wc, addr)) {
-    LOG(ERROR) << "Can't extract account address";
-    return nullptr;
-  }
-  auto account = block::Account(wc, addr.bits());
-  ton::UnixTime now = (unsigned)std::time(nullptr); // TODO: check this param 
-  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now,
-                      wc == ton::masterchainId && global_config.is_special_smartcontract(addr))) {
-      LOG(ERROR) << "Can't unpack shard account";
-      return nullptr;
-  }
-
-  return new emulator::TransactionEmulator(std::move(account), std::move(global_config), vm::Dictionary{256}); // TODO: add libraries as input
+  return new emulator::TransactionEmulator(std::move(global_config), vm::Dictionary{256}); // TODO: add libraries as input
 }
 
-const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *message_boc) {
+const char *success_response(std::string&& transaction, std::string&& new_shard_account) {
+  td::JsonBuilder jb;
+  auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonTrue());
+  json_obj("transaction", std::move(transaction));
+  json_obj("shard_account", std::move(new_shard_account));
+  json_obj.leave();
+  auto json_response = jb.string_builder().as_cslice().str();
+  auto heap_response = new std::string(json_response);
+  return heap_response->c_str();
+}
+
+const char *error_response(std::string&& error) {
+  td::JsonBuilder jb;
+  auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonFalse());
+  json_obj("error", std::move(error));
+  json_obj.leave();
+  auto json_response = jb.string_builder().as_cslice().str();
+  auto heap_response = new std::string(json_response);
+  return heap_response->c_str();
+}
+
+#define ERROR_RESPONSE(error) return error_response(error)
+
+const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
   
   auto message_decoded = td::base64_decode(td::Slice(message_boc));
   if (message_decoded.is_error()) {
-    LOG(ERROR) << "Can't decode base64 message boc: " << message_decoded.move_as_error();
-    return nullptr;
+    ERROR_RESPONSE(PSTRING() << "Can't decode base64 message boc: " << message_decoded.move_as_error());
   }
-  auto message_cell = vm::std_boc_deserialize(message_decoded.move_as_ok());
-  if (message_cell.is_error()) {
-    LOG(ERROR) << "Can't deserialize message boc: " << message_cell.move_as_error();
-    return nullptr;
+  auto message_cell_r = vm::std_boc_deserialize(message_decoded.move_as_ok());
+  if (message_cell_r.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't deserialize message boc: " << message_cell_r.move_as_error());
+  }
+  auto message_cell = message_cell_r.move_as_ok();
+
+  auto shard_account_decoded = td::base64_decode(td::Slice(shard_account_boc));
+  if (shard_account_decoded.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't decode base64 shard account boc: " << shard_account_decoded.move_as_error());
+  }
+  auto shard_account_cell = vm::std_boc_deserialize(shard_account_decoded.move_as_ok());
+  if (shard_account_cell.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't deserialize shard account boc: " << shard_account_cell.move_as_error());
+  }
+  auto shard_account_slice = vm::load_cell_slice(shard_account_cell.ok_ref());
+  block::gen::ShardAccount::Record shard_account;
+  if (!tlb::unpack(shard_account_slice, shard_account)) {
+    ERROR_RESPONSE(PSTRING() << "Can't unpack shard account cell");
   }
 
-  auto transaction = emulator->emulate_transaction(message_cell.move_as_ok());
-  if (transaction.is_error()) {
-    LOG(ERROR) << "Emulate transaction failed: " << transaction.move_as_error();
-    return nullptr;
+  td::Ref<vm::CellSlice> addr_slice;
+  auto account_slice = vm::load_cell_slice(shard_account.account);
+  if (block::gen::t_Account.get_tag(account_slice) == block::gen::Account::account_none) {
+    auto cs = vm::load_cell_slice(message_cell);
+    td::Ref<vm::CellSlice> dest;
+    int msg_tag = block::gen::t_CommonMsgInfo.get_tag(cs);
+    if (msg_tag == block::gen::CommonMsgInfo::ext_in_msg_info) {
+      block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
+      if (!tlb::unpack(cs, info)) {
+        ERROR_RESPONSE(PSTRING() <<  "Can't unpack inbound external message");
+      }
+      addr_slice = std::move(info.dest);
+    }
+    else if (msg_tag == block::gen::CommonMsgInfo::int_msg_info) {
+      block::gen::CommonMsgInfo::Record_int_msg_info info;
+      if (!tlb::unpack(cs, info)) {
+          ERROR_RESPONSE(PSTRING() << "Can't unpack inbound internal message");
+      }
+      addr_slice = std::move(info.dest);
+    } else {
+      ERROR_RESPONSE(PSTRING() << "Only ext in and int message are supported");
+    }
+  } else {
+    block::gen::Account::Record_account account_record;
+    if (!tlb::unpack(account_slice, account_record)) {
+      ERROR_RESPONSE(PSTRING() << "Can't unpack account cell");
+    }
+    addr_slice = std::move(account_record.addr);
+  }
+  ton::WorkchainId wc;
+  ton::StdSmcAddress addr;
+  if (!block::tlb::t_MsgAddressInt.extract_std_address(addr_slice, wc, addr)) {
+    ERROR_RESPONSE(PSTRING() << "Can't extract account address");
   }
 
-  auto boc = vm::std_boc_serialize(transaction.move_as_ok(), vm::BagOfCells::Mode::WithCRC32C);
-  if (boc.is_error()) {
-    LOG(ERROR) << "Can't serialize Config to boc" << boc.move_as_error();
-    return nullptr;
+  auto account = block::Account(wc, addr.bits());
+  ton::UnixTime now = (unsigned)std::time(nullptr);
+  bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
+  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now, is_special)) {
+    ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
-  auto res = td::base64_encode(boc.move_as_ok().as_slice());
-  auto heap_res = new std::string(res);
-  return heap_res->c_str();
-}
 
-const char *transaction_emulator_get_shard_account(void *transaction_emulator) {
-  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
-  auto account = emulator->get_account();
-  auto cell = vm::CellBuilder().store_ref(account.total_state).store_bits(account.last_trans_hash_.as_bitslice()).store_long(account.last_trans_lt_).finalize();
-  auto boc = vm::std_boc_serialize(std::move(cell), vm::BagOfCells::Mode::WithCRC32C);
-  if (boc.is_error()) {
-    LOG(ERROR) << "Can't serialize ShardAccount to boc" << boc.move_as_error();
-    return nullptr;
+  auto result = emulator->emulate_transaction(std::move(account), message_cell);
+  if (result.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Emulate transaction failed: " << result.move_as_error());
   }
-  auto res = td::base64_encode(boc.move_as_ok().as_slice());
-  auto heap_res = new std::string(res);
-  return heap_res->c_str();
-}
+  auto emulation_result = result.move_as_ok();
 
-const char *transaction_emulator_get_config(void *transaction_emulator) {
-  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
-  auto config = emulator->get_config();
-  auto boc = vm::std_boc_serialize(config->get_root_cell(), vm::BagOfCells::Mode::WithCRC32C);
-  if (boc.is_error()) {
-    LOG(ERROR) << "Can't serialize Config to boc" << boc.move_as_error();
-    return nullptr;
+  auto trans_boc = vm::std_boc_serialize(std::move(emulation_result.transaction), vm::BagOfCells::Mode::WithCRC32C);
+  if (trans_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc" << trans_boc.move_as_error());
   }
-  auto res = td::base64_encode(boc.move_as_ok().as_slice());
-  auto heap_res = new std::string(res);
-  return heap_res->c_str();
+  auto trans_boc_b64 = td::base64_encode(trans_boc.move_as_ok().as_slice());
+
+  auto new_shard_account_cell = vm::CellBuilder().store_ref(emulation_result.account.total_state)
+                               .store_bits(emulation_result.account.last_trans_hash_.as_bitslice())
+                               .store_long(emulation_result.account.last_trans_lt_).finalize();
+  auto new_shard_account_boc = vm::std_boc_serialize(std::move(new_shard_account_cell), vm::BagOfCells::Mode::WithCRC32C);
+  if (new_shard_account_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize ShardAccount to boc" << new_shard_account_boc.move_as_error());
+  }
+  auto new_shard_account_boc_b64 = td::base64_encode(new_shard_account_boc.move_as_ok().as_slice());
+
+  return success_response(std::move(trans_boc_b64), std::move(new_shard_account_boc_b64));
 }
 
 void transaction_emulator_destroy(void *transaction_emulator) {
