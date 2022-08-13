@@ -8,38 +8,26 @@ extern "C" {
 
 /**
  * @brief Creates TransactionEmulator object
- * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
  * @param config_params_boc Base64 encoded BoC serialized Config object (Hashmap 32 ^Cell)
- * @return Pointer to TransactionEmulator
+ * @return Pointer to TransactionEmulator or nullptr in case of error
  */
-EMULATOR_EXPORT void *transaction_emulator_create(const char *shard_account_boc, const char *config_params_boc);
+EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc);
 
 /**
  * @brief Emulate transaction
  * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
  * @param message_boc Base64 encoded BoC serialized inbound Message (internal or external)
- * @return Base64 encoded BoC serialized Transaction object
+ * @return Json object with error:
+ * { "success": false, "error": "Error description" }
+ * or success:
+ * { "success": true, "transaction": "Base64 encoded Transaction boc", "shard_account": "Base64 encoded ShardAccount boc" }
  */
-EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *message_boc);
-
-/**
- * @brief Getter for ShardAccount object
- * @param transaction_emulator Pointer to TransactionEmulator object
- * @return Base64 encodedBoC serialized ShardAccount object
- */
-EMULATOR_EXPORT const char *transaction_emulator_get_shard_account(void *transaction_emulator);
-
-/**
- * @brief Getter for Config object. 
- * @param transaction_emulator Pointer to TransactionEmulator object
- * @return Base64 encoded BoC serialized Config object (Hashmap 32 ^Cell)
- */
-EMULATOR_EXPORT const char *transaction_emulator_get_config(void *transaction_emulator);
+EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc);
 
 /**
  * @brief Destroy TransactionEmulator object
  * @param transaction_emulator Pointer to TransactionEmulator object
- * @return void 
  */
 EMULATOR_EXPORT void transaction_emulator_destroy(void *transaction_emulator);
 

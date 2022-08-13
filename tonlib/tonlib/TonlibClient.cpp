@@ -416,7 +416,11 @@ class AccountState {
   }
 
   td::Result<tonlib_api::object_ptr<tonlib_api::tvm_cell>> to_shardAccountCell() const {
-    auto cell = vm::CellBuilder().store_ref(raw_.info.root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).finalize();
+    auto account_root = raw_.info.root;
+    if (account_root.is_null()) {
+      block::gen::Account().cell_pack_account_none(account_root);
+    }
+    auto cell = vm::CellBuilder().store_ref(account_root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).finalize();
     return tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(cell));
   }
 
