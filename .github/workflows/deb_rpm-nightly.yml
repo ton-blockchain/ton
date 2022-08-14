@@ -56,28 +56,37 @@ jobs:
       with:
         name: ton-binaries
         path: result*
+
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            cd packages-out/deb-install
+            dpkg-scanpackages . > Packages
+            apt-ftparchive release . > Release'
+    - run: |
+        gh release edit nightly-deb --target master
+        gh release upload --clobber nightly-deb packages-out/deb-install/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # We can't rely on GH Releases for RPM because a RPM repo must have a repodata/ directory
+    # and Releases don't support directories
     - run: |
         ssh-agent -a $SSH_AUTH_SOCK > /dev/null
         ssh-add - <<< "${{ secrets.PACKAGES_REPO_KEY }}"
         git config --global user.name ghactions
         git config --global user.email actions@github.com
     - run: |
-        git clone git@github.com:tonthemoon/ton-repo.git
-        cp -r packages-out/deb-install ton-repo/deb
-        cp -r packages-out/rpm-install ton-repo/rpm
-    - run: |
         nix develop \
           --command bash -e -c '
-            cd ton-repo/deb
-            dpkg-scanpackages . > Packages
-            apt-ftparchive release . > Release'
-    - run: |
-        nix develop \
-          --command bash -e -c '
-            cd ton-repo/rpm
+            cd packages-out/rpm-install
             createrepo_c .'
     - run: |
+        git clone git@github.com:tonthemoon/ton-repo.git
+        cp -r packages-out/rpm-install ton-repo/rpm
+    - run: |
         cd ton-repo
+        git rm -rf *
         git add .
-        git commit -m "Import nightly $(date -I)"
-        git push
+        git commit --amend -m "Import nightly $(date -I)"
+        git push -f

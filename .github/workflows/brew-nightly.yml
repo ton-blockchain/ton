@@ -32,16 +32,7 @@ jobs:
         name: ton-binaries
         path: result*
     - run: |
-        ssh-agent -a $SSH_AUTH_SOCK > /dev/null
-        ssh-add - <<< "${{ secrets.PACKAGES_REPO_KEY }}"
-        git config --global user.name ghactions
-        git config --global user.email actions@github.com
-    - run: |
-        git clone git@github.com:tonthemoon/ton-repo.git
-        mkdir -p ton-repo/brew
-        cp packages-out/brew-install/*.tar.gz ton-repo/brew
-    - run: |
-        cd ton-repo
-        git add .
-        git commit -m "Import nightly $(date -u +'%Y-%m-%d')"
-        git push
+        gh release edit nightly-brew --target master
+        gh release upload --clobber nightly-brew packages-out/brew-install/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
