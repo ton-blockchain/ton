@@ -5,14 +5,17 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    runs-on: macos-12
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-12, [self-hosted, macOS, ARM64]]
     env:
       SSH_AUTH_SOCK: /tmp/ssh_agent.sock
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: 'recursive'
-    - uses: cachix/install-nix-action@v17
+    - uses: cachix/install-nix-action@e17a164a729f3f908f3997516f02ecaba2b9c201
       with:
         extra_nix_config: |
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
@@ -20,7 +23,7 @@ jobs:
       with:
         name: ton
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - run: nix build .?submodules=1#packages.x86_64-darwin.ton-static --print-build-logs
+    - run: nix build .?submodules=1#packages.$(nix eval --raw 'nixpkgs#system').ton-static --print-build-logs
     - run: |
         nix develop \
           --command bash -e -c '
