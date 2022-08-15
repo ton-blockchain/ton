@@ -4,7 +4,7 @@
 #include "td/utils/JsonBuilder.h"
 #include "transaction-emulator.h"
 
-void *transaction_emulator_create(const char *config_params_boc) {
+void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc) {
   auto config_params_decoded = td::base64_decode(td::Slice(config_params_boc));
   if (config_params_decoded.is_error()) {
     LOG(ERROR) << "Can't decode base64 config params boc: " << config_params_decoded.move_as_error();
@@ -22,7 +22,22 @@ void *transaction_emulator_create(const char *config_params_boc) {
     return nullptr;
   }
 
-  return new emulator::TransactionEmulator(std::move(global_config), vm::Dictionary{256}); // TODO: add libraries as input
+  vm::Dictionary shardchain_libs{256};
+  if (shardchain_libs_boc != nullptr) {
+    auto shardchain_libs_decoded = td::base64_decode(td::Slice(shardchain_libs_boc));
+    if (shardchain_libs_decoded.is_error()) {
+      LOG(ERROR) << "Can't decode base64 shardchain libraries boc: " << shardchain_libs_decoded.move_as_error();
+      return nullptr;
+    }
+    auto shardchain_libs_cell = vm::std_boc_deserialize(shardchain_libs_decoded.move_as_ok());
+    if (shardchain_libs_cell.is_error()) {
+      LOG(ERROR) << "Can't deserialize shardchain libraries boc: " << shardchain_libs_cell.move_as_error();
+      return nullptr;
+    }
+    shardchain_libs = vm::Dictionary(shardchain_libs_cell.move_as_ok(), 256);
+  }
+
+  return new emulator::TransactionEmulator(std::move(global_config), std::move(shardchain_libs));
 }
 
 const char *success_response(std::string&& transaction, std::string&& new_shard_account) {

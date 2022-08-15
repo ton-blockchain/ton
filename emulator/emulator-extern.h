@@ -8,10 +8,11 @@ extern "C" {
 
 /**
  * @brief Creates TransactionEmulator object
- * @param config_params_boc Base64 encoded BoC serialized Config object (Hashmap 32 ^Cell)
+ * @param config_params_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
+ * @param shardchain_libs_boc Base64 encoded BoC serialized shardchain libraries dictionary (HashmapE 256 ^Cell). Can be NULL if no shardchain libraries needed.
  * @return Pointer to TransactionEmulator or nullptr in case of error
  */
-EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc);
+EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc);
 
 /**
  * @brief Emulate transaction
