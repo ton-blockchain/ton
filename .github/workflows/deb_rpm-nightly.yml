@@ -50,11 +50,6 @@ jobs:
     - if: ${{ !env.ACT }}
       uses: actions/upload-artifact@master
       with:
-        name: ton-packages
-        path: packages-out/*-install
-    - if: ${{ !env.ACT }}
-      uses: actions/upload-artifact@master
-      with:
         name: ton-binaries
         path: result*
 
