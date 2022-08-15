@@ -66,6 +66,7 @@
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
+#include <tuple>
 #include <set>
 #include "git.h"
 
@@ -3275,6 +3276,35 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getOverla
                                   td::Status::Error(ton::ErrorCode::notready, "overlay manager not ready")));
                             }
                           });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfWarningTimerStats &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+  }
+
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise)](td::Result<std::vector<std::tuple<std::string, double, int>>> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+        } else {
+          auto r = R.move_as_ok();
+          std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_onePerfWarningTimerStat>> vec;
+          for (auto &s : r) {
+            vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_onePerfWarningTimerStat>(
+                  std::get<0>(s), std::get<1>(s), std::get<2>(s)));
+          }
+          promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_perfWarningTimerStats>(std::move(vec)));
+        }
+      });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_perf_warning_timer_stats, std::move(P));
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,

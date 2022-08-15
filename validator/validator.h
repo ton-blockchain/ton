@@ -19,6 +19,7 @@
 #pragma once
 
 #include <vector>
+#include <tuple>
 
 #include "td/actor/actor.h"
 
@@ -212,6 +213,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
+
+  virtual void prepare_perf_warning_timer_stats(td::Promise<std::vector<std::tuple<std::string, double, int>>> promise) = 0;
+  virtual void add_perf_warning_timer_stat(std::string name, double duration) = 0;
 };
 
 }  // namespace validator

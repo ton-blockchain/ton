@@ -1075,3 +1075,24 @@ class ImportShardOverlayCertificateQuery : public Query {
   std::string in_file_;
 };
 
+class GetPerfWarningTimerAverageQuery : public Query {
+ public:
+  GetPerfWarningTimerAverageQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getperfwarningtimeraverage";
+  }
+  static std::string get_help() {
+    return "getperfwarningtimeraverage <name>\tshows average event processing time";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string event_name_;
+};

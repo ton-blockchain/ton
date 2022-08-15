@@ -1004,3 +1004,28 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "successfully sent certificate to overlay manager\n";
   return td::Status::OK();
 }
+
+td::Status GetPerfWarningTimerAverageQuery::run() {
+  TRY_RESULT_ASSIGN(event_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetPerfWarningTimerAverageQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfWarningTimerStats>(event_name_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetPerfWarningTimerAverageQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfWarningTimerStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  for (auto &v : f->stats_) {
+    if (v->name_ == event_name_) {
+      td::TerminalIO::out() << v->average_ << "\n";
+      return td::Status::OK();
+    }
+  }
+  td::TerminalIO::out() << "no stats for name \"" << event_name_ << "\"\n";
+  return td::Status::OK();
+}

@@ -60,8 +60,8 @@ StringBuilder &operator<<(StringBuilder &string_builder, const Timer &timer) {
   return string_builder << format::as_time(timer.elapsed());
 }
 
-PerfWarningTimer::PerfWarningTimer(string name, double max_duration)
-    : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration) {
+PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::function<void(double)> callback)
+    : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration), callback_(callback) {
 }
 
 PerfWarningTimer::PerfWarningTimer(PerfWarningTimer &&other)
@@ -80,6 +80,7 @@ void PerfWarningTimer::reset() {
   double duration = Time::now() - start_at_;
   LOG_IF(WARNING, duration > max_duration_)
       << "SLOW: " << tag("name", name_) << tag("duration", format::as_time(duration));
+  callback_(duration);
   start_at_ = 0;
 }
 

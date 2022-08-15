@@ -2489,6 +2489,23 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
   td::actor::send_closure(db_, &Db::prepare_stats, merger.make_promise("db."));
 }
 
+void ValidatorManagerImpl::prepare_perf_warning_timer_stats(td::Promise<std::vector<std::tuple<std::string, double, int>>> promise) {
+  promise.set_value(static_cast<std::vector<std::tuple<std::string, double, int>>&&>(perf_warning_timer_stats));
+}
+
+void ValidatorManagerImpl::add_perf_warning_timer_stat(std::string name, double duration) {
+  for (auto& [name_, average, cnt] : perf_warning_timer_stats) {
+    if (name_ == name) {
+      average *= cnt;
+      average += duration;
+      ++cnt;
+      average /= cnt;
+      return;
+    }
+  }
+  perf_warning_timer_stats.emplace_back(name, duration, 1);
+}
+
 void ValidatorManagerImpl::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::truncate, seqno, std::move(handle), std::move(promise));
 }
