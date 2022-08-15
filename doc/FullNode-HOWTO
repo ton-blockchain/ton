@@ -1,3 +1,5 @@
+The most convenient way to compile and run a node is provided by MyTonCtrl: https://github.com/ton-blockchain/mytonctrl/. More info is available on https://ton.org/docs/#/nodes/run-node.
+
 The aim of this document is to provide step-by-step instructions for setting up a full node for the TON Blockchain. We assume some familiarity with the TON Blockchain Lite Client, at least to the extent explained in the Lite Client HOWTO.
 
 Note that you need a machine with a public IP address and a high-bandwidth network connection to run a TON Blockchain Full Node. Typically you'll need a sufficiently powerful server in a datacenter with good network connectivity, using at least a 1 Gbit/s connection to reliably accommodate peak loads (the average load is expected to be approximately 100 Mbit/s). We recommend a dual-processor server with at least eight cores in each processor, at least 256 MiB RAM, at least 8 TB of conventional HDD storage and at least 512 GB of faster SSD storage. It is a bad idea to run a Full Node on your home computer; instead, you could run a Full Node on a remote server, and use the TON Blockchain Lite Client to connect to it from home.
@@ -39,11 +41,11 @@ An approximate layout of the working directory of the TON Blockchain Full Node s
 
 In order to set up your Full Node, you'll need a special JSON file called the "global configuration (file)". It is called this because it is the same for all full nodes, and even nodes participating in different instances of the TON Blockchain (e.g., "testnet" vs. "mainnet") share an almost identical global configuration.
 
-The "testnet" global configuration can be downloaded at https://test.ton.org/ton-global.config.json as follows:
+The "mainnet" global configuration can be downloaded at https://ton.org/global-config.json as follows:
 
-$ wget https://test.ton.org/ton-global.config.json
+$ wget https://ton.org/global-config.json
 
-You may wish to put this file into /var/ton-work/etc/ton-global.config.json .
+You may wish to put this file into /var/ton-work/etc/global-config.json .
 
 We'll discuss the structure of this file later in more detail. For now, let us remark that the bulk of this file consists of a list of known TON DHT nodes required for the bootstrapping of the TON Network. A smaller section near the end of this file describes the particular instance of the TON Blockchain that we wish to connect to.
 
@@ -56,9 +58,9 @@ It is important to distinguish this "global configuration file", used for settin
 
 Once the global configuration file is downloaded, it can be used to create the initial local configuration in ${DB_ROOT}/config.json. To do this, execute validator-engine once:
 
-$ validator-engine -C /var/ton-work/etc/ton-global.config.json --db /var/ton-work/db/ --ip <IP>:<PORT> -l /var/ton-work/log
+$ validator-engine -C /var/ton-work/etc/global-config.json --db /var/ton-work/db/ --ip <IP>:<PORT> -l /var/ton-work/log
 
-Here `/var/ton-work/log` is the log directory of `validator-engine`, where it will create its log files. The argument to the `-C` command-line option is the global configuration file downloaded from test.ton.org as explained above, and `/var/ton-work/db/` is the working directory ${DB_ROOT}. Finally, <IP>:<PORT> are the global IP address of this full node (you need to indicate a public IPv4 address here) and the UDP port used to run TON Network protocols such as ADNL and RLDP. Make sure that your firewall is configured to pass UDP packets with source or destination <IP>:<PORT> at least for the `validator-engine` binary.
+Here `/var/ton-work/log` is the log directory of `validator-engine`, where it will create its log files. The argument to the `-C` command-line option is the global configuration file downloaded from ton.org as explained above, and `/var/ton-work/db/` is the working directory ${DB_ROOT}. Finally, <IP>:<PORT> are the global IP address of this full node (you need to indicate a public IPv4 address here) and the UDP port used to run TON Network protocols such as ADNL and RLDP. Make sure that your firewall is configured to pass UDP packets with source or destination <IP>:<PORT> at least for the `validator-engine` binary.
 
 When validator-engine is invoked as above, and ${DB_ROOT}/config.json does not exist, it creates a new local configuration file ${DB_ROOT}/config.json using the information from the global configuration file and from the command-line options such as --ip, and then exits. If ${DB_ROOT}/config.json already exists, it is not rewritten; instead validator-engine starts up as a daemon using both the local and the global configuration.
 
@@ -114,9 +116,9 @@ Replace it with the following:
 
 To run the full node, simply run the validator-engine binary in a console:
 
-$ validator-engine --db ${DB_ROOT} -C /var/ton-work/etc/ton-global.config.json  -l /var/ton-work/log
+$ validator-engine --db ${DB_ROOT} -C /var/ton-work/etc/global-config.json  -l /var/ton-work/log
 
-It will read the global configuration from /var/ton-work/etc/ton-global.config.json, the local configuration from ${DB_ROOT}/config.json, and continue running silently. You should write suitable scripts for invoking validator-engine as a daemon (so that it does not terminate when the console is closed), but we'll skip these considerations for simplicity. (The command-line option `-d` of validator-engine should be sufficient for this on most *nix systems.)
+It will read the global configuration from /var/ton-work/etc/global-config.json, the local configuration from ${DB_ROOT}/config.json, and continue running silently. You should write suitable scripts for invoking validator-engine as a daemon (so that it does not terminate when the console is closed), but we'll skip these considerations for simplicity. (The command-line option `-d` of validator-engine should be sufficient for this on most *nix systems.)
 
 If the configuration is invalid, validator-engine will terminate immediately and, in most cases, output nothing. You'll have to study the log files under /var/ton-work/log to find out what went wrong. Otherwise, validator-engine will keep working silently. Again, you can understand what's going on by inspecting the log files, and by looking into subdirectories of the ${DB_ROOT} directory.
 
