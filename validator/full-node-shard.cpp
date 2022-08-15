@@ -852,6 +852,10 @@ void FullNodeShardImpl::download_out_msg_queue_proof(BlockIdExt block_id, ShardI
   // TODO: maybe more complex download (like other requests here)
   // TODO: estimate max size
   auto &b = choose_neighbour(true);
+  if (b.adnl_id == adnl::AdnlNodeIdShort::zero()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "no nodes"));
+    return;
+  }
   auto P = td::PromiseCreator::lambda(
       [=, promise = create_neighbour_promise(b, std::move(promise), true)](td::Result<td::BufferSlice> R) mutable {
         if (R.is_error()) {
