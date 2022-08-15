@@ -63,10 +63,9 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(mode & ValidateMode::fake)
-    , is_lite_(mode & ValidateMode::lite)
+    , full_collated_data_(mode & ValidateMode::full_collated_data)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_)) {
-  proc_hash_.zero();
 }
 
 void ValidateQuery::alarm() {
@@ -158,6 +157,7 @@ void ValidateQuery::finish_query() {
 
 void ValidateQuery::start_up() {
   LOG(INFO) << "validate query for " << block_candidate.id.to_str() << " started";
+  LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   alarm_timestamp() = timeout;
   rand_seed_.set_zero();
   created_by_ = block_candidate.pubkey;
@@ -258,9 +258,9 @@ void ValidateQuery::start_up() {
                                   td::actor::send_closure_later(
                                       std::move(self), &ValidateQuery::after_get_latest_mc_state, std::move(res));
                                 });
-  // 3. load state(s) corresponding to previous block(s) (non-lite mode or masterchain)
+  // 3. load state(s) corresponding to previous block(s) (not full-collaoted-data or masterchain)
   prev_states.resize(prev_blocks.size());
-  if  (is_masterchain() || !is_lite_) {
+  if  (is_masterchain() || !full_collated_data_) {
     for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
       // 3.1. load state
       LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
@@ -991,8 +991,8 @@ bool ValidateQuery::check_this_shard_mc_info() {
  */
 
 bool ValidateQuery::compute_prev_state() {
-  if (!is_masterchain() && is_lite_) {
-    return compute_prev_state_lite_mode();
+  if (!is_masterchain() && full_collated_data_) {
+    return compute_prev_state_from_collated_data();
   }
   CHECK(prev_states.size() == 1u + after_merge_);
   prev_state_root_ = prev_states[0]->root_cell();
@@ -1012,7 +1012,7 @@ bool ValidateQuery::compute_prev_state() {
   return true;
 }
 
-bool ValidateQuery::compute_prev_state_lite_mode() {
+bool ValidateQuery::compute_prev_state_from_collated_data() {
   td::Bits256 state_hash;
   if (id_.seqno() == 1) {
     if (prev_blocks.size() != 1) {
@@ -1255,7 +1255,7 @@ bool ValidateQuery::request_neighbor_queues() {
     neighbors_.emplace_back(*shard_ptr);
   }
   int i = 0;
-  if (is_lite_) {
+  if (full_collated_data_) {
     for (block::McShardDescr& descr : neighbors_) {
       LOG(DEBUG) << "getting outbound queue of neighbor #" << i << " from collated data : " << descr.blk_.to_str();
       td::Bits256 state_root_hash;

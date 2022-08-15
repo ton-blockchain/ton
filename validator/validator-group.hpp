@@ -60,7 +60,7 @@ class ValidatorGroup : public td::actor::Actor {
   void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise);
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-                 td::Ref<ValidatorSet> validator_set, std::vector<CollatorNodeDescr> collator_set,
+                 td::Ref<ValidatorSet> validator_set, block::CollatorConfig collator_config,
                  validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
@@ -70,7 +70,7 @@ class ValidatorGroup : public td::actor::Actor {
       , local_id_(std::move(local_id))
       , session_id_(session_id)
       , validator_set_(std::move(validator_set))
-      , collator_set_(std::move(collator_set))
+      , collator_config_(std::move(collator_config))
       , config_(std::move(config))
       , keyring_(keyring)
       , adnl_(adnl)
@@ -110,7 +110,7 @@ class ValidatorGroup : public td::actor::Actor {
   BlockIdExt min_masterchain_block_id_;
 
   td::Ref<ValidatorSet> validator_set_;
-  std::vector<CollatorNodeDescr> collator_set_;
+  block::CollatorConfig collator_config_;
   validatorsession::ValidatorSessionOptions config_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;

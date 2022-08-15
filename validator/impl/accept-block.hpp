@@ -115,6 +115,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   UnixTime created_at_;
   RootHash state_keep_old_hash_, state_old_hash_, state_hash_;
   BlockIdExt mc_blkid_, prev_mc_blkid_;
+  bool before_split_;
 
   Ref<MasterchainStateQ> last_mc_state_;
   BlockIdExt last_mc_id_;

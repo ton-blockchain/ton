@@ -25,7 +25,7 @@ namespace ton {
 
 namespace validator {
 
-enum ValidateMode { fake = 1, lite = 2 };
+enum ValidateMode { fake = 1, full_collated_data = 2 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_);
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,

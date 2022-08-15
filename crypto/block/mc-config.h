@@ -482,6 +482,16 @@ class ShardConfig {
   bool set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value);
 };
 
+struct CollatorNodeDescr {
+  ton::ShardIdFull shard;
+  ton::NodeIdShort adnl_id;
+};
+
+struct CollatorConfig {
+  bool full_collated_data = false;
+  std::vector<CollatorNodeDescr> collator_nodes;
+};
+
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,
@@ -593,6 +603,7 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
+  CollatorConfig get_collator_config(bool need_collator_nodes) const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,

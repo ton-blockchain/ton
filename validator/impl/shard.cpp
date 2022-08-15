@@ -511,27 +511,6 @@ bool MasterchainStateQ::check_old_mc_block_id(const ton::BlockIdExt& blkid, bool
   return config_ && config_->check_old_mc_block_id(blkid, strict);
 }
 
-std::vector<CollatorNodeDescr> MasterchainStateQ::get_collator_set() const {
-  block::gen::CollatorSet::Record rec;
-  auto cell = config_->get_config_param(81);
-  if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-    return {};
-  }
-  vm::Dictionary dict{rec.collators->prefetch_ref(), 32 + 64 + 256};
-  std::vector<CollatorNodeDescr> collators;
-  dict.check_for_each([&](Ref<vm::CellSlice>, td::ConstBitPtr key, int n) {
-    CHECK(n == 32 + 64 + 256);
-    auto workchain = (td::int32)key.get_int(32);
-    key.advance(32);
-    td::uint64 shard = key.get_uint(64);
-    key.advance(64);
-    td::Bits256 adnl_id(key);
-    collators.push_back({ShardIdFull(workchain, shard), adnl_id});
-    return true;
-  });
-  return collators;
-}
-
 td::uint32 MasterchainStateQ::min_split_depth(WorkchainId workchain_id) const {
   if (!config_) {
     return 0;

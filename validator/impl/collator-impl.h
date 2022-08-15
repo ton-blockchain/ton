@@ -128,6 +128,7 @@ class Collator final : public td::actor::Actor {
   void alarm() override;
   int verbosity{3 * 0};
   int verify{1};
+  bool full_collated_data_ = false;
   ton::LogicalTime start_lt, max_lt;
   ton::UnixTime now_;
   ton::UnixTime prev_now_;
