@@ -180,6 +180,9 @@ smc.methodIdName name:string = smc.MethodId;
 
 smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
 
+smc.libraryEntry hash:int256 data:bytes = smc.LibraryEntry;
+smc.libraryResult result:(vector smc.libraryEntry) = smc.LibraryResult;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
 
@@ -285,6 +288,8 @@ smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
+
+smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
 
 dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 
