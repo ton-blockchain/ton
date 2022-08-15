@@ -484,9 +484,4 @@ struct ValidatorSessionConfig {
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
 };
 
-struct CollatorNodeDescr {
-  ShardIdFull shard;
-  NodeIdShort adnl_id;
-};
-
 }  // namespace ton

@@ -2132,4 +2132,28 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
   return lib;
 }
 
+CollatorConfig Config::get_collator_config(bool need_collator_nodes) const {
+  CollatorConfig collator_config;
+  gen::CollatorConfig::Record rec;
+  auto cell = get_config_param(41);
+  if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
+    return collator_config;
+  }
+  collator_config.full_collated_data = rec.full_collated_data;
+  if (need_collator_nodes) {
+    vm::Dictionary dict{rec.collator_nodes->prefetch_ref(), 32 + 64 + 256};
+    dict.check_for_each([&](Ref<vm::CellSlice>, td::ConstBitPtr key, int n) {
+      CHECK(n == 32 + 64 + 256);
+      auto workchain = (td::int32)key.get_int(32);
+      key.advance(32);
+      td::uint64 shard = key.get_uint(64);
+      key.advance(64);
+      td::Bits256 adnl_id(key);
+      collator_config.collator_nodes.push_back({ton::ShardIdFull(workchain, shard), adnl_id});
+      return true;
+    });
+  }
+  return collator_config;
+}
+
 }  // namespace block

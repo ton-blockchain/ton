@@ -42,7 +42,7 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
   }
   run_collate_query(shard_, min_masterchain_block_id_, prev_block_ids_,
                     Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
-                    td::Timestamp::in(10.0), std::move(promise));
+                    td::Timestamp::in(20.0), std::move(promise));
 }
 
 void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidate block,
@@ -102,7 +102,8 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
-                     td::Timestamp::in(10.0), std::move(P), lite_mode_ ? ValidateMode::lite : 0);
+                     td::Timestamp::in(10.0), std::move(P),
+                     collator_config_.full_collated_data ? ValidateMode::full_collated_data : 0);
 }
 
 void ValidatorGroup::update_approve_cache(td::uint32 round_id, CacheKey key, UnixTime value) {
@@ -360,9 +361,9 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
     return;
   }
   adnl::AdnlNodeIdShort collator = adnl::AdnlNodeIdShort::zero();
-  // TODO: some other way for storing and choosing collators for real network
+  // TODO: some way to choose node (similar to "unreliability" in full-node)
   int cnt = 0;
-  for (const CollatorNodeDescr& c : collator_set_) {
+  for (const block::CollatorNodeDescr& c : collator_config_.collator_nodes) {
     if (shard_is_ancestor(shard_, c.shard) && td::Random::fast(0, cnt) == 0) {
       collator = adnl::AdnlNodeIdShort(c.adnl_id);
       ++cnt;

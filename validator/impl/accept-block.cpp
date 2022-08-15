@@ -144,6 +144,7 @@ bool AcceptBlockQuery::precheck_header() {
   if (is_fork_ && !info.key_block) {
     return fatal_error("fork block is not a key block");
   }
+  before_split_ = info.before_split;
   return true;
 }
 
@@ -538,6 +539,7 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
   }
 
   //handle_->set_masterchain_block(prev_[0]);
+  handle_->set_split(before_split_);
   handle_->set_state_root_hash(state_hash_);
   handle_->set_logical_time(lt_);
   handle_->set_unix_time(created_at_);

@@ -141,7 +141,7 @@ class ValidateQuery : public td::actor::Actor {
   bool is_key_block_{false};
   bool update_shard_cc_{false};
   bool is_fake_{false};
-  bool is_lite_{false};
+  bool full_collated_data_{false};
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
@@ -221,7 +221,7 @@ class ValidateQuery : public td::actor::Actor {
   td::RefInt256 import_fees_;
 
   ton::LogicalTime proc_lt_{0}, claimed_proc_lt_{0}, min_enq_lt_{~0ULL};
-  ton::Bits256 proc_hash_, claimed_proc_hash_, min_enq_hash_;
+  ton::Bits256 proc_hash_ = ton::Bits256::zero(), claimed_proc_hash_, min_enq_hash_;
   bool inbound_queues_empty_{false};
 
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt_;
@@ -286,7 +286,7 @@ class ValidateQuery : public td::actor::Actor {
   bool extract_collated_data();
   bool try_validate();
   bool compute_prev_state();
-  bool compute_prev_state_lite_mode();
+  bool compute_prev_state_from_collated_data();
   bool compute_next_state();
   bool unpack_merge_prev_state();
   bool unpack_prev_state();

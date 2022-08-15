@@ -572,6 +572,8 @@ bool Collator::unpack_last_mc_state() {
                << " have been enabled in global configuration, but we support only " << supported_version()
                << " (upgrade validator software?)";
   }
+  full_collated_data_ = config_->get_collator_config(false).full_collated_data;
+  LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   // TODO: extract start_lt and end_lt from prev_mc_block as well
   // std::cerr << "  block::gen::ShardState::print_ref(mc_state_root) = ";
   // block::gen::t_ShardState.print_ref(std::cerr, mc_state_root, 2);
@@ -3981,6 +3983,9 @@ bool Collator::create_collated_data() {
       return fatal_error("cannot collate the collection of used shard block descriptions");
     }
     collated_roots_.push_back(std::move(cell));
+  }
+  if (!full_collated_data_) {
+    return true;
   }
   // 2. Proofs for hashes of states: previous states + neighbors
   for (const auto& p : block_state_proofs_) {
