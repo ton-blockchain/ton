@@ -20,6 +20,8 @@
 #include "vm/cells/MerkleProof.h"
 #include "common/delay.h"
 #include "interfaces/validator-manager.h"
+#include "block/block-parse.h"
+#include "block/block-auto.h"
 
 namespace ton {
 
@@ -51,9 +53,31 @@ td::Result<td::Ref<OutMsgQueueProof>> OutMsgQueueProof::fetch(BlockIdExt block_i
   // Validate proof
   auto state_root = vm::CellSlice(vm::NoVm(), queue_proof).prefetch_ref(0);
   TRY_RESULT_PREFIX(state, ShardStateQ::fetch(block_id, {}, state_root), "invalid proof: ");
-  TRY_RESULT_PREFIX(queue, state->message_queue(), "invalid proof: ");
-  auto queue_root = queue->root_cell();
-  if (queue_root->get_level() != 0) {
+  TRY_RESULT_PREFIX(outq_descr, state->message_queue(), "invalid proof: ");
+
+  block::gen::OutMsgQueueInfo::Record qinfo;
+  if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
+    return td::Status::Error("invalid proof: invalid message queue");
+  }
+  td::Ref<vm::Cell> proc_info = qinfo.proc_info->prefetch_ref(0);
+  if (proc_info.not_null() && proc_info->get_level() != 0) {
+    return td::Status::Error("invalid proof: proc_info has prunned branches");
+  }
+  td::Ref<vm::Cell> ihr_pending = qinfo.ihr_pending->prefetch_ref(0);
+  if (ihr_pending.not_null() && ihr_pending->get_level() != 0) {
+    return td::Status::Error("invalid proof: ihr_pending has prunned branches");
+  }
+  auto queue =
+      std::make_unique<vm::AugmentedDictionary>(qinfo.out_queue->prefetch_ref(0), 352, block::tlb::aug_OutMsgQueue);
+  td::BitArray<96> prefix;
+  td::BitPtr ptr = prefix.bits();
+  ptr.store_int(dst_shard.workchain, 32);
+  ptr.advance(32);
+  ptr.store_uint(dst_shard.shard, 64);
+  if (!queue->cut_prefix_subdict(prefix.bits(), 32 + dst_shard.pfx_len())) {
+    return td::Status::Error("invalid proof: failed to cut queue dict");
+  }
+  if (queue->get_root_cell().not_null() && queue->get_root_cell()->get_level() != 0) {
     return td::Status::Error("invalid proof: msg queue has prunned branches");
   }
 
@@ -64,14 +88,20 @@ td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::s
                                                                                          ShardIdFull dst_shard,
                                                                                          Ref<vm::Cell> state_root,
                                                                                          Ref<vm::Cell> block_root) {
+  if (!dst_shard.is_valid_ext()) {
+    return td::Status::Error("invalid shard");
+  }
   vm::MerkleProofBuilder mpb{std::move(state_root)};
   TRY_RESULT(state, ShardStateQ::fetch(block_id, {}, mpb.root()));
   TRY_RESULT(outq_descr, state->message_queue());
+  block::gen::OutMsgQueueInfo::Record qinfo;
+  if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
+    return td::Status::Error("invalid message queue");
+  }
 
-  // TODO: add only required part of msg queue
   td::HashSet<vm::Cell::Hash> visited;
   std::function<void(Ref<vm::Cell>)> dfs = [&](Ref<vm::Cell> cell) {
-    if (!visited.insert(cell->get_hash()).second) {
+    if (cell.is_null() || !visited.insert(cell->get_hash()).second) {
       return;
     }
     vm::CellSlice cs(vm::NoVm(), cell);
@@ -79,16 +109,32 @@ td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::s
       dfs(cs.prefetch_ref(i));
     }
   };
-  dfs(outq_descr->root_cell());
+  auto dfs_cs = [&](const vm::CellSlice &cs) {
+    for (unsigned i = 0; i < cs.size_refs(); i++) {
+      dfs(cs.prefetch_ref(i));
+    }
+  };
+  dfs_cs(*qinfo.proc_info);
+  dfs_cs(*qinfo.ihr_pending);
+
+  auto queue =
+      std::make_unique<vm::AugmentedDictionary>(qinfo.out_queue->prefetch_ref(0), 352, block::tlb::aug_OutMsgQueue);
+  td::BitArray<96> prefix;
+  td::BitPtr ptr = prefix.bits();
+  ptr.store_int(dst_shard.workchain, 32);
+  ptr.advance(32);
+  ptr.store_uint(dst_shard.shard, 64);
+  if (!queue->cut_prefix_subdict(prefix.bits(), 32 + dst_shard.pfx_len())) {
+    return td::Status::Error("invalid message queue");
+  }
+  dfs(queue->get_root_cell());
 
   TRY_RESULT(queue_proof, vm::std_boc_serialize(mpb.extract_proof()));
-
   td::BufferSlice block_state_proof;
   if (block_id.seqno() != 0) {
     TRY_RESULT(proof, create_block_state_proof(std::move(block_root)));
     TRY_RESULT_ASSIGN(block_state_proof, vm::std_boc_serialize(std::move(proof), 31));
   }
-
   return create_tl_object<ton_api::tonNode_outMsgQueueProof>(std::move(queue_proof), std::move(block_state_proof));
 }
 
@@ -183,7 +229,11 @@ void WaitOutMsgQueueProof::run_net() {
   auto P =
       td::PromiseCreator::lambda([SelfId = actor_id(this), block_id = block_id_](td::Result<Ref<OutMsgQueueProof>> R) {
         if (R.is_error()) {
-          LOG(DEBUG) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
+          if (R.error().code() == ErrorCode::notready) {
+            LOG(DEBUG) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
+          } else {
+            LOG(WARNING) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
+          }
           delay_action([SelfId]() mutable { td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::run_net); },
                        td::Timestamp::in(0.1));
         } else {
@@ -246,8 +296,11 @@ void BuildOutMsgQueueProof::got_block_root(Ref<vm::Cell> root) {
 }
 
 void BuildOutMsgQueueProof::build_proof() {
-  promise_.set_result(
-      OutMsgQueueProof::serialize(block_id_, dst_shard_, std::move(state_root_), std::move(block_root_)));
+  auto result = OutMsgQueueProof::serialize(block_id_, dst_shard_, std::move(state_root_), std::move(block_root_));
+  if (result.is_error()) {
+    LOG(ERROR) << "Failed to build msg queue proof: " << result.error();
+  }
+  promise_.set_result(std::move(result));
   stop();
 }
 
