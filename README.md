@@ -2,7 +2,7 @@
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
-## DEB and RPM packages
+## Packages
 
 ### deb
 
@@ -21,6 +21,12 @@ enabled=1
 type=rpm
 gpgcheck=0
 EOF
+```
+
+### brew
+
+```sh
+brew tap tonthemoon/ton-repo
 ```
 
 ## Updates flow:
