@@ -1404,7 +1404,7 @@ td::Status ValidatorEngine::load_global_config() {
   return td::Status::OK();
 }
 
-void ValidatorEngine::init_validator_options() {
+void ValidatorEngine::set_shard_check_function() {
   if (!not_all_shards_) {
     validator_options_.write().set_shard_check_function([](ton::ShardIdFull shard) -> bool { return true; });
   } else {
@@ -1711,7 +1711,7 @@ void ValidatorEngine::got_key(ton::PublicKey key) {
 }
 
 void ValidatorEngine::start() {
-  init_validator_options();
+  set_shard_check_function();
   read_config_ = true;
   start_adnl();
 }
@@ -3412,7 +3412,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
     promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
     return;
   }
+  set_shard_check_function();
   if (!validator_manager_.empty()) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                            validator_options_);
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_collator,
                             ton::adnl::AdnlNodeIdShort(id), shard);
   }
@@ -3443,7 +3446,18 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addShard 
     promise.set_value(create_control_query_error(R.move_as_error()));
     return;
   }
-  promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+  set_shard_check_function();
+  if (!validator_manager_.empty()) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                            validator_options_);
+  }
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+    }
+  });
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,

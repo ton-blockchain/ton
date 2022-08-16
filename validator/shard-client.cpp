@@ -331,6 +331,10 @@ void ShardClient::force_update_shard_client_ex(BlockHandle handle, td::Ref<Maste
   applied_all_shards();
 }
 
+void ShardClient::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  opts_ = std::move(opts);
+}
+
 }  // namespace validator
 
 }  // namespace ton

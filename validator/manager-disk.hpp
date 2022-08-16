@@ -386,6 +386,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override {
+    opts_ = std::move(opts);
+  }
+
  private:
   PublicKeyHash local_id_;
 
