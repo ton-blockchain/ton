@@ -91,6 +91,10 @@ class AsyncStateSerializer : public td::actor::Actor {
   void fail_handler(td::Status reason);
   void fail_handler_cont();
   void success_handler();
+
+  void update_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
+  }
 };
 
 }  // namespace validator

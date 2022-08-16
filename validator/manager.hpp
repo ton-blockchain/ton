@@ -556,6 +556,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
  private:
   td::Timestamp resend_shard_blocks_at_;
