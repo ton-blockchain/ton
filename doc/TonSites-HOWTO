@@ -22,15 +22,15 @@ in the build directory.
 
 In order to access existing TON Sites, you need a running instance of RLDP-HTTP Proxy on your computer. It can be invoked as follows:
 
-   rldp-http-proxy/rldp-http-proxy -p 8080 -c 3333 -C ton-global-lite-client.config.json
+   rldp-http-proxy/rldp-http-proxy -p 8080 -c 3333 -C global-config.json
 
 or
 
-   rldp-http-proxy/rldp-http-proxy -p 8080 -a <your_public_ip>:3333 -C ton-global-lite-client.config.json
+   rldp-http-proxy/rldp-http-proxy -p 8080 -a <your_public_ip>:3333 -C global-config.json
 
-where <your_public_ip> is your public IPv4 address, provided you have one on your home computer. The TON Network global configuration file `ton-global-lite-client.config.json` can be downloaded at https://test.ton.org/ton-global-lite-client.config.json :
+where <your_public_ip> is your public IPv4 address, provided you have one on your home computer. The TON Network global configuration file `global-config.json` can be downloaded at https://ton.org/global-config.json :
 
-   wget https://test.ton.org/ton-global-lite-client.config.json
+   wget https://ton.org/global-config.json
 
 In the above example, 8080 is the TCP port that will be listened to at localhost for incoming HTTP queries, and 3333 is the UDP port that will be used for all outbound and inbound RLDP and ADNL activity, i.e., for connecting to the TON Sites via the TON Network.
 
@@ -54,7 +54,7 @@ attempts to download the main page of (TON) Site `test.ton` using the proxy at `
 ...
 </HTML>
 
-because TON Site `test.ton` is currently set up to be a mirror of Web Site https://test.ton.org.
+because TON Site `test.ton` is currently set up to be a mirror of Web Site https://ton.org.
 
 You can also access TON Sites by means of their ADNL addresses by using fake domain `<adnl-addr>.adnl`:
 
@@ -89,7 +89,7 @@ This is your newly-generated persistent ADNL address, in hexadecimal and user-fr
 
 After that, you execute
 
-    rldp-http-proxy -a <your-server-ip>:3333 -L '*' -C ton-global.config.json -A <your-adnl-address>
+    rldp-http-proxy -a <your-server-ip>:3333 -L '*' -C global-config.json -A <your-adnl-address>
 
 (with <your-adnl-address> equal to 'vcqm...35f3' in this example) in the background (you can try this in a terminal at first, but if you want your TON Site to run permanently, you'll have to use options `-d` and `-l <log-file>` as well).
 
