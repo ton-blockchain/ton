@@ -66,7 +66,6 @@
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
-#include <tuple>
 #include <set>
 #include "git.h"
 
@@ -3288,18 +3287,20 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfWa
   if (validator_manager_.empty()) {
     promise.set_value(
         create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
   }
 
   auto P = td::PromiseCreator::lambda(
-      [promise = std::move(promise)](td::Result<std::vector<std::tuple<std::string, double, int>>> R) mutable {
+      [promise = std::move(promise), query = std::move(query)](td::Result<std::vector<ton::validator::PerfWarningTimerStat>> R) mutable {
         if (R.is_error()) {
           promise.set_value(create_control_query_error(R.move_as_error()));
         } else {
           auto r = R.move_as_ok();
           std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_onePerfWarningTimerStat>> vec;
           for (auto &s : r) {
-            vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_onePerfWarningTimerStat>(
-                  std::get<0>(s), std::get<1>(s), std::get<2>(s)));
+            if (s.name == query.name_ || query.name_.empty()) {
+              vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_onePerfWarningTimerStat>(s.name, s.average, s.cnt));
+            }
           }
           promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_perfWarningTimerStats>(std::move(vec)));
         }

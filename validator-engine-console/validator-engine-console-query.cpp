@@ -1020,12 +1020,12 @@ td::Status GetPerfWarningTimerAverageQuery::send() {
 td::Status GetPerfWarningTimerAverageQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfWarningTimerStats>(data.as_slice(), true),
                     "received incorrect answer: ");
-  for (auto &v : f->stats_) {
-    if (v->name_ == event_name_) {
-      td::TerminalIO::out() << v->average_ << "\n";
-      return td::Status::OK();
+  if (f->stats_.empty()) {
+    td::TerminalIO::out() << "no stats for name \"" << event_name_ << "\"\n";
+  } else {
+    for (auto &v : f->stats_) {
+      td::TerminalIO::out() << v->name_ << ": " << v->average_ << "\n";
     }
   }
-  td::TerminalIO::out() << "no stats for name \"" << event_name_ << "\"\n";
   return td::Status::OK();
 }

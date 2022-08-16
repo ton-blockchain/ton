@@ -417,12 +417,11 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
-  void prepare_perf_warning_timer_stats(td::Promise<std::vector<std::tuple<std::string, double, int>>> promise) override {
+  void prepare_perf_warning_timer_stats(td::Promise<std::vector<PerfWarningTimerStat>> promise) override {
     UNREACHABLE();
   }
 
   void add_perf_warning_timer_stat(std::string name, double duration) override {
-    UNREACHABLE();
   }
 
   void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) override {
