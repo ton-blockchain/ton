@@ -514,6 +514,9 @@ db.state.shardClient block:tonNode.blockIdExt = db.state.ShardClient;
 db.state.asyncSerializer block:tonNode.blockIdExt last:tonNode.blockIdExt last_ts:int = db.state.AsyncSerializer;
 db.state.hardforks blocks:(vector tonNode.blockIdExt) = db.state.Hardforks;
 db.state.dbVersion version:int = db.state.DbVersion;
+db.state.persistentStateDescriptionShards shard_blocks:(vector tonNode.blockIdExt) = db.state.PersistentStateDescriptionShards;
+db.state.persistentStateDescriptionHeader masterchain_id:tonNode.blockIdExt start_time:int end_time:int = db.state.PersistentStateDescriptionHeader;
+db.state.persistentStateDescriptionsList list:(vector db.state.persistentStateDescriptionHeader) = db.state.PersistentStateDescriptionsList;
 
 db.state.key.destroyedSessions = db.state.Key;
 db.state.key.initBlockId = db.state.Key;
@@ -522,6 +525,8 @@ db.state.key.shardClient = db.state.Key;
 db.state.key.asyncSerializer = db.state.Key;
 db.state.key.hardforks = db.state.Key;
 db.state.key.dbVersion = db.state.Key;
+db.state.key.persistentStateDescriptionShards masterchain_seqno:int = db.state.Key;
+db.state.key.persistentStateDescriptionsList = db.state.Key;
 
 db.lt.el.key workchain:int shard:long idx:int = db.lt.Key;
 db.lt.desc.key workchain:int shard:long = db.lt.Key;

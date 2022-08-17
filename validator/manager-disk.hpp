@@ -377,6 +377,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void validated_new_block(BlockIdExt block_id) override {
   }
+  void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
+  }
+
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override {
     UNREACHABLE();

@@ -497,6 +497,14 @@ void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
 }
 
+void RootDb::add_persistent_state_description(td::Ref<PersistentStateDescription> desc, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(state_db_, &StateDb::add_persistent_state_description, std::move(desc), std::move(promise));
+}
+
+void RootDb::get_persistent_state_descriptions(td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) {
+  td::actor::send_closure(state_db_, &StateDb::get_persistent_state_descriptions, std::move(promise));
+}
+
 void RootDb::run_gc(UnixTime ts, UnixTime archive_ttl) {
   td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, ts, archive_ttl);
 }

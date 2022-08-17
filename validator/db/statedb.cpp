@@ -240,6 +240,101 @@ void StateDb::start_up() {
   }
 }
 
+void StateDb::add_persistent_state_description(td::Ref<PersistentStateDescription> desc,
+                                               td::Promise<td::Unit> promise) {
+  std::string value;
+  auto list_key = create_hash_tl_object<ton_api::db_state_key_persistentStateDescriptionsList>();
+  auto R = kv_->get(list_key.as_slice(), value);
+  R.ensure();
+  tl_object_ptr<ton_api::db_state_persistentStateDescriptionsList> list;
+  if (R.ok() == td::KeyValue::GetStatus::Ok) {
+    auto F = fetch_tl_object<ton_api::db_state_persistentStateDescriptionsList>(value, true);
+    F.ensure();
+    list = F.move_as_ok();
+  } else {
+    list = create_tl_object<ton_api::db_state_persistentStateDescriptionsList>(
+        std::vector<tl_object_ptr<ton_api::db_state_persistentStateDescriptionHeader>>());
+  }
+  for (const auto& obj : list->list_) {
+    if ((BlockSeqno)obj->masterchain_id_->seqno_ == desc->masterchain_id.seqno()) {
+      promise.set_error(td::Status::Error("duplicate masterchain seqno"));
+      return;
+    }
+  }
+
+  auto now = (UnixTime)td::Clocks::system();
+  size_t new_size = 0;
+  kv_->begin_write_batch().ensure();
+  for (auto& obj : list->list_) {
+    auto end_time = (UnixTime)obj->end_time_;
+    if (end_time <= now) {
+      auto key =
+          create_hash_tl_object<ton_api::db_state_key_persistentStateDescriptionShards>(obj->masterchain_id_->seqno_);
+      kv_->erase(key.as_slice()).ensure();
+    } else {
+      list->list_[new_size++] = std::move(obj);
+    }
+  }
+  list->list_.resize(new_size);
+
+  std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> shard_blocks;
+  for (const BlockIdExt& block_id : desc->shard_blocks) {
+    shard_blocks.push_back(create_tl_block_id(block_id));
+  }
+  auto key =
+      create_hash_tl_object<ton_api::db_state_key_persistentStateDescriptionShards>(desc->masterchain_id.seqno());
+  kv_->set(key.as_slice(),
+           create_serialize_tl_object<ton_api::db_state_persistentStateDescriptionShards>(std::move(shard_blocks))
+               .as_slice())
+      .ensure();
+
+  list->list_.push_back(create_tl_object<ton_api::db_state_persistentStateDescriptionHeader>(
+      create_tl_block_id(desc->masterchain_id), desc->start_time, desc->end_time));
+  kv_->set(list_key.as_slice(), serialize_tl_object(list, true).as_slice()).ensure();
+
+  kv_->commit_write_batch().ensure();
+
+  promise.set_result(td::Unit());
+}
+
+void StateDb::get_persistent_state_descriptions(td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) {
+  std::string value;
+  auto R = kv_->get(create_hash_tl_object<ton_api::db_state_key_persistentStateDescriptionsList>().as_slice(), value);
+  R.ensure();
+  if (R.ok() == td::KeyValue::GetStatus::NotFound) {
+    promise.set_value({});
+    return;
+  }
+  auto F = fetch_tl_object<ton_api::db_state_persistentStateDescriptionsList>(value, true);
+  F.ensure();
+  std::vector<td::Ref<PersistentStateDescription>> result;
+  auto now = (UnixTime)td::Clocks::system();
+  for (const auto& obj : F.ok()->list_) {
+    auto end_time = (UnixTime)obj->end_time_;
+    if (end_time <= now) {
+      continue;
+    }
+    PersistentStateDescription desc;
+    desc.start_time = (UnixTime)obj->start_time_;
+    desc.end_time = end_time;
+    desc.masterchain_id = create_block_id(obj->masterchain_id_);
+    auto key =
+        create_hash_tl_object<ton_api::db_state_key_persistentStateDescriptionShards>(desc.masterchain_id.seqno());
+    auto R2 = kv_->get(key.as_slice(), value);
+    R2.ensure();
+    if (R2.ok() == td::KeyValue::GetStatus::NotFound) {
+      continue;
+    }
+    auto F2 = fetch_tl_object<ton_api::db_state_persistentStateDescriptionShards>(value, true);
+    F2.ensure();
+    for (const auto& block_id : F2.ok()->shard_blocks_) {
+      desc.shard_blocks.push_back(create_block_id(block_id));
+    }
+    result.push_back(td::Ref<PersistentStateDescription>(true, std::move(desc)));
+  }
+  promise.set_result(std::move(result));
+}
+
 void StateDb::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   {
     auto key = create_hash_tl_object<ton_api::db_state_key_asyncSerializer>();

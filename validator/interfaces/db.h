@@ -119,6 +119,11 @@ class Db : public td::actor::Actor {
                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void set_async_mode(bool mode, td::Promise<td::Unit> promise) = 0;
 
+  virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc,
+                                                td::Promise<td::Unit> promise) = 0;
+  virtual void get_persistent_state_descriptions(
+      td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) = 0;
+
   virtual void run_gc(UnixTime ts, UnixTime archive_ttl) = 0;
 };
 
