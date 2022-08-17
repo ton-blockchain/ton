@@ -574,9 +574,10 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
     });
-    auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this),
-                                                      td::Timestamp::in(10.0), std::move(P))
-                  .release();
+    auto id =
+        td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this), td::Timestamp::in(10.0),
+                                                std::move(P), get_block_persistent_state(handle->id()))
+            .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());
   }
@@ -1013,7 +1014,7 @@ void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
         });
         auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, X.second, actor_id(this), X.first,
-                                                          std::move(P))
+                                                          std::move(P), get_block_persistent_state(handle->id()))
                       .release();
         it->second.actor_ = id;
         return;
@@ -1568,8 +1569,17 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::read_gc_list, R.move_as_ok());
     }
   });
-
   td::actor::send_closure(db_, &Db::get_destroyed_validator_sessions, std::move(P));
+
+  auto Q = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this)](td::Result<std::vector<td::Ref<PersistentStateDescription>>> R) {
+        if (R.is_error()) {
+          LOG(FATAL) << "db error: " << R.move_as_error();
+        } else {
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::got_persistent_state_descriptions, R.move_as_ok());
+        }
+      });
+  td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
 }
 
 void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
@@ -2704,6 +2714,53 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
     td::actor::send_closure(serializer_, &AsyncStateSerializer::update_options, opts);
   }
   opts_ = std::move(opts);
+}
+
+void ValidatorManagerImpl::add_persistent_state_description(td::Ref<PersistentStateDescription> desc) {
+  auto now = (UnixTime)td::Clocks::system();
+  if (desc->end_time <= now) {
+    return;
+  }
+  td::actor::send_closure(db_, &Db::add_persistent_state_description, desc, [](td::Result<td::Unit>) {});
+  auto it = persistent_state_descriptions_.begin();
+  while (it != persistent_state_descriptions_.end()) {
+    const auto &prev_desc = it->second;
+    if (prev_desc->end_time <= now) {
+      for (const BlockIdExt &block_id : prev_desc->shard_blocks) {
+        persistent_state_blocks_.erase(block_id);
+      }
+      it = persistent_state_descriptions_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  add_persistent_state_description_impl(std::move(desc));
+}
+
+void ValidatorManagerImpl::add_persistent_state_description_impl(td::Ref<PersistentStateDescription> desc) {
+  if (!persistent_state_descriptions_.emplace(desc->masterchain_id.seqno(), desc).second) {
+    return;
+  }
+  LOG(DEBUG) << "Add persistent state description for mc block " << desc->masterchain_id.to_str()
+             << " start_time=" << desc->start_time << " end_time=" << desc->end_time;
+  for (const BlockIdExt &block_id : desc->shard_blocks) {
+    persistent_state_blocks_[block_id] = desc;
+    LOG(DEBUG) << "Persistent state description: shard block " << block_id.to_str();
+  }
+}
+
+void ValidatorManagerImpl::got_persistent_state_descriptions(std::vector<td::Ref<PersistentStateDescription>> descs) {
+  for (auto &desc : descs) {
+    add_persistent_state_description_impl(std::move(desc));
+  }
+}
+
+td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_state(BlockIdExt block_id) {
+  auto it = persistent_state_blocks_.find(block_id);
+  if (it == persistent_state_blocks_.end()) {
+    return {};
+  }
+  return it->second;
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

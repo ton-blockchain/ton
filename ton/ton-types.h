@@ -484,4 +484,14 @@ struct ValidatorSessionConfig {
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
 };
 
+struct PersistentStateDescription : public td::CntObject {
+  BlockIdExt masterchain_id;
+  std::vector<BlockIdExt> shard_blocks;
+  UnixTime start_time, end_time;
+
+  virtual CntObject* make_copy() const {
+    return new PersistentStateDescription(*this);
+  }
+};
+
 }  // namespace ton

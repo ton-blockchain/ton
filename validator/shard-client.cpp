@@ -202,7 +202,7 @@ void ShardClient::apply_all_shards() {
         }
       });
       td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, shard->top_block_id(),
-                              shard_client_priority(), td::Timestamp::in(600), std::move(Q));
+                              shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
     }
   }
 }
@@ -255,11 +255,9 @@ void ShardClient::build_shard_overlays() {
     auto shard = info->shard();
     workchains.insert(shard.workchain);
     bool will_split = shard.pfx_len() < max_shard_pfx_len &&
-                      ((info->fsm_state() == McShardHash::FsmState::fsm_split && info->fsm_utime() < cur_time + 60) ||
-                       info->before_split());
-    bool will_merge = shard.pfx_len() > 0 &&
-                      ((info->fsm_state() == McShardHash::FsmState::fsm_merge && info->fsm_utime() < cur_time + 60) ||
-                       info->before_merge());
+                      (info->fsm_state() == McShardHash::FsmState::fsm_split || info->before_split());
+    bool will_merge =
+        shard.pfx_len() > 0 && (info->fsm_state() == McShardHash::FsmState::fsm_merge || info->before_merge());
     if (opts_->need_monitor(shard) || (will_merge && opts_->need_monitor(shard_parent(shard)))) {
       new_shards_to_monitor.insert(shard);
     }

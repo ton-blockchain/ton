@@ -18,7 +18,6 @@
 */
 #include "state-serializer.hpp"
 #include "td/utils/Random.h"
-#include "adnl/utils.hpp"
 #include "ton/ton-io.hpp"
 #include "common/delay.h"
 
@@ -122,6 +121,21 @@ void AsyncStateSerializer::next_iteration() {
   CHECK(masterchain_handle_->id() == last_block_id_);
   if (attempt_ < max_attempt() && last_key_block_id_.id.seqno < last_block_id_.id.seqno &&
       need_serialize(masterchain_handle_)) {
+    if (!stored_persistent_state_description_) {
+      LOG(INFO) << "storing persistent state description for " << masterchain_handle_->id().id;
+      running_ = true;
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &AsyncStateSerializer::fail_handler,
+                                  R.move_as_error_prefix("failed to get masterchain state: "));
+        } else {
+          td::actor::send_closure(SelfId, &AsyncStateSerializer::store_persistent_state_description,
+                                  td::Ref<MasterchainState>(R.move_as_ok()));
+        }
+      });
+      td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, masterchain_handle_, std::move(P));
+      return;
+    }
     if (!cell_db_reader_) {
       running_ = true;
       auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::shared_ptr<vm::CellDbReader>> R) {
@@ -175,6 +189,7 @@ void AsyncStateSerializer::next_iteration() {
   if (masterchain_handle_->inited_next_left()) {
     last_block_id_ = masterchain_handle_->one_next(true);
     have_masterchain_state_ = false;
+    stored_persistent_state_description_ = false;
     masterchain_handle_ = nullptr;
     saved_to_db_ = false;
     shards_.clear();
@@ -187,6 +202,24 @@ void AsyncStateSerializer::got_top_masterchain_handle(BlockIdExt block_id) {
   if (masterchain_handle_ && masterchain_handle_->id().id.seqno < block_id.id.seqno) {
     CHECK(masterchain_handle_->inited_next_left());
   }
+}
+
+void AsyncStateSerializer::store_persistent_state_description(td::Ref<MasterchainState> state) {
+  stored_persistent_state_description_ = true;
+  attempt_ = 0;
+  running_ = false;
+
+  PersistentStateDescription desc;
+  desc.masterchain_id = state->get_block_id();
+  desc.start_time = state->get_unix_time();
+  desc.end_time = ValidatorManager::persistent_state_ttl(desc.start_time);
+  for (const auto &v : state->get_shards()) {
+    desc.shard_blocks.push_back(v->top_block_id());
+  }
+  td::actor::send_closure(manager_, &ValidatorManager::add_persistent_state_description,
+                          td::Ref<PersistentStateDescription>(true, std::move(desc)));
+
+  next_iteration();
 }
 
 void AsyncStateSerializer::got_cell_db_reader(std::shared_ptr<vm::CellDbReader> cell_db_reader) {

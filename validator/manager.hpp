@@ -555,6 +555,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     last = std::max(last, block_id.seqno());
   }
 
+  void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override;
+
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
@@ -621,8 +623,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void cleanup_last_validated_blocks(BlockId new_block);
 
- private:
+  void got_persistent_state_descriptions(std::vector<td::Ref<PersistentStateDescription>> descs);
+  void add_persistent_state_description_impl(td::Ref<PersistentStateDescription> desc);
+  td::Ref<PersistentStateDescription> get_block_persistent_state(BlockIdExt block_id);
 
+ private:
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollatorNode>> collator_nodes_;
@@ -630,6 +635,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::set<ShardIdFull> shards_to_monitor_ = {ShardIdFull(masterchainId)};
   std::set<ShardIdFull> extra_active_shards_;
   std::map<ShardIdFull, BlockSeqno> last_validated_blocks_;
+
+  std::map<BlockSeqno, td::Ref<PersistentStateDescription>> persistent_state_descriptions_;
+  std::map<BlockIdExt, td::Ref<PersistentStateDescription>> persistent_state_blocks_;
 };
 
 }  // namespace validator
