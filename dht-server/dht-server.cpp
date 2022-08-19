@@ -38,9 +38,6 @@
 #include "td/utils/TsFileLog.h"
 #include "td/utils/Random.h"
 
-#include "ton/ton-tl.hpp"
-#include "tl/tl_json.h"
-
 #include "memprof/memprof.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -57,7 +54,7 @@ Config::Config() {
   out_port = 3278;
 }
 
-Config::Config(const ton::ton_api::engine_validator_configV2 &config) {
+Config::Config(const ton::ton_api::engine_validator_config &config) {
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
     out_port = 3278;
@@ -124,7 +121,7 @@ Config::Config(const ton::ton_api::engine_validator_configV2 &config) {
   }
 }
 
-ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
+ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
     if (x.second.proxy) {
@@ -150,6 +147,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
   }
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator>> val_vec;
+  std::vector<ton::tl_object_ptr<ton::ton_api::engine_collator>> col_vec;
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;
@@ -165,15 +163,16 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
     control_vec.push_back(ton::create_tl_object<ton::ton_api::engine_controlInterface>(x.second.key.tl(), x.first,
                                                                                        std::move(control_proc_vec)));
   }
+  std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_shardId>> shard_vec;
 
   auto gc_vec = ton::create_tl_object<ton::ton_api::engine_gc>(std::vector<td::Bits256>{});
   for (auto &id : gc) {
     gc_vec->ids_.push_back(id.tl());
   }
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
+      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
       ton::PublicKeyHash::zero().tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec),
-      std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
+      std::move(liteserver_vec), std::move(control_vec), std::move(shard_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -600,14 +599,14 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
   }
   auto conf_json = conf_json_R.move_as_ok();
 
-  ton::tl_object_ptr<ton::ton_api::engine_validator_Config> conf;
-  auto S = td::from_json(conf, std::move(conf_json));
+  ton::ton_api::engine_validator_config conf;
+  auto S = ton::ton_api::from_json(conf, conf_json.get_object());
   if (S.is_error()) {
     promise.set_error(S.move_as_error_prefix("json does not fit TL scheme"));
     return;
   }
 
-  config_ = Config{*ton::unpack_engine_validator_config(std::move(conf))};
+  config_ = Config{conf};
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();

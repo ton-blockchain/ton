@@ -75,7 +75,7 @@ Config::Config() {
   full_node = ton::PublicKeyHash::zero();
 }
 
-Config::Config(const ton::ton_api::engine_validator_configV2 &config) {
+Config::Config(const ton::ton_api::engine_validator_config &config) {
   full_node = ton::PublicKeyHash::zero();
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
@@ -177,7 +177,7 @@ Config::Config(const ton::ton_api::engine_validator_configV2 &config) {
   }
 }
 
-ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
+ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
     if (x.second.proxy) {
@@ -257,17 +257,10 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_Config> Config::tl() const {
     gc_vec->ids_.push_back(id.tl());
   }
 
-  if (col_vec.empty() && shards_vec.empty()) {
-    return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-        out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
-        full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
-        std::move(control_vec), std::move(gc_vec));
-  } else {
-    return ton::create_tl_object<ton::ton_api::engine_validator_configV2>(
-        out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
-        full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
-        std::move(control_vec), std::move(shards_vec), std::move(gc_vec));
-  }
+  return ton::create_tl_object<ton::ton_api::engine_validator_config>(
+      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
+      full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
+      std::move(control_vec), std::move(shards_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -1662,14 +1655,14 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
   }
   auto conf_json = conf_json_R.move_as_ok();
 
-  ton::tl_object_ptr<ton::ton_api::engine_validator_Config> conf;
-  auto S = td::from_json(conf, std::move(conf_json));
+  ton::ton_api::engine_validator_config conf;
+  auto S = ton::ton_api::from_json(conf, conf_json.get_object());
   if (S.is_error()) {
     promise.set_error(S.move_as_error_prefix("json does not fit TL scheme"));
     return;
   }
 
-  config_ = Config{*ton::unpack_engine_validator_config(std::move(conf))};
+  config_ = Config{conf};
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();

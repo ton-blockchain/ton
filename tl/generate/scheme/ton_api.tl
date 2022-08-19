@@ -578,8 +578,8 @@ validator.config.global zero_state:tonNode.blockIdExt init_block:tonNode.blockId
 config.global adnl:adnl.config.global dht:dht.config.global validator:validator.config.global = config.Global;
 
 liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
-liteserver.descV2 id:PublicKey ip:int port:int shards:(vector tonNode.shardId) = liteserver.Desc;
-liteclient.config.global liteservers:(vector liteserver.Desc) validator:validator.config.global = liteclient.config.Global;
+liteserver.descV2 id:PublicKey ip:int port:int shards:(vector tonNode.shardId) = liteserver.DescV2;
+liteclient.config.global liteservers:(vector liteserver.desc) liteservers_v2:(vector liteserver.descV2) validator:validator.config.global = liteclient.config.Global;
 
 engine.adnl id:int256 category:int = engine.Adnl;
 engine.addr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.Addr;
@@ -598,14 +598,8 @@ engine.gc ids:(vector int256) = engine.Gc;
 engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
-engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
-        dht:(vector engine.dht)
-        validators:(vector engine.Validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
-        fullnodemasters:(vector engine.validator.fullNodeMaster)
-        liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
-        gc:engine.gc = engine.validator.Config;
 
-engine.validator.configV2 out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
+engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector engine.collator)
         fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)

@@ -124,7 +124,7 @@ void TestNode::run() {
   auto gc_j = td::json_decode(G.as_slice()).move_as_ok();
   ton::ton_api::liteclient_config_global gc;
   ton::ton_api::from_json(gc, gc_j.get_object()).ensure();
-  CHECK(gc.liteservers_.size() > 0);
+  CHECK(gc.liteservers_.size() + gc.liteservers_v2_.size() > 0);
 
   if (gc.validator_ && gc.validator_->zero_state_) {
     zstate_id_.workchain = gc.validator_->zero_state_->workchain_;
@@ -137,21 +137,19 @@ void TestNode::run() {
 
   for (auto& server : gc.liteservers_) {
     LiteServer s;
-    ton::ton_api::downcast_call(*server,
-                                td::overloaded(
-                                    [&](ton::ton_api::liteserver_desc& obj) {
-                                      s.addr.init_host_port(td::IPAddress::ipv4_to_str(obj.ip_), obj.port_).ensure();
-                                      s.public_key = ton::PublicKey{obj.id_};
-                                    },
-                                    [&](ton::ton_api::liteserver_descV2& obj) {
-                                      s.addr.init_host_port(td::IPAddress::ipv4_to_str(obj.ip_), obj.port_).ensure();
-                                      s.public_key = ton::PublicKey{obj.id_};
-                                      s.is_full = false;
-                                      for (const auto& shard : obj.shards_) {
-                                        s.shards.emplace_back(shard->workchain_, shard->shard_);
-                                        CHECK(s.shards.back().is_valid_ext());
-                                      }
-                                    }));
+    s.addr.init_host_port(td::IPAddress::ipv4_to_str(server->ip_), server->port_).ensure();
+    s.public_key = ton::PublicKey{server->id_};
+    servers_.push_back(std::move(s));
+  }
+  for (auto& server : gc.liteservers_v2_) {
+    LiteServer s;
+    s.addr.init_host_port(td::IPAddress::ipv4_to_str(server->ip_), server->port_).ensure();
+    s.public_key = ton::PublicKey{server->id_};
+    s.is_full = false;
+    for (const auto& shard : server->shards_) {
+      s.shards.emplace_back(shard->workchain_, shard->shard_);
+      CHECK(s.shards.back().is_valid_ext());
+    }
     servers_.push_back(std::move(s));
   }
 

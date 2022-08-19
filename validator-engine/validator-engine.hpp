@@ -137,10 +137,10 @@ struct Config {
   td::Result<bool> config_del_control_process(td::int32 port, ton::PublicKeyHash id);
   td::Result<bool> config_del_gc(ton::PublicKeyHash key);
 
-  ton::tl_object_ptr<ton::ton_api::engine_validator_Config> tl() const;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_config> tl() const;
 
   Config();
-  Config(const ton::ton_api::engine_validator_configV2 &config);
+  Config(const ton::ton_api::engine_validator_config &config);
 };
 
 class ValidatorEngine : public td::actor::Actor {
