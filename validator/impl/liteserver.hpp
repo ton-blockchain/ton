@@ -152,6 +152,7 @@ class LiteQuery : public td::actor::Actor {
   void finish_loadPrevKeyBlock(ton::BlockIdExt blkid, td::Result<Ref<BlockData>> res,
                                td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>> promise);
 
+  void get_block_handle_checked(BlockIdExt blkid, td::Promise<ConstBlockHandle> promise);
   bool request_block_data(BlockIdExt blkid);
   bool request_block_state(BlockIdExt blkid);
   bool request_block_data_state(BlockIdExt blkid);
