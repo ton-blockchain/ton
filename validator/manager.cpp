@@ -214,6 +214,10 @@ void ValidatorManagerImpl::prevalidate_block(BlockBroadcast broadcast, td::Promi
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
     return;
   }
+  if (!shards_to_monitor_.count(broadcast.block_id.shard_full())) {
+    promise.set_error(td::Status::Error("not monitoring shard"));
+    return;
+  }
   td::actor::create_actor<ValidateBroadcast>("broadcast", std::move(broadcast), last_masterchain_block_handle_,
                                              last_masterchain_state_, last_known_key_block_handle_, actor_id(this),
                                              td::Timestamp::in(2.0), std::move(promise))
@@ -575,8 +579,9 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
     });
     auto id =
-        td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this), td::Timestamp::in(10.0),
-                                                std::move(P), get_block_persistent_state(handle->id()))
+        td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this),
+                                                td::Timestamp::at(timeout.at() + 10.0), std::move(P),
+                                                get_block_persistent_state(handle->id()))
             .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());
@@ -614,7 +619,8 @@ void ValidatorManagerImpl::wait_out_msg_queue_proof(BlockIdExt block_id, ShardId
         });
     auto id = td::actor::create_actor<WaitOutMsgQueueProof>("waitmsgqueue", block_id, dst_shard,
                                                             shards_to_monitor_.count(block_id.shard_full()), priority,
-                                                            actor_id(this), td::Timestamp::in(10.0), std::move(P))
+                                                            actor_id(this), td::Timestamp::at(timeout.at() + 10.0),
+                                                            std::move(P))
                   .release();
     wait_out_msg_queue_proof_[key].actor_ = id;
     it = wait_out_msg_queue_proof_.find(key);
@@ -636,7 +642,7 @@ void ValidatorManagerImpl::wait_block_data(BlockHandle handle, td::uint32 priori
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_data, handle, std::move(R));
     });
     auto id = td::actor::create_actor<WaitBlockData>("waitdata", handle, priority, actor_id(this),
-                                                     td::Timestamp::in(10.0), std::move(P))
+                                                     td::Timestamp::at(timeout.at() + 10.0), std::move(P))
                   .release();
     wait_block_data_[handle->id()].actor_ = id;
     it = wait_block_data_.find(handle->id());
