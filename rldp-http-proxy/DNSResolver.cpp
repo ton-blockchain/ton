@@ -52,7 +52,8 @@ void DNSResolver::resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdSho
     }
   }
 
-  auto obj = tonlib_api::make_object<tonlib_api::dns_resolve>(nullptr, host, 0, 16);
+  td::Bits256 category = td::sha256_bits256(td::Slice("site", 4));
+  auto obj = tonlib_api::make_object<tonlib_api::dns_resolve>(nullptr, host, category, 16);
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = std::move(promise), host = std::move(host)](
                                           td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
     if (R.is_error()) {
