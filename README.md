@@ -1,3 +1,16 @@
+[![Telegram Group][telegram-badge]][telegram-url]
+[![Twitter Group][twitter-badge]][twitter-url]
+[![Stack Overflow Group][stack-overflow-badge]][stack-overflow-url]
+
+[telegram-badge]: https://img.shields.io/badge/-TON%20Community-2CA5E0?style=flat&logo=telegram&logoColor=white
+[telegram-url]: https://t.me/toncoin
+[twitter-badge]: https://img.shields.io/twitter/follow/ton_blockchain
+[twitter-url]: https://twitter.com/ton_blockchain
+[stack-overflow-badge]: https://img.shields.io/badge/-Stack%20Overflow-FE7A16?style=flat&logo=stack-overflow&logoColor=white
+[stack-overflow-url]: https://stackoverflow.com/questions/tagged/ton
+
+
+
 # TON
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
