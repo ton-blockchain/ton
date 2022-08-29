@@ -2326,7 +2326,12 @@ td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_t
   if (!trans->compute_phase->accepted) {
     if (external) {
       // inbound external message was not accepted
-        return td::Status::Error(-701,"inbound external message rejected by transaction "s + acc->addr.to_hex());
+      auto const& cp = *trans->compute_phase;
+      return td::Status::Error(
+          -701,
+          PSLICE() << "inbound external message rejected by transaction " << acc->addr.to_hex() << ":\n" <<
+              "exitcode=" << cp.exit_code << ", steps=" << cp.vm_steps << ", gas_used=" << cp.gas_used <<
+              (cp.vm_log.empty() ? "" : "\nVM Log (truncated):\n..." + cp.vm_log));
       } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
         return td::Status::Error(-669,"new ordinary transaction for smart contract "s + acc->addr.to_hex() +
                   " has not been accepted by the smart contract (?)");
@@ -3026,9 +3031,9 @@ void Collator::register_new_msgs(block::Transaction& trans) {
 }
 
 /*
- * 
+ *
  *  Generate (parts of) new state and block
- * 
+ *
  */
 
 bool store_ext_blk_ref_to(vm::CellBuilder& cb, const ton::BlockIdExt& id_ext, ton::LogicalTime end_lt) {
@@ -3161,7 +3166,7 @@ bool Collator::create_mc_state_extra() {
                       " contains an invalid configuration in its data, IGNORING CHANGES";
     ignore_cfg_changes = true;
   } else {
-    cfg0 = cfg_dict.lookup_ref(td::BitArray<32>(1 - 1));
+    cfg0 = cfg_dict.lookup_ref(td::BitArray<32>{(long long) 0});
   }
   bool changed_cfg = false;
   if (cfg0.not_null()) {
@@ -4036,9 +4041,9 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved) {
 }
 
 /*
- * 
+ *
  *  Collator register methods
- * 
+ *
  */
 
 td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash) {

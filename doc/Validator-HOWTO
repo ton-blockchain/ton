@@ -195,7 +195,7 @@ You can check whether your stake has been accepted by running get-method "partic
 
 If your stake is only partially accepted (because of <max-factor>) during the elections, or after your stake is unfrozen (this happens some time after the expiration of the term of the validator group to which your validator has been elected), you may want to collect back all or part of your stake, along with whatever share of bonuses is due to your validator. The elector smart contract does not send the stake and bonuses to you (i.e., the controlling smart contract) in a message. Instead, it credits the amount to be returned to you inside a special table, which can be inspected with the aid of get-method "compute_returned_stake" (which expects the address of the controlling smart contract as an argument):
 
-$ lite-client -C ton-lite-client-test1.config.json -rc 'runmethod -1:A4C2C7C05B093D470DE2316DBA089FA0DD775FD9B1EBFC9DC9D04B498D3A2DDA compute_returned_stake 0xaf17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763'
+$ lite-client -C global-config.json -rc 'runmethod -1:A4C2C7C05B093D470DE2316DBA089FA0DD775FD9B1EBFC9DC9D04B498D3A2DDA compute_returned_stake 0xaf17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763'
 arguments:  [ 79196899299028790296381692623119733846152089453039582491866112477478757689187 130944 ]
 result: [ 0 ]
 

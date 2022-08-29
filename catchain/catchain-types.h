@@ -20,6 +20,7 @@
 
 #include "td/utils/int_types.h"
 #include "adnl/adnl-node-id.hpp"
+#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -33,13 +34,6 @@ using CatChainSessionId = td::Bits256;
 struct CatChainNode {
   adnl::AdnlNodeIdShort adnl_id;
   PublicKey pub_key;
-};
-
-struct CatChainOptions {
-  double idle_timeout = 16.0;
-  td::uint32 max_deps = 4;
-
-  bool debug_disable_db = false;
 };
 
 }  // namespace catchain

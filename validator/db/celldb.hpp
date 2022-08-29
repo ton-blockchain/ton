@@ -33,13 +33,25 @@ namespace validator {
 class RootDb;
 
 class CellDb;
+class CellDbAsyncExecutor;
 
-class CellDbIn : public td::actor::Actor {
+class CellDbBase : public td::actor::Actor {
+ public:
+  virtual void start_up();
+ protected:
+  std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> async_executor;
+ private:
+  void execute_sync(std::function<void()> f);
+  friend CellDbAsyncExecutor;
+};
+
+class CellDbIn : public CellDbBase {
  public:
   using KeyHash = td::Bits256;
 
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
+  void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
 
   CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path);
 
@@ -88,7 +100,7 @@ class CellDbIn : public td::actor::Actor {
   KeyHash last_gc_;
 };
 
-class CellDb : public td::actor::Actor {
+class CellDb : public CellDbBase {
  public:
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
@@ -96,6 +108,7 @@ class CellDb : public td::actor::Actor {
     started_ = true;
     boc_->set_loader(std::make_unique<vm::CellLoader>(std::move(snapshot))).ensure();
   }
+  void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
 
   CellDb(td::actor::ActorId<RootDb> root_db, std::string path) : root_db_(root_db), path_(path) {
   }

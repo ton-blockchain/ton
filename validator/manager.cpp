@@ -1045,6 +1045,10 @@ void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardStat
   td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(P));
 }
 
+void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  td::actor::send_closure(db_, &Db::get_cell_db_reader, std::move(promise));
+}
+
 void ValidatorManagerImpl::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                                        td::BufferSlice state, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_persistent_state_file, block_id, masterchain_block_id, std::move(state),
@@ -1722,8 +1726,8 @@ void ValidatorManagerImpl::update_shards() {
   td::uint32 threshold = 9407194;
   bool force_group_id_upgrade = last_masterchain_seqno_ == threshold;
   auto legacy_opts_hash = opts.get_hash();
-  if(last_masterchain_seqno_ >= threshold) { //TODO move to get_consensus_config()
-      opts.proto_version = 1;
+  if (last_masterchain_seqno_ >= threshold) { //TODO move to get_consensus_config()
+    opts.proto_version = std::max<td::uint32>(opts.proto_version, 1);
   }
   auto opts_hash = opts.get_hash();
 

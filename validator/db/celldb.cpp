@@ -28,11 +28,46 @@ namespace ton {
 
 namespace validator {
 
+class CellDbAsyncExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
+ public:
+  explicit CellDbAsyncExecutor(td::actor::ActorId<CellDbBase> cell_db) : cell_db_(std::move(cell_db)) {
+  }
+
+  void execute_async(std::function<void()> f) {
+    class Runner : public td::actor::Actor {
+     public:
+      explicit Runner(std::function<void()> f) : f_(std::move(f)) {}
+      void start_up() {
+        f_();
+        stop();
+      }
+     private:
+      std::function<void()> f_;
+    };
+    td::actor::create_actor<Runner>("executeasync", std::move(f)).release();
+  }
+
+  void execute_sync(std::function<void()> f) {
+    td::actor::send_closure(cell_db_, &CellDbBase::execute_sync, std::move(f));
+  }
+ private:
+  td::actor::ActorId<CellDbBase> cell_db_;
+};
+
+void CellDbBase::start_up() {
+  async_executor = std::make_shared<CellDbAsyncExecutor>(actor_id(this));
+}
+
+void CellDbBase::execute_sync(std::function<void()> f) {
+  f();
+}
+
 CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path)
     : root_db_(root_db), parent_(parent), path_(std::move(path)) {
 }
 
 void CellDbIn::start_up() {
+  CellDbBase::start_up();
   cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_).move_as_ok());
 
   boc_ = vm::DynamicBagOfCellsDb::create();
@@ -52,8 +87,7 @@ void CellDbIn::start_up() {
 }
 
 void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
-  td::PerfWarningTimer{"loadcell", 0.1};
-  promise.set_result(boc_->load_cell(hash.as_slice()));
+  boc_->load_cell_async(hash.as_slice(), async_executor, std::move(promise));
 }
 
 void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
@@ -100,6 +134,10 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
+}
+
+void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  promise.set_result(boc_->get_cell_db_reader());
 }
 
 void CellDbIn::alarm() {
@@ -251,12 +289,15 @@ void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise
   if (!started_) {
     td::actor::send_closure(cell_db_, &CellDbIn::load_cell, hash, std::move(promise));
   } else {
-    auto R = boc_->load_cell(hash.as_slice());
-    if (R.is_error()) {
-      td::actor::send_closure(cell_db_, &CellDbIn::load_cell, hash, std::move(promise));
-    } else {
-      promise.set_result(R.move_as_ok());
-    }
+    auto P = td::PromiseCreator::lambda(
+        [cell_db_in = cell_db_.get(), hash, promise = std::move(promise)](td::Result<td::Ref<vm::DataCell>> R) mutable {
+          if (R.is_error()) {
+            td::actor::send_closure(cell_db_in, &CellDbIn::load_cell, hash, std::move(promise));
+          } else {
+            promise.set_result(R.move_as_ok());
+          }
+    });
+    boc_->load_cell_async(hash.as_slice(), async_executor, std::move(P));
   }
 }
 
@@ -264,7 +305,12 @@ void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise
   td::actor::send_closure(cell_db_, &CellDbIn::store_cell, block_id, std::move(cell), std::move(promise));
 }
 
+void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::get_cell_db_reader, std::move(promise));
+}
+
 void CellDb::start_up() {
+  CellDbBase::start_up();
   boc_ = vm::DynamicBagOfCellsDb::create();
   cell_db_ = td::actor::create_actor<CellDbIn>("celldbin", root_db_, actor_id(this), path_);
 }

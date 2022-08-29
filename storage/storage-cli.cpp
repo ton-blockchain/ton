@@ -95,7 +95,7 @@ class PeerManager : public td::actor::Actor {
       }
     };
     send_closure(overlays_, &ton::overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_.clone(),
-                 std::make_unique<Callback>(), rules);
+                 std::make_unique<Callback>(), rules, "{ \"type\": \"storage\" }");
   }
   void tear_down() override {
     send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_.compute_short_id());

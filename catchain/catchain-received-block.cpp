@@ -33,7 +33,7 @@ void CatChainReceivedBlockImpl::initialize(tl_object_ptr<ton_api::catchain_block
   }
 
   payload_ = std::move(payload);
-  CHECK(payload_.size() > 0);
+  CHECK(!payload_.empty());
 
   prev_ = dynamic_cast<CatChainReceivedBlockImpl *>(chain_->create_block(std::move(block->data_->prev_)));
   CHECK(prev_ != nullptr);
@@ -51,7 +51,7 @@ void CatChainReceivedBlockImpl::initialize(tl_object_ptr<ton_api::catchain_block
     set_ill();
     return;
   }
-  for (auto &X : block_deps_) {
+  for (CatChainReceivedBlockImpl *X : block_deps_) {
     if (X->is_ill()) {
       set_ill();
       return;
@@ -63,17 +63,17 @@ void CatChainReceivedBlockImpl::initialize(tl_object_ptr<ton_api::catchain_block
     if (!prev_->delivered()) {
       pending_deps++;
     } else {
-      update_deps(prev_);
+      update_vt(prev_);
     }
     if (!prev_->delivered()) {
       prev_->add_rev_dep(this);
     }
   }
-  for (auto &X : block_deps_) {
+  for (CatChainReceivedBlockImpl *X : block_deps_) {
     if (!X->delivered()) {
       pending_deps++;
     } else {
-      update_deps(X);
+      update_vt(X);
     }
     if (!X->delivered()) {
       X->add_rev_dep(this);
@@ -121,11 +121,11 @@ void CatChainReceivedBlockImpl::initialize_fork() {
     }
   }
 
-  if (deps_.size() < fork_id_ + 1) {
-    deps_.resize(fork_id_ + 1, 0);
+  if (vt_.size() < fork_id_ + 1) {
+    vt_.resize(fork_id_ + 1, 0);
   }
-  CHECK(deps_[fork_id_] < height_);
-  deps_[fork_id_] = height_;
+  CHECK(vt_[fork_id_] < height_);
+  vt_[fork_id_] = height_;
 }
 
 void CatChainReceivedBlockImpl::pre_deliver(ton_api::catchain_block_data_fork &b) {
@@ -153,7 +153,7 @@ void CatChainReceivedBlockImpl::pre_deliver(ton_api::catchain_block_data_fork &b
     return;
   }
 
-  auto S = chain_->get_source(b.left_->src_);
+  CatChainReceiverSource *S = chain_->get_source(b.left_->src_);
   S->on_found_fork_proof(
       create_serialize_tl_object<ton_api::catchain_block_data_fork>(std::move(b.left_), std::move(b.right_)));
   S->blame(fork_id_, height_);
@@ -173,15 +173,15 @@ void CatChainReceivedBlockImpl::pre_deliver() {
   CHECK(pending_deps_ == 0);
   CHECK(in_db_);
 
-  auto M = chain_->get_source(source_id_);
+  CatChainReceiverSource *M = chain_->get_source(source_id_);
 
-  auto d = prev_ ? &prev_->deps_ : nullptr;
+  std::vector<CatChainBlockHeight> *d = prev_ ? &prev_->vt_ : nullptr;
 
-  for (auto &X : block_deps_) {
-    auto S = chain_->get_source(X->get_source_id());
-    auto &f = S->get_forks();
+  for (CatChainReceivedBlockImpl *X : block_deps_) {
+    CatChainReceiverSource *S = chain_->get_source(X->get_source_id());
+    const std::vector<td::uint32> &f = S->get_forks();
     if (d) {
-      auto &dd = *d;
+      const std::vector<CatChainBlockHeight> &dd = *d;
       if (X->get_fork_id() < dd.size() && X->get_height() <= dd[X->get_fork_id()]) {
         VLOG(CATCHAIN_WARNING) << this << ": has direct dep from source " << X->get_source_id() << " and prev block "
                                << " has newer indirect dep";
@@ -190,8 +190,8 @@ void CatChainReceivedBlockImpl::pre_deliver() {
       }
     }
     if (S->blamed() && d) {
-      auto &dd = *d;
-      for (auto x : f) {
+      const std::vector<CatChainBlockHeight> &dd = *d;
+      for (td::uint32 x : f) {
         if (x != X->get_fork_id() && dd.size() > x && dd[x] > 0) {
           VLOG(CATCHAIN_WARNING) << this << ": has direct dep from source " << X->get_source_id() << " and prev block "
                                  << " has indirect dep to another fork of this source " << x << " " << X->get_fork_id()
@@ -201,7 +201,7 @@ void CatChainReceivedBlockImpl::pre_deliver() {
           return;
         }
       }
-      auto v = S->get_blamed_heights();
+      std::vector<CatChainBlockHeight> v = S->get_blamed_heights();
 
       for (size_t i = 0; i < v.size() && i < dd.size(); i++) {
         if (v[i] > 0 && dd[i] >= v[i]) {
@@ -220,7 +220,7 @@ void CatChainReceivedBlockImpl::pre_deliver() {
   if (X.is_error()) {
     is_custom_ = true;
   } else {
-    ton_api::downcast_call(*X.move_as_ok().get(), [Self = this](auto &obj) { Self->pre_deliver(obj); });
+    ton_api::downcast_call(*X.move_as_ok(), [Self = this](auto &obj) { Self->pre_deliver(obj); });
   }
 }
 
@@ -237,7 +237,7 @@ void CatChainReceivedBlockImpl::deliver() {
   state_ = bs_delivered;
   VLOG(CATCHAIN_DEBUG) << this << ": delivered";
 
-  for (auto &B : rev_deps_) {
+  for (CatChainReceivedBlockImpl *B : rev_deps_) {
     B->dep_delivered(this);
   }
   rev_deps_.clear();
@@ -250,10 +250,10 @@ void CatChainReceivedBlockImpl::set_ill() {
     return;
   }
   VLOG(CATCHAIN_WARNING) << this << ": got ill";
-  auto M = chain_->get_source(source_id_);
+  CatChainReceiverSource *M = chain_->get_source(source_id_);
   M->blame();
   state_ = bs_ill;
-  for (auto &B : rev_deps_) {
+  for (CatChainReceivedBlockImpl *B : rev_deps_) {
     B->dep_ill(this);
   }
 }
@@ -262,14 +262,14 @@ void CatChainReceivedBlockImpl::dep_ill(CatChainReceivedBlockImpl *block) {
   set_ill();
 }
 
-void CatChainReceivedBlockImpl::update_deps(CatChainReceivedBlockImpl *block) {
-  auto &d = block->deps_;
-  if (d.size() > deps_.size()) {
-    deps_.resize(d.size(), 0);
+void CatChainReceivedBlockImpl::update_vt(CatChainReceivedBlockImpl *block) {
+  const std::vector<CatChainBlockHeight> &d = block->vt_;
+  if (d.size() > vt_.size()) {
+    vt_.resize(d.size(), 0);
   }
   for (size_t i = 0; i < d.size(); i++) {
-    if (deps_[i] < d[i]) {
-      deps_[i] = d[i];
+    if (vt_[i] < d[i]) {
+      vt_[i] = d[i];
     }
   }
 }
@@ -279,7 +279,7 @@ void CatChainReceivedBlockImpl::dep_delivered(CatChainReceivedBlockImpl *block) 
     return;
   }
   CHECK(!block->is_ill());
-  update_deps(block);
+  update_vt(block);
   pending_deps_--;
   if (pending_deps_ == 0 && in_db_) {
     schedule();
@@ -332,35 +332,37 @@ void CatChainReceivedBlockImpl::find_pending_deps(std::vector<CatChainBlockHash>
   if (prev_) {
     prev_->find_pending_deps(vec, max_size);
   }
-  for (auto &X : block_deps_) {
+  for (CatChainReceivedBlockImpl *X : block_deps_) {
     X->find_pending_deps(vec, max_size);
   }
 }
 
-tl_object_ptr<ton_api::catchain_block_id> CatChainReceivedBlock::block_id(CatChainReceiver *chain,
-                                                                          tl_object_ptr<ton_api::catchain_block> &block,
-                                                                          td::Slice payload) {
+tl_object_ptr<ton_api::catchain_block_id> CatChainReceivedBlock::block_id(
+    const CatChainReceiver *chain, const tl_object_ptr<ton_api::catchain_block> &block, const td::Slice &payload) {
+  td::Bits256 hash = data_payload_hash(chain, block->data_, payload);
   return create_tl_object<ton_api::catchain_block_id>(block->incarnation_, chain->get_source_hash(block->src_).tl(),
-                                                      block->height_, sha256_bits256(payload));
+                                                      block->height_, hash);
 }
 tl_object_ptr<ton_api::catchain_block_id> CatChainReceivedBlock::block_id(
-    CatChainReceiver *chain, tl_object_ptr<ton_api::catchain_block_dep> &block) {
+    const CatChainReceiver *chain, const tl_object_ptr<ton_api::catchain_block_dep> &block) {
   return create_tl_object<ton_api::catchain_block_id>(
       chain->get_incarnation(), chain->get_source_hash(block->src_).tl(), block->height_, block->data_hash_);
 }
 
-CatChainBlockHash CatChainReceivedBlock::block_hash(CatChainReceiver *chain,
-                                                    tl_object_ptr<ton_api::catchain_block> &block, td::Slice payload) {
+CatChainBlockHash CatChainReceivedBlock::block_hash(const CatChainReceiver *chain,
+                                                    const tl_object_ptr<ton_api::catchain_block> &block,
+                                                    const td::Slice &payload) {
   return get_tl_object_sha_bits256(block_id(chain, block, payload));
 }
 
-CatChainBlockHash CatChainReceivedBlock::block_hash(CatChainReceiver *chain,
-                                                    tl_object_ptr<ton_api::catchain_block_dep> &block) {
+CatChainBlockHash CatChainReceivedBlock::block_hash(const CatChainReceiver *chain,
+                                                    const tl_object_ptr<ton_api::catchain_block_dep> &block) {
   return get_tl_object_sha_bits256(block_id(chain, block));
 }
 
-td::Status CatChainReceivedBlock::pre_validate_block(CatChainReceiver *chain,
-                                                     tl_object_ptr<ton_api::catchain_block> &block, td::Slice payload) {
+td::Status CatChainReceivedBlock::pre_validate_block(const CatChainReceiver *chain,
+                                                     const tl_object_ptr<ton_api::catchain_block> &block,
+                                                     const td::Slice &payload) {
   CHECK(block->incarnation_ == chain->get_incarnation());
   if (block->height_ <= 0) {
     return td::Status::Error(ErrorCode::protoviolation, std::string("bad height ") + std::to_string(block->height_));
@@ -397,7 +399,7 @@ td::Status CatChainReceivedBlock::pre_validate_block(CatChainReceiver *chain,
 
   std::set<td::uint32> used;
   used.insert(block->src_);
-  for (auto &X : block->data_->deps_) {
+  for (const auto &X : block->data_->deps_) {
     if (used.find(X->src_) != used.end()) {
       return td::Status::Error(ErrorCode::protoviolation, "two deps from same source");
     }
@@ -405,19 +407,19 @@ td::Status CatChainReceivedBlock::pre_validate_block(CatChainReceiver *chain,
   }
 
   TRY_STATUS(chain->validate_block_sync(block->data_->prev_));
-  for (auto &X : block->data_->deps_) {
+  for (const auto &X : block->data_->deps_) {
     TRY_STATUS(chain->validate_block_sync(X));
   }
 
-  if (payload.size() == 0) {
+  if (payload.empty()) {
     return td::Status::Error(ErrorCode::protoviolation, "empty payload");
   }
 
   return td::Status::OK();
 }
 
-td::Status CatChainReceivedBlock::pre_validate_block(CatChainReceiver *chain,
-                                                     tl_object_ptr<ton_api::catchain_block_dep> &block) {
+td::Status CatChainReceivedBlock::pre_validate_block(const CatChainReceiver *chain,
+                                                     const tl_object_ptr<ton_api::catchain_block_dep> &block) {
   if (block->height_ < 0) {
     return td::Status::Error(ErrorCode::protoviolation, std::string("bad height ") + std::to_string(block->height_));
   }
@@ -430,7 +432,7 @@ td::Status CatChainReceivedBlock::pre_validate_block(CatChainReceiver *chain,
       return td::Status::Error(ErrorCode::protoviolation,
                                std::string("bad src (first block) ") + std::to_string(block->src_));
     }
-    if (block->data_hash_ != chain->get_incarnation() || block->signature_.size() != 0) {
+    if (block->data_hash_ != chain->get_incarnation() || !block->signature_.empty()) {
       return td::Status::Error(ErrorCode::protoviolation, std::string("bad first block"));
     }
   }
@@ -443,9 +445,10 @@ tl_object_ptr<ton_api::catchain_block> CatChainReceivedBlockImpl::export_tl() co
   CHECK(height_ > 0);
   std::vector<tl_object_ptr<ton_api::catchain_block_dep>> deps;
 
-  for (auto &B : block_deps_) {
+  for (CatChainReceivedBlockImpl *B : block_deps_) {
     deps.push_back(B->export_tl_dep());
   }
+  CHECK(deps.size() <= chain_->opts().max_deps)
 
   return create_tl_object<ton_api::catchain_block>(
       chain_->get_incarnation(), source_id_, height_,
@@ -454,35 +457,34 @@ tl_object_ptr<ton_api::catchain_block> CatChainReceivedBlockImpl::export_tl() co
 }
 
 tl_object_ptr<ton_api::catchain_block_dep> CatChainReceivedBlockImpl::export_tl_dep() const {
-  return create_tl_object<ton_api::catchain_block_dep>(source_id_, height_, data_hash_,
+  return create_tl_object<ton_api::catchain_block_dep>(source_id_, height_, data_payload_hash_,
                                                        signature_.clone_as_buffer_slice());
 }
 
-CatChainReceivedBlockImpl::CatChainReceivedBlockImpl(td::uint32 source_id, CatChainSessionId hash,
+CatChainReceivedBlockImpl::CatChainReceivedBlockImpl(td::uint32 source_id, const CatChainBlockPayloadHash &hash,
                                                      CatChainReceiver *chain) {
   chain_ = chain;
   state_ = bs_delivered;
   fork_id_ = 0;
   source_id_ = source_id;
-  data_ = nullptr;
-  prev_ = nullptr;
   height_ = 0;
 
-  data_hash_ = hash;
-  hash_ = get_tl_object_sha_bits256(create_tl_object<ton_api::catchain_block_id>(
-      chain->get_incarnation(), chain->get_incarnation(), height_, data_hash_));
+  data_payload_hash_ = hash;
+  block_id_hash_ = get_tl_object_sha_bits256(create_tl_object<ton_api::catchain_block_id>(
+      chain->get_incarnation(), chain->get_incarnation(), height_, data_payload_hash_));
 }
 
 CatChainReceivedBlockImpl::CatChainReceivedBlockImpl(tl_object_ptr<ton_api::catchain_block> block,
                                                      td::SharedSlice payload, CatChainReceiver *chain) {
   chain_ = chain;
-  data_hash_ = sha256_bits256(payload.as_slice());
-  hash_ = get_tl_object_sha_bits256(create_tl_object<ton_api::catchain_block_id>(
-      block->incarnation_, chain->get_source_hash(block->src_).tl(), block->height_, data_hash_));
+  data_payload_hash_ = data_payload_hash(chain, block->data_, payload);
+  block_id_hash_ = get_tl_object_sha_bits256(create_tl_object<ton_api::catchain_block_id>(
+      block->incarnation_, chain->get_source_hash(block->src_).tl(), block->height_, data_payload_hash_));
   height_ = block->height_;
   source_id_ = block->src_;
+  CHECK(height_ <= get_max_block_height(chain->opts(), chain->get_sources_cnt()));
 
-  auto S = chain_->get_source(source_id_);
+  CatChainReceiverSource *S = chain_->get_source(source_id_);
   S->on_new_block(this);
 
   initialize(std::move(block), std::move(payload));
@@ -491,14 +493,14 @@ CatChainReceivedBlockImpl::CatChainReceivedBlockImpl(tl_object_ptr<ton_api::catc
 CatChainReceivedBlockImpl::CatChainReceivedBlockImpl(tl_object_ptr<ton_api::catchain_block_dep> block,
                                                      CatChainReceiver *chain) {
   chain_ = chain;
-  data_hash_ = block->data_hash_;
+  data_payload_hash_ = block->data_hash_;
   source_id_ = block->src_;
   signature_ = td::SharedSlice{block->signature_.as_slice()};
-  hash_ = get_tl_object_sha_bits256(create_tl_object<ton_api::catchain_block_id>(
-      chain_->get_incarnation(), chain_->get_source_hash(source_id_).tl(), block->height_, data_hash_));
+  block_id_hash_ = get_tl_object_sha_bits256(create_tl_object<ton_api::catchain_block_id>(
+      chain_->get_incarnation(), chain_->get_source_hash(source_id_).tl(), block->height_, data_payload_hash_));
   height_ = block->height_;
 
-  auto S = chain_->get_source(source_id_);
+  CatChainReceiverSource *S = chain_->get_source(source_id_);
   S->on_new_block(this);
 }
 
@@ -513,9 +515,24 @@ std::unique_ptr<CatChainReceivedBlock> CatChainReceivedBlock::create(tl_object_p
 }
 
 std::unique_ptr<CatChainReceivedBlock> CatChainReceivedBlock::create_root(td::uint32 source_id,
-                                                                          CatChainSessionId data_hash,
+                                                                          CatChainSessionId session_id,
                                                                           CatChainReceiver *chain) {
-  return std::make_unique<CatChainReceivedBlockImpl>(source_id, data_hash, chain);
+  return std::make_unique<CatChainReceivedBlockImpl>(source_id, session_id, chain);
+}
+
+CatChainBlockPayloadHash CatChainReceivedBlock::data_payload_hash(
+    const CatChainReceiver *chain, const tl_object_ptr<ton_api::catchain_block_data> &data, const td::Slice &payload) {
+  td::Bits256 hash = sha256_bits256(payload);
+  if (chain->opts().block_hash_covers_data) {
+    td::Bits256 data_hash = get_tl_object_sha_bits256(data);
+    char buf[32 * 2];
+    CHECK(hash.as_array().size() == 32 && data_hash.as_array().size() == 32);
+    std::copy(hash.as_array().begin(), hash.as_array().end(), buf);
+    std::copy(data_hash.as_array().begin(), data_hash.as_array().end(), buf + 32);
+    return sha256_bits256(td::Slice(buf, buf + 64));
+  } else {
+    return hash;
+  }
 }
 
 }  // namespace catchain

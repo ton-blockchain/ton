@@ -64,6 +64,13 @@ class CellHashTable {
   size_t size() const {
     return set_.size();
   }
+  InfoT* get_if_exists(td::Slice hash) {
+    auto it = set_.find(hash);
+    if (it != set_.end()) {
+      return &const_cast<InfoT &>(*it);
+    }
+    return nullptr;
+  }
 
  private:
   std::set<InfoT, std::less<>> set_;

@@ -23,6 +23,7 @@
 #include "catchain-receiver-source.h"
 #include "catchain-receiver.h"
 #include "catchain-received-block.h"
+#include <queue>
 
 namespace ton {
 
@@ -82,7 +83,7 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
     if (blamed()) {
       return true;
     }
-    if (!blocks_.size()) {
+    if (blocks_.empty()) {
       return false;
     }
     CHECK(blocks_.rbegin()->second->get_height() >= received_height_);
@@ -93,9 +94,8 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
   }
   CatChainReceivedBlock *get_block(CatChainBlockHeight height) const override;
 
-  td::Status validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) override;
   void on_new_block(CatChainReceivedBlock *block) override;
-  void on_found_fork_proof(td::Slice proof) override;
+  void on_found_fork_proof(const td::Slice &proof) override;
   bool fork_is_found() const override {
     return !fork_proof_.empty();
   }
@@ -103,7 +103,7 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
     if (!fork_proof_.empty()) {
       return fork_proof_.clone_as_buffer_slice();
     } else {
-      return td::BufferSlice();
+      return {};
     }
   }
 

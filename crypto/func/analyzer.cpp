@@ -586,7 +586,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
         // block1 never executed
         op.block0->last().next = std::move(op.next);
         ops = std::move(op.block0);
-        return false;
+        return prune_unreachable(ops);
       } else if (c_var && c_var->always_true()) {
         if (!prune_unreachable(op.block1)) {
           // block1 never returns

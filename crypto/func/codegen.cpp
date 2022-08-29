@@ -277,12 +277,16 @@ bool Op::generate_code_step(Stack& stack) {
   stack.drop_vars_except(var_info);
   stack.opt_show();
   const auto& next_var_info = next->var_info;
+  bool inline_func = stack.mode & Stack::_InlineFunc;
   switch (cl) {
     case _Nop:
     case _Import:
       return true;
     case _Return: {
       stack.enforce_state(left);
+      if (stack.o.retalt_ && (stack.mode & Stack::_NeedRetAlt)) {
+        stack.o << "RETALT";
+      }
       stack.opt_show();
       return false;
     }
@@ -532,9 +536,7 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       }
       if (!next->noreturn() && (block0->noreturn() != block1->noreturn())) {
-        // simple fix of unbalanced returns in if/else branches
-        // (to be replaced with a finer condition working in loop bodies)
-        throw src::ParseError{where, "`if` and `else` branches should both return or both not return"};
+        stack.o.retalt_ = true;
       }
       var_idx_t x = left[0];
       stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
@@ -542,71 +544,57 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
-      if (block1->is_empty()) {
+      if (inline_func && (block0->noreturn() || block1->noreturn())) {
+        bool is0 = block0->noreturn();
+        Op* block_noreturn = is0 ? block0.get() : block1.get();
+        Op* block_other = is0 ? block1.get() : block0.get();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
+        stack.o.indent();
+        Stack stack_copy{stack};
+        block_noreturn->generate_code_all(stack_copy);
+        stack.o.undent();
+        stack.o << "}>ELSE<{";
+        stack.o.indent();
+        block_other->generate_code_all(stack);
+        if (!block_other->noreturn()) {
+          next->generate_code_all(stack);
+        }
+        stack.o.undent();
+        stack.o << "}>";
+        return false;
+      }
+      if (block1->is_empty() || block0->is_empty()) {
+        bool is0 = block1->is_empty();
+        Op* block = is0 ? block0.get() : block1.get();
         // if (left) block0; ...
-        if (block0->noreturn()) {
-          stack.o << "IFJMP:<{";
-          stack.o.indent();
-          Stack stack_copy{stack};
-          block0->generate_code_all(stack_copy);
-          stack.o.undent();
-          stack.o << "}>";
-          return true;
-        }
-        stack.o << "IF:<{";
-        stack.o.indent();
-        Stack stack_copy{stack}, stack_target{stack};
-        stack_target.disable_output();
-        stack_target.drop_vars_except(next->var_info);
-        block0->generate_code_all(stack_copy);
-        stack_copy.drop_vars_except(var_info);
-        stack_copy.opt_show();
-        if (stack_copy == stack) {
-          stack.o.undent();
-          stack.o << "}>";
-          return true;
-        }
-        // stack_copy.drop_vars_except(next->var_info);
-        stack_copy.enforce_state(stack_target.vars());
-        stack_copy.opt_show();
-        if (stack_copy.vars() == stack.vars()) {
-          stack.o.undent();
-          stack.o << "}>";
-          stack.merge_const(stack_copy);
-          return true;
-        }
-        stack.o.undent();
-        stack.o << "}>ELSE<{";
-        stack.o.indent();
-        stack.merge_state(stack_copy);
-        stack.opt_show();
-        stack.o.undent();
-        stack.o << "}>";
-        return true;
-      }
-      if (block0->is_empty()) {
         // if (!left) block1; ...
-        if (block1->noreturn()) {
-          stack.o << "IFNOTJMP:<{";
+        if (block->noreturn()) {
+          stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
           stack.o.indent();
           Stack stack_copy{stack};
-          block1->generate_code_all(stack_copy);
+          stack_copy.mode &= ~Stack::_InlineFunc;
+          stack_copy.mode |= next->noreturn() ? 0 : Stack::_NeedRetAlt;
+          block->generate_code_all(stack_copy);
           stack.o.undent();
           stack.o << "}>";
           return true;
         }
-        stack.o << "IFNOT:<{";
+        stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
         stack.o.indent();
         Stack stack_copy{stack}, stack_target{stack};
         stack_target.disable_output();
         stack_target.drop_vars_except(next->var_info);
-        block1->generate_code_all(stack_copy);
+        stack_copy.mode &= ~Stack::_InlineFunc;
+        block->generate_code_all(stack_copy);
         stack_copy.drop_vars_except(var_info);
         stack_copy.opt_show();
-        if (stack_copy.vars() == stack.vars()) {
+        if ((is0 && stack_copy == stack) || (!is0 && stack_copy.vars() == stack.vars())) {
           stack.o.undent();
           stack.o << "}>";
-          stack.merge_const(stack_copy);
+          if (!is0) {
+            stack.merge_const(stack_copy);
+          }
           return true;
         }
         // stack_copy.drop_vars_except(next->var_info);
@@ -627,33 +615,32 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << "}>";
         return true;
       }
-      if (block0->noreturn()) {
-        stack.o << "IFJMP:<{";
+      if (block0->noreturn() || block1->noreturn()) {
+        bool is0 = block0->noreturn();
+        Op* block_noreturn = is0 ? block0.get() : block1.get();
+        Op* block_other = is0 ? block1.get() : block0.get();
+        stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         stack.o.indent();
         Stack stack_copy{stack};
-        block0->generate_code_all(stack_copy);
+        stack_copy.mode &= ~Stack::_InlineFunc;
+        stack_copy.mode |= (block_other->noreturn() || next->noreturn()) ? 0 : Stack::_NeedRetAlt;
+        block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
         stack.o << "}>";
-        return block1->generate_code_all(stack);
-      }
-      if (block1->noreturn()) {
-        stack.o << "IFNOTJMP:<{";
-        stack.o.indent();
-        Stack stack_copy{stack};
-        block1->generate_code_all(stack_copy);
-        stack.o.undent();
-        stack.o << "}>";
-        return block0->generate_code_all(stack);
+        block_other->generate_code_all(stack);
+        return !block_other->noreturn();
       }
       stack.o << "IF:<{";
       stack.o.indent();
       Stack stack_copy{stack};
+      stack_copy.mode &= ~Stack::_InlineFunc;
       block0->generate_code_all(stack_copy);
       stack_copy.drop_vars_except(next->var_info);
       stack_copy.opt_show();
       stack.o.undent();
       stack.o << "}>ELSE<{";
       stack.o.indent();
+      stack.mode &= ~Stack::_InlineFunc;
       block1->generate_code_all(stack);
       stack.merge_state(stack_copy);
       stack.opt_show();
@@ -669,11 +656,16 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       if (true || !next->is_empty()) {
         stack.o << "REPEAT:<{";
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -693,11 +685,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Again: {
       stack.drop_vars_except(block0->var_info);
       stack.opt_show();
-      if (!next->is_empty()) {
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
+      if (!next->is_empty() || inline_func) {
         stack.o << "AGAIN:<{";
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -717,11 +714,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Until: {
       // stack.drop_vars_except(block0->var_info);
       // stack.opt_show();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       if (true || !next->is_empty()) {
         stack.o << "UNTIL:<{";
         stack.o.indent();
         stack.forget_const();
         auto layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         layout1.push_back(left[0]);
         stack.enforce_state(std::move(layout1));
@@ -749,9 +751,14 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       StackLayout layout1 = stack.vars();
       bool next_empty = false && next->is_empty();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       stack.o << "WHILE:<{";
       stack.o.indent();
       stack.forget_const();
+      stack.mode &= ~Stack::_InlineFunc;
+      stack.mode |= Stack::_NeedRetAlt;
       block0->generate_code_all(stack);
       stack.rearrange_top(x, !next->var_info[x] && !block1->var_info[x]);
       stack.opt_show();
@@ -781,11 +788,12 @@ bool Op::generate_code_step(Stack& stack) {
   }
 }
 
-bool Op::generate_code_all(Stack& stack) {
-  if (generate_code_step(stack) && next) {
-    return next->generate_code_all(stack);
-  } else {
-    return false;
+void Op::generate_code_all(Stack& stack) {
+  int saved_mode = stack.mode;
+  auto cont = generate_code_step(stack);
+  stack.mode = (stack.mode & ~Stack::_ModeSave) | (saved_mode & Stack::_ModeSave);
+  if (cont && next) {
+    next->generate_code_all(stack);
   }
 }
 
@@ -796,6 +804,7 @@ void CodeBlob::generate_code(AsmOpList& out, int mode) {
     stack.push_new_var(x);
   }
   ops->generate_code_all(stack);
+  stack.apply_wrappers();
   if (!(mode & Stack::_DisableOpt)) {
     optimize_code(out);
   }
