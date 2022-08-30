@@ -266,6 +266,8 @@ set(BIGINT_TEST_SOURCE
   PARENT_SCOPE
 )
 
+set(USE_EMSCRIPTEN ${USE_EMSCRIPTEN} PARENT_SCOPE)
+
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -337,16 +339,26 @@ if (TON_USE_ASAN AND NOT WIN32)
 endif()
 
 file(MAKE_DIRECTORY smartcont/auto)
-if (NOT CMAKE_CROSSCOMPILING)
+if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
   set(GENERATE_TLB_CMD tlbc)
-  add_custom_command(
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
-    COMMAND ${TURN_OFF_LSAN}
-    COMMAND ${GENERATE_TLB_CMD} -o block-auto -n block::gen -z block.tlb
-    COMMENT "Generate block tlb source files"
-    OUTPUT ${TLB_BLOCK_AUTO}
-    DEPENDS tlbc block/block.tlb
-  )
+  if (NOT USE_EMSCRIPTEN)
+    add_custom_command(
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
+      COMMAND ${TURN_OFF_LSAN}
+      COMMAND ${GENERATE_TLB_CMD} -o block-auto -n block::gen -z block.tlb
+      COMMENT "Generate block tlb source files"
+      OUTPUT ${TLB_BLOCK_AUTO}
+      DEPENDS tlbc block/block.tlb
+    )
+  else()
+    add_custom_command(
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
+      COMMAND ${TURN_OFF_LSAN}
+      COMMENT "Generate block tlb source files"
+      OUTPUT ${TLB_BLOCK_AUTO}
+      DEPENDS tlbc block/block.tlb
+    )
+  endif()
   add_custom_target(tlb_generate_block DEPENDS ${TLB_BLOCK_AUTO})
   add_dependencies(ton_block tlb_generate_block)
 
