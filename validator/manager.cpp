@@ -2496,6 +2496,10 @@ void ValidatorManagerImpl::prepare_perf_timer_stats(td::Promise<std::vector<Perf
 void ValidatorManagerImpl::add_perf_timer_stat(std::string name, double duration) {
   for (auto &s : perf_timer_stats) {
     if (s.name == name) {
+      double now = td::Time::now();
+      while (!s.stats.empty() && s.stats.front().first < now - 3600.0) {
+        s.stats.pop_front();
+      }
       s.stats.push_back({td::Time::now(), duration});
       return;
     }
