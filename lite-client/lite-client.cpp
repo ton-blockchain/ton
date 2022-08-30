@@ -1812,10 +1812,11 @@ void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress
       if (!dict.check_for_each([this, &out](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
             CHECK(n == 256);
             td::Bits256 x{key};
-            /*if (cs.is_null() || cs->size_ext() != 0x10000) {
+            if (cs.is_null() || cs->size_ext() != 0x10000) {
               out << "category " << x << " : value is not a reference" << std::endl;
               return true;
-            }*/
+            }
+            cs = vm::load_cell_slice_ref(cs->prefetch_ref());
             std::ostringstream os;
             (void)show_dns_record(os, x, cs, true);
             out << "category " << x << " : " << os.str() << std::endl;
