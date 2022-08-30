@@ -630,8 +630,9 @@ engine.validator.overlayStatsNode adnl_id:int256 ip_addr:string bdcst_errors:int
 engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 scope:string nodes:(vector engine.validator.overlayStatsNode) stats:(vector engine.validator.oneStat) = engine.validator.OverlayStats;
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 
-engine.validator.onePerfWarningTimerStat name:string average:double cnt:int = engine.validator.OnePerfWarningTimerStat;
-engine.validator.perfWarningTimerStats stats:(vector engine.validator.OnePerfWarningTimerStat) = engine.validator.PerfWarningTimerStats;
+engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
+engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
+engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByName) = engine.validator.PerfTimerStats;
 
 
 ---functions---
@@ -683,7 +684,7 @@ engine.validator.importCertificate overlay_id:int256 local_id:adnl.id.short sign
 engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash expire_at:int max_size:int = overlay.Certificate;
 engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
-engine.validator.getPerfWarningTimerStats name:string = engine.validator.PerfWarningTimerStats;
+engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
 
 ---types---
 

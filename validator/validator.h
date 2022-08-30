@@ -19,6 +19,7 @@
 #pragma once
 
 #include <vector>
+#include <deque>
 
 #include "td/actor/actor.h"
 
@@ -44,10 +45,9 @@ class DownloadToken {
   virtual ~DownloadToken() = default;
 };
 
-struct PerfWarningTimerStat {
+struct PerfTimerStats {
   std::string name;
-  double average;
-  int cnt;
+  std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
 };
 
 struct ValidatorManagerOptions : public td::CntObject {
@@ -219,8 +219,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
 
-  virtual void prepare_perf_warning_timer_stats(td::Promise<std::vector<PerfWarningTimerStat>> promise) = 0;
-  virtual void add_perf_warning_timer_stat(std::string name, double duration) = 0;
+  virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
+  virtual void add_perf_timer_stat(std::string name, double duration) = 0;
 };
 
 }  // namespace validator

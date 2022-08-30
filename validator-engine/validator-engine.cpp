@@ -66,8 +66,10 @@
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
+#include <limits>
 #include <set>
 #include "git.h"
+
 
 Config::Config() {
   out_port = 3278;
@@ -3277,7 +3279,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getOverla
                           });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfWarningTimerStats &query, td::BufferSlice data,
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
@@ -3291,21 +3293,39 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfWa
   }
 
   auto P = td::PromiseCreator::lambda(
-      [promise = std::move(promise), query = std::move(query)](td::Result<std::vector<ton::validator::PerfWarningTimerStat>> R) mutable {
+      [promise = std::move(promise), query = std::move(query)](td::Result<std::vector<ton::validator::PerfTimerStats>> R) mutable {
+        const std::vector<int> times{60, 300, 3600};
+        double now = td::Time::now();
         if (R.is_error()) {
           promise.set_value(create_control_query_error(R.move_as_error()));
         } else {
           auto r = R.move_as_ok();
-          std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_onePerfWarningTimerStat>> vec;
-          for (auto &s : r) {
-            if (s.name == query.name_ || query.name_.empty()) {
-              vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_onePerfWarningTimerStat>(s.name, s.average, s.cnt));
+          std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_perfTimerStatsByName>> by_name;
+          for (const auto &stats : r) {
+            if (stats.name == query.name_ || query.name_.empty()) {
+              std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_onePerfTimerStat>> by_time;
+              for (const auto &t : times) {
+                double min = std::numeric_limits<double>::lowest();
+                double max = std::numeric_limits<double>::max();
+                double sum = 0;
+                int cnt = 0;
+                for (const auto &[time, duration] : stats.stats) {
+                  if (now - time <= static_cast<double>(t)) {
+                    min = td::min(min, duration);
+                    max = td::max(max, duration);
+                    sum += duration;
+                    ++cnt;
+                  }
+                }
+                by_time.push_back(ton::create_tl_object<ton::ton_api::engine_validator_onePerfTimerStat>(t, min, sum / static_cast<double>(cnt), max));
+              }
+              by_name.push_back(ton::create_tl_object<ton::ton_api::engine_validator_perfTimerStatsByName>(stats.name, std::move(by_time)));
             }
           }
-          promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_perfWarningTimerStats>(std::move(vec)));
+          promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_perfTimerStats>(std::move(by_name)));
         }
       });
-  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_perf_warning_timer_stats, std::move(P));
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_perf_timer_stats, std::move(P));
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,

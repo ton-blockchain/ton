@@ -66,7 +66,7 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , perf_timer_("validateblock", 0.1, [&](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_warning_timer_stat, "validateblock", duration);
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
       }) {
   proc_hash_.zero();
 }

@@ -62,7 +62,7 @@ class ValidateBroadcast : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , perf_timer_("validatebroadcast", 0.1, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_warning_timer_stat, "validatebroadcast", duration);
+          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "validatebroadcast", duration);
         }) {
   }
 

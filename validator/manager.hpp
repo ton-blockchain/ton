@@ -255,7 +255,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockSeqno, std::tuple<BlockHandle, td::Ref<MasterchainState>, std::vector<td::Promise<td::Unit>>>>
       pending_masterchain_states_;
 
-  std::vector<PerfWarningTimerStat> perf_warning_timer_stats;
+  std::vector<PerfTimerStats> perf_timer_stats;
 
   void new_masterchain_block();
   void update_shards();
@@ -528,8 +528,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
 
-  void prepare_perf_warning_timer_stats(td::Promise<std::vector<PerfWarningTimerStat>> promise) override;
-  void add_perf_warning_timer_stat(std::string name, double duration) override;
+  void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) override;
+  void add_perf_timer_stat(std::string name, double duration) override;
 
   void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) override;
 

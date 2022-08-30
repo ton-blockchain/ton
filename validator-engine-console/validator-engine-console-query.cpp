@@ -1005,27 +1005,48 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
-td::Status GetPerfWarningTimerAverageQuery::run() {
+td::Status GetPerfTimerStatsQuery::run() {
   TRY_RESULT_ASSIGN(event_name_, tokenizer_.get_token<std::string>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
-td::Status GetPerfWarningTimerAverageQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfWarningTimerStats>(event_name_);
+td::Status GetPerfTimerStatsQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfTimerStats>(event_name_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
 
-td::Status GetPerfWarningTimerAverageQuery::receive(td::BufferSlice data) {
-  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfWarningTimerStats>(data.as_slice(), true),
+td::Status GetPerfTimerStatsQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfTimerStats>(data.as_slice(), true),
                     "received incorrect answer: ");
-  if (f->stats_.empty()) {
-    td::TerminalIO::out() << "no stats for name \"" << event_name_ << "\"\n";
-  } else {
-    for (auto &v : f->stats_) {
-      td::TerminalIO::out() << v->name_ << ": " << v->average_ << "\n";
+
+  td::TerminalIO::out() << "{";
+  bool gtail = false;
+  for (const auto &v : f->stats_) {
+    if (gtail) {
+      td::TerminalIO::out() << ",";
+    } else {
+      gtail = true;
     }
+
+    td::TerminalIO::out() << "\n '" << v->name_ << "': {";
+    bool tail = false;
+    for (const auto &stat : v->stats_) {
+      if (tail) {
+        td::TerminalIO::out() << ",";
+      } else {
+        tail = true;
+      }
+
+      td::TerminalIO::out() << "\n  " << stat->time_ << ": [";
+      td::TerminalIO::out() << "\n   " << stat->min_ << ",";
+      td::TerminalIO::out() << "\n   " << stat->avg_ << ",";
+      td::TerminalIO::out() << "\n   " << stat->max_;
+      td::TerminalIO::out() << "\n  ]";
+    }
+    td::TerminalIO::out() << "\n }";
   }
+  td::TerminalIO::out() << "\n}\n";
   return td::Status::OK();
 }

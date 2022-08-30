@@ -48,7 +48,7 @@ class ApplyBlock : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , perf_timer_("applyblock", 0.1, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_warning_timer_stat, "applyblock", duration);
+          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "applyblock", duration);
         }) {
   }
 
