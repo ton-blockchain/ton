@@ -91,6 +91,7 @@ void Query::start_up() {
 
 void Query::handle_error(td::Status error) {
   td::TerminalIO::out() << "Failed " << name() << " query: " << error << "\n";
+  td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, false);
   stop();
 }
 
@@ -99,7 +100,7 @@ void Query::receive_wrap(td::BufferSlice R) {
   if (S.is_error()) {
     handle_error(std::move(S));
   } else {
-    td::actor::send_closure(console_, &ValidatorEngineConsole::got_result);
+    td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, true);
     stop();
   }
 }

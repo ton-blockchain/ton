@@ -55,7 +55,7 @@ raw.message source:accountAddress destination:accountAddress value:int64 fwd_fee
 raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
-raw.extMessageInfo body_hash:bytes = raw.ExtMessageInfo;
+raw.extMessageInfo hash:bytes = raw.ExtMessageInfo;
 
 pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
 
@@ -180,6 +180,9 @@ smc.methodIdName name:string = smc.MethodId;
 
 smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
 
+smc.libraryEntry hash:int256 data:bytes = smc.LibraryEntry;
+smc.libraryResult result:(vector smc.libraryEntry) = smc.LibraryResult;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
 
@@ -248,7 +251,8 @@ getBip39Hints prefix:string = Bip39Hints;
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountState account_address:accountAddress = raw.FullAccountState;
 raw.getTransactions private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
-raw.sendMessage body:bytes = raw.ExtMessageInfo;
+raw.sendMessage body:bytes = Ok;
+raw.sendMessageReturnHash body:bytes = raw.ExtMessageInfo;
 raw.createAndSendMessage destination:accountAddress initial_account_state:bytes data:bytes = Ok;
 raw.createQuery destination:accountAddress init_code:bytes init_data:bytes body:bytes = query.Info;
 
@@ -285,6 +289,8 @@ smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
+
+smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
 
 dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 
