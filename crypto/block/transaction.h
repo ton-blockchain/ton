@@ -35,7 +35,10 @@ using td::Ref;
 using LtCellRef = std::pair<ton::LogicalTime, Ref<vm::Cell>>;
 
 struct Account;
+
+namespace transaction {
 struct Transaction;
+}  // namespace transaction
 
 struct CollatorError {
   std::string msg;
@@ -106,6 +109,7 @@ struct ComputePhaseConfig {
   std::unique_ptr<vm::Dictionary> libraries;
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
+  bool ignore_chksig{false};
   bool with_vm_log{false};
   td::uint16 max_vm_data_depth = 512;
   std::unique_ptr<vm::Dictionary> suspended_addresses;
@@ -273,7 +277,7 @@ struct Account {
   bool create_account_block(vm::CellBuilder& cb);  // stores an AccountBlock with all transactions
 
  protected:
-  friend struct Transaction;
+  friend struct transaction::Transaction;
   bool set_split_depth(int split_depth);
   bool check_split_depth(int split_depth) const;
   bool forget_split_depth();
@@ -288,6 +292,7 @@ struct Account {
   bool compute_my_addr(bool force = false);
 };
 
+namespace transaction {
 struct Transaction {
   enum {
     tr_none,
@@ -390,5 +395,6 @@ struct Transaction {
   bool serialize_bounce_phase(vm::CellBuilder& cb);
   bool unpack_msg_state(bool lib_only = false);
 };
+}  // namespace transaction
 
 }  // namespace block

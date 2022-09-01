@@ -19,6 +19,7 @@ set(TONLIB_SOURCE
   tonlib/TonlibClient.cpp
   tonlib/TonlibClientWrapper.cpp
   tonlib/utils.cpp
+  tonlib/Emulator.cpp
 
   tonlib/Client.h
   tonlib/Config.h
@@ -35,6 +36,7 @@ set(TONLIB_SOURCE
   tonlib/TonlibClient.h
   tonlib/TonlibClientWrapper.h
   tonlib/utils.h
+  tonlib/Emulator.h
 
   tonlib/keys/bip39.cpp
   tonlib/keys/DecryptedKey.cpp

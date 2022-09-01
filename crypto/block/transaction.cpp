@@ -513,6 +513,7 @@ td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector
   return StoragePrices::compute_storage_fees(now, pricing, storage_stat, last_paid, is_special, is_masterchain());
 }
 
+namespace transaction {
 Transaction::Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
                          Ref<vm::Cell> _inmsg)
     : trans_type(ttype)
@@ -745,6 +746,7 @@ bool Transaction::prepare_credit_phase() {
   total_fees += std::move(collected);
   return true;
 }
+}  // namespace transaction
 
 bool ComputePhaseConfig::parse_GasLimitsPrices(Ref<vm::Cell> cell, td::RefInt256& freeze_due_limit,
                                                td::RefInt256& delete_due_limit) {
@@ -837,6 +839,7 @@ td::RefInt256 ComputePhaseConfig::compute_gas_price(td::uint64 gas_used) const {
                                     : td::rshift(gas_price256 * (gas_used - flat_gas_limit), 16, 1) + flat_gas_price;
 }
 
+namespace transaction {
 bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg) {
   // Compute gas limits
   if (account.is_special) {
@@ -1064,6 +1067,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.set_max_data_depth(cfg.max_vm_data_depth);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
+  vm.set_chksig_always_succeed(cfg.ignore_chksig);
   // vm.incr_stack_trace(1);    // enable stack dump after each step
 
   LOG(DEBUG) << "starting VM";
@@ -1338,6 +1342,7 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   ap.spec_actions++;
   return 0;
 }
+}  // namespace transaction
 
 // msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
 // ihr_fwd_fees = ceil((msg_fwd_fees * ihr_price_factor)/2^16) nanograms
@@ -1372,6 +1377,7 @@ td::RefInt256 MsgPrices::get_next_part(td::RefInt256 total) const {
   return (std::move(total) * next_frac) >> 16;
 }
 
+namespace transaction {
 bool Transaction::check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const {
   int t = (int)src_addr->prefetch_ulong(2);
   if (!t && src_addr->size_ext() == 2) {
@@ -1978,6 +1984,7 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   bp.ok = true;
   return true;
 }
+}  // namespace transaction
 
 /*
  * 
@@ -2460,6 +2467,7 @@ void Transaction::extract_out_msgs(std::vector<LtCellRef>& list) {
     list.emplace_back(start_lt + i + 1, std::move(out_msgs[i]));
   }
 }
+}  // namespace transaction
 
 void Account::push_transaction(Ref<vm::Cell> trans_root, ton::LogicalTime trans_lt) {
   transactions.emplace_back(trans_lt, std::move(trans_root));
