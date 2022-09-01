@@ -250,6 +250,7 @@ getBip39Hints prefix:string = Bip39Hints;
 
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountState account_address:accountAddress = raw.FullAccountState;
+raw.getAccountStateByTransaction account_address:accountAddress transaction_id:internal.transactionId = raw.FullAccountState;
 raw.getTransactions private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
 raw.sendMessage body:bytes = Ok;
 raw.sendMessageReturnHash body:bytes = raw.ExtMessageInfo;
@@ -270,6 +271,9 @@ guessAccountRevision initial_account_state:InitialAccountState workchain_id:int3
 guessAccount public_key:string rwallet_init_public_key:string = AccountRevisionList;
 
 getAccountState account_address:accountAddress = FullAccountState;
+getAccountStateByTransaction account_address:accountAddress transaction_id:internal.transactionId = FullAccountState;
+getShardAccountCell account_address:accountAddress = tvm.Cell;
+getShardAccountCellByTransaction account_address:accountAddress transaction_id:internal.transactionId = tvm.Cell;
 createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action initial_account_state:InitialAccountState = query.Info;
 
 getConfigParam mode:# id:ton.blockIdExt param:# = ConfigInfo;
@@ -284,6 +288,7 @@ query.estimateFees id:int53 ignore_chksig:Bool = query.Fees;
 query.getInfo id:int53 = query.Info;
 
 smc.load account_address:accountAddress = smc.Info;
+smc.loadByTransaction account_address:accountAddress transaction_id:internal.transactionId = smc.Info;
 //smc.forget id:int53 = Ok;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;

@@ -18,6 +18,7 @@ set(TONLIB_SOURCE
   tonlib/Logging.cpp
   tonlib/TonlibClient.cpp
   tonlib/utils.cpp
+  tonlib/Emulator.cpp
 
   tonlib/Client.h
   tonlib/Config.h
@@ -33,6 +34,7 @@ set(TONLIB_SOURCE
   tonlib/TonlibCallback.h
   tonlib/TonlibClient.h
   tonlib/utils.h
+  tonlib/Emulator.h
 
   tonlib/keys/bip39.cpp
   tonlib/keys/DecryptedKey.cpp
