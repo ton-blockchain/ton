@@ -1347,7 +1347,6 @@ class RunEmulator {
       wallet_id_(wallet_id), promise_(std::move(promise)) {
     client_.set_client(ext_client_ref);
     set_libraries(std::move(libraries));
-    // TODO check
     run();
   }
 
@@ -1485,6 +1484,9 @@ class RunEmulator {
   }
 
   void run() {
+    if (stopped_) {
+      return;
+    }
     get_block_id([self = this](td::Result<FullBlockId>&& block_id) { self->set_block_id(std::move(block_id)); });
   }
 
@@ -1568,7 +1570,7 @@ class RunEmulator {
     }
     RawAccountState raw = account_.value()->raw();
 
-    std::vector<std::pair<td::Ref<vm::Cell>, td::Ref<vm::Cell>>> transactions;
+    std::vector<block::gen::Transaction::Record> transactions;
     for (const auto& transaction : transactions_.value()) {
       if (transaction.value().transaction.not_null()) {
         block::gen::Transaction::Record trans;
@@ -1576,19 +1578,7 @@ class RunEmulator {
           check(td::Status::Error("Failed to unpack Transaction"));
           return;
         }
-        auto is_just = trans.r1.in_msg->prefetch_long(1);
-        if (is_just == trans.r1.in_msg->fetch_long_eof) {
-          check(td::Status::Error("Failed to parse long"));
-          return;
-        }
-        if (is_just == -1) {
-          td::Result<td::Ref<vm::Cell>> msg = trans.r1.in_msg->prefetch_ref();
-          if (msg.is_error()) {
-            check(msg.move_as_error());
-            return;
-          }
-          transactions.emplace_back(msg.move_as_ok(), trans.state_update);
-        }
+        transactions.push_back(std::move(trans));
       }
     }
 
@@ -1606,12 +1596,17 @@ class RunEmulator {
     // td::uint32 gen_utime;
     // ton::BlockIdExt block_id;
 
-    td::Status status = emulator::emulate_transactions(std::move(libraries_.value()), std::move(config_.value()),
-                                                       address, shard_account_cell_slice.move_as_ok(), block_id_.value().id, std::move(block_id_.value().rand_seed),
+    td::Status status = emulator::emulate_transactions(std::move(libraries_.value()), std::move(config_.value()), address,
+                                                       account_.value()->get_sync_time(), shard_account_cell_slice.move_as_ok(), block_id_.value().id, std::move(block_id_.value().rand_seed),
                                                        std::move(transactions), raw.balance, raw.storage_last_paid, raw.storage_stat,
                                                        raw.code, raw.data, raw.state, raw.frozen_hash,
                                                        raw.info.last_trans_lt, raw.info.last_trans_hash, raw.info.gen_utime, raw.block_id);
-    promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), wallet_id_));
+
+    if (status.is_error()) {
+      promise_.set_error(status.move_as_error());
+    } else {
+      promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), wallet_id_));
+    }
   }
 
   void check(td::Status status) {
@@ -4547,13 +4542,6 @@ td::Status TonlibClient::do_request(int_api::GetAccountState request,
 
 td::Status TonlibClient::do_request(int_api::GetAccountStateByTransaction request,
                                     td::Promise<td::unique_ptr<AccountState>>&& promise) {
-  //auto actor_id = actor_id_++;
-  //actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
-      //"GetTransactionHistory", client_.get_client(), request.address, request.lt, request.hash, actor_shared(this, actor_id),
-      //promise.wrap([address = request.address, wallet_id = wallet_id_](auto&& x) mutable {
-        ////std::cout << "GOTTEN" << std::endl;
-        //return td::make_unique<AccountState>(std::move(address), RawAccountState{}, wallet_id);
-      //}));
   auto emulator_id = emulator_id_++;
   emulators_.emplace(std::piecewise_construct, std::forward_as_tuple(emulator_id), std::forward_as_tuple(
       client_.get_client(), this, actors_, actor_id_, request, wallet_id_, vm::Dictionary(libraries),

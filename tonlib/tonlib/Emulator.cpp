@@ -2,6 +2,7 @@
 #include "block/transaction.h"
 #include "vm/cp0.h"
 #include <sstream>
+#include "td/utils/base64.h"
 
 using td::Ref;
 using namespace std::string_literals;
@@ -145,14 +146,13 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> create_ordinary_tra
   return std::move(trans);
 }
 
-td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& config, block::StdAddress address,
+td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& config, block::StdAddress address, ton::UnixTime now,
                                 td::Ref<vm::CellSlice>&& shard_account_cell_slice, ton::BlockIdExt cur_block_id, ton::Bits256&& rand_seed,
-                                std::vector<std::pair<td::Ref<vm::Cell>, td::Ref<vm::Cell>>>&& transactions,
+                                std::vector<block::gen::Transaction::Record>&& transactions,
                                 td::int64& balance, ton::UnixTime& storage_last_paid, vm::CellStorageStat& storage_stat,
                                 td::Ref<vm::Cell>& code, td::Ref<vm::Cell>& data, td::Ref<vm::Cell>& state,
                                 std::string& frozen_hash, ton::LogicalTime& last_trans_lt,
                                 ton::Bits256& last_trans_hash, td::uint32& gen_utime, ton::BlockIdExt& block_id) {
-  ton::UnixTime now = (unsigned)std::time(nullptr);
   auto account = block::Account(address.workchain, address.addr.bits());
   bool is_special = address.workchain == ton::masterchainId && config.is_special_smartcontract(address.addr);
   if (!account.unpack(std::move(shard_account_cell_slice), td::Ref<vm::CellSlice>(), now, is_special)) {
@@ -179,30 +179,45 @@ td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& conf
     vm::init_op_cp0();
 
     ton::LogicalTime lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
-    for (const auto& [msg_root, state_update] : transactions) {
+    std::cout << transactions.size() << std::endl;
+    for (const auto& trans : transactions) {
+      auto is_just = trans.r1.in_msg->prefetch_long(1);
+      if (is_just == trans.r1.in_msg->fetch_long_eof) {
+        return td::Status::Error("Failed to parse long");
+      }
+      if (is_just != -1) {
+        continue;
+      }
+
+      td::Result<td::Ref<vm::Cell>> msg = trans.r1.in_msg->prefetch_ref();
+      if (msg.is_error()) {
+        return msg.move_as_error();
+      }
+
+      auto msg_root = msg.move_as_ok();
       auto cs = vm::load_cell_slice(msg_root);
       bool external = block::gen::t_CommonMsgInfo.get_tag(cs) == block::gen::CommonMsgInfo::ext_in_msg_info;
       compute_phase_cfg.ignore_chksig = external;
 
-      ton::UnixTime utime = (unsigned)std::time(nullptr);
-      auto res = create_ordinary_transaction(msg_root, &account, utime, lt,
+      auto res = create_ordinary_transaction(msg_root, &account, trans.now, lt,
                                              &storage_phase_cfg, &compute_phase_cfg,
                                              &action_phase_cfg,
                                              external, lt);
       if (res.is_error()) {
         return res.move_as_error_prefix("cannot run message on account ");
       }
-      std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
+      std::unique_ptr<block::transaction::Transaction> transaction = res.move_as_ok();
 
-      auto trans_root = trans->commit(account);
+      auto trans_root = transaction->commit(account);
       if (trans_root.is_null()) {
         return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
       }
 
-      block_id = cur_block_id;
-      lt = trans->start_lt;
+      std::cout << td::base64_encode(ton::Bits256(trans_root->get_hash().bits()).as_slice().str()) << std::endl;
+      lt = transaction->start_lt;
     }
 
+    block_id = cur_block_id;
     // TODO check hash
   }
 
@@ -218,7 +233,7 @@ td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& conf
   frozen_hash = (char*)account.state_hash.data();
   last_trans_lt = account.last_trans_lt_;
   last_trans_hash = account.last_trans_hash_;
-  gen_utime = (unsigned)std::time(nullptr);
+  gen_utime = account.now_;
 
   return td::Status::OK();
 }

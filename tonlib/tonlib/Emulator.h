@@ -6,10 +6,9 @@
 #include "block/mc-config.h"
 
 namespace emulator {
-// transactions : std::vector<std::pair<Message Any, ^(HASH_UPDATE Account)>>
-td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& config, block::StdAddress address,
+td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& config, block::StdAddress address, ton::UnixTime now,
                                 td::Ref<vm::CellSlice>&& shard_account_cell_slice, ton::BlockIdExt cur_block_id, ton::Bits256&& rand_seed,
-                                std::vector<std::pair<td::Ref<vm::Cell>, td::Ref<vm::Cell>>>&& transactions,
+                                std::vector<block::gen::Transaction::Record>&& transactions,
                                 td::int64& balance, ton::UnixTime& storage_last_paid, vm::CellStorageStat& storage_stat,
                                 td::Ref<vm::Cell>& code, td::Ref<vm::Cell>& data, td::Ref<vm::Cell>& state,
                                 std::string& frozen_hash, ton::LogicalTime& last_trans_lt,
