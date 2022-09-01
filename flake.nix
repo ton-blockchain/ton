@@ -134,10 +134,15 @@
           let host = hostPkgs system;
           in {
             packages = rec {
+              ton-normal = ton { inherit host; };
               ton-static = ton {
                 inherit host;
                 stdenv = host.makeStatic host.stdenv;
                 staticExternalDeps = true;
+              };
+              ton-staticbin-dylib = host.symlinkJoin {
+                name = "ton";
+                paths = [ ton-static.bin ton-normal.out ];
               };
             };
           })));
