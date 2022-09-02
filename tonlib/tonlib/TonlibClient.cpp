@@ -1464,7 +1464,7 @@ class RunEmulator {
         if (id->account_ != self->request_.address.addr) {
           continue;
         }
-        self->get_transaction(id->lt_, id->hash_, [self, i](auto transaction) { std::cout << "Got " << i << "-th transaction" << std::endl; self->set_transaction(i, std::move(transaction)); });
+        self->get_transaction(id->lt_, id->hash_, [self, i](auto transaction) { self->set_transaction(i, std::move(transaction)); });
         ++i;
         if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
           break;
@@ -1495,8 +1495,8 @@ class RunEmulator {
       check(block_id.move_as_error());
     } else if (!block_id_) {
       block_id_ = block_id.move_as_ok();
-      get_config([self = this](td::Result<block::Config>&& config) { std::cout << "Got config" << std::endl; self->set_config(std::move(config)); });
-      get_account([self = this](td::Result<td::unique_ptr<AccountState>>&& account) { std::cout << "Got account" << std::endl; self->set_account(std::move(account)); });
+      get_config([self = this](td::Result<block::Config>&& config) { self->set_config(std::move(config)); });
+      get_account([self = this](td::Result<td::unique_ptr<AccountState>>&& account) { self->set_account(std::move(account)); });
       td::Status status = get_transactions();
       if (status.is_error()) {
         set_transactions(status.move_as_error());
