@@ -179,7 +179,6 @@ td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& conf
     vm::init_op_cp0();
 
     ton::LogicalTime lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
-    std::cout << transactions.size() << std::endl;
     for (const auto& trans : transactions) {
       auto is_just = trans.r1.in_msg->prefetch_long(1);
       if (is_just == trans.r1.in_msg->fetch_long_eof) {
@@ -198,6 +197,7 @@ td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& conf
       auto cs = vm::load_cell_slice(msg_root);
       bool external = block::gen::t_CommonMsgInfo.get_tag(cs) == block::gen::CommonMsgInfo::ext_in_msg_info;
       compute_phase_cfg.ignore_chksig = external;
+      account.now_ = trans.now;
 
       auto res = create_ordinary_transaction(msg_root, &account, trans.now, lt,
                                              &storage_phase_cfg, &compute_phase_cfg,
@@ -212,8 +212,8 @@ td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& conf
       if (trans_root.is_null()) {
         return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
       }
-
-      std::cout << td::base64_encode(ton::Bits256(trans_root->get_hash().bits()).as_slice().str()) << std::endl;
+      
+      account.now_ = trans.now;
       lt = transaction->start_lt;
     }
 
