@@ -2167,8 +2167,8 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
                                                    << "last transaction time in the state of account " << workchain()
                                                    << ":" << smc_addr.to_hex() << " is too large"));
   }
-  std::unique_ptr<block::Transaction> trans = std::make_unique<block::Transaction>(
-      *acc, mask == 2 ? block::Transaction::tr_tick : block::Transaction::tr_tock, req_start_lt, now_);
+  std::unique_ptr<block::transaction::Transaction> trans = std::make_unique<block::transaction::Transaction>(
+      *acc, mask == 2 ? block::transaction::Transaction::tr_tick : block::transaction::Transaction::tr_tock, req_start_lt, now_);
   if (!trans->prepare_storage_phase(storage_phase_cfg_, true)) {
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot create storage phase of a new transaction for smart contract "} + smc_addr.to_hex()));
@@ -2258,7 +2258,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
     fatal_error(std::move(error));
     return {};
   }
-  std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+  std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
   if (!trans->update_limits(*block_limit_status_)) {
     fatal_error("cannot update block limit status to include the new transaction");
@@ -2277,10 +2277,13 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
 
 // If td::status::error_code == 669 - Fatal Error block can not be produced
 // if td::status::error_code == 701 - Transaction can not be included into block, but it's ok (external or too early internal)
-td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_transaction(
-    Ref<vm::Cell> msg_root, block::Account* acc, UnixTime utime, LogicalTime lt,
-    block::StoragePhaseConfig* storage_phase_cfg, block::ComputePhaseConfig* compute_phase_cfg,
-    block::ActionPhaseConfig* action_phase_cfg, bool external, LogicalTime after_lt) {
+td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
+                                                         block::Account* acc,
+                                                         UnixTime utime, LogicalTime lt,
+                                                         block::StoragePhaseConfig* storage_phase_cfg,
+                                                         block::ComputePhaseConfig* compute_phase_cfg,
+                                                         block::ActionPhaseConfig* action_phase_cfg,
+                                                         bool external, LogicalTime after_lt) {
   if (acc->last_trans_end_lt_ >= lt && acc->transactions.empty()) {
     return td::Status::Error(-669, PSTRING() << "last transaction time in the state of account " << acc->workchain
                                              << ":" << acc->addr.to_hex() << " is too large");
@@ -2291,8 +2294,8 @@ td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_t
     trans_min_lt = std::max(trans_min_lt, after_lt);
   }
 
-  std::unique_ptr<block::Transaction> trans =
-      std::make_unique<block::Transaction>(*acc, block::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
+  std::unique_ptr<block::transaction::Transaction> trans =
+      std::make_unique<block::transaction::Transaction>(*acc, block::transaction::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
   bool ihr_delivered = false;  // FIXME
   if (!trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
     if (external) {
@@ -3041,7 +3044,7 @@ void Collator::register_new_msg(block::NewOutMsg new_msg) {
   new_msgs.push(std::move(new_msg));
 }
 
-void Collator::register_new_msgs(block::Transaction& trans) {
+void Collator::register_new_msgs(block::transaction::Transaction& trans) {
   CHECK(trans.root.not_null());
   for (unsigned i = 0; i < trans.out_msgs.size(); i++) {
     register_new_msg(trans.extract_out_msg_ext(i));

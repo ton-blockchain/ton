@@ -116,7 +116,7 @@ class Collator final : public td::actor::Actor {
                                               td::RefInt256* basechain_create_fee,
                                               WorkchainId wc, UnixTime now);
 
-  static td::Result<std::unique_ptr<block::Transaction>>
+  static td::Result<std::unique_ptr<block::transaction::Transaction>>
                         impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
                                                          block::Account* acc,
                                                          UnixTime utime, LogicalTime lt,
@@ -285,7 +285,7 @@ class Collator final : public td::actor::Actor {
   td::Result<bool> register_shard_signatures_cell(Ref<vm::Cell> shard_blk_signatures);
   td::Result<bool> register_shard_signatures(td::Slice shard_blk_signatures_boc);
   void register_new_msg(block::NewOutMsg msg);
-  void register_new_msgs(block::Transaction& trans);
+  void register_new_msgs(block::transaction::Transaction& trans);
   bool process_new_messages(bool enqueue_only = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();

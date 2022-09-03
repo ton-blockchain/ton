@@ -2040,6 +2040,7 @@ static td::optional<vm::CellStorageStat> try_update_storage_stat(const vm::CellS
   return new_stat;
 }
 
+namespace transaction {
 bool Transaction::compute_state() {
   if (new_total_state.not_null()) {
     return true;
