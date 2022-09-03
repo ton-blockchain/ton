@@ -160,7 +160,7 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
      LOG(DEBUG) << "Cannot run message on account: " << error.message();
      return error.move_as_error_prefix("Cannot run message on account: ");
    }
-   std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
    auto trans_root = trans->commit(*acc);
    if (trans_root.is_null()) {
