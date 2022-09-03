@@ -123,10 +123,6 @@ class TonlibClient : public td::actor::Actor {
   std::map<td::int64, td::actor::ActorOwn<>> actors_;
   td::int64 actor_id_{1};
 
-  // TODO emulator -> actor
-  std::map<td::int64, RunEmulator> emulators_;
-  td::int64 emulator_id_{1};
-
   ExtClientRef get_client_ref();
   void init_ext_client();
   void init_last_block(LastBlockState state);
