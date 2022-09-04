@@ -1,10 +1,9 @@
-name: C/C++ CI Windows Server 2019 x64 Compile
+name: Nightly Windows packages
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'master'
+  schedule:
+    - cron: '0 0 * * *'
 
 defaults:
   run:
@@ -75,8 +74,9 @@ jobs:
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
           copy build\tonlib\Release\tonlibjson.dll artifacts
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@master
-        with:
-          name: ton-win64-binaries
-          path: artifacts
+      - run: |
+          powershell Compress-Archive artifacts ton-x86_64.zip
+          gh release edit nightly-windows-x86_64 --target master
+          gh release upload --clobber nightly-windows-x86_64 ton-x86_64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
