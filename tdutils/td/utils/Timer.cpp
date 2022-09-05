@@ -60,8 +60,8 @@ StringBuilder &operator<<(StringBuilder &string_builder, const Timer &timer) {
   return string_builder << format::as_time(timer.elapsed());
 }
 
-PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::function<void(double)> callback)
-    : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration), callback_(callback) {
+PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::function<void(double)>&& callback)
+    : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration), callback_(std::move(callback)) {
 }
 
 PerfWarningTimer::PerfWarningTimer(PerfWarningTimer &&other)
