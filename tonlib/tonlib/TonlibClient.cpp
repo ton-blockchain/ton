@@ -1657,8 +1657,8 @@ auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid) -> tonli
 class RunEmulator : public td::actor::Actor {
  public:
   RunEmulator(ExtClientRef ext_client_ref, int_api::GetAccountStateByTransaction request,
-      td::uint32 wallet_id, vm::Dictionary&& libraries, td::actor::ActorShared<> parent, td::Promise<td::unique_ptr<AccountState>>&& promise)
-    : request_(std::move(request)), wallet_id_(wallet_id), parent_(std::move(parent)), promise_(std::move(promise)) {
+      vm::Dictionary&& libraries, td::actor::ActorShared<> parent, td::Promise<td::unique_ptr<AccountState>>&& promise)
+    : request_(std::move(request)), parent_(std::move(parent)), promise_(std::move(promise)) {
     client_.set_client(ext_client_ref);
     set_libraries(std::move(libraries));
   }
@@ -1673,7 +1673,6 @@ class RunEmulator : public td::actor::Actor {
 
   ExtClient client_;
   int_api::GetAccountStateByTransaction request_;
-  td::uint32 wallet_id_;
   td::actor::ActorShared<> parent_;
   td::Promise<td::unique_ptr<AccountState>> promise_;
 
@@ -1756,8 +1755,8 @@ class RunEmulator : public td::actor::Actor {
     actors_[actor_id] = td::actor::create_actor<GetRawAccountState>(
       "GetAccountState", client_.get_client(), request_.address, block_id_.value().mc,
       actor_shared(this, actor_id),
-      promise.wrap([address = request_.address, wallet_id = wallet_id_](auto&& state) {
-        return td::make_unique<AccountState>(std::move(address), std::move(state), wallet_id);
+      promise.wrap([address = request_.address](auto&& state) {
+        return td::make_unique<AccountState>(std::move(address), std::move(state), 0);
     }));
   }
 
@@ -1933,7 +1932,7 @@ class RunEmulator : public td::actor::Actor {
     if (status.is_error()) {
       promise_.set_error(status.move_as_error());
     } else {
-      promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), wallet_id_));
+      promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
     }
     stopped_ = true;
     try_stop();
@@ -4996,7 +4995,7 @@ td::Status TonlibClient::do_request(int_api::GetAccountStateByTransaction reques
                                     td::Promise<td::unique_ptr<AccountState>>&& promise) {
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<RunEmulator>(
-      "RunEmulator", client_.get_client(), request, wallet_id_, vm::Dictionary(libraries), actor_shared(this, actor_id),
+      "RunEmulator", client_.get_client(), request, vm::Dictionary(libraries), actor_shared(this, actor_id),
       promise.wrap([](auto&& state) {
         return std::move(state);
       }));
