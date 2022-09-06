@@ -65,7 +65,7 @@ PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::functi
 }
 
 PerfWarningTimer::PerfWarningTimer(PerfWarningTimer &&other)
-    : name_(std::move(other.name_)), start_at_(other.start_at_), max_duration_(other.max_duration_) {
+    : name_(std::move(other.name_)), start_at_(other.start_at_), max_duration_(other.max_duration_), callback_(std::move(other.callback_)) {
   other.start_at_ = 0;
 }
 
