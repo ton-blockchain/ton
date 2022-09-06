@@ -36,8 +36,8 @@ class WaitBlockData : public td::actor::Actor {
       , manager_(manager)
       , timeout_(timeout)
       , promise_(std::move(promise))
-      , perf_timer_("waitdata", 1.0, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "waitdata", duration);
+      , perf_timer_("waitdata", 1.0, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "waitdata", duration);
         }) {
   }
 

@@ -54,8 +54,8 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , send_broadcast_(send_broadcast)
     , manager_(manager)
     , promise_(std::move(promise))
-    , perf_timer_("acceptblock", 0.1, [&](double duration) {
-        send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+    , perf_timer_("acceptblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
       }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
@@ -75,8 +75,8 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
     , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise))
-    , perf_timer_("acceptblock", 0.1, [&](double duration) {
-        send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+    , perf_timer_("acceptblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
       }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
@@ -93,8 +93,8 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
     , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise))
-    , perf_timer_("acceptblock", 0.1, [&](double duration) {
-        send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+    , perf_timer_("acceptblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
       }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();

@@ -33,8 +33,8 @@ class WaitBlockState : public td::actor::Actor {
       , manager_(manager)
       , timeout_(timeout)
       , promise_(std::move(promise))
-      , perf_timer_("waitstate", 1.0, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "waitstate", duration);
+      , perf_timer_("waitstate", 1.0, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "waitstate", duration);
         }) {
   }
 

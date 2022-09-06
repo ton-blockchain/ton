@@ -48,8 +48,8 @@ class CheckProof : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , skip_check_signatures_(skip_check_signatures)
-      , perf_timer_("checkproof", 0.1, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+      , perf_timer_("checkproof", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
         }) {
   }
   CheckProof(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
@@ -62,8 +62,8 @@ class CheckProof : public td::actor::Actor {
       , promise_(std::move(promise))
       , state_(std::move(known_state))
       , skip_check_signatures_(skip_check_signatures)
-      , perf_timer_("checkproof", 0.1, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+      , perf_timer_("checkproof", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
         }) {
   }
   CheckProof(BlockIdExt id, td::Ref<ProofLink> proof_link, td::actor::ActorId<ValidatorManager> manager,
@@ -74,8 +74,8 @@ class CheckProof : public td::actor::Actor {
       , manager_(manager)
       , timeout_(timeout)
       , promise_(std::move(promise))
-      , perf_timer_("checkproof", 0.1, [&](double duration) {
-          send_closure(manager_, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+      , perf_timer_("checkproof", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
         }) {
   }
 
