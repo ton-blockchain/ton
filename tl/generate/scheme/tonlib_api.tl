@@ -289,7 +289,7 @@ query.getInfo id:int53 = query.Info;
 
 smc.load account_address:accountAddress = smc.Info;
 smc.loadByTransaction account_address:accountAddress transaction_id:internal.transactionId = smc.Info;
-//smc.forget id:int53 = Ok;
+smc.forget id:int53 = Ok;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
