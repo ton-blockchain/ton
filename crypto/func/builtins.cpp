@@ -1063,6 +1063,8 @@ void define_builtins() {
                       AsmOp::Nop());
   define_builtin_func("~dump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
                       AsmOp::Custom("s0 DUMP", 1, 1), true);
+  define_builtin_func("~strdump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
+                      AsmOp::Custom("STRDUMP", 1, 1), true);
   define_builtin_func("run_method0", TypeExpr::new_map(Int, Unit),
                       [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
   define_builtin_func("run_method1", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),
