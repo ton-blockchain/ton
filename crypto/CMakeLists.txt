@@ -179,6 +179,7 @@ set(FUNC_LIB_SOURCE
   func/stack-transform.cpp
   func/optimize.cpp
   func/codegen.cpp
+  func/func.cpp
 )
 
 set(TLB_BLOCK_AUTO
@@ -307,7 +308,7 @@ target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SO
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
 
-add_executable(func func/func.cpp ${FUNC_LIB_SOURCE})
+add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(func PUBLIC ton_crypto src_parser git ton_block)
 if (WINGETOPT_FOUND)
