@@ -32,6 +32,12 @@ EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *trans
  */
 EMULATOR_EXPORT void transaction_emulator_destroy(void *transaction_emulator);
 
+/**
+ * @brief Set verbosity level
+ * @param verbosity_level New verbosity level (0 - never, 1 - error, 2 - warning, 3 - info, 4 - debug)
+ */
+EMULATOR_EXPORT void transaction_emulator_set_verbosity_level(int verbosity_level);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

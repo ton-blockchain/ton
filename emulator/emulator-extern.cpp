@@ -2,6 +2,7 @@
 #include "td/utils/base64.h"
 #include "td/utils/Status.h"
 #include "td/utils/JsonBuilder.h"
+#include "td/utils/logging.h"
 #include "transaction-emulator.h"
 
 void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc) {
@@ -160,4 +161,10 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
 
 void transaction_emulator_destroy(void *transaction_emulator) {
   delete static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+}
+
+void transaction_emulator_set_verbosity_level(int verbosity_level) {
+  if (0 <= verbosity_level && verbosity_level <= VERBOSITY_NAME(NEVER)) {
+    SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity_level);
+  }
 }
