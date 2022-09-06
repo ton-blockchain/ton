@@ -4150,6 +4150,17 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_loadByTransaction& req
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::smc_forget& request,
+                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+  auto it = smcs_.find(request.id_);
+  if (it == smcs_.end()) {
+    return TonlibError::InvalidSmcId();
+  }
+  smcs_.erase(it);
+  promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
+  return td::Status::OK();
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::smc_getCode& request,
                                     td::Promise<object_ptr<tonlib_api::tvm_cell>>&& promise) {
   auto it = smcs_.find(request.id_);
