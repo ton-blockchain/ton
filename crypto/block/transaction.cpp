@@ -908,7 +908,11 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
   };
   if (cfg.global_version >= 4) {
     tuple.push_back(new_code);                            // code:Cell
-    tuple.push_back(msg_balance_remaining.as_vm_tuple()); // in_msg_value:[Integer (Maybe Cell)]
+    if (msg_balance_remaining.is_valid()) {
+      tuple.push_back(msg_balance_remaining.as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
+    } else {
+      tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());
+    }
     tuple.push_back(storage_phase->fees_collected);       // storage_fees:Integer
 
     // See crypto/block/mc-config.cpp#2115 (get_prev_blocks_info)
@@ -1579,7 +1583,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       CHECK(value.grams.not_null());
       td::RefInt256 new_funds = value.grams;
       if (act_rec.mode & 0x40) {
-        new_funds += msg_balance_remaining.grams;
+        if (msg_balance_remaining.is_valid()) {
+          new_funds += msg_balance_remaining.grams;
+        }
         if (compute_phase) {
           new_funds -= compute_phase->gas_fees;
         }
