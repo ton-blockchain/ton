@@ -59,7 +59,7 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , prev_blocks(std::move(prev))
     , block_candidate(std::move(candidate))
     , validator_set_(std::move(validator_set))
-    , manager(std::move(manager))
+    , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(is_fake)
