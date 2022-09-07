@@ -78,8 +78,8 @@ void PerfWarningTimer::reset() {
     return;
   }
   double duration = Time::now() - start_at_;
-  LOG_IF(WARNING, duration > max_duration_)
-      << "SLOW: " << tag("name", name_) << tag("duration", format::as_time(duration));
+  //LOG_IF(WARNING, duration > max_duration_)
+      //<< "SLOW: " << tag("name", name_) << tag("duration", format::as_time(duration));
   callback_(duration);
   start_at_ = 0;
 }
