@@ -91,7 +91,6 @@ td::Result<std::string> compile_internal(char *config_json) {
   result_obj("status", "ok");
   result_obj("code_boc", td::base64_encode(boc));
   result_obj("fift_code", escape_json(outs.str()));
-  result_obj("func_errors", errs.str());
   result_obj.leave();
 
   outs.clear();
