@@ -594,7 +594,8 @@ void dns_resolve(Client& client, const Wallet& dns, std::string name) {
   using namespace ton::tonlib_api;
   auto address = dns.get_address();
   auto resolved =
-      sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(std::move(address), name, 1, 4)).move_as_ok();
+      sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(
+                            std::move(address), name, td::sha256_bits256(td::Slice("cat", 3)), 4)).move_as_ok();
   CHECK(resolved->entries_.size() == 1);
   LOG(INFO) << to_string(resolved);
   LOG(INFO) << "OK";
@@ -747,13 +748,16 @@ void test_dns(Client& client, const Wallet& giver_wallet) {
   std::vector<object_ptr<dns_Action>> actions;
 
   actions.push_back(make_object<dns_actionSet>(
-      make_object<dns_entry>("A", -1, make_object<dns_entryDataNextResolver>(A_B.get_address()))));
+      make_object<dns_entry>("A", ton::DNS_NEXT_RESOLVER_CATEGORY,
+                             make_object<dns_entryDataNextResolver>(A_B.get_address()))));
   auto init_A = create_update_dns_query(client, A, std::move(actions)).move_as_ok();
   actions.push_back(make_object<dns_actionSet>(
-      make_object<dns_entry>("B", -1, make_object<dns_entryDataNextResolver>(A_B_C.get_address()))));
+      make_object<dns_entry>("B", ton::DNS_NEXT_RESOLVER_CATEGORY,
+                             make_object<dns_entryDataNextResolver>(A_B_C.get_address()))));
   auto init_A_B = create_update_dns_query(client, A_B, std::move(actions)).move_as_ok();
   actions.push_back(
-      make_object<dns_actionSet>(make_object<dns_entry>("C", 1, make_object<dns_entryDataText>("Hello dns"))));
+      make_object<dns_actionSet>(make_object<dns_entry>("C", td::sha256_bits256(td::Slice("cat", 3)),
+                                                        make_object<dns_entryDataText>("Hello dns"))));
   auto init_A_B_C = create_update_dns_query(client, A_B_C, std::move(actions)).move_as_ok();
 
   LOG(INFO) << "Send dns init queries";

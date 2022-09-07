@@ -865,7 +865,7 @@ bit$_ _:(## 1) = Bit;
 The serialization of source and destination addresses is defined by the following TL-B scheme:
 \begin{verbatim}
 addr_none$00 = MsgAddressExt;
-addr_extern$01 len:(## 8) external_address:(len * Bit) 
+addr_extern$01 len:(## 9) external_address:(len * Bit) 
              = MsgAddressExt;
 anycast_info$_ depth:(## 5) rewrite_pfx:(depth * Bit) = Anycast;
 addr_std$10 anycast:(Maybe Anycast) 

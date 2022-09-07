@@ -52,30 +52,50 @@ class WriteFile : public td::actor::Actor {
     auto res = R.move_as_ok();
     auto file = std::move(res.first);
     auto old_name = res.second;
-    td::uint64 offset = 0;
-    while (data_.size() > 0) {
-      auto R = file.pwrite(data_.as_slice(), offset);
-      auto s = R.move_as_ok();
-      offset += s;
-      data_.confirm_read(s);
+    auto status = write_data_(file);
+    if (!status.is_error()) {
+      status = file.sync();
     }
-    file.sync().ensure();
+    if (status.is_error()) {
+      td::unlink(old_name);
+      promise_.set_error(std::move(status));
+      stop();
+      return;
+    }
     if (new_name_.length() > 0) {
-      td::rename(old_name, new_name_).ensure();
-      promise_.set_value(std::move(new_name_));
+      status = td::rename(old_name, new_name_);
+      if (status.is_error()) {
+        promise_.set_error(std::move(status));
+      } else {
+        promise_.set_value(std::move(new_name_));
+      }
     } else {
       promise_.set_value(std::move(old_name));
     }
     stop();
   }
+  WriteFile(std::string tmp_dir, std::string new_name, std::function<td::Status(td::FileFd&)> write_data,
+            td::Promise<std::string> promise)
+      : tmp_dir_(tmp_dir), new_name_(new_name), write_data_(std::move(write_data)), promise_(std::move(promise)) {
+  }
   WriteFile(std::string tmp_dir, std::string new_name, td::BufferSlice data, td::Promise<std::string> promise)
-      : tmp_dir_(tmp_dir), new_name_(new_name), data_(std::move(data)), promise_(std::move(promise)) {
+      : tmp_dir_(tmp_dir), new_name_(new_name), promise_(std::move(promise)) {
+    write_data_ = [data_ptr = std::make_shared<td::BufferSlice>(std::move(data))] (td::FileFd& fd) {
+      auto data = std::move(*data_ptr);
+      td::uint64 offset = 0;
+      while (data.size() > 0) {
+        TRY_RESULT(s, fd.pwrite(data.as_slice(), offset));
+        offset += s;
+        data.confirm_read(s);
+      }
+      return td::Status::OK();
+    };
   }
 
  private:
   const std::string tmp_dir_;
   std::string new_name_;
-  td::BufferSlice data_;
+  std::function<td::Status(td::FileFd&)> write_data_;
   td::Promise<std::string> promise_;
 };
 

@@ -44,9 +44,6 @@ class CatChainReceiver : public CatChainReceiverInterface {
     CatChainSessionId instance_;
     PublicKeyHash local_id_;
   };
-  td::uint32 get_max_neighbours() const {
-    return 5;
-  }
   virtual PrintId print_id() const = 0;
   virtual CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block> block,
                                               td::SharedSlice payload) = 0;
@@ -64,11 +61,14 @@ class CatChainReceiver : public CatChainReceiverInterface {
 
   virtual const CatChainOptions &opts() const = 0;
 
-  virtual td::Status validate_block_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) = 0;
-  virtual td::Status validate_block_sync(tl_object_ptr<ton_api::catchain_block> &block, td::Slice payload) = 0;
+  virtual td::Status validate_block_sync(const tl_object_ptr<ton_api::catchain_block_dep> &dep) const = 0;
+  virtual td::Status validate_block_sync(const tl_object_ptr<ton_api::catchain_block> &block,
+                                         const td::Slice &payload) const = 0;
 
   virtual ~CatChainReceiver() = default;
 };
+
+td::uint64 get_max_block_height(const CatChainOptions& opts, size_t sources_cnt);
 
 }  // namespace catchain
 

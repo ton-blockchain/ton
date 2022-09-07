@@ -26,15 +26,14 @@ namespace catchain {
 
 class CatChainReceiver;
 class CatChainReceiverSource;
-class CatChainReceiverFork;
 
-class CatChainReceivedBlockImpl : public CatChainReceivedBlock {
+class CatChainReceivedBlockImpl final : public CatChainReceivedBlock {
  public:
   const td::SharedSlice &get_payload() const override {
     return payload_;
   }
   CatChainBlockHash get_hash() const override {
-    return hash_;
+    return block_id_hash_;
   }
   const td::SharedSlice &get_signature() const override {
     return signature_;
@@ -46,8 +45,8 @@ class CatChainReceivedBlockImpl : public CatChainReceivedBlock {
   CatChainReceivedBlock *get_prev() const override;
   CatChainBlockHash get_prev_hash() const override;
 
-  const std::vector<CatChainBlockHeight> &get_deps() const override {
-    return deps_;
+  const std::vector<CatChainBlockHeight> &get_vt() const override {
+    return vt_;
   }
 
   std::vector<CatChainBlockHash> get_dep_hashes() const override;
@@ -68,6 +67,10 @@ class CatChainReceivedBlockImpl : public CatChainReceivedBlock {
   tl_object_ptr<ton_api::catchain_block_dep> export_tl_dep() const override;
 
   void find_pending_deps(std::vector<CatChainBlockHash> &vec, td::uint32 max_size) const override;
+
+  bool has_rev_deps() const override {
+    return !rev_deps_.empty();
+  }
 
  public:
   bool initialized() const override {
@@ -114,7 +117,7 @@ class CatChainReceivedBlockImpl : public CatChainReceivedBlock {
                             CatChainReceiver *chain);
   CatChainReceivedBlockImpl(tl_object_ptr<ton_api::catchain_block_dep> block, CatChainReceiver *chain);
 
-  CatChainReceivedBlockImpl(td::uint32 source_id, CatChainSessionId hash, CatChainReceiver *chain);
+  CatChainReceivedBlockImpl(td::uint32 source_id, const CatChainSessionId &hash, CatChainReceiver *chain);
 
  private:
   enum State {
@@ -124,31 +127,28 @@ class CatChainReceivedBlockImpl : public CatChainReceivedBlock {
     bs_delivered,
   } state_ = bs_none;
 
-  void update_deps(CatChainReceivedBlockImpl *block);
+  void update_vt(CatChainReceivedBlockImpl *block);
 
   void add_rev_dep(CatChainReceivedBlockImpl *block);
-  void add_child_dep(CatChainReceivedBlockImpl *block);
 
   void initialize_fork();
-  void on_ready_to_deliver();
 
   td::uint32 fork_id_{0};
   td::uint32 source_id_;
   CatChainReceiver *chain_;
 
-  tl_object_ptr<ton_api::catchain_block_inner_Data> data_;
   td::SharedSlice payload_;
 
-  CatChainBlockHash hash_;
-  CatChainBlockPayloadHash data_hash_;
+  CatChainBlockHash block_id_hash_{};
+  CatChainBlockPayloadHash data_payload_hash_{};
 
-  CatChainReceivedBlockImpl *prev_;
+  CatChainReceivedBlockImpl *prev_ = nullptr;
   CatChainBlockHeight height_;
 
   CatChainReceivedBlockImpl *next_ = nullptr;
 
   std::vector<CatChainReceivedBlockImpl *> block_deps_;
-  std::vector<CatChainBlockHeight> deps_;
+  std::vector<CatChainBlockHeight> vt_;
 
   td::SharedSlice signature_;
 

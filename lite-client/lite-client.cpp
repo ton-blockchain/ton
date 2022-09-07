@@ -62,6 +62,7 @@
 #include "openssl/rand.hpp"
 #include "crypto/vm/utils.h"
 #include "crypto/common/util.h"
+#include "common/checksum.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -1025,11 +1026,13 @@ bool TestNode::do_parse_line() {
     workchain = ton::workchainInvalid;
     bool step = (word.size() > 10);
     std::string domain;
-    int cat = 0;
+    std::string cat_str;
     return (!step || parse_account_addr(workchain, addr)) && get_word_to(domain) &&
            (parse_block_id_ext(domain, blkid) ? get_word_to(domain) : (blkid = mc_last_id_).is_valid()) &&
-           (seekeoln() || parse_int16(cat)) && seekeoln() &&
-           dns_resolve_start(workchain, addr, blkid, domain, cat, step);
+           (seekeoln() || get_word_to(cat_str)) && seekeoln() &&
+           dns_resolve_start(workchain, addr, blkid, domain,
+                             cat_str.empty() ? td::Bits256::zero() : td::sha256_bits256(td::as_slice(cat_str)),
+                             step ? 3 : 0);
   } else if (word == "allshards" || word == "allshardssave") {
     std::string filename;
     return (word.size() <= 9 || get_word_to(filename)) &&
@@ -1599,36 +1602,41 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
 }
 
 bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
-                                 std::string domain, int cat, int mode) {
-  if (domain.size() > 1023) {
-    return set_error("domain name too long");
-  }
+                                 std::string domain, td::Bits256 cat, int mode) {
   if (domain.size() >= 2 && domain[0] == '"' && domain.back() == '"') {
     domain.erase(0, 1);
     domain.pop_back();
   }
   std::vector<std::string> components;
-  std::size_t i, p = 0;
-  for (i = 0; i < domain.size(); i++) {
-    if (!domain[i] || (unsigned char)domain[i] >= 0xfe || (unsigned char)domain[i] <= ' ') {
-      return set_error("invalid characters in a domain name");
-    }
-    if (domain[i] == '.') {
-      if (i == p) {
-        return set_error("domain name cannot have an empty component");
+  if (domain != ".") {
+    std::size_t i, p = 0;
+    for (i = 0; i < domain.size(); i++) {
+      if (!domain[i] || (unsigned char)domain[i] >= 0xfe || (unsigned char)domain[i] <= ' ') {
+        return set_error("invalid characters in a domain name");
       }
+      if (domain[i] == '.') {
+        if (i == p) {
+          return set_error("domain name cannot have an empty component");
+        }
+        components.emplace_back(domain, p, i - p);
+        p = i + 1;
+      }
+    }
+    if (i > p) {
       components.emplace_back(domain, p, i - p);
-      p = i + 1;
     }
   }
-  if (i > p) {
-    components.emplace_back(domain, p, i - p);
+  std::string qdomain;
+  if (mode & 2) {
+    qdomain += '\0';
   }
-  std::string qdomain, qdomain0;
   while (!components.empty()) {
     qdomain += components.back();
     qdomain += '\0';
     components.pop_back();
+  }
+  if (qdomain.size() > 127) {
+    return set_error("domain name too long");
   }
 
   if (!(ready_ && !client_.empty())) {
@@ -1657,26 +1665,18 @@ bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress 
 }
 
 bool TestNode::dns_resolve_send(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
-                                std::string domain, std::string qdomain, int cat, int mode) {
+                                std::string domain, std::string qdomain, td::Bits256 cat, int mode) {
   LOG(INFO) << "dns_resolve for '" << domain << "' category=" << cat << " mode=" << mode
             << " starting from smart contract " << workchain << ":" << addr.to_hex() << " with respect to block "
             << blkid.to_str();
-  std::string qdomain0;
-  if (qdomain.size() <= 127) {
-    qdomain0 = qdomain;
-  } else {
-    qdomain0 = std::string{qdomain, 0, 127};
-    qdomain[125] = '\xff';
-    qdomain[126] = '\x0';
-  }
   vm::CellBuilder cb;
   Ref<vm::Cell> cell;
-  if (!(cb.store_bytes_bool(td::Slice(qdomain0)) && cb.finalize_to(cell))) {
+  if (!(cb.store_bytes_bool(td::Slice(qdomain)) && cb.finalize_to(cell))) {
     return set_error("cannot store domain name into slice");
   }
   std::vector<vm::StackEntry> params;
-  params.emplace_back(vm::load_cell_slice_ref(std::move(cell)));
-  params.emplace_back(td::make_refint(cat));
+  params.emplace_back(vm::load_cell_slice_ref(cell));
+  params.emplace_back(td::bits_to_refint(cat.cbits(), 256, false));
   auto P = td::PromiseCreator::lambda([this, workchain, addr, blkid, domain, qdomain, cat,
                                        mode](td::Result<std::vector<vm::StackEntry>> R) {
     if (R.is_error()) {
@@ -1701,12 +1701,12 @@ bool TestNode::dns_resolve_send(ton::WorkchainId workchain, ton::StdSmcAddress a
   return start_run_method(workchain, addr, blkid, "dnsresolve", std::move(params), 0x1f, std::move(P));
 }
 
-bool TestNode::show_dns_record(std::ostream& os, int cat, Ref<vm::Cell> value, bool raw_dump) {
+bool TestNode::show_dns_record(std::ostream& os, td::Bits256 cat, Ref<vm::CellSlice> value, bool raw_dump) {
   if (raw_dump) {
     bool ok = show_dns_record(os, cat, value, false);
     if (!ok) {
       os << "cannot parse dns record; raw value: ";
-      vm::load_cell_slice(value).print_rec(print_limit_, os);
+      value->print_rec(print_limit_, os);
     }
     return ok;
   }
@@ -1715,11 +1715,11 @@ bool TestNode::show_dns_record(std::ostream& os, int cat, Ref<vm::Cell> value, b
     return true;
   }
   // block::gen::t_DNSRecord.print_ref(print_limit_, os, value);
-  if (!block::gen::t_DNSRecord.validate_ref(value)) {
+  if (!block::gen::t_DNSRecord.validate_csr(value)) {
     return false;
   }
-  block::gen::t_DNSRecord.print_ref(print_limit_, os, value);
-  auto cs = vm::load_cell_slice(value);
+  block::gen::t_DNSRecord.print(os, value, 0, print_limit_);
+  auto cs = *value;
   auto tag = block::gen::t_DNSRecord.get_tag(cs);
   ton::WorkchainId wc;
   ton::StdSmcAddress addr;
@@ -1751,7 +1751,7 @@ bool TestNode::show_dns_record(std::ostream& os, int cat, Ref<vm::Cell> value, b
 }
 
 void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
-                                  std::string domain, std::string qdomain, int cat, int mode, int used_bits,
+                                  std::string domain, std::string qdomain, td::Bits256 cat, int mode, int used_bits,
                                   Ref<vm::Cell> value) {
   if (used_bits <= 0) {
     td::TerminalIO::out() << "domain '" << domain << "' not found" << std::endl;
@@ -1761,12 +1761,12 @@ void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress
     LOG(ERROR) << "too many bits used (" << used_bits << " out of " << qdomain.size() * 8 << ")";
     return;
   }
-  int pos = (used_bits >> 3);
-  if (qdomain[pos - 1]) {
+  size_t pos = used_bits >> 3;
+  bool end = pos == qdomain.size();
+  if (!end && qdomain[pos - 1] && qdomain[pos]) {
     LOG(ERROR) << "domain split not at a component boundary";
     return;
   }
-  bool end = ((std::size_t)pos == qdomain.size());
   if (!end) {
     LOG(INFO) << "partial information obtained";
     if (value.is_null()) {
@@ -1778,7 +1778,7 @@ void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress
     ton::StdSmcAddress nx_addr;
     if (!(block::gen::t_DNSRecord.cell_unpack_dns_next_resolver(value, nx_address) &&
           block::tlb::t_MsgAddressInt.extract_std_address(std::move(nx_address), nx_wc, nx_addr))) {
-      LOG(ERROR) << "cannot parse next resolver info for " << domain.substr(qdomain.size() - pos);
+      LOG(ERROR) << "cannot parse next resolver info for " << domain.substr(qdomain.size() - pos - 1);
       std::ostringstream out;
       vm::load_cell_slice(value).print_rec(print_limit_, out);
       td::TerminalIO::err() << out.str() << std::endl;
@@ -1792,37 +1792,42 @@ void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress
       LOG(ERROR) << "cannot send next dns query";
       return;
     }
-    LOG(INFO) << "recursive dns query to '" << domain.substr(qdomain.size() - pos) << "' sent";
+    LOG(INFO) << "recursive dns query to '" << domain.substr(qdomain.size() - pos - 1) << "' sent";
     return;
   }
   auto out = td::TerminalIO::out();
-  out << "Result for domain '" << domain << "' category " << cat << (cat ? "" : " (all categories)") << std::endl;
+  if (cat.is_zero()) {
+    out << "Result for domain '" << domain << "' (all categories)" << std::endl;
+  } else {
+    out << "Result for domain '" << domain << "' category " << cat << std::endl;
+  }
   try {
     if (value.not_null()) {
       std::ostringstream os0;
       vm::load_cell_slice(value).print_rec(print_limit_, os0);
       out << "raw data: " << os0.str() << std::endl;
     }
-    if (!cat) {
-      vm::Dictionary dict{value, 16};
+    if (cat.is_zero()) {
+      vm::Dictionary dict{value, 256};
       if (!dict.check_for_each([this, &out](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
-            CHECK(n == 16);
-            int x = (int)key.get_int(16);
+            CHECK(n == 256);
+            td::Bits256 x{key};
             if (cs.is_null() || cs->size_ext() != 0x10000) {
-              out << "category #" << x << " : value is not a reference" << std::endl;
-              return false;
+              out << "category " << x << " : value is not a reference" << std::endl;
+              return true;
             }
+            cs = vm::load_cell_slice_ref(cs->prefetch_ref());
             std::ostringstream os;
-            (void)show_dns_record(os, x, cs->prefetch_ref(), true);
-            out << "category #" << x << " : " << os.str() << std::endl;
+            (void)show_dns_record(os, x, cs, true);
+            out << "category " << x << " : " << os.str() << std::endl;
             return true;
           })) {
         out << "invalid dns record dictionary" << std::endl;
       }
     } else {
       std::ostringstream os;
-      (void)show_dns_record(os, cat, value, true);
-      out << "category #" << cat << " : " << os.str() << std::endl;
+      (void)show_dns_record(os, cat, value.is_null() ? Ref<vm::CellSlice>() : vm::load_cell_slice_ref(value), true);
+      out << "category " << cat << " : " << os.str() << std::endl;
     }
   } catch (vm::VmError& err) {
     LOG(ERROR) << "vm error while traversing dns resolve result: " << err.get_msg();

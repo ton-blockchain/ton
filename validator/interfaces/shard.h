@@ -55,6 +55,7 @@ class ShardState : public td::CntObject {
   virtual td::Result<std::pair<td::Ref<ShardState>, td::Ref<ShardState>>> split() const = 0;
 
   virtual td::Result<td::BufferSlice> serialize() const = 0;
+  virtual td::Status serialize_to_file(td::FileFd& fd) const = 0;
 };
 
 class MasterchainState : virtual public ShardState {

@@ -193,7 +193,7 @@ class Overlays : public td::actor::Actor {
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 
   virtual void create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                     std::unique_ptr<Callback> callback, OverlayPrivacyRules rules) = 0;
+                                     std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                       OverlayPrivacyRules rules) = 0;

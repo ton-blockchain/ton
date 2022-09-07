@@ -74,11 +74,11 @@ int main() {
   generate_cpp<td::TD_TL_writer_jni_cpp, td::TD_TL_writer_jni_h>(
       "auto/tl", "tonlib_api", "std::string", "std::string", "td::SecureString", "td::SecureString",
       {"\"tl/tl_jni_object.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
-      {"<string>", "\"td/utils/SharedSlice.h\""});
+      {"<string>", "\"td/utils/SharedSlice.h\"", "\"crypto/common/bitstring.h\""});
 #else
   generate_cpp<>("auto/tl", "tonlib_api", "std::string", "std::string", "td::SecureString", "td::SecureString",
                  {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
-                 {"<string>", "\"td/utils/SharedSlice.h\""});
+                 {"<string>", "\"td/utils/SharedSlice.h\"", "\"crypto/common/bitstring.h\""});
 #endif
   td::gen_json_converter(td::tl::read_tl_config_from_file("scheme/tonlib_api.tlo"), "auto/tl/tonlib_api_json",
                          "tonlib_api", td::tl::TL_writer::Mode::All);

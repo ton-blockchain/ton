@@ -27,6 +27,7 @@
 #include "message-queue.h"
 #include "validator/validator.h"
 #include "liteserver.h"
+#include "crypto/vm/db/DynamicBagOfCellsDb.h"
 
 namespace ton {
 
@@ -55,8 +56,12 @@ class ValidatorManager : public ValidatorManagerInterface {
  public:
   virtual void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;
+  virtual void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                               std::function<td::Status(td::FileFd&)> write_data,
+                                               td::Promise<td::Unit> promise) = 0;
   virtual void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) = 0;
   virtual void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<td::Ref<ShardState>> promise) = 0;

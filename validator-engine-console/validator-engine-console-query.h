@@ -193,6 +193,20 @@ class Query : public td::actor::Actor {
   virtual std::string name() const = 0;
   void handle_error(td::Status error);
 
+  static std::string time_to_human(int unixtime) {
+    char time_buffer[80];
+    time_t rawtime = unixtime;
+    struct tm tInfo;
+#if defined(_WIN32) || defined(_WIN64)
+    struct tm* timeinfo = localtime_s(&tInfo, &rawtime) ? nullptr : &tInfo;
+#else
+    struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+#endif
+    assert(timeinfo == &tInfo);
+    strftime(time_buffer, 80, "%c", timeinfo);
+    return std::string(time_buffer);
+  }
+
  protected:
   td::actor::ActorId<ValidatorEngineConsole> console_;
   Tokenizer tokenizer_;
@@ -921,6 +935,28 @@ class GetOverlaysStatsQuery : public Query {
   std::string name() const override {
     return get_name();
   }
+};
+
+class GetOverlaysStatsJsonQuery : public Query {
+ public:
+  GetOverlaysStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getoverlaysstatsjson";
+  }
+  static std::string get_help() {
+    return "getoverlaysstatsjson <outfile>\tgets stats for all overlays and writes to json file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+  
+private:
+ std::string file_name_;
 };
 
 class SignCertificateQuery : public Query {
