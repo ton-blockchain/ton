@@ -330,7 +330,7 @@ td::Result<tonlib_api::object_ptr<tonlib_api::raw_transactions>> get_transaction
   auto got_transactions = sync_send(client, make_object<tonlib_api::raw_getTransactions>(
                                                 wallet ? wallet.value()->key.get_input_key() : nullptr,
                                                 make_object<tonlib_api::accountAddress>(address),
-                                                make_object<tonlib_api::internal_transactionId>(from.lt, from.hash)))
+                                                make_object<tonlib_api::internal_transactionId>(from.lt, from.hash), 10))
                               .move_as_ok();
   return std::move(got_transactions);
 }

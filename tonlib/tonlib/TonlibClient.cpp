@@ -960,11 +960,12 @@ td::Result<td::int64> to_balance(td::Ref<vm::CellSlice> balance_ref) {
 
 class GetTransactionHistory : public td::actor::Actor {
  public:
-  GetTransactionHistory(ExtClientRef ext_client_ref, block::StdAddress address, ton::LogicalTime lt, ton::Bits256 hash,
+  GetTransactionHistory(ExtClientRef ext_client_ref, block::StdAddress address, ton::LogicalTime lt, ton::Bits256 hash, td::int32 count,
                         td::actor::ActorShared<> parent, td::Promise<block::TransactionList::Info> promise)
       : address_(std::move(address))
       , lt_(std::move(lt))
       , hash_(std::move(hash))
+      , count_(count)
       , parent_(std::move(parent))
       , promise_(std::move(promise)) {
     client_.set_client(ext_client_ref);
@@ -975,7 +976,7 @@ class GetTransactionHistory : public td::actor::Actor {
   ton::LogicalTime lt_;
   ton::Bits256 hash_;
   ExtClient client_;
-  td::int32 count_{10};
+  td::int32 count_;
   td::actor::ActorShared<> parent_;
   td::Promise<block::TransactionList::Info> promise_;
 
@@ -2461,10 +2462,11 @@ td::Status TonlibClient::do_request(tonlib_api::raw_getTransactions& request,
   }
   td::Bits256 hash;
   hash.as_slice().copy_from(hash_str);
+  td::int32 count = request.count_ ? request.count_ : 10;
 
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
-      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, actor_shared(this, actor_id),
+      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, count, actor_shared(this, actor_id),
       promise.wrap([private_key = std::move(private_key)](auto&& x) mutable {
         return ToRawTransactions(std::move(private_key)).to_raw_transactions(std::move(x));
       }));
