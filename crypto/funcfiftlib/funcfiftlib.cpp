@@ -106,14 +106,17 @@ const char *func_compile(char *config_json) {
   auto res = compile_internal(config_json);
 
   if (res.is_error()) {
+    auto result = res.move_as_error();
     auto error_res = td::JsonBuilder();
     auto error_o = error_res.enter_object();
     error_o("status", "error");
-    error_o("message", res.move_as_error().message().str());
+    error_o("message", result.message().str());
     error_o.leave();
     return strdup(error_res.string_builder().as_cslice().c_str());
   }
 
-  return res.move_as_ok().c_str();
+  auto res_string = res.move_as_ok();
+
+  return strdup(res_string.c_str());
 }
 }
