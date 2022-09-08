@@ -89,8 +89,8 @@ td::Result<std::string> compile_internal(char *config_json) {
   td::JsonBuilder result_json;
   auto result_obj = result_json.enter_object();
   result_obj("status", "ok");
-  result_obj("code_boc", td::base64_encode(boc));
-  result_obj("fift_code", escape_json(outs.str()));
+  result_obj("codeBoc", td::base64_encode(boc));
+  result_obj("fiftCode", escape_json(outs.str()));
   result_obj.leave();
 
   outs.clear();
