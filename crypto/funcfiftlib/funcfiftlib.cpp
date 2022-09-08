@@ -101,7 +101,7 @@ td::Result<std::string> compile_internal(char *config_json) {
 
 extern "C" {
 
-const char *ton_compile(char *config_json) {
+const char *func_compile(char *config_json) {
   auto res = compile_internal(config_json);
 
   if (res.is_error()) {
