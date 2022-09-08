@@ -31,7 +31,7 @@ git clone --recursive https://github.com/the-ton-tech/ton-blockchain.git
 
 cd ton-blockchain
 git pull
-git checkout 5066228f75a91b1c5cafe44508ea07d0dc9f64bd
+git checkout 486072bd83d29cf698a8501f6dab042519e5fe1f
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.so ..
