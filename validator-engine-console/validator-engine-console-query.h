@@ -1087,12 +1087,12 @@ class GetPerfTimerStatsQuery : public Query {
     return "getperftimerstats";
   }
   static std::string get_help() {
-    return "getperftimerstats <name>\tshows min, average and max event processing time for last 60, 300 and 3600 seconds";
+    return "getperftimerstats <outfile>\tgets min, average and max event processing time for last 60, 300 and 3600 seconds and writes to json file";
   }
   std::string name() const override {
     return get_name();
   }
 
  private:
-  std::string event_name_;
+  std::string file_name_;
 };

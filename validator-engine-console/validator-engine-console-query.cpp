@@ -1007,13 +1007,13 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
 }
 
 td::Status GetPerfTimerStatsQuery::run() {
-  TRY_RESULT_ASSIGN(event_name_, tokenizer_.get_token<std::string>());
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status GetPerfTimerStatsQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfTimerStats>(event_name_);
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfTimerStats>("");
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1021,33 +1021,37 @@ td::Status GetPerfTimerStatsQuery::send() {
 td::Status GetPerfTimerStatsQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfTimerStats>(data.as_slice(), true),
                     "received incorrect answer: ");
+  std::ofstream sb(file_name_);
 
-  td::TerminalIO::out() << "{";
+  sb << "{";
   bool gtail = false;
   for (const auto &v : f->stats_) {
     if (gtail) {
-      td::TerminalIO::out() << ",";
+      sb << ",";
     } else {
       gtail = true;
     }
 
-    td::TerminalIO::out() << "\n '" << v->name_ << "': {";
+    sb << "\n '" << v->name_ << "': {";
     bool tail = false;
     for (const auto &stat : v->stats_) {
       if (tail) {
-        td::TerminalIO::out() << ",";
+        sb << ",";
       } else {
         tail = true;
       }
 
-      td::TerminalIO::out() << "\n  " << stat->time_ << ": [";
-      td::TerminalIO::out() << "\n   " << stat->min_ << ",";
-      td::TerminalIO::out() << "\n   " << stat->avg_ << ",";
-      td::TerminalIO::out() << "\n   " << stat->max_;
-      td::TerminalIO::out() << "\n  ]";
+      sb << "\n  " << stat->time_ << ": [";
+      sb << "\n   " << stat->min_ << ",";
+      sb << "\n   " << stat->avg_ << ",";
+      sb << "\n   " << stat->max_;
+      sb << "\n  ]";
     }
-    td::TerminalIO::out() << "\n }";
+    sb << "\n }";
   }
-  td::TerminalIO::out() << "\n}\n";
+  sb << "\n}\n";
+  sb << std::flush;
+
+  td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
   return td::Status::OK();
 }
