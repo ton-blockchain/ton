@@ -1657,10 +1657,9 @@ auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid) -> tonli
 class RunEmulator : public td::actor::Actor {
  public:
   RunEmulator(ExtClientRef ext_client_ref, int_api::GetAccountStateByTransaction request,
-      vm::Dictionary&& libraries, td::actor::ActorShared<> parent, td::Promise<td::unique_ptr<AccountState>>&& promise)
+      td::actor::ActorShared<> parent, td::Promise<td::unique_ptr<AccountState>>&& promise)
     : request_(std::move(request)), parent_(std::move(parent)), promise_(std::move(promise)) {
     client_.set_client(ext_client_ref);
-    set_libraries(std::move(libraries));
   }
 
  private:
@@ -1679,18 +1678,18 @@ class RunEmulator : public td::actor::Actor {
   std::map<td::int64, td::actor::ActorOwn<>> actors_;
   td::int64 actor_id_{1};
 
-  td::optional<FullBlockId> block_id_;
-  td::optional<vm::Dictionary> libraries_;
-  td::optional<block::Config> config_;
-  td::optional<td::unique_ptr<AccountState>> account_;
-  td::optional<std::vector<td::optional<block::Transaction::Info>>> transactions_;
+  FullBlockId block_id_;
+  td::Ref<vm::Cell> mc_state_root_; // ^ShardStateUnsplit
+  td::unique_ptr<AccountState> account_;
+  std::vector<td::Ref<vm::Cell>> transactions_; // std::vector<^Transaction>
 
   size_t count_{0};
   size_t count_transactions_{0};
+  bool incomplete_{true};
   bool stopped_{false};
 
   void get_block_id(td::Promise<FullBlockId>&& promise) {
-    auto query = ton::lite_api::liteServer_lookupBlock(0b111111010, ton::create_tl_lite_block_id_simple({ton::basechainId, ton::shardIdAll, 0}), request_.lt, 0);
+    auto query = ton::lite_api::liteServer_lookupBlock(0b111111010, ton::create_tl_lite_block_id_simple({request_.address.workchain, ton::shardIdAll, 0}), request_.lt, 0);
     client_.send_query(std::move(query), promise.wrap([self = this](td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_blockHeader>> header_r) -> td::Result<FullBlockId> {
 
       TRY_RESULT(header, std::move(header_r));
@@ -1731,79 +1730,70 @@ class RunEmulator : public td::actor::Actor {
     }));
   }
 
-  void get_config(td::Promise<block::Config>&& promise) {
-    TRY_RESULT_PROMISE(promise, lite_block, to_lite_api(*to_tonlib_api(block_id_.value().mc)));
+  void get_mc_state_root(td::Promise<td::Ref<vm::Cell>>&& promise) {
+    TRY_RESULT_PROMISE(promise, lite_block, to_lite_api(*to_tonlib_api(block_id_.mc)));
     auto block = ton::create_block_id(lite_block);
-    client_.send_query(ton::lite_api::liteServer_getConfigAll(0b11111111, std::move(lite_block)), promise.wrap([self = this, block](auto r_config) -> td::Result<block::Config> {
+    client_.send_query(ton::lite_api::liteServer_getConfigAll(0b11'11111111, std::move(lite_block)), promise.wrap([self = this, block](auto r_config) -> td::Result<td::Ref<vm::Cell>> {
 
-      auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(), r_config->config_proof_.as_slice());
-      if (state.is_error()) {
-        return state.move_as_error();
-      }
+      TRY_RESULT(state, block::check_extract_state_proof(block, r_config->state_proof_.as_slice(), r_config->config_proof_.as_slice()));
 
-      auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
-      if (config.is_error()) {
-        return config.move_as_error();
-      }
-
-      return std::move(*config.move_as_ok());
+      return std::move(state);
     }));
   }
 
   void get_account(td::Promise<td::unique_ptr<AccountState>>&& promise) {
     auto actor_id = actor_id_++;
     actors_[actor_id] = td::actor::create_actor<GetRawAccountState>(
-      "GetAccountState", client_.get_client(), request_.address, block_id_.value().mc,
+      "GetAccountState", client_.get_client(), request_.address, block_id_.mc,
       actor_shared(this, actor_id),
       promise.wrap([address = request_.address](auto&& state) {
         return td::make_unique<AccountState>(std::move(address), std::move(state), 0);
     }));
   }
 
-  td::Status get_transactions() {
-    TRY_RESULT(lite_block, to_lite_api(*to_tonlib_api(block_id_.value().id)));
-    auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(ton::Bits256::zero(), 0);
-    auto query = ton::lite_api::liteServer_listBlockTransactions(std::move(lite_block), 0b00100111, 256, std::move(after), false, false);
-    client_.send_query(std::move(query), [self = this](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
+  td::Status get_transactions(std::int64_t lt) {
+    TRY_RESULT(lite_block, to_lite_api(*to_tonlib_api(block_id_.id)));
+    auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(request_.address.addr, lt);
+    auto query = ton::lite_api::liteServer_listBlockTransactions(std::move(lite_block), 0b10100111, 256, std::move(after), false, false);
 
-      if (bTxes->incomplete_) {
-        self->set_transactions(td::Status::Error("blocks.Transactions list is incomplete"));
+    client_.send_query(std::move(query), [self = this](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
+      if (!bTxes) {
+        self->check(td::Status::Error("liteServer.blockTransactions is null"));
         return;
       }
 
-      size_t i = 0;
+      std::int64_t last_lt = 0;
       for (auto& id : bTxes->ids_) {
+        last_lt = id->lt_;
         if (id->account_ != self->request_.address.addr) {
           continue;
         }
-        ++i;
+
         if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
-          break;
+          self->incomplete_ = false;
+        }
+
+        self->transactions_.push_back({});
+        self->get_transaction(id->lt_, id->hash_, [self, i = self->transactions_.size() - 1](auto transaction) { self->set_transaction(i, std::move(transaction)); });
+
+        if (!self->incomplete_) {
+          return;
         }
       }
-      self->set_transactions(i);
 
-      i = 0;
-      for (auto& id : bTxes->ids_) {
-        if (id->account_ != self->request_.address.addr) {
-          continue;
-        }
-        self->get_transaction(id->lt_, id->hash_, [self, i](auto transaction) { self->set_transaction(i, std::move(transaction)); });
-        ++i;
-        if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
-          break;
-        }
+      if (bTxes->incomplete_) {
+        self->check(self->get_transactions(last_lt));
       }
     });
     return td::Status::OK();
   }
 
-  void get_transaction(std::int64_t lt, td::Bits256 hash, td::Promise<block::Transaction::Info>&& promise) {
+  void get_transaction(std::int64_t lt, td::Bits256 hash, td::Promise<td::Ref<vm::Cell>>&& promise) {
     auto actor_id = actor_id_++;
     actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
         "GetTransactionHistory", client_.get_client(), request_.address, lt, hash, actor_shared(this, actor_id),
         promise.wrap([](auto&& transactions) mutable {
-          return std::move(transactions.transactions.front());
+          return std::move(transactions.transactions.front().transaction);
         }));
   }
 
@@ -1817,34 +1807,22 @@ class RunEmulator : public td::actor::Actor {
   void set_block_id(td::Result<FullBlockId>&& block_id) {
     if (block_id.is_error()) {
       check(block_id.move_as_error());
-    } else if (!block_id_) {
+    } else {
       block_id_ = block_id.move_as_ok();
 
-      get_config([self = this](td::Result<block::Config>&& config) { self->set_config(std::move(config)); });
+      get_mc_state_root([self = this](td::Result<td::Ref<vm::Cell>>&& mc_state_root) { self->set_mc_state_root(std::move(mc_state_root)); });
       get_account([self = this](td::Result<td::unique_ptr<AccountState>>&& account) { self->set_account(std::move(account)); });
-      td::Status status = get_transactions();
-      if (status.is_error()) {
-        set_transactions(status.move_as_error());
-      }
+      check(get_transactions(0));
 
       inc();
     }
   }
 
-  void set_libraries(td::Result<vm::Dictionary>&& libraries) {
-    if (libraries.is_error()) {
-      check(libraries.move_as_error());
-    } else if (!libraries_) {
-      libraries_ = libraries.move_as_ok();
-      inc();
-    }
-  }
-
-  void set_config(td::Result<block::Config>&& config) {
-    if (config.is_error()) {
-      check(config.move_as_error());
-    } else if (!config_) {
-      config_ = config.move_as_ok();
+  void set_mc_state_root(td::Result<td::Ref<vm::Cell>>&& mc_state_root) {
+    if (mc_state_root.is_error()) {
+      check(mc_state_root.move_as_error());
+    } else {
+      mc_state_root_ = mc_state_root.move_as_ok();
       inc();
     }
   }
@@ -1852,62 +1830,40 @@ class RunEmulator : public td::actor::Actor {
   void set_account(td::Result<td::unique_ptr<AccountState>>&& account) {
     if (account.is_error()) {
       check(account.move_as_error());
-    } else if (!account_) {
+    } else {
       account_ = account.move_as_ok();
       inc();
     }
   }
 
-  void set_transactions(td::Result<size_t>&& transactions_size) {
-    if (transactions_size.is_error()) {
-      check(transactions_size.move_as_error());
-    } else if (!transactions_) {
-      transactions_.emplace();
-      transactions_.value().resize(transactions_size.move_as_ok());
-    }
-  }
-
-  void set_transaction(size_t i, td::Result<block::Transaction::Info>&& transaction) {
+  void set_transaction(size_t i, td::Result<td::Ref<vm::Cell>>&& transaction) {
     if (transaction.is_error()) {
       check(transaction.move_as_error());
-    } else if (!transactions_.value()[i]) {
-      transactions_.value()[i] = transaction.move_as_ok();
+    } else {
+      transactions_[i] = transaction.move_as_ok();
       inc_transactions();
     }
   }
 
   void inc_transactions() {
-    if (stopped_ || ++count_transactions_ != transactions_.value().size()) {
+    if (stopped_ || ++count_transactions_ != transactions_.size() || incomplete_) {
       return;
     }
     inc();
   }
 
   void inc() {
-    if (stopped_ || ++count_ != 5) { // 5 -- block_id + libraries + config + account + transactions
+    if (stopped_ || ++count_ != 4) { // 4 -- block_id + mc_state_root + account + transactions
       return;
     }
-
-    const block::StdAddress& address = account_.value()->get_address();
-    td::Result<td::Ref<vm::CellSlice>> shard_account_cell_slice = account_.value()->to_shardAccountCellSlice();
+    const block::StdAddress& address = account_->get_address();
+    td::Result<td::Ref<vm::CellSlice>> shard_account_cell_slice = account_->to_shardAccountCellSlice();
     if (shard_account_cell_slice.is_error()) {
       check(shard_account_cell_slice.move_as_error());
       return;
     }
-    RawAccountState raw = std::move(account_.value()->raw());
-    raw.block_id = block_id_.value().id;
-
-    std::vector<block::gen::Transaction::Record> transactions;
-    for (const auto& transaction : transactions_.value()) {
-      if (transaction.value().transaction.not_null()) {
-        block::gen::Transaction::Record trans;
-        if (!tlb::unpack_cell(transaction.value().transaction, trans)) {
-          check(td::Status::Error("Failed to unpack Transaction"));
-          return;
-        }
-        transactions.push_back(std::move(trans));
-      }
-    }
+    RawAccountState raw = std::move(account_->raw());
+    raw.block_id = block_id_.id;
 
     // RawAccountState
     // td::int64 balance;
@@ -1923,9 +1879,9 @@ class RunEmulator : public td::actor::Actor {
     // td::uint32 gen_utime;
     // ton::BlockIdExt block_id;
 
-    td::Status status = emulator::emulate_transactions(std::move(libraries_.value()), std::move(config_.value()), address,
-                                                       account_.value()->get_sync_time(), shard_account_cell_slice.move_as_ok(), std::move(block_id_.value().rand_seed),
-                                                       std::move(transactions), raw.balance, raw.storage_last_paid, raw.storage_stat,
+    td::Status status = emulator::emulate_transactions(std::move(mc_state_root_), address, account_->get_sync_time(),
+                                                       shard_account_cell_slice.move_as_ok(), std::move(block_id_.rand_seed),
+                                                       std::move(transactions_), raw.balance, raw.storage_last_paid, raw.storage_stat,
                                                        raw.code, raw.data, raw.state, raw.frozen_hash,
                                                        raw.info.last_trans_lt, raw.info.last_trans_hash, raw.info.gen_utime);
 
@@ -4995,7 +4951,7 @@ td::Status TonlibClient::do_request(int_api::GetAccountStateByTransaction reques
                                     td::Promise<td::unique_ptr<AccountState>>&& promise) {
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<RunEmulator>(
-      "RunEmulator", client_.get_client(), request, vm::Dictionary(libraries), actor_shared(this, actor_id),
+      "RunEmulator", client_.get_client(), request, actor_shared(this, actor_id),
       promise.wrap([](auto&& state) {
         return std::move(state);
       }));

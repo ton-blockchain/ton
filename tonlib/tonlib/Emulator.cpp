@@ -1,8 +1,6 @@
 #include "Emulator.h"
 #include "block/transaction.h"
 #include "vm/cp0.h"
-#include <sstream>
-#include "td/utils/base64.h"
 
 using td::Ref;
 using namespace std::string_literals;
@@ -79,70 +77,117 @@ td::Status fetch_config_params(const vm::Dictionary& libraries,
   return td::Status::OK();
 }
 
-td::Result<std::unique_ptr<block::transaction::Transaction>> create_ordinary_transaction(Ref<vm::Cell> msg_root,
-                                                block::Account* acc,
-                                                ton::UnixTime utime, ton::LogicalTime lt,
-                                                block::StoragePhaseConfig* storage_phase_cfg,
-                                                block::ComputePhaseConfig* compute_phase_cfg,
-                                                block::ActionPhaseConfig* action_phase_cfg,
-                                                bool external, ton::LogicalTime after_lt) {
-  if (acc->last_trans_end_lt_ >= lt && acc->transactions.empty()) {
-    return td::Status::Error(-669, PSTRING() << "last transaction time in the state of account " << acc->workchain << ":" << acc->addr.to_hex()
-                          << " is too large");
+td::Result<std::unique_ptr<block::transaction::Transaction>> create_transaction(
+    block::gen::Transaction::Record &record_trans,
+    block::Account* acc,
+    block::StoragePhaseConfig* storage_phase_cfg,
+    block::ComputePhaseConfig* compute_phase_cfg,
+    block::ActionPhaseConfig* action_phase_cfg) {
+
+  auto lt = record_trans.lt;
+  auto now = record_trans.now;
+  acc->now_ = now;
+  td::Ref<vm::Cell> msg_root = record_trans.r1.in_msg->prefetch_ref();
+  bool external{false}, ihr_delivered{false}, need_credit_phase{false};
+  int tag = block::gen::t_TransactionDescr.get_tag(vm::load_cell_slice(record_trans.description));
+
+  if (msg_root.not_null()) {
+    auto cs = vm::load_cell_slice(msg_root);
+    external = block::gen::t_CommonMsgInfo.get_tag(cs);
   }
-  auto trans_min_lt = lt;
-  if (external) {
-    // transactions processing external messages must have lt larger than all processed internal messages
-    trans_min_lt = std::max(trans_min_lt, after_lt);
+
+  int trans_type = block::transaction::Transaction::tr_none;
+  switch (tag) {
+    case block::gen::TransactionDescr::trans_ord: {
+      trans_type = block::transaction::Transaction::tr_ord;
+      need_credit_phase = !external;
+      break;
+    }
+    case block::gen::TransactionDescr::trans_storage: {
+      trans_type = block::transaction::Transaction::tr_storage;
+      break;
+    }
+    case block::gen::TransactionDescr::trans_tick_tock: {
+      block::gen::TransactionDescr::Record_trans_tick_tock tick_tock;
+      if (!tlb::unpack_cell(record_trans.description, tick_tock)) {
+        return td::Status::Error("Failed to unpack tick tock transaction description");
+      }
+      trans_type = tick_tock.is_tock ? block::transaction::Transaction::tr_tock : block::transaction::Transaction::tr_tick;
+      break;
+    }
+    case block::gen::TransactionDescr::trans_split_prepare: {
+      trans_type = block::transaction::Transaction::tr_split_prepare;
+      break;
+    }
+    case block::gen::TransactionDescr::trans_split_install: {
+      trans_type = block::transaction::Transaction::tr_split_install;
+      break;
+    }
+    case block::gen::TransactionDescr::trans_merge_prepare: {
+      trans_type = block::transaction::Transaction::tr_merge_prepare;
+      break;
+    }
+    case block::gen::TransactionDescr::trans_merge_install: {
+      trans_type = block::transaction::Transaction::tr_merge_install;
+      need_credit_phase = true;
+      break;
+    }
   }
 
   std::unique_ptr<block::transaction::Transaction> trans =
-      std::make_unique<block::transaction::Transaction>(*acc, block::transaction::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
-  bool ihr_delivered = false;  // FIXME
-  if (!trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
+    std::make_unique<block::transaction::Transaction>(*acc, trans_type, lt, now, msg_root);
+
+  if (msg_root.not_null() && !trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
     if (external) {
       // inbound external message was not accepted
       return td::Status::Error(-701,"inbound external message rejected by account "s + acc->addr.to_hex() +
                                                            " before smart-contract execution");
-      }
+    }
     return td::Status::Error(-669,"cannot unpack input message for a new transaction");
   }
+
   if (trans->bounce_enabled) {
     if (!trans->prepare_storage_phase(*storage_phase_cfg, true)) {
       return td::Status::Error(-669,"cannot create storage phase of a new transaction for smart contract "s + acc->addr.to_hex());
-      }
-    if (!external && !trans->prepare_credit_phase()) {
+    }
+    if (need_credit_phase && !trans->prepare_credit_phase()) {
       return td::Status::Error(-669,"cannot create credit phase of a new transaction for smart contract "s + acc->addr.to_hex());
-      }
+    }
   } else {
-    if (!external && !trans->prepare_credit_phase()) {
+    if (need_credit_phase && !trans->prepare_credit_phase()) {
       return td::Status::Error(-669,"cannot create credit phase of a new transaction for smart contract "s + acc->addr.to_hex());
-      }
-    if (!trans->prepare_storage_phase(*storage_phase_cfg, true, true)) {
+    }
+    if (!trans->prepare_storage_phase(*storage_phase_cfg, true, need_credit_phase)) {
       return td::Status::Error(-669,"cannot create storage phase of a new transaction for smart contract "s + acc->addr.to_hex());
-      }
+    }
   }
+
   if (!trans->prepare_compute_phase(*compute_phase_cfg)) {
     return td::Status::Error(-669,"cannot create compute phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
+
   if (!trans->compute_phase->accepted) {
     if (external) {
       // inbound external message was not accepted
-        return td::Status::Error(-701,"inbound external message rejected by transaction "s + acc->addr.to_hex());
-      } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
-        return td::Status::Error(-669,"new ordinary transaction for smart contract "s + acc->addr.to_hex() +
-                  " has not been accepted by the smart contract (?)");
-      }
+      return td::Status::Error(-701,"inbound external message rejected by transaction "s + acc->addr.to_hex());
+    } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
+      return td::Status::Error(-669,"new ordinary transaction for smart contract "s + acc->addr.to_hex() +
+                " has not been accepted by the smart contract (?)");
+    }
   }
+
   if (trans->compute_phase->success && !trans->prepare_action_phase(*action_phase_cfg)) {
     return td::Status::Error(-669,"cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
+
   if (trans->bounce_enabled && !trans->compute_phase->success && !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(-669,"cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
+
   if (!trans->serialize()) {
     return td::Status::Error(-669,"cannot serialize new transaction for smart contract "s + acc->addr.to_hex());
   }
+
   return std::move(trans);
 }
 
@@ -152,14 +197,22 @@ bool check_state_update(const block::Account& account, const block::gen::Transac
     hash_update.new_hash == account.total_state->get_hash().bits();
 }
 
-td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& config, block::StdAddress address, ton::UnixTime now,
+td::Status emulate_transactions(td::Ref<vm::Cell>&& mc_state_root, block::StdAddress address, ton::UnixTime now,
                                 td::Ref<vm::CellSlice>&& shard_account_cell_slice, ton::Bits256&& rand_seed,
-                                std::vector<block::gen::Transaction::Record>&& transactions,
+                                std::vector<td::Ref<vm::Cell>>&& transactions,
                                 td::int64& balance, ton::UnixTime& storage_last_paid, vm::CellStorageStat& storage_stat,
                                 td::Ref<vm::Cell>& code, td::Ref<vm::Cell>& data, td::Ref<vm::Cell>& state,
                                 std::string& frozen_hash, ton::LogicalTime& last_trans_lt, ton::Bits256& last_trans_hash, td::uint32& gen_utime) {
+  TRY_RESULT(config, block::Config::extract_from_state(mc_state_root, 0b11'11111111));
+
+  block::gen::ShardStateUnsplit::Record shard_state;
+  if (!tlb::unpack_cell(mc_state_root, shard_state)) {
+    return td::Status::Error("Failed to unpack masterchain state");
+  }
+  vm::Dictionary libraries(shard_state.r1.libraries->prefetch_ref(), 256);
+
   auto account = block::Account(address.workchain, address.addr.bits());
-  bool is_special = address.workchain == ton::masterchainId && config.is_special_smartcontract(address.addr);
+  bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
   if (!account.unpack(std::move(shard_account_cell_slice), td::Ref<vm::CellSlice>(), now, is_special)) {
     return td::Status::Error("Can't unpack shard account");
   }
@@ -171,73 +224,53 @@ td::Status emulate_transactions(vm::Dictionary&& libraries, block::Config&& conf
   block::ActionPhaseConfig action_phase_cfg;
   td::RefInt256 masterchain_create_fee, basechain_create_fee;
 
-  auto fetch_res = fetch_config_params(libraries, config, &old_mparams,
-                                       &storage_prices, &storage_phase_cfg,
-                                       &rand_seed, &compute_phase_cfg,
-                                       &action_phase_cfg, &masterchain_create_fee,
-                                       &basechain_create_fee, account.workchain);
-  if (fetch_res.is_error()) {
-    return fetch_res.move_as_error_prefix("cannot fetch config params ");
-  }
+  TRY_STATUS_PREFIX(fetch_config_params(libraries, *config, &old_mparams,
+                                        &storage_prices, &storage_phase_cfg,
+                                        &rand_seed, &compute_phase_cfg,
+                                        &action_phase_cfg, &masterchain_create_fee,
+                                        &basechain_create_fee, account.workchain), "cannot fetch config params ");
 
   vm::init_op_cp0();
 
-  ton::LogicalTime lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
-  for (const auto& trans : transactions) {
-    auto is_just = trans.r1.in_msg->prefetch_long(1);
-    if (is_just == trans.r1.in_msg->fetch_long_eof) {
-      return td::Status::Error("Failed to parse long");
-    }
-    if (is_just != -1) {
+  for (const auto& original_trans : transactions) {
+    if (original_trans.is_null()) {
       continue;
     }
 
-    td::Result<td::Ref<vm::Cell>> msg = trans.r1.in_msg->prefetch_ref();
-    if (msg.is_error()) {
-      return msg.move_as_error();
+    block::gen::Transaction::Record record_trans;
+    if (!tlb::unpack_cell(original_trans, record_trans)) {
+      return td::Status::Error("Failed to unpack Transaction");
     }
 
-    auto msg_root = msg.move_as_ok();
-    auto cs = vm::load_cell_slice(msg_root);
-    bool external = block::gen::t_CommonMsgInfo.get_tag(cs) == block::gen::CommonMsgInfo::ext_in_msg_info;
-    compute_phase_cfg.ignore_chksig = external;
-    account.now_ = trans.now;
+    TRY_RESULT(emulated_trans, create_transaction(record_trans, &account, &storage_phase_cfg, &compute_phase_cfg, &action_phase_cfg));
 
-    auto res = create_ordinary_transaction(msg_root, &account, trans.now, lt,
-                                           &storage_phase_cfg, &compute_phase_cfg,
-                                           &action_phase_cfg,
-                                           external, lt);
-    if (res.is_error()) {
-      return res.move_as_error_prefix("cannot run message on account ");
+    if (td::Bits256(emulated_trans->root->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
+      return td::Status::Error("transaction hash mismatch");
     }
-    std::unique_ptr<block::transaction::Transaction> transaction = res.move_as_ok();
 
-    auto trans_root = transaction->commit(account);
+    auto trans_root = emulated_trans->commit(account);
     if (trans_root.is_null()) {
-      return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
+      return td::Status::Error("cannot commit new transaction for smart contract");
     }
 
-    if (!check_state_update(account, trans)) {
-      return td::Status::Error(PSLICE() << "account hash mismatch");
+    if (!check_state_update(account, record_trans)) {
+      return td::Status::Error("account hash mismatch");
     }
-
-    account.now_ = trans.now;
-    lt = transaction->start_lt;
   }
 
-  std::stringstream ss;
-  ss << account.get_balance().grams;
-  ss >> balance;
-
+  balance = account.get_balance().grams->to_long();
   storage_last_paid = std::move(account.last_paid);
   storage_stat = std::move(account.storage_stat);
   code = std::move(account.code);
   data = std::move(account.data);
   state = std::move(account.total_state);
-  frozen_hash = (char*)account.state_hash.data();
   last_trans_lt = account.last_trans_lt_;
   last_trans_hash = account.last_trans_hash_;
   gen_utime = account.now_;
+
+  if (account.status == block::Account::acc_frozen) {
+    frozen_hash = (char*)account.state_hash.data();
+  }
 
   return td::Status::OK();
 }
