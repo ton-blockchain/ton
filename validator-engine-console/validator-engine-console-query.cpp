@@ -1006,19 +1006,19 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
-td::Status GetPerfTimerStatsQuery::run() {
+td::Status GetPerfTimerStatsJsonQuery::run() {
   TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
-td::Status GetPerfTimerStatsQuery::send() {
+td::Status GetPerfTimerStatsJsonQuery::send() {
   auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfTimerStats>("");
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
 
-td::Status GetPerfTimerStatsQuery::receive(td::BufferSlice data) {
+td::Status GetPerfTimerStatsJsonQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfTimerStats>(data.as_slice(), true),
                     "received incorrect answer: ");
   std::ofstream sb(file_name_);
