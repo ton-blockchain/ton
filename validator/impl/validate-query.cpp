@@ -59,12 +59,15 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , prev_blocks(std::move(prev))
     , block_candidate(std::move(candidate))
     , validator_set_(std::move(validator_set))
-    , manager(std::move(manager))
+    , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(is_fake)
     , shard_pfx_(shard_.shard)
-    , shard_pfx_len_(ton::shard_prefix_length(shard_)) {
+    , shard_pfx_len_(ton::shard_prefix_length(shard_))
+    , perf_timer_("validateblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
+      }) {
   proc_hash_.zero();
 }
 

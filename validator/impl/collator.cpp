@@ -67,7 +67,10 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
-    , main_promise(std::move(promise)) {
+    , main_promise(std::move(promise))
+    , perf_timer_("collate", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
+      }) {
 }
 
 void Collator::start_up() {

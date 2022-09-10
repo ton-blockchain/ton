@@ -126,7 +126,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   td::BufferSlice top_block_descr_data_;
   Ref<ShardTopBlockDescription> top_block_descr_;
 
-  td::PerfWarningTimer perf_timer_{"acceptblock", 0.1};
+  td::PerfWarningTimer perf_timer_;
 
   bool fatal_error(std::string msg, int code = -666);
   static bool check_send_error(td::actor::ActorId<AcceptBlockQuery> SelfId, td::Status error);
