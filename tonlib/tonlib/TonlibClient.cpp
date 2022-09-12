@@ -5412,18 +5412,25 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt& request,
                         td::Promise<object_ptr<tonlib_api::blocks_transactionsExt>>&& promise) {
-  TRY_RESULT(block, to_lite_api(*request.id_))
+  TRY_RESULT(lite_block, to_lite_api(*request.id_))
   TRY_RESULT(account, to_bits256((*request.after_).account_, "account"));
   auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, (*request.after_).lt_);
   client_.send_query(ton::lite_api::liteServer_listBlockTransactionsExt(
-                       std::move(block),
-                       request.mode_,
-                       request.count_,
-                       std::move(after),
-                       false,
-                       false),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockTransactionsExt>&& bTxes) {
+                      std::move(lite_block),
+                      request.mode_ | ton::lite_api::liteServer_listBlockTransactionsExt::Flags::WANT_PROOF_MASK,
+                      request.count_,
+                      std::move(after),
+                      false,
+                      true),
+                     promise.wrap([block_id = ton::create_block_id(lite_block)](lite_api_ptr<ton::lite_api::liteServer_blockTransactionsExt>&& bTxes) -> td::Result<tonlib_api::object_ptr<tonlib_api::blocks_transactionsExt>> {
+                        auto state_hash = block::check_state_proof(block_id, bTxes->proof_);
+                        if (state_hash.is_error()) {
+                          return state_hash.move_as_error_prefix("Error checking state proof: ");
+                        }
                         const auto& id = bTxes->id_;
+                        if (block_id != create_block_id(id)) {
+                          return td::Status::Error("Liteserver responded with wrong block");
+                        }
                         tonlib_api::blocks_transactionsExt r;
                         r.id_ = to_tonlib_api(*id);
                         r.req_count_ = bTxes->req_count_;
@@ -5431,7 +5438,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt&
                         // bTxes->transactions to block::BlockTransactionList::Info
                         block::BlockTransactionList list;
                         list.blkid = create_block_id(id);
-                        list.transactions_boc = std::move(bTxes->transactions_->transactions_);
+                        list.transactions_boc = std::move(bTxes->transactions_);
                         auto info = list.validate();
                         if (info.is_error()) {
                           LOG(ERROR) << "info.is_error()";

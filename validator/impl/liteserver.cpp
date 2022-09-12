@@ -2048,11 +2048,8 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
     return;
   }
   
-  std::vector<ton::tl_object_ptr<ton::lite_api::tonNode_blockIdExt>> blk_ids;
-  blk_ids.push_back(ton::create_tl_lite_block_id(base_blk_id_));
-  auto transaction_list = create_tl_object<ton::lite_api::liteServer_transactionList>(std::move(blk_ids), res.move_as_ok());
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockTransactionsExt>(
-      ton::create_tl_lite_block_id(base_blk_id_), req_count, !eof, std::move(transaction_list), std::move(proof_data));
+      ton::create_tl_lite_block_id(base_blk_id_), req_count, !eof, res.move_as_ok(), std::move(proof_data));
   LOG(INFO) << "listBlockTransactionsExt() query completed";
   finish_query(std::move(b));
 }
