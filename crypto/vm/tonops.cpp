@@ -989,10 +989,13 @@ int exec_send_message(VmState* st) {
   }
 
   Ref<CellSlice> my_addr = get_param(st, 8).as_slice();
+  if (my_addr.is_null()) {
+    throw VmError{Excno::type_chk, "invalid param MYADDR"};
+  }
   bool ihr_disabled;
   Ref<CellSlice> dest;
-  Ref<vm::Cell> extra;
   td::RefInt256 value;
+  bool have_extra_currencies = false;
   bool ext_msg = msg.info->prefetch_ulong(1);
   if (ext_msg) { // External message
     block::gen::CommonMsgInfoRelaxed::Record_ext_out_msg_info info;
@@ -1002,7 +1005,6 @@ int exec_send_message(VmState* st) {
     ihr_disabled = true;
     dest = std::move(info.dest);
     value = td::zero_refint();
-    extra = {};
   } else { // Internal message
     block::gen::CommonMsgInfoRelaxed::Record_int_msg_info info;
     if (!tlb::csr_unpack(msg.info, info)) {
@@ -1010,9 +1012,11 @@ int exec_send_message(VmState* st) {
     }
     ihr_disabled = info.ihr_disabled;
     dest = std::move(info.dest);
+    Ref<vm::Cell> extra;
     if (!block::tlb::t_CurrencyCollection.unpack_special(info.value.write(), value, extra)) {
       throw VmError{Excno::unknown, "invalid message"};
     }
+    have_extra_currencies = !extra.is_null();
   }
 
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
@@ -1034,10 +1038,25 @@ int exec_send_message(VmState* st) {
   if (!ext_msg) {
     if (mode & 128) {  // value is balance of the contract
       Ref<Tuple> balance = get_param(st, 7).as_tuple();
+      if (balance.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param BALANCE"};
+      }
       value = tuple_index(balance, 0).as_int();
+      if (value.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param BALANCE"};
+      }
+      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
     } else if (mode & 64) {  // value += value of incoming message
       Ref<Tuple> balance = get_param(st, 11).as_tuple();
-      value += tuple_index(balance, 0).as_int();
+      if (balance.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param INCOMINGVALUE"};
+      }
+      td::RefInt256 balance_grams = tuple_index(balance, 0).as_int();
+      if (balance_grams.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param INCOMINGVALUE"};
+      }
+      value += balance_grams;
+      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
     }
   }
 
@@ -1093,14 +1112,30 @@ int exec_send_message(VmState* st) {
     bits += (body_ref ? 0 : msg.body->size() - 1);
     return bits;
   };
+  auto msg_root_refs = [&]() -> unsigned {
+    unsigned refs;
+    // CommonMsgInfo
+    if (ext_msg) {
+      refs = 0;
+    } else {
+      refs = have_extra_currencies;
+    }
+    // init
+    if (have_init) {
+      refs += (init_ref ? 1 : msg.init->size_refs());
+    }
+    // body
+    refs += (body_ref ? 1 : msg.body->size_refs());
+    return refs;
+  };
 
-  if (have_init && !init_ref && msg_root_bits() > Cell::max_bits) {
+  if (have_init && !init_ref && (msg_root_bits() > Cell::max_bits || msg_root_refs() > Cell::max_refs)) {
     init_ref = true;
     cells += 1;
     bits += msg.init->size() - 2;
     compute_fees();
   }
-  if (!body_ref && msg_root_bits() > Cell::max_bits) {
+  if (!body_ref && (msg_root_bits() > Cell::max_bits || msg_root_refs() > Cell::max_refs)) {
     body_ref = true;
     cells += 1;
     bits += msg.body->size() - 1;
