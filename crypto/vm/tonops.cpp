@@ -995,6 +995,7 @@ int exec_send_message(VmState* st) {
   bool ihr_disabled;
   Ref<CellSlice> dest;
   td::RefInt256 value;
+  td::RefInt256 user_fwd_fee, user_ihr_fee;
   bool have_extra_currencies = false;
   bool ext_msg = msg.info->prefetch_ulong(1);
   if (ext_msg) { // External message
@@ -1004,7 +1005,7 @@ int exec_send_message(VmState* st) {
     }
     ihr_disabled = true;
     dest = std::move(info.dest);
-    value = td::zero_refint();
+    value = user_fwd_fee = user_ihr_fee = td::zero_refint();
   } else { // Internal message
     block::gen::CommonMsgInfoRelaxed::Record_int_msg_info info;
     if (!tlb::csr_unpack(msg.info, info)) {
@@ -1017,6 +1018,8 @@ int exec_send_message(VmState* st) {
       throw VmError{Excno::unknown, "invalid message"};
     }
     have_extra_currencies = !extra.is_null();
+    user_fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
+    user_ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
   }
 
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
@@ -1064,30 +1067,33 @@ int exec_send_message(VmState* st) {
   bool init_ref = have_init && msg.init->bit_at(1);
   bool body_ref = msg.body->bit_at(0);
 
-  td::uint64 fwd_fees, ihr_fees;
+  td::RefInt256 fwd_fee, ihr_fee;
   td::uint64 cells = stat.cells;
   td::uint64 bits = stat.bits;
   auto compute_fees = [&]() {
-    fwd_fees = prices.lump_price + td::uint128(prices.bit_price)
-                                       .mult(bits)
-                                       .add(td::uint128(prices.cell_price).mult(cells))
-                                       .add(td::uint128(0xffffu))
-                                       .shr(16)
-                                       .lo();
+    td::uint64 fwd_fee_short = prices.lump_price + td::uint128(prices.bit_price)
+                                                 .mult(bits)
+                                                 .add(td::uint128(prices.cell_price).mult(cells))
+                                                 .add(td::uint128(0xffffu))
+                                                 .shr(16)
+                                                 .lo();
+    td::uint64 ihr_fee_short;
     if (ihr_disabled) {
-      ihr_fees = 0;
+      ihr_fee_short = 0;
     } else {
-      ihr_fees = td::uint128(fwd_fees).mult(prices.ihr_price_factor).shr(16).lo();
+      ihr_fee_short = td::uint128(fwd_fee_short).mult(prices.ihr_price_factor).shr(16).lo();
+    }
+    fwd_fee = td::RefInt256{true, fwd_fee_short};
+    ihr_fee = td::RefInt256{true, ihr_fee_short};
+    fwd_fee = std::max(fwd_fee, user_fwd_fee);
+    if (!ihr_disabled) {
+      ihr_fee = std::max(ihr_fee, user_ihr_fee);
     }
   };
   compute_fees();
 
   auto stored_grams_len = [](td::RefInt256 const& x) -> unsigned {
     unsigned bits = x->bit_size(false);
-    return 4 + ((bits + 7) & ~7);
-  };
-  auto stored_grams_len_short = [](td::uint64 x) -> unsigned {
-    unsigned bits = 64 - td::count_leading_zeroes64(x);
     return 4 + ((bits + 7) & ~7);
   };
 
@@ -1098,9 +1104,9 @@ int exec_send_message(VmState* st) {
       bits = 2 + my_addr->size() + dest->size() + 32 + 64;
     } else {
       bits = 4 + my_addr->size() + dest->size() + stored_grams_len(value) + 1 + 32 + 64;
-      td::uint64 fwd_fees_first = td::uint128(fwd_fees).mult(prices.first_frac).shr(16).lo();
-      bits += stored_grams_len_short(fwd_fees - fwd_fees_first);
-      bits += stored_grams_len_short(ihr_fees);
+      td::RefInt256 fwd_fee_first = (fwd_fee * prices.first_frac) >> 16;
+      bits += stored_grams_len(fwd_fee - fwd_fee_first);
+      bits += stored_grams_len(ihr_fee);
     }
     // init
     bits++;
@@ -1141,7 +1147,7 @@ int exec_send_message(VmState* st) {
     bits += msg.body->size() - 1;
     compute_fees();
   }
-  stack.push_smallint(fwd_fees + ihr_fees);
+  stack.push_int(fwd_fee + ihr_fee);
 
   if (send) {
     CellBuilder cb;
