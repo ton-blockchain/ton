@@ -90,12 +90,12 @@ void OverlayManager::delete_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdSho
 }
 
 void OverlayManager::create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                           std::unique_ptr<Callback> callback, OverlayPrivacyRules rules) {
+                                           std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) {
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id,
                    Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                   std::move(callback), std::move(rules)));
+                                   std::move(callback), std::move(rules), scope));
 }
 
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -128,6 +128,7 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
     return;
   }
 
+  td::actor::send_closure(it2->second, &Overlay::update_throughput_in_ctr, src, (td::uint32)data.size(), false);
   td::actor::send_closure(it2->second, &Overlay::receive_message, src, std::move(data));
 }
 
@@ -152,12 +153,12 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
   }
   auto it2 = it->second.find(OverlayIdShort{M->overlay_});
   if (it2 == it->second.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << M->overlay_ << "@" << dst << " from "
-                         << src;
+    VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << M->overlay_ << "@" << dst << " from " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << M->overlay_));
     return;
   }
 
+  td::actor::send_closure(it2->second, &Overlay::update_throughput_in_ctr, src, (td::uint32)data.size(), true);
   td::actor::send_closure(it2->second, &Overlay::receive_query, src, std::move(data), std::move(promise));
 }
 
@@ -166,6 +167,15 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
                                     td::BufferSlice query, td::uint64 max_answer_size,
                                     td::actor::ActorId<adnl::AdnlSenderInterface> via) {
   CHECK(query.size() <= adnl::Adnl::huge_packet_max_size());
+  
+  auto it = overlays_.find(src);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second, &Overlay::update_throughput_out_ctr, dst, (td::uint32)query.size(), true);
+    }
+  }
+  
   td::actor::send_closure(
       via, &adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name), std::move(promise), timeout,
       create_serialize_tl_object_suffix<ton_api::overlay_query>(query.as_slice(), overlay_id.tl()), max_answer_size);
@@ -174,6 +184,15 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
 void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                                       td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) {
   CHECK(object.size() <= adnl::Adnl::huge_packet_max_size());
+  
+  auto it = overlays_.find(src);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second, &Overlay::update_throughput_out_ctr, dst, (td::uint32)object.size(), false);
+    }
+  }
+  
   td::actor::send_closure(
       via, &adnl::AdnlSenderInterface::send_message, src, dst,
       create_serialize_tl_object_suffix<ton_api::overlay_message>(object.as_slice(), overlay_id.tl()));

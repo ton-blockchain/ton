@@ -1073,7 +1073,8 @@ void TcpToRldpRequestSender::resolve() {
     ton::dht::DhtKey dht_key{key.compute_short_id(), "http." + host_, 0};
     td::actor::send_closure(dht_, &ton::dht::Dht::get_value, std::move(dht_key), std::move(P));
   } else {
-    auto obj = tonlib_api::make_object<tonlib_api::dns_resolve>(nullptr, host_, 0, 16);
+    td::Bits256 category = td::sha256_bits256(td::Slice("site", 4));
+    auto obj = tonlib_api::make_object<tonlib_api::dns_resolve>(nullptr, host_, category, 16);
 
     auto P =
         td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) {

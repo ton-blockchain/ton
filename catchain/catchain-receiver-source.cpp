@@ -24,10 +24,10 @@ namespace ton {
 namespace catchain {
 
 td::uint32 CatChainReceiverSourceImpl::add_fork() {
-  if (fork_ids_.size() > 0) {
+  if (!fork_ids_.empty()) {
     blame();
   }
-  auto F = chain_->add_fork();
+  td::uint32 F = chain_->add_fork();
   CHECK(F > 0);
 
   fork_ids_.push_back(F);
@@ -60,7 +60,7 @@ td::Result<std::unique_ptr<CatChainReceiverSource>> CatChainReceiverSource::crea
 
 void CatChainReceiverSourceImpl::blame(td::uint32 fork, CatChainBlockHeight height) {
   blame();
-  if (blamed_heights_.size() > 0) {
+  if (!blamed_heights_.empty()) {
     if (blamed_heights_.size() <= fork) {
       blamed_heights_.resize(fork + 1, 0);
     }
@@ -130,19 +130,6 @@ void CatChainReceiverSourceImpl::block_delivered(CatChainBlockHeight height) {
   }
 }
 
-td::Status CatChainReceiverSourceImpl::validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) {
-  auto S = std::move(dep->signature_);
-  auto str = serialize_tl_object(dep, true);
-  dep->signature_ = std::move(S);
-
-  auto R = encryptor_sync_->check_signature(str.as_slice(), dep->signature_.as_slice());
-  if (R.is_error()) {
-    return R.move_as_error();
-  }
-
-  return td::Status::OK();
-}
-
 void CatChainReceiverSourceImpl::on_new_block(CatChainReceivedBlock *block) {
   if (fork_is_found()) {
     return;
@@ -165,7 +152,7 @@ void CatChainReceiverSourceImpl::on_new_block(CatChainReceivedBlock *block) {
   blocks_[block->get_height()] = block;
 }
 
-void CatChainReceiverSourceImpl::on_found_fork_proof(td::Slice proof) {
+void CatChainReceiverSourceImpl::on_found_fork_proof(const td::Slice &proof) {
   if (!fork_is_found()) {
     fetch_tl_object<ton_api::catchain_block_data_fork>(proof, true).ensure();
     fork_proof_ = td::SharedSlice{proof};

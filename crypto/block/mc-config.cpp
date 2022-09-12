@@ -310,32 +310,52 @@ td::Status Config::visit_validator_params() const {
 ton::ValidatorSessionConfig Config::get_consensus_config() const {
   auto cc = get_config_param(29);
   ton::ValidatorSessionConfig c;
-  auto set = [&c](auto& r) {
-    c.catchain_idle_timeout = r.consensus_timeout_ms * 0.001;
-    c.catchain_max_deps = r.catchain_max_deps;
+  auto set_v1 = [&](auto& r) {
+    c.catchain_opts.idle_timeout = r.consensus_timeout_ms * 0.001;
+    c.catchain_opts.max_deps = r.catchain_max_deps;
     c.round_candidates = r.round_candidates;
     c.next_candidate_delay = r.next_candidate_delay_ms * 0.001;
     c.round_attempt_duration = r.attempt_duration;
     c.max_round_attempts = r.fast_attempts;
     c.max_block_size = r.max_block_bytes;
     c.max_collated_data_size = r.max_collated_bytes;
-    return true;
   };
-  auto set_new_cc_ids = [&c] (auto& r) {
+  auto set_v2 = [&] (auto& r) {
+    set_v1(r);
     c.new_catchain_ids = r.new_catchain_ids;
-    return true;
   };
-  auto set_proto = [&c](auto& r) {
+  auto set_v3 = [&](auto& r) {
+    set_v2(r);
     c.proto_version = r.proto_version;
-    return true;
+  };
+  auto set_v4 = [&](auto& r) {
+    set_v3(r);
+    td::uint64 max_blocks_coeff = r.catchain_max_blocks_coeff;
+    if (max_blocks_coeff == 0) {
+      c.catchain_opts.max_block_height_coeff = 0;
+    } else {
+      auto catchain_config = get_catchain_validators_config();
+      td::uint64 catchain_lifetime = std::max(catchain_config.mc_cc_lifetime, catchain_config.shard_cc_lifetime);
+      c.catchain_opts.max_block_height_coeff = catchain_lifetime * max_blocks_coeff;
+    }
   };
   if (cc.not_null()) {
-    block::gen::ConsensusConfig::Record_consensus_config_v3 r2;
-    block::gen::ConsensusConfig::Record_consensus_config_new r1;
-    block::gen::ConsensusConfig::Record_consensus_config r0;
-    (tlb::unpack_cell(cc, r2) && set(r2) && set_new_cc_ids(r2) && set_proto(r2)) ||
-    (tlb::unpack_cell(cc, r1) && set(r1) && set_new_cc_ids(r1)) ||
-    (tlb::unpack_cell(cc, r0) && set(r0));
+    block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
+    block::gen::ConsensusConfig::Record_consensus_config_v3 r3;
+    block::gen::ConsensusConfig::Record_consensus_config_new r2;
+    block::gen::ConsensusConfig::Record_consensus_config r1;
+    if (tlb::unpack_cell(cc, r4)) {
+      set_v4(r4);
+    } else if (tlb::unpack_cell(cc, r3)) {
+      set_v3(r3);
+    } else if (tlb::unpack_cell(cc, r2)) {
+      set_v2(r2);
+    } else if (tlb::unpack_cell(cc, r1)) {
+      set_v1(r1);
+    }
+  }
+  if (c.proto_version >= ton::ValidatorSessionConfig::BLOCK_HASH_COVERS_DATA_FROM_VERSION) {
+    c.catchain_opts.block_hash_covers_data = true;
   }
   return c;
 }

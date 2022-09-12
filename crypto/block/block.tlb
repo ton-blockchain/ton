@@ -703,6 +703,13 @@ consensus_config_v3#d8 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
   max_block_bytes:uint32 max_collated_bytes:uint32 
   proto_version:uint16 = ConsensusConfig;
 
+consensus_config_v4#d9 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
+  round_candidates:(## 8) { round_candidates >= 1 }
+  next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
+  fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
+  max_block_bytes:uint32 max_collated_bytes:uint32
+  proto_version:uint16 catchain_max_blocks_coeff:uint32 = ConsensusConfig;
+
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
 
@@ -807,7 +814,7 @@ vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
 //
 //  DNS RECORDS
 //
-_ (HashmapE 16 ^DNSRecord) = DNS_RecordSet;
+_ (HashmapE 256 ^DNSRecord) = DNS_RecordSet;
 
 chunk_ref$_ {n:#} ref:^(TextChunks (n + 1)) = TextChunkRef (n + 1);
 chunk_ref_empty$_ = TextChunkRef 0;

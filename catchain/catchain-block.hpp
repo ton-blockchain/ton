@@ -103,8 +103,8 @@ class CatChainBlockImpl : public CatChainBlock {
 
   bool is_descendant_of(CatChainBlock *block) override;
 
-  CatChainBlockImpl(td::uint32 src, td::uint32 fork, PublicKeyHash src_hash, CatChainBlockHeight height,
-                    CatChainBlockHash hash, td::SharedSlice payload, CatChainBlock *prev,
+  CatChainBlockImpl(td::uint32 src, td::uint32 fork, const PublicKeyHash &src_hash, CatChainBlockHeight height,
+                    const CatChainBlockHash &hash, td::SharedSlice payload, CatChainBlock *prev,
                     std::vector<CatChainBlock *> deps, std::vector<CatChainBlockHeight> vt);
 };
 

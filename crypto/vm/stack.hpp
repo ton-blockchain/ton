@@ -320,7 +320,7 @@ class Stack : public td::CntObject {
   Stack(const Stack& old_stack, unsigned copy_elem, unsigned skip_top);
   Stack(Stack&& old_stack, unsigned copy_elem, unsigned skip_top);
   td::CntObject* make_copy() const override {
-    std::cerr << "copy stack at " << (const void*)this << " (" << depth() << " entries)\n";
+    //std::cerr << "copy stack at " << (const void*)this << " (" << depth() << " entries)\n";
     return new Stack{stack};
   }
   void push_from_stack(const Stack& old_stack, unsigned copy_elem, unsigned skip_top = 0);

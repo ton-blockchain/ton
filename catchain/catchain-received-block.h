@@ -30,7 +30,6 @@ namespace catchain {
 
 class CatChainReceiver;
 class CatChainReceiverSource;
-class CatChainReceiverFork;
 
 class CatChainReceivedBlock {
  public:
@@ -43,7 +42,7 @@ class CatChainReceivedBlock {
   virtual CatChainReceivedBlock *get_prev() const = 0;
   virtual CatChainBlockHash get_prev_hash() const = 0;
 
-  virtual const std::vector<CatChainBlockHeight> &get_deps() const = 0;
+  virtual const std::vector<CatChainBlockHeight> &get_vt() const = 0;
   virtual std::vector<CatChainBlockHash> get_dep_hashes() const = 0;
 
   virtual CatChainReceiver *get_chain() const = 0;
@@ -55,6 +54,8 @@ class CatChainReceivedBlock {
   virtual tl_object_ptr<ton_api::catchain_block_dep> export_tl_dep() const = 0;
 
   virtual void find_pending_deps(std::vector<CatChainBlockHash> &vec, td::uint32 max_size) const = 0;
+
+  virtual bool has_rev_deps() const = 0;
 
  public:
   // state
@@ -76,20 +77,28 @@ class CatChainReceivedBlock {
                                                        td::SharedSlice payload, CatChainReceiver *chain);
   static std::unique_ptr<CatChainReceivedBlock> create(tl_object_ptr<ton_api::catchain_block_dep> block,
                                                        CatChainReceiver *chain);
-  static std::unique_ptr<CatChainReceivedBlock> create_root(td::uint32 source_id, CatChainBlockPayloadHash data_hash,
+  static std::unique_ptr<CatChainReceivedBlock> create_root(td::uint32 source_id, CatChainSessionId session_id,
                                                             CatChainReceiver *chain);
 
-  static tl_object_ptr<ton_api::catchain_block_id> block_id(CatChainReceiver *chain,
-                                                            tl_object_ptr<ton_api::catchain_block> &block,
-                                                            td::Slice payload);
-  static tl_object_ptr<ton_api::catchain_block_id> block_id(CatChainReceiver *chain,
-                                                            tl_object_ptr<ton_api::catchain_block_dep> &block);
-  static CatChainBlockHash block_hash(CatChainReceiver *chain, tl_object_ptr<ton_api::catchain_block> &block,
-                                      td::Slice payload);
-  static CatChainBlockHash block_hash(CatChainReceiver *chain, tl_object_ptr<ton_api::catchain_block_dep> &block);
-  static td::Status pre_validate_block(CatChainReceiver *chain, tl_object_ptr<ton_api::catchain_block> &block,
-                                       td::Slice payload);
-  static td::Status pre_validate_block(CatChainReceiver *chain, tl_object_ptr<ton_api::catchain_block_dep> &block);
+  static tl_object_ptr<ton_api::catchain_block_id> block_id(const CatChainReceiver *chain,
+                                                            const tl_object_ptr<ton_api::catchain_block> &block,
+                                                            const td::Slice &payload);
+  static tl_object_ptr<ton_api::catchain_block_id> block_id(const CatChainReceiver *chain,
+                                                            const tl_object_ptr<ton_api::catchain_block_dep> &block);
+  static CatChainBlockHash block_hash(const CatChainReceiver *chain,
+                                      const tl_object_ptr<ton_api::catchain_block> &block,
+                                      const td::Slice &payload);
+  static CatChainBlockHash block_hash(const CatChainReceiver *chain,
+                                      const tl_object_ptr<ton_api::catchain_block_dep> &block);
+  static td::Status pre_validate_block(const CatChainReceiver *chain,
+                                       const tl_object_ptr<ton_api::catchain_block> &block,
+                                       const td::Slice &payload);
+  static td::Status pre_validate_block(const CatChainReceiver *chain,
+                                       const tl_object_ptr<ton_api::catchain_block_dep> &block);
+  static CatChainBlockPayloadHash data_payload_hash(const CatChainReceiver *chain,
+                                                    const tl_object_ptr<ton_api::catchain_block_data> &data,
+                                                    const td::Slice &payload);
+
 
   virtual ~CatChainReceivedBlock() = default;
 };

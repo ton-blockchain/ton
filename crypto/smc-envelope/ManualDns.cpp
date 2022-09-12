@@ -146,24 +146,27 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
   return td::Status::Error("Unknown entry data");
 }
 
-SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::int16 category) {
+SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
+                                                   block::StdAddress address) {
   SmartContract::Args res;
   res.set_method_id("dnsresolve");
   res.set_stack(
-      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()), td::make_refint(category)});
+      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()),
+       td::bits_to_refint(category.cbits(), 256, false)});
+  res.set_address(std::move(address));
   return res;
 }
 
-td::Result<SmartContract::Args> DnsInterface::resolve_args(td::Slice name, td::int32 category_big) {
-  TRY_RESULT(category, td::narrow_cast_safe<td::int16>(category_big));
+td::Result<SmartContract::Args> DnsInterface::resolve_args(td::Slice name, td::Bits256 category,
+                                                           block::StdAddress address) {
   if (name.size() > get_default_max_name_size()) {
     return td::Status::Error("Name is too long");
   }
   auto encoded_name = encode_name(name);
-  return resolve_args_raw(encoded_name, category);
+  return resolve_args_raw(encoded_name, category, std::move(address));
 }
 
-td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice name, td::int32 category) const {
+td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice name, td::Bits256 category) const {
   TRY_RESULT(raw_entries, resolve_raw(name, category));
   std::vector<Entry> entries;
   entries.reserve(raw_entries.size());
@@ -171,10 +174,15 @@ td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice nam
     Entry entry;
     entry.name = std::move(raw_entry.name);
     entry.category = raw_entry.category;
-    auto cs = vm::load_cell_slice(raw_entry.data);
-    TRY_RESULT(data, EntryData::from_cellslice(cs));
-    entry.data = std::move(data);
-    entries.push_back(std::move(entry));
+    entry.partially_resolved = raw_entry.partially_resolved;
+    auto cs = *raw_entry.data;
+    auto data = EntryData::from_cellslice(cs);
+    if (data.is_error()) {
+      LOG(INFO) << "Failed to parse DNS entry: " << data.move_as_error();
+    } else {
+      entry.data = data.move_as_ok();
+      entries.push_back(std::move(entry));
+    }
   }
   return entries;
 }
@@ -188,9 +196,9 @@ td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice nam
     Inline [Name] structure: [UInt<6b>:length] [Bytes<lengthB>:data]
     Operations (continuation of message):
     00 Contract initialization message (only if seqno = 0) (x=-)
-	31 TSet: replace ENTIRE DOMAIN TABLE with the provided tree root cell (x=-)
+    31 TSet: replace ENTIRE DOMAIN TABLE with the provided tree root cell (x=-)
 		[Cell<1r>:new_domains_table]
-	51 OSet: replace owner public key with a new one (x=-)
+    51 OSet: replace owner public key with a new one (x=-)
 		[UInt<256b>:new_public_key]
 */
 // creation
@@ -233,37 +241,37 @@ td::Result<td::uint32> ManualDns::get_wallet_id_or_throw() const {
   return static_cast<td::uint32>(vm::load_cell_slice(state_.data).fetch_ulong(32));
 }
 
-td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::int16 category, td::Slice name,
+td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::Bits256 category, td::Slice name,
                                                                    td::Ref<vm::Cell> data) const {
   //11 VSet: set specified value to specified subdomain->category (x=2)
-  //[Int<16b>:category] [Name<?>:subdomain] [Cell<1r>:value]
+  //[Int<256b>:category] [Name<?>:subdomain] [Cell<1r>:value]
   vm::CellBuilder cb;
   cb.store_long(11, 6);
-  if (name.size() <= 58 - 2) {
-    cb.store_long(category, 16);
+  if (name.size() <= 58 - 32) {
+    cb.store_bytes(category.as_slice());
     cb.store_long(0, 1);
     cb.store_long(name.size(), 6);
     cb.store_bytes(name);
   } else {
-    cb.store_long(category, 16);
+    cb.store_bytes(category.as_slice());
     cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
   cb.store_maybe_ref(std::move(data));
   return cb.finalize();
 }
-td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_value_unsigned(td::int16 category, td::Slice name) const {
+td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_value_unsigned(td::Bits256 category, td::Slice name) const {
   //12 VDel: delete specified subdomain->category (x=2)
-  //[Int<16b>:category] [Name<?>:subdomain]
+  //[Int<256b>:category] [Name<?>:subdomain]
   vm::CellBuilder cb;
   cb.store_long(12, 6);
-  if (name.size() <= 58 - 2) {
-    cb.store_long(category, 16);
+  if (name.size() <= 58 - 32) {
+    cb.store_bytes(category.as_slice());
     cb.store_long(0, 1);
     cb.store_long(name.size(), 6);
     cb.store_bytes(name);
   } else {
-    cb.store_long(category, 16);
+    cb.store_bytes(category.as_slice());
     cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
@@ -295,10 +303,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
     if (o_dict.not_null()) {
       o_dict->prefetch_maybe_ref(dict_root);
     }
-    vm::Dictionary dict(dict_root, 16);
+    vm::Dictionary dict(dict_root, 256);
     if (!action.data.value().is_null()) {
-      auto key = dict.integer_key(td::make_refint(action.category), 16);
-      dict.set_ref(key.bits(), 16, action.data.value());
+      dict.set_ref(action.category.bits(), 256, action.data.value());
     }
     pdict.set(ptr, ptr_size, dict.get_root());
   }
@@ -340,14 +347,13 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_name_unsigned(td::Slice name
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
 
-  vm::Dictionary dict(16);
+  vm::Dictionary dict(256);
 
   for (auto& action : entries) {
     if (action.data.value().is_null()) {
       continue;
     }
-    auto key = dict.integer_key(td::make_refint(action.category), 16);
-    dict.set_ref(key.bits(), 16, action.data.value());
+    dict.set_ref(action.category.cbits(), 256, action.data.value());
   }
   cb.store_maybe_ref(dict.get_root_cell());
 
@@ -395,17 +401,16 @@ size_t ManualDns::get_max_name_size() const {
   return get_default_max_name_size();
 }
 
-td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw(td::Slice name, td::int32 category_big) const {
-  return TRY_VM(resolve_raw_or_throw(name, category_big));
+td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw(td::Slice name, td::Bits256 category) const {
+  return TRY_VM(resolve_raw_or_throw(name, category));
 }
 td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td::Slice name,
-                                                                             td::int32 category_big) const {
-  TRY_RESULT(category, td::narrow_cast_safe<td::int16>(category_big));
+                                                                             td::Bits256 category) const {
   if (name.size() > get_max_name_size()) {
     return td::Status::Error("Name is too long");
   }
   auto encoded_name = encode_name(name);
-  auto res = run_get_method(resolve_args_raw(encoded_name, category));
+  auto res = run_get_method(resolve_args_raw(encoded_name, category, address_));
   if (!res.success) {
     return td::Status::Error("get method failed");
   }
@@ -419,19 +424,26 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
     return td::Status::Error("Prefix size is not divisible by 8");
   }
   prefix_size /= 8;
+  if (prefix_size == 0) {
+    return vec;
+  }
   if (prefix_size < encoded_name.size()) {
-    vec.push_back({decode_name(td::Slice(encoded_name).substr(0, prefix_size)), -1, data});
+    vec.push_back({decode_name(td::Slice(encoded_name).substr(0, prefix_size)), DNS_NEXT_RESOLVER_CATEGORY,
+                   vm::load_cell_slice_ref(data), true});
   } else {
-    if (category == 0) {
-      vm::Dictionary dict(std::move(data), 16);
-      dict.check_for_each([&](auto cs, auto x, auto y) {
-        td::BigInt256 cat;
-        cat.import_bits(x, y, true);
-        vec.push_back({name.str(), td::narrow_cast<td::int16>(cat.to_long()), cs->prefetch_ref()});
+    if (category.is_zero()) {
+      vm::Dictionary dict(std::move(data), 256);
+      dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
+        CHECK(n == 256);
+        if (cs.is_null() || cs->size_ext() != 0x10000) {
+          return true;
+        }
+        cs = vm::load_cell_slice_ref(cs->prefetch_ref());
+        vec.push_back({name.str(), td::Bits256(key), cs});
         return true;
       });
     } else {
-      vec.push_back({name.str(), category, data});
+      vec.push_back({name.str(), category, vm::load_cell_slice_ref(data)});
     }
   }
 
@@ -445,7 +457,7 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(CombinedActions<Act
     }
     return create_set_all_unsigned(combined.actions.value());
   }
-  if (combined.category == 0) {
+  if (combined.category.is_zero()) {
     if (!combined.actions) {
       return create_delete_name_unsigned(encode_name(combined.name));
     }
@@ -488,9 +500,13 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(td::Ed25519::Privat
 
 std::string DnsInterface::encode_name(td::Slice name) {
   std::string res;
+  if (name.empty() || name == ".") {
+    res += '\0';
+    return res;
+  }
   while (!name.empty()) {
     auto pos = name.rfind('.');
-    if (pos == name.npos) {
+    if (pos == td::Slice::npos) {
       res += name.str();
       name = td::Slice();
     } else {
@@ -504,20 +520,15 @@ std::string DnsInterface::encode_name(td::Slice name) {
 
 std::string DnsInterface::decode_name(td::Slice name) {
   std::string res;
-  if (!name.empty() && name.back() == 0) {
-    name.remove_suffix(1);
-  }
   while (!name.empty()) {
     auto pos = name.rfind('\0');
-    if (!res.empty()) {
-      res += '.';
-    }
-    if (pos == name.npos) {
+    if (pos == td::Slice::npos) {
       res += name.str();
       name = td::Slice();
     } else {
       res += name.substr(pos + 1).str();
       name.truncate(pos);
+      res += '.';
     }
   }
   return res;
@@ -570,17 +581,16 @@ td::Result<ManualDns::ActionExt> ManualDns::parse_line(td::Slice cmd) {
   if (type == "set") {
     auto name = parser.read_word();
     auto category_str = parser.read_word();
-    TRY_RESULT(category, td::to_integer_safe<td::int16>(category_str));
     TRY_RESULT(data, parse_data(parser.read_all()));
-    return ManualDns::ActionExt{name.str(), category, std::move(data)};
+    return ManualDns::ActionExt{name.str(), td::sha256_bits256(td::as_slice(category_str)), std::move(data)};
   } else if (type == "delete.name") {
     auto name = parser.read_word();
     if (name.empty()) {
       return td::Status::Error("name is empty");
     }
-    return ManualDns::ActionExt{name.str(), 0, {}};
+    return ManualDns::ActionExt{name.str(), td::Bits256::zero(), {}};
   } else if (type == "delete.all") {
-    return ManualDns::ActionExt{"", 0, {}};
+    return ManualDns::ActionExt{"", td::Bits256::zero(), {}};
   }
   return td::Status::Error(PSLICE() << "Unknown command: " << type);
 }

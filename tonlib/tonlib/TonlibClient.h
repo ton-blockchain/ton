@@ -224,7 +224,7 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(tonlib_api::options_setConfig& request,
                         td::Promise<object_ptr<tonlib_api::options_configInfo>>&& promise);
 
-  td::Status do_request(const tonlib_api::raw_sendMessage& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
+  td::Status do_request(const tonlib_api::raw_sendMessage& request, td::Promise<object_ptr<tonlib_api::raw_extMessageInfo>>&& promise);
   td::Status do_request(const tonlib_api::raw_createAndSendMessage& request,
                         td::Promise<object_ptr<tonlib_api::ok>>&& promise);
   td::Status do_request(const tonlib_api::raw_createQuery& request,
@@ -325,14 +325,15 @@ class TonlibClient : public td::actor::Actor {
   void perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,
                              td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise);
 
-  void do_dns_request(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
+  void do_dns_request(std::string name, td::Bits256 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
                       block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
   struct DnsFinishData {
     ton::BlockIdExt block_id;
     ton::SmartContract::State smc_state;
   };
-  void finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
-                          DnsFinishData dns_finish_data, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
+  void finish_dns_resolve(std::string name, td::Bits256 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
+                          block::StdAddress address, DnsFinishData dns_finish_data,
+                          td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
   td::Status do_request(int_api::GetAccountState request, td::Promise<td::unique_ptr<AccountState>>&&);
   td::Status do_request(int_api::GetPrivateKey request, td::Promise<KeyStorage::PrivateKey>&&);

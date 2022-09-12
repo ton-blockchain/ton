@@ -109,13 +109,14 @@ class ValidatorSessionImpl : public ValidatorSession {
       void preprocess_block(catchain::CatChainBlock *block) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::preprocess_block, block);
       }
-      void process_broadcast(PublicKeyHash src, td::BufferSlice data) override {
+      void process_broadcast(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_broadcast, src, std::move(data));
       }
-      void process_message(PublicKeyHash src, td::BufferSlice data) override {
+      void process_message(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_message, src, std::move(data));
       }
-      void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+      void process_query(const PublicKeyHash &src, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_query, src, std::move(data), std::move(promise));
       }
       void started() override {
@@ -195,6 +196,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   PrintId print_id() const override {
     return PrintId{unique_hash_, description_->get_source_id(description_->get_self_idx())};
   }
+
+ private:
+  static const size_t MAX_REJECT_REASON_SIZE = 1024;
 };
 
 }  // namespace validatorsession

@@ -67,11 +67,11 @@ class CatChainImpl : public CatChain {
     CatChainSessionId unique_hash;
 
     Args(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-         td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids, PublicKeyHash local_id,
-         CatChainSessionId unique_hash)
-        : keyring(keyring)
-        , adnl(adnl)
-        , overlay_manager(overlay_manager)
+         td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
+         const PublicKeyHash &local_id, const CatChainSessionId &unique_hash)
+        : keyring(std::move(keyring))
+        , adnl(std::move(adnl))
+        , overlay_manager(std::move(overlay_manager))
         , ids(std::move(ids))
         , local_id(local_id)
         , unique_hash(unique_hash) {
@@ -88,9 +88,8 @@ class CatChainImpl : public CatChain {
                     CatChainBlockHash prev, std::vector<CatChainBlockHash> deps, std::vector<CatChainBlockHeight> vt,
                     td::SharedSlice data);
   void on_blame(td::uint32 src_id);
-  void on_custom_message(PublicKeyHash src, td::BufferSlice data);
-  void on_custom_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
-  void on_broadcast(PublicKeyHash src, td::BufferSlice data);
+  void on_custom_query(const PublicKeyHash &src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
+  void on_broadcast(const PublicKeyHash &src, td::BufferSlice data);
   void on_receiver_started();
   void processed_block(td::BufferSlice payload) override;
   void need_new_block(td::Timestamp t) override;
@@ -102,25 +101,26 @@ class CatChainImpl : public CatChain {
   void send_broadcast(td::BufferSlice data) override {
     td::actor::send_closure(receiver_, &CatChainReceiverInterface::send_fec_broadcast, std::move(data));
   }
-  void send_message(PublicKeyHash dst, td::BufferSlice data) override {
+  void send_message(const PublicKeyHash &dst, td::BufferSlice data) override {
     td::actor::send_closure(receiver_, &CatChainReceiverInterface::send_custom_message_data, dst, std::move(data));
   }
-  void send_query(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                  td::BufferSlice query) override {
+  void send_query(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
+                  td::Timestamp timeout, td::BufferSlice query) override {
     td::actor::send_closure(receiver_, &CatChainReceiverInterface::send_custom_query_data, dst, name,
                             std::move(promise), timeout, std::move(query));
   }
-  void send_query_via(PublicKeyHash dst, std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                      td::BufferSlice query, td::uint64 max_answer_size,
+  void send_query_via(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
+                      td::Timestamp timeout, td::BufferSlice query, td::uint64 max_answer_size,
                       td::actor::ActorId<adnl::AdnlSenderInterface> via) override {
     td::actor::send_closure(receiver_, &CatChainReceiverInterface::send_custom_query_data_via, dst, name,
                             std::move(promise), timeout, std::move(query), max_answer_size, via);
   }
   void destroy() override;
-  CatChainImpl(std::unique_ptr<Callback> callback, CatChainOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
-               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
-               std::vector<CatChainNode> ids, PublicKeyHash local_id, CatChainSessionId unique_hash,
-               std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
+  CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
+               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+               td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
+               const PublicKeyHash &local_id, const CatChainSessionId &unique_hash, std::string db_root,
+               std::string db_suffix, bool allow_unsafe_self_blocks_resync);
 
   void alarm() override;
   void start_up() override;

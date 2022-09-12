@@ -810,7 +810,7 @@ class MapDns {
   using ManualDns = ton::ManualDns;
   struct Entry {
     std::string name;
-    td::int16 category{0};
+    td::Bits256 category = td::Bits256::zero();
     std::string text;
 
     auto key() const {
@@ -827,34 +827,34 @@ class MapDns {
       return key() == other.key() && text == other.text;
     }
     friend td::StringBuilder& operator<<(td::StringBuilder& sb, const Entry& entry) {
-      return sb << "[" << entry.name << ":" << entry.category << ":" << entry.text << "]";
+      return sb << "[" << entry.name << ":" << entry.category.to_hex() << ":" << entry.text << "]";
     }
   };
   struct Action {
     std::string name;
-    td::int16 category{0};
+    td::Bits256 category = td::Bits256::zero();
     td::optional<std::string> text;
 
     bool does_create_category() const {
       CHECK(!name.empty());
-      CHECK(category != 0);
+      CHECK(!category.is_zero());
       return static_cast<bool>(text);
     }
     bool does_change_empty() const {
       CHECK(!name.empty());
-      CHECK(category != 0);
+      CHECK(!category.is_zero());
       return static_cast<bool>(text) && !text.value().empty();
     }
     void make_non_empty() {
       CHECK(!name.empty());
-      CHECK(category != 0);
+      CHECK(!category.is_zero());
       if (!text) {
         text = "";
       }
     }
     friend td::StringBuilder& operator<<(td::StringBuilder& sb, const Action& entry) {
-      return sb << "[" << entry.name << ":" << entry.category << ":" << (entry.text ? entry.text.value() : "<empty>")
-                << "]";
+      return sb << "[" << entry.name << ":" << entry.category.to_hex() << ":"
+                << (entry.text ? entry.text.value() : "<empty>") << "]";
     }
   };
   void update(td::Span<Action> actions) {
@@ -868,7 +868,7 @@ class MapDns {
     LOG(ERROR) << td::format::as_array(actions);
     auto combined_actions = ton::ManualDns::combine_actions(actions);
     for (auto& c : combined_actions) {
-      LOG(ERROR) << c.name << ":" << c.category;
+      LOG(ERROR) << c.name << ":" << c.category.to_hex();
       if (c.actions) {
         LOG(ERROR) << td::format::as_array(c.actions.value());
       }
@@ -879,7 +879,7 @@ class MapDns {
     }
   }
 
-  std::vector<Entry> resolve(td::Slice name, td::int16 category) {
+  std::vector<Entry> resolve(td::Slice name, td::Bits256 category) {
     std::vector<Entry> res;
     if (name.empty()) {
       for (auto& a : entries_) {
@@ -891,7 +891,7 @@ class MapDns {
       auto it = entries_.find(name);
       while (it == entries_.end()) {
         auto sz = name.find('.');
-        category = -1;
+        category = ton::DNS_NEXT_RESOLVER_CATEGORY;
         if (sz != td::Slice::npos) {
           name = name.substr(sz + 1);
         } else {
@@ -901,7 +901,7 @@ class MapDns {
       }
       if (it != entries_.end()) {
         for (auto& b : it->second) {
-          if (category == 0 || category == b.first) {
+          if (category.is_zero() || category == b.first) {
             res.push_back({name.str(), b.first, b.second});
           }
         }
@@ -913,13 +913,13 @@ class MapDns {
   }
 
  private:
-  std::map<std::string, std::map<td::int16, std::string>, std::less<>> entries_;
+  std::map<std::string, std::map<td::Bits256, std::string>, std::less<>> entries_;
   void do_update(const Action& action) {
     if (action.name.empty()) {
       entries_.clear();
       return;
     }
-    if (action.category == 0) {
+    if (action.category.is_zero()) {
       entries_.erase(action.name);
       return;
     }
@@ -946,7 +946,7 @@ class MapDns {
       }
       for (auto& action : actions.actions.value()) {
         CHECK(!action.name.empty());
-        CHECK(action.category != 0);
+        CHECK(!action.category.is_zero());
         CHECK(action.text);
         if (action.text.value().empty()) {
           entries_[action.name];
@@ -956,7 +956,7 @@ class MapDns {
       }
       return;
     }
-    if (actions.category == 0) {
+    if (!actions.category.is_zero()) {
       entries_.erase(actions.name);
       LOG(ERROR) << "CLEAR " << actions.name;
       if (!actions.actions) {
@@ -965,7 +965,7 @@ class MapDns {
       entries_[actions.name];
       for (auto& action : actions.actions.value()) {
         CHECK(action.name == actions.name);
-        CHECK(action.category != 0);
+        CHECK(!action.category.is_zero());
         CHECK(action.text);
         if (action.text.value().empty()) {
           entries_[action.name];
@@ -979,7 +979,7 @@ class MapDns {
     CHECK(actions.actions.value().size() == 1);
     for (auto& action : actions.actions.value()) {
       CHECK(action.name == actions.name);
-      CHECK(action.category != 0);
+      CHECK(!action.category.is_zero());
       if (action.text) {
         if (action.text.value().empty()) {
           entries_[action.name].erase(action.category);
@@ -1036,8 +1036,8 @@ class CheckedDns {
     return update(td::span_one(action));
   }
 
-  std::vector<Entry> resolve(td::Slice name, td::int16 category) {
-    LOG(ERROR) << "RESOLVE: " << name << " " << category;
+  std::vector<Entry> resolve(td::Slice name, td::Bits256 category) {
+    LOG(ERROR) << "RESOLVE: " << name << " " << category.to_hex();
     auto res = map_dns_.resolve(name, category);
     LOG(ERROR) << td::format::as_array(res);
 
@@ -1092,6 +1092,12 @@ class CheckedDns {
   }
 };
 
+static td::Bits256 intToCat(int x) {
+  td::Bits256 cat = td::Bits256::zero();
+  cat.as_slice().copy_from(td::Slice((char*)&x, sizeof(x)));
+  return cat;
+}
+
 void do_dns_test(CheckedDns&& dns) {
   using Action = CheckedDns::Action;
   std::vector<Action> actions;
@@ -1130,7 +1136,7 @@ void do_dns_test(CheckedDns&& dns) {
     if (rnd.fast(0, 20) == 0) {
       return action;
     }
-    action.category = td::narrow_cast<td::int16>(rnd.fast(1, 5));
+    action.category = intToCat(rnd.fast(1, 5));
     if (rnd.fast(0, 4) == 0) {
       return action;
     }
@@ -1150,7 +1156,8 @@ void do_dns_test(CheckedDns&& dns) {
       actions.clear();
     }
     auto name = gen_name();
-    dns.resolve(name, td::narrow_cast<td::int16>(rnd.fast(0, 5)));
+    auto category = td::Bits256::zero();
+    dns.resolve(name, intToCat(rnd.fast(0, 5)));
   }
 };
 
@@ -1167,7 +1174,7 @@ TEST(Smartcont, DnsManual) {
 
   CHECK(td::Slice("a\0b\0") == ManualDns::encode_name("b.a"));
   CHECK(td::Slice("a\0b\0") == ManualDns::encode_name(".b.a"));
-  ASSERT_EQ("b.a", ManualDns::decode_name("a\0b\0"));
+  ASSERT_EQ(".b.a", ManualDns::decode_name("a\0b\0"));
   ASSERT_EQ("b.a", ManualDns::decode_name("a\0b"));
   ASSERT_EQ("", ManualDns::decode_name(""));
 
@@ -1184,8 +1191,8 @@ TEST(Smartcont, DnsManual) {
   auto value = vm::CellBuilder().store_bytes("hello world").finalize();
   auto set_query =
       manual
-          ->sign(key,
-                 manual->prepare(manual->create_set_value_unsigned(1, "a\0b\0", value).move_as_ok(), 1).move_as_ok())
+          ->sign(key, manual->prepare(manual->create_set_value_unsigned(intToCat(1), "a\0b\0", value).move_as_ok(), 1)
+                          .move_as_ok())
           .move_as_ok();
   CHECK(manual.write().send_external_message(set_query).code == 0);
 
@@ -1195,46 +1202,48 @@ TEST(Smartcont, DnsManual) {
   CHECK(res.stack.write().pop_cell()->get_hash() == value->get_hash());
 
   CheckedDns dns;
-  dns.update(CheckedDns::Action{"a.b.c", 1, "hello"});
-  CHECK(dns.resolve("a.b.c", 1).at(0).text == "hello");
-  dns.resolve("a", 1);
-  dns.resolve("a.b", 1);
-  CHECK(dns.resolve("a.b.c", 2).empty());
-  dns.update(CheckedDns::Action{"a.b.c", 2, "test"});
-  CHECK(dns.resolve("a.b.c", 2).at(0).text == "test");
-  dns.resolve("a.b.c", 1);
-  dns.resolve("a.b.c", 2);
+  dns.update(CheckedDns::Action{"a.b.c", intToCat(1), "hello"});
+  CHECK(dns.resolve("a.b.c", intToCat(1)).at(0).text == "hello");
+  dns.resolve("a", intToCat(1));
+  dns.resolve("a.b", intToCat(1));
+  CHECK(dns.resolve("a.b.c", intToCat(2)).empty());
+  dns.update(CheckedDns::Action{"a.b.c", intToCat(2), "test"});
+  CHECK(dns.resolve("a.b.c", intToCat(2)).at(0).text == "test");
+  dns.resolve("a.b.c", intToCat(1));
+  dns.resolve("a.b.c", intToCat(2));
   LOG(ERROR) << "Test zero category";
-  dns.resolve("a.b.c", 0);
-  dns.update(CheckedDns::Action{"", 0, ""});
-  CHECK(dns.resolve("a.b.c", 2).empty());
+  dns.resolve("a.b.c", intToCat(0));
+  dns.update(CheckedDns::Action{"", intToCat(0), ""});
+  CHECK(dns.resolve("a.b.c", intToCat(2)).empty());
 
   LOG(ERROR) << "Test multipe update";
   {
-    CheckedDns::Action e[4] = {CheckedDns::Action{"", 0, ""}, CheckedDns::Action{"a.b.c", 1, "hello"},
-                               CheckedDns::Action{"a.b.c", 2, "world"}, CheckedDns::Action{"x.y.z", 3, "abc"}};
+    CheckedDns::Action e[4] = {
+        CheckedDns::Action{"", intToCat(0), ""}, CheckedDns::Action{"a.b.c", intToCat(1), "hello"},
+        CheckedDns::Action{"a.b.c", intToCat(2), "world"}, CheckedDns::Action{"x.y.z", intToCat(3), "abc"}};
     dns.update(td::span(e, 4));
   }
-  dns.resolve("a.b.c", 1);
-  dns.resolve("a.b.c", 2);
-  dns.resolve("x.y.z", 3);
+  dns.resolve("a.b.c", intToCat(1));
+  dns.resolve("a.b.c", intToCat(2));
+  dns.resolve("x.y.z", intToCat(3));
 
-  dns.update(td::span_one(CheckedDns::Action{"x.y.z", 0, ""}));
+  dns.update(td::span_one(CheckedDns::Action{"x.y.z", intToCat(0), ""}));
 
-  dns.resolve("a.b.c", 1);
-  dns.resolve("a.b.c", 2);
-  dns.resolve("x.y.z", 3);
+  dns.resolve("a.b.c", intToCat(1));
+  dns.resolve("a.b.c", intToCat(2));
+  dns.resolve("x.y.z", intToCat(3));
 
   {
-    CheckedDns::Action e[3] = {CheckedDns::Action{"x.y.z", 0, ""}, CheckedDns::Action{"x.y.z", 1, "xxx"},
-                               CheckedDns::Action{"x.y.z", 2, "yyy"}};
+    CheckedDns::Action e[3] = {CheckedDns::Action{"x.y.z", intToCat(0), ""},
+                               CheckedDns::Action{"x.y.z", intToCat(1), "xxx"},
+                               CheckedDns::Action{"x.y.z", intToCat(2), "yyy"}};
     dns.update(td::span(e, 3));
   }
-  dns.resolve("a.b.c", 1);
-  dns.resolve("a.b.c", 2);
-  dns.resolve("x.y.z", 1);
-  dns.resolve("x.y.z", 2);
-  dns.resolve("x.y.z", 3);
+  dns.resolve("a.b.c", intToCat(1));
+  dns.resolve("a.b.c", intToCat(2));
+  dns.resolve("x.y.z", intToCat(1));
+  dns.resolve("x.y.z", intToCat(2));
+  dns.resolve("x.y.z", intToCat(3));
 
   {
     auto actions_ext =
@@ -1250,8 +1259,8 @@ TEST(Smartcont, DnsManual) {
 
     dns.update(actions);
   }
-  dns.resolve("one", 1);
-  dns.resolve("two", 2);
+  dns.resolve("one", intToCat(1));
+  dns.resolve("two", intToCat(2));
 
   // TODO: rethink semantic of creating an empty dictionary
   do_dns_test(CheckedDns(true, true));
