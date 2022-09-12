@@ -958,23 +958,23 @@ struct AsmOp {
   AsmOp() = default;
   AsmOp(int _t) : t(_t) {
   }
-  AsmOp(int _t, std::string _op) : t(_t), op(std::move(_op)) {
+  AsmOp(int _t, std::string _op) : t(_t), op(prepare_op(std::move(_op))) {
   }
   AsmOp(int _t, int _a) : t(_t), a(_a) {
   }
-  AsmOp(int _t, int _a, std::string _op) : t(_t), a(_a), op(std::move(_op)) {
+  AsmOp(int _t, int _a, std::string _op) : t(_t), a(_a), op(prepare_op(std::move(_op))) {
   }
   AsmOp(int _t, int _a, int _b) : t(_t), a(_a), b(_b) {
   }
-  AsmOp(int _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
+  AsmOp(int _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(prepare_op(std::move(_op))) {
     compute_gconst();
   }
-  AsmOp(int _t, int _a, int _b, std::string _op, td::RefInt256 x) : t(_t), a(_a), b(_b), op(std::move(_op)), origin(x) {
+  AsmOp(int _t, int _a, int _b, std::string _op, td::RefInt256 x) : t(_t), a(_a), b(_b), op(prepare_op(std::move(_op))), origin(x) {
     compute_gconst();
   }
   AsmOp(int _t, int _a, int _b, int _c) : t(_t), a(_a), b(_b), c(_c) {
   }
-  AsmOp(int _t, int _a, int _b, int _c, std::string _op) : t(_t), a(_a), b(_b), c(_c), op(std::move(_op)) {
+  AsmOp(int _t, int _a, int _b, int _c, std::string _op) : t(_t), a(_a), b(_b), c(_c), op(prepare_op(std::move(_op))) {
   }
   void out(std::ostream& os) const;
   void out_indent_nl(std::ostream& os, bool no_nl = false) const;
@@ -1032,6 +1032,14 @@ struct AsmOp {
   }
   bool is_gconst() const {
     return !a && b == 1 && (t == a_const || gconst);
+  }
+  static std::string prepare_op(std::string&& op) {
+    for (char& c: op) {
+      if (c == '\n') {
+        c = ' ';
+      }
+    }
+    return op;
   }
   static AsmOp Nop() {
     return AsmOp(a_none);
