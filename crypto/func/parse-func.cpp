@@ -1657,7 +1657,14 @@ bool parse_source_file(const char* filename, src::Lexem lex) {
       throw src::Fatal{msg};
     }
   }
-  std::string real_filename = td::realpath(td::CSlice(filename)).move_as_ok();
+
+  auto path_res = td::realpath(td::CSlice(filename));
+  if (path_res.is_error()) {
+    auto error = path_res.move_as_error();
+    lex.error(error.message().c_str());
+    return false;
+  }
+  std::string real_filename = path_res.move_as_ok();
   if (std::count(source_files.begin(), source_files.end(), real_filename)) {
     if (verbosity >= 2) {
       if (lex.tp) {

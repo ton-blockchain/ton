@@ -329,7 +329,7 @@ if (USE_EMSCRIPTEN)
   target_link_options(funcfiftlib PRIVATE -sAUTO_NATIVE_LIBRARIES=0)
   target_link_options(funcfiftlib PRIVATE -sMODULARIZE=1)
   target_link_options(funcfiftlib PRIVATE --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/fift/lib@/fiftlib)
-  target_compile_options(funcfiftlib PRIVATE -sNO_DISABLE_EXCEPTION_CATCHING)
+  target_compile_options(funcfiftlib PRIVATE -sDISABLE_EXCEPTION_CATCHING=0)
 endif()
 
 add_executable(tlbc tl/tlbc.cpp)
