@@ -321,7 +321,7 @@ class BigIntG {
       digits[0] = x;
       normalize_bool();
     } else {
-      digits[0] = ((x + Tr::Half) & (Tr::Base - 1)) - Tr::Half;
+      digits[0] = ((x ^ Tr::Half) & (Tr::Base - 1)) - Tr::Half;
       digits[n++] = (x >> Tr::word_shift) + (digits[0] < 0);
     }
   }
