@@ -364,7 +364,7 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
   // TODO: some way to choose node (similar to "unreliability" in full-node)
   int cnt = 0;
   for (const block::CollatorNodeDescr& c : collator_config_.collator_nodes) {
-    if (shard_is_ancestor(shard_, c.shard) && td::Random::fast(0, cnt) == 0) {
+    if (shard_intersects(shard_, c.shard) && td::Random::fast(0, cnt) == 0) {
       collator = adnl::AdnlNodeIdShort(c.adnl_id);
       ++cnt;
     }

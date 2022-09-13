@@ -170,7 +170,7 @@ void CollatorNode::receive_query_cont(adnl::AdnlNodeIdShort src, ShardIdFull sha
 
 bool CollatorNode::collate_shard(ShardIdFull shard) const {
   for (ShardIdFull our_shard : shards_) {
-    if (shard_is_ancestor(shard, our_shard)) {
+    if (shard_intersects(shard, our_shard)) {
       return true;
     }
   }

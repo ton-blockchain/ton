@@ -1413,7 +1413,7 @@ void ValidatorEngine::set_shard_check_function() {
     validator_options_.write().set_shard_check_function(
         [shards = std::move(shards)](ton::ShardIdFull shard) -> bool {
           for (auto s : shards) {
-            if (shard_is_ancestor(shard, s)) {
+            if (shard_intersects(shard, s)) {
               return true;
             }
           }

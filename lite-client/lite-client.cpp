@@ -81,6 +81,9 @@ int TestNode::LiteServer::max_common_prefix(ton::ShardIdFull shard) const {
   }
   int res = -1;
   for (const ton::ShardIdFull &our_shard : shards) {
+    if (ton::shard_is_ancestor(our_shard, shard)) {
+      return shard.pfx_len();
+    }
     if (shard.workchain == our_shard.workchain) {
       int x = std::min({shard.pfx_len(), our_shard.pfx_len(), ton::count_matching_bits(shard.shard, our_shard.shard)});
       res = std::max(res, x);
@@ -92,7 +95,7 @@ int TestNode::LiteServer::max_common_prefix(ton::ShardIdFull shard) const {
 bool TestNode::LiteServer::supports_shard(ton::ShardIdFull shard) const {
   return is_full || shard.is_masterchain() ||
          std::any_of(shards.begin(), shards.end(),
-                     [&](const ton::ShardIdFull& our_shard) { return ton::shard_is_ancestor(shard, our_shard); });
+                     [&](const ton::ShardIdFull& our_shard) { return ton::shard_intersects(shard, our_shard); });
 }
 
 void TestNode::run() {
