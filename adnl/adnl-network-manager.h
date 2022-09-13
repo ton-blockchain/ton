@@ -50,6 +50,8 @@ class AdnlNetworkConnection : public td::actor::Actor {
   virtual void send(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::uint32 priority, td::BufferSlice message) = 0;
   virtual bool is_alive() const = 0;
   virtual bool is_active() const = 0;
+
+  virtual void get_ip_str(td::Promise<td::string> promise) = 0;
   virtual ~AdnlNetworkConnection() = default;
 };
 

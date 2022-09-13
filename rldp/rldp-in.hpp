@@ -99,6 +99,7 @@ class RldpIn : public RldpImpl {
   void in_transfer_completed(TransferId transfer_id);
 
   void add_id(adnl::AdnlNodeIdShort local_id) override;
+  void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) override;
 
   RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }

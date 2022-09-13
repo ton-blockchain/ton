@@ -253,25 +253,9 @@ class ServerSocketFdImpl {
     }
 
     auto error = Status::PosixError(accept_errno, PSLICE() << "Accept from " << get_native_fd() << " has failed");
-    switch (accept_errno) {
-      case EBADF:
-      case EFAULT:
-      case EINVAL:
-      case ENOTSOCK:
-      case EOPNOTSUPP:
-        LOG(FATAL) << error;
-        UNREACHABLE();
-        break;
-      default:
-        LOG(ERROR) << error;
-      // fallthrough
-      case EMFILE:
-      case ENFILE:
-      case ECONNABORTED:  //???
-        get_poll_info().clear_flags(PollFlags::Read());
-        get_poll_info().add_flags(PollFlags::Close());
-        return std::move(error);
-    }
+    get_poll_info().clear_flags(PollFlags::Read());
+    get_poll_info().add_flags(PollFlags::Close());
+    return std::move(error);
   }
 
   Status get_pending_error() {

@@ -112,10 +112,12 @@ void ExtMessageQ::run_message(td::BufferSlice data, td::actor::ActorId<ton::vali
           if(!acc.unpack(shard_acc, {}, utime, false)) {
             promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
           } else {
-            if(run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config))) {
+            auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));
+            if (status.is_ok()) {
               promise.set_value(td::Unit());
             } else {
-              promise.set_error(td::Status::Error(PSLICE() << "External message was not accepted"));
+              promise.set_error(td::Status::Error(
+                  PSLICE() << "External message was not accepted\n" << status.message()));
             }
           }
         }
@@ -123,11 +125,11 @@ void ExtMessageQ::run_message(td::BufferSlice data, td::actor::ActorId<ton::vali
   );
 }
 
-bool ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
-                                         block::Account* acc,
-                                         UnixTime utime, LogicalTime lt,
-                                         td::Ref<vm::Cell> msg_root,
-                                         std::unique_ptr<block::ConfigInfo> config) {
+td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
+                                               block::Account* acc,
+                                               UnixTime utime, LogicalTime lt,
+                                               td::Ref<vm::Cell> msg_root,
+                                               std::unique_ptr<block::ConfigInfo> config) {
 
    Ref<vm::Cell> old_mparams;
    std::vector<block::StoragePrices> storage_prices_;
@@ -143,28 +145,29 @@ bool ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
                                                  &action_phase_cfg_, &masterchain_create_fee,
                                                  &basechain_create_fee, wc);
    if(fetch_res.is_error()) {
-    auto error = fetch_res.move_as_error();
-    LOG(DEBUG) << "Cannot fetch config params" << error.message();
-    return false;
+     auto error = fetch_res.move_as_error();
+     LOG(DEBUG) << "Cannot fetch config params: " << error.message();
+     return error.move_as_error_prefix("Cannot fetch config params: ");
    }
+   compute_phase_cfg_.with_vm_log = true;
 
    auto res = Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt,
                                                     &storage_phase_cfg_, &compute_phase_cfg_,
                                                     &action_phase_cfg_,
                                                     true, lt);
    if(res.is_error()) {
-    auto error = res.move_as_error();
-    LOG(DEBUG) << "Cannot run message on account" << error.message();
-    return false;
+     auto error = res.move_as_error();
+     LOG(DEBUG) << "Cannot run message on account: " << error.message();
+     return error.move_as_error_prefix("Cannot run message on account: ");
    }
    std::unique_ptr<block::Transaction> trans = res.move_as_ok();
 
    auto trans_root = trans->commit(*acc);
    if (trans_root.is_null()) {
-     LOG(DEBUG) << "cannot commit new transaction for smart contract ";
-     return false;
+     LOG(DEBUG) << "Cannot commit new transaction for smart contract";
+     return td::Status::Error("Cannot commit new transaction for smart contract");
    }
-   return true;
+   return td::Status::OK();
 }
 
 }  // namespace validator

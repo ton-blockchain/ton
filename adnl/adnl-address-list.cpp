@@ -39,6 +39,9 @@ class AdnlNetworkConnectionUdp : public AdnlNetworkConnection {
   void start_up() override {
     callback_->on_change_state(true);
   }
+  void get_ip_str(td::Promise<td::string> promise) override {
+    promise.set_value(PSTRING() << addr_.get_ip_str().str() << ":" << addr_.get_port());
+  }
 
   AdnlNetworkConnectionUdp(td::actor::ActorId<AdnlNetworkManager> network_manager, td::uint32 ip, td::uint16 port,
                            std::unique_ptr<AdnlNetworkConnection::Callback> callback);
@@ -87,6 +90,9 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
     encryptor_ = R.move_as_ok();
     pub_key_hash_ = pub_key_.compute_short_id();
     //ready_.store(true, std::memory_order_release);
+  }
+  void get_ip_str(td::Promise<td::string> promise) override {
+    promise.set_value("tunnel");
   }
 
   AdnlNetworkConnectionTunnel(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,

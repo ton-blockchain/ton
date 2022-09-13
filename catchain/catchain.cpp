@@ -18,9 +18,9 @@
 */
 #include "catchain-types.h"
 #include "catchain.hpp"
-#include "catchain-receiver.h"
 
-#include "adnl/utils.hpp"
+#include <utility>
+#include "catchain-receiver.h"
 
 namespace ton {
 
@@ -32,10 +32,11 @@ void CatChainImpl::send_process() {
   std::vector<CatChainBlock *> v;
   std::vector<CatChainBlockHash> w;
   while (top_blocks_.size() > 0 && v.size() < opts_.max_deps) {
-    auto B = *top_blocks_.get_random();
+    CatChainBlock *B = *top_blocks_.get_random();
     CHECK(B != nullptr);
     top_blocks_.remove(B->hash());
-    if (B->source() == sources_.size() || !blamed_sources_[B->source()]) {
+    CHECK(B->source() < sources_.size());
+    if (!blamed_sources_[B->source()]) {
       w.push_back(B->hash());
       v.push_back(B);
       set_processed(B);
@@ -52,13 +53,13 @@ void CatChainImpl::send_preprocess(CatChainBlock *block) {
   if (block->preprocess_is_sent()) {
     return;
   }
-  auto prev = block->prev();
+  CatChainBlock *prev = block->prev();
   if (prev) {
     send_preprocess(prev);
   }
 
-  auto deps = block->deps();
-  for (auto X : deps) {
+  const std::vector<CatChainBlock *> &deps = block->deps();
+  for (CatChainBlock *X : deps) {
     send_preprocess(X);
   }
 
@@ -72,13 +73,13 @@ void CatChainImpl::set_processed(CatChainBlock *block) {
   if (block->is_processed()) {
     return;
   }
-  auto prev = block->prev();
+  CatChainBlock *prev = block->prev();
   if (prev) {
     set_processed(prev);
   }
 
-  auto deps = block->deps();
-  for (auto X : deps) {
+  const std::vector<CatChainBlock *> &deps = block->deps();
+  for (CatChainBlock *X : deps) {
     set_processed(X);
   }
 
@@ -133,6 +134,7 @@ void CatChainImpl::on_new_block(td::uint32 src_id, td::uint32 fork, CatChainBloc
     }
   }
 
+  CHECK(src_id < sources_.size());
   std::vector<CatChainBlock *> v;
   v.resize(deps.size());
   for (size_t i = 0; i < deps.size(); i++) {
@@ -143,12 +145,12 @@ void CatChainImpl::on_new_block(td::uint32 src_id, td::uint32 fork, CatChainBloc
     CHECK(v[i] != nullptr);
   }
 
-  CHECK(src_id < sources_.size());
-  auto src_hash = sources_[src_id];
+  CHECK(height <= get_max_block_height(opts_, sources_.size()));
+  PublicKeyHash src_hash = sources_[src_id];
   blocks_[hash] =
       CatChainBlock::create(src_id, fork, src_hash, height, hash, std::move(data), p, std::move(v), std::move(vt));
 
-  auto B = get_block(hash);
+  CatChainBlock *B = get_block(hash);
   CHECK(B != nullptr);
 
   if (!blamed_sources_[src_id]) {
@@ -177,7 +179,7 @@ void CatChainImpl::on_blame(td::uint32 src_id) {
   auto size = static_cast<td::uint32>(sources_.size());
   for (td::uint32 i = 0; i < size; i++) {
     if (!blamed_sources_[i] && top_source_blocks_[i] && i != local_idx_) {
-      auto B = top_source_blocks_[i];
+      CatChainBlock *B = top_source_blocks_[i];
       bool f = true;
       if (B->is_processed()) {
         continue;
@@ -197,15 +199,11 @@ void CatChainImpl::on_blame(td::uint32 src_id) {
   }
 }
 
-void CatChainImpl::on_custom_message(PublicKeyHash src, td::BufferSlice data) {
-  callback_->process_message(src, std::move(data));
-}
-
-void CatChainImpl::on_custom_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+void CatChainImpl::on_custom_query(const PublicKeyHash &src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   callback_->process_query(src, std::move(data), std::move(promise));
 }
 
-void CatChainImpl::on_broadcast(PublicKeyHash src, td::BufferSlice data) {
+void CatChainImpl::on_broadcast(const PublicKeyHash &src, td::BufferSlice data) {
   VLOG(CATCHAIN_INFO) << this << ": processing broadcast";
   callback_->process_broadcast(src, std::move(data));
   VLOG(CATCHAIN_INFO) << this << ": sent processing broadcast";
@@ -219,18 +217,18 @@ void CatChainImpl::on_receiver_started() {
   send_process();
 }
 
-CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, CatChainOptions opts,
+CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                            td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
-                           PublicKeyHash local_id, CatChainSessionId unique_hash, std::string db_root,
-                           std::string db_suffix, bool allow_unsafe_self_blocks_resync)
-    : opts_(std::move(opts))
-    , db_root_(db_root)
-    , db_suffix_(db_suffix)
+                           const PublicKeyHash &local_id, const CatChainSessionId &unique_hash,
+                           std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync)
+    : opts_(opts)
+    , unique_hash_(unique_hash)
+    , db_root_(std::move(db_root))
+    , db_suffix_(std::move(db_suffix))
     , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   callback_ = std::move(callback);
   sources_.resize(ids.size());
-  unique_hash_ = unique_hash;
   for (size_t i = 0; i < ids.size(); i++) {
     sources_[i] = ids[i].pub_key.compute_short_id();
     if (sources_[i] == local_id) {
@@ -240,7 +238,8 @@ CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, CatChainOptions o
   blamed_sources_.resize(ids.size(), false);
   top_source_blocks_.resize(ids.size(), nullptr);
 
-  args_ = std::make_unique<Args>(keyring, adnl, overlay_manager, std::move(ids), local_id, unique_hash);
+  args_ = std::make_unique<Args>(std::move(keyring), std::move(adnl), std::move(overlay_manager), std::move(ids),
+                                 local_id, unique_hash);
 }
 
 void CatChainImpl::alarm() {
@@ -263,19 +262,16 @@ void CatChainImpl::start_up() {
     void blame(td::uint32 src_id) override {
       td::actor::send_closure(id_, &CatChainImpl::on_blame, src_id);
     }
-    void on_custom_message(PublicKeyHash src, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &CatChainImpl::on_custom_message, src, std::move(data));
-    }
-    void on_custom_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+    void on_custom_query(const PublicKeyHash &src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
       td::actor::send_closure(id_, &CatChainImpl::on_custom_query, src, std::move(data), std::move(promise));
     }
-    void on_broadcast(PublicKeyHash src, td::BufferSlice data) override {
+    void on_broadcast(const PublicKeyHash &src, td::BufferSlice data) override {
       td::actor::send_closure(id_, &CatChainImpl::on_broadcast, src, std::move(data));
     }
     void start() override {
       td::actor::send_closure(id_, &CatChainImpl::on_receiver_started);
     }
-    ChainCb(td::actor::ActorId<CatChainImpl> id) : id_(id) {
+    explicit ChainCb(td::actor::ActorId<CatChainImpl> id) : id_(std::move(id)) {
     }
 
    private:
@@ -285,22 +281,23 @@ void CatChainImpl::start_up() {
   auto cb = std::make_unique<ChainCb>(actor_id(this));
 
   receiver_ = CatChainReceiverInterface::create(
-      std::move(cb), opts_, args_->keyring, args_->adnl, args_->overlay_manager, std::move(args_->ids), args_->local_id,
+      std::move(cb), opts_, args_->keyring, args_->adnl, args_->overlay_manager, args_->ids, args_->local_id,
       args_->unique_hash, db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
   args_ = nullptr;
   //alarm_timestamp() = td::Timestamp::in(opts_.idle_timeout);
 }
 
-td::actor::ActorOwn<CatChain> CatChain::create(std::unique_ptr<Callback> callback, CatChainOptions opts,
+td::actor::ActorOwn<CatChain> CatChain::create(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                                                td::actor::ActorId<keyring::Keyring> keyring,
                                                td::actor::ActorId<adnl::Adnl> adnl,
                                                td::actor::ActorId<overlay::Overlays> overlay_manager,
-                                               std::vector<CatChainNode> ids, PublicKeyHash local_id,
-                                               CatChainSessionId unique_hash, std::string db_root,
+                                               std::vector<CatChainNode> ids, const PublicKeyHash &local_id,
+                                               const CatChainSessionId &unique_hash, std::string db_root,
                                                std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
-  return td::actor::create_actor<CatChainImpl>("catchain", std::move(callback), std::move(opts), keyring, adnl,
-                                               overlay_manager, std::move(ids), local_id, unique_hash, db_root,
-                                               db_suffix, allow_unsafe_self_blocks_resync);
+  return td::actor::create_actor<CatChainImpl>("catchain", std::move(callback), opts, std::move(keyring),
+                                               std::move(adnl), std::move(overlay_manager), std::move(ids),
+                                               local_id, unique_hash, std::move(db_root), std::move(db_suffix),
+                                               allow_unsafe_self_blocks_resync);
 }
 
 CatChainBlock *CatChainImpl::get_block(CatChainBlockHash hash) const {

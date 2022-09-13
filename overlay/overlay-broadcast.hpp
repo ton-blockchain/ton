@@ -49,6 +49,8 @@ class BroadcastSimple : public td::ListNode {
 
   OverlayImpl *overlay_;
 
+  adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
+
   td::Status check_time();
   td::Status check_duplicate();
   td::Status check_source();
@@ -61,7 +63,7 @@ class BroadcastSimple : public td::ListNode {
  public:
   BroadcastSimple(Overlay::BroadcastHash broadcast_hash, PublicKey source, std::shared_ptr<Certificate> cert,
                   td::uint32 flags, td::BufferSlice data, td::uint32 date, td::BufferSlice signature, bool is_valid,
-                  OverlayImpl *overlay)
+                  OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id)
       : broadcast_hash_(broadcast_hash)
       , source_(std::move(source))
       , cert_(std::move(cert))
@@ -70,7 +72,8 @@ class BroadcastSimple : public td::ListNode {
       , date_(date)
       , signature_(std::move(signature))
       , is_valid_(is_valid)
-      , overlay_(overlay) {
+      , overlay_(overlay)
+      , src_peer_id_(src_peer_id) {
   }
 
   Overlay::BroadcastHash get_hash() const {
@@ -98,7 +101,7 @@ class BroadcastSimple : public td::ListNode {
   void update_overlay(OverlayImpl *overlay);
   void broadcast_checked(td::Result<td::Unit> R);
 
-  static td::Status create(OverlayImpl *overlay, tl_object_ptr<ton_api::overlay_broadcast> broadcast);
+  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcast> broadcast);
   static td::Status create_new(td::actor::ActorId<OverlayImpl> overlay, td::actor::ActorId<keyring::Keyring> keyring,
                                PublicKeyHash local_id, td::BufferSlice data, td::uint32 flags);
 

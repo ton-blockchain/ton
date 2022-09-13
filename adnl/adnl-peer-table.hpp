@@ -102,6 +102,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   void create_tunnel(AdnlNodeIdShort dst, td::uint32 size,
                      td::Promise<std::pair<td::actor::ActorOwn<AdnlTunnel>, AdnlAddress>> promise) override;
+  void get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, td::Promise<td::string> promise) override;
 
   struct PrintId {};
   PrintId print_id() const {

@@ -56,9 +56,8 @@ class CatChainReceiverSource {
   virtual bool has_unreceived() const = 0;
   virtual bool has_undelivered() const = 0;
 
-  virtual td::Status validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) = 0;
   virtual void on_new_block(CatChainReceivedBlock *block) = 0;
-  virtual void on_found_fork_proof(td::Slice fork) = 0;
+  virtual void on_found_fork_proof(const td::Slice &fork) = 0;
   virtual td::BufferSlice fork_proof() const = 0;
   virtual bool fork_is_found() const = 0;
 
