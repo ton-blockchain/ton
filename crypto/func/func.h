@@ -1665,4 +1665,19 @@ AsmOp push_const(td::RefInt256 x);
 
 void define_builtins();
 
+
+extern int verbosity, indent, opt_level;
+extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
+extern std::string generated_from, boc_output_filename;
+
+/*
+ *
+ *   OUTPUT CODE GENERATOR
+ *
+ */
+
+int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs);
+
 }  // namespace funC
+
+
