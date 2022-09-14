@@ -1034,12 +1034,16 @@ struct AsmOp {
     return !a && b == 1 && (t == a_const || gconst);
   }
   static std::string prepare_op(std::string&& op) {
+    std::string op_;
     for (char& c: op) {
       if (c == '\n') {
         c = ' ';
       }
+      if (c != ' ' || op_.empty() || op_.back() != ' ') {
+        op_.push_back(c);
+      }
     }
-    return op;
+    return op_;
   }
   static AsmOp Nop() {
     return AsmOp(a_none);
@@ -1639,6 +1643,7 @@ inline compile_func_t make_ext_compile(AsmOp op) {
 struct SymValAsmFunc : SymValFunc {
   simple_compile_func_t simple_compile;
   compile_func_t ext_compile;
+  td::uint64 crc;
   ~SymValAsmFunc() override = default;
   SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool impure = false)
       : SymValFunc(-1, ft, impure), simple_compile(make_simple_compile(_macro)) {
