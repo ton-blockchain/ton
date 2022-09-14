@@ -12,6 +12,10 @@ slice test2() asm """
 """;
 
 int sdeq (slice s1, slice s2) asm """SDEQ""";
+int sdeq (slice s1, slice s2) asm "  SDEQ  ";
+int sdeq (slice s1, slice s2) asm """
+  SDEQ
+""";
 
 () main() {
   slice s = test1();

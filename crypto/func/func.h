@@ -1039,9 +1039,12 @@ struct AsmOp {
       if (c == '\n') {
         c = ' ';
       }
-      if (c != ' ' || op_.empty() || op_.back() != ' ') {
+      if (c != ' ' || (!op_.empty() && op_.back() != ' ')) {
         op_.push_back(c);
       }
+    }
+    if (!op_.empty() && op_.back() == ' ') {
+      op_.pop_back();
     }
     return op_;
   }
