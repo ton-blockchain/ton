@@ -3314,8 +3314,8 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTi
                 int cnt = 0;
                 for (const auto &[time, duration] : stats.stats) {
                   if (now - time <= static_cast<double>(t)) {
-                    min = td::min(min, duration);
-                    max = td::max(max, duration);
+                    min = td::min<double>(min, duration);
+                    max = td::max<double>(max, duration);
                     sum += duration;
                     ++cnt;
                   }

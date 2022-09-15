@@ -1032,7 +1032,7 @@ td::Status GetPerfTimerStatsJsonQuery::receive(td::BufferSlice data) {
       gtail = true;
     }
 
-    sb << "\n '" << v->name_ << "': {";
+    sb << "\n \"" << v->name_ << "\": {";
     bool tail = false;
     for (const auto &stat : v->stats_) {
       if (tail) {
@@ -1041,7 +1041,7 @@ td::Status GetPerfTimerStatsJsonQuery::receive(td::BufferSlice data) {
         tail = true;
       }
 
-      sb << "\n  " << stat->time_ << ": [";
+      sb << "\n  \"" << stat->time_ << "\": [";
       sb << "\n   " << stat->min_ << ",";
       sb << "\n   " << stat->avg_ << ",";
       sb << "\n   " << stat->max_;
