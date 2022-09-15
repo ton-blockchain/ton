@@ -130,6 +130,9 @@ void FullNodeShardImpl::create_overlay() {
 }
 
 void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
+  if (mode_ != FullNodeShardMode::active) {
+    return promise.set_error(td::Status::Error("cannot check broadcast: shard is not active"));
+  }
   auto B = fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true);
   if (B.is_error()) {
     return promise.set_error(B.move_as_error_prefix("failed to parse external message broadcast: "));

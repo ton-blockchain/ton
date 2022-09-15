@@ -2678,7 +2678,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
     }
     ton::LogicalTime enqueued_lt = old_value->prefetch_ulong(64);
     if (enqueued_lt >= start_lt_) {
-      return reject_query(PSTRING() << "new EnqueuedMsg with key "s + out_msg_id.to_hex(352) + " has enqueued_lt="
+      return reject_query(PSTRING() << "old EnqueuedMsg with key "s + out_msg_id.to_hex(352) + " has enqueued_lt="
                                     << enqueued_lt << " greater than or equal to this block's start_lt=" << start_lt_);
     }
   }

@@ -197,7 +197,8 @@ class Collator final : public td::actor::Actor {
   std::vector<std::pair<Ref<vm::Cell>, ExtMessage::Hash>> ext_msg_list_;
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
-  std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
+  std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, old_out_msg_queue_, out_msg_queue_,
+      sibling_out_msg_queue_;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
   std::unique_ptr<vm::Dictionary> block_create_stats_;
@@ -292,6 +293,7 @@ class Collator final : public td::actor::Actor {
   bool process_new_messages(bool enqueue_only = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
+  bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
   bool process_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt, td::ConstBitPtr key,
                                const block::McShardDescr& src_nb);
   bool process_inbound_external_messages();
@@ -333,8 +335,11 @@ class Collator final : public td::actor::Actor {
                            bool update_cc);
   bool create_mc_block_extra(Ref<vm::Cell>& mc_block_extra);
   bool create_block();
+
   Ref<vm::Cell> collate_shard_block_descr_set();
+  bool prepare_msg_queue_proof();
   bool create_collated_data();
+
   bool create_block_candidate();
   void return_block_candidate(td::Result<td::Unit> saved);
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);

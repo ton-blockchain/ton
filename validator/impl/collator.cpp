@@ -825,6 +825,7 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   total_validator_fees_ = std::move(ss.total_validator_fees_);
   old_global_balance_ = std::move(ss.global_balance_);
   out_msg_queue_ = std::move(ss.out_msg_queue_);
+  old_out_msg_queue_ = std::make_unique<vm::AugmentedDictionary>(*out_msg_queue_);
   processed_upto_ = std::move(ss.processed_upto_);
   ihr_pending = std::move(ss.ihr_pending_);
   block_create_stats_ = std::move(ss.block_create_stats_);
@@ -2619,8 +2620,7 @@ bool Collator::delete_out_msg_queue_msg(td::ConstBitPtr key) {
   return register_out_msg_queue_op();
 }
 
-bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
-                                       const block::McShardDescr& src_nb) {
+bool Collator::precheck_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt) {
   ton::LogicalTime enqueued_lt = 0;
   if (enq_msg.is_null() || enq_msg->size_ext() != 0x10040 ||
       (enqueued_lt = enq_msg->prefetch_ulong(64)) < /* 0 */ 1 * lt) {  // DEBUG
@@ -2646,6 +2646,13 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
     LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to automated checks";
     return false;
   }
+  return true;
+}
+
+bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
+                                       const block::McShardDescr& src_nb) {
+  ton::LogicalTime enqueued_lt = enq_msg->prefetch_ulong(64);
+  auto msg_env = enq_msg->prefetch_ref();
   // 1. unpack MsgEnvelope
   block::tlb::MsgEnvelope::Record_std env;
   if (!tlb::unpack_cell(msg_env, env)) {
@@ -2784,14 +2791,22 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
 }
 
 bool Collator::process_inbound_internal_messages() {
-  while (!block_full_ && !nb_out_msgs_->is_eof()) {
+  while (!nb_out_msgs_->is_eof()) {
     block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
+    auto kv = nb_out_msgs_->extract_cur();
+    CHECK(kv && kv->msg.not_null());
+    if (!precheck_inbound_message(kv->msg, kv->lt)) {
+      if (verbosity > 1) {
+        std::cerr << "invalid inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex()
+                  << " msg=";
+        block::gen::t_EnqueuedMsg.print(std::cerr, *(kv->msg));
+      }
+      return fatal_error("error processing inbound internal message");
+    }
     if (block_full_) {
       LOG(INFO) << "BLOCK FULL, stop processing inbound internal messages";
       break;
     }
-    auto kv = nb_out_msgs_->extract_cur();
-    CHECK(kv && kv->msg.not_null());
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
                << ") from neighbor #" << kv->source;
     if (verbosity > 2) {
@@ -3974,6 +3989,34 @@ Ref<vm::Cell> Collator::collate_shard_block_descr_set() {
   return cell;
 }
 
+bool Collator::prepare_msg_queue_proof() {
+  auto res = old_out_msg_queue_->scan_diff(
+      *out_msg_queue_,
+      [this](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_value, Ref<vm::CellSlice> new_value) {
+        old_value = old_out_msg_queue_->extract_value(std::move(old_value));
+        new_value = out_msg_queue_->extract_value(std::move(new_value));
+        if (new_value.not_null()) {
+          if (!block::gen::t_EnqueuedMsg.validate_csr(new_value)) {
+            return false;
+          }
+          if (!block::tlb::t_EnqueuedMsg.validate_csr(new_value)) {
+            return false;
+          }
+        }
+        if (old_value.not_null()) {
+          if (!block::gen::t_EnqueuedMsg.validate_csr(old_value)) {
+            return false;
+          }
+          if (!block::tlb::t_EnqueuedMsg.validate_csr(old_value)) {
+            return false;
+          }
+        }
+        return true;
+      },
+      3);
+  return res;
+}
+
 bool Collator::create_collated_data() {
   // 1. store the set of used shard block descriptions
   if (!used_shard_block_descr_.empty()) {
@@ -3994,6 +4037,10 @@ bool Collator::create_collated_data() {
   // 3. Previous state proof (only shadchains)
   std::map<td::Bits256, Ref<vm::Cell>> proofs;
   if (!is_masterchain()) {
+    if (!prepare_msg_queue_proof()) {
+      return fatal_error("cannot prepare message queue proof");
+    }
+
     state_usage_tree_->set_use_mark_for_is_loaded(false);
     Ref<vm::Cell> state_proof = vm::MerkleProof::generate(prev_state_root_, state_usage_tree_.get());
     if (state_proof.is_null()) {
