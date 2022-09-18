@@ -960,11 +960,12 @@ td::Result<td::int64> to_balance(td::Ref<vm::CellSlice> balance_ref) {
 
 class GetTransactionHistory : public td::actor::Actor {
  public:
-  GetTransactionHistory(ExtClientRef ext_client_ref, block::StdAddress address, ton::LogicalTime lt, ton::Bits256 hash,
+  GetTransactionHistory(ExtClientRef ext_client_ref, block::StdAddress address, ton::LogicalTime lt, ton::Bits256 hash, td::int32 count,
                         td::actor::ActorShared<> parent, td::Promise<block::TransactionList::Info> promise)
       : address_(std::move(address))
       , lt_(std::move(lt))
       , hash_(std::move(hash))
+      , count_(count)
       , parent_(std::move(parent))
       , promise_(std::move(promise)) {
     client_.set_client(ext_client_ref);
@@ -975,7 +976,7 @@ class GetTransactionHistory : public td::actor::Actor {
   ton::LogicalTime lt_;
   ton::Bits256 hash_;
   ExtClient client_;
-  td::int32 count_{10};
+  td::int32 count_;
   td::actor::ActorShared<> parent_;
   td::Promise<block::TransactionList::Info> promise_;
 
@@ -2170,10 +2171,14 @@ td::Result<std::string> to_std_address(td::Ref<vm::CellSlice> cs) {
   return TRY_VM(to_std_address_or_throw(std::move(cs)));
 }
 struct ToRawTransactions {
-  explicit ToRawTransactions(td::optional<td::Ed25519::PrivateKey> private_key) : private_key_(std::move(private_key)) {
+  explicit ToRawTransactions(td::optional<td::Ed25519::PrivateKey> private_key, bool try_decode_messages = true)
+    : private_key_(std::move(private_key))
+    , try_decode_messages_(try_decode_messages) {
   }
 
   td::optional<td::Ed25519::PrivateKey> private_key_;
+  bool try_decode_messages_;
+
   td::Result<tonlib_api::object_ptr<tonlib_api::raw_message>> to_raw_message_or_throw(td::Ref<vm::Cell> cell) {
     block::gen::Message::Record message;
     if (!tlb::type_unpack_cell(cell, block::gen::t_Message_Any, message)) {
@@ -2192,7 +2197,7 @@ struct ToRawTransactions {
 
     auto get_data = [body = std::move(body), body_cell, this](td::Slice salt) mutable {
       tonlib_api::object_ptr<tonlib_api::msg_Data> data;
-      if (body->size() >= 32 && static_cast<td::uint32>(body->prefetch_long(32)) <= 1) {
+      if (try_decode_messages_ && body->size() >= 32 && static_cast<td::uint32>(body->prefetch_long(32)) <= 1) {
         auto type = body.write().fetch_long(32);
         td::Status status;
 
@@ -2203,7 +2208,6 @@ struct ToRawTransactions {
           if (type == 0) {
             data = tonlib_api::make_object<tonlib_api::msg_dataText>(r_body_message.move_as_ok());
           } else {
-            LOG(ERROR) << "TRY DECRYPT";
             auto encrypted_message = r_body_message.move_as_ok();
             auto r_decrypted_message = [&]() -> td::Result<std::string> {
               if (!private_key_) {
@@ -2464,9 +2468,52 @@ td::Status TonlibClient::do_request(tonlib_api::raw_getTransactions& request,
 
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
-      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, actor_shared(this, actor_id),
+      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, 10, actor_shared(this, actor_id),
       promise.wrap([private_key = std::move(private_key)](auto&& x) mutable {
         return ToRawTransactions(std::move(private_key)).to_raw_transactions(std::move(x));
+      }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(tonlib_api::raw_getTransactionsV2& request,
+                        td::Promise<object_ptr<tonlib_api::raw_transactions>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  if (!request.from_transaction_id_) {
+    return TonlibError::EmptyField("from_transaction_id");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  td::optional<td::Ed25519::PrivateKey> private_key;
+  if (request.private_key_) {
+    TRY_RESULT(input_key, from_tonlib(*request.private_key_));
+    //NB: optional<Status> has lot of problems. We use emplace to migitate them
+    td::optional<td::Status> o_status;
+    //NB: rely on (and assert) that GetPrivateKey is a synchonous request
+    make_request(int_api::GetPrivateKey{std::move(input_key)}, [&](auto&& r_key) {
+      if (r_key.is_error()) {
+        o_status.emplace(r_key.move_as_error());
+        return;
+      }
+      o_status.emplace(td::Status::OK());
+      private_key = td::Ed25519::PrivateKey(std::move(r_key.move_as_ok().private_key));
+    });
+    TRY_STATUS(o_status.unwrap());
+  }
+  auto lt = request.from_transaction_id_->lt_;
+  auto hash_str = request.from_transaction_id_->hash_;
+  if (hash_str.size() != 32) {
+    return td::Status::Error(400, "Invalid transaction id hash size");
+  }
+  td::Bits256 hash;
+  hash.as_slice().copy_from(hash_str);
+  td::int32 count = request.count_ ? request.count_ : 10;
+
+  auto actor_id = actor_id_++;
+  actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
+      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, count, actor_shared(this, actor_id), 
+      promise.wrap([private_key = std::move(private_key), try_decode_messages = request.try_decode_messages_](auto&& x) mutable {
+        return ToRawTransactions(std::move(private_key), try_decode_messages).to_raw_transactions(std::move(x));
       }));
   return td::Status::OK();
 }
