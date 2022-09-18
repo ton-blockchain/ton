@@ -2110,7 +2110,7 @@ class TonlibCli : public td::actor::Actor {
 
     send_query(make_object<tonlib_api::raw_getTransactions>(
                    std::move(input_key), ton::move_tl_object_as<tonlib_api::accountAddress>(std::move(address.address)),
-                   std::move(state->last_transaction_id_), 10),
+                   std::move(state->last_transaction_id_)),
                promise.wrap([](auto res) {
                  td::StringBuilder sb;
                  for (tonlib_api::object_ptr<tonlib_api::raw_transaction>& t : res->transactions_) {
