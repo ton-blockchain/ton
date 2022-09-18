@@ -217,6 +217,9 @@ blocks.transactions id:ton.blockIdExt req_count:int32 incomplete:Bool transactio
 blocks.header id:ton.blockIdExt global_id:int32 version:int32 flags:# after_merge:Bool after_split:Bool before_split:Bool want_merge:Bool want_split:Bool validator_list_hash_short:int32 catchain_seqno:int32 min_ref_mc_seqno:int32 is_key_block:Bool prev_key_block_seqno:int32 start_lt:int64 end_lt:int64 gen_utime:int53 vert_seqno:# prev_blocks:vector<ton.blockIdExt> = blocks.Header;
 //blocks.shortData header:blocks.Header transactions:blocks.Header = blocks.BlockData;
 
+blocks.signature node_id_short:int256 signature:bytes = blocks.Signature;
+blocks.blockSignatures id:ton.blockIdExt signatures:(vector blocks.signature) = blocks.BlockSignatures;
+
 configInfo config:tvm.cell = ConfigInfo;
 
 ---functions---
@@ -307,6 +310,7 @@ blocks.getShards id:ton.blockIdExt = blocks.Shards;
 blocks.lookupBlock mode:int32 id:ton.blockId lt:int64 utime:int32 = ton.BlockIdExt;
 blocks.getTransactions id:ton.blockIdExt mode:# count:# after:blocks.accountTransactionId = blocks.Transactions;
 blocks.getBlockHeader id:ton.blockIdExt = blocks.Header;
+blocks.getMasterchainBlockSignatures seqno:int32 = blocks.BlockSignatures;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;
