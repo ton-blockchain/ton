@@ -3312,7 +3312,9 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTi
                 double max = std::numeric_limits<double>::max();
                 double sum = 0;
                 int cnt = 0;
-                for (const auto &[time, duration] : stats.stats) {
+                for (const auto &stat : stats.stats) {
+                  double time = stat.first;
+                  double duration = stat.second;
                   if (now - time <= static_cast<double>(t)) {
                     min = td::min<double>(min, duration);
                     max = td::max<double>(max, duration);
