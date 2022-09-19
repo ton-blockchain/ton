@@ -4451,35 +4451,36 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfo&
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
-                        td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise) {
   TRY_RESULT(block, to_lite_api(*request.id_))
   client_.send_query(ton::lite_api::liteServer_getAllShardsInfo(std::move(block)),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_allShardsInfo>&& all_shards_info) {
-                        td::BufferSlice proof = std::move((*all_shards_info).proof_);
-                        td::BufferSlice data = std::move((*all_shards_info).data_);
-                        if (data.empty()) {
-                          //return td::Status::Error("shard configuration is empty");
-                        } else {
-                          auto R = vm::std_boc_deserialize(data.clone());
-                          if (R.is_error()) {
-                            //return td::Status::Error("cannot deserialize shard configuration");
-                          }
-                          auto root = R.move_as_ok();
-                          block::ShardConfig sh_conf;
-                          if (!sh_conf.unpack(vm::load_cell_slice_ref(root))) {
-                            //return td::Status::Error("cannot extract shard block list from shard configuration");
-                          } else {
-                            auto ids = sh_conf.get_shard_hash_ids(true);
-                            tonlib_api::blocks_shards shards;
-                            for (auto id : ids) {
-                              auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
-                              if (ref.not_null()) {
-                                shards.shards_.push_back(to_tonlib_api(ref->top_block_id()));
-                              }
-                            }
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_allShardsInfo>&& all_shards_info)
+                                      -> td::Result<object_ptr<tonlib_api::blocks_shards>> {
+                       td::BufferSlice proof = std::move((*all_shards_info).proof_);
+                       td::BufferSlice data = std::move((*all_shards_info).data_);
+                       if (data.empty()) {
+                         return td::Status::Error("shard configuration is empty");
+                       } else {
+                         auto R = vm::std_boc_deserialize(data.clone());
+                         if (R.is_error()) {
+                           return R.move_as_error_prefix("cannot deserialize shard configuration: ");
+                         }
+                         auto root = R.move_as_ok();
+                         block::ShardConfig sh_conf;
+                         if (!sh_conf.unpack(vm::load_cell_slice_ref(root))) {
+                           return td::Status::Error("cannot extract shard block list from shard configuration");
+                         } else {
+                           auto ids = sh_conf.get_shard_hash_ids(true);
+                           tonlib_api::blocks_shards shards;
+                           for (auto id : ids) {
+                             auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
+                             if (ref.not_null()) {
+                               shards.shards_.push_back(to_tonlib_api(ref->top_block_id()));
+                             }
+                           }
                            return tonlib_api::make_object<tonlib_api::blocks_shards>(std::move(shards));
-                          }
-                        }
+                         }
+                       }
                      }));
   return td::Status::OK();
 }

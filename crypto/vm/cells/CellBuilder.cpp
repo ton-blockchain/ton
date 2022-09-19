@@ -335,7 +335,7 @@ bool CellBuilder::store_ulong_rchk_bool(unsigned long long val, unsigned val_bit
 }
 
 CellBuilder& CellBuilder::store_long(long long val, unsigned val_bits) {
-  return store_long_top(val << (64 - val_bits), val_bits);
+  return store_long_top(val_bits == 0 ? 0 : (unsigned long long)val << (64 - val_bits), val_bits);
 }
 
 CellBuilder& CellBuilder::store_long_top(unsigned long long val, unsigned top_bits) {
