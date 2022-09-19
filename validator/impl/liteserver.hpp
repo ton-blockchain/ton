@@ -145,6 +145,9 @@ class LiteQuery : public td::actor::Actor {
   bool construct_proof_link_back_cont(ton::BlockIdExt cur, ton::BlockIdExt next);
   bool adjust_last_proof_link(ton::BlockIdExt cur, Ref<vm::Cell> block_root);
   bool finish_proof_chain(ton::BlockIdExt id);
+  void perform_getShardBlockProof(BlockIdExt blkid);
+  void continue_getShardBlockProof(Ref<BlockData> cur_block,
+                                   std::vector<std::pair<BlockIdExt, td::BufferSlice>> result);
 
   void load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);
   void continue_loadPrevKeyBlock(ton::BlockIdExt blkid, td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res,
