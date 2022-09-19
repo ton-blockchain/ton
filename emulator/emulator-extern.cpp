@@ -16,7 +16,7 @@ void *transaction_emulator_create(const char *config_params_boc, const char *sha
     LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell.move_as_error();
     return nullptr;
   }
-  auto global_config = block::Config(config_params_cell.move_as_ok(), td::Bits256::zero(), block::Config::needWorkchainInfo);
+  auto global_config = block::Config(config_params_cell.move_as_ok(), td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
   auto unpack_res = global_config.unpack();
   if (unpack_res.is_error()) {
     LOG(ERROR) << "Can't unpack config params";
