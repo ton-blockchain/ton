@@ -22,13 +22,21 @@ public:
     block::Account account;
   };
 
+  struct EmulationResults {
+    std::vector<td::Ref<vm::Cell>> transactions;
+    block::Account account;
+  };
+
   const block::Config& get_config() {
     return config_;
   }
 
-  td::Result<EmulationResult> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> msg_root);
+  td::Result<EmulationResult> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed = nullptr);
+  td::Result<EmulationResults> emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>> transactions, td::BitArray<256>* rand_seed = nullptr);
 
 private:
+  bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
+
   td::Status fetch_config_params(const block::Config& config,
                             td::Ref<vm::Cell>* old_mparams,
                             std::vector<block::StoragePrices>* storage_prices,
@@ -40,12 +48,11 @@ private:
                             td::RefInt256* basechain_create_fee,
                             ton::WorkchainId wc);
 
-  td::Result<std::unique_ptr<block::transaction::Transaction>> create_ordinary_transaction(td::Ref<vm::Cell> msg_root,
+  td::Result<std::unique_ptr<block::transaction::Transaction>> create_transaction(
+                                                         block::gen::Transaction::Record& record_trans,
                                                          block::Account* acc,
-                                                         ton::UnixTime utime, ton::LogicalTime lt,
                                                          block::StoragePhaseConfig* storage_phase_cfg,
                                                          block::ComputePhaseConfig* compute_phase_cfg,
-                                                         block::ActionPhaseConfig* action_phase_cfg,
-                                                         bool external, ton::LogicalTime after_lt);
+                                                         block::ActionPhaseConfig* action_phase_cfg);
 };
 } // namespace emulator
