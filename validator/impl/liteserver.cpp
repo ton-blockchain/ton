@@ -2535,7 +2535,6 @@ void LiteQuery::continue_getShardBlockProof(Ref<BlockData> cur_block,
   result.emplace_back(prev_id, proof.move_as_ok());
 
   if (prev_id == blk_id_) {
-    CHECK(result.size() <= 8);
     CHECK(base_blk_id_.is_masterchain());
     std::vector<tl_object_ptr<lite_api::liteServer_shardBlockLink>> links;
     for (auto& p : result) {
@@ -2549,6 +2548,7 @@ void LiteQuery::continue_getShardBlockProof(Ref<BlockData> cur_block,
     return;
   }
   if (result.size() == 8) {
+    // Chains of shardblocks between masterchain blocks can't be longer than 8 (see collator.cpp:991)
     fatal_error("proof chain is too long");
     return;
   }
