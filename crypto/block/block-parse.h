@@ -536,7 +536,7 @@ struct Account final : TLB_Complex {
 };
 
 extern const Account t_Account, t_AccountE;
-extern const RefTo<Account> t_Ref_Account;
+extern const RefTo<Account> t_Ref_AccountE;
 
 struct AccountStatus final : TLB {
   enum { acc_state_uninit, acc_state_frozen, acc_state_active, acc_state_nonexist };
@@ -572,7 +572,7 @@ struct ShardAccount final : TLB_Complex {
     return cs.advance_ext(0x140, 1);
   }
   bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override {
-    return cs.advance(0x140) && t_Ref_Account.validate_skip(ops, cs, weak);
+    return cs.advance(0x140) && t_Ref_AccountE.validate_skip(ops, cs, weak);
   }
   static bool unpack(vm::CellSlice& cs, Record& info) {
     return info.unpack(cs);

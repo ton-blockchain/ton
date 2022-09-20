@@ -376,6 +376,8 @@ add_subdirectory(lite-client)
 add_subdirectory(tonlib)
 #END tonlib
 
+add_subdirectory(emulator)
+
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
 add_subdirectory(common)
