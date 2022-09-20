@@ -27,7 +27,6 @@
 #include "tonlib/keys/Mnemonic.h"
 #include "tonlib/keys/SimpleEncryption.h"
 #include "tonlib/TonlibError.h"
-#include "tonlib/Emulator.h"
 
 #include "smc-envelope/GenericAccount.h"
 #include "smc-envelope/ManualDns.h"
@@ -36,6 +35,8 @@
 #include "smc-envelope/HighloadWalletV2.h"
 #include "smc-envelope/PaymentChannel.h"
 #include "smc-envelope/SmartContractCode.h"
+
+#include "emulator/transaction-emulator.h"
 
 #include "auto/tl/tonlib_api.hpp"
 #include "block/block-auto.h"
@@ -1371,7 +1372,7 @@ class RunEmulator : public td::actor::Actor {
 
   FullBlockId block_id_;
   td::Ref<vm::Cell> mc_state_root_; // ^ShardStateUnsplit
-  td::unique_ptr<AccountState> account_;
+  td::unique_ptr<AccountState> account_state_;
   std::vector<td::Ref<vm::Cell>> transactions_; // std::vector<^Transaction>
 
   size_t count_{0};
@@ -1432,7 +1433,7 @@ class RunEmulator : public td::actor::Actor {
     }));
   }
 
-  void get_account(td::Promise<td::unique_ptr<AccountState>>&& promise) {
+  void get_account_state(td::Promise<td::unique_ptr<AccountState>>&& promise) {
     auto actor_id = actor_id_++;
     actors_[actor_id] = td::actor::create_actor<GetRawAccountState>(
       "GetAccountState", client_.get_client(), request_.address, block_id_.prev,
@@ -1502,7 +1503,7 @@ class RunEmulator : public td::actor::Actor {
       block_id_ = block_id.move_as_ok();
 
       get_mc_state_root([self = this](td::Result<td::Ref<vm::Cell>>&& mc_state_root) { self->set_mc_state_root(std::move(mc_state_root)); });
-      get_account([self = this](td::Result<td::unique_ptr<AccountState>>&& account) { self->set_account(std::move(account)); });
+      get_account_state([self = this](td::Result<td::unique_ptr<AccountState>>&& state) { self->set_account_state(std::move(state)); });
       check(get_transactions(0));
 
       inc();
@@ -1518,11 +1519,11 @@ class RunEmulator : public td::actor::Actor {
     }
   }
 
-  void set_account(td::Result<td::unique_ptr<AccountState>>&& account) {
-    if (account.is_error()) {
-      check(account.move_as_error());
+  void set_account_state(td::Result<td::unique_ptr<AccountState>>&& account_state) {
+    if (account_state.is_error()) {
+      check(account_state.move_as_error());
     } else {
-      account_ = account.move_as_ok();
+      account_state_ = account_state.move_as_ok();
       inc();
     }
   }
@@ -1544,41 +1545,63 @@ class RunEmulator : public td::actor::Actor {
   }
 
   void inc() {
-    if (stopped_ || ++count_ != 4) { // 4 -- block_id + mc_state_root + account + transactions
+    if (stopped_ || ++count_ != 4) { // 4 -- block_id + mc_state_root + account_state + transactions
       return;
     }
-    const block::StdAddress& address = account_->get_address();
-    td::Result<td::Ref<vm::CellSlice>> shard_account_cell_slice = account_->to_shardAccountCellSlice();
-    if (shard_account_cell_slice.is_error()) {
-      check(shard_account_cell_slice.move_as_error());
+
+    auto r_config = block::Config::extract_from_state(mc_state_root_, 0b11'11111111);
+    if (r_config.is_error()) {
+      check(r_config.move_as_error());
       return;
     }
-    RawAccountState raw = std::move(account_->raw());
-    raw.block_id = block_id_.id;
+    std::unique_ptr<block::Config> config = r_config.move_as_ok();
 
-    // RawAccountState
-    // td::int64 balance;
-    // ton::UnixTime storage_last_paid;
-    // vm::CellStorageStat storage_stat;
-    // td::Ref<vm::Cell> code;
-    // td::Ref<vm::Cell> data;
-    // td::Ref<vm::Cell> state;
-    // std::string frozen_hash;
-    // ton::LogicalTime last_trans_lt;
-    // ton::Bits256 last_trans_hash;
-    // ton::LogicalTime gen_lt;
-    // td::uint32 gen_utime;
-    // ton::BlockIdExt block_id;
+    block::gen::ShardStateUnsplit::Record shard_state;
+    if (!tlb::unpack_cell(mc_state_root_, shard_state)) {
+      check(td::Status::Error("Failed to unpack masterchain state"));
+      return;
+    }
+    vm::Dictionary libraries(shard_state.r1.libraries->prefetch_ref(), 256);
 
-    td::Status status = emulator::emulate_transactions(std::move(mc_state_root_), address, account_->get_sync_time(),
-                                                       shard_account_cell_slice.move_as_ok(), std::move(block_id_.rand_seed),
-                                                       std::move(transactions_), raw.balance, raw.storage_last_paid, raw.storage_stat,
-                                                       raw.code, raw.data, raw.state, raw.frozen_hash,
-                                                       raw.info.last_trans_lt, raw.info.last_trans_hash, raw.info.gen_utime);
+    auto r_shard_account = account_state_->to_shardAccountCellSlice();
+    if (r_shard_account.is_error()) {
+      check(r_shard_account.move_as_error());
+      return;
+    }
+    td::Ref<vm::CellSlice> shard_account = r_shard_account.move_as_ok();
 
-    if (status.is_error()) {
-      promise_.set_error(status.move_as_error());
+    const block::StdAddress& address = account_state_->get_address();
+    ton::UnixTime now = account_state_->get_sync_time();
+    bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
+    block::Account account(address.workchain, address.addr.bits());
+    if (!account.unpack(std::move(shard_account), td::Ref<vm::CellSlice>(), now, is_special)) {
+      check(td::Status::Error("Can't unpack shard account"));
+      return;
+    }
+
+    emulator::TransactionEmulator trans_emulator(std::move(*config), std::move(libraries));
+    td::Result<emulator::TransactionEmulator::EmulationResults> emulation_result = trans_emulator.emulate_transactions(std::move(account), std::move(transactions_), &block_id_.rand_seed);
+
+    if (emulation_result.is_error()) {
+      promise_.set_error(emulation_result.move_as_error());
     } else {
+      account = std::move(emulation_result.move_as_ok().account);
+      RawAccountState raw = std::move(account_state_->raw());
+      raw.block_id = block_id_.id;
+      raw.balance = account.get_balance().grams->to_long();
+      raw.storage_last_paid = std::move(account.last_paid);
+      raw.storage_stat = std::move(account.storage_stat);
+      raw.code = std::move(account.code);
+      raw.data = std::move(account.data);
+      raw.state = std::move(account.total_state);
+      raw.info.last_trans_lt = account.last_trans_lt_;
+      raw.info.last_trans_hash = account.last_trans_hash_;
+      raw.info.gen_utime = account.now_;
+
+      if (account.status == block::Account::acc_frozen) {
+        raw.frozen_hash = (char*)account.state_hash.data();
+      }
+
       promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
     }
     stopped_ = true;

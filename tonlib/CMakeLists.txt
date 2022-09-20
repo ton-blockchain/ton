@@ -18,7 +18,6 @@ set(TONLIB_SOURCE
   tonlib/Logging.cpp
   tonlib/TonlibClient.cpp
   tonlib/utils.cpp
-  tonlib/Emulator.cpp
 
   tonlib/Client.h
   tonlib/Config.h
@@ -34,7 +33,6 @@ set(TONLIB_SOURCE
   tonlib/TonlibCallback.h
   tonlib/TonlibClient.h
   tonlib/utils.h
-  tonlib/Emulator.h
 
   tonlib/keys/bip39.cpp
   tonlib/keys/DecryptedKey.cpp
@@ -58,7 +56,7 @@ target_include_directories(tonlib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>
 )
-target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block lite-client-common smc-envelope)
+target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block lite-client-common smc-envelope emulator)
 target_link_libraries(tonlib PUBLIC tdutils tl_tonlib_api)
 
 if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
