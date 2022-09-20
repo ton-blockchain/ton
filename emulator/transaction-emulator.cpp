@@ -42,7 +42,7 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     if(res.is_error()) {
         return res.move_as_error_prefix("cannot run message on account ");
     }
-    std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+    std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
     auto trans_root = trans->commit(account);
     if (trans_root.is_null()) {
@@ -127,7 +127,7 @@ td::Status TransactionEmulator::fetch_config_params(const block::Config& config,
   return td::Status::OK();
 }
 
-td::Result<std::unique_ptr<block::Transaction>> TransactionEmulator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
+td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
                                                          block::Account* acc,
                                                          ton::UnixTime utime, ton::LogicalTime lt,
                                                          block::StoragePhaseConfig* storage_phase_cfg,
@@ -144,8 +144,8 @@ td::Result<std::unique_ptr<block::Transaction>> TransactionEmulator::create_ordi
     trans_min_lt = std::max(trans_min_lt, after_lt);
   }
 
-  std::unique_ptr<block::Transaction> trans =
-      std::make_unique<block::Transaction>(*acc, block::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
+  std::unique_ptr<block::transaction::Transaction> trans =
+      std::make_unique<block::transaction::Transaction>(*acc, block::transaction::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
   bool ihr_delivered = false;  // FIXME
   if (!trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
     if (external) {
