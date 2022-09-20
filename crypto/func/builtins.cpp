@@ -233,6 +233,11 @@ int emulate_not(int a) {
   if ((a & f) && (~a & f)) {
     a ^= f;
   }
+  f = VarDescr::_Pos | VarDescr::_Neg;
+  if ((a & f) && (~a & f)) {
+    a ^= f;
+  }
+  a &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit);
   return a;
 }
 
