@@ -40,7 +40,7 @@ private:
                             td::RefInt256* basechain_create_fee,
                             ton::WorkchainId wc);
 
-  td::Result<std::unique_ptr<block::Transaction>> create_ordinary_transaction(td::Ref<vm::Cell> msg_root,
+  td::Result<std::unique_ptr<block::transaction::Transaction>> create_ordinary_transaction(td::Ref<vm::Cell> msg_root,
                                                          block::Account* acc,
                                                          ton::UnixTime utime, ton::LogicalTime lt,
                                                          block::StoragePhaseConfig* storage_phase_cfg,
