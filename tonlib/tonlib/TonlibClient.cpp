@@ -1460,6 +1460,179 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
   ton::BlockIdExt last_block_;
 };
 
+class GetShardBlockProof : public td::actor::Actor {
+ public:
+  GetShardBlockProof(ExtClientRef ext_client_ref, ton::BlockIdExt id, ton::BlockIdExt from,
+                     td::actor::ActorShared<> parent,
+                     td::Promise<tonlib_api_ptr<tonlib_api::blocks_shardBlockProof>>&& promise)
+      : id_(id), from_(from), parent_(std::move(parent)), promise_(std::move(promise)) {
+    client_.set_client(ext_client_ref);
+  }
+
+  void start_up() override {
+    if (from_.is_masterchain_ext()) {
+      got_from_block(from_);
+    } else {
+      client_.with_last_block([SelfId = actor_id(this)](td::Result<LastBlockState> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &GetShardBlockProof::abort, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &GetShardBlockProof::got_from_block, R.move_as_ok().last_block_id);
+        }
+      });
+    }
+  }
+
+  void got_from_block(ton::BlockIdExt from) {
+    from_ = from;
+    CHECK(from_.is_masterchain_ext());
+    client_.send_query(
+        ton::lite_api::liteServer_getShardBlockProof(ton::create_tl_lite_block_id(id_)),
+        [SelfId = actor_id(this)](td::Result<lite_api_ptr<ton::lite_api::liteServer_shardBlockProof>> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &GetShardBlockProof::abort, R.move_as_error());
+          } else {
+            td::actor::send_closure(SelfId, &GetShardBlockProof::got_shard_block_proof, R.move_as_ok());
+          }
+        });
+  }
+
+  void got_shard_block_proof(lite_api_ptr<ton::lite_api::liteServer_shardBlockProof> result) {
+    mc_id_ = create_block_id(std::move(result->masterchain_id_));
+    if (!mc_id_.is_masterchain_ext()) {
+      abort(td::Status::Error("got invalid masterchain block id"));
+      return;
+    }
+    if (result->links_.size() > 8) {
+      abort(td::Status::Error("chain is too long"));
+      return;
+    }
+    ton::BlockIdExt cur_id = mc_id_;
+    try {
+      for (auto& link : result->links_) {
+        ton::BlockIdExt prev_id = create_block_id(link->id_);
+        td::BufferSlice proof = std::move(link->proof_);
+        auto R = vm::std_boc_deserialize(proof);
+        if (R.is_error()) {
+          abort(TonlibError::InvalidBagOfCells("proof"));
+          return;
+        }
+        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok(), 1);
+        if (cur_id.root_hash != block_root->get_hash().bits()) {
+          abort(td::Status::Error("invalid block hash in proof"));
+          return;
+        }
+        if (cur_id.is_masterchain()) {
+          block::gen::Block::Record blk;
+          block::gen::BlockExtra::Record extra;
+          block::gen::McBlockExtra::Record mc_extra;
+          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
+              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+            abort(td::Status::Error("cannot unpack block header"));
+            return;
+          }
+          block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());
+          td::Ref<block::McShardHash> shard_hash = shards.get_shard_hash(prev_id.shard_full(), true);
+          if (shard_hash.is_null() || shard_hash->top_block_id() != prev_id) {
+            abort(td::Status::Error("invalid proof chain: prev block is not in mc shard list"));
+            return;
+          }
+        } else {
+          std::vector<ton::BlockIdExt> prev;
+          ton::BlockIdExt mc_blkid;
+          bool after_split;
+          td::Status S = block::unpack_block_prev_blk_try(block_root, cur_id, prev, mc_blkid, after_split);
+          if (S.is_error()) {
+            abort(std::move(S));
+            return;
+          }
+          CHECK(prev.size() == 1 || prev.size() == 2);
+          bool found = prev_id == prev[0] || (prev.size() == 2 && prev_id == prev[1]);
+          if (!found) {
+            abort(td::Status::Error("invalid proof chain: prev block is not in prev blocks list"));
+            return;
+          }
+        }
+        links_.emplace_back(prev_id, std::move(proof));
+        cur_id = prev_id;
+      }
+    } catch (vm::VmVirtError& err) {
+      abort(err.as_status());
+      return;
+    }
+    if (cur_id != id_) {
+      abort(td::Status::Error("got invalid proof chain"));
+      return;
+    }
+
+    if (mc_id_.seqno() > from_.seqno()) {
+      abort(td::Status::Error("from mc block is too old"));
+      return;
+    }
+
+    client_.send_query(
+        ton::lite_api::liteServer_getBlockProof(0x1001, ton::create_tl_lite_block_id(from_),
+                                                ton::create_tl_lite_block_id(mc_id_)),
+        [SelfId = actor_id(this)](td::Result<lite_api_ptr<ton::lite_api::liteServer_partialBlockProof>> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &GetShardBlockProof::abort, R.move_as_error());
+          } else {
+            td::actor::send_closure(SelfId, &GetShardBlockProof::got_mc_proof, R.move_as_ok());
+          }
+        });
+  }
+
+  void got_mc_proof(lite_api_ptr<ton::lite_api::liteServer_partialBlockProof> result) {
+    auto R = liteclient::deserialize_proof_chain(std::move(result));
+    if (R.is_error()) {
+      abort(R.move_as_error());
+      return;
+    }
+    auto chain = R.move_as_ok();
+    if (chain->from != from_ || chain->to != mc_id_ || !chain->complete || chain->link_count() > 1) {
+      abort(td::Status::Error("got invalid proof chain"));
+      return;
+    }
+    auto S = chain->validate();
+    if (S.is_error()) {
+      abort(std::move(S));
+      return;
+    }
+
+    std::vector<ton::tl_object_ptr<tonlib_api::blocks_shardBlockLink>> links;
+    std::vector<ton::tl_object_ptr<tonlib_api::blocks_blockLinkBack>> mc_proof;
+    for (const auto& p : links_) {
+      links.push_back(
+          ton::create_tl_object<tonlib_api::blocks_shardBlockLink>(to_tonlib_api(p.first), p.second.as_slice().str()));
+    }
+    if (chain->link_count() == 1) {
+      auto& link = chain->last_link();
+      td::BufferSlice dest_proof = vm::std_boc_serialize(link.dest_proof).move_as_ok();
+      td::BufferSlice proof = vm::std_boc_serialize(link.proof).move_as_ok();
+      td::BufferSlice state_proof = vm::std_boc_serialize(link.state_proof).move_as_ok();
+      mc_proof.push_back(ton::create_tl_object<tonlib_api::blocks_blockLinkBack>(
+          link.is_key, to_tonlib_api(link.from), to_tonlib_api(link.to), dest_proof.as_slice().str(),
+          proof.as_slice().str(), state_proof.as_slice().str()));
+    }
+
+    promise_.set_result(ton::create_tl_object<tonlib_api::blocks_shardBlockProof>(
+        to_tonlib_api(from_), to_tonlib_api(mc_id_), std::move(links), std::move(mc_proof)));
+    stop();
+  }
+
+  void abort(td::Status error) {
+    promise_.set_error(std::move(error));
+    stop();
+  }
+
+ private:
+  ton::BlockIdExt id_, from_, mc_id_;
+  td::actor::ActorShared<> parent_;
+  td::Promise<tonlib_api_ptr<tonlib_api::blocks_shardBlockProof>> promise_;
+  ExtClient client_;
+  std::vector<std::pair<ton::BlockIdExt, td::BufferSlice>> links_;
+};
+
 TonlibClient::TonlibClient(td::unique_ptr<TonlibCallback> callback) : callback_(std::move(callback)) {
 }
 TonlibClient::~TonlibClient() = default;
@@ -4413,6 +4586,12 @@ auto to_lite_api(const tonlib_api::ton_blockIdExt& blk) -> td::Result<lite_api_p
       blk.workchain_, blk.shard_, blk.seqno_, root_hash, file_hash);
 }
 
+td::Result<ton::BlockIdExt> to_block_id(const tonlib_api::ton_blockIdExt& blk) {
+  TRY_RESULT(root_hash, to_bits256(blk.root_hash_, "blk.root_hash"))
+  TRY_RESULT(file_hash, to_bits256(blk.file_hash_, "blk.file_hash"))
+  return ton::BlockIdExt(blk.workchain_, blk.shard_, blk.seqno_, root_hash, file_hash);
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
                         td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
   TRY_RESULT(lite_block, to_lite_api(*request.id_))
@@ -4621,6 +4800,19 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainBlock
   actors_[actor_id] = td::actor::create_actor<GetMasterchainBlockSignatures>(
       "GetMasterchainBlockSignatures", client_.get_client(), request.seqno_, actor_shared(this, actor_id),
       std::move(promise));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof& request,
+                                    td::Promise<object_ptr<tonlib_api::blocks_shardBlockProof>>&& promise) {
+  TRY_RESULT(id, to_block_id(*request.id_));
+  ton::BlockIdExt from;
+  if (request.mode_ & 1) {
+    TRY_RESULT_ASSIGN(from, to_block_id(*request.id_));
+  }
+  auto actor_id = actor_id_++;
+  actors_[actor_id] = td::actor::create_actor<GetShardBlockProof>("GetShardBlockProof", client_.get_client(), id, from,
+                                                                  actor_shared(this, actor_id), std::move(promise));
   return td::Status::OK();
 }
 
