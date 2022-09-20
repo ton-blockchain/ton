@@ -185,7 +185,7 @@ int emulate_and(int a, int b) {
   }
   r |= both & (VarDescr::_Even | VarDescr::_Odd);
   r |= both & (VarDescr::_Bit | VarDescr::_Bool);
-  if (both & (VarDescr::_Odd | VarDescr::_Bit | VarDescr::_Bool)) {
+  if (both & VarDescr::_Odd) {
     r |= VarDescr::_NonZero;
   }
   return r;
