@@ -57,7 +57,7 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     return TransactionEmulator::EmulationResult{ std::move(trans_root), std::move(account) };
 }
 
-td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>> original_transactions, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
 
   std::vector<td::Ref<vm::Cell>> emulated_transactions;
   for (const auto& original_trans : original_transactions) {

@@ -32,7 +32,7 @@ public:
   }
 
   td::Result<EmulationResult> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed = nullptr);
-  td::Result<EmulationResults> emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>> transactions, td::BitArray<256>* rand_seed = nullptr);
+  td::Result<EmulationResults> emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& transactions, td::BitArray<256>* rand_seed = nullptr);
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
