@@ -1427,7 +1427,7 @@ class RunEmulator : public td::actor::Actor {
   void get_account(td::Promise<td::unique_ptr<AccountState>>&& promise) {
     auto actor_id = actor_id_++;
     actors_[actor_id] = td::actor::create_actor<GetRawAccountState>(
-      "GetAccountState", client_.get_client(), request_.address, block_id_.mc,
+      "GetAccountState", client_.get_client(), request_.address, block_id_.prev,
       actor_shared(this, actor_id),
       promise.wrap([address = request_.address](auto&& state) {
         return td::make_unique<AccountState>(std::move(address), std::move(state), 0);
