@@ -1893,7 +1893,7 @@ class RunEmulator : public td::actor::Actor {
     }
 
     emulator::TransactionEmulator trans_emulator(std::move(*config), std::move(libraries));
-    td::Result<emulator::TransactionEmulator::EmulationResults> emulation_result = trans_emulator.emulate_transactions(std::move(account), std::move(transactions_), &block_id_.rand_seed);
+    td::Result<emulator::TransactionEmulator::EmulationResults> emulation_result = trans_emulator.emulate_transactions_full(std::move(account), std::move(transactions_), &block_id_.rand_seed);
 
     if (emulation_result.is_error()) {
       promise_.set_error(emulation_result.move_as_error());

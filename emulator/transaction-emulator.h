@@ -31,8 +31,14 @@ public:
     return config_;
   }
 
-  td::Result<EmulationResult> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed = nullptr);
-  td::Result<EmulationResults> emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& transactions, td::BitArray<256>* rand_seed = nullptr);
+  td::Result<EmulationResult> emulate_transaction(
+      block::Account&& account, td::Ref<vm::Cell> msg_root,
+      ton::UnixTime utime = 0, ton::LogicalTime lt = 0,
+      int trans_type = block::transaction::Transaction::tr_ord,
+      td::BitArray<256>* trans_hash = nullptr, td::BitArray<256>* rand_seed = nullptr);
+
+  td::Result<EmulationResult> emulate_transaction_full(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed = nullptr);
+  td::Result<EmulationResults> emulate_transactions_full(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& transactions, td::BitArray<256>* rand_seed = nullptr);
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
@@ -49,8 +55,8 @@ private:
                             ton::WorkchainId wc);
 
   td::Result<std::unique_ptr<block::transaction::Transaction>> create_transaction(
-                                                         block::gen::Transaction::Record& record_trans,
-                                                         block::Account* acc,
+                                                         td::Ref<vm::Cell> msg_root, block::Account* acc,
+                                                         ton::UnixTime utime, ton::LogicalTime lt, int trans_type,
                                                          block::StoragePhaseConfig* storage_phase_cfg,
                                                          block::ComputePhaseConfig* compute_phase_cfg,
                                                          block::ActionPhaseConfig* action_phase_cfg);
