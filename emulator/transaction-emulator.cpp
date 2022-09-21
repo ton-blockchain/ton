@@ -8,12 +8,9 @@ using td::Ref;
 using namespace std::string_literals;
 
 namespace emulator {
-td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
-
-    block::gen::Transaction::Record record_trans;
-    if (!tlb::unpack_cell(original_trans, record_trans)) {
-      return td::Status::Error("Failed to unpack Transaction");
-    }
+td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(
+    block::Account&& account, td::Ref<vm::Cell> msg_root,
+    ton::UnixTime utime, ton::LogicalTime lt, int trans_type, td::BitArray<256>* trans_hash, td::BitArray<256>* rand_seed) {
 
     td::Ref<vm::Cell> old_mparams;
     std::vector<block::StoragePrices> storage_prices;
@@ -33,31 +30,93 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
 
     vm::init_op_cp0();
 
-    auto res = create_transaction(record_trans, &account,
+    if (!utime) {
+      utime = (unsigned)std::time(nullptr);
+    }
+    if (!lt) {
+      lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
+    }
+
+    auto res = create_transaction(msg_root, &account, utime, lt, trans_type,
                                                     &storage_phase_cfg, &compute_phase_cfg,
                                                     &action_phase_cfg);
     if(res.is_error()) {
         return res.move_as_error_prefix("cannot run message on account ");
     }
-    std::unique_ptr<block::transaction::Transaction> emulated_trans = res.move_as_ok();
+    std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
-    if (td::Bits256(emulated_trans->root->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
+    if (trans_hash && td::Bits256(trans->root->get_hash().bits()) != *trans_hash) {
       return td::Status::Error("transaction hash mismatch");
     }
 
-    auto trans_root = emulated_trans->commit(account);
+    auto trans_root = trans->commit(account);
     if (trans_root.is_null()) {
         return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
-    }
-
-    if (!check_state_update(account, record_trans)) {
-      return td::Status::Error("account hash mismatch");
     }
 
     return TransactionEmulator::EmulationResult{ std::move(trans_root), std::move(account) };
 }
 
-td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction_full(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
+
+    block::gen::Transaction::Record record_trans;
+    if (!tlb::unpack_cell(original_trans, record_trans)) {
+      return td::Status::Error("Failed to unpack Transaction");
+    }
+
+    ton::LogicalTime lt = record_trans.lt;
+    ton::UnixTime utime = record_trans.now;
+    account.now_ = utime;
+    td::Ref<vm::Cell> msg_root = record_trans.r1.in_msg->prefetch_ref();
+    td::BitArray<256> trans_hash = original_trans->get_hash().bits();
+    int tag = block::gen::t_TransactionDescr.get_tag(vm::load_cell_slice(record_trans.description));
+
+    int trans_type = block::transaction::Transaction::tr_none;
+    switch (tag) {
+      case block::gen::TransactionDescr::trans_ord: {
+        trans_type = block::transaction::Transaction::tr_ord;
+        break;
+      }
+      case block::gen::TransactionDescr::trans_storage: {
+        trans_type = block::transaction::Transaction::tr_storage;
+        break;
+      }
+      case block::gen::TransactionDescr::trans_tick_tock: {
+        block::gen::TransactionDescr::Record_trans_tick_tock tick_tock;
+        if (!tlb::unpack_cell(record_trans.description, tick_tock)) {
+          return td::Status::Error("Failed to unpack tick tock transaction description");
+        }
+        trans_type = tick_tock.is_tock ? block::transaction::Transaction::tr_tock : block::transaction::Transaction::tr_tick;
+        break;
+      }
+      case block::gen::TransactionDescr::trans_split_prepare: {
+        trans_type = block::transaction::Transaction::tr_split_prepare;
+        break;
+      }
+      case block::gen::TransactionDescr::trans_split_install: {
+        trans_type = block::transaction::Transaction::tr_split_install;
+        break;
+      }
+      case block::gen::TransactionDescr::trans_merge_prepare: {
+        trans_type = block::transaction::Transaction::tr_merge_prepare;
+        break;
+      }
+      case block::gen::TransactionDescr::trans_merge_install: {
+        trans_type = block::transaction::Transaction::tr_merge_install;
+        break;
+      }
+    }
+
+    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, &trans_hash, rand_seed));
+
+    if (!check_state_update(emulation_result.account, record_trans)) {
+      return td::Status::Error("account hash mismatch");
+    }
+
+    return std::move(emulation_result);
+}
+
+td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions_full(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
 
   std::vector<td::Ref<vm::Cell>> emulated_transactions;
   for (const auto& original_trans : original_transactions) {
@@ -65,7 +124,7 @@ td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_t
       continue;
     }
 
-    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), original_trans, rand_seed));
+    TRY_RESULT(emulation_result, emulate_transaction_full(std::move(account), original_trans, rand_seed));
     account = std::move(emulation_result.account);
   }
 
@@ -157,63 +216,26 @@ td::Status TransactionEmulator::fetch_config_params(const block::Config& config,
 }
 
 td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator::create_transaction(
-                                                         block::gen::Transaction::Record& record_trans,
-                                                         block::Account* acc,
+                                                         td::Ref<vm::Cell> msg_root, block::Account* acc,
+                                                         ton::UnixTime utime, ton::LogicalTime lt, int trans_type,
                                                          block::StoragePhaseConfig* storage_phase_cfg,
                                                          block::ComputePhaseConfig* compute_phase_cfg,
                                                          block::ActionPhaseConfig* action_phase_cfg) {
-  auto lt = record_trans.lt;
-  auto now = record_trans.now;
-  acc->now_ = now;
-  td::Ref<vm::Cell> msg_root = record_trans.r1.in_msg->prefetch_ref();
   bool external{false}, ihr_delivered{false}, need_credit_phase{false};
-  int tag = block::gen::t_TransactionDescr.get_tag(vm::load_cell_slice(record_trans.description));
 
   if (msg_root.not_null()) {
     auto cs = vm::load_cell_slice(msg_root);
     external = block::gen::t_CommonMsgInfo.get_tag(cs);
   }
 
-  int trans_type = block::transaction::Transaction::tr_none;
-  switch (tag) {
-    case block::gen::TransactionDescr::trans_ord: {
-      trans_type = block::transaction::Transaction::tr_ord;
-      need_credit_phase = !external;
-      break;
-    }
-    case block::gen::TransactionDescr::trans_storage: {
-      trans_type = block::transaction::Transaction::tr_storage;
-      break;
-    }
-    case block::gen::TransactionDescr::trans_tick_tock: {
-      block::gen::TransactionDescr::Record_trans_tick_tock tick_tock;
-      if (!tlb::unpack_cell(record_trans.description, tick_tock)) {
-        return td::Status::Error("Failed to unpack tick tock transaction description");
-      }
-      trans_type = tick_tock.is_tock ? block::transaction::Transaction::tr_tock : block::transaction::Transaction::tr_tick;
-      break;
-    }
-    case block::gen::TransactionDescr::trans_split_prepare: {
-      trans_type = block::transaction::Transaction::tr_split_prepare;
-      break;
-    }
-    case block::gen::TransactionDescr::trans_split_install: {
-      trans_type = block::transaction::Transaction::tr_split_install;
-      break;
-    }
-    case block::gen::TransactionDescr::trans_merge_prepare: {
-      trans_type = block::transaction::Transaction::tr_merge_prepare;
-      break;
-    }
-    case block::gen::TransactionDescr::trans_merge_install: {
-      trans_type = block::transaction::Transaction::tr_merge_install;
-      need_credit_phase = true;
-      break;
-    }
+  if (trans_type == block::transaction::Transaction::tr_ord) {
+    need_credit_phase = !external;
+  } else if (trans_type == block::transaction::Transaction::tr_merge_install) {
+    need_credit_phase = true;
   }
 
   std::unique_ptr<block::transaction::Transaction> trans =
-      std::make_unique<block::transaction::Transaction>(*acc, trans_type, lt, now, msg_root);
+      std::make_unique<block::transaction::Transaction>(*acc, trans_type, lt, utime, msg_root);
 
   if (msg_root.not_null() && !trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
     if (external) {
