@@ -2313,10 +2313,6 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
                         "AccountBlock for this account");
   }
   if (new_value.not_null()) {
-    if (!block::gen::t_ShardAccount.validate_csr(10000, new_value)) {
-      return reject_query("new state of account "s + acc_id.to_hex(256) +
-                          " failed to pass automated validity checks for ShardAccount");
-    }
     if (!block::tlb::t_ShardAccount.validate_csr(10000, new_value)) {
       return reject_query("new state of account "s + acc_id.to_hex(256) +
                           " failed to pass hand-written validity checks for ShardAccount");
