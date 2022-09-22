@@ -240,6 +240,8 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::raw_fullAccountState>>&& promise);
   td::Status do_request(tonlib_api::raw_getTransactions& request,
                         td::Promise<object_ptr<tonlib_api::raw_transactions>>&& promise);
+  td::Status do_request(tonlib_api::raw_getTransactionsV2& request,
+                        td::Promise<object_ptr<tonlib_api::raw_transactions>>&& promise);
 
   td::Status do_request(const tonlib_api::getAccountState& request,
                         td::Promise<object_ptr<tonlib_api::fullAccountState>>&& promise);
@@ -375,6 +377,10 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getBlockHeader& request,
                         td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getMasterchainBlockSignatures& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_blockSignatures>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getShardBlockProof& request,
+                        td::Promise<object_ptr<tonlib_api::blocks_shardBlockProof>>&& promise);
 
   void get_config_param(int32_t param, int32_t mode, ton::BlockIdExt block, 
                         td::Promise<object_ptr<tonlib_api::configInfo>>&& promise);

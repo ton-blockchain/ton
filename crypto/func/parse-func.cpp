@@ -254,9 +254,7 @@ void parse_const_decl(Lexer& lex) {
   if (!sym_def) {
     lex.cur().error_at("cannot define global symbol `", "`");
   }
-  if (sym_def->value) {
-    lex.cur().error_at("global symbol `", "` already exists");
-  }
+  Lexem ident = lex.cur();
   lex.next();
   if (lex.tp() != '=') {
     lex.cur().error_at("expected = instead of ", "");
@@ -273,10 +271,11 @@ void parse_const_decl(Lexer& lex) {
   if ((wanted_type != Expr::_None) && (x->cls != wanted_type)) {
     lex.cur().error("expression type does not match wanted type");
   }
+  SymValConst* new_value = nullptr;
   if (x->cls == Expr::_Const) { // Integer constant
-    sym_def->value = new SymValConst{const_cnt++, x->intval};
+    new_value = new SymValConst{const_cnt++, x->intval};
   } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
-    sym_def->value = new SymValConst{const_cnt++, x->strval};
+    new_value = new SymValConst{const_cnt++, x->strval};
   } else if (x->cls == Expr::_Apply) {
     code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
     auto tmp_vars = x->pre_compile(code);
@@ -304,10 +303,20 @@ void parse_const_decl(Lexer& lex) {
     if (op.origin.is_null() || !op.origin->is_valid()) {
       lex.cur().error("precompiled expression did not result in a valid integer constant");
     }
-    sym_def->value = new SymValConst{const_cnt++, op.origin};
+    new_value = new SymValConst{const_cnt++, op.origin};
   } else {
     lex.cur().error("integer or slice literal or constant expected");
   }
+  if (sym_def->value) {
+    SymValConst* old_value = dynamic_cast<SymValConst*>(sym_def->value);
+    Keyword new_type = new_value->get_type();
+    if (!old_value || old_value->get_type() != new_type ||
+        (new_type == _Int && *old_value->get_int_value() != *new_value->get_int_value()) ||
+        (new_type == _Slice && old_value->get_str_value() != new_value->get_str_value())) {
+      ident.error_at("global symbol `", "` already exists");
+    }
+  }
+  sym_def->value = new_value;
 }
 
 FormalArgList parse_formal_args(Lexer& lex) {
@@ -1657,7 +1666,14 @@ bool parse_source_file(const char* filename, src::Lexem lex) {
       throw src::Fatal{msg};
     }
   }
-  std::string real_filename = td::realpath(td::CSlice(filename)).move_as_ok();
+
+  auto path_res = td::realpath(td::CSlice(filename));
+  if (path_res.is_error()) {
+    auto error = path_res.move_as_error();
+    lex.error(error.message().c_str());
+    return false;
+  }
+  std::string real_filename = path_res.move_as_ok();
   if (std::count(source_files.begin(), source_files.end(), real_filename)) {
     if (verbosity >= 2) {
       if (lex.tp) {

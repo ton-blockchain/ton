@@ -49,6 +49,8 @@ set(TONLIB_SOURCE
 set(TONLIB_OFFLINE_TEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/test/offline.cpp PARENT_SCOPE)
 set(TONLIB_ONLINE_TEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/test/online.cpp PARENT_SCOPE)
 
+set(USE_EMSCRIPTEN ${USE_EMSCRIPTEN} PARENT_SCOPE)
+
 add_library(tonlib STATIC ${TONLIB_SOURCE})
 
 target_include_directories(tonlib PUBLIC
@@ -87,8 +89,12 @@ set(TONLIB_JSON_HEADERS tonlib/tonlib_client_json.h)
 set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
 
 include(GenerateExportHeader)
+if (NOT USE_EMSCRIPTEN)
+  add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
+else()
+  add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
+endif()
 
-add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
 target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
 target_include_directories(tonlibjson PUBLIC
@@ -149,11 +155,13 @@ endif()
 
 install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
 
-install(EXPORT Tonlib
-  FILE TonlibTargets.cmake
-  NAMESPACE Tonlib::
-  DESTINATION lib/cmake/Tonlib
-)
+if (NOT USE_EMSCRIPTEN)
+  install(EXPORT Tonlib
+    FILE TonlibTargets.cmake
+    NAMESPACE Tonlib::
+    DESTINATION lib/cmake/Tonlib
+  )
+endif()
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file("TonlibConfigVersion.cmake"
   VERSION ${TON_VERSION}

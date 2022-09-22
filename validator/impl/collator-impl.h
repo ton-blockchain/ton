@@ -208,7 +208,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<vm::Cell>> collated_roots_;
   std::unique_ptr<ton::BlockCandidate> block_candidate;
 
-  td::PerfWarningTimer perf_timer_{"collate", 0.1};
+  td::PerfWarningTimer perf_timer_;
   //
   block::Account* lookup_account(td::ConstBitPtr addr) const;
   std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,

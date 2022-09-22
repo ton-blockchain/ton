@@ -28,16 +28,14 @@
 #include "func.h"
 #include "parser/srcread.h"
 #include "parser/lexer.h"
-#include "parser/symtable.h"
 #include <getopt.h>
-#include <fstream>
 #include "git.h"
 
 namespace funC {
 
 int verbosity, indent, opt_level = 2;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
-std::ostream* outs = &std::cout;
+bool interactive = false;
 std::string generated_from, boc_output_filename;
 
 /*
@@ -46,58 +44,59 @@ std::string generated_from, boc_output_filename;
  *
  */
 
-void generate_output_func(SymDef* func_sym) {
+void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &errs) {
   SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
   assert(func_val);
   std::string name = sym::symbols.get_name(func_sym->sym_idx);
   if (verbosity >= 2) {
-    std::cerr << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
+    errs << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
   }
   if (!func_val->code) {
-    std::cerr << "( function `" << name << "` undefined )\n";
+    errs << "( function `" << name << "` undefined )\n";
+    throw src::ParseError(func_sym->loc, name);
   } else {
     CodeBlob& code = *(func_val->code);
     if (verbosity >= 3) {
-      code.print(std::cerr, 9);
+      code.print(errs, 9);
     }
     code.simplify_var_types();
     if (verbosity >= 5) {
-      std::cerr << "after simplify_var_types: \n";
-      code.print(std::cerr, 0);
+      errs << "after simplify_var_types: \n";
+      code.print(errs, 0);
     }
     code.prune_unreachable_code();
     if (verbosity >= 5) {
-      std::cerr << "after prune_unreachable: \n";
-      code.print(std::cerr, 0);
+      errs << "after prune_unreachable: \n";
+      code.print(errs, 0);
     }
     code.split_vars(true);
     if (verbosity >= 5) {
-      std::cerr << "after split_vars: \n";
-      code.print(std::cerr, 0);
+      errs << "after split_vars: \n";
+      code.print(errs, 0);
     }
     for (int i = 0; i < 8; i++) {
       code.compute_used_code_vars();
       if (verbosity >= 4) {
-        std::cerr << "after compute_used_vars: \n";
-        code.print(std::cerr, 6);
+        errs << "after compute_used_vars: \n";
+        code.print(errs, 6);
       }
       code.fwd_analyze();
       if (verbosity >= 5) {
-        std::cerr << "after fwd_analyze: \n";
-        code.print(std::cerr, 6);
+        errs << "after fwd_analyze: \n";
+        code.print(errs, 6);
       }
       code.prune_unreachable_code();
       if (verbosity >= 5) {
-        std::cerr << "after prune_unreachable: \n";
-        code.print(std::cerr, 6);
+        errs << "after prune_unreachable: \n";
+        code.print(errs, 6);
       }
     }
     code.mark_noreturn();
     if (verbosity >= 3) {
-      code.print(std::cerr, 15);
+      code.print(errs, 15);
     }
     if (verbosity >= 2) {
-      std::cerr << "\n---------- resulting code for " << name << " -------------\n";
+      errs << "\n---------- resulting code for " << name << " -------------\n";
     }
     bool inline_func = (func_val->flags & 1);
     bool inline_ref = (func_val->flags & 2);
@@ -107,7 +106,7 @@ void generate_output_func(SymDef* func_sym) {
     } else if (inline_ref) {
       modifier = "REF";
     }
-    *outs << std::string(indent * 2, ' ') << name << " PROC" << modifier << ":<{\n";
+    outs << std::string(indent * 2, ' ') << name << " PROC" << modifier << ":<{\n";
     int mode = 0;
     if (stack_layout_comments) {
       mode |= Stack::_StkCmt | Stack::_CptStkCmt;
@@ -120,145 +119,71 @@ void generate_output_func(SymDef* func_sym) {
     if (fv && (fv->flags & 1) && code.ops->noreturn()) {
       mode |= Stack::_InlineFunc;
     }
-    code.generate_code(*outs, mode, indent + 1);
-    *outs << std::string(indent * 2, ' ') << "}>\n";
+    code.generate_code(outs, mode, indent + 1);
+    outs << std::string(indent * 2, ' ') << "}>\n";
     if (verbosity >= 2) {
-      std::cerr << "--------------\n";
+      errs << "--------------\n";
     }
   }
 }
 
-int generate_output() {
+int generate_output(std::ostream &outs, std::ostream &errs) {
   if (asm_preamble) {
-    *outs << "\"Asm.fif\" include\n";
+    outs << "\"Asm.fif\" include\n";
   }
-  *outs << "// automatically generated from " << generated_from << std::endl;
+  outs << "// automatically generated from " << generated_from << std::endl;
   if (program_envelope) {
-    *outs << "PROGRAM{\n";
+    outs << "PROGRAM{\n";
   }
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     assert(func_val);
     std::string name = sym::symbols.get_name(func_sym->sym_idx);
-    *outs << std::string(indent * 2, ' ');
+    outs << std::string(indent * 2, ' ');
     if (func_val->method_id.is_null()) {
-      *outs << "DECLPROC " << name << "\n";
+      outs << "DECLPROC " << name << "\n";
     } else {
-      *outs << func_val->method_id << " DECLMETHOD " << name << "\n";
+      outs << func_val->method_id << " DECLMETHOD " << name << "\n";
     }
   }
   for (SymDef* gvar_sym : glob_vars) {
     assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
     std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
-    *outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
+    outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
   int errors = 0;
   for (SymDef* func_sym : glob_func) {
     try {
-      generate_output_func(func_sym);
+      generate_output_func(func_sym, outs, errs);
     } catch (src::Error& err) {
-      std::cerr << "cannot generate code for function `" << sym::symbols.get_name(func_sym->sym_idx) << "`:\n"
+      errs << "cannot generate code for function `" << sym::symbols.get_name(func_sym->sym_idx) << "`:\n"
                 << err << std::endl;
       ++errors;
     }
   }
   if (program_envelope) {
-    *outs << "}END>c\n";
+    outs << "}END>c\n";
   }
   if (!boc_output_filename.empty()) {
-    *outs << "2 boc+>B \"" << boc_output_filename << "\" B>file\n";
+    outs << "2 boc+>B \"" << boc_output_filename << "\" B>file\n";
   }
   return errors;
 }
 
-}  // namespace funC
-
-void usage(const char* progname) {
-  std::cerr
-      << "usage: " << progname
-      << " [-vIAPSR][-O<level>][-i<indent-spc>][-o<output-filename>][-W<boc-filename>] {<func-source-filename> ...}\n"
-         "\tGenerates Fift TVM assembler code from a funC source\n"
-         "-I\tEnables interactive mode (parse stdin)\n"
-         "-o<fift-output-filename>\tWrites generated code into specified file instead of stdout\n"
-         "-v\tIncreases verbosity level (extra information output into stderr)\n"
-         "-i<indent>\tSets indentation for the output code (in two-space units)\n"
-         "-A\tPrefix code with `\"Asm.fif\" include` preamble\n"
-         "-O<level>\tSets optimization level (2 by default)\n"
-         "-P\tEnvelope code into PROGRAM{ ... }END>c\n"
-         "-S\tInclude stack layout comments in the output code\n"
-         "-R\tInclude operation rewrite comments in the output code\n"
-         "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
-         "-A and -P.\n"
-         "\t-s\tOutput semantic version of FunC and exit\n"
-         "\t-V<version>\tShow func build information\n";
-  std::exit(2);
-}
-
-void output_inclusion_stack() {
+void output_inclusion_stack(std::ostream &errs) {
   while (!funC::inclusion_locations.empty()) {
     src::SrcLocation loc = funC::inclusion_locations.top();
     funC::inclusion_locations.pop();
     if (loc.fdescr) {
-      std::cerr << "note: included from ";
-      loc.show(std::cerr);
-      std::cerr << std::endl;
+      errs << "note: included from ";
+      loc.show(errs);
+      errs << std::endl;
     }
   }
 }
 
-std::string output_filename;
 
-int main(int argc, char* const argv[]) {
-  int i;
-  bool interactive = false;
-  while ((i = getopt(argc, argv, "Ahi:Io:O:PRsSvW:V")) != -1) {
-    switch (i) {
-      case 'A':
-        funC::asm_preamble = true;
-        break;
-      case 'I':
-        interactive = true;
-        break;
-      case 'i':
-        funC::indent = std::max(0, atoi(optarg));
-        break;
-      case 'o':
-        output_filename = optarg;
-        break;
-      case 'O':
-        funC::opt_level = std::max(0, atoi(optarg));
-        break;
-      case 'P':
-        funC::program_envelope = true;
-        break;
-      case 'R':
-        funC::op_rewrite_comments = true;
-        break;
-      case 'S':
-        funC::stack_layout_comments = true;
-        break;
-      case 'v':
-        ++funC::verbosity;
-        break;
-      case 'W':
-        funC::boc_output_filename = optarg;
-        funC::asm_preamble = funC::program_envelope = true;
-        break;
-      case 's':
-        std::cout << funC::func_version << "\n";
-        std::exit(0);
-        break;
-      case 'V':
-        std::cout << "FunC semantic version: v" << funC::func_version << "\n";
-        std::cout << "Build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
-        std::exit(0);
-        break;
-      case 'h':
-      default:
-        usage(argv[0]);
-    }
-  }
-
+int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs) {
   if (funC::program_envelope && !funC::indent) {
     funC::indent = 1;
   }
@@ -268,12 +193,11 @@ int main(int argc, char* const argv[]) {
 
   int ok = 0, proc = 0;
   try {
-    while (optind < argc) {
-      // funC::generated_from += std::string{"`"} + argv[optind] + "` ";
-      ok += funC::parse_source_file(argv[optind++]);
+    for (auto src : sources) {
+      ok += funC::parse_source_file(src.c_str());
       proc++;
     }
-    if (interactive) {
+    if (funC::interactive) {
       funC::generated_from += "stdin ";
       ok += funC::parse_source_stdin();
       proc++;
@@ -284,29 +208,24 @@ int main(int argc, char* const argv[]) {
     if (!proc) {
       throw src::Fatal{"no source files, no output"};
     }
-    std::unique_ptr<std::fstream> fs;
-    if (!output_filename.empty()) {
-      fs = std::make_unique<std::fstream>(output_filename, fs->trunc | fs->out);
-      if (!fs->is_open()) {
-        std::cerr << "failed to create output file " << output_filename << '\n';
-        return 2;
-      }
-      funC::outs = fs.get();
-    }
-    funC::generate_output();
+    return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
-    std::cerr << "fatal: " << fatal << std::endl;
-    output_inclusion_stack();
-    std::exit(1);
+    errs << "fatal: " << fatal << std::endl;
+    output_inclusion_stack(errs);
+    return 2;
   } catch (src::Error& error) {
-    std::cerr << error << std::endl;
-    output_inclusion_stack();
-    std::exit(1);
+    errs << error << std::endl;
+    output_inclusion_stack(errs);
+    return 2;
   } catch (funC::UnifyError& unif_err) {
-    std::cerr << "fatal: ";
-    unif_err.print_message(std::cerr);
-    std::cerr << std::endl;
-    output_inclusion_stack();
-    std::exit(1);
+    errs << "fatal: ";
+    unif_err.print_message(errs);
+    errs << std::endl;
+    output_inclusion_stack(errs);
+    return 2;
   }
+
+  return 0;
 }
+
+}  // namespace funC

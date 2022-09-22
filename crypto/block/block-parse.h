@@ -982,7 +982,7 @@ struct ShardIdent::Record {
   int shard_pfx_bits;
   int workchain_id;
   unsigned long long shard_prefix;
-  Record() : shard_pfx_bits(-1) {
+  Record() : shard_pfx_bits(-1), workchain_id(ton::workchainInvalid), shard_prefix(0) {
   }
   Record(int _pfxlen, int _wcid, unsigned long long _pfx)
       : shard_pfx_bits(_pfxlen), workchain_id(_wcid), shard_prefix(_pfx) {

@@ -52,6 +52,8 @@ liteServer.partialBlockProof complete:Bool from:tonNode.blockIdExt to:tonNode.bl
 liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
 liteServer.validatorStats mode:# id:tonNode.blockIdExt count:int complete:Bool state_proof:bytes data_proof:bytes = liteServer.ValidatorStats;
 liteServer.libraryResult result:(vector liteServer.libraryEntry) = liteServer.LibraryResult;
+liteServer.shardBlockLink id:tonNode.blockIdExt proof:bytes = liteServer.ShardBlockLink;
+liteServer.shardBlockProof masterchain_id:tonNode.blockIdExt links:(vector liteServer.shardBlockLink) = liteServer.ShardBlockProof;
 
 liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 
@@ -78,6 +80,7 @@ liteServer.getConfigAll mode:# id:tonNode.blockIdExt = liteServer.ConfigInfo;
 liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
 liteServer.getValidatorStats#091a58bc mode:# id:tonNode.blockIdExt limit:int start_after:mode.0?int256 modified_after:mode.2?int = liteServer.ValidatorStats;
 liteServer.getLibraries library_list:(vector int256) = liteServer.LibraryResult;
+liteServer.getShardBlockProof id:tonNode.blockIdExt = liteServer.ShardBlockProof;
 
 liteServer.queryPrefix = Object; 
 liteServer.query data:bytes = Object;

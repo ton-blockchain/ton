@@ -814,7 +814,7 @@ vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
 //
 //  DNS RECORDS
 //
-_ (HashmapE 256 DNSRecord) = DNS_RecordSet;
+_ (HashmapE 256 ^DNSRecord) = DNS_RecordSet;
 
 chunk_ref$_ {n:#} ref:^(TextChunks (n + 1)) = TextChunkRef (n + 1);
 chunk_ref_empty$_ = TextChunkRef 0;
