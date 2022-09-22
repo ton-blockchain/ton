@@ -1468,18 +1468,19 @@ void parse_func_def(Lexer& lex) {
     // code->print(std::cerr);  // !!!DEBUG!!!
     func_sym_code->code = code;
   } else {
+    Lexem asm_lexem = lex.cur();
     SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
     if (func_sym_val) {
       if (dynamic_cast<SymValCodeFunc*>(func_sym_val)) {
-        lex.cur().error("function `"s + func_name.str + "` was already declared as an ordinary function");
+        asm_lexem.error("function `"s + func_name.str + "` was already declared as an ordinary function");
       }
       SymValAsmFunc* asm_func_old = dynamic_cast<SymValAsmFunc*>(func_sym_val);
       if (asm_func_old) {
         if (asm_func->crc != asm_func_old->crc) {
-          lex.cur().error("redefinition of built-in assembler function `"s + func_name.str + "`");
+          asm_lexem.error("redefinition of built-in assembler function `"s + func_name.str + "`");
         }
       } else {
-        lex.cur().error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
+        asm_lexem.error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
       }
     }
     func_sym->value = asm_func;
