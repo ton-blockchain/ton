@@ -67,6 +67,8 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
+    , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
+    , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
     , perf_timer_("collate", 0.1, [manager](double duration) {
         send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
@@ -2503,6 +2505,11 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     block_full_ = true;
     return 3;
   }
+  if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+    LOG(WARNING) << "soft timeout reached, stop processing new messages";
+    block_full_ = true;
+    return 3;
+  }
   return 1;
 }
 
@@ -2767,6 +2774,11 @@ bool Collator::process_inbound_internal_messages() {
       LOG(INFO) << "BLOCK FULL, stop processing inbound internal messages";
       break;
     }
+    if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+      block_full_ = true;
+      LOG(WARNING) << "soft timeout reached, stop processing inbound internal messages";
+      break;
+    }
     auto kv = nb_out_msgs_->extract_cur();
     CHECK(kv && kv->msg.not_null());
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
@@ -2798,6 +2810,10 @@ bool Collator::process_inbound_external_messages() {
   for (auto& ext_msg_pair : ext_msg_list_) {
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
+      break;
+    }
+    if (medium_timeout_.is_in_past(td::Timestamp::now())) {
+      LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       break;
     }
     auto ext_msg = ext_msg_pair.first;
