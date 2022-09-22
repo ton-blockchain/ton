@@ -1631,6 +1631,7 @@ inline compile_func_t make_ext_compile(AsmOp op) {
 struct SymValAsmFunc : SymValFunc {
   simple_compile_func_t simple_compile;
   compile_func_t ext_compile;
+  td::uint64 crc;
   ~SymValAsmFunc() override = default;
   SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool impure = false)
       : SymValFunc(-1, ft, impure), simple_compile(make_simple_compile(_macro)) {
