@@ -39,7 +39,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.2.0"};
+const std::string func_version{"0.3.0"};
 
 enum Keyword {
   _Eof = -1,
