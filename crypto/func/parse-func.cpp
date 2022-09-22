@@ -1261,11 +1261,28 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
     lex.expect(')');
   }
   while (lex.tp() == _String) {
-    asm_ops.push_back(AsmOp::Parse(lex.cur().str, cnt, width));
-    lex.next();
-    if (asm_ops.back().is_custom()) {
-      cnt = width;
+    std::string ops = lex.cur().str; // <op>\n<op>\n...
+    std::string op;
+    for (const char& c : ops) {
+      if (c == '\n') {
+        if (!op.empty()) {
+          asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+          if (asm_ops.back().is_custom()) {
+            cnt = width;
+          }
+          op.clear();
+        }
+      } else {
+        op.push_back(c);
+      }
     }
+    if (!op.empty()) {
+      asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+      if (asm_ops.back().is_custom()) {
+        cnt = width;
+      }
+    }
+    lex.next();
   }
   if (asm_ops.empty()) {
     throw src::ParseError{lex.cur().loc, "string with assembler instruction expected"};
