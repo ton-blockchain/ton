@@ -10,7 +10,7 @@ using namespace std::string_literals;
 namespace emulator {
 td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(
     block::Account&& account, td::Ref<vm::Cell> msg_root,
-    ton::UnixTime utime, ton::LogicalTime lt, int trans_type, td::BitArray<256>* trans_hash, td::BitArray<256>* rand_seed) {
+    ton::UnixTime utime, ton::LogicalTime lt, int trans_type, td::BitArray<256>* rand_seed) {
 
     td::Ref<vm::Cell> old_mparams;
     std::vector<block::StoragePrices> storage_prices;
@@ -45,10 +45,6 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     }
     std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
-    if (trans_hash && td::Bits256(trans->root->get_hash().bits()) != *trans_hash) {
-      return td::Status::Error("transaction hash mismatch");
-    }
-
     auto trans_root = trans->commit(account);
     if (trans_root.is_null()) {
         return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
@@ -57,7 +53,7 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     return TransactionEmulator::EmulationResult{ std::move(trans_root), std::move(account) };
 }
 
-td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction_full(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
 
     block::gen::Transaction::Record record_trans;
     if (!tlb::unpack_cell(original_trans, record_trans)) {
@@ -68,7 +64,6 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     ton::UnixTime utime = record_trans.now;
     account.now_ = utime;
     td::Ref<vm::Cell> msg_root = record_trans.r1.in_msg->prefetch_ref();
-    td::BitArray<256> trans_hash = original_trans->get_hash().bits();
     int tag = block::gen::t_TransactionDescr.get_tag(vm::load_cell_slice(record_trans.description));
 
     int trans_type = block::transaction::Transaction::tr_none;
@@ -107,16 +102,20 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
       }
     }
 
-    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, &trans_hash, rand_seed));
+    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, rand_seed));
+
+    if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
+      return td::Status::Error("transaction hash mismatch");
+    }
 
     if (!check_state_update(emulation_result.account, record_trans)) {
       return td::Status::Error("account hash mismatch");
     }
 
-    return std::move(emulation_result);
+    return emulation_result;
 }
 
-td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions_full(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
 
   std::vector<td::Ref<vm::Cell>> emulated_transactions;
   for (const auto& original_trans : original_transactions) {
@@ -124,7 +123,8 @@ td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_t
       continue;
     }
 
-    TRY_RESULT(emulation_result, emulate_transaction_full(std::move(account), original_trans, rand_seed));
+    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), original_trans, rand_seed));
+    emulated_transactions.push_back(std::move(emulation_result.transaction));
     account = std::move(emulation_result.account);
   }
 
@@ -288,6 +288,6 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator
     return td::Status::Error(-669,"cannot serialize new transaction for smart contract "s + acc->addr.to_hex());
   }
 
-  return std::move(trans);
+  return trans;
 }
 } // namespace emulator
