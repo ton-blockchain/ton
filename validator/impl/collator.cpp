@@ -500,14 +500,15 @@ void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res) {
       CHECK(!idx);
       prev_mc_block = prev_block_data[0];
       mc_block_root = prev_mc_block->root_cell();
+    } else {
+      Ref<vm::Cell> root = prev_block_data[idx]->root_cell();
+      auto proof = create_block_state_proof(root);
+      if (proof.is_error()) {
+        fatal_error(proof.move_as_error());
+        return;
+      }
+      block_state_proofs_.emplace(root->get_hash().bits(), proof.move_as_ok());
     }
-    Ref<vm::Cell> root = prev_block_data[idx]->root_cell();
-    auto proof = create_block_state_proof(root);
-    if (proof.is_error()) {
-      fatal_error(proof.move_as_error());
-      return;
-    }
-    block_state_proofs_.emplace(root->get_hash().bits(), proof.move_as_ok());
   }
   check_pending();
 }
@@ -622,7 +623,6 @@ bool Collator::request_neighbor_msg_queues() {
     neighbors_.emplace_back(*shard_ptr);
   }
   unsigned i = 0;
-  neighbor_proof_builders_.resize(neighbors_.size());
   for (block::McShardDescr& descr : neighbors_) {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
     ++pending;
@@ -644,11 +644,17 @@ void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProo
   }
   auto res = R.move_as_ok();
   BlockIdExt block_id = neighbors_.at(i).blk_;
-  if (res->block_state_proof_.not_null()) {
+  if (res->block_state_proof_.not_null() && !block_id.is_masterchain()) {
     block_state_proofs_.emplace(block_id.root_hash, res->block_state_proof_);
   }
-  neighbor_proof_builders_.at(i) = vm::MerkleProofBuilder{res->state_root_};
-  auto state = ShardStateQ::fetch(block_id, {}, neighbor_proof_builders_.at(i).root());
+  Ref<vm::Cell> state_root;
+  if (block_id.is_masterchain()) {
+    state_root = res->state_root_;
+  } else {
+    neighbor_proof_builders_.push_back(vm::MerkleProofBuilder{res->state_root_});
+    state_root = neighbor_proof_builders_.back().root();
+  }
+  auto state = ShardStateQ::fetch(block_id, {}, state_root);
   if (state.is_error()) {
     fatal_error(state.move_as_error());
     return;

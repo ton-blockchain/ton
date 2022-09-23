@@ -1258,6 +1258,15 @@ bool ValidateQuery::request_neighbor_queues() {
   if (full_collated_data_) {
     for (block::McShardDescr& descr : neighbors_) {
       LOG(DEBUG) << "getting outbound queue of neighbor #" << i << " from collated data : " << descr.blk_.to_str();
+      if (descr.blk_.is_masterchain()) {
+        if (descr.blk_ != mc_state_->get_block_id()) {
+          return fatal_error("neighbor from masterchain is not the last mc block");
+        }
+        ++pending;
+        send_closure_later(get_self(), &ValidateQuery::got_neighbor_out_queue, i, mc_state_->message_queue());
+        ++i;
+        continue;
+      }
       td::Bits256 state_root_hash;
       if (descr.blk_.seqno() == 0) {
         state_root_hash = descr.blk_.root_hash;
