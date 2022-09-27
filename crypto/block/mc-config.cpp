@@ -2142,14 +2142,19 @@ CollatorConfig Config::get_collator_config(bool need_collator_nodes) const {
   collator_config.full_collated_data = rec.full_collated_data;
   if (need_collator_nodes) {
     vm::Dictionary dict{rec.collator_nodes->prefetch_ref(), 32 + 64 + 256};
-    dict.check_for_each([&](Ref<vm::CellSlice>, td::ConstBitPtr key, int n) {
+    dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) {
       CHECK(n == 32 + 64 + 256);
       auto workchain = (td::int32)key.get_int(32);
       key.advance(32);
       td::uint64 shard = key.get_uint(64);
       key.advance(64);
       td::Bits256 adnl_id(key);
-      collator_config.collator_nodes.push_back({ton::ShardIdFull(workchain, shard), adnl_id});
+      td::Bits256 full_node_id = td::Bits256::zero();
+      gen::CollatorInfo::Record info;
+      if (tlb::csr_unpack(std::move(value), info) && info.full_node_id->size() == 257) {
+        full_node_id = td::Bits256(info.full_node_id->data_bits() + 1);
+      }
+      collator_config.collator_nodes.push_back({ton::ShardIdFull(workchain, shard), adnl_id, full_node_id});
       return true;
     });
   }

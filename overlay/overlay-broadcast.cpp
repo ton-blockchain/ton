@@ -69,6 +69,10 @@ td::Status BroadcastSimple::run_checks() {
 td::Status BroadcastSimple::distribute() {
   auto B = serialize();
   auto nodes = overlay_->get_neighbours(5);
+  if (is_ours_) {
+    auto priority_nodes = overlay_->get_priority_broadcast_receivers(3);
+    nodes.insert(nodes.end(), priority_nodes.begin(), priority_nodes.end());
+  }
 
   auto manager = overlay_->overlay_manager();
   for (auto &n : nodes) {
@@ -140,7 +144,7 @@ td::Status BroadcastSimple::create_new(td::actor::ActorId<OverlayImpl> overlay,
   auto date = static_cast<td::uint32>(td::Clocks::system());
 
   auto B = std::make_unique<BroadcastSimple>(broadcast_hash, PublicKey{}, nullptr, flags, std::move(data), date,
-                                             td::BufferSlice{}, false, nullptr, adnl::AdnlNodeIdShort::zero());
+                                             td::BufferSlice{}, false, nullptr, adnl::AdnlNodeIdShort::zero(), true);
 
   auto to_sign = B->to_sign();
   auto P = td::PromiseCreator::lambda(

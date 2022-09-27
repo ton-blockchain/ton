@@ -96,6 +96,9 @@ class OverlayManager : public Overlays {
                         td::actor::ActorOwn<Overlay> overlay);
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) override;
 
+  void set_priority_broadcast_receivers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                        std::vector<adnl::AdnlNodeIdShort> nodes) override;
+
   struct PrintId {};
 
   PrintId print_id() const {

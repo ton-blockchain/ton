@@ -556,5 +556,9 @@ BlockIdExt MasterchainStateQ::prev_key_block_id(BlockSeqno seqno) const {
   return block_id;
 }
 
+bool MasterchainStateQ::is_key_state() const {
+  return config_ ? config_->is_key_state() : false;
+}
+
 }  // namespace validator
 }  // namespace ton

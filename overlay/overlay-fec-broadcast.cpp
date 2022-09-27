@@ -26,8 +26,8 @@ namespace overlay {
 
 td::Result<std::unique_ptr<BroadcastFec>> BroadcastFec::create(Overlay::BroadcastHash hash, PublicKey src,
                                                                Overlay::BroadcastDataHash data_hash, td::uint32 flags,
-                                                               td::uint32 date, fec::FecType fec_type) {
-  auto F = std::make_unique<BroadcastFec>(hash, std::move(src), data_hash, flags, date, std::move(fec_type));
+                                                               td::uint32 date, fec::FecType fec_type, bool is_ours) {
+  auto F = std::make_unique<BroadcastFec>(hash, std::move(src), data_hash, flags, date, std::move(fec_type), is_ours);
   TRY_STATUS(F->init_fec_type());
   TRY_STATUS(F->run_checks());
   return std::move(F);
@@ -94,12 +94,12 @@ void BroadcastFec::broadcast_checked(td::Result<td::Unit> R) {
   overlay_->deliver_broadcast(get_source().compute_short_id(), data_.clone());
   auto manager = overlay_->overlay_manager();
   while (!parts_.empty()) {
-       distribute_part(parts_.begin()->first);
+    distribute_part(parts_.begin()->first);
   }
 }
 
 // Do we need status here??
-td::Status  BroadcastFec::distribute_part(td::uint32 seqno) {
+td::Status BroadcastFec::distribute_part(td::uint32 seqno) {
   auto i = parts_.find(seqno);
   if (i == parts_.end()) {
     // should not get here
@@ -111,8 +111,12 @@ td::Status  BroadcastFec::distribute_part(td::uint32 seqno) {
   td::BufferSlice data = std::move(tls.second);
 
   auto nodes = overlay_->get_neighbours(5);
-  auto manager = overlay_->overlay_manager();
+  if (is_ours_) {
+    auto priority_nodes = overlay_->get_priority_broadcast_receivers(3);
+    nodes.insert(nodes.end(), priority_nodes.begin(), priority_nodes.end());
+  }
 
+  auto manager = overlay_->overlay_manager();
   for (auto &n : nodes) {
     if (neighbour_completed(n)) {
       continue;
@@ -140,7 +144,8 @@ td::Status OverlayFecBroadcastPart::apply() {
     if (is_short_) {
       return td::Status::Error(ErrorCode::protoviolation, "short broadcast part for incomplete broadcast");
     }
-    TRY_RESULT(B, BroadcastFec::create(broadcast_hash_, source_, broadcast_data_hash_, flags_, date_, fec_type_));
+    TRY_RESULT(
+        B, BroadcastFec::create(broadcast_hash_, source_, broadcast_data_hash_, flags_, date_, fec_type_, is_ours_));
     bcast_ = B.get();
     overlay_->register_fec_broadcast(std::move(B));
   }
@@ -304,7 +309,8 @@ td::Status OverlayFecBroadcastPart::create_new(OverlayImpl *overlay, td::actor::
 
   auto B = std::make_unique<OverlayFecBroadcastPart>(
       broadcast_hash, part_hash, PublicKey{}, overlay->get_certificate(local_id), data_hash, size, flags,
-      part_data_hash, std::move(part), seqno, std::move(fec_type), date, td::BufferSlice{}, false, nullptr, overlay, adnl::AdnlNodeIdShort::zero());
+      part_data_hash, std::move(part), seqno, std::move(fec_type), date, td::BufferSlice{}, false, nullptr, overlay,
+      adnl::AdnlNodeIdShort::zero(), true);
   auto to_sign = B->to_sign();
 
   auto P = td::PromiseCreator::lambda(

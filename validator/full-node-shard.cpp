@@ -127,6 +127,10 @@ void FullNodeShardImpl::create_overlay() {
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
   }
+  if (!collator_nodes_.empty()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::set_priority_broadcast_receivers, adnl_id_, overlay_id_,
+                            collator_nodes_);
+  }
 }
 
 void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
@@ -1029,6 +1033,15 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
     update_certificate_at_ = td::Timestamp::in(30.0);
     alarm_timestamp().relax(update_certificate_at_);
   }
+}
+
+void FullNodeShardImpl::update_collators(std::vector<adnl::AdnlNodeIdShort> nodes) {
+  if (!client_.empty()) {
+    return;
+  }
+  collator_nodes_ = std::move(nodes);
+  td::actor::send_closure(overlays_, &overlay::Overlays::set_priority_broadcast_receivers, adnl_id_, overlay_id_,
+                          collator_nodes_);
 }
 
 void FullNodeShardImpl::reload_neighbours() {

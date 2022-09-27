@@ -92,7 +92,16 @@ class FullNodeImpl : public FullNode {
                td::Promise<td::Unit> started_promise);
 
  private:
+  struct ShardInfo {
+    bool exists = false;
+    td::actor::ActorOwn<FullNodeShard> actor;
+    FullNodeShardMode mode = FullNodeShardMode::inactive;
+    td::Timestamp delete_at = td::Timestamp::never();
+  };
+
   void add_shard_actor(ShardIdFull shard, FullNodeShardMode mode);
+  void update_collators(td::Ref<MasterchainState> state);
+  void update_shard_collators(ShardIdFull shard, ShardInfo& info);
 
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
@@ -100,13 +109,6 @@ class FullNodeImpl : public FullNode {
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
   td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool exact = false);
-
-  struct ShardInfo {
-    bool exists = false;
-    td::actor::ActorOwn<FullNodeShard> actor;
-    FullNodeShardMode mode = FullNodeShardMode::inactive;
-    td::Timestamp delete_at = td::Timestamp::never();
-  };
   std::map<ShardIdFull, ShardInfo> shards_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -125,6 +127,8 @@ class FullNodeImpl : public FullNode {
   std::set<PublicKeyHash> local_keys_;
 
   td::Promise<td::Unit> started_promise_;
+  bool collators_inited_ = false;
+  block::CollatorConfig collator_config_;
 };
 
 }  // namespace fullnode

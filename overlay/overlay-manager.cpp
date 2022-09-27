@@ -359,6 +359,19 @@ void OverlayManager::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validat
   td::actor::send_closure(act, &Cb::decr_pending);
 }
 
+void OverlayManager::set_priority_broadcast_receivers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                                      std::vector<adnl::AdnlNodeIdShort> nodes) {
+  auto it = overlays_.find(local_id);
+  if (it == overlays_.end()) {
+    return;
+  }
+  auto it2 = it->second.find(overlay);
+  if (it2 == it->second.end()) {
+    return;
+  }
+  td::actor::send_closure(it2->second, &Overlay::set_priority_broadcast_receivers, std::move(nodes));
+}
+
 Certificate::Certificate(PublicKey issued_by, td::int32 expire_at, td::uint32 max_size, td::uint32 flags,
                          td::BufferSlice signature)
     : issued_by_(issued_by)

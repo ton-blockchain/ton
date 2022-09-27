@@ -485,6 +485,7 @@ class ShardConfig {
 struct CollatorNodeDescr {
   ton::ShardIdFull shard;
   ton::NodeIdShort adnl_id;
+  ton::NodeIdShort full_node_id;
 };
 
 struct CollatorConfig {

@@ -69,6 +69,7 @@ class Overlay : public td::actor::Actor {
   virtual void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
+  virtual void set_priority_broadcast_receivers(std::vector<adnl::AdnlNodeIdShort> nodes) = 0;
 };
 
 }  // namespace overlay

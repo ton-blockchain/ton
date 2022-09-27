@@ -735,7 +735,8 @@ misbehaviour_punishment_config_v1#01
 _ MisbehaviourPunishmentConfig = ConfigParam 40;
 
 // collator_nodes: each collator is (workchain:int32 shard:uint64 adnl_id:uint256)
-colator_config#a0 full_collated_data:Bool collator_nodes:(HashmapE 352 Unit) = CollatorConfig;
+collator_info#0 full_node_id:(Maybe uint256) = CollatorInfo;
+colator_config#a0 full_collated_data:Bool collator_nodes:(HashmapE 352 CollatorInfo) = CollatorConfig;
 _ CollatorConfig = ConfigParam 41;
 
 oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;

@@ -131,18 +131,19 @@ class BroadcastFec : public td::ListNode {
   td::Status run_checks();
 
   BroadcastFec(Overlay::BroadcastHash hash, PublicKey src, Overlay::BroadcastDataHash data_hash, td::uint32 flags,
-               td::uint32 date, fec::FecType fec_type)
+               td::uint32 date, fec::FecType fec_type, bool is_ours = false)
       : hash_(hash)
       , data_hash_(data_hash)
       , flags_(flags)
       , date_(date)
       , src_(std::move(src))
-      , fec_type_(std::move(fec_type)) {
+      , fec_type_(std::move(fec_type))
+      , is_ours_(is_ours) {
   }
 
   static td::Result<std::unique_ptr<BroadcastFec>> create(Overlay::BroadcastHash hash, PublicKey src,
                                                           Overlay::BroadcastDataHash data_hash, td::uint32 flags,
-                                                          td::uint32 date, fec::FecType fec_type);
+                                                          td::uint32 date, fec::FecType fec_type, bool is_ours);
 
   bool neighbour_received(adnl::AdnlNodeIdShort id) const {
     return received_neighbours_.find(id) != received_neighbours_.end();
@@ -225,6 +226,7 @@ class BroadcastFec : public td::ListNode {
   OverlayImpl *overlay_;
   adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
   td::BufferSlice data_;
+  bool is_ours_ = false;
 };
 
 class OverlayFecBroadcastPart : public td::ListNode {
@@ -246,6 +248,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
 
   bool is_short_;
   bool untrusted_{false};
+  bool is_ours_;
 
   BroadcastFec *bcast_;
   OverlayImpl *overlay_;
@@ -265,7 +268,8 @@ class OverlayFecBroadcastPart : public td::ListNode {
                           std::shared_ptr<Certificate> cert, Overlay::BroadcastDataHash data_hash, td::uint32 data_size,
                           td::uint32 flags, Overlay::BroadcastDataHash part_data_hash, td::BufferSlice data,
                           td::uint32 seqno, fec::FecType fec_type, td::uint32 date, td::BufferSlice signature,
-                          bool is_short, BroadcastFec *bcast, OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id)
+                          bool is_short, BroadcastFec *bcast, OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
+                          bool is_ours = false)
       : broadcast_hash_(broadcast_hash)
       , part_hash_(part_hash)
       , source_(std::move(source))
@@ -282,7 +286,8 @@ class OverlayFecBroadcastPart : public td::ListNode {
       , is_short_(is_short)
       , bcast_(bcast)
       , overlay_(overlay) 
-      , src_peer_id_(src_peer_id) {
+      , src_peer_id_(src_peer_id)
+      , is_ours_(is_ours) {
   }
 
   td::uint32 data_size() const {

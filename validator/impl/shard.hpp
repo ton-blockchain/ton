@@ -129,6 +129,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   BlockIdExt last_key_block_id() const override;
   BlockIdExt next_key_block_id(BlockSeqno seqno) const override;
   BlockIdExt prev_key_block_id(BlockSeqno seqno) const override;
+  bool is_key_state() const override;
   MasterchainStateQ* make_copy() const override;
 
   static td::Result<Ref<MasterchainStateQ>> fetch(const BlockIdExt& _id, td::BufferSlice _data,

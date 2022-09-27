@@ -46,6 +46,7 @@ class BroadcastSimple : public td::ListNode {
   td::uint32 date_;
   td::BufferSlice signature_;
   bool is_valid_{false};
+  bool is_ours_{false};
 
   OverlayImpl *overlay_;
 
@@ -63,7 +64,7 @@ class BroadcastSimple : public td::ListNode {
  public:
   BroadcastSimple(Overlay::BroadcastHash broadcast_hash, PublicKey source, std::shared_ptr<Certificate> cert,
                   td::uint32 flags, td::BufferSlice data, td::uint32 date, td::BufferSlice signature, bool is_valid,
-                  OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id)
+                  OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, bool is_ours = false)
       : broadcast_hash_(broadcast_hash)
       , source_(std::move(source))
       , cert_(std::move(cert))
@@ -73,7 +74,8 @@ class BroadcastSimple : public td::ListNode {
       , signature_(std::move(signature))
       , is_valid_(is_valid)
       , overlay_(overlay)
-      , src_peer_id_(src_peer_id) {
+      , src_peer_id_(src_peer_id)
+      , is_ours_(is_ours) {
   }
 
   Overlay::BroadcastHash get_hash() const {
