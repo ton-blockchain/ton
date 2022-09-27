@@ -192,7 +192,7 @@ class OverlayImpl : public Overlay {
     } else {
       std::vector<adnl::AdnlNodeIdShort> vec;
       for (td::uint32 i = 0; i < max_size; i++) {
-        vec.push_back(neighbours_[td::Random::fast(0, static_cast<td::int32>(neighbours_.size()))]);
+        vec.push_back(neighbours_[td::Random::fast(0, static_cast<td::int32>(neighbours_.size()) - 1)]);
       }
       return vec;
     }
