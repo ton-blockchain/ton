@@ -1680,7 +1680,7 @@ void ValidatorManagerImpl::prestart_sync() {
 }
 
 void ValidatorManagerImpl::download_next_archive() {
-  if (!out_of_sync()) {
+  if (true) {
     finish_prestart_sync();
     return;
   }
