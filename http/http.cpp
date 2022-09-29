@@ -514,7 +514,7 @@ bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
       wrote = true;
     }
   }
-  if (chunks_.size() != 0) {
+  if (chunks_.size() != 0 || !parse_completed()) {
     return wrote;
   }
   if (!written_zero_chunk_) {
