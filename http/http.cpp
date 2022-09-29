@@ -193,9 +193,6 @@ td::Status HttpRequest::add_header(HttpHeader header) {
     if (found_transfer_encoding_ || found_content_length_) {
       return td::Status::Error("duplicate Content-Length/Transfer-Encoding");
     }
-    if (len > HttpRequest::max_payload_size()) {
-      return td::Status::Error("too big Content-Length");
-    }
     content_length_ = len;
     found_content_length_ = true;
   } else if (lc_name == "transfer-encoding") {
@@ -808,9 +805,6 @@ td::Status HttpResponse::add_header(HttpHeader header) {
     TRY_RESULT(len, td::to_integer_safe<td::uint32>(S));
     if (found_transfer_encoding_ || found_content_length_) {
       return td::Status::Error("duplicate Content-Length/Transfer-Encoding");
-    }
-    if (len > HttpRequest::max_payload_size()) {
-      return td::Status::Error("too big Content-Length");
     }
     content_length_ = len;
     found_content_length_ = true;
