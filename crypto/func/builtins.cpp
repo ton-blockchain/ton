@@ -561,6 +561,7 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y) {
       if (y.always_zero() && x.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(y.int_const);
+        x.unused();
         return push_const(r.int_const);
       }
       if (*y.int_const == 1 && x.always_finite()) {
@@ -587,6 +588,7 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y) {
       if (x.always_zero() && y.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(x.int_const);
+        y.unused();
         return push_const(r.int_const);
       }
       if (*x.int_const == 1 && y.always_finite()) {
