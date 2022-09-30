@@ -164,6 +164,8 @@ td::Result<std::shared_ptr<HttpPayload>> HttpRequest::create_empty_payload() {
 
   if (!need_payload()) {
     return std::make_shared<HttpPayload>(HttpPayload::PayloadType::pt_empty);
+  } else if (method_ == "CONNECT") {
+    return std::make_shared<HttpPayload>(HttpPayload::PayloadType::pt_tunnel, low_watermark(), high_watermark());
   } else if (found_content_length_) {
     return std::make_shared<HttpPayload>(HttpPayload::PayloadType::pt_content_length, low_watermark(), high_watermark(),
                                          content_length_);
@@ -175,7 +177,7 @@ td::Result<std::shared_ptr<HttpPayload>> HttpRequest::create_empty_payload() {
 }
 
 bool HttpRequest::need_payload() const {
-  return found_content_length_ || found_transfer_encoding_;
+  return found_content_length_ || found_transfer_encoding_ || method_ == "CONNECT";
 }
 
 td::Status HttpRequest::add_header(HttpHeader header) {
@@ -190,9 +192,6 @@ td::Status HttpRequest::add_header(HttpHeader header) {
     TRY_RESULT(len, td::to_integer_safe<td::uint32>(S));
     if (found_transfer_encoding_ || found_content_length_) {
       return td::Status::Error("duplicate Content-Length/Transfer-Encoding");
-    }
-    if (len > HttpRequest::max_payload_size()) {
-      return td::Status::Error("too big Content-Length");
     }
     content_length_ = len;
     found_content_length_ = true;
@@ -284,7 +283,8 @@ td::Status HttpPayload::parse(td::ChainBufferReader &input) {
             case PayloadType::pt_empty:
               UNREACHABLE();
             case PayloadType::pt_eof:
-              cur_chunk_size_ = 1 << 30;
+            case PayloadType::pt_tunnel:
+              cur_chunk_size_ = 1LL << 60;
               break;
             case PayloadType::pt_chunked:
               state_ = ParseState::reading_crlf;
@@ -480,17 +480,18 @@ void HttpPayload::run_callbacks() {
   }
 }
 
-void HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type) {
+bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type) {
   if (store_type == PayloadType::pt_empty) {
-    return;
+    return false;
   }
   slice_gc();
+  bool wrote = false;
   while (chunks_.size() > 0 && max_size > 0) {
     auto cur_state = state_.load(std::memory_order_consume);
     auto s = get_slice(max_size);
     if (s.size() == 0) {
       if (cur_state != ParseState::reading_trailer && cur_state != ParseState::completed) {
-        return;
+        return wrote;
       } else {
         break;
       }
@@ -500,28 +501,33 @@ void HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
     if (store_type == PayloadType::pt_chunked) {
       char buf[64];
       ::sprintf(buf, "%lx\r\n", s.size());
-      output.append(td::Slice(buf, strlen(buf)));
+      auto slice = td::Slice(buf, strlen(buf));
+      wrote |= !slice.empty();
+      output.append(slice);
     }
 
+    wrote |= !s.empty();
     output.append(std::move(s));
 
     if (store_type == PayloadType::pt_chunked) {
       output.append(td::Slice("\r\n", 2));
+      wrote = true;
     }
   }
-  if (chunks_.size() != 0) {
-    return;
+  if (chunks_.size() != 0 || !parse_completed()) {
+    return wrote;
   }
   if (!written_zero_chunk_) {
     if (store_type == PayloadType::pt_chunked) {
       output.append(td::Slice("0\r\n", 3));
+      wrote = true;
     }
     written_zero_chunk_ = true;
   }
 
   if (store_type != PayloadType::pt_chunked) {
     written_trailer_ = true;
-    return;
+    return wrote;
   }
 
   while (max_size > 0) {
@@ -529,15 +535,16 @@ void HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
     HttpHeader h = get_header();
     if (h.empty()) {
       if (cur_state != ParseState::completed) {
-        return;
+        return wrote;
       } else {
         break;
       }
     }
     auto s = h.size();
     h.store_http(output);
+    wrote = true;
     if (max_size <= s) {
-      return;
+      return wrote;
     }
     max_size -= s;
   }
@@ -545,7 +552,9 @@ void HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
   if (!written_trailer_) {
     output.append(td::Slice("\r\n", 2));
     written_trailer_ = true;
+    wrote = true;
   }
+  return wrote;
 }
 
 tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) {
@@ -729,17 +738,18 @@ td::Result<std::unique_ptr<HttpResponse>> HttpResponse::parse(std::unique_ptr<Ht
 }
 
 HttpResponse::HttpResponse(std::string proto_version, td::uint32 code, std::string reason, bool force_no_payload,
-                           bool keep_alive)
+                           bool keep_alive, bool is_tunnel)
     : proto_version_(std::move(proto_version))
     , code_(code)
     , reason_(std::move(reason))
     , force_no_payload_(force_no_payload)
-    , force_no_keep_alive_(!keep_alive) {
+    , force_no_keep_alive_(!keep_alive)
+    , is_tunnel_(is_tunnel) {
 }
 
 td::Result<std::unique_ptr<HttpResponse>> HttpResponse::create(std::string proto_version, td::uint32 code,
                                                                std::string reason, bool force_no_payload,
-                                                               bool keep_alive) {
+                                                               bool keep_alive, bool is_tunnel) {
   if (proto_version != "HTTP/1.0" && proto_version != "HTTP/1.1") {
     return td::Status::Error(PSTRING() << "unsupported http version '" << proto_version << "'");
   }
@@ -749,7 +759,7 @@ td::Result<std::unique_ptr<HttpResponse>> HttpResponse::create(std::string proto
   }
 
   return std::make_unique<HttpResponse>(std::move(proto_version), code, std::move(reason), force_no_payload,
-                                        keep_alive);
+                                        keep_alive, is_tunnel);
 }
 
 td::Status HttpResponse::complete_parse_header() {
@@ -767,6 +777,8 @@ td::Result<std::shared_ptr<HttpPayload>> HttpResponse::create_empty_payload() {
 
   if (!need_payload()) {
     return std::make_shared<HttpPayload>(HttpPayload::PayloadType::pt_empty);
+  } else if (is_tunnel_) {
+    return std::make_shared<HttpPayload>(HttpPayload::PayloadType::pt_tunnel, low_watermark(), high_watermark());
   } else if (found_content_length_) {
     return std::make_shared<HttpPayload>(HttpPayload::PayloadType::pt_content_length, low_watermark(), high_watermark(),
                                          content_length_);
@@ -793,9 +805,6 @@ td::Status HttpResponse::add_header(HttpHeader header) {
     TRY_RESULT(len, td::to_integer_safe<td::uint32>(S));
     if (found_transfer_encoding_ || found_content_length_) {
       return td::Status::Error("duplicate Content-Length/Transfer-Encoding");
-    }
-    if (len > HttpRequest::max_payload_size()) {
-      return td::Status::Error("too big Content-Length");
     }
     content_length_ = len;
     found_content_length_ = true;
@@ -828,10 +837,12 @@ void HttpResponse::store_http(td::ChainBufferWriter &output) {
   for (auto &x : options_) {
     x.store_http(output);
   }
-  if (keep_alive_) {
-    HttpHeader{"Connection", "Keep-Alive"}.store_http(output);
-  } else {
-    HttpHeader{"Connection", "Close"}.store_http(output);
+  if (!is_tunnel_) {
+    if (keep_alive_) {
+      HttpHeader{"Connection", "Keep-Alive"}.store_http(output);
+    } else {
+      HttpHeader{"Connection", "Close"}.store_http(output);
+    }
   }
   output.append(td::Slice("\r\n", 2));
 }
@@ -847,7 +858,7 @@ tl_object_ptr<ton_api::http_response> HttpResponse::store_tl() {
   } else {
     headers.push_back(HttpHeader{"Connection", "Close"}.store_tl());
   }
-  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers));
+  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), false);
 }
 
 td::Status HttpHeader::basic_check() {
@@ -893,7 +904,9 @@ void answer_error(HttpStatusCode code, std::string reason,
   }
   auto response = HttpResponse::create("HTTP/1.0", code, reason, false, false).move_as_ok();
   response->add_header(HttpHeader{"Content-Length", "0"});
+  response->complete_parse_header();
   auto payload = response->create_empty_payload().move_as_ok();
+  payload->complete_parse();
   CHECK(payload->parse_completed());
   promise.set_value(std::make_pair(std::move(response), std::move(payload)));
 }
