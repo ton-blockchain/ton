@@ -711,7 +711,7 @@ storage.queryPrefix id:int256 = Object;
 
 http.header name:string value:string = http.Header;
 http.payloadPart data:bytes trailer:(vector http.header) last:Bool = http.PayloadPart;
-http.response http_version:string status_code:int reason:string headers:(vector http.header) = http.Response;
+http.response http_version:string status_code:int reason:string headers:(vector http.header) no_payload:Bool = http.Response;
 
 ---functions---
 
