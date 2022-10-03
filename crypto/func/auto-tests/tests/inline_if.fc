@@ -1,0 +1,26 @@
+int foo1(int x) {
+  if (x == 1) {
+    return 1;
+  }
+  return 2;
+}
+int foo2(int x) inline {
+  if (x == 1) {
+    return 11;
+  }
+  return 22;
+}
+int foo3(int x) inline_ref {
+  if (x == 1) {
+    return 111;
+  }
+  return 222;
+}
+(int, int, int) main(int x) {
+  return (foo1(x) + 1, foo2(x) + 1, foo3(x) + 1);
+}
+{-
+   method_id | in | out
+TESTCASE | 0 | 1  | 2 12 112
+TESTCASE | 0 | 2  | 3 23 223
+-}

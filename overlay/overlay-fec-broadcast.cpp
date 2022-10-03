@@ -28,8 +28,8 @@ td::Result<std::unique_ptr<BroadcastFec>> BroadcastFec::create(Overlay::Broadcas
                                                                Overlay::BroadcastDataHash data_hash, td::uint32 flags,
                                                                td::uint32 date, fec::FecType fec_type) {
   auto F = std::make_unique<BroadcastFec>(hash, std::move(src), data_hash, flags, date, std::move(fec_type));
-  TRY_STATUS(F->init_fec_type());
   TRY_STATUS(F->run_checks());
+  TRY_STATUS(F->init_fec_type());
   return std::move(F);
 }
 

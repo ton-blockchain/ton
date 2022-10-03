@@ -1,0 +1,14 @@
+_ check_assoc(op, a, b, c) {
+  return op(op(a, b), c) == op(a, op(b, c));
+}
+
+int main(int x, int y, int z) {
+  return check_assoc(_+_, x, y, z);
+}
+
+{-
+    method_id | in         | out
+TESTCASE | 0  | 2 3 9      | -1
+TESTCASE | 0  | 11 22 44   | -1
+TESTCASE | 0  | -1 -10 -20 | -1
+-}

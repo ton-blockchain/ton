@@ -58,9 +58,7 @@ void HttpConnection::loop() {
       }
       TRY_STATUS(buffered_fd_.flush_write());
       if (writing_payload_ && buffered_fd_.left_unwritten() < fd_high_watermark()) {
-        auto w = buffered_fd_.left_unwritten();
-        continue_payload_write();
-        written = buffered_fd_.left_unwritten() > w;
+        written = continue_payload_write();
       }
       if (close_after_write_ && !writing_payload_ && !buffered_fd_.left_unwritten()) {
         LOG(INFO) << "close after write";
@@ -120,7 +118,7 @@ void HttpConnection::write_payload(std::shared_ptr<HttpPayload> payload) {
 
   class Cb : public HttpPayload::Callback {
    public:
-    Cb(td::actor::ActorId<HttpConnection> conn) : conn_(conn) {
+    Cb(td::actor::ActorId<HttpConnection> conn, size_t watermark) : conn_(conn), watermark_(watermark) {
     }
     void run(size_t ready_bytes) override {
       if (!reached_ && ready_bytes >= watermark_) {
@@ -135,23 +133,23 @@ void HttpConnection::write_payload(std::shared_ptr<HttpPayload> payload) {
     }
 
    private:
-    size_t watermark_ = chunk_size();
-    bool reached_ = false;
-
     td::actor::ActorId<HttpConnection> conn_;
+    size_t watermark_;
+    bool reached_ = false;
   };
 
-  writing_payload_->add_callback(std::make_unique<Cb>(actor_id(this)));
+  writing_payload_->add_callback(std::make_unique<Cb>(
+      actor_id(this), writing_payload_->payload_type() == HttpPayload::PayloadType::pt_tunnel ? 1 : chunk_size()));
   continue_payload_write();
 }
 
-void HttpConnection::continue_payload_write() {
+bool HttpConnection::continue_payload_write() {
   if (!writing_payload_) {
-    return;
+    return false;
   }
   if (writing_payload_->is_error()) {
     stop();
-    return;
+    return false;
   }
 
   auto t = writing_payload_->payload_type();
@@ -159,19 +157,24 @@ void HttpConnection::continue_payload_write() {
     t = HttpPayload::PayloadType::pt_chunked;
   }
 
+  bool wrote = false;
   while (!writing_payload_->written()) {
     if (buffered_fd_.left_unwritten() > fd_high_watermark()) {
-      return;
+      return wrote;
     }
-    if (!writing_payload_->parse_completed() && writing_payload_->ready_bytes() < chunk_size()) {
-      return;
+    bool is_tunnel = writing_payload_->payload_type() == HttpPayload::PayloadType::pt_tunnel;
+    if (!is_tunnel && !writing_payload_->parse_completed() && writing_payload_->ready_bytes() < chunk_size()) {
+      return wrote;
     }
-    writing_payload_->store_http(buffered_fd_.output_buffer(), chunk_size(), t);
+    if (is_tunnel && writing_payload_->ready_bytes() == 0) {
+      return wrote;
+    }
+    wrote |= writing_payload_->store_http(buffered_fd_.output_buffer(), chunk_size(), t);
   }
   if (writing_payload_->parse_completed() && writing_payload_->written()) {
     payload_written();
-    return;
   }
+  return wrote;
 }
 
 td::Status HttpConnection::read_payload(HttpResponse *response) {

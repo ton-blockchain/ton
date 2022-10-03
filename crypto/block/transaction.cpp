@@ -327,8 +327,7 @@ bool Account::unpack(Ref<vm::CellSlice> shard_account, Ref<vm::CellSlice> extra,
     block::gen::t_ShardAccount.print(std::cerr, *shard_account);
   }
   block::gen::ShardAccount::Record acc_info;
-  if (!(block::gen::t_ShardAccount.validate_csr(shard_account) &&
-        block::tlb::t_ShardAccount.validate_csr(shard_account) && tlb::unpack_exact(shard_account.write(), acc_info))) {
+  if (!(block::tlb::t_ShardAccount.validate_csr(shard_account) && tlb::unpack_exact(shard_account.write(), acc_info))) {
     LOG(ERROR) << "account " << addr.to_hex() << " state is invalid";
     return false;
   }
@@ -2013,7 +2012,6 @@ bool Transaction::compute_state() {
     std::cerr << "new account state: ";
     block::gen::t_Account.print_ref(std::cerr, new_total_state);
   }
-  CHECK(block::gen::t_Account.validate_ref(new_total_state));
   CHECK(block::tlb::t_Account.validate_ref(new_total_state));
   return true;
 }

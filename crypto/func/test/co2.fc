@@ -1,0 +1,15 @@
+const int x = 5;
+const slice s = "abacaba";
+const int y = 3;
+const slice s = "abacaba";
+const int x = 5;
+const int z = 4, z = 4;
+
+int sdeq (slice s1, slice s2) asm "SDEQ";
+
+() main() {
+  throw_unless(101, x == 5);
+  throw_unless(102, y == 3);
+  throw_unless(103, z == 4);
+  throw_unless(104, sdeq(s, "abacaba"));
+}

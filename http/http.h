@@ -64,7 +64,7 @@ td::Result<HttpHeader> get_header(std::string line);
 
 class HttpPayload {
  public:
-  enum class PayloadType { pt_empty, pt_eof, pt_chunked, pt_content_length };
+  enum class PayloadType { pt_empty, pt_eof, pt_chunked, pt_content_length, pt_tunnel };
   HttpPayload(PayloadType t, size_t low_watermark, size_t high_watermark, td::uint64 size)
       : type_(t), low_watermark_(low_watermark), high_watermark_(high_watermark), cur_chunk_size_(size) {
     CHECK(t == PayloadType::pt_content_length);
@@ -75,17 +75,15 @@ class HttpPayload {
     CHECK(t != PayloadType::pt_content_length);
     CHECK(t != PayloadType::pt_empty);
     switch (t) {
-      case PayloadType::pt_empty:
-        UNREACHABLE();
       case PayloadType::pt_eof:
+      case PayloadType::pt_tunnel:
         state_ = ParseState::reading_chunk_data;
         break;
       case PayloadType::pt_chunked:
         state_ = ParseState::reading_chunk_header;
         break;
-      case PayloadType::pt_content_length:
-        state_ = ParseState::reading_chunk_data;
-        break;
+      default:
+        UNREACHABLE();
     }
   }
   HttpPayload(PayloadType t) : type_(t) {
@@ -136,7 +134,7 @@ class HttpPayload {
   void slice_gc();
   HttpHeader get_header();
 
-  void store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type);
+  bool store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type);
   tl_object_ptr<ton_api::http_payloadPart> store_tl(size_t max_size);
 
   bool written() const {
@@ -267,9 +265,11 @@ class HttpResponse {
   }
 
   static td::Result<std::unique_ptr<HttpResponse>> create(std::string proto_version, td::uint32 code,
-                                                          std::string reason, bool force_no_payload, bool keep_alive);
+                                                          std::string reason, bool force_no_payload, bool keep_alive,
+                                                          bool is_tunnel = false);
 
-  HttpResponse(std::string proto_version, td::uint32 code, std::string reason, bool force_no_payload, bool keep_alive);
+  HttpResponse(std::string proto_version, td::uint32 code, std::string reason, bool force_no_payload, bool keep_alive,
+               bool is_tunnel = false);
 
   bool check_parse_header_completed() const;
   bool keep_alive() const {
@@ -323,6 +323,7 @@ class HttpResponse {
   bool keep_alive_ = false;
 
   std::vector<HttpHeader> options_;
+  bool is_tunnel_ = false;
 };
 
 void answer_error(HttpStatusCode code, std::string reason,

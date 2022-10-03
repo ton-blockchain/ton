@@ -1,0 +1,43 @@
+global int g;
+
+_ foo_repeat() impure inline {
+  g = 1;
+  repeat(5) {
+    g *= 2;
+  }
+}
+
+int foo_until() impure inline {
+  g = 1;
+  int i = 0;
+  do {
+    g *= 2;
+    i += 1;
+  } until (i >= 8);
+  return i;
+}
+
+int foo_while() impure inline {
+  g = 1;
+  int i = 0;
+  while (i < 10) {
+    g *= 2;
+    i += 1;
+  }
+  return i;
+}
+
+_ main() {
+  foo_repeat();
+  int x = g;
+  foo_until();
+  int y = g;
+  foo_while();
+  int z = g;
+  return (x, y, z);
+}
+
+{-
+   method_id | in | out
+TESTCASE | 0 |    | 32 256 1024
+-}
