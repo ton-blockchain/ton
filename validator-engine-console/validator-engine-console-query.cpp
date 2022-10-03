@@ -91,6 +91,7 @@ void Query::start_up() {
 
 void Query::handle_error(td::Status error) {
   td::TerminalIO::out() << "Failed " << name() << " query: " << error << "\n";
+  td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, false);
   stop();
 }
 
@@ -99,7 +100,7 @@ void Query::receive_wrap(td::BufferSlice R) {
   if (S.is_error()) {
     handle_error(std::move(S));
   } else {
-    td::actor::send_closure(console_, &ValidatorEngineConsole::got_result);
+    td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, true);
     stop();
   }
 }
@@ -1002,5 +1003,55 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "successfully sent certificate to overlay manager\n";
+  return td::Status::OK();
+}
+
+td::Status GetPerfTimerStatsJsonQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetPerfTimerStatsJsonQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getPerfTimerStats>("");
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetPerfTimerStatsJsonQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_perfTimerStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  std::ofstream sb(file_name_);
+
+  sb << "{";
+  bool gtail = false;
+  for (const auto &v : f->stats_) {
+    if (gtail) {
+      sb << ",";
+    } else {
+      gtail = true;
+    }
+
+    sb << "\n \"" << v->name_ << "\": {";
+    bool tail = false;
+    for (const auto &stat : v->stats_) {
+      if (tail) {
+        sb << ",";
+      } else {
+        tail = true;
+      }
+
+      sb << "\n  \"" << stat->time_ << "\": [";
+      sb << "\n   " << stat->min_ << ",";
+      sb << "\n   " << stat->avg_ << ",";
+      sb << "\n   " << stat->max_;
+      sb << "\n  ]";
+    }
+    sb << "\n }";
+  }
+  sb << "\n}\n";
+  sb << std::flush;
+
+  td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
   return td::Status::OK();
 }

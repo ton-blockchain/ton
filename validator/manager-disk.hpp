@@ -358,10 +358,20 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
+  void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) override {
+    UNREACHABLE();
+  }
+
+  void add_perf_timer_stat(std::string name, double duration) override {
+  }
+
   void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override {
+    UNREACHABLE();
+  }
+  void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
     UNREACHABLE();
   }
 

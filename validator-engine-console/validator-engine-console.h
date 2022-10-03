@@ -112,7 +112,7 @@ class ValidatorEngineConsole : public td::actor::Actor {
   }
 
   bool envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise);
-  void got_result();
+  void got_result(bool success = true);
   void show_help(std::string command, td::Promise<td::BufferSlice> promise);
   void show_license(td::Promise<td::BufferSlice> promise);
 

@@ -47,7 +47,10 @@ class CheckProof : public td::actor::Actor {
       , manager_(manager)
       , timeout_(timeout)
       , promise_(std::move(promise))
-      , skip_check_signatures_(skip_check_signatures) {
+      , skip_check_signatures_(skip_check_signatures)
+      , perf_timer_("checkproof", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+        }) {
   }
   CheckProof(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
              td::Promise<BlockHandle> promise, bool skip_check_signatures, td::Ref<MasterchainState> known_state)
@@ -58,7 +61,10 @@ class CheckProof : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , state_(std::move(known_state))
-      , skip_check_signatures_(skip_check_signatures) {
+      , skip_check_signatures_(skip_check_signatures)
+      , perf_timer_("checkproof", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+        }) {
   }
   CheckProof(BlockIdExt id, td::Ref<ProofLink> proof_link, td::actor::ActorId<ValidatorManager> manager,
              td::Timestamp timeout, td::Promise<BlockHandle> promise)
@@ -67,7 +73,10 @@ class CheckProof : public td::actor::Actor {
       , proof_(std::move(proof_link))
       , manager_(manager)
       , timeout_(timeout)
-      , promise_(std::move(promise)) {
+      , promise_(std::move(promise))
+      , perf_timer_("checkproof", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+        }) {
   }
 
  private:
@@ -114,7 +123,7 @@ class CheckProof : public td::actor::Actor {
   bool skip_check_signatures_{false};
   bool sig_ok_{false};
 
-  td::PerfWarningTimer perf_timer_{"checkproof", 0.1};
+  td::PerfWarningTimer perf_timer_;
 
   static bool check_send_error(td::actor::ActorId<CheckProof> SelfId, td::Status error);
   template <typename T>

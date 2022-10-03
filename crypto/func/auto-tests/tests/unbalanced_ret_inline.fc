@@ -1,0 +1,18 @@
+int foo(int x) inline {
+  if (x < 0) {
+    x *= 2;
+    if (x == -10) {
+      return 111;
+    }
+  }
+  return x + 1;
+}
+int main(int x) {
+  return foo(x) * 10;
+}
+{-
+   method_id | in | out
+TESTCASE | 0 | 10 | 110
+TESTCASE | 0 | -5 | 1110
+TESTCASE | 0 | -4 | -70
+-}

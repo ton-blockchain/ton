@@ -76,7 +76,8 @@ class TestNode : public td::actor::Actor {
       void on_block_committed(td::uint32 round, ton::PublicKeyHash src,
                               ton::validatorsession::ValidatorSessionRootHash root_hash,
                               ton::validatorsession::ValidatorSessionFileHash file_hash, td::BufferSlice data,
-                              std::vector<std::pair<ton::PublicKeyHash, td::BufferSlice>> signatures) override {
+                              std::vector<std::pair<ton::PublicKeyHash, td::BufferSlice>> signatures,
+                              ton::validatorsession::ValidatorSessionStats stats) override {
         td::actor::send_closure(id_, &TestNode::on_block_committed, round, root_hash, std::move(data),
                                 std::move(signatures));
       }

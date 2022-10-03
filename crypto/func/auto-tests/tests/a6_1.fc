@@ -1,0 +1,16 @@
+(int, int) main(int a, int b, int c, int d, int e, int f) {
+  int D = a * d - b * c;
+  int Dx = e * d - b * f;
+  int Dy = a * f - e * c;
+  return (Dx / D, Dy / D);
+}
+
+{-
+    method_id | in            | out
+TESTCASE | 0  | 1 1 1 -1 10 6 | 8 2
+TESTCASE | 0 | 817 -31 624 -241 132272 272276 | 132 -788
+TESTCASE | 0 | -886 562 498 -212 -36452 -68958 | -505 -861
+TESTCASE | 0 | 448 -433 -444 792 150012 -356232 | -218 -572
+TESTCASE | 0 | -40 -821 433 -734 -721629 -741724 | -206 889
+TESTCASE | 0 | -261 -98 -494 868 -166153 733738 | 263 995
+-}

@@ -28,6 +28,7 @@
 #include "validator/validator.h"
 #include "liteserver.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
+#include "validator-session/validator-session-types.h"
 
 namespace ton {
 
@@ -165,6 +166,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
+
+  virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);

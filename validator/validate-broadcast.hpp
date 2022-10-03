@@ -44,7 +44,7 @@ class ValidateBroadcast : public td::actor::Actor {
   td::Ref<ProofLink> proof_link_;
   BlockHandle handle_;
 
-  td::PerfWarningTimer perf_timer_{"validatebroadcast", 0.1};
+  td::PerfWarningTimer perf_timer_;
 
   bool exact_key_block_handle_;
   td::Ref<ProofLink> key_proof_link_;
@@ -60,7 +60,10 @@ class ValidateBroadcast : public td::actor::Actor {
       , last_known_masterchain_block_handle_(std::move(last_known_masterchain_block_handle))
       , manager_(manager)
       , timeout_(timeout)
-      , promise_(std::move(promise)) {
+      , promise_(std::move(promise))
+      , perf_timer_("validatebroadcast", 0.1, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validatebroadcast", duration);
+        }) {
   }
 
   void start_up() override;

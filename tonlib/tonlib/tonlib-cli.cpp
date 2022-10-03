@@ -430,6 +430,7 @@ class TonlibCli : public td::actor::Actor {
                             << "\t 'e' modifier - encrypt all messages\n"
                             << "\t 'k' modifier - use fake key\n"
                             << "\t 'c' modifier - just esmitate fees\n";
+      td::TerminalIO::out() << "getmasterchainsignatures <seqno> - get sigratures of masterchain block <seqno>\n";
     } else if (cmd == "genkey") {
       generate_key();
     } else if (cmd == "exit" || cmd == "quit") {
@@ -510,6 +511,9 @@ class TonlibCli : public td::actor::Actor {
       auto key = parser.read_word();
       auto init_key = parser.read_word();
       guess_account(key, init_key, std::move(cmd_promise));
+    } else if (cmd == "getmasterchainsignatures") {
+      auto seqno = parser.read_word();
+      run_get_masterchain_block_signatures(seqno, std::move(cmd_promise));
     } else {
       cmd_promise.set_error(td::Status::Error(PSLICE() << "Unkwnown query `" << cmd << "`"));
     }
@@ -2094,6 +2098,18 @@ class TonlibCli : public td::actor::Actor {
                  td::TerminalIO::out() << to_string(revisions);
                  return td::Unit();
                }));
+  }
+
+  void run_get_masterchain_block_signatures(td::Slice seqno_s, td::Promise<td::Unit> promise) {
+    TRY_RESULT_PROMISE(promise, seqno, td::to_integer_safe<td::int32>(seqno_s));
+    send_query(make_object<tonlib_api::blocks_getMasterchainBlockSignatures>(seqno), promise.wrap([](auto signatures) {
+      td::TerminalIO::out() << "Signatures: " << signatures->signatures_.size() << "\n";
+      for (const auto& s : signatures->signatures_) {
+        td::TerminalIO::out() << "  " << s->node_id_short_ << " : " << td::base64_encode(td::Slice(s->signature_))
+                              << "\n";
+      }
+      return td::Unit();
+    }));
   }
 
   void get_history2(td::Slice key, td::Result<tonlib_api::object_ptr<tonlib_api::fullAccountState>> r_state,

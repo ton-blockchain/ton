@@ -125,8 +125,11 @@ bool TupleT::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
 }
 
 bool TLB::validate_ref_internal(int* ops, Ref<vm::Cell> cell_ref, bool weak) const {
-  if (ops && --*ops < 0) {
-    return false;
+  if (ops) {
+    if (*ops <= 0) {
+      return false;
+    }
+    --*ops;
   }
   bool is_special;
   auto cs = load_cell_slice_special(std::move(cell_ref), is_special);
