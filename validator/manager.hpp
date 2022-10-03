@@ -628,11 +628,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::Ref<PersistentStateDescription> get_block_persistent_state(BlockIdExt block_id);
 
  private:
+  bool need_monitor(ShardIdFull shard) const {
+    return opts_->need_monitor(shard, last_masterchain_state_);
+  }
+
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollatorNode>> collator_nodes_;
 
-  std::set<ShardIdFull> shards_to_monitor_ = {ShardIdFull(masterchainId)};
   std::set<ShardIdFull> extra_active_shards_;
   std::map<ShardIdFull, BlockSeqno> last_validated_blocks_;
 

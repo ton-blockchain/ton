@@ -60,7 +60,6 @@ class AsyncStateSerializer : public td::actor::Actor {
   }
 
   bool need_serialize(BlockHandle handle);
-  bool need_monitor(ShardIdFull shard);
 
   void alarm() override;
   void start_up() override;

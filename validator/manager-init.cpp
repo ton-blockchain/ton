@@ -566,7 +566,7 @@ void ValidatorManagerMasterchainStarter::truncated() {
   truncate_shard_next(handle_->id(), ig.get_promise());
   auto s = state_->get_shards();
   for (auto &shard : s) {
-    if (opts_->need_monitor(shard->shard())) {
+    if (opts_->need_monitor(shard->shard(), state_)) {
       truncate_shard_next(shard->top_block_id(), ig.get_promise());
     }
   }

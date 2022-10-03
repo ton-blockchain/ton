@@ -214,7 +214,7 @@ void ValidatorManagerImpl::prevalidate_block(BlockBroadcast broadcast, td::Promi
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
     return;
   }
-  if (!shards_to_monitor_.count(broadcast.block_id.shard_full())) {
+  if (!need_monitor(broadcast.block_id.shard_full())) {
     promise.set_error(td::Status::Error("not monitoring shard"));
     return;
   }
@@ -457,7 +457,7 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
     }
     shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}] = desc;
     VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id();
-    if (shards_to_monitor_.count(desc->block_id().shard_full())) {
+    if (need_monitor(desc->block_id().shard_full())) {
       auto P = td::PromiseCreator::lambda([](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error()) {
           auto S = R.move_as_error();
@@ -617,10 +617,9 @@ void ValidatorManagerImpl::wait_out_msg_queue_proof(BlockIdExt block_id, ShardId
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_msg_queue, block_id, dst_shard,
                                   std::move(R));
         });
-    auto id = td::actor::create_actor<WaitOutMsgQueueProof>("waitmsgqueue", block_id, dst_shard,
-                                                            shards_to_monitor_.count(block_id.shard_full()), priority,
-                                                            actor_id(this), td::Timestamp::at(timeout.at() + 10.0),
-                                                            std::move(P))
+    auto id = td::actor::create_actor<WaitOutMsgQueueProof>(
+                  "waitmsgqueue", block_id, dst_shard, need_monitor(block_id.shard_full()), priority, actor_id(this),
+                  td::Timestamp::at(timeout.at() + 10.0), std::move(P))
                   .release();
     wait_out_msg_queue_proof_[key].actor_ = id;
     it = wait_out_msg_queue_proof_.find(key);
@@ -1083,8 +1082,8 @@ void ValidatorManagerImpl::finished_wait_msg_queue(BlockIdExt block_id, ShardIdF
                                       std::move(R));
             });
         auto id = td::actor::create_actor<WaitOutMsgQueueProof>("waitmsgqueue", block_id, dst_shard,
-                                                                shards_to_monitor_.count(block_id.shard_full()),
-                                                                X.second, actor_id(this), X.first, std::move(P))
+                                                                need_monitor(block_id.shard_full()), X.second,
+                                                                actor_id(this), X.first, std::move(P))
                       .release();
         it->second.actor_ = id;
         return;
@@ -2489,7 +2488,6 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
 
 void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state,
                                                       std::set<ShardIdFull> shards_to_monitor) {
-  shards_to_monitor_ = shards_to_monitor;
   callback_->update_shard_configuration(std::move(state), std::move(shards_to_monitor), extra_active_shards_);
 }
 

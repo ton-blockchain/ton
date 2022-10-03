@@ -108,7 +108,7 @@ class FullNodeImpl : public FullNode {
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
-  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool exact = false);
+  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard);
   std::map<ShardIdFull, ShardInfo> shards_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;

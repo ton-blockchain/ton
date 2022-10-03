@@ -670,7 +670,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ne
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
   BlockIdExt block_id = create_block_id(query.id_);
-  //if (block_id.shard_full() != shard_) {
+  //if (!shard_is_ancestor(shard_, block_id.shard_full())) {
   //  LOG(FULL_NODE_WARNING) << "dropping block broadcast: shard mismatch. overlay=" << shard_.to_str()
   //                         << " block=" << block_id.to_str();
   //  return;

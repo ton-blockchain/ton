@@ -135,10 +135,18 @@ void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
 void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor,
                                               std::set<ShardIdFull> temporary_shards) {
   CHECK(shards_to_monitor.count(ShardIdFull(masterchainId)));
-  std::map<ShardIdFull, BlockIdExt> new_shards;
+  std::set<ShardIdFull> new_shards;
   std::map<ShardIdFull, FullNodeShardMode> new_active;
-  new_shards[ShardIdFull(masterchainId)] = state->get_block_id();
+  new_shards.insert(ShardIdFull(masterchainId));
   std::set<WorkchainId> workchains;
+  auto cut_shard = [&](ShardIdFull shard) -> ShardIdFull {
+    unsigned pfx_len = shard.pfx_len();
+    unsigned min_split = state->soft_min_split_depth(shard.workchain);
+    if (min_split < pfx_len) {
+      return shard_prefix(shard, min_split);
+    }
+    return shard;
+  };
   auto set_active = [&](ShardIdFull shard, FullNodeShardMode mode) {
     while (new_active.emplace(shard, mode).second && shard.pfx_len() > 0) {
       shard = shard_parent(shard);
@@ -146,20 +154,20 @@ void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, s
   };
   for (auto &info : state->get_shards()) {
     workchains.insert(info->shard().workchain);
-    new_shards[info->shard()] = info->top_block_id();
+    new_shards.insert(cut_shard(info->shard()));
   }
   for (const auto &wpair : state->get_workchain_list()) {
     ton::WorkchainId wc = wpair.first;
     const block::WorkchainInfo *winfo = wpair.second.get();
     if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= state->get_unix_time()) {
-      new_shards[ShardIdFull(wc)] = BlockIdExt(wc, shardIdAll, 0, winfo->zerostate_root_hash, winfo->zerostate_file_hash);
+      new_shards.insert(ShardIdFull(wc));
     }
   }
   for (ShardIdFull shard : shards_to_monitor) {
-    set_active(shard, FullNodeShardMode::active);
+    set_active(cut_shard(shard), FullNodeShardMode::active);
   }
   for (ShardIdFull shard : temporary_shards) {
-    set_active(shard, FullNodeShardMode::active_temp);
+    set_active(cut_shard(shard), FullNodeShardMode::active_temp);
   }
 
   auto info_set_mode = [&](ShardIdFull shard, ShardInfo& info, FullNodeShardMode mode) {
@@ -177,7 +185,7 @@ void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, s
   };
 
   for (auto shard : new_shards) {
-    auto &info = shards_[shard.first];
+    auto &info = shards_[shard];
     info.exists = true;
   }
 
@@ -283,7 +291,7 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 }
 
 void FullNodeImpl::send_broadcast(BlockBroadcast broadcast) {
-  auto shard = get_shard(broadcast.block_id.shard_full(), true);
+  auto shard = get_shard(broadcast.block_id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
@@ -379,27 +387,28 @@ void FullNodeImpl::download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull
                           std::move(promise));
 }
 
-td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool exact) {
-  if (!exact) {
-    ShardIdFull s = shard;
-    while (true) {
-      auto it = shards_.find(s);
-      if (it != shards_.end() && it->second.exists) {
-        if (it->second.actor.empty()) {
-          add_shard_actor(s, FullNodeShardMode::inactive);
-        }
-        if (it->second.mode == FullNodeShardMode::inactive) {
-          it->second.delete_at = td::Timestamp::in(INACTIVE_SHARD_TTL);
-        }
-        return it->second.actor.get();
+td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
+  while (true) {
+    auto it = shards_.find(shard);
+    if (it != shards_.end() && it->second.exists) {
+      if (it->second.actor.empty()) {
+        add_shard_actor(shard, FullNodeShardMode::inactive);
       }
-      if (s.pfx_len() == 0) {
-        break;
+      if (it->second.mode == FullNodeShardMode::inactive) {
+        it->second.delete_at = td::Timestamp::in(INACTIVE_SHARD_TTL);
       }
-      s = shard_parent(s);
+      return it->second.actor.get();
     }
+    if (shard.pfx_len() == 0) {
+      break;
+    }
+    shard = shard_parent(shard);
   }
-  auto &info = shards_[shard];
+  auto it = shards_.find(shard);
+  if (it == shards_.end()) {
+    it = shards_.emplace(shard = ShardIdFull(shard.workchain), ShardInfo{}).first;
+  }
+  auto &info = it->second;
   if (info.actor.empty()) {
     add_shard_actor(shard, FullNodeShardMode::inactive);
   }

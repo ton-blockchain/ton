@@ -49,7 +49,7 @@ struct ValidatorManagerOptions : public td::CntObject {
  public:
   virtual BlockIdExt zero_block_id() const = 0;
   virtual BlockIdExt init_block_id() const = 0;
-  virtual bool need_monitor(ShardIdFull shard) const = 0;
+  virtual bool need_monitor(ShardIdFull shard, const td::Ref<MasterchainState>& state) const = 0;
   virtual bool allow_blockchain_init() const = 0;
   virtual double sync_blocks_before() const = 0;
   virtual double block_ttl() const = 0;
