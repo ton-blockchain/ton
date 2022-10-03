@@ -125,6 +125,10 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
   }
 
   if (!decoder_) {
+    if (offset_ + fec_type.size() > total_size_) {
+      VLOG(RLDP_NOTICE) << "failed to create decoder: data size in fec type is too big";
+      return;
+    }
     auto D = fec_type.create_decoder();
     if (D.is_error()) {
       VLOG(RLDP_WARNING) << "failed to create decoder: " << D.move_as_error();
