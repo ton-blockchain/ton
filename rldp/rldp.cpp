@@ -116,9 +116,9 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     }
     auto ite = max_size_.find(part.transfer_id_);
     if (ite == max_size_.end()) {
-      if (static_cast<td::uint64>(part.total_size_) > default_mtu()) {
+      if (static_cast<td::uint64>(part.total_size_) > default_mtu_) {
         VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_
-                          << " default_mtu=" << default_mtu();
+                          << " default_mtu=" << default_mtu_;
         return;
       }
     } else {

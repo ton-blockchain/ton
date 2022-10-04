@@ -825,11 +825,9 @@ class RldpToTcpRequestSender : public td::actor::Actor {
   }
 
   void got_result(std::pair<std::unique_ptr<ton::http::HttpResponse>, std::shared_ptr<ton::http::HttpPayload>> R) {
-    if (R.first->need_payload()) {
-      td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
-                                                     rldp_)
-          .release();
-    }
+    td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
+                                                   rldp_)
+        .release();
     auto f = ton::serialize_tl_object(R.first->store_tl(), true);
     promise_.set_value(std::move(f));
     stop();
@@ -1092,6 +1090,7 @@ class RldpHttpProxy : public td::actor::Actor {
     }
 
     rldp_ = ton::rldp::Rldp::create(adnl_.get());
+    td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 16 << 10);
     td::actor::send_closure(rldp_, &ton::rldp::Rldp::add_id, local_id_);
     for (auto &serv_id : server_ids_) {
       td::actor::send_closure(rldp_, &ton::rldp::Rldp::add_id, serv_id);
