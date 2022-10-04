@@ -29,6 +29,10 @@ EOF
 brew tap tonthemoon/ton-repo
 ```
 
+### AUR
+
+<https://aur.archlinux.org/packages/ton-git-bin>
+
 ## Updates flow:
 
 * **master branch** - mainnet is running on this stable branch.

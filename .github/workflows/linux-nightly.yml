@@ -58,6 +58,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    ## DEB release
     - run: |
         nix develop \
           --command bash -e -c '
@@ -70,13 +71,17 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # We can't rely on GH Releases for RPM because a RPM repo must have a repodata/ directory
-    # and Releases don't support directories
+    ## SSH and git setup
     - run: |
         ssh-agent -a $SSH_AUTH_SOCK > /dev/null
         ssh-add - <<< "${{ secrets.PACKAGES_REPO_KEY }}"
+        echo 'StrictHostKeyChecking accept-new' >> ~/.ssh/config
         git config --global user.name ghactions
         git config --global user.email actions@github.com
+
+    ## RPM release
+    # We can't rely on GH Releases for RPM because a RPM repo must have a repodata/ directory
+    # and Releases don't support directories
     - run: |
         nix develop \
           --command bash -e -c '
@@ -84,10 +89,30 @@ jobs:
             createrepo_c .'
     - run: |
         git clone git@github.com:tonthemoon/ton-repo.git
-        cp -r packages-out/rpm-install ton-repo/rpm
-    - run: |
         cd ton-repo
         git rm -rf *
+        cp -r ../packages-out/rpm-install rpm
         git add .
         git commit --amend -m "Import nightly $(date -I)"
         git push -f
+
+    ## AUR release
+    - run: |
+        # pacman makepkg build user
+        # (makepkg refuses to work as root)
+        useradd builder
+        echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            cd packages/arch
+            chown -R builder .
+            sudo -u builder --preserve-env=PATH env MAKEPKG_CONF=/dev/null PKGEXT=".pkg.tar.gz" SRCEXT=".src.tar.gz" makepkg --printsrcinfo > .SRCINFO'
+    - run: |
+        git clone ssh://aur@aur.archlinux.org/ton-git-bin.git aur-ton-git-bin
+        cd aur-ton-git-bin
+        git rm -rf *
+        cp ../packages/arch/{PKGBUILD,.SRCINFO} .
+        git add .
+        git commit -m "Import nightly $(date -I)" || true
+        git push
