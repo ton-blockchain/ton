@@ -587,7 +587,7 @@ tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) 
     max_size -= s.size();
   }
   obj->data_.truncate(obj->data_.size() - S.size());
-  if (chunks_.size() != 0) {
+  if (chunks_.size() != 0 || !parse_completed()) {
     return obj;
   }
   if (!written_zero_chunk_) {

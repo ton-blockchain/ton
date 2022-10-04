@@ -79,10 +79,10 @@ td::Status HttpInboundConnection::receive(td::ChainBufferReader &input) {
       send_client_error();
       return td::Status::OK();
     }
+    cur_request_ = R.move_as_ok();
     if (exit_loop) {
       return td::Status::OK();
     }
-    cur_request_ = R.move_as_ok();
   }
 
   auto payload = cur_request_->create_empty_payload().move_as_ok();
