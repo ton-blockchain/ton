@@ -25,6 +25,7 @@
 */
 #include "DNSResolver.h"
 #include "td/utils/overloaded.h"
+#include "common/delay.h"
 
 static const double CACHE_TIMEOUT_HARD = 300.0;
 static const double CACHE_TIMEOUT_SOFT = 270.0;
@@ -33,8 +34,18 @@ DNSResolver::DNSResolver(td::actor::ActorId<TonlibClient> tonlib_client) : tonli
 }
 
 void DNSResolver::start_up() {
+  sync();
+}
+
+void DNSResolver::sync() {
   auto obj = tonlib_api::make_object<tonlib_api::sync>();
-  auto P = td::PromiseCreator::lambda([](td::Result<tonlib_api::object_ptr<tonlib_api::Object>>) {});
+  auto P = td::PromiseCreator::lambda([SelfId =
+                                           actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) {
+    if (R.is_error()) {
+      LOG(WARNING) << "Sync error: " << R.move_as_error();
+      ton::delay_action([SelfId]() { td::actor::send_closure(SelfId, &DNSResolver::sync); }, td::Timestamp::in(5.0));
+    }
+  });
   td::actor::send_closure(tonlib_client_, &TonlibClient::send_request, std::move(obj), std::move(P));
 }
 

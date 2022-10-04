@@ -37,6 +37,7 @@ class DNSResolver : public td::actor::Actor {
   void resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdShort> promise);
 
  private:
+  void sync();
   void save_to_cache(std::string host, ton::adnl::AdnlNodeIdShort id);
 
   td::actor::ActorId<TonlibClient> tonlib_client_;
