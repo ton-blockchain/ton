@@ -238,7 +238,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
                              ton_api::rldp_queryError &message) {
   auto it = queries_.find(message.query_id_);
   if (it != queries_.end()) {
-    td::actor::send_closure(it->second, &adnl::AdnlQuery::reject_query);
+    td::actor::send_closure(it->second, &adnl::AdnlQuery::set_error, td::Status::Error("adnl query rejected"));
     queries_.erase(it);
   } else {
     VLOG(RLDP_INFO) << "received reject to unknown query " << message.query_id_;

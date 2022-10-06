@@ -621,7 +621,7 @@ void AdnlPeerPairImpl::process_message(const adnlmessage::AdnlMessageQueryError 
     return;
   }
 
-  td::actor::send_closure_later(Q->second, &AdnlQuery::reject_query);
+  td::actor::send_closure_later(Q->second, &AdnlQuery::set_error, td::Status::Error("adnl query rejected"));
   out_queries_.erase(Q);
 }
 

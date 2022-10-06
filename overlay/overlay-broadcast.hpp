@@ -73,9 +73,9 @@ class BroadcastSimple : public td::ListNode {
       , date_(date)
       , signature_(std::move(signature))
       , is_valid_(is_valid)
+      , is_ours_(is_ours)
       , overlay_(overlay)
-      , src_peer_id_(src_peer_id)
-      , is_ours_(is_ours) {
+      , src_peer_id_(src_peer_id) {
   }
 
   Overlay::BroadcastHash get_hash() const {

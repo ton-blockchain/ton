@@ -284,10 +284,10 @@ class OverlayFecBroadcastPart : public td::ListNode {
       , date_(date)
       , signature_(std::move(signature))
       , is_short_(is_short)
+      , is_ours_(is_ours)
       , bcast_(bcast)
-      , overlay_(overlay) 
-      , src_peer_id_(src_peer_id)
-      , is_ours_(is_ours) {
+      , overlay_(overlay)
+      , src_peer_id_(src_peer_id) {
   }
 
   td::uint32 data_size() const {
