@@ -19,10 +19,10 @@
 #pragma once
 #include "td/actor/actor.h"
 
-#include "adnl/adnl-ext-client.h"
+#include "ExtClientLazy.h"
 
 namespace tonlib {
-class ExtClientOutbound : public ton::adnl::AdnlExtClient {
+class ExtClientOutbound : public ExtClientLazy {
  public:
   class Callback {
    public:

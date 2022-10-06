@@ -110,7 +110,7 @@ class TonlibClient : public td::actor::Actor {
   vm::Dictionary libraries{256};
 
   // network
-  td::actor::ActorOwn<ton::adnl::AdnlExtClient> raw_client_;
+  td::actor::ActorOwn<ExtClientLazy> raw_client_;
   td::actor::ActorId<ExtClientOutbound> ext_client_outbound_;
   td::actor::ActorOwn<LastBlock> raw_last_block_;
   td::actor::ActorOwn<LastConfig> raw_last_config_;
