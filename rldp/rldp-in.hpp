@@ -71,7 +71,7 @@ class RldpIn : public RldpImpl {
 
   void send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
                   td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) override {
-    send_query_ex(src, dst, name, std::move(promise), timeout, std::move(data), default_mtu());
+    send_query_ex(src, dst, name, std::move(promise), timeout, std::move(data), default_mtu_);
   }
   void send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
                      td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
@@ -105,6 +105,10 @@ class RldpIn : public RldpImpl {
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) override;
 
+  void set_default_mtu(td::uint64 mtu) override {
+    default_mtu_ = mtu;
+  }
+
   RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
 
@@ -120,6 +124,7 @@ class RldpIn : public RldpImpl {
   std::set<TransferId> lru_set_;
   RldpLru lru_;
   td::uint32 lru_size_ = 0;
+  td::uint64 default_mtu_ = adnl::Adnl::get_mtu();
 
   std::map<TransferId, td::uint64> max_size_;
 

@@ -42,7 +42,7 @@ variable Actions
 { @end? abort"subdomain name expected" @next dup $len 127 > abort"subdomain name too long"
 } : parse-domain
 { @end? abort"category number expected" @next (number) 1 <> abort"category must be integer"
-  dup 16 fits not abort"category does not fit into 16 bit integer"
+  dup 256 fits not abort"category does not fit into 256 bit integer"
   dup 0= abort"category must be non-zero"
 } : parse-cat-num
 { @end? abort"`cat` expected" @next "cat" $= not abort"`cat` expected" parse-cat-num
@@ -107,11 +107,11 @@ file-base +"-dns" +contractid +".addr" load-address
 { dup first
   dup `add eq? {
     drop 4 untuple <b swap value, b> -rot
-    <b 11 6 u, swap 16 i, swap subdomain,
+    <b 11 6 u, swap 256 u, swap subdomain,
     swap dict, nip } {
   dup `delete eq? {
     drop untriple rot drop
-    <b 12 6 u, swap 16 i, swap subdomain, } {
+    <b 12 6 u, swap 256 u, swap subdomain, } {
   dup `drop eq? {
     drop second <b 22 6 u, swap subdomain, } {
   dup `upgrade eq? {

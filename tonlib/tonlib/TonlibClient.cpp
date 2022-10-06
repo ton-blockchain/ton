@@ -1649,7 +1649,7 @@ void TonlibClient::hangup() {
 
 ExtClientRef TonlibClient::get_client_ref() {
   ExtClientRef ref;
-  ref.andl_ext_client_ = raw_client_.get();
+  ref.adnl_ext_client_ = raw_client_.get();
   ref.last_block_actor_ = raw_last_block_.get();
   ref.last_config_actor_ = raw_last_config_.get();
 
@@ -1683,10 +1683,10 @@ void TonlibClient::init_ext_client() {
     ext_client_outbound_ = client.get();
     raw_client_ = std::move(client);
   } else {
-    auto lite_clients_size = config_.lite_clients.size();
-    CHECK(lite_clients_size != 0);
-    auto lite_client_id = td::Random::fast(0, td::narrow_cast<int>(lite_clients_size) - 1);
-    auto& lite_client = config_.lite_clients[lite_client_id];
+    std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers;
+    for (const auto& s : config_.lite_clients) {
+      servers.emplace_back(s.adnl_id, s.address);
+    }
     class Callback : public ExtClientLazy::Callback {
      public:
       explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
@@ -1697,8 +1697,7 @@ void TonlibClient::init_ext_client() {
     };
     ext_client_outbound_ = {};
     ref_cnt_++;
-    raw_client_ = ExtClientLazy::create(lite_client.adnl_id, lite_client.address,
-                                        td::make_unique<Callback>(td::actor::actor_shared()));
+    raw_client_ = ExtClientLazy::create(std::move(servers), td::make_unique<Callback>(td::actor::actor_shared()));
   }
 }
 

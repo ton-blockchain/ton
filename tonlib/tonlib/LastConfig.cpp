@@ -141,6 +141,7 @@ void LastConfig::on_error(td::Status status) {
     promise.set_error(status.clone());
   }
   promises_.clear();
+  get_config_state_ = QueryState::Empty;
 }
 
 void LastConfig::tear_down() {

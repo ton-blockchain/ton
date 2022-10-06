@@ -25,15 +25,14 @@ namespace ton {
 namespace adnl {
 
 void AdnlQuery::alarm() {
-  promise_.set_error(td::Status::Error(ErrorCode::timeout, PSTRING() << "timeout for adnl query " << name_));
-  stop();
+  set_error(td::Status::Error(ErrorCode::timeout, PSTRING() << "timeout for adnl query " << name_));
 }
 void AdnlQuery::result(td::BufferSlice data) {
   promise_.set_value(std::move(data));
   stop();
 }
-void AdnlQuery::reject_query() {
-  promise_.set_error(td::Status::Error(ErrorCode::timeout, PSTRING() << "rejected adnl query " << name_));
+void AdnlQuery::set_error(td::Status error) {
+  promise_.set_error(std::move(error));
   stop();
 }
 

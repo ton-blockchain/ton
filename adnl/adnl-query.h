@@ -48,7 +48,7 @@ class AdnlQuery : public td::actor::Actor {
   }
   void alarm() override;
   void result(td::BufferSlice data);
-  void reject_query();
+  void set_error(td::Status error);
   void start_up() override {
     alarm_timestamp() = timeout_;
   }

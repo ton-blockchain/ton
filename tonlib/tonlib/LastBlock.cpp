@@ -374,6 +374,7 @@ void LastBlock::on_sync_error(td::Status status) {
     promise.set_error(status.clone());
   }
   promises_.clear();
+  client_.force_change_liteserver();
 }
 void LastBlock::on_fatal_error(td::Status status) {
   VLOG(last_block) << "sync: fatal error " << status;
