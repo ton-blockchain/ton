@@ -47,7 +47,7 @@
 #include "tonlib/TonlibClient.h"
 #include "tonlib/TonlibCallback.h"
 
-#include "tonlib/ExtClientLazy.h"
+#include "tonlib/ExtClientRaw.h"
 
 #include "smc-envelope/ManualDns.h"
 #include "smc-envelope/PaymentChannel.h"
@@ -62,6 +62,7 @@
 #include <iostream>
 #include <map>
 #include "git.h"
+#include "ExtClientMulti.h"
 
 using tonlib_api::make_object;
 
@@ -174,7 +175,7 @@ class TonlibCli : public td::actor::Actor {
 
   std::map<std::uint64_t, td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>> query_handlers_;
 
-  td::actor::ActorOwn<tonlib::ExtClientLazy> raw_client_;
+  td::actor::ActorOwn<tonlib::ExtClientRaw> raw_client_;
 
   bool is_closing_{false};
   td::uint32 ref_cnt_{1};
@@ -223,11 +224,7 @@ class TonlibCli : public td::actor::Actor {
 
     if (options_.use_callbacks_for_network) {
       auto config = tonlib::Config::parse(options_.config).move_as_ok();
-      auto lite_clients_size = config.lite_clients.size();
-      CHECK(lite_clients_size != 0);
-      auto lite_client_id = td::Random::fast(0, td::narrow_cast<int>(lite_clients_size) - 1);
-      auto& lite_client = config.lite_clients[lite_client_id];
-      class Callback : public tonlib::ExtClientLazy::Callback {
+      class Callback : public tonlib::ExtClientRaw::Callback {
        public:
         explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
         }
@@ -235,9 +232,22 @@ class TonlibCli : public td::actor::Actor {
        private:
         td::actor::ActorShared<> parent_;
       };
+      std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> full_servers;
+      int lite_client_id = -1, cnt = 0;
+      for (const auto& s : config.lite_clients) {
+        if (s.is_full) {
+          full_servers.emplace_back(s.adnl_id, s.address);
+        }
+      }
+      if (!full_servers.empty()) {
+        raw_client_ = tonlib::ExtClientRaw::create(std::move(full_servers),
+                                                   td::make_unique<Callback>(td::actor::actor_shared()));
+      } else {
+        CHECK(!config.lite_clients.empty());
+        raw_client_ = td::actor::create_actor<tonlib::ExtClientMulti>(
+            "ExtClientMulti", config.lite_clients, td::make_unique<Callback>(td::actor::actor_shared()));
+      }
       ref_cnt_++;
-      raw_client_ = tonlib::ExtClientLazy::create(lite_client.adnl_id, lite_client.address,
-                                                  td::make_unique<Callback>(td::actor::actor_shared()));
     }
 
     auto config = !options_.config.empty()
@@ -1534,7 +1544,8 @@ class TonlibCli : public td::actor::Actor {
           auto update = tonlib_api::move_object_as<tonlib_api::updateSendLiteServerQuery>(std::move(result));
           CHECK(!raw_client_.empty());
           snd_bytes_ += update->data_.size();
-          send_closure(raw_client_, &ton::adnl::AdnlExtClient::send_query, "query", td::BufferSlice(update->data_),
+          ton::ShardIdFull shard(update->workchain_, update->shard_);
+          send_closure(raw_client_, &tonlib::ExtClientRaw::send_query, "query", td::BufferSlice(update->data_), shard,
                        td::Timestamp::in(5),
                        [actor_id = actor_id(this), id = update->id_](td::Result<td::BufferSlice> res) {
                          send_closure(actor_id, &TonlibCli::on_adnl_result, id, std::move(res));

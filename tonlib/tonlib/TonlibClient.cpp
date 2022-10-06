@@ -18,7 +18,7 @@
 */
 #include "TonlibClient.h"
 
-#include "tonlib/ExtClientLazy.h"
+#include "tonlib/ExtClientRaw.h"
 #include "tonlib/ExtClientOutbound.h"
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
@@ -27,6 +27,7 @@
 #include "tonlib/keys/Mnemonic.h"
 #include "tonlib/keys/SimpleEncryption.h"
 #include "tonlib/TonlibError.h"
+#include "tonlib/ExtClientMulti.h"
 
 #include "smc-envelope/GenericAccount.h"
 #include "smc-envelope/ManualDns.h"
@@ -1649,15 +1650,16 @@ void TonlibClient::hangup() {
 
 ExtClientRef TonlibClient::get_client_ref() {
   ExtClientRef ref;
-  ref.adnl_ext_client_ = raw_client_.get();
+  ref.raw_client_ = raw_client_.get();
   ref.last_block_actor_ = raw_last_block_.get();
   ref.last_config_actor_ = raw_last_config_.get();
 
   return ref;
 }
 
-void TonlibClient::proxy_request(td::int64 query_id, std::string data) {
-  on_update(tonlib_api::make_object<tonlib_api::updateSendLiteServerQuery>(query_id, data));
+void TonlibClient::proxy_request(td::int64 query_id, std::string data, ton::ShardIdFull shard) {
+  on_update(
+      tonlib_api::make_object<tonlib_api::updateSendLiteServerQuery>(query_id, data, shard.workchain, shard.shard));
 }
 
 void TonlibClient::init_ext_client() {
@@ -1668,9 +1670,9 @@ void TonlibClient::init_ext_client() {
           : parent_(std::move(parent)), config_generation_(config_generation) {
       }
 
-      void request(td::int64 id, std::string data) override {
+      void request(td::int64 id, std::string data, ton::ShardIdFull shard) override {
         send_closure(parent_, &TonlibClient::proxy_request, (id << 16) | (config_generation_ & 0xffff),
-                     std::move(data));
+                     std::move(data), shard);
       }
 
      private:
@@ -1683,21 +1685,29 @@ void TonlibClient::init_ext_client() {
     ext_client_outbound_ = client.get();
     raw_client_ = std::move(client);
   } else {
-    std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers;
-    for (const auto& s : config_.lite_clients) {
-      servers.emplace_back(s.adnl_id, s.address);
-    }
-    class Callback : public ExtClientLazy::Callback {
+    class Callback : public ExtClientRaw::Callback {
      public:
       explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
       }
-
      private:
       td::actor::ActorShared<> parent_;
     };
+    std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> full_servers;
+    for (const auto& s : config_.lite_clients) {
+      if (s.is_full) {
+        full_servers.emplace_back(s.adnl_id, s.address);
+      }
+    }
+    if (!full_servers.empty()) {
+      raw_client_ =
+          ExtClientRaw::create(std::move(full_servers), td::make_unique<Callback>(td::actor::actor_shared()));
+    } else {
+      CHECK(!config_.lite_clients.empty());
+      raw_client_ = td::actor::create_actor<ExtClientMulti>("ExtClientMulti", config_.lite_clients,
+                                                            td::make_unique<Callback>(td::actor::actor_shared()));
+    }
     ext_client_outbound_ = {};
     ref_cnt_++;
-    raw_client_ = ExtClientLazy::create(std::move(servers), td::make_unique<Callback>(td::actor::actor_shared()));
   }
 }
 
@@ -2826,7 +2836,7 @@ td::Status TonlibClient::do_request(tonlib_api::raw_getTransactionsV2& request,
 
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
-      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, count, actor_shared(this, actor_id), 
+      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, count, actor_shared(this, actor_id),
       promise.wrap([private_key = std::move(private_key), try_decode_messages = request.try_decode_messages_](auto&& x) mutable {
         return ToRawTransactions(std::move(private_key), try_decode_messages).to_raw_transactions(std::move(x));
       }));

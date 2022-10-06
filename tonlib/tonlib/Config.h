@@ -26,6 +26,8 @@ struct Config {
   struct LiteClient {
     ton::adnl::AdnlNodeIdFull adnl_id;
     td::IPAddress address;
+    bool is_full = true;
+    std::vector<ton::ShardIdFull> shards;
   };
   ton::BlockIdExt zero_state_id;
   ton::BlockIdExt init_block_id;

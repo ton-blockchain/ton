@@ -183,7 +183,7 @@ smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.
 smc.libraryEntry hash:int256 data:bytes = smc.LibraryEntry;
 smc.libraryResult result:(vector smc.libraryEntry) = smc.LibraryResult;
 
-updateSendLiteServerQuery id:int64 data:bytes = Update;
+updateSendLiteServerQuery id:int64 data:bytes workchain:int32 shard:int64 = Update;
 updateSyncState sync_state:SyncState = Update;
 
 //@class LogStream @description Describes a stream to which tonlib internal log is written
