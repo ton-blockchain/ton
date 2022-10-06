@@ -611,13 +611,27 @@ wfmt_ext#0 min_addr_len:(## 12) max_addr_len:(## 12) addr_len_step:(## 12)
   workchain_type_id:(## 32) { workchain_type_id >= 1 }
   = WorkchainFormat 0;
 
-workchain#a6 enabled_since:uint32 actual_min_split:(## 8) 
-  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
+wc_split_merge_timings#0
+  split_merge_delay:uint32 split_merge_interval:uint32
+  min_split_merge_interval:uint32 max_split_merge_delay:uint32
+  = WcSplitMergeTimings;
+
 //workchain#a5 enabled_since:uint32 min_split:(## 8) max_split:(## 8)
 //  { min_split <= max_split } { max_split <= 60 }
+
+workchain#a6 enabled_since:uint32 actual_min_split:(## 8) 
+  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
   basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
   zerostate_root_hash:bits256 zerostate_file_hash:bits256
   version:uint32 format:(WorkchainFormat basic)
+  = WorkchainDescr;
+
+workchain_v2#a7 enabled_since:uint32 actual_min_split:(## 8)
+  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
+  basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
+  zerostate_root_hash:bits256 zerostate_file_hash:bits256
+  version:uint32 format:(WorkchainFormat basic)
+  split_merge_timings:WcSplitMergeTimings
   = WorkchainDescr;
 
 _ workchains:(HashmapE 32 WorkchainDescr) = ConfigParam 12;
@@ -733,6 +747,10 @@ misbehaviour_punishment_config_v1#01
   medium_interval:uint16 medium_flat_mult:uint16 medium_proportional_mult:uint16
    = MisbehaviourPunishmentConfig;
 _ MisbehaviourPunishmentConfig = ConfigParam 40;
+
+size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
+  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
+_ SizeLimitsConfig = ConfigParam 43;
 
 oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;
 _ OracleBridgeParams = ConfigParam 71; // Ethereum bridge

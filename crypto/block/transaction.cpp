@@ -593,7 +593,7 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       sstat.bits -= cs.size();         // bits in the root cells are free
       sstat.cells--;                   // the root cell itself is not counted as a cell
       LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
-      if (sstat.bits > max_msg_bits || sstat.cells > max_msg_cells) {
+      if (sstat.bits > cfg->size_limits.max_msg_bits || sstat.cells > cfg->size_limits.max_msg_cells) {
         LOG(DEBUG) << "inbound external message too large, invalid";
         return false;
       }
@@ -1043,6 +1043,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
   }
   vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
+  vm.set_max_data_depth(cfg.max_vm_data_depth);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   // vm.incr_stack_trace(1);    // enable stack dump after each step
 
@@ -1271,6 +1272,11 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
       if (lib_ref.is_null()) {
         // library code not found
         return 41;
+      }
+      vm::CellStorageStat sstat;
+      sstat.compute_used_storage(lib_ref);
+      if (sstat.cells > cfg.size_limits.max_library_cells) {
+        return 43;
       }
       vm::CellBuilder cb;
       CHECK(cb.store_bool_bool(rec.mode >> 1) && cb.store_ref_bool(std::move(lib_ref)));
@@ -1546,7 +1552,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     sstat.add_used_storage(info.value->prefetch_ref());
   }
   LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
-  if (sstat.bits > max_msg_bits || sstat.cells > max_msg_cells) {
+  if (sstat.bits > cfg.size_limits.max_msg_bits || sstat.cells > cfg.size_limits.max_msg_cells) {
     LOG(DEBUG) << "message too large, invalid";
     return skip_invalid ? 0 : 40;
   }

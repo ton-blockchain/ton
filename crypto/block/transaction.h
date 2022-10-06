@@ -107,6 +107,7 @@ struct ComputePhaseConfig {
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
   bool with_vm_log{false};
+  td::uint16 max_vm_data_depth = 512;
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();
@@ -143,6 +144,7 @@ struct ActionPhaseConfig {
   int bounce_msg_body{0};  // usually 0 or 256 bits
   MsgPrices fwd_std;
   MsgPrices fwd_mc;  // from/to masterchain
+  SizeLimitsConfig size_limits;
   const WorkchainSet* workchains{nullptr};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
@@ -283,7 +285,6 @@ struct Account {
 };
 
 struct Transaction {
-  static constexpr unsigned max_msg_bits = (1 << 21), max_msg_cells = (1 << 13);
   enum {
     tr_none,
     tr_ord,

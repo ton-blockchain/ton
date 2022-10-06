@@ -372,12 +372,16 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
   if (!is_validator()) {
     return;
   }
-  if( ext_messages_.size() > max_mempool_num() ) {
+  if (last_masterchain_state_.is_null()) {
+    VLOG(VALIDATOR_NOTICE) << "dropping ext message: validator is not ready";
     return;
   }
-  auto R = create_ext_message(std::move(data));
+  if (ext_messages_.size() > max_mempool_num()) {
+    return;
+  }
+  auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
   if (R.is_error()) {
-    VLOG(VALIDATOR_NOTICE) << "dropping bad ihr message: " << R.move_as_error();
+    VLOG(VALIDATOR_NOTICE) << "dropping bad ext message: " << R.move_as_error();
     return;
   }
   add_external_message(R.move_as_ok());
@@ -396,8 +400,13 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg) {
     }
   }
 }
-void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) {
-  run_check_external_message(std::move(data), actor_id(this), std::move(promise));
+void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
+  if (last_masterchain_state_.is_null()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
+    return;
+  }
+  run_check_external_message(std::move(data), last_masterchain_state_->get_ext_msg_limits(), actor_id(this),
+                             std::move(promise));
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {

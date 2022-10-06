@@ -260,7 +260,10 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
-  auto R = create_ext_message(std::move(data));
+  if (last_masterchain_state_.is_null()) {
+    return;
+  }
+  auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
   if (R.is_ok()) {
     ext_messages_.emplace_back(R.move_as_ok());
   }
