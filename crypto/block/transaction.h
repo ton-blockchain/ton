@@ -359,7 +359,7 @@ struct Transaction {
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
   bool update_block_storage_profile(vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
   bool would_fit(unsigned cls, const block::BlockLimitStatus& blk_lim_st) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);

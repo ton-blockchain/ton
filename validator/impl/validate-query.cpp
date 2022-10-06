@@ -734,6 +734,8 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error(limits.move_as_error());
     }
     block_limits_ = limits.move_as_ok();
+    block_limits_->start_lt = start_lt_;
+    block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
     if (!fetch_config_params()) {
       return false;
     }
@@ -4335,6 +4337,13 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   int trans_type = block::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
+      if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
+        return reject_query(PSTRING() << "cannod add ordinary transaction because hard block limits are exceeded: "
+                                      << "gas_used=" << block_limit_status_->gas_used
+                                      << "(limit=" << block_limits_->gas.hard() << "), "
+                                      << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
+                                      << "(limit=" << block_limits_->lt_delta.hard() << ")");
+      }
       trans_type = block::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
@@ -4480,7 +4489,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (block_limit_status_ && !trs->update_limits(*block_limit_status_)) {
+  if (!trs->update_limits(*block_limit_status_, false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
   }

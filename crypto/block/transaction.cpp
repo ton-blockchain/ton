@@ -2265,9 +2265,15 @@ bool Transaction::would_fit(unsigned cls, const block::BlockLimitStatus& blimst)
   return blimst.would_fit(cls, end_lt, gas_used(), &extra);
 }
 
-bool Transaction::update_limits(block::BlockLimitStatus& blimst) const {
-  return blimst.update_lt(end_lt) && blimst.update_gas(gas_used()) && blimst.add_proof(new_total_state) &&
-         blimst.add_cell(root) && blimst.add_transaction() && blimst.add_account(is_first);
+bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_size) const {
+  if (!(blimst.update_lt(end_lt) && blimst.update_gas(gas_used()))) {
+    return false;
+  }
+  if (with_size) {
+    return blimst.add_proof(new_total_state) && blimst.add_cell(root) && blimst.add_transaction() &&
+           blimst.add_account(is_first);
+  }
+  return true;
 }
 
 /*
