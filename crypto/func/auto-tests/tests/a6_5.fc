@@ -1,0 +1,24 @@
+var twice(f, x) {
+  return f (f x);
+}
+
+_ sqr(x) {
+  return x * x;
+}
+
+var main(x) {
+  var f = sqr;
+  return twice(f, x) * f(x);
+}
+
+var pow6(x) method_id(4) {
+  return twice(sqr, x) * sqr(x);
+}
+
+{-
+    method_id | in | out
+TESTCASE |  0 | 3  | 729
+TESTCASE |  0 | 10 | 1000000
+TESTCASE |  4 | 3  | 729
+TESTCASE |  4 | 10 | 1000000
+-}

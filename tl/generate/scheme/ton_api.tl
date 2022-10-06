@@ -651,6 +651,10 @@ engine.validator.overlayStatsNode adnl_id:int256 ip_addr:string bdcst_errors:int
 engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 scope:string nodes:(vector engine.validator.overlayStatsNode) stats:(vector engine.validator.oneStat) = engine.validator.OverlayStats;
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 
+engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
+engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
+engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByName) = engine.validator.PerfTimerStats;
+
 engine.validator.validatorSessionInfo current_block:tonNode.blockId self:int256 current_round:int next_producers:(vector int256) = engine.validator.ValidatorSessionInfo;
 engine.validator.validatorSessionsInfo sessions:(vector engine.validator.validatorSessionInfo) = engine.validator.ValidatorSessionsInfo;
 
@@ -705,6 +709,8 @@ engine.validator.importCertificate overlay_id:int256 local_id:adnl.id.short sign
 engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash expire_at:int max_size:int = overlay.Certificate;
 engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
+engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
+
 engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsInfo;
 
 engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
@@ -735,7 +741,7 @@ storage.queryPrefix id:int256 = Object;
 
 http.header name:string value:string = http.Header;
 http.payloadPart data:bytes trailer:(vector http.header) last:Bool = http.PayloadPart;
-http.response http_version:string status_code:int reason:string headers:(vector http.header) = http.Response;
+http.response http_version:string status_code:int reason:string headers:(vector http.header) no_payload:Bool = http.Response;
 
 ---functions---
 

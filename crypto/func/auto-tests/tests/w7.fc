@@ -1,0 +1,24 @@
+int test(int y) method_id(1) {
+  int x = 1;
+  if (y > 0) {
+    return 1;
+  }
+  return x > 0;
+}
+
+int f(int y) method_id(2) {
+  if (y > 0) {
+    return 1;
+  }
+  return 2;
+}
+
+_ main() { }
+
+{-
+    method_id | in | out
+TESTCASE | 1  | 10  | 1
+TESTCASE | 1  | -5  | -1
+TESTCASE | 2  | 10  | 1
+TESTCASE | 2  | -5  | 2
+-}

@@ -188,7 +188,6 @@ void Receiver::receive_from_client(td::IPAddress addr, td::BufferSlice data) {
                                  p.data = std::move(data);
                                  p.adnl_start_time = start_time();
                                  p.seqno = out_seqno_;
-                                 p.data = std::move(data);
 
                                  auto enc = proxy_->encrypt(std::move(p));
 

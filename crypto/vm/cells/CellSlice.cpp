@@ -1055,44 +1055,47 @@ std::ostream& operator<<(std::ostream& os, Ref<CellSlice> cs_ref) {
 
 // If can_be_special is not null, then it is allowed to load special cell
 // Flag whether loaded cell is actually special will be stored into can_be_special
-VirtualCell::LoadedCell load_cell_slice_impl(const Ref<Cell>& cell, bool* can_be_special) {
-  auto* vm_state_interface = VmStateInterface::get();
-  if (vm_state_interface) {
-    vm_state_interface->register_cell_load(cell->get_hash());
-  }
-  auto r_loaded_cell = cell->load_cell();
-  if (r_loaded_cell.is_error()) {
-    throw VmError{Excno::cell_und, "failed to load cell"};
-  }
-  auto loaded_cell = r_loaded_cell.move_as_ok();
-  if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
-    auto virtualization = loaded_cell.virt.get_virtualization();
-    if (virtualization != 0) {
-      throw VmVirtError{virtualization};
+VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_special) {
+  while (true) {
+    auto* vm_state_interface = VmStateInterface::get();
+    if (vm_state_interface) {
+      vm_state_interface->register_cell_load(cell->get_hash());
     }
-  }
-  if (can_be_special) {
-    *can_be_special = loaded_cell.data_cell->is_special();
-  } else if (loaded_cell.data_cell->is_special()) {
-    if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::Library) {
-      if (vm_state_interface) {
-        CellSlice cs(std::move(loaded_cell));
-        DCHECK(cs.size() == Cell::hash_bits + 8);
-        auto library_cell = vm_state_interface->load_library(cs.data_bits() + 8);
-        if (library_cell.not_null()) {
-          //TODO: fix infinity loop
-          return load_cell_slice_impl(library_cell, nullptr);
-        }
-        throw VmError{Excno::cell_und, "failed to load library cell"};
+    auto r_loaded_cell = cell->load_cell();
+    if (r_loaded_cell.is_error()) {
+      throw VmError{Excno::cell_und, "failed to load cell"};
+    }
+    auto loaded_cell = r_loaded_cell.move_as_ok();
+    if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
+      auto virtualization = loaded_cell.virt.get_virtualization();
+      if (virtualization != 0) {
+        throw VmVirtError{virtualization};
       }
-      throw VmError{Excno::cell_und, "failed to load library cell (no vm_state_interface available)"};
-    } else if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
-      CHECK(loaded_cell.virt.get_virtualization() == 0);
-      throw VmError{Excno::cell_und, "trying to load prunned cell"};
     }
-    throw VmError{Excno::cell_und, "unexpected special cell"};
+    if (can_be_special) {
+      *can_be_special = loaded_cell.data_cell->is_special();
+    } else if (loaded_cell.data_cell->is_special()) {
+      if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::Library) {
+        if (vm_state_interface) {
+          CellSlice cs(std::move(loaded_cell));
+          DCHECK(cs.size() == Cell::hash_bits + 8);
+          auto library_cell = vm_state_interface->load_library(cs.data_bits() + 8);
+          if (library_cell.not_null()) {
+            cell = library_cell;
+            can_be_special = nullptr;
+            continue;
+          }
+          throw VmError{Excno::cell_und, "failed to load library cell"};
+        }
+        throw VmError{Excno::cell_und, "failed to load library cell (no vm_state_interface available)"};
+      } else if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
+        CHECK(loaded_cell.virt.get_virtualization() == 0);
+        throw VmError{Excno::cell_und, "trying to load prunned cell"};
+      }
+      throw VmError{Excno::cell_und, "unexpected special cell"};
+    }
+    return loaded_cell;
   }
-  return loaded_cell;
 }
 
 CellSlice load_cell_slice(const Ref<Cell>& cell) {

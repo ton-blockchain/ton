@@ -2613,6 +2613,24 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
   td::actor::send_closure(db_, &Db::prepare_stats, merger.make_promise("db."));
 }
 
+void ValidatorManagerImpl::prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) {
+  promise.set_value(std::vector<PerfTimerStats>(perf_timer_stats));
+}
+
+void ValidatorManagerImpl::add_perf_timer_stat(std::string name, double duration) {
+  for (auto &s : perf_timer_stats) {
+    if (s.name == name) {
+      double now = td::Time::now();
+      while (!s.stats.empty() && s.stats.front().first < now - 3600.0) {
+        s.stats.pop_front();
+      }
+      s.stats.push_back({td::Time::now(), duration});
+      return;
+    }
+  }
+  perf_timer_stats.push_back({name, {{td::Time::now(), duration}}});
+}
+
 void ValidatorManagerImpl::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::truncate, seqno, std::move(handle), std::move(promise));
 }

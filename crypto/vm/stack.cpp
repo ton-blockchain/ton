@@ -90,15 +90,27 @@ void StackEntry::dump(std::ostream& os) const {
       os << dec_string(as_int());
       break;
     case t_cell:
-      os << "C{" << static_cast<Ref<Cell>>(ref)->get_hash().to_hex() << "}";
+      if (ref.not_null()) {
+        os << "C{" << static_cast<Ref<Cell>>(ref)->get_hash().to_hex() << "}";
+      } else {
+        os << "C{null}";
+      }
       break;
     case t_builder:
-      os << "BC{" << static_cast<Ref<CellBuilder>>(ref)->to_hex() << "}";
+      if (ref.not_null()) {
+        os << "BC{" << static_cast<Ref<CellBuilder>>(ref)->to_hex() << "}";
+      } else {
+        os << "BC{null}";
+      }
       break;
     case t_slice: {
-      os << "CS{";
-      static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
-      os << '}';
+      if (ref.not_null()) {
+        os << "CS{";
+        static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
+        os << '}';
+      } else {
+        os << "CS{null}";
+      }
       break;
     }
     case t_string:

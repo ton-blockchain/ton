@@ -228,7 +228,7 @@ class ValidateQuery : public td::actor::Actor {
 
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
 
-  td::PerfWarningTimer perf_timer_{"validateblock", 0.1};
+  td::PerfWarningTimer perf_timer_;
 
   static constexpr td::uint32 priority() {
     return 2;

@@ -59,13 +59,16 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block
     , prev_blocks(std::move(prev))
     , block_candidate(std::move(candidate))
     , validator_set_(std::move(validator_set))
-    , manager(std::move(manager))
+    , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(mode & ValidateMode::fake)
     , full_collated_data_(mode & ValidateMode::full_collated_data)
     , shard_pfx_(shard_.shard)
-    , shard_pfx_len_(ton::shard_prefix_length(shard_)) {
+    , shard_pfx_len_(ton::shard_prefix_length(shard_))
+    , perf_timer_("validateblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
+      }) {
 }
 
 void ValidateQuery::alarm() {
@@ -2392,10 +2395,6 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
                         "AccountBlock for this account");
   }
   if (new_value.not_null()) {
-    if (!block::gen::t_ShardAccount.validate_csr(10000, new_value)) {
-      return reject_query("new state of account "s + acc_id.to_hex(256) +
-                          " failed to pass automated validity checks for ShardAccount");
-    }
     if (!block::tlb::t_ShardAccount.validate_csr(10000, new_value)) {
       return reject_query("new state of account "s + acc_id.to_hex(256) +
                           " failed to pass hand-written validity checks for ShardAccount");
