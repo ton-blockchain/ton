@@ -48,13 +48,15 @@ jobs:
             ./packages/rpm.sh packages-out $PWD/packages/rpm/SPECS/ton.spec $PWD/result-aarch64* aarch64'
 
     - run: |
-        tar --create --mode 755 -h --file ton-x86_64.tar.gz -C result-x86_64* .
-        gh release edit nightly-linux-x86_64 --target master
-        gh release upload --clobber nightly-linux-x86_64 ton-x86_64.tar.gz
+        nix shell nixpkgs#gh \
+          --command bash -e -c '
+            tar --create --mode 755 -h --file ton-x86_64.tar.gz -C result-x86_64* .
+            gh release edit nightly-linux-x86_64 --target master
+            gh release upload --clobber nightly-linux-x86_64 ton-x86_64.tar.gz
 
-        tar --create --mode 755 -h --file ton-aarch64.tar.gz -C result-aarch64* .
-        gh release edit nightly-linux-aarch64 --target master
-        gh release upload --clobber nightly-linux-aarch64 ton-aarch64.tar.gz
+            tar --create --mode 755 -h --file ton-aarch64.tar.gz -C result-aarch64* .
+            gh release edit nightly-linux-aarch64 --target master
+            gh release upload --clobber nightly-linux-aarch64 ton-aarch64.tar.gz'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
