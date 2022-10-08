@@ -85,6 +85,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
                                             RootHash root_hash, FileHash file_hash,
                                             std::vector<BlockSignature> signatures,
                                             std::vector<BlockSignature> approve_signatures,
+                                            validatorsession::ValidatorSessionStats stats,
                                             td::Promise<td::Unit> promise) {
   if (round_id >= last_known_round_id_) {
     last_known_round_id_ = round_id + 1;
@@ -95,11 +96,12 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
   validator_set_->check_approve_signatures(root_hash, file_hash, approve_sig_set).ensure();
 
   if (!started_) {
-    postoned_accept_.push_back(PostponedAccept{root_hash, file_hash, std::move(block_data), std::move(sig_set),
-                                               std::move(approve_sig_set), std::move(promise)});
+    postponed_accept_.push_back(PostponedAccept{root_hash, file_hash, std::move(block_data), std::move(sig_set),
+                                                std::move(approve_sig_set), std::move(stats), std::move(promise)});
     return;
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
+  td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id, std::move(stats));
   auto block =
       block_data.size() > 0 ? create_block(next_block_id, std::move(block_data)).move_as_ok() : td::Ref<BlockData>{};
 
@@ -198,7 +200,8 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
     void on_block_committed(td::uint32 round, PublicKey source, validatorsession::ValidatorSessionRootHash root_hash,
                             validatorsession::ValidatorSessionFileHash file_hash, td::BufferSlice data,
                             std::vector<std::pair<PublicKeyHash, td::BufferSlice>> signatures,
-                            std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures) override {
+                            std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures,
+                            validatorsession::ValidatorSessionStats stats) override {
       std::vector<BlockSignature> sigs;
       for (auto &sig : signatures) {
         sigs.emplace_back(BlockSignature{sig.first.bits256_value(), std::move(sig.second)});
@@ -210,7 +213,7 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
       auto P = td::PromiseCreator::lambda([](td::Result<td::Unit>) {});
       td::actor::send_closure(id_, &ValidatorGroup::accept_block_candidate, round, source.compute_short_id(),
                               std::move(data), root_hash, file_hash, std::move(sigs), std::move(approve_sigs),
-                              std::move(P));
+                              std::move(stats), std::move(P));
     }
     void on_block_skipped(td::uint32 round) override {
       td::actor::send_closure(id_, &ValidatorGroup::skip_round, round);
@@ -281,8 +284,10 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
 
-  for (auto &p : postoned_accept_) {
+  for (auto &p : postponed_accept_) {
     auto next_block_id = create_next_block_id(p.root_hash, p.file_hash);
+    td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id,
+                            std::move(p.stats));
 
     auto block =
         p.block.size() > 0 ? create_block(next_block_id, std::move(p.block)).move_as_ok() : td::Ref<BlockData>{};
@@ -290,7 +295,7 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
                              std::move(p.approve_sigs), std::move(p.promise));
     prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   }
-  postoned_accept_.clear();
+  postponed_accept_.clear();
 }
 
 void ValidatorGroup::destroy() {

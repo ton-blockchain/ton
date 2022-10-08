@@ -19,6 +19,7 @@
 #include "fec.h"
 #include "td/utils/overloaded.h"
 #include "auto/tl/ton_api.hpp"
+#include "td/utils/misc.h"
 
 namespace ton {
 
@@ -98,24 +99,37 @@ td::uint32 FecType::symbol_size() const {
 }
 
 td::Result<FecType> FecType::create(tl_object_ptr<ton_api::fec_Type> obj) {
+  td::int32 data_size_int, symbol_size_int, symbols_count_int;
+  ton_api::downcast_call(*obj, td::overloaded([&](const auto &obj) {
+    data_size_int = obj.data_size_;
+    symbol_size_int = obj.symbol_size_;
+    symbols_count_int = obj.symbols_count_;
+  }));
+  TRY_RESULT(data_size, td::narrow_cast_safe<size_t>(data_size_int));
+  TRY_RESULT(symbol_size, td::narrow_cast_safe<size_t>(symbol_size_int));
+  TRY_RESULT(symbols_count, td::narrow_cast_safe<size_t>(symbols_count_int));
+
+  if (symbol_size == 0) {
+    return td::Status::Error("invalid fec type: symbol_size is 0");
+  }
+  if (symbol_size > 1 << 11) {
+    return td::Status::Error("invalid fec type: symbol_size is too big");
+  }
+  if (symbols_count != (data_size + symbol_size - 1) / symbol_size) {
+    return td::Status::Error("invalid fec type: wrong symbols_count");
+  }
   FecType T;
-  ton_api::downcast_call(
-      *obj.get(), td::overloaded(
-                      [&](const ton_api::fec_raptorQ &obj) {
-                        T.type_ = td::fec::RaptorQEncoder::Parameters{static_cast<size_t>(obj.data_size_),
-                                                                      static_cast<size_t>(obj.symbol_size_),
-                                                                      static_cast<size_t>(obj.symbols_count_)};
-                      },
-                      [&](const ton_api::fec_roundRobin &obj) {
-                        T.type_ = td::fec::RoundRobinEncoder::Parameters{static_cast<size_t>(obj.data_size_),
-                                                                         static_cast<size_t>(obj.symbol_size_),
-                                                                         static_cast<size_t>(obj.symbols_count_)};
-                      },
-                      [&](const ton_api::fec_online &obj) {
-                        T.type_ = td::fec::OnlineEncoder::Parameters{static_cast<size_t>(obj.data_size_),
-                                                                     static_cast<size_t>(obj.symbol_size_),
-                                                                     static_cast<size_t>(obj.symbols_count_)};
-                      }));
+  ton_api::downcast_call(*obj,
+                         td::overloaded(
+                             [&](const ton_api::fec_raptorQ &obj) {
+                               T.type_ = td::fec::RaptorQEncoder::Parameters{data_size, symbol_size, symbols_count};
+                             },
+                             [&](const ton_api::fec_roundRobin &obj) {
+                               T.type_ = td::fec::RoundRobinEncoder::Parameters{data_size, symbol_size, symbols_count};
+                             },
+                             [&](const ton_api::fec_online &obj) {
+                               T.type_ = td::fec::OnlineEncoder::Parameters{data_size, symbol_size, symbols_count};
+                             }));
   return T;
 }
 

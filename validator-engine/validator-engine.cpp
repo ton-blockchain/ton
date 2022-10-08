@@ -66,8 +66,10 @@
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
+#include <limits>
 #include <set>
 #include "git.h"
+
 
 Config::Config() {
   out_port = 3278;
@@ -1337,6 +1339,9 @@ td::Status ValidatorEngine::load_global_config() {
   }
   if (truncate_seqno_ > 0) {
     validator_options_.write().truncate_db(truncate_seqno_);
+  }
+  if (!session_logs_file_.empty()) {
+    validator_options_.write().set_session_logs_file(session_logs_file_);
   }
 
   std::vector<ton::BlockIdExt> h;
@@ -3277,6 +3282,57 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getOverla
                           });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), query = std::move(query)](td::Result<std::vector<ton::validator::PerfTimerStats>> R) mutable {
+        const std::vector<int> times{60, 300, 3600};
+        double now = td::Time::now();
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+        } else {
+          auto r = R.move_as_ok();
+          std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_perfTimerStatsByName>> by_name;
+          for (const auto &stats : r) {
+            if (stats.name == query.name_ || query.name_.empty()) {
+              std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_onePerfTimerStat>> by_time;
+              for (const auto &t : times) {
+                double min = std::numeric_limits<double>::lowest();
+                double max = std::numeric_limits<double>::max();
+                double sum = 0;
+                int cnt = 0;
+                for (const auto &stat : stats.stats) {
+                  double time = stat.first;
+                  double duration = stat.second;
+                  if (now - time <= static_cast<double>(t)) {
+                    min = td::min<double>(min, duration);
+                    max = td::max<double>(max, duration);
+                    sum += duration;
+                    ++cnt;
+                  }
+                }
+                by_time.push_back(ton::create_tl_object<ton::ton_api::engine_validator_onePerfTimerStat>(t, min, sum / static_cast<double>(cnt), max));
+              }
+              by_name.push_back(ton::create_tl_object<ton::ton_api::engine_validator_perfTimerStatsByName>(stats.name, std::move(by_time)));
+            }
+          }
+          promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_perfTimerStats>(std::move(by_name)));
+        }
+      });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_perf_timer_stats, std::move(P));
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -3466,7 +3522,11 @@ int main(int argc, char *argv[]) {
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
   });
+  std::string session_logs_file;
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+    if (session_logs_file.empty()) {
+      session_logs_file = fname.str() + ".session-stats";
+    }
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
   });
@@ -3503,6 +3563,9 @@ int main(int argc, char *argv[]) {
                  auto v = td::to_integer<ton::BlockSeqno>(fname);
                  acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_truncate_seqno, v); });
                });
+  p.add_option('\0', "session-logs", "file for validator session stats (default: {logname}.session-stats)",
+               [&](td::Slice fname) { session_logs_file = fname.str(); });
+  acts.push_back([&]() { td::actor::send_closure(x, &ValidatorEngine::set_session_logs_file, session_logs_file); });
   p.add_checked_option(
       'U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
         TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));

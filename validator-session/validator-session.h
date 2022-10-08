@@ -79,7 +79,8 @@ class ValidatorSession : public td::actor::Actor {
     virtual void on_block_committed(td::uint32 round, PublicKey source, ValidatorSessionRootHash root_hash,
                                     ValidatorSessionFileHash file_hash, td::BufferSlice data,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> signatures,
-                                    std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures) = 0;
+                                    std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures,
+                                    ValidatorSessionStats stats) = 0;
     virtual void on_block_skipped(td::uint32 round) = 0;
     virtual void get_approved_candidate(PublicKey source, ValidatorSessionRootHash root_hash,
                                         ValidatorSessionFileHash file_hash,

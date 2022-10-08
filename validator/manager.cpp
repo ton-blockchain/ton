@@ -26,6 +26,7 @@
 #include "fabric.h"
 #include "manager.h"
 #include "validate-broadcast.hpp"
+#include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
 #include "state-serializer.hpp"
 #include "get-next-key-blocks.h"
@@ -33,13 +34,18 @@
 
 #include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "tl/tl_json.h"
 
 #include "td/utils/Random.h"
 #include "td/utils/port/path.h"
+#include "td/utils/JsonBuilder.h"
 
 #include "common/delay.h"
 
 #include "validator/stats-merger.h"
+
+#include <fstream>
 
 namespace ton {
 
@@ -2489,6 +2495,24 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
   td::actor::send_closure(db_, &Db::prepare_stats, merger.make_promise("db."));
 }
 
+void ValidatorManagerImpl::prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) {
+  promise.set_value(std::vector<PerfTimerStats>(perf_timer_stats));
+}
+
+void ValidatorManagerImpl::add_perf_timer_stat(std::string name, double duration) {
+  for (auto &s : perf_timer_stats) {
+    if (s.name == name) {
+      double now = td::Time::now();
+      while (!s.stats.empty() && s.stats.front().first < now - 3600.0) {
+        s.stats.pop_front();
+      }
+      s.stats.push_back({td::Time::now(), duration});
+      return;
+    }
+  }
+  perf_timer_stats.push_back({name, {{td::Time::now(), duration}}});
+}
+
 void ValidatorManagerImpl::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::truncate, seqno, std::move(handle), std::move(promise));
 }
@@ -2509,6 +2533,39 @@ void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timesta
   }
 
   shard_client_waiters_[seqno].waiting_.emplace_back(timeout, 0, std::move(promise));
+}
+
+void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
+                                                       validatorsession::ValidatorSessionStats stats) {
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
+    return;
+  }
+
+  std::vector<tl_object_ptr<ton_api::validatorSession_statsRound>> rounds;
+  for (const auto& round : stats.rounds) {
+    std::vector<tl_object_ptr<ton_api::validatorSession_statsProducer>> producers;
+    for (const auto& producer : round.producers) {
+      producers.push_back(create_tl_object<ton_api::validatorSession_statsProducer>(
+          producer.id.bits256_value(), producer.block_status, producer.block_timestamp));
+    }
+    rounds.push_back(create_tl_object<ton_api::validatorSession_statsRound>(round.timestamp, std::move(producers)));
+  }
+
+  auto obj = create_tl_object<ton_api::validatorSession_stats>(
+      create_tl_block_id_simple(block_id.id), stats.timestamp, stats.self.bits256_value(),
+      stats.creator.bits256_value(), stats.total_validators, stats.total_weight, stats.signatures,
+      stats.signatures_weight, stats.approve_signatures, stats.approve_signatures_weight, stats.first_round,
+      std::move(rounds));
+  std::string s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
+
+  LOG(INFO) << "Writing validator session stats for " << block_id.id;
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

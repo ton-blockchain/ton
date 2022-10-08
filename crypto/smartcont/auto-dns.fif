@@ -43,12 +43,12 @@ $# 4 > need-params <> abort"extra parameters, or no parameters for chosen main o
 variable Values  dictnew Values !
 // ( i c -- )
 { over 0= abort"category cannot be zero"
-  <b swap ref, swap Values @ 16 b>idict!+ not abort"duplicate category id"
+  <b swap ref, swap Values @ 256 b>udict!+ not abort"duplicate category id"
   Values !
 } : register-value  
 
 { @end? abort"category number expected" @next (number) 1 <> abort"category must be integer"
-  dup 16 fits not abort"category does not fit into 16 bit integer"
+  dup 256 fits not abort"category does not fit into 256 bit integer"
   dup 0= abort"category must be non-zero"
 } : parse-cat-num
 { @end? abort"smart contract address expected" 

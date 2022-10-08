@@ -1075,3 +1075,24 @@ class ImportShardOverlayCertificateQuery : public Query {
   std::string in_file_;
 };
 
+class GetPerfTimerStatsJsonQuery : public Query {
+ public:
+  GetPerfTimerStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getperftimerstatsjson";
+  }
+  static std::string get_help() {
+    return "getperftimerstatsjson <outfile>\tgets min, average and max event processing time for last 60, 300 and 3600 seconds and writes to json file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};

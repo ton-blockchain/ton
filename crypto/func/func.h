@@ -39,7 +39,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.2.0"};
+const std::string func_version{"0.3.0"};
 
 enum Keyword {
   _Eof = -1,
@@ -1631,6 +1631,7 @@ inline compile_func_t make_ext_compile(AsmOp op) {
 struct SymValAsmFunc : SymValFunc {
   simple_compile_func_t simple_compile;
   compile_func_t ext_compile;
+  td::uint64 crc;
   ~SymValAsmFunc() override = default;
   SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool impure = false)
       : SymValFunc(-1, ft, impure), simple_compile(make_simple_compile(_macro)) {
@@ -1665,4 +1666,19 @@ AsmOp push_const(td::RefInt256 x);
 
 void define_builtins();
 
+
+extern int verbosity, indent, opt_level;
+extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
+extern std::string generated_from, boc_output_filename;
+
+/*
+ *
+ *   OUTPUT CODE GENERATOR
+ *
+ */
+
+int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs);
+
 }  // namespace funC
+
+

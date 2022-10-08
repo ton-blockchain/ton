@@ -1,0 +1,48 @@
+_ main() { }
+
+int foo_repeat(int x) method_id(1) {
+  repeat(10) {
+    x += 10;
+    if (x >= 100) {
+      return x;
+    }
+  }
+  return -1;
+}
+
+int foo_while(int x) method_id(2) {
+  int i = 0;
+  while (i < 10) {
+    x += 10;
+    if (x >= 100) {
+      return x;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+int foo_until(int x) method_id(3) {
+  int i = 0;
+  do {
+    x += 10;
+    if (x >= 100) {
+      return x;
+    }
+    i += 1;
+  } until (i >= 10);
+  return -1;
+}
+
+{-
+   method_id | in | out
+TESTCASE | 1 | 40 | 100
+TESTCASE | 1 | 33 | 103
+TESTCASE | 1 | -5 | -1
+TESTCASE | 2 | 40 | 100
+TESTCASE | 2 | 33 | 103
+TESTCASE | 2 | -5 | -1
+TESTCASE | 3 | 40 | 100
+TESTCASE | 3 | 33 | 103
+TESTCASE | 3 | -5 | -1
+-}

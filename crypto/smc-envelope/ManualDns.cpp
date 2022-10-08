@@ -433,8 +433,12 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
   } else {
     if (category.is_zero()) {
       vm::Dictionary dict(std::move(data), 256);
-      dict.check_for_each([&](auto cs, td::ConstBitPtr key, int n) {
+      dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
         CHECK(n == 256);
+        if (cs.is_null() || cs->size_ext() != 0x10000) {
+          return true;
+        }
+        cs = vm::load_cell_slice_ref(cs->prefetch_ref());
         vec.push_back({name.str(), td::Bits256(key), cs});
         return true;
       });

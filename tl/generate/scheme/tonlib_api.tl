@@ -55,7 +55,7 @@ raw.message source:accountAddress destination:accountAddress value:int64 fwd_fee
 raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
-raw.extMessageInfo body_hash:bytes = raw.ExtMessageInfo;
+raw.extMessageInfo hash:bytes = raw.ExtMessageInfo;
 
 pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
 
@@ -180,6 +180,9 @@ smc.methodIdName name:string = smc.MethodId;
 
 smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
 
+smc.libraryEntry hash:int256 data:bytes = smc.LibraryEntry;
+smc.libraryResult result:(vector smc.libraryEntry) = smc.LibraryResult;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
 
@@ -213,6 +216,12 @@ blocks.shortTxId mode:# account:mode.0?bytes lt:mode.1?int64 hash:mode.2?bytes =
 blocks.transactions id:ton.blockIdExt req_count:int32 incomplete:Bool transactions:vector<blocks.shortTxId> = blocks.Transactions;
 blocks.header id:ton.blockIdExt global_id:int32 version:int32 flags:# after_merge:Bool after_split:Bool before_split:Bool want_merge:Bool want_split:Bool validator_list_hash_short:int32 catchain_seqno:int32 min_ref_mc_seqno:int32 is_key_block:Bool prev_key_block_seqno:int32 start_lt:int64 end_lt:int64 gen_utime:int53 vert_seqno:# prev_blocks:vector<ton.blockIdExt> = blocks.Header;
 //blocks.shortData header:blocks.Header transactions:blocks.Header = blocks.BlockData;
+
+blocks.signature node_id_short:int256 signature:bytes = blocks.Signature;
+blocks.blockSignatures id:ton.blockIdExt signatures:(vector blocks.signature) = blocks.BlockSignatures;
+blocks.shardBlockLink id:ton.blockIdExt proof:bytes = blocks.ShardBlockLink;
+blocks.blockLinkBack to_key_block:Bool from:ton.blockIdExt to:ton.blockIdExt dest_proof:bytes proof:bytes state_proof:bytes = blocks.BlockLinkBack;
+blocks.shardBlockProof from:ton.blockIdExt mc_id:ton.blockIdExt links:(vector blocks.shardBlockLink) mc_proof:(vector blocks.blockLinkBack) = blocks.ShardBlockProof;
 
 configInfo config:tvm.cell = ConfigInfo;
 
@@ -248,7 +257,9 @@ getBip39Hints prefix:string = Bip39Hints;
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountState account_address:accountAddress = raw.FullAccountState;
 raw.getTransactions private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
-raw.sendMessage body:bytes = raw.ExtMessageInfo;
+raw.getTransactionsV2 private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId count:# try_decode_messages:Bool = raw.Transactions;
+raw.sendMessage body:bytes = Ok;
+raw.sendMessageReturnHash body:bytes = raw.ExtMessageInfo;
 raw.createAndSendMessage destination:accountAddress initial_account_state:bytes data:bytes = Ok;
 raw.createQuery destination:accountAddress init_code:bytes init_data:bytes body:bytes = query.Info;
 
@@ -286,6 +297,8 @@ smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
+smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
+
 dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 
 pchan.signPromise input_key:InputKey promise:pchan.promise = pchan.Promise;
@@ -300,6 +313,8 @@ blocks.getShards id:ton.blockIdExt = blocks.Shards;
 blocks.lookupBlock mode:int32 id:ton.blockId lt:int64 utime:int32 = ton.BlockIdExt;
 blocks.getTransactions id:ton.blockIdExt mode:# count:# after:blocks.accountTransactionId = blocks.Transactions;
 blocks.getBlockHeader id:ton.blockIdExt = blocks.Header;
+blocks.getMasterchainBlockSignatures seqno:int32 = blocks.BlockSignatures;
+blocks.getShardBlockProof id:ton.blockIdExt mode:# from:mode.0?ton.blockIdExt = blocks.ShardBlockProof;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;
