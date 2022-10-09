@@ -77,6 +77,7 @@ jobs:
     - run: |
         ssh-agent -a $SSH_AUTH_SOCK > /dev/null
         ssh-add - <<< "${{ secrets.PACKAGES_REPO_KEY }}"
+        ssh-add -L
         echo 'StrictHostKeyChecking accept-new' >> ~/.ssh/config
         git config --global user.name ghactions
         git config --global user.email actions@github.com
