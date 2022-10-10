@@ -2512,14 +2512,12 @@ struct ToRawTransactions {
     auto body_hash = body_cell->get_hash().as_slice().str();
 
     td::Ref<vm::Cell> init_state_cell;
-    if (message.init->prefetch_ulong(1) == 1) {
-      auto either_init = std::move(message.init);
-      either_init.write().advance(1);
-      if (either_init->prefetch_long(1) == 0) {
-        either_init.write().advance(1);
-        init_state_cell = vm::CellBuilder().append_cellslice(*either_init).finalize();
+    auto& init_state_cs = message.init.write(); 
+    if (init_state_cs.fetch_ulong(1) == 1) {
+      if (init_state_cs.fetch_long(1) == 0) {
+        init_state_cell = vm::CellBuilder().append_cellslice(init_state_cs).finalize();
       } else {
-        init_state_cell = either_init->prefetch_ref();
+        init_state_cell = init_state_cs.fetch_ref();
       }
     }
 
