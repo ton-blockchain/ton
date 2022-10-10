@@ -764,6 +764,14 @@ bool ValidateQuery::fetch_config_params() {
     // recover (not generate) rand seed from block header
     CHECK(!rand_seed_.is_zero());
   }
+  block::SizeLimitsConfig size_limits;
+  {
+    auto res = config_->get_size_limits_config();
+    if (res.is_error()) {
+      return fatal_error(res.move_as_error());
+    }
+    size_limits = res.move_as_ok();
+  }
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config_->get_config_param(is_masterchain() ? 20 : 21);
@@ -776,6 +784,7 @@ bool ValidateQuery::fetch_config_params() {
     }
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
+    compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg_.global_config = config_->get_root_cell();
   }
   {
@@ -797,6 +806,7 @@ bool ValidateQuery::fetch_config_params() {
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
     action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg_.size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -1610,8 +1620,8 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                     (sibling->want_merge_ || depth > wc_info->max_split);
   if (!fsm_inherited && !info.is_fsm_none()) {
     if (info.fsm_utime() < now_ || info.fsm_utime_end() <= info.fsm_utime() ||
-        info.fsm_utime_end() < info.fsm_utime() + ton::min_split_merge_interval ||
-        info.fsm_utime_end() > now_ + ton::max_split_merge_delay) {
+        info.fsm_utime_end() < info.fsm_utime() + wc_info->min_split_merge_interval ||
+        info.fsm_utime_end() > now_ + wc_info->max_split_merge_delay) {
       return reject_query(PSTRING() << "incorrect future split/merge interval " << info.fsm_utime() << " .. "
                                     << info.fsm_utime_end() << " set for shard " << shard.to_str()
                                     << " in new shard configuration (it is " << now_ << " now)");

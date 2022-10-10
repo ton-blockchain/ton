@@ -1598,6 +1598,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
     prng::rand_gen().strong_rand_bytes(rand_seed->data(), 32);
     LOG(DEBUG) << "block random seed set to " << rand_seed->to_hex();
   }
+  TRY_RESULT(size_limits, config->get_size_limits_config());
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config->get_config_param(wc == ton::masterchainId ? 20 : 21);
@@ -1610,6 +1611,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
     }
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
+    compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg->global_config = config->get_root_cell();
   }
   {
@@ -1631,6 +1633,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg->workchains = &config->get_workchain_list();
     action_phase_cfg->bounce_msg_body = (config->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg->size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -3095,7 +3098,7 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
     if (info.is_fsm_none() && (info.want_split_ || depth < wc_info->min_split) && depth < wc_info->max_split &&
         depth < 60) {
       // prepare split
-      info.set_fsm_split(now + ton::split_merge_delay, ton::split_merge_interval);
+      info.set_fsm_split(now + wc_info->split_merge_delay, wc_info->split_merge_interval);
       changed = true;
       LOG(INFO) << "preparing to split shard " << info.shard().to_str() << " during " << info.fsm_utime() << " .. "
                 << info.fsm_utime_end();
@@ -3103,7 +3106,7 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
                sibling && !sibling->before_split_ && sibling->is_fsm_none() &&
                (sibling->want_merge_ || depth > wc_info->max_split)) {
       // prepare merge
-      info.set_fsm_merge(now + ton::split_merge_delay, ton::split_merge_interval);
+      info.set_fsm_merge(now + wc_info->split_merge_delay, wc_info->split_merge_interval);
       changed = true;
       LOG(INFO) << "preparing to merge shard " << info.shard().to_str() << " with " << sibling->shard().to_str()
                 << " during " << info.fsm_utime() << " .. " << info.fsm_utime_end();
