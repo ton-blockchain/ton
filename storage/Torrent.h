@@ -54,7 +54,7 @@ class Torrent {
 
   // add piece (with an optional proof)
   td::Status add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Cell> proof);
-  //TODO: add multiple chunks? Merkle tree supports much more general interface
+  //TODO: add multiple pieces? Merkle tree supports much more general interface
 
   bool is_completed() const;
 

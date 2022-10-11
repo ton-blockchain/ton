@@ -35,38 +35,38 @@ class MerkleTree {
   td::Ref<vm::Cell> get_root(size_t depth_limit = std::numeric_limits<size_t>::max()) const;
   td::Bits256 get_root_hash() const;
 
-  MerkleTree(size_t chunks_count, td::Bits256 root_hash);
-  MerkleTree(size_t chunks_count, td::Ref<vm::Cell> root_proof);
+  MerkleTree(size_t pieces_count, td::Bits256 root_hash);
+  MerkleTree(size_t pieces_count, td::Ref<vm::Cell> root_proof);
 
-  struct Chunk {
+  struct Piece {
     std::size_t index{0};
     td::Bits256 hash;
   };
 
-  explicit MerkleTree(td::Span<Chunk> chunks);
+  explicit MerkleTree(td::Span<Piece> pieces);
 
   MerkleTree() = default;
-  void init_begin(size_t chunks_count);
-  void init_add_chunk(std::size_t index, td::Slice hash);
+  void init_begin(size_t pieces_count);
+  void init_add_piece(std::size_t index, td::Slice hash);
   void init_finish();
 
   // merge external proof with an existing proof
   td::Status add_proof(td::Ref<vm::Cell> new_root);
-  // generate proof for all chunks from l to r inclusive
+  // generate proof for all pieces from l to r inclusive
   td::Result<td::Ref<vm::Cell>> gen_proof(size_t l, size_t r);
 
-  // Trying to add and validate list of chunks simultaniously
-  td::Status try_add_chunks(td::Span<Chunk> chunks);
+  // Trying to add and validate list of pieces simultaniously
+  td::Status try_add_pieces(td::Span<Piece> pieces);
 
-  // Returns bitmask of successfully added chunks
+  // Returns bitmask of successfully added pieces
   // Intended to be used during validation of a torrent.
-  // We got arbitrary chunks read from disk, and we got an arbirary proof.
-  // Now we can say about some chunks that they are correct. This ia a general way
+  // We got arbitrary pieces read from disk, and we got an arbirary proof.
+  // Now we can say about some pieces that they are correct. This ia a general way
   // to do this.
   //
-  // NB: already added chunks are simply validated. One should be careful
+  // NB: already added pieces are simply validated. One should be careful
   // not to process them twice
-  void add_chunks(td::Span<Chunk> chunks, td::Bitset &bitmask);
+  void add_pieces(td::Span<Piece> pieces, td::Bitset &bitmask);
 
  private:
   td::uint64 total_blocks_;
@@ -80,17 +80,17 @@ class MerkleTree {
   td::Ref<vm::Cell> root_proof_;
 
   td::Status validate_proof(td::Ref<vm::Cell> new_root);
-  bool has_chunk(std::size_t index) const;
-  void remove_chunk(std::size_t index);
+  bool has_piece(std::size_t index) const;
+  void remove_piece(std::size_t index);
 
-  void add_chunk(std::size_t index, td::Slice hash);
+  void add_piece(std::size_t index, td::Slice hash);
   void init_proof();
 
   td::Ref<vm::Cell> merge(td::Ref<vm::Cell> root, size_t index);
   void cleanup_add(size_t index);
   td::Status do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir, size_t l, size_t r) const;
   void do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) const;
-  td::Status validate_existing_chunk(const Chunk &chunk);
+  td::Status validate_existing_piece(const Piece &piece);
 };
 
 }  // namespace ton

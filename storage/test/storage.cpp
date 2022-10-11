@@ -803,7 +803,7 @@ TEST(MerkleTree, Manual) {
   timer = {};
   LOG(INFO) << "Init merkle tree";
   size_t i = 0;
-  ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Chunk{i++, x}; }));
+  ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Piece{i++, x}; }));
   LOG(INFO) << timer;
 
   auto root_proof = tree.gen_proof(0, chunks_count - 1).move_as_ok();
@@ -830,15 +830,15 @@ TEST(MerkleTree, Manual) {
         other_new_tree.add_proof(tree.gen_proof(i, i + stride - 1).move_as_ok()).ensure();
         other_new_tree.gen_proof(i, i + stride - 1).ensure();
         other_new_tree.get_root(2);
-        std::vector<ton::MerkleTree::Chunk> chunks;
+        std::vector<ton::MerkleTree::Piece> chunks;
         for (size_t j = 0; j < stride && i + j < chunks_count; j++) {
           chunks.push_back({i + j, hashes.at(i + j)});
         }
-        new_tree.try_add_chunks(chunks).ensure();
+        new_tree.try_add_pieces(chunks).ensure();
       }
 
       if (stride == 1) {
-        std::vector<ton::MerkleTree::Chunk> chunks;
+        std::vector<ton::MerkleTree::Piece> chunks;
 
         for (size_t i = 0; i < chunks_count; i++) {
           if (rnd.fast(0, 1) == 1) {
@@ -848,7 +848,7 @@ TEST(MerkleTree, Manual) {
           }
         }
         td::Bitset bitmask;
-        other_new_tree.add_chunks(chunks, bitmask);
+        other_new_tree.add_pieces(chunks, bitmask);
         for (size_t i = 0; i < chunks_count; i++) {
           auto expected = chunks[i].hash == hashes[i];
           auto got = bitmask.get(i);
@@ -874,9 +874,9 @@ TEST(MerkleTree, Stress) {
       }
     }
     size_t i = 0;
-    ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Chunk{i++, x}; }));
+    ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Piece{i++, x}; }));
     for (int t2 = 0; t2 < 1000; t2++) {
-      std::vector<ton::MerkleTree::Chunk> chunks;
+      std::vector<ton::MerkleTree::Piece> chunks;
 
       int mask = rnd.fast(0, (1 << chunks_count) - 1);
       for (size_t i = 0; i < chunks_count; i++) {
@@ -889,8 +889,8 @@ TEST(MerkleTree, Stress) {
       td::Bitset bitmask_strict;
       td::Bitset bitmask;
       ton::MerkleTree new_tree(chunks_count, tree.get_root(rnd.fast(1, 5)));
-      tree.add_chunks(chunks, bitmask_strict);
-      new_tree.add_chunks(chunks, bitmask);
+      tree.add_pieces(chunks, bitmask_strict);
+      new_tree.add_pieces(chunks, bitmask);
       for (size_t i = 0; i < chunks_count; i++) {
         auto expected = chunks[i].hash == hashes[i];
         auto strict_got = bitmask_strict.get(i);

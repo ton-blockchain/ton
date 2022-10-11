@@ -200,11 +200,11 @@ void Torrent::validate() {
   }
 
   std::vector<td::UInt256> hashes;
-  std::vector<MerkleTree::Chunk> chunks;
+  std::vector<MerkleTree::Piece> chunks;
 
   auto flush = [&] {
     td::Bitset bitmask;
-    merkle_tree_.add_chunks(chunks, bitmask);
+    merkle_tree_.add_pieces(chunks, bitmask);
     for (size_t i = 0; i < chunks.size(); i++) {
       if (!bitmask.get(i)) {
         continue;
@@ -254,7 +254,7 @@ void Torrent::validate() {
       LOG(ERROR) << "Failed: " << is_ok;
       continue;
     }
-    MerkleTree::Chunk chunk;
+    MerkleTree::Piece chunk;
     chunk.index = piece_i;
     sha256.extract(chunk.hash.as_slice());
 
@@ -295,10 +295,10 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
   }
   piece_is_ready_[piece_i] = true;
   ready_parts_count_++;
-  ton::MerkleTree::Chunk chunk;
-  chunk.index = piece_i;
-  td::sha256(data, chunk.hash.as_slice());
-  TRY_STATUS(merkle_tree_.try_add_chunks({chunk}));
+  ton::MerkleTree::Piece piece;
+  piece.index = piece_i;
+  td::sha256(data, piece.hash.as_slice());
+  TRY_STATUS(merkle_tree_.try_add_pieces({piece}));
 
   if (chunks_.empty()) {
     return add_header_piece(piece_i, data);

@@ -71,48 +71,48 @@ td::Bits256 MerkleTree::get_root_hash() const {
   return root_hash_.value();
 }
 
-MerkleTree::MerkleTree(size_t chunks_count, td::Bits256 root_hash) {
-  init_begin(chunks_count);
+MerkleTree::MerkleTree(size_t pieces_count, td::Bits256 root_hash) {
+  init_begin(pieces_count);
   root_hash_ = root_hash;
   init_finish();
 }
 
-MerkleTree::MerkleTree(size_t chunks_count, td::Ref<vm::Cell> root_proof) {
-  init_begin(chunks_count);
+MerkleTree::MerkleTree(size_t pieces_count, td::Ref<vm::Cell> root_proof) {
+  init_begin(pieces_count);
   root_hash_ = unpack_proof(root_proof)->get_hash(0).as_array();
   root_proof_ = std::move(root_proof);
   init_finish();
 }
 
-MerkleTree::MerkleTree(td::Span<Chunk> chunks) {
-  init_begin(chunks.size());
+MerkleTree::MerkleTree(td::Span<Piece> pieces) {
+  init_begin(pieces.size());
 
-  for (size_t i = 0; i < chunks.size(); i++) {
-    CHECK(chunks[i].index == i);
-    init_add_chunk(i, chunks[i].hash.as_slice());
+  for (size_t i = 0; i < pieces.size(); i++) {
+    CHECK(pieces[i].index == i);
+    init_add_piece(i, pieces[i].hash.as_slice());
   }
 
   init_finish();
 }
 
-void MerkleTree::init_begin(size_t chunks_count) {
+void MerkleTree::init_begin(size_t pieces_count) {
   log_n_ = 0;
-  while ((size_t(1) << log_n_) < chunks_count) {
+  while ((size_t(1) << log_n_) < pieces_count) {
     log_n_++;
   }
   n_ = size_t(1) << log_n_;
-  total_blocks_ = chunks_count;
+  total_blocks_ = pieces_count;
   mark_.resize(n_ * 2);
   proof_.resize(n_ * 2);
 
   td::UInt256 null{};
   auto cell = vm::CellBuilder().store_bytes(null.as_slice()).finalize();
-  for (auto i = chunks_count; i < n_; i++) {
+  for (auto i = pieces_count; i < n_; i++) {
     proof_[i + n_] = cell;
   }
 }
 
-void MerkleTree::init_add_chunk(size_t index, td::Slice hash) {
+void MerkleTree::init_add_piece(size_t index, td::Slice hash) {
   CHECK(index < total_blocks_);
   CHECK(proof_[index + n_].is_null());
   proof_[index + n_] = vm::CellBuilder().store_bytes(hash).finalize();
@@ -126,7 +126,7 @@ void MerkleTree::init_finish() {
     }
     if (i + 1 < n_ && proof_[i + 1].not_null() && proof_[j]->get_hash() == proof_[j + 2]->get_hash() &&
         proof_[j + 1]->get_hash() == proof_[j + 3]->get_hash()) {
-      // minor optimization for same chunks
+      // minor optimization for same pieces
       proof_[i] = proof_[i + 1];
     } else {
       proof_[i] = vm::CellBuilder().store_ref(proof_[j]).store_ref(proof_[j + 1]).finalize();
@@ -138,7 +138,7 @@ void MerkleTree::init_finish() {
   CHECK(root_hash_);
 }
 
-void MerkleTree::remove_chunk(std::size_t index) {
+void MerkleTree::remove_piece(std::size_t index) {
   CHECK(index < n_);
   index += n_;
   while (proof_[index].not_null()) {
@@ -147,13 +147,13 @@ void MerkleTree::remove_chunk(std::size_t index) {
   }
 }
 
-bool MerkleTree::has_chunk(std::size_t index) const {
+bool MerkleTree::has_piece(std::size_t index) const {
   CHECK(index < n_);
   index += n_;
   return proof_[index].not_null();
 }
 
-void MerkleTree::add_chunk(std::size_t index, td::Slice hash) {
+void MerkleTree::add_piece(std::size_t index, td::Slice hash) {
   CHECK(hash.size() == 32);
   CHECK(index < n_);
   index += n_;
@@ -231,49 +231,49 @@ td::Status MerkleTree::add_proof(td::Ref<vm::Cell> new_root) {
   return td::Status::OK();
 }
 
-td::Status MerkleTree::validate_existing_chunk(const Chunk &chunk) {
-  vm::CellSlice cs(vm::NoVm(), proof_[chunk.index + n_]);
-  CHECK(cs.size() == chunk.hash.size());
-  if (cs.as_bitslice().compare(chunk.hash.cbits()) != 0) {
+td::Status MerkleTree::validate_existing_piece(const Piece &piece) {
+  vm::CellSlice cs(vm::NoVm(), proof_[piece.index + n_]);
+  CHECK(cs.size() == piece.hash.size());
+  if (cs.as_bitslice().compare(piece.hash.cbits()) != 0) {
     return td::Status::Error("Hash mismatch");
   }
   return td::Status::OK();
 }
 
-td::Status MerkleTree::try_add_chunks(td::Span<Chunk> chunks) {
+td::Status MerkleTree::try_add_pieces(td::Span<Piece> pieces) {
   td::Bitset bitmask;
-  add_chunks(chunks, bitmask);
-  for (size_t i = 0; i < chunks.size(); i++) {
+  add_pieces(pieces, bitmask);
+  for (size_t i = 0; i < pieces.size(); i++) {
     if (!bitmask.get(i)) {
-      return td::Status::Error(PSLICE() << "Invalid chunk #" << chunks[i].index);
+      return td::Status::Error(PSLICE() << "Invalid piece #" << pieces[i].index);
     }
   }
   return td::Status::OK();
 }
 
-void MerkleTree::add_chunks(td::Span<Chunk> chunks, td::Bitset &bitmask) {
+void MerkleTree::add_pieces(td::Span<Piece> pieces, td::Bitset &bitmask) {
   if (root_proof_.is_null()) {
     return;
   }
 
   mark_id_++;
-  bitmask.reserve(chunks.size());
-  for (size_t i = 0; i < chunks.size(); i++) {
-    const auto &chunk = chunks[i];
-    if (has_chunk(chunk.index)) {
-      if (validate_existing_chunk(chunk).is_ok()) {
+  bitmask.reserve(pieces.size());
+  for (size_t i = 0; i < pieces.size(); i++) {
+    const auto &piece = pieces[i];
+    if (has_piece(piece.index)) {
+      if (validate_existing_piece(piece).is_ok()) {
         bitmask.set_one(i);
       }
       continue;
     }
-    add_chunk(chunk.index, chunk.hash.as_slice());
+    add_piece(piece.index, piece.hash.as_slice());
   }
 
   root_proof_ = vm::CellBuilder::create_merkle_proof(merge(unpack_proof(root_proof_), 1));
 
-  for (size_t i = 0; i < chunks.size(); i++) {
-    const auto &chunk = chunks[i];
-    if (has_chunk(chunk.index) && mark_[chunk.index + n_] == mark_id_) {
+  for (size_t i = 0; i < pieces.size(); i++) {
+    const auto &piece = pieces[i];
+    if (has_piece(piece.index) && mark_[piece.index + n_] == mark_id_) {
       bitmask.set_one(i);
     }
   }

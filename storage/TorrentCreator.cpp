@@ -130,7 +130,7 @@ td::Result<Torrent> Torrent::Creator::finalize() {
       td::UInt256 hash;
       sha256(slice, hash.as_slice());
       CHECK(chunk_i < chunks_count);
-      tree.init_add_chunk(chunk_i, hash.as_slice());
+      tree.init_add_piece(chunk_i, hash.as_slice());
       chunk_i++;
       reader.confirm_read(slice.size());
     }
