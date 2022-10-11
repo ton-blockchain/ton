@@ -30,6 +30,7 @@ set(STORAGE_SOURCE
   TorrentHeader.h
   TorrentInfo.h
   TorrentMeta.h
+  PeerManager.h
 )
 
 set(STORAGE_CLI_SOURCE

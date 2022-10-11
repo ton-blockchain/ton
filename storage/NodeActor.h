@@ -37,7 +37,7 @@ class NodeActor : public td::actor::Actor {
     }
     virtual td::actor::ActorOwn<PeerActor> create_peer(PeerId self_id, PeerId peer_id,
                                                        td::SharedState<PeerState> state) = 0;
-    virtual void get_peers(td::Promise<std::vector<PeerId>> peers) = 0;
+    virtual void get_peers(PeerId src, td::Promise<std::vector<PeerId>> peers) = 0;
     virtual void register_self(td::actor::ActorId<ton::NodeActor> self) = 0;
 
     //TODO: proper callbacks

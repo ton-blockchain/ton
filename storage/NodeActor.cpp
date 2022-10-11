@@ -290,7 +290,7 @@ void NodeActor::loop_get_peers() {
     return;
   }
   if (next_get_peers_at_.is_in_past()) {
-    callback_->get_peers(promise_send_closure(td::actor::actor_id(this), &NodeActor::got_peers));
+    callback_->get_peers(self_id_, promise_send_closure(td::actor::actor_id(this), &NodeActor::got_peers));
     has_get_peers_ = true;
     return;
   }

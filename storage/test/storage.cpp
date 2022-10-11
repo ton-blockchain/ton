@@ -1200,7 +1200,7 @@ TEST(Torrent, Peer) {
         , stop_watcher_(stop_watcher)
         , complete_watcher_(complete_watcher) {
     }
-    void get_peers(td::Promise<std::vector<ton::PeerId>> promise) override {
+    void get_peers(ton::PeerId src, td::Promise<std::vector<ton::PeerId>> promise) override {
       auto peers = peers_;
       promise.set_value(std::move(peers));
     }
