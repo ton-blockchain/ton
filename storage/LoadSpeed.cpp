@@ -26,10 +26,10 @@ void LoadSpeed::add(std::size_t size, td::Timestamp now) {
   total_size_ += size;
   events_.push(Event{size, now});
   update(now);
+  speed_ = static_cast<double>(total_size_) / duration();
 }
 double LoadSpeed::speed(td::Timestamp now) const {
-  update(now);
-  return total_size_ / duration();
+  return speed_;
 }
 
 td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed) {

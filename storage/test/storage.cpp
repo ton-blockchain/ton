@@ -58,7 +58,6 @@
 
 #include "Bitset.h"
 #include "PeerState.h"
-#include "SharedState.h"
 #include "Torrent.h"
 #include "TorrentCreator.h"
 
@@ -1209,7 +1208,7 @@ TEST(Torrent, Peer) {
       send_closure(peer_manager_, &PeerManager::register_node, self_id_, self_);
     }
     td::actor::ActorOwn<ton::PeerActor> create_peer(ton::PeerId self_id, ton::PeerId peer_id,
-                                                    td::SharedState<ton::PeerState> state) override {
+                                                    std::shared_ptr<ton::PeerState> state) override {
       class PeerCallback : public ton::PeerActor::Callback {
        public:
         PeerCallback(ton::PeerId self_id, ton::PeerId peer_id, td::actor::ActorId<PeerManager> peer_manager)

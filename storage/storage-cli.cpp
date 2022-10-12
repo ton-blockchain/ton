@@ -446,7 +446,7 @@ class StorageCli : public td::actor::Actor {
         }
       }
       td::actor::ActorOwn<ton::PeerActor> create_peer(ton::PeerId self_id, ton::PeerId peer_id,
-                                                      td::SharedState<ton::PeerState> state) override {
+                                                      std::shared_ptr<ton::PeerState> state) override {
         CHECK(self_id == self_id_);
         class PeerCallback : public ton::PeerActor::Callback {
          public:
@@ -661,7 +661,7 @@ int main(int argc, char *argv[]) {
     std::_Exit(2);
   }
 
-  td::actor::Scheduler scheduler({0});
+  td::actor::Scheduler scheduler({3});
   scheduler.run_in_context([&] { td::actor::create_actor<StorageCli>("console", options).release(); });
   scheduler.run();
   return 0;

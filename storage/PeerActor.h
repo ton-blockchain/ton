@@ -21,7 +21,6 @@
 
 #include "Bitset.h"
 #include "PeerState.h"
-#include "SharedState.h"
 
 #include "td/utils/optional.h"
 
@@ -38,14 +37,14 @@ class PeerActor : public td::actor::Actor {
     virtual void send_query(td::uint64 query_id, td::BufferSlice query) = 0;
   };
 
-  PeerActor(td::unique_ptr<Callback> callback, td::SharedState<PeerState> state);
+  PeerActor(td::unique_ptr<Callback> callback, std::shared_ptr<PeerState> state);
 
   void execute_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise);
   void on_query_result(td::uint64 query_id, td::Result<td::BufferSlice> r_answer);
 
  private:
   td::unique_ptr<Callback> callback_;
-  td::SharedState<PeerState> state_;
+  std::shared_ptr<PeerState> state_;
   bool need_notify_node_{false};
 
   td::uint64 next_query_id_{0};
@@ -71,7 +70,7 @@ class PeerActor : public td::actor::Actor {
   // update state
   struct UpdateState {
     td::optional<td::uint64> query_id;
-    PeerState::State state;
+    PeerState::State state{false, false};
   };
   UpdateState update_state_query_;
 

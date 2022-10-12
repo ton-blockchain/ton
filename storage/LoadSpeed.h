@@ -22,8 +22,10 @@
 #include "td/utils/StringBuilder.h"
 #include "td/utils/Time.h"
 #include "td/utils/VectorQueue.h"
+#include <atomic>
 
 namespace ton {
+// Thread-safe: allows one writer and multiple readers
 class LoadSpeed {
  public:
   void add(std::size_t size, td::Timestamp now);
@@ -37,6 +39,7 @@ class LoadSpeed {
   };
   mutable td::VectorQueue<Event> events_;
   mutable std::size_t total_size_{0};
+  std::atomic<double> speed_{0.0};
 
   double duration() const;
   void update(td::Timestamp now) const;

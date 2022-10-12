@@ -54,7 +54,7 @@ void NodeActor::start_up() {
   parts_.parts.resize(pieces_count);
 
   auto header = torrent_.get_header_parts_range();
-  for (td::uint32 i = static_cast<td::uint32>(header.begin); i < header.end; i++) {
+  for (auto i = static_cast<td::uint32>(header.begin); i < header.end; i++) {
     parts_helper_.set_part_priority(i, 255);
   }
   for (td::uint32 i = 0; i < pieces_count; i++) {
@@ -80,12 +80,12 @@ void NodeActor::loop_will_upload() {
   alarm_timestamp().relax(will_upload_at_);
   std::vector<std::tuple<bool, bool, double, PeerId>> peers;
   for (auto &it : peers_) {
-    auto state = it.second.state.lock();
+    auto &state = it.second.state;
     bool needed = false;
-    if (state->peer_state_) {
-      needed = state->peer_state_.value().want_download;
+    if (state->peer_state_ready_) {
+      needed = state->peer_state_.load().want_download;
     }
-    peers.emplace_back(!needed, !state->node_state_.want_download, -state->download.speed(), it.first);
+    peers.emplace_back(!needed, !state->node_state_.load().want_download, -state->download.speed(), it.first);
   }
   std::sort(peers.begin(), peers.end());
 
@@ -101,9 +101,11 @@ void NodeActor::loop_will_upload() {
 
   for (auto &it : peers_) {
     auto will_upload = peers_set.count(it.first) > 0;
-    auto state = it.second.state.lock();
-    if (state->node_state_.will_upload != will_upload) {
-      state->node_state_.will_upload = will_upload;
+    auto &state = it.second.state;
+    auto node_state = state->node_state_.load();
+    if (node_state.will_upload != will_upload) {
+      node_state.will_upload = will_upload;
+      state->node_state_.exchange(node_state);
       state->notify_peer();
     }
   }
@@ -117,8 +119,8 @@ void NodeActor::loop() {
 
   if (!ready_parts_.empty()) {
     for (auto &it : peers_) {
-      auto state = it.second.state.lock();
-      state->node_ready_parts_.insert(state->node_ready_parts_.end(), ready_parts_.begin(), ready_parts_.end());
+      auto &state = it.second.state;
+      state->node_ready_parts_.add_elements(ready_parts_);
       state->notify_peer();
     }
     ready_parts_.clear();
@@ -136,19 +138,18 @@ std::string NodeActor::get_stats_str() {
   sb << "\toutq " << parts_.total_queries;
   sb << "\n";
   for (auto &it : peers_) {
-    auto state = it.second.state.lock();
+    auto &state = it.second.state;
     sb << "\tPeer " << it.first;
     sb << "\t" << parts_helper_.get_ready_parts(it.second.peer_token).ones_count();
     sb << "\t" << state->download;
-    if (state->peer_state_) {
-      auto &peer_state = state->peer_state_.value();
+    if (state->peer_state_ready_) {
+      auto peer_state = state->peer_state_.load();
       sb << "\t  up:" << peer_state.will_upload;
       sb << "\tdown:" << peer_state.want_download;
       sb << "\tcnt:" << parts_helper_.get_want_download_count(it.second.peer_token);
     }
-    sb << "\toutq:" << state->node_queries_.size();
-    sb << "\tinq:" << state->peer_queries_.size();
-    auto &node_state = state->node_state_;
+    sb << "\toutq:" << state->node_queries_active_.size();
+    auto node_state = state->node_state_.load();
     sb << "\tNup:" << node_state.will_upload;
     sb << "\tNdown:" << node_state.want_download;
     sb << "\n";
@@ -195,8 +196,8 @@ void NodeActor::set_file_priority(size_t i, td::uint8 priority) {
   }
   file_priority_[i] = priority;
   auto range = torrent_.get_file_parts_range(i);
-  td::uint32 begin = static_cast<td::uint32>(range.begin);
-  td::uint32 end = static_cast<td::uint32>(range.end);
+  auto begin = static_cast<td::uint32>(range.begin);
+  auto end = static_cast<td::uint32>(range.end);
   for (td::uint32 i = begin; i < end; i++) {
     if (i == begin || i + 1 == end) {
       auto chunks = torrent_.chunks_by_piece(i);
@@ -236,13 +237,14 @@ void NodeActor::loop_start_stop_peers() {
 
     if (peer.actor.empty()) {
       LOG(ERROR) << "Init Peer " << self_id_ << " -> " << peer_id;
-      auto state = peer.state.lock();
-      state->node = peer.notifier.get();
+      auto &state = peer.state = std::make_shared<PeerState>(peer.notifier.get());
+      std::vector<td::uint32> node_ready_parts;
       for (td::uint32 i = 0; i < parts_.parts.size(); i++) {
         if (parts_.parts[i].ready) {
-          state->node_ready_parts_.push_back(i);
+          node_ready_parts.push_back(i);
         }
       }
+      state->node_ready_parts_.add_elements(std::move(node_ready_parts));
       peer.peer_token = parts_helper_.register_peer(peer_id);
       peer.actor = callback_->create_peer(self_id_, peer_id, peer.state);
     }
@@ -255,29 +257,31 @@ void NodeActor::loop_queries() {
   }
   for (auto &it : peers_) {
     auto peer_token = it.second.peer_token;
-    auto state = it.second.state.lock();
-    if (!state->peer_state_) {
+    auto &state = it.second.state;
+    if (!state->peer_state_ready_) {
       parts_helper_.set_peer_limit(peer_token, 0);
       continue;
     }
-    if (!state->peer_state_.value().will_upload) {
+    if (!state->peer_state_.load().will_upload) {
       parts_helper_.set_peer_limit(peer_token, 0);
       continue;
     }
-    parts_helper_.set_peer_limit(peer_token,
-                                 td::narrow_cast<td::uint32>(MAX_PEER_TOTAL_QUERIES - state->node_queries_.size()));
+    parts_helper_.set_peer_limit(
+        peer_token, td::narrow_cast<td::uint32>(MAX_PEER_TOTAL_QUERIES - state->node_queries_active_.size()));
   }
 
   auto parts = parts_helper_.get_rarest_parts(MAX_TOTAL_QUERIES);
   for (auto &part : parts) {
     auto it = peers_.find(part.peer_id);
     CHECK(it != peers_.end());
-    auto state = it->second.state.lock();
-    CHECK(state->peer_state_);
-    CHECK(state->peer_state_.value().will_upload);
-    CHECK(state->node_queries_.size() < MAX_PEER_TOTAL_QUERIES);
+    auto &state = it->second.state;
+    CHECK(state->peer_state_ready_);
+    CHECK(state->peer_state_.load().will_upload);
+    CHECK(state->node_queries_active_.size() < MAX_PEER_TOTAL_QUERIES);
     auto part_id = part.part_id;
-    state->node_queries_[static_cast<td::uint32>(part_id)];
+    if (state->node_queries_active_.insert(static_cast<td::uint32>(part_id)).second) {
+      state->node_queries_.add_element(static_cast<td::uint32>(part_id));
+    }
     parts_helper_.lock_part(part_id);
     parts_.total_queries++;
     parts_.parts[part_id].query_to_peer = part.peer_id;
@@ -315,66 +319,67 @@ void NodeActor::got_peers(td::Result<std::vector<PeerId>> r_peers) {
 }
 
 void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
-  auto state = peer.state.lock();
-  CHECK(!state->peer.empty());
+  auto &state = peer.state;
+  if (!state->peer_ready_) {
+    return;
+  }
 
-  for (auto part_id : state->peer_ready_parts_) {
+  for (auto part_id : state->peer_ready_parts_.read()) {
     parts_helper_.on_peer_part_ready(peer.peer_token, part_id);
   }
-  state->peer_ready_parts_.clear();
 
   // Answer queries from peer
   bool should_notify_peer = false;
 
   auto want_download = parts_helper_.get_want_download_count(peer.peer_token) > 0;
-  if (state->node_state_.want_download != want_download) {
-    state->node_state_.want_download = want_download;
+  auto node_state = state->node_state_.load();
+  if (node_state.want_download != want_download) {
+    node_state.want_download = want_download;
+    state->node_state_.exchange(node_state);
     should_notify_peer = true;
   }
 
-  for (auto it = state->peer_queries_.begin(); it != state->peer_queries_.end();) {
-    if (it->second) {
-      it++;
-    } else {
-      should_notify_peer = true;
-      it->second = [&]() -> td::Result<PeerState::Part> {
-        if (!state->node_state_.will_upload) {
-          return td::Status::Error("Won't upload");
-        }
-        TRY_RESULT(proof, torrent_.get_piece_proof(it->first));
-        TRY_RESULT(data, torrent_.get_piece_data(it->first));
-        PeerState::Part res;
-        TRY_RESULT(proof_serialized, vm::std_boc_serialize(std::move(proof)));
-        res.proof = std::move(proof_serialized);
-        res.data = td::BufferSlice(std::move(data));
-        return std::move(res);
-      }();
-    }
+  std::vector<std::pair<td::uint32, td::Result<PeerState::Part>>> results;
+  for (td::uint32 part_id : state->peer_queries_.read()) {
+    should_notify_peer = true;
+    auto res = [&]() -> td::Result<PeerState::Part> {
+      if (!node_state.will_upload) {
+        return td::Status::Error("Won't upload");
+      }
+      TRY_RESULT(proof, torrent_.get_piece_proof(part_id));
+      TRY_RESULT(data, torrent_.get_piece_data(part_id));
+      PeerState::Part res;
+      TRY_RESULT(proof_serialized, vm::std_boc_serialize(std::move(proof)));
+      res.proof = std::move(proof_serialized);
+      res.data = td::BufferSlice(std::move(data));
+      return std::move(res);
+    }();
+    results.emplace_back(part_id, std::move(res));
   }
+  state->peer_queries_results_.add_elements(std::move(results));
 
   // Handle results from peer
-  for (auto it = state->node_queries_.begin(); it != state->node_queries_.end();) {
-    if (it->second) {
-      auto part_id = it->first;
-      auto r_unit = it->second.unwrap().move_fmap([&](PeerState::Part part) -> td::Result<td::Unit> {
-        TRY_RESULT(proof, vm::std_boc_deserialize(part.proof));
-        TRY_STATUS(torrent_.add_piece(part_id, part.data.as_slice(), std::move(proof)));
-        download_.add(part.data.size(), td::Timestamp::now());
-        return td::Unit();
-      });
+  for (auto &p : state->node_queries_results_.read()) {
+    auto part_id = p.first;
+    if (!state->node_queries_active_.count(part_id)) {
+      continue;
+    }
+    auto r_unit = p.second.move_fmap([&](PeerState::Part part) -> td::Result<td::Unit> {
+      TRY_RESULT(proof, vm::std_boc_deserialize(part.proof));
+      TRY_STATUS(torrent_.add_piece(part_id, part.data.as_slice(), std::move(proof)));
+      download_.add(part.data.size(), td::Timestamp::now());
+      return td::Unit();
+    });
 
-      parts_.parts[part_id].query_to_peer = {};
-      parts_.total_queries--;
-      it = state->node_queries_.erase(it);
-      parts_helper_.unlock_part(part_id);
+    parts_.parts[part_id].query_to_peer = {};
+    parts_.total_queries--;
+    state->node_queries_active_.erase(part_id);
+    parts_helper_.unlock_part(part_id);
 
-      if (r_unit.is_ok()) {
-        on_part_ready(part_id);
-      } else {
-        //LOG(ERROR) << "Failed " << part_id;
-      }
+    if (r_unit.is_ok()) {
+      on_part_ready(part_id);
     } else {
-      it++;
+      //LOG(ERROR) << "Failed " << part_id;
     }
   }
 
@@ -391,7 +396,7 @@ void NodeActor::on_part_ready(PartId part_id) {
   parts_.parts[part_id].ready = true;
   for (auto &peer : peers_) {
     // TODO: notify only peer want_download_count == 0
-    peer.second.state.unsafe()->notify_node();
+    peer.second.state->notify_peer();
   }
   ready_parts_.push_back(part_id);
 }

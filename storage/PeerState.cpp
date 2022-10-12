@@ -27,7 +27,7 @@ void PeerState::notify_node() {
 }
 
 void PeerState::notify_peer() {
-  if (peer.empty()) {
+  if (!peer_ready_) {
     return;
   }
   td::actor::send_signals_later(peer, td::actor::ActorSignals::wakeup());

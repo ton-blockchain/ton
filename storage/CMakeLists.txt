@@ -24,7 +24,6 @@ set(STORAGE_SOURCE
   PartsHelper.h
   PeerActor.h
   PeerState.h
-  SharedState.h
   Torrent.h
   TorrentCreator.h
   TorrentHeader.h

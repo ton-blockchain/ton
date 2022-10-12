@@ -36,7 +36,7 @@ class NodeActor : public td::actor::Actor {
     virtual ~Callback() {
     }
     virtual td::actor::ActorOwn<PeerActor> create_peer(PeerId self_id, PeerId peer_id,
-                                                       td::SharedState<PeerState> state) = 0;
+                                                       std::shared_ptr<PeerState> state) = 0;
     virtual void get_peers(PeerId src, td::Promise<std::vector<PeerId>> peers) = 0;
     virtual void register_self(td::actor::ActorId<ton::NodeActor> self) = 0;
 
@@ -80,7 +80,7 @@ class NodeActor : public td::actor::Actor {
   struct Peer {
     td::actor::ActorOwn<PeerActor> actor;
     td::actor::ActorOwn<Notifier> notifier;
-    td::SharedState<PeerState> state;
+    std::shared_ptr<PeerState> state;
     PartsHelper::PeerToken peer_token;
   };
 
