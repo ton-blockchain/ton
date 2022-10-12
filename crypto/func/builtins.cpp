@@ -229,16 +229,25 @@ int emulate_xor(int a, int b) {
 }
 
 int emulate_not(int a) {
+  if ((a & VarDescr::ConstZero) == VarDescr::ConstZero) {
+    return VarDescr::ConstTrue;
+  }
+  if ((a & VarDescr::ConstTrue) == VarDescr::ConstTrue) {
+    return VarDescr::ConstZero;
+  }
+  int a2 = a;
   int f = VarDescr::_Even | VarDescr::_Odd;
-  if ((a & f) && (~a & f)) {
-    a ^= f;
+  if ((a2 & f) && (~a2 & f)) {
+    a2 ^= f;
   }
-  f = VarDescr::_Pos | VarDescr::_Neg;
-  if ((a & f) && (~a & f)) {
-    a ^= f;
+  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit | VarDescr::_Pos | VarDescr::_Neg);
+  if ((a & VarDescr::_Neg) && (a & VarDescr::_NonZero)) {
+    a2 |= VarDescr::_Pos;
   }
-  a &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit);
-  return a;
+  if (a & VarDescr::_Pos) {
+    a2 |= VarDescr::_Neg;
+  }
+  return a2;
 }
 
 int emulate_lshift(int a, int b) {
