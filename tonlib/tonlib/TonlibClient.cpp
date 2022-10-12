@@ -4818,7 +4818,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof&
   TRY_RESULT(id, to_block_id(*request.id_));
   ton::BlockIdExt from;
   if (request.mode_ & 1) {
-    TRY_RESULT_ASSIGN(from, to_block_id(*request.id_));
+    TRY_RESULT_ASSIGN(from, to_block_id(*request.from_));
   }
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetShardBlockProof>("GetShardBlockProof", client_.get_client(), id, from,
