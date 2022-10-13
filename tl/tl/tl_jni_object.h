@@ -27,6 +27,7 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/SharedSlice.h"
+#include "common/bitstring.h"
 
 namespace td {
 namespace jni {
@@ -106,6 +107,11 @@ SecureString from_bytes_secure(JNIEnv *env, jbyteArray arr);
 jbyteArray to_bytes(JNIEnv *env, Slice b);
 jbyteArray to_bytes_secure(JNIEnv *env, Slice b);
 
+template<unsigned int n>
+td::BitArray<n> from_bits(JNIEnv *env, jbyteArray arr);
+template<unsigned int n>
+jbyteArray to_bits(JNIEnv *env, td::BitArray<n> b);
+
 void init_vars(JNIEnv *env, const char *td_api_java_package);
 
 jintArray store_vector(JNIEnv *env, const std::vector<std::int32_t> &v);
@@ -117,6 +123,9 @@ jdoubleArray store_vector(JNIEnv *env, const std::vector<double> &v);
 jobjectArray store_vector(JNIEnv *env, const std::vector<std::string> &v);
 
 jobjectArray store_vector(JNIEnv *env, const std::vector<SecureString> &v);
+
+template<unsigned int n>
+jobjectArray store_vector(JNIEnv *env, const std::vector<td::BitArray<n>> &v);
 
 template <class T>
 jobjectArray store_vector(JNIEnv *env, const std::vector<T> &v) {
@@ -222,6 +231,26 @@ struct FetchVector<SecureString> {
         result.push_back(jni::from_jstring_secure(env, str));
         if (str) {
           env->DeleteLocalRef(str);
+        }
+      }
+      env->DeleteLocalRef(arr);
+    }
+    return result;
+  }
+};
+
+template<unsigned int n>
+struct FetchVector<td::BitArray<n>> {
+  static std::vector<td::BitArray<n>> fetch(JNIEnv *env, jobjectArray arr) {
+    std::vector<td::BitArray<n>> result;
+    if (arr != nullptr) {
+      jsize length = env->GetArrayLength(arr);
+      result.reserve(length);
+      for (jsize i = 0; i < length; i++) {
+        jbyteArray bits = (jbyteArray)env->GetObjectArrayElement(arr, i);
+        result.push_back(jni::from_bits<n>(env, bits));
+        if (bits) {
+          env->DeleteLocalRef(bits);
         }
       }
       env->DeleteLocalRef(arr);

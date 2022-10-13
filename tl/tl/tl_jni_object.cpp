@@ -313,6 +313,29 @@ jbyteArray to_bytes_secure(JNIEnv *env, Slice b) {
   return to_bytes(env, b);
 }
 
+template<unsigned int n>
+td::BitArray<n> from_bits(JNIEnv *env, jbyteArray arr) {
+  td::BitArray<n> b;
+  if (arr != nullptr) {
+    jsize length = env->GetArrayLength(arr);
+    assert(length * 8 == n);
+    env->GetByteArrayRegion(arr, 0, length, reinterpret_cast<jbyte *>(b.as_slice().begin()));
+    env->DeleteLocalRef(arr);
+  }
+  return b;
+}
+
+template<unsigned int n>
+jbyteArray to_bits(JNIEnv *env, td::BitArray<n> b) {
+  static_assert(n % 8 == 0);
+  jsize length = n / 8;
+  jbyteArray arr = env->NewByteArray(length);
+  if (arr != nullptr) {
+    env->SetByteArrayRegion(arr, 0, length, reinterpret_cast<const jbyte *>(b.data()));
+  }
+  return arr;
+}
+
 jintArray store_vector(JNIEnv *env, const std::vector<std::int32_t> &v) {
   static_assert(sizeof(std::int32_t) == sizeof(jint), "Mismatched jint size");
   jsize length = narrow_cast<jsize>(v.size());
@@ -367,6 +390,22 @@ jobjectArray store_vector(JNIEnv *env, const std::vector<SecureString> &v) {
       if (str) {
         env->SetObjectArrayElement(arr, i, str);
         env->DeleteLocalRef(str);
+      }
+    }
+  }
+  return arr;
+}
+
+template<unsigned int n>
+jobjectArray store_vector(JNIEnv *env, const std::vector<td::BitArray<n>> &v) {
+  jsize length = narrow_cast<jsize>(v.size());
+  jobjectArray arr = env->NewObjectArray(length, StringClass, 0);
+  if (arr != nullptr) {
+    for (jsize i = 0; i < length; i++) {
+      jbyteArray bits = to_bits<n>(env, v[i]);
+      if (bits) {
+        env->SetObjectArrayElement(arr, i, bits);
+        env->DeleteLocalRef(bits);
       }
     }
   }
