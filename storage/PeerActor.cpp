@@ -73,6 +73,7 @@ void PeerActor::execute_query(td::BufferSlice query, td::Promise<td::BufferSlice
               },
               [&](ton::ton_api::storage_addUpdate &add_update) { execute_add_update(add_update, std::move(promise)); },
               [&](ton::ton_api::storage_getPiece &get_piece) { execute_get_piece(get_piece, std::move(promise)); },
+              [&](ton::ton_api::storage_getTorrentInfo &) { execute_get_torrent_info(std::move(promise)); },
               [&](auto &other) { promise.set_error(td::Status::Error("Unknown function")); }));
   schedule_loop();
 }
@@ -118,6 +119,23 @@ void PeerActor::on_update_state_result(td::Result<td::BufferSlice> r_answer) {
   }
 }
 
+void PeerActor::on_get_info_result(td::Result<td::BufferSlice> r_answer) {
+  get_info_query_id_ = {};
+  next_get_info_at_ = td::Timestamp::in(5.0);
+  alarm_timestamp().relax(next_get_info_at_);
+  if (r_answer.is_error()) {
+    return;
+  }
+  auto R = fetch_tl_object<ton::ton_api::storage_torrentInfo>(r_answer.move_as_ok(), true);
+  if (R.is_error()) {
+    return;
+  }
+  td::BufferSlice data = std::move(R.ok_ref()->data_);
+  if (!data.empty() && !state_->torrent_info_ready_) {
+    state_->torrent_info_response_callback_(std::move(data));
+  }
+}
+
 void PeerActor::on_query_result(td::uint64 query_id, td::Result<td::BufferSlice> r_answer) {
   if (r_answer.is_ok()) {
     on_pong();
@@ -129,6 +147,8 @@ void PeerActor::on_query_result(td::uint64 query_id, td::Result<td::BufferSlice>
     on_update_result(std::move(r_answer));
   } else if (update_state_query_.query_id && update_state_query_.query_id.value() == query_id) {
     on_update_state_result(std::move(r_answer));
+  } else if (get_info_query_id_ && get_info_query_id_.value() == query_id) {
+    on_get_info_result(std::move(r_answer));
   } else {
     for (auto &query_it : node_get_piece_) {
       if (query_it.second.query_id && query_it.second.query_id.value() == query_id) {
@@ -161,6 +181,7 @@ void PeerActor::loop() {
   loop_update_init();
   loop_update_state();
   loop_update_pieces();
+  loop_get_torrent_info();
 
   loop_node_get_piece();
   loop_peer_get_piece();
@@ -267,6 +288,16 @@ void PeerActor::loop_update_pieces() {
         td::transform(have_pieces_list_, [](auto x) { return static_cast<td::int32>(x); })));
     update_query_id_ = send_query(std::move(query));
   }
+}
+
+void PeerActor::loop_get_torrent_info() {
+  if (get_info_query_id_ || state_->torrent_info_ready_) {
+    return;
+  }
+  if (next_get_info_at_ && !next_get_info_at_.is_in_past()) {
+    return;
+  }
+  get_info_query_id_ = create_and_send_query<ton::ton_api::storage_getTorrentInfo>();
 }
 
 void PeerActor::loop_node_get_piece() {
@@ -387,5 +418,11 @@ void PeerActor::execute_add_update(ton::ton_api::storage_addUpdate &add_update, 
 void PeerActor::execute_get_piece(ton::ton_api::storage_getPiece &get_piece, td::Promise<td::BufferSlice> promise) {
   PartId piece_id = get_piece.piece_id_;
   peer_get_piece_[piece_id] = {std::move(promise)};
+}
+
+void PeerActor::execute_get_torrent_info(td::Promise<td::BufferSlice> promise) {
+  td::BufferSlice result = create_serialize_tl_object<ton_api::storage_torrentInfo>(
+      state_->torrent_info_ready_ ? state_->torrent_info_str_->clone() : td::BufferSlice());
+  promise.set_result(std::move(result));
 }
 }  // namespace ton

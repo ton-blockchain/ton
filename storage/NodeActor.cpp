@@ -20,6 +20,7 @@
 #include "NodeActor.h"
 
 #include "vm/boc.h"
+#include "vm/cellslice.h"
 
 #include "td/utils/Enumerator.h"
 #include "td/utils/tests.h"
@@ -29,8 +30,7 @@ NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callba
     : self_id_(self_id)
     , torrent_(std::move(torrent))
     , callback_(std::move(callback))
-    , should_download_(should_download)
-    , parts_helper_(torrent.get_info().pieces_count()) {
+    , should_download_(should_download) {
 }
 
 void NodeActor::start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise) {
@@ -50,7 +50,15 @@ void NodeActor::on_signal_from_peer(PeerId peer_id) {
 
 void NodeActor::start_up() {
   callback_->register_self(actor_id(this));
+  if (torrent_.inited_info()) {
+    init_torrent();
+  }
+  loop();
+}
+
+void NodeActor::init_torrent() {
   auto pieces_count = torrent_.get_info().pieces_count();
+  parts_helper_.init_parts_count(pieces_count);
   parts_.parts.resize(pieces_count);
 
   auto header = torrent_.get_header_parts_range();
@@ -63,7 +71,14 @@ void NodeActor::start_up() {
       parts_.parts[i].ready = true;
     }
   }
-  loop();
+
+  torrent_info_str_ =
+      std::make_shared<td::BufferSlice>(vm::std_boc_serialize(torrent_.get_info().as_cell()).move_as_ok());
+  for (auto &p : peers_) {
+    auto &state = p.second.state;
+    state->torrent_info_str_ = torrent_info_str_;
+    CHECK(!state->torrent_info_ready_.exchange(true));
+  }
 }
 
 void NodeActor::loop_will_upload() {
@@ -114,8 +129,10 @@ void NodeActor::loop_will_upload() {
 void NodeActor::loop() {
   loop_get_peers();
   loop_start_stop_peers();
-  loop_queries();
-  loop_will_upload();
+  if (torrent_.inited_info()) {
+    loop_queries();
+    loop_will_upload();
+  }
 
   if (!ready_parts_.empty()) {
     for (auto &it : peers_) {
@@ -140,13 +157,17 @@ std::string NodeActor::get_stats_str() {
   for (auto &it : peers_) {
     auto &state = it.second.state;
     sb << "\tPeer " << it.first;
-    sb << "\t" << parts_helper_.get_ready_parts(it.second.peer_token).ones_count();
+    if (torrent_.inited_info()) {
+      sb << "\t" << parts_helper_.get_ready_parts(it.second.peer_token).ones_count();
+    }
     sb << "\t" << state->download;
     if (state->peer_state_ready_) {
       auto peer_state = state->peer_state_.load();
       sb << "\t  up:" << peer_state.will_upload;
       sb << "\tdown:" << peer_state.want_download;
-      sb << "\tcnt:" << parts_helper_.get_want_download_count(it.second.peer_token);
+      if (torrent_.inited_info()) {
+        sb << "\tcnt:" << parts_helper_.get_want_download_count(it.second.peer_token);
+      }
     }
     sb << "\toutq:" << state->node_queries_active_.size();
     auto node_state = state->node_state_.load();
@@ -173,7 +194,7 @@ std::string NodeActor::get_stats_str() {
 
 void NodeActor::set_file_priority(size_t i, td::uint8 priority) {
   auto o_files_count = torrent_.get_files_count();
-  if (!o_files_count) {
+  if (!torrent_.inited_info() || !o_files_count) {
     return;
   }
   auto files_count = o_files_count.unwrap();
@@ -238,13 +259,21 @@ void NodeActor::loop_start_stop_peers() {
     if (peer.actor.empty()) {
       LOG(ERROR) << "Init Peer " << self_id_ << " -> " << peer_id;
       auto &state = peer.state = std::make_shared<PeerState>(peer.notifier.get());
-      std::vector<td::uint32> node_ready_parts;
-      for (td::uint32 i = 0; i < parts_.parts.size(); i++) {
-        if (parts_.parts[i].ready) {
-          node_ready_parts.push_back(i);
+      if (torrent_.inited_info()) {
+        std::vector<td::uint32> node_ready_parts;
+        for (td::uint32 i = 0; i < parts_.parts.size(); i++) {
+          if (parts_.parts[i].ready) {
+            node_ready_parts.push_back(i);
+          }
         }
+        state->node_ready_parts_.add_elements(std::move(node_ready_parts));
+        state->torrent_info_str_ = torrent_info_str_;
+        state->torrent_info_ready_ = true;
+      } else {
+        state->torrent_info_response_callback_ = [SelfId = actor_id(this)](td::BufferSlice data) {
+          td::actor::send_closure(SelfId, &NodeActor::got_torrent_info_str, std::move(data));
+        };
       }
-      state->node_ready_parts_.add_elements(std::move(node_ready_parts));
       peer.peer_token = parts_helper_.register_peer(peer_id);
       peer.actor = callback_->create_peer(self_id_, peer_id, peer.state);
     }
@@ -320,7 +349,7 @@ void NodeActor::got_peers(td::Result<std::vector<PeerId>> r_peers) {
 
 void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
   auto &state = peer.state;
-  if (!state->peer_ready_) {
+  if (!state->peer_ready_ || !torrent_.inited_info()) {
     return;
   }
 
@@ -400,4 +429,26 @@ void NodeActor::on_part_ready(PartId part_id) {
   }
   ready_parts_.push_back(part_id);
 }
+
+void NodeActor::got_torrent_info_str(td::BufferSlice data) {
+  if (torrent_.inited_info()) {
+    return;
+  }
+  auto r_info_cell = vm::std_boc_deserialize(data.as_slice());
+  if (r_info_cell.is_error()) {
+    return;
+  }
+  TorrentInfo info;
+  vm::CellSlice cs = vm::load_cell_slice(r_info_cell.move_as_ok());
+  if (!info.unpack(cs)) {
+    return;
+  }
+  info.init_cell();
+  if (torrent_.init_info(std::move(info)).is_error()) {
+    return;
+  }
+  init_torrent();
+  loop();
+}
+
 }  // namespace ton

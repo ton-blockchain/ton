@@ -52,7 +52,9 @@ class PeerActor : public td::actor::Actor {
   // ping
   td::Timestamp next_ping_at_;
   td::optional<td::uint64> ping_query_id_;
+  td::optional<td::uint64> get_info_query_id_;
   td::Timestamp wait_pong_till_;
+  td::Timestamp next_get_info_at_;
 
   // startSession
   td::uint64 node_session_id_;
@@ -101,6 +103,7 @@ class PeerActor : public td::actor::Actor {
   void loop_update_init();
   void loop_update_pieces();
   void update_have_pieces();
+  void loop_get_torrent_info();
 
   void loop_update_state();
 
@@ -111,14 +114,14 @@ class PeerActor : public td::actor::Actor {
   void loop_peer_get_piece();
 
   void execute_add_update(ton::ton_api::storage_addUpdate &add_update, td::Promise<td::BufferSlice> promise);
-
   void execute_get_piece(ton::ton_api::storage_getPiece &get_piece, td::Promise<td::BufferSlice> promise);
+  void execute_get_torrent_info(td::Promise<td::BufferSlice> promise);
 
   void on_update_result(td::Result<td::BufferSlice> r_answer);
 
   void on_get_piece_result(PartId piece_id, td::Result<td::BufferSlice> r_answer);
-
   void on_update_state_result(td::Result<td::BufferSlice> r_answer);
+  void on_get_info_result(td::Result<td::BufferSlice> r_answer);
 
   template <class T, class... ArgsT>
   td::uint64 create_and_send_query(ArgsT &&... args);

@@ -121,6 +121,11 @@ struct PeerState {
   // Node -> Peer
   MessageBuffer<PartId> node_ready_parts_;
 
+  // Node -> Peer
+  std::atomic_bool torrent_info_ready_{false};
+  std::shared_ptr<td::BufferSlice> torrent_info_str_;
+  std::function<void(td::BufferSlice)> torrent_info_response_callback_;
+
   const td::actor::ActorId<> node;
   std::atomic_bool peer_ready_{false};
   td::actor::ActorId<> peer;

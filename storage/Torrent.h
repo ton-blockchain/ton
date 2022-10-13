@@ -40,6 +40,7 @@ class Torrent {
   };
 
   // creation
+  static td::Result<Torrent> open(Options options, td::Bits256 hash);
   static td::Result<Torrent> open(Options options, TorrentMeta meta);
   static td::Result<Torrent> open(Options options, td::Slice meta_str);
   void validate();
@@ -97,13 +98,25 @@ class Torrent {
     td::uint64 end{0};
   };
   PartsRange get_file_parts_range(size_t i);
-  PartsRange get_header_parts_range();
+  PartsRange get_header_parts_range() const;
 
   size_t get_ready_parts_count() const;
 
   std::vector<size_t> chunks_by_piece(td::uint64 piece_id);
 
+  bool inited_info() const {
+    return inited_info_;
+  }
+
+  td::Bits256 get_hash() const {
+    return hash_;
+  }
+
+  td::Status init_info(Info info);
+
  private:
+  td::Bits256 hash_;
+  bool inited_info_ = false;
   Info info_;
   td::optional<std::string> root_dir_;
 
@@ -150,6 +163,7 @@ class Torrent {
   };
   std::vector<ChunkState> chunks_;
 
+  explicit Torrent(td::Bits256 hash);
   explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk);
   explicit Torrent(TorrentMeta meta);
   void set_root_dir(std::string root_dir) {

@@ -59,6 +59,7 @@ class NodeActor : public td::actor::Actor {
  private:
   PeerId self_id_;
   ton::Torrent torrent_;
+  std::shared_ptr<td::BufferSlice> torrent_info_str_;
   std::vector<td::uint8> file_priority_;
   td::unique_ptr<Callback> callback_;
   bool should_download_{false};
@@ -121,6 +122,8 @@ class NodeActor : public td::actor::Actor {
 
   td::Timestamp will_upload_at_;
 
+  void init_torrent();
+
   void on_signal_from_peer(PeerId peer_id);
 
   void start_up() override;
@@ -142,5 +145,7 @@ class NodeActor : public td::actor::Actor {
   void on_part_ready(PartId part_id);
 
   void loop_will_upload();
+
+  void got_torrent_info_str(td::BufferSlice data);
 };
 }  // namespace ton

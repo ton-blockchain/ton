@@ -693,6 +693,7 @@ storage.ok = Ok;
 
 storage.state will_upload:Bool want_download:Bool = storage.State;
 storage.piece proof:bytes data:bytes = storage.Piece;
+storage.torrentInfo data:bytes = storage.TorrentInfo;
 
 storage.updateInit have_pieces:bytes state:storage.State = storage.Update;
 storage.updateHavePieces piece_id:(vector int) = storage.Update;
@@ -703,9 +704,8 @@ storage.updateState state:storage.State = storage.Update;
 storage.ping session_id:long = storage.Pong;
 storage.addUpdate session_id:long seqno:int update:storage.Update = Ok;
 
+storage.getTorrentInfo = storage.TorrentInfo;
 storage.getPiece piece_id:int = storage.Piece;
-
-storage.queryPrefix id:int256 = Object;
 
 ---types---
 

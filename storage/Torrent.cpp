@@ -27,7 +27,9 @@
 namespace ton {
 
 Torrent::Torrent(TorrentMeta meta)
-    : info_(meta.info)
+    : hash_(meta.info.get_hash().bits())
+    , inited_info_(true)
+    , info_(meta.info)
     , merkle_tree_(info_.pieces_count(), info_.root_hash)
     , piece_is_ready_(info_.pieces_count(), false) {
   not_ready_piece_count_ = piece_is_ready_.size();
@@ -42,6 +44,17 @@ Torrent::Torrent(TorrentMeta meta)
   if (meta.root_proof.not_null()) {
     merkle_tree_.add_proof(meta.root_proof);
   }
+}
+
+td::Result<Torrent> Torrent::open(Options options, td::Bits256 hash) {
+  Torrent res(hash);
+  if (!options.in_memory) {
+    if (options.root_dir.empty()) {
+      options.root_dir = ".";
+    }
+    res.set_root_dir(options.root_dir);
+  }
+  return std::move(res);
 }
 
 td::Result<Torrent> Torrent::open(Options options, TorrentMeta meta) {
@@ -64,6 +77,7 @@ td::Result<Torrent> Torrent::open(Options options, td::Slice meta_str) {
 }
 
 const Torrent::Info &Torrent::get_info() const {
+  CHECK(inited_info_);
   return info_;
 }
 
@@ -103,6 +117,9 @@ td::Status Torrent::iterate_piece(Info::PieceInfo piece, F &&f) {
 }
 
 bool Torrent::is_piece_ready(td::uint64 piece_i) const {
+  if (!inited_info_) {
+    return false;
+  }
   CHECK(piece_i < info_.pieces_count());
   return piece_is_ready_[piece_i];
 }
@@ -133,7 +150,8 @@ Torrent::PartsRange Torrent::get_file_parts_range(size_t i) {
   return res;
 }
 
-Torrent::PartsRange Torrent::get_header_parts_range() {
+Torrent::PartsRange Torrent::get_header_parts_range() const {
+  CHECK(inited_info_);
   PartsRange res;
   res.begin = 0;
   res.end = header_pieces_count_;
@@ -184,7 +202,7 @@ std::string Torrent::get_stats_str() const {
 }
 
 void Torrent::validate() {
-  CHECK(header_);
+  CHECK(inited_info_ && header_);
 
   std::fill(piece_is_ready_.begin(), piece_is_ready_.end(), false);
   not_ready_piece_count_ = info_.pieces_count();
@@ -264,6 +282,9 @@ void Torrent::validate() {
 }
 
 td::Result<std::string> Torrent::get_piece_data(td::uint64 piece_i) {
+  if (!inited_info_) {
+    return td::Status::Error("Torrent info not inited");
+  }
   CHECK(piece_i < info_.pieces_count());
   if (!piece_is_ready_[piece_i]) {
     return td::Status::Error("Piece is not ready");
@@ -282,11 +303,17 @@ td::Result<std::string> Torrent::get_piece_data(td::uint64 piece_i) {
 }
 
 td::Result<td::Ref<vm::Cell>> Torrent::get_piece_proof(td::uint64 piece_i) {
+  if (!inited_info_) {
+    return td::Status::Error("Torrent info not inited");
+  }
   CHECK(piece_i < info_.pieces_count());
   return merkle_tree_.gen_proof(piece_i, piece_i);
 }
 
 td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Cell> proof) {
+  if (!inited_info_) {
+    return td::Status::Error("Torrent info not inited");
+  }
   TRY_STATUS(merkle_tree_.add_proof(proof));
   //LOG(ERROR) << "Add piece #" << piece_i;
   CHECK(piece_i < info_.pieces_count());
@@ -367,10 +394,13 @@ td::Status Torrent::add_validated_piece(td::uint64 piece_i, td::Slice data) {
 }
 
 bool Torrent::is_completed() const {
-  return not_ready_piece_count_ == 0;
+  return inited_info_ && not_ready_piece_count_ == 0;
 }
 
 td::Result<td::BufferSlice> Torrent::read_file(td::Slice name) {
+  if (!inited_info_) {
+    return td::Status::Error("Torrent info not inited");
+  }
   for (auto &chunk : chunks_) {
     if (chunk.name == name) {
       td::BufferSlice res(chunk.size);
@@ -383,10 +413,12 @@ td::Result<td::BufferSlice> Torrent::read_file(td::Slice name) {
 
 Torrent::GetMetaOptions::GetMetaOptions() = default;
 std::string Torrent::get_meta_str(const GetMetaOptions &options) const {
+  CHECK(inited_info_);
   return get_meta(options).serialize();
 }
 
 TorrentMeta Torrent::get_meta(const GetMetaOptions &options) const {
+  CHECK(inited_info_);
   TorrentMeta torrent_file;
   if (options.with_header) {
     torrent_file.header = header_;
@@ -399,8 +431,13 @@ TorrentMeta Torrent::get_meta(const GetMetaOptions &options) const {
   return torrent_file;
 }
 
+Torrent::Torrent(td::Bits256 hash) : hash_(hash), inited_info_(false) {
+}
+
 Torrent::Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunks)
-    : info_(info)
+    : hash_(info.get_hash().bits())
+    , inited_info_(true)
+    , info_(info)
     , header_(std::move(header))
     , merkle_tree_(std::move(tree))
     , piece_is_ready_(info_.pieces_count(), true)
@@ -432,6 +469,7 @@ size_t Torrent::get_ready_parts_count() const {
 }
 
 std::vector<size_t> Torrent::chunks_by_piece(td::uint64 piece_id) {
+  CHECK(inited_info_);
   std::vector<size_t> res;
   auto piece = info_.get_piece_info(piece_id);
   auto is_ok = iterate_piece(piece, [&](auto it, auto info) {
@@ -439,6 +477,24 @@ std::vector<size_t> Torrent::chunks_by_piece(td::uint64 piece_id) {
     return td::Status::OK();
   });
   return res;
+}
+
+td::Status Torrent::init_info(Info info) {
+  if (hash_ != info.get_hash().bits()) {
+    return td::Status::Error("Hash mismatch");
+  }
+  if (inited_info_) {
+    return td::Status::OK();
+  }
+  inited_info_ = true;
+  info_ = std::move(info);
+  merkle_tree_ = MerkleTree(info_.pieces_count(), info_.root_hash);
+  piece_is_ready_.resize(info_.pieces_count(), false);
+  not_ready_piece_count_ = piece_is_ready_.size();
+  header_pieces_count_ = (info_.header_size + info_.piece_size - 1) / info_.piece_size;
+  not_ready_pending_piece_count_ = header_pieces_count_;
+  header_str_ = td::BufferSlice(info_.header_size);
+  return td::Status::OK();
 }
 
 }  // namespace ton

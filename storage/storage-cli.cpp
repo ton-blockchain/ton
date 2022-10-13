@@ -232,6 +232,7 @@ class StorageCli : public td::actor::Actor {
       td::TerminalIO::out() << "create <dir/file>\tCreate torrent from a directory\n";
       td::TerminalIO::out() << "info <id>\tPrint info about loaded torrent\n";
       td::TerminalIO::out() << "load <file>\tLoad torrent file in memory\n";
+      td::TerminalIO::out() << "addhash <hash>\tAdd torrent by hash (in hex)\n";
       td::TerminalIO::out() << "save <id> <file>\tSave torrent file\n";
       td::TerminalIO::out() << "start <id>\tStart torrent downloading/uploading\n";
       td::TerminalIO::out() << "seed <id>\tStart torrent uploading\n";
@@ -253,6 +254,8 @@ class StorageCli : public td::actor::Actor {
       torrent_info(parser.read_all(), std::move(cmd_promise));
     } else if (cmd == "load") {
       cmd_promise.set_result(torrent_load(parser.read_all()).move_map([](auto &&x) { return td::Unit(); }));
+    } else if (cmd == "addhash") {
+      cmd_promise.set_result(torrent_add_by_hash(parser.read_all()).move_map([](auto &&x) { return td::Unit(); }));
     } else if (cmd == "save") {
       auto id = parser.read_word();
       parser.skip_whitespaces();
@@ -346,7 +349,7 @@ class StorageCli : public td::actor::Actor {
     ton::Torrent::Creator::Options options;
     options.piece_size = 128 * 1024;
     TRY_RESULT_PROMISE(promise, torrent, ton::Torrent::Creator::create_from_path(options, path));
-    auto hash = torrent.get_info().header_hash;
+    auto hash = torrent.get_hash();
     for (auto &it : infos_) {
       if (it.second.hash == hash) {
         promise.set_error(td::Status::Error(PSLICE() << "Torrent already loaded (#" << it.first << ")"));
@@ -354,6 +357,7 @@ class StorageCli : public td::actor::Actor {
       }
     }
     td::TerminalIO::out() << "Torrent #" << torrent_id_ << " created\n";
+    td::TerminalIO::out() << "Torrent hash: " << torrent.get_hash().to_hex() << "\n";
     infos_.emplace(torrent_id_, Info{torrent_id_, hash, std::move(torrent), td::actor::ActorOwn<PeerManager>(),
                                      td::actor::ActorOwn<ton::NodeActor>()});
     torrent_id_++;
@@ -402,7 +406,7 @@ class StorageCli : public td::actor::Actor {
     }
   }
 
-  td::actor::ActorOwn<PeerManager> create_peer_manager(vm::Cell::Hash hash) {
+  td::actor::ActorOwn<PeerManager> create_peer_manager(td::Bits256 hash) {
     // create overlay network
     td::BufferSlice hash_str(hash.as_slice());
     ton::overlay::OverlayIdFull overlay_id(std::move(hash_str));
@@ -418,7 +422,7 @@ class StorageCli : public td::actor::Actor {
       return;
     }
     if (ptr->peer_manager.empty()) {
-      ptr->peer_manager = create_peer_manager(ptr->torrent.value().get_info().get_hash());
+      ptr->peer_manager = create_peer_manager(ptr->torrent.value().get_hash());
     }
     ton::PeerId self_id = 1;
 
@@ -440,7 +444,7 @@ class StorageCli : public td::actor::Actor {
         self_ = self;
         send_closure(peer_manager_, &PeerManager::register_node, self_id_, self_);
       }
-      ~Context() {
+      ~Context() override {
         if (!self_.empty()) {
           send_closure(peer_manager_, &PeerManager::unregister_node, self_id_, self_);
         }
@@ -581,13 +585,40 @@ class StorageCli : public td::actor::Actor {
 
     TRY_RESULT(torrent, ton::Torrent::open(options, data));
 
-    auto hash = torrent.get_info().header_hash;
+    auto hash = torrent.get_hash();
     for (auto &it : infos_) {
       if (it.second.hash == hash) {
         return td::Status::Error(PSLICE() << "Torrent already loaded (#" << it.first << ")");
       }
     }
     td::TerminalIO::out() << "Torrent #" << torrent_id_ << " created\n";
+    td::TerminalIO::out() << "Torrent hash: " << torrent.get_hash().to_hex() << "\n";
+    auto res =
+        infos_.emplace(torrent_id_, Info{torrent_id_, hash, std::move(torrent), td::actor::ActorOwn<PeerManager>(),
+                                         td::actor::ActorOwn<ton::NodeActor>()});
+    torrent_id_++;
+    return &res.first->second;
+  }
+
+  td::Result<Info *> torrent_add_by_hash(td::Slice hash_hex) {
+    td::Bits256 hash;
+    if (hash.from_hex(hash_hex) != 256) {
+      return td::Status::Error("Failed to parse torrent hash");
+    }
+    ton::Torrent::Options options;
+    options.in_memory = false;
+    options.root_dir = ".";
+    options.validate = false;
+
+    TRY_RESULT(torrent, ton::Torrent::open(options, hash));
+
+    for (auto &it : infos_) {
+      if (it.second.hash == hash) {
+        return td::Status::Error(PSLICE() << "Torrent already loaded (#" << it.first << ")");
+      }
+    }
+    td::TerminalIO::out() << "Torrent #" << torrent_id_ << " created\n";
+    td::TerminalIO::out() << "Torrent hash: " << torrent.get_hash().to_hex() << "\n";
     auto res =
         infos_.emplace(torrent_id_, Info{torrent_id_, hash, std::move(torrent), td::actor::ActorOwn<PeerManager>(),
                                          td::actor::ActorOwn<ton::NodeActor>()});

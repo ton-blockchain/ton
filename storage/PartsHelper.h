@@ -26,12 +26,16 @@
 namespace ton {
 struct PartsHelper {
  public:
-  PartsHelper(size_t parts_count) : parts_(parts_count), peers_(64) {
+  explicit PartsHelper(size_t parts_count = 0) : parts_(parts_count), peers_(64) {
     peers_[0].is_valid = true;
   }
   using PartId = size_t;
   using PeerToken = size_t;
 
+  void init_parts_count(size_t parts_count) {
+    CHECK(parts_.empty());
+    parts_.resize(parts_count);
+  }
   PeerToken register_self() {
     return self_token_;
   }
