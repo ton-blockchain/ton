@@ -86,7 +86,7 @@
               bintools = host.binutils.override { libc = glibc227; };
             };
           in (host.overrideCC host.stdenv cc);
-        in {
+        in rec {
           packages = rec {
             ton-normal = ton { inherit host; };
             ton-static = ton {
@@ -113,9 +113,11 @@
               paths = [ ton-musl.bin ton-oldglibc.out ];
             };
           };
+          devShells.default =
+            host.mkShell { inputsFrom = [ packages.ton-normal ]; };
         })) (eachSystem (with system; [ x86_64-darwin aarch64-darwin ]) (system:
           let host = hostPkgs system;
-          in {
+          in rec {
             packages = rec {
               ton-normal = ton { inherit host; };
               ton-static = ton {
@@ -128,5 +130,7 @@
                 paths = [ ton-static.bin ton-normal.out ];
               };
             };
+            devShells.default =
+              host.mkShell { inputsFrom = [ packages.ton-normal ]; };
           })));
 }
