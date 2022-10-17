@@ -2135,7 +2135,7 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
 CollatorConfig Config::get_collator_config(bool need_collator_nodes) const {
   CollatorConfig collator_config;
   gen::CollatorConfig::Record rec;
-  auto cell = get_config_param(41);
+  auto cell = get_config_param(-41);
   if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
     return collator_config;
   }
