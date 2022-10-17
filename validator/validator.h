@@ -238,6 +238,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) = 0;
 
   virtual void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
+  virtual void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
 };
 

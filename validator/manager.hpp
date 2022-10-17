@@ -563,6 +563,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override;
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
+  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
  private:
@@ -639,7 +640,11 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
 
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollatorNode>> collator_nodes_;
+  struct Collator {
+    td::actor::ActorOwn<CollatorNode> actor;
+    std::set<ShardIdFull> shards;
+  };
+  std::map<adnl::AdnlNodeIdShort, Collator> collator_nodes_;
 
   std::set<ShardIdFull> extra_active_shards_;
   std::map<ShardIdFull, BlockSeqno> last_validated_blocks_;

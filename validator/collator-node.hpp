@@ -32,6 +32,7 @@ class CollatorNode : public td::actor::Actor {
   void start_up() override;
   void tear_down() override;
   void add_shard(ShardIdFull shard);
+  void del_shard(ShardIdFull shard);
 
   void new_masterchain_block_notification(td::Ref<MasterchainState> state);
 

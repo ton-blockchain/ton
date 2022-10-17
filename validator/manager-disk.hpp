@@ -395,6 +395,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
     UNREACHABLE();
   }
+  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
+    UNREACHABLE();
+  }
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override {
     opts_ = std::move(opts);

@@ -1795,7 +1795,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
                             last_masterchain_block_handle_, last_masterchain_state_);
   }
   for (auto &c : collator_nodes_) {
-    td::actor::send_closure(c.second, &CollatorNode::new_masterchain_block_notification, last_masterchain_state_);
+    td::actor::send_closure(c.second.actor, &CollatorNode::new_masterchain_block_notification, last_masterchain_state_);
   }
 
   if (last_masterchain_seqno_ % 1024 == 0) {
@@ -2722,10 +2722,23 @@ void ValidatorManagerImpl::get_validator_sessions_info(
 void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
   auto it = collator_nodes_.find(id);
   if (it == collator_nodes_.end()) {
-    auto actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp_);
-    it = collator_nodes_.emplace(id, std::move(actor)).first;
+    it = collator_nodes_.emplace(id, Collator()).first;
+    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp_);
   }
-  td::actor::send_closure(it->second, &CollatorNode::add_shard, shard);
+  it->second.shards.insert(shard);
+  td::actor::send_closure(it->second.actor, &CollatorNode::add_shard, shard);
+}
+
+void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
+  auto it = collator_nodes_.find(id);
+  if (it == collator_nodes_.end()) {
+    return;
+  }
+  td::actor::send_closure(it->second.actor, &CollatorNode::del_shard, shard);
+  it->second.shards.erase(shard);
+  if (it->second.shards.empty()) {
+    collator_nodes_.erase(it);
+  }
 }
 
 void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts) {

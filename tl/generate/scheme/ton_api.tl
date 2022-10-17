@@ -715,6 +715,8 @@ engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsIn
 
 engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
+engine.validator.delCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
+engine.validator.delShard shard:tonNode.shardId = engine.validator.Success;
 
 ---types---
 

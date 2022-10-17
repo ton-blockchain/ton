@@ -54,8 +54,18 @@ void CollatorNode::tear_down() {
 }
 
 void CollatorNode::add_shard(ShardIdFull shard) {
+  if (std::find(shards_.begin(), shards_.end(), shard) != shards_.end()) {
+    return;
+  }
   LOG(INFO) << "Collator node: local_id=" << local_id_ << " , shard=" << shard.to_str();
   shards_.push_back(shard);
+}
+
+void CollatorNode::del_shard(ShardIdFull shard) {
+  auto it = std::find(shards_.begin(), shards_.end(), shard);
+  if (it != shards_.end()) {
+    shards_.erase(it);
+  }
 }
 
 void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> state) {
