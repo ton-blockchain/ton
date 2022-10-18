@@ -10,7 +10,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: macos-12
+    runs-on: ubuntu-22
     steps:
       - name: Checkout
         uses: actions/checkout@v2
