@@ -1,6 +1,7 @@
 FROM ubuntu:22.04
 
-RUN apt update & apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build
+RUN apt update
+RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build
 
 WORKDIR /
 
