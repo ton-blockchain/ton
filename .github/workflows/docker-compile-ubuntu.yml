@@ -30,8 +30,8 @@ jobs:
       - name: Build with docker buildx
         run: |
           mkdir build-${{matrix.ver}}-${{matrix.arch}}          
-          docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
-          export container_id=$(docker run -it --rm --detach build-${{matrix.ver}}-${{matrix.arch}})
+          docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile          
+          export container_id=$(docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}})
           echo docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/dht-server           
           docker exec $container_id ls -lart /ton/build/tonlib/
           docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/dht-server
