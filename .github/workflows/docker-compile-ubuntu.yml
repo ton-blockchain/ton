@@ -26,8 +26,8 @@ jobs:
           docker buildx version
           docker buildx ls
           pwd
-          ls 
-          ls github
-          docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f github/script/ubuntu-compile-18.04.Dockerfile
-          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f github/script/ubuntu-compile-18.04.Dockerfile
-          docker buildx build --platform=linux/arm/v7 --progress=plain --load . -t build-18.04-armv7 -f github/script/ubuntu-compile-18.04.Dockerfile
+          ls -lart
+          ls .github
+          docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f .github/script/ubuntu-compile-18.04.Dockerfile
+          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f .github/script/ubuntu-compile-18.04.Dockerfile
+          docker buildx build --platform=linux/arm/v7 --progress=plain --load . -t build-18.04-armv7 -f .github/script/ubuntu-compile-18.04.Dockerfile
