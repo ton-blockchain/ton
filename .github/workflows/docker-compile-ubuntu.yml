@@ -5,7 +5,7 @@ on:
   push:
 
 jobs:
-  build:
+  build-and-push:
 #    strategy:
 #      fail-fast: false
 #      matrix:
@@ -26,7 +26,6 @@ jobs:
         run: |
           docker buildx version
           docker buildx ls
-# docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
           mkdir build-18.04-amd64     
           docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f .github/script/amd64-18.04.Dockerfile
           container-id=`docker create --platform=linux/amd64 build-18.04-amd64`
@@ -37,4 +36,3 @@ jobs:
         with:
           name: ton-binaries
           path: build-18.04-amd64
-
