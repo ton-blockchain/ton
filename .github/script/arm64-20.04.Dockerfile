@@ -1,8 +1,6 @@
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
-RUN apt-get update
-
-RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build
+RUN apt update & apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build
 
 WORKDIR /
 
@@ -13,5 +11,5 @@ RUN mkdir /ton/build
 WORKDIR /ton/build
 ENV CC clang
 ENV CXX clang++
-RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
+RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_ARCH= ..
 RUN ninja tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id create-hardfork dht-server create-state lite-client

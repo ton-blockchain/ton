@@ -4,16 +4,13 @@ on:
   workflow_dispatch:
   push:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64, arm/v7]
+        arch: [amd64, arm64]
+        ver: [18.04, 20.04, 22.04]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -29,9 +26,6 @@ jobs:
         run: |
           docker buildx version
           docker buildx ls
-          pwd
-          ls -lart
-          ls .github
-          docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-18.04-${{matrix.arch}} -f .github/script/ubuntu-compile-18.04.Dockerfile
-#          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f .github/script/ubuntu-compile-18.04.Dockerfile
-#          docker buildx build --platform=linux/arm/v7 --progress=plain --load . -t build-18.04-armv7 -f .github/script/ubuntu-compile-18.04.Dockerfile
+          docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
+#          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f .github/script/amd64-18.04.Dockerfile
+#          docker buildx build --platform=linux/arm/v7 --progress=plain --load . -t build-18.04-armv7 -f .github/script/amd64-18.04.Dockerfile
