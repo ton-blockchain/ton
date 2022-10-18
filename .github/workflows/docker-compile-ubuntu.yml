@@ -35,8 +35,10 @@ jobs:
           ls
           docker ps -a          
           echo docker cp -a $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
-          docker cp -a $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp build-18.04-amd64:/ton/build/dht-server/dht-server build-18.04-amd64/
+          echo aaaa
           docker cp -a $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/validator-engine
+          echo bbbb
           docker cp -a $container_id:/ton/build/validator-engine-console/validator-engine-console build-${{matrix.ver}}-${{matrix.arch}}/validator-engine-console
           docker cp -a $container_id:/ton/build/crypto/fift build-${{matrix.ver}}-${{matrix.arch}}/fift
           docker cp -a $container_id:/ton/build/crypto/funcbuild-${{matrix.ver}}-${{matrix.arch}}/func
