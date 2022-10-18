@@ -31,11 +31,12 @@ jobs:
         run: |
           mkdir build-${{matrix.ver}}-${{matrix.arch}}          
           docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
-          export container_id=$(docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}})
+          container_id=$(docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}})
+          pwd
           ls
           docker ps -a          
-          echo docker cp -a $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
-          docker cp build-18.04-amd64:/ton/build/dht-server/dht-server build-18.04-amd64/
+          echo docker cp $container_id:/ton/build/dht-server/dht-server .
+          docker cp $container_id:/ton/build/dht-server/dht-server .
           echo aaaa
           docker cp -a $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/validator-engine
           echo bbbb
