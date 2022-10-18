@@ -48,8 +48,15 @@ class NodeActor : public td::actor::Actor {
   NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, bool should_download = true);
   void start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise);
 
-  ton::Torrent *with_torrent() {
-    return &torrent_;
+  struct NodeState {
+    Torrent &torrent;
+    bool active_download;
+    double download_speed;
+    double upload_speed;
+  };
+  void with_torrent(td::Promise<NodeState> promise) {
+    // TODO: Upload speed
+    promise.set_value(NodeState{torrent_, should_download_, download_.speed(), 0.0});
   }
   std::string get_stats_str();
 

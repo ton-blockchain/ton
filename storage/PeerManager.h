@@ -173,6 +173,73 @@ class PeerManager : public td::actor::Actor {
                  30, promise.send_closure(actor_id(this), &PeerManager::got_overlay_random_peers));
   }
 
+  static td::unique_ptr<ton::NodeActor::Callback> create_callback(td::actor::ActorId<PeerManager> peer_manager) {
+    class Context : public ton::NodeActor::Callback {
+     public:
+      Context(td::actor::ActorId<PeerManager> peer_manager) : peer_manager_(peer_manager) {
+      }
+      void get_peers(ton::PeerId src, td::Promise<std::vector<ton::PeerId>> promise) override {
+        send_closure(peer_manager_, &PeerManager::get_peers, src, std::move(promise));
+      }
+      void register_self(td::actor::ActorId<ton::NodeActor> self) override {
+        CHECK(self_.empty());
+        self_ = self;
+        send_closure(peer_manager_, &PeerManager::register_node, 1, self_);
+      }
+      ~Context() override {
+        if (!self_.empty()) {
+          send_closure(peer_manager_, &PeerManager::unregister_node, 1, self_);
+        }
+      }
+      td::actor::ActorOwn<ton::PeerActor> create_peer(ton::PeerId self_id, ton::PeerId peer_id,
+                                                      std::shared_ptr<ton::PeerState> state) override {
+        CHECK(self_id == 1);
+        class PeerCallback : public ton::PeerActor::Callback {
+         public:
+          PeerCallback(ton::PeerId self_id, ton::PeerId peer_id, td::actor::ActorId<PeerManager> peer_manager)
+              : self_id_(self_id), peer_id_(peer_id), peer_manager_(std::move(peer_manager)) {
+          }
+          void register_self(td::actor::ActorId<ton::PeerActor> self) override {
+            CHECK(self_.empty());
+            self_ = std::move(self);
+            send_closure(peer_manager_, &PeerManager::register_peer, self_id_, peer_id_, self_);
+          }
+          void send_query(td::uint64 query_id, td::BufferSlice query) override {
+            send_closure(peer_manager_, &PeerManager::send_query, self_id_, peer_id_, std::move(query),
+                         promise_send_closure(self_, &ton::PeerActor::on_query_result, query_id));
+          }
+
+          ~PeerCallback() {
+            if (!self_.empty()) {
+              send_closure(peer_manager_, &PeerManager::unregister_peer, self_id_, peer_id_, self_);
+            }
+          }
+
+         private:
+          td::actor::ActorId<ton::PeerActor> self_;
+          ton::PeerId self_id_;
+          ton::PeerId peer_id_;
+          td::actor::ActorId<PeerManager> peer_manager_;
+        };
+        return td::actor::create_actor<ton::PeerActor>(PSLICE() << "PeerActor " << peer_id,
+                                                       td::make_unique<PeerCallback>(self_id, peer_id, peer_manager_),
+                                                       std::move(state));
+      }
+
+      void on_completed() override {
+      }
+
+      void on_closed(ton::Torrent torrent) override {
+      }
+
+     private:
+      td::actor::ActorId<PeerManager> peer_manager_;
+      std::vector<ton::PeerId> peers_;
+      td::actor::ActorId<ton::NodeActor> self_;
+    };
+    return td::make_unique<Context>(std::move(peer_manager));
+  }
+
  private:
   ton::overlay::OverlayIdFull overlay_id_;
   td::actor::ActorId<ton::overlay::Overlays> overlays_;

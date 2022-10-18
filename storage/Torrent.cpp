@@ -23,6 +23,7 @@
 #include "td/utils/crypto.h"
 #include "td/utils/port/Stat.h"
 #include "td/utils/tl_helpers.h"
+#include "td/utils/port/path.h"
 
 namespace ton {
 
@@ -218,17 +219,17 @@ void Torrent::validate() {
   }
 
   std::vector<td::UInt256> hashes;
-  std::vector<MerkleTree::Piece> chunks;
+  std::vector<MerkleTree::Piece> pieces;
 
   auto flush = [&] {
     td::Bitset bitmask;
-    merkle_tree_.add_pieces(chunks, bitmask);
-    for (size_t i = 0; i < chunks.size(); i++) {
+    merkle_tree_.add_pieces(pieces, bitmask);
+    for (size_t i = 0; i < pieces.size(); i++) {
       if (!bitmask.get(i)) {
         continue;
       }
 
-      auto piece_i = chunks[i].index;
+      auto piece_i = pieces[i].index;
       auto piece = info_.get_piece_info(piece_i);
       iterate_piece(piece, [&](auto it, auto info) {
         it->ready_size += info.size;
@@ -242,7 +243,7 @@ void Torrent::validate() {
     }
 
     hashes.clear();
-    chunks.clear();
+    pieces.clear();
   };
 
   td::BufferSlice buf(info_.piece_size);
@@ -272,11 +273,11 @@ void Torrent::validate() {
       LOG(ERROR) << "Failed: " << is_ok;
       continue;
     }
-    MerkleTree::Piece chunk;
-    chunk.index = piece_i;
-    sha256.extract(chunk.hash.as_slice());
+    MerkleTree::Piece new_piece;
+    new_piece.index = piece_i;
+    sha256.extract(new_piece.hash.as_slice());
 
-    chunks.push_back(chunk);
+    pieces.push_back(new_piece);
   }
   flush();
 }
@@ -370,7 +371,9 @@ td::Status Torrent::init_chunk_data(ChunkState &chunk) {
     return td::Status::OK();
   }
   if (root_dir_) {
-    TRY_RESULT(data, td::FileNoCacheBlobView::create(get_chunk_path(chunk.name), chunk.size, true));
+    std::string path = get_chunk_path(chunk.name);
+    TRY_STATUS(td::mkpath(path));
+    TRY_RESULT(data, td::FileNoCacheBlobView::create(path, chunk.size, true));
     chunk.data = std::move(data);
   } else {
     chunk.data = td::BufferSliceBlobView::create(td::BufferSlice(chunk.size));

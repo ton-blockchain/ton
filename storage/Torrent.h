@@ -107,11 +107,15 @@ class Torrent {
   bool inited_info() const {
     return inited_info_;
   }
-
+  bool inited_header() const {
+    return (bool)header_;
+  }
   td::Bits256 get_hash() const {
     return hash_;
   }
-
+  std::string get_root_dir() const {
+    return root_dir_ ? root_dir_.value() : "";
+  }
   td::Status init_info(Info info);
 
  private:

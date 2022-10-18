@@ -737,3 +737,42 @@ validatorSession.statsRound timestamp:long producers:(vector validatorSession.st
 validatorSession.stats id:tonNode.blockId timestamp:long self:int256 creator:int256 total_validators:int total_weight:long
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
+
+---functions---
+
+---types---
+
+storage.daemon.db.key.torrentList = storage.daemon.db.key.TorrentList;
+storage.daemon.db.key.torrentShort hash:int256 = storage.daemon.db.key.TorrentShort;
+storage.daemon.db.key.torrentMeta hash:int256 = storage.daemon.db.key.TorrentMeta;
+
+storage.daemon.db.torrentShort root_dir:string active_download:Bool = storage.daemon.db.TorrentShort;
+storage.daemon.db.torrentList torrents:(vector int256) = storage.daemon.db.TorrentList;
+
+storage.daemon.queryError message:string = storage.daemon.QueryError;
+storage.daemon.success = storage.daemon.Success;
+storage.daemon.torrent
+    hash:int256 info_ready:Bool header_ready:Bool
+    total_size:long description:string
+    files_count:long
+    root_dir:string active_download:Bool completed:Bool
+    downloaded_frac:double download_speed:double upload_speed:double
+    = storage.daemon.Torrent;
+storage.daemon.fileInfo
+    name:string size:long
+    downloaded_frac:double
+    = storage.daemon.FileInfo;
+storage.daemon.torrentFull torrent:storage.daemon.torrent files:(vector storage.daemon.fileInfo) = storage.daemon.TorrentFull;
+storage.daemon.torrentList torrents:(vector storage.daemon.torrent) = storage.daemon.TorrentList;
+storage.daemon.torrentMeta meta:bytes = storage.daemon.TorrentMeta;
+
+---functions---
+storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
+storage.daemon.createTorrent path:string description:string = storage.daemon.TorrentFull;
+storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool = storage.daemon.TorrentFull;
+storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool = storage.daemon.TorrentFull;
+storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Success;
+
+storage.daemon.getTorrents = storage.daemon.TorrentList;
+storage.daemon.getTorrentFull hash:int256 = storage.daemon.TorrentFull;
+storage.daemon.getTorrentMeta hash:int256 = storage.daemon.TorrentMeta;
