@@ -9,7 +9,11 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64, arm/v7]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -28,6 +32,6 @@ jobs:
           pwd
           ls -lart
           ls .github
-          docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f .github/script/ubuntu-compile-18.04.Dockerfile
-          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f .github/script/ubuntu-compile-18.04.Dockerfile
-          docker buildx build --platform=linux/arm/v7 --progress=plain --load . -t build-18.04-armv7 -f .github/script/ubuntu-compile-18.04.Dockerfile
+          docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-18.04-${{matrix.arch}} -f .github/script/ubuntu-compile-18.04.Dockerfile
+#          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f .github/script/ubuntu-compile-18.04.Dockerfile
+#          docker buildx build --platform=linux/arm/v7 --progress=plain --load . -t build-18.04-armv7 -f .github/script/ubuntu-compile-18.04.Dockerfile
