@@ -22,7 +22,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: test docker buildx
+      - name: Build with docker buildx
         run: |
           docker buildx version
           docker buildx ls
@@ -33,7 +33,7 @@ jobs:
           docker cp $container-id:/ton/build/dht-server/dht-server build-18.04-amd64/dht-server
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v1
         with:
           name: ton-binaries
           path: build-18.04-amd64
