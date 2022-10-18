@@ -1,4 +1,4 @@
-name: Docker Compile MacOS
+name: Docker Compile Ubuntu
 
 on:
   workflow_dispatch:
@@ -25,4 +25,5 @@ jobs:
         run: |
           docker buildx version
           docker buildx ls
-          docker buildx build --platform=macos/amd64 --progress=plain --load . -t build-macOS-12 -f ../script/macos-compile-amd64.Dockerfile
+          docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f ../script/ubuntu-compile-18.04.Dockerfile
+          docker buildx build --platform=linux/arm64 --progress=plain --load . -t build-18.04-arm64 -f ../script/ubuntu-compile-18.04.Dockerfile
