@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -28,7 +28,7 @@ jobs:
           docker buildx ls
           mkdir build-18.04-amd64     
           docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f .github/script/amd64-18.04.Dockerfile
-          container-id=`docker create --platform=linux/amd64 build-18.04-amd64`
+          export container-id=`docker create --platform=linux/amd64 build-18.04-amd64`
           docker cp $container-id:/ton/build/dht-server/dht-server build-18.04-amd64/dht-server
 
       - name: Upload artifacts
