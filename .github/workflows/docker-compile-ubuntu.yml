@@ -28,8 +28,8 @@ jobs:
           docker buildx ls
           mkdir build-18.04-amd64     
           docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f .github/script/amd64-18.04.Dockerfile
-          export container-id=`docker create --platform=linux/amd64 build-18.04-amd64`
-          docker cp $container-id:/ton/build/dht-server/dht-server build-18.04-amd64/dht-server
+          export container_id=`docker create --platform=linux/amd64 build-18.04-amd64`
+          docker cp $container_id:/ton/build/dht-server/dht-server build-18.04-amd64/dht-server
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
