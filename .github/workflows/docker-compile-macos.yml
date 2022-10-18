@@ -25,5 +25,4 @@ jobs:
         run: |
           docker buildx version
           docker buildx ls
-          pwd
           docker buildx build --platform=macos/amd64 --progress=plain --load . -t build-macOS-12 -f script/macos-compile-amd64.Dockerfile
