@@ -33,6 +33,8 @@ jobs:
           docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile          
           export container_id=`docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}}`
           echo docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/dht-server
+          ls 
+          docker exec $container_id ls -lart /ton/build/tonlib/
           docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/dht-server
           docker cp $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/validator-engine
           docker cp $container_id:/ton/build/validator-engine-console/validator-engine-console build-${{matrix.ver}}-${{matrix.arch}}/validator-engine-console
@@ -43,8 +45,7 @@ jobs:
           docker cp $container_id:/ton/build/blockchain-explorer/blockchain-explorer build-${{matrix.ver}}-${{matrix.arch}}/blockchain-explorer
           docker cp $container_id:/ton/build/lite-client/lite-client build-${{matrix.ver}}-${{matrix.arch}}/lite-client
           docker cp $container_id:/ton/build/utils/generate-random-id build-${{matrix.ver}}-${{matrix.arch}}/generate-random-id
-          echo docker cp $container_id:/ton/build/tonlib/libtonlibjson.so.0.5 build-${{matrix.ver}}-${{matrix.arch}}/tonlibjson.so
-          docker exec $container_id ls -lart /ton/build/tonlib/
+          echo docker cp $container_id:/ton/build/tonlib/libtonlibjson.so.0.5 build-${{matrix.ver}}-${{matrix.arch}}/tonlibjson.so          
           docker cp $container_id:/ton/build/tonlib/libtonlibjson.* build-${{matrix.ver}}-${{matrix.arch}}/tonlibjson.so
           docker cp $container_id:/ton/crypto/smartcont build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp $container_id:/ton/crypto/fift/lib build-${{matrix.ver}}-${{matrix.arch}}/
