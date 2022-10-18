@@ -36,7 +36,7 @@ jobs:
           ls
           docker ps -a          
           echo docker cp $container_id:/ton/build/dht-server/dht-server .
-          docker cp $container_id:/ton/build/dht-server/dht-server .
+          docker cp $container_id:/ton/build/dht-server/dht-server ./build-18.04-amd64/
           echo aaaa
           docker cp -a $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/validator-engine
           echo bbbb
