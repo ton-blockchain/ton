@@ -6,27 +6,24 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-        ver: [18.04, 20.04, 22.04]
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        arch: [amd64, arm64]
+#        ver: [18.04, 20.04, 22.04]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-
       - name: test docker buildx
         run: |
           docker buildx version
           docker buildx ls
-#          docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
+# docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
           mkdir build-18.04-amd64     
           docker buildx build --platform=linux/amd64 --progress=plain --load . -t build-18.04-amd64 -f .github/script/amd64-18.04.Dockerfile
           container-id=`docker create --platform=linux/amd64 build-18.04-amd64`
