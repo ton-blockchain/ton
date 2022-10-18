@@ -1,0 +1,28 @@
+name: Docker Compile MacOS
+
+on:
+  workflow_dispatch:
+  push:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: macos-12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: test docker buildx
+        run: |
+          docker buildx version
+          docker buildx ls
+          docker buildx build --platform=macos/amd64 --progress=plain --load . -t build-macOS-12 -f ../script/macos-amd64.Dockerfile
