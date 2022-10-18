@@ -6,11 +6,16 @@ on:
 
 jobs:
   build-and-push:
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        arch: [amd64, arm64]
+#        ver: [18.04, 20.04, 22.04]
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
-        ver: [18.04, 20.04, 22.04]
+        arch: [amd64]
+        ver: [18.04]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -27,6 +32,7 @@ jobs:
           mkdir build-${{matrix.ver}}-${{matrix.arch}}          
           docker buildx build --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile          
           export container_id=`docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}}`          
+          echo docker cp $container_id:/ton/build/tonlib/libtonlibjson.so.0.5 build-${{matrix.ver}}-${{matrix.arch}}/tonlibjson.so
           docker cp $container_id:/ton/build/tonlib/libtonlibjson.so.0.5 build-${{matrix.ver}}-${{matrix.arch}}/tonlibjson.so
           docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/dht-server
           docker cp $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/validator-engine
