@@ -163,19 +163,13 @@ std::string TD_TL_writer_java::gen_type_name(const tl::tl_tree_type *tree_type) 
   if (name == "Int53" || name == "Int64") {
     return "long";
   }
-  if (name == "Int128") {
-    return "BigInteger";
-  }
-  if (name == "Int256") {
-    return "BigInteger";
-  }
   if (name == "Double") {
     return "double";
   }
   if (name == "String" || name == "SecureString") {
     return "String";
   }
-  if (name == "Bytes" || name == "SecureBytes") {
+  if (name == "Bytes" || name == "SecureBytes" || name == "Int128" || name == "Int256") {
     return "byte[]";
   }
   if (name == "Object") {
@@ -221,7 +215,6 @@ std::string TD_TL_writer_java::gen_int_const(const tl::tl_tree *tree_c,
 std::string TD_TL_writer_java::gen_output_begin() const {
   return "package " + package_name +
          ";\n\n"
-         "import java.math.BigInteger;\n\n" +
          "public class " +
          tl_name + " {\n";
 }

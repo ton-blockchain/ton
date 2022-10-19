@@ -34,6 +34,12 @@ namespace jni {
 
 extern thread_local bool parse_error;
 
+static jclass BooleanClass;
+static jclass IntegerClass;
+static jclass LongClass;
+static jclass DoubleClass;
+static jclass StringClass;
+static jclass ObjectClass;
 extern jmethodID GetConstructorID;
 extern jmethodID BooleanGetValueMethodID;
 extern jmethodID IntegerGetValueMethodID;
@@ -108,9 +114,27 @@ jbyteArray to_bytes(JNIEnv *env, Slice b);
 jbyteArray to_bytes_secure(JNIEnv *env, Slice b);
 
 template<unsigned int n>
-td::BitArray<n> from_bits(JNIEnv *env, jbyteArray arr);
+td::BitArray<n> from_bits(JNIEnv *env, jbyteArray arr) {
+  td::BitArray<n> b;
+  if (arr != nullptr) {
+    jsize length = env->GetArrayLength(arr);
+    assert(length * 8 == n);
+    env->GetByteArrayRegion(arr, 0, length, reinterpret_cast<jbyte *>(b.as_slice().begin()));
+    env->DeleteLocalRef(arr);
+  }
+  return b;
+}
+
 template<unsigned int n>
-jbyteArray to_bits(JNIEnv *env, td::BitArray<n> b);
+jbyteArray to_bits(JNIEnv *env, td::BitArray<n> b) {
+  assert(n % 8 == 0);
+  jsize length = n / 8;
+  jbyteArray arr = env->NewByteArray(length);
+  if (arr != nullptr) {
+    env->SetByteArrayRegion(arr, 0, length, reinterpret_cast<const jbyte *>(b.data()));
+  }
+  return arr;
+}
 
 void init_vars(JNIEnv *env, const char *td_api_java_package);
 
@@ -125,7 +149,20 @@ jobjectArray store_vector(JNIEnv *env, const std::vector<std::string> &v);
 jobjectArray store_vector(JNIEnv *env, const std::vector<SecureString> &v);
 
 template<unsigned int n>
-jobjectArray store_vector(JNIEnv *env, const std::vector<td::BitArray<n>> &v);
+jobjectArray store_vector(JNIEnv *env, const std::vector<td::BitArray<n>> &v) {
+  jint length = static_cast<jint>(v.size());
+  jobjectArray arr = env->NewObjectArray(length, ObjectClass, jobject());
+  if (arr != nullptr) {
+    for (jsize i = 0; i < length; i++) {
+      jbyteArray bits = to_bits<n>(env, v[i]);
+      if (bits) {
+        env->SetObjectArrayElement(arr, i, bits);
+        env->DeleteLocalRef(bits);
+      }
+    }
+  }
+  return arr;
+}
 
 template <class T>
 jobjectArray store_vector(JNIEnv *env, const std::vector<T> &v) {

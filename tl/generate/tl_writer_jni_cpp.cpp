@@ -651,7 +651,7 @@ std::string TD_TL_writer_jni_cpp::gen_type_signature(const tl::tl_tree_type *tre
     return "D";
   } else if (name == "String" || name == "SecureString") {
     return "Ljava/lang/String;";
-  } else if (name == "Bytes" || name == "SecureBytes") {
+  } else if (name == "Bytes" || name == "SecureBytes" || name == "Int128" || name == "Int256") {
     return "[B";
   } else if (name == "Vector") {
     const tl::tl_tree_type *child = static_cast<const tl::tl_tree_type *>(tree_type->children[0]);
