@@ -755,16 +755,22 @@ storage.daemon.torrent
     hash:int256 info_ready:Bool header_ready:Bool
     total_size:long description:string
     files_count:long
+    included_size:long
+    downloaded_size:long
     root_dir:string active_download:Bool completed:Bool
-    downloaded_frac:double download_speed:double upload_speed:double
+    download_speed:double upload_speed:double
     = storage.daemon.Torrent;
 storage.daemon.fileInfo
     name:string size:long
-    downloaded_frac:double
+    priority:int
+    downloaded_size:long
     = storage.daemon.FileInfo;
 storage.daemon.torrentFull torrent:storage.daemon.torrent files:(vector storage.daemon.fileInfo) = storage.daemon.TorrentFull;
 storage.daemon.torrentList torrents:(vector storage.daemon.torrent) = storage.daemon.TorrentList;
 storage.daemon.torrentMeta meta:bytes = storage.daemon.TorrentMeta;
+
+storage.daemon.prioritySet = storage.daemon.SetPriorityStatus;
+storage.daemon.priorityPending = storage.daemon.SetPriorityStatus;
 
 ---functions---
 storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
@@ -776,3 +782,7 @@ storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Succes
 storage.daemon.getTorrents = storage.daemon.TorrentList;
 storage.daemon.getTorrentFull hash:int256 = storage.daemon.TorrentFull;
 storage.daemon.getTorrentMeta hash:int256 = storage.daemon.TorrentMeta;
+
+storage.daemon.setFilePriorityAll hash:int256 priority:int = storage.daemon.SetPriorityStatus;
+storage.daemon.setFilePriorityByIdx hash:int256 idx:long priority:int = storage.daemon.SetPriorityStatus;
+storage.daemon.setFilePriorityByName hash:int256 name:string priority:int = storage.daemon.SetPriorityStatus;

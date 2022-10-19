@@ -24,6 +24,7 @@
 
 #include "td/utils/Enumerator.h"
 #include "td/utils/tests.h"
+#include "td/utils/overloaded.h"
 
 namespace ton {
 NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, bool should_download)
@@ -79,6 +80,30 @@ void NodeActor::init_torrent() {
     state->torrent_info_str_ = torrent_info_str_;
     CHECK(!state->torrent_info_ready_.exchange(true));
   }
+  if (torrent_.inited_header()) {
+    init_torrent_header();
+  }
+}
+
+void NodeActor::init_torrent_header() {
+  if (header_ready_) {
+    return;
+  }
+  header_ready_ = true;
+  size_t files_count = torrent_.get_files_count().unwrap();
+  for (size_t i = 0; i < files_count; ++i) {
+    file_name_to_idx_[torrent_.get_file_name(i).str()] = i;
+  }
+  file_priority_.resize(files_count, 1);
+  for (auto &s : pending_set_file_priority_) {
+    td::Promise<bool> P = [](td::Result<bool>) {};
+    s.file.visit(
+        td::overloaded([&](const PendingSetFilePriority::All &) { set_all_files_priority(s.priority, std::move(P)); },
+                       [&](const size_t &i) { set_file_priority_by_idx(i, s.priority, std::move(P)); },
+                       [&](const std::string &name) { set_file_priority_by_name(name, s.priority, std::move(P)); }));
+  }
+  pending_set_file_priority_.clear();
+  torrent_.enable_write_to_files();
 }
 
 void NodeActor::loop_will_upload() {
@@ -192,35 +217,47 @@ std::string NodeActor::get_stats_str() {
   return sb.as_cslice().str();
 }
 
-void NodeActor::set_file_priority(size_t i, td::uint8 priority) {
-  auto o_files_count = torrent_.get_files_count();
-  if (!torrent_.inited_info() || !o_files_count) {
+void NodeActor::set_all_files_priority(td::uint8 priority, td::Promise<bool> promise) {
+  if (!header_ready_) {
+    pending_set_file_priority_.clear();
+    pending_set_file_priority_.push_back(PendingSetFilePriority{PendingSetFilePriority::All(), priority});
+    promise.set_result(false);
     return;
   }
-  auto files_count = o_files_count.unwrap();
-  if (file_priority_.size() != files_count) {
-    // by default all parts priority == 1
-    file_priority_.resize(files_count, 1);
+  auto header_range = torrent_.get_header_parts_range();
+  for (td::uint32 i = 0; i < torrent_.get_info().pieces_count(); i++) {
+    if (!header_range.contains(i)) {
+      parts_helper_.set_part_priority(i, priority);
+    }
   }
+  for (size_t i = 0; i < file_priority_.size(); ++i) {
+    file_priority_[i] = priority;
+    torrent_.set_file_excluded(i, priority == 0);
+  }
+  promise.set_result(true);
+  yield();
+}
 
+void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise) {
+  if (!header_ready_) {
+    pending_set_file_priority_.push_back(PendingSetFilePriority{i, priority});
+    promise.set_result(false);
+    return;
+  }
+  auto files_count = torrent_.get_files_count().unwrap();
   if (i >= files_count) {
-    for (td::uint32 part_i = 0; part_i < torrent_.get_info().pieces_count(); part_i++) {
-      parts_helper_.set_part_priority(part_i, priority);
-    }
-    for (auto &p : file_priority_) {
-      p = priority;
-    }
+    promise.set_error(td::Status::Error("File index is too big"));
     return;
   }
   if (file_priority_[i] == priority) {
+    promise.set_result(true);
     return;
   }
   file_priority_[i] = priority;
+  torrent_.set_file_excluded(i, priority == 0);
   auto range = torrent_.get_file_parts_range(i);
-  auto begin = static_cast<td::uint32>(range.begin);
-  auto end = static_cast<td::uint32>(range.end);
-  for (td::uint32 i = begin; i < end; i++) {
-    if (i == begin || i + 1 == end) {
+  for (auto i = range.begin; i < range.end; i++) {
+    if (i == range.begin || i + 1 == range.end) {
       auto chunks = torrent_.chunks_by_piece(i);
       td::uint8 max_priority = 0;
       for (auto chunk_id : chunks) {
@@ -235,7 +272,22 @@ void NodeActor::set_file_priority(size_t i, td::uint8 priority) {
       parts_helper_.set_part_priority(i, priority);
     }
   }
+  promise.set_result(true);
   yield();
+}
+
+void NodeActor::set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise) {
+  if (!header_ready_) {
+    pending_set_file_priority_.push_back(PendingSetFilePriority{name, priority});
+    promise.set_result(false);
+    return;
+  }
+  auto it = file_name_to_idx_.find(name);
+  if (it == file_name_to_idx_.end()) {
+    promise.set_error(td::Status::Error("No such file"));
+    return;
+  }
+  set_file_priority_by_idx(it->second, priority, std::move(promise));
 }
 
 void NodeActor::set_should_download(bool should_download) {
@@ -257,7 +309,6 @@ void NodeActor::loop_start_stop_peers() {
     }
 
     if (peer.actor.empty()) {
-      LOG(ERROR) << "Init Peer " << self_id_ << " -> " << peer_id;
       auto &state = peer.state = std::make_shared<PeerState>(peer.notifier.get());
       if (torrent_.inited_info()) {
         std::vector<td::uint32> node_ready_parts;
@@ -407,9 +458,11 @@ void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
 
     if (r_unit.is_ok()) {
       on_part_ready(part_id);
-    } else {
-      //LOG(ERROR) << "Failed " << part_id;
     }
+  }
+
+  if (!header_ready_ && torrent_.inited_info() && torrent_.inited_header()) {
+    init_torrent_header();
   }
 
   if (should_notify_peer) {

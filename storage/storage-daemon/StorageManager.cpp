@@ -178,26 +178,18 @@ void StorageManager::add_torrent_by_hash(td::Bits256 hash, std::string root_dir,
 }
 
 void StorageManager::set_active_download(td::Bits256 hash, bool active, td::Promise<td::Unit> promise) {
-  auto it = torrents_.find(hash);
-  if (it == torrents_.end()) {
-    promise.set_error(td::Status::Error("No such torrent"));
-    return;
-  }
-  if (it->second.active_download != active) {
-    it->second.active_download = active;
-    td::actor::send_closure(it->second.actor, &NodeActor::set_should_download, active);
-    db_store_torrent_short(it->second);
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  if (entry->active_download != active) {
+    entry->active_download = active;
+    td::actor::send_closure(entry->actor, &NodeActor::set_should_download, active);
+    db_store_torrent_short(*entry);
   }
   promise.set_result(td::Unit());
 }
 
 void StorageManager::with_torrent(td::Bits256 hash, td::Promise<NodeActor::NodeState> promise) {
-  auto it = torrents_.find(hash);
-  if (it == torrents_.end()) {
-    promise.set_error(td::Status::Error("No such torrent"));
-    return;
-  }
-  td::actor::send_closure(it->second.actor, &NodeActor::with_torrent, std::move(promise));
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::with_torrent, std::move(promise));
 }
 
 void StorageManager::get_all_torrents(td::Promise<std::vector<td::Bits256>> promise) {
@@ -246,4 +238,22 @@ void StorageManager::db_store_torrent_meta(td::Bits256 hash, TorrentMeta meta) {
   if (S.is_error()) {
     LOG(ERROR) << "Failed to save torrent meta of " << hash.to_hex() << " to db: " << S;
   }
+}
+
+void StorageManager::set_all_files_priority(td::Bits256 hash, td::uint8 priority, td::Promise<bool> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::set_all_files_priority, priority, std::move(promise));
+}
+
+void StorageManager::set_file_priority_by_idx(td::Bits256 hash, size_t idx, td::uint8 priority,
+                                              td::Promise<bool> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::set_file_priority_by_idx, idx, priority, std::move(promise));
+}
+
+void StorageManager::set_file_priority_by_name(td::Bits256 hash, std::string name, td::uint8 priority,
+                                               td::Promise<bool> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::set_file_priority_by_name, std::move(name), priority,
+                          std::move(promise));
 }

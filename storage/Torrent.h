@@ -96,6 +96,9 @@ class Torrent {
   struct PartsRange {
     td::uint64 begin{0};
     td::uint64 end{0};
+    bool contains(td::uint64 i) const {
+      return begin <= i && i < end;
+    }
   };
   PartsRange get_file_parts_range(size_t i);
   PartsRange get_header_parts_range() const;
@@ -118,6 +121,18 @@ class Torrent {
   }
   td::Status init_info(Info info);
 
+  void enable_write_to_files();
+  void set_file_excluded(size_t i, bool excluded);
+  bool file_is_excluded(size_t i) const {
+    return chunks_.at(i).excluded;
+  }
+  td::uint64 get_included_size() const {
+    return header_ ? included_size_ : info_.file_size;
+  }
+  td::uint64 get_included_ready_size() const {
+    return included_ready_size_;
+  }
+
  private:
   td::Bits256 hash_;
   bool inited_info_ = false;
@@ -130,6 +145,8 @@ class Torrent {
   size_t not_ready_pending_piece_count_{0};
   size_t header_pieces_count_{0};
   std::map<td::uint64, td::string> pending_pieces_;
+  bool enabled_wirte_to_files_ = false;
+  std::map<td::uint64, std::pair<size_t, td::string>> in_memory_pieces_; // Pieces that overlap excluded files
 
   ton::MerkleTree merkle_tree_;
 
@@ -143,6 +160,7 @@ class Torrent {
     td::uint64 size{0};
     td::uint64 ready_size{0};
     td::BlobView data;
+    bool excluded{false};
 
     struct Cache {
       td::uint64 offset{0};
@@ -166,6 +184,8 @@ class Torrent {
     TD_WARN_UNUSED_RESULT td::Status get_piece(td::MutableSlice dest, td::uint64 offset, Cache *cache = nullptr);
   };
   std::vector<ChunkState> chunks_;
+  td::uint64 included_size_{0};
+  td::uint64 included_ready_size_{0};
 
   explicit Torrent(td::Bits256 hash);
   explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk);
@@ -178,8 +198,9 @@ class Torrent {
   td::Status init_chunk_data(ChunkState &chunk);
   template <class F>
   td::Status iterate_piece(Info::PieceInfo piece, F &&f);
+  void add_pending_pieces();
 
-  td::Status add_header_piece(td::uint64 piece_i, td::Slice data);
+  td::Status add_pending_piece(td::uint64 piece_i, td::Slice data);
   td::Status add_validated_piece(td::uint64 piece_i, td::Slice data);
   void set_header(const TorrentHeader &header);
 };

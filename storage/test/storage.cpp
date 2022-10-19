@@ -984,6 +984,7 @@ TEST(Torrent, Meta) {
     torrent_file.header = {};
     torrent_file.root_proof = {};
     auto new_torrent = ton::Torrent::open(options, torrent_file).move_as_ok();
+    new_torrent.enable_write_to_files();
 
     std::vector<size_t> order;
     for (size_t i = 0; i < torrent.get_info().pieces_count(); i++) {
@@ -1038,6 +1039,7 @@ TEST(Torrent, OneFile) {
     ton::Torrent::Options options;
     options.root_dir = "second/";
     auto other_torrent = ton::Torrent::open(options, meta).move_as_ok();
+    other_torrent.enable_write_to_files();
     CHECK(!other_torrent.is_completed());
     other_torrent.add_piece(0, torrent.get_piece_data(0).move_as_ok(), torrent.get_piece_proof(0).move_as_ok())
         .ensure();

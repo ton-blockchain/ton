@@ -41,6 +41,10 @@ class StorageManager : public td::actor::Actor {
   void with_torrent(td::Bits256 hash, td::Promise<NodeActor::NodeState> promise);
   void get_all_torrents(td::Promise<std::vector<td::Bits256>> promise);
 
+  void set_all_files_priority(td::Bits256 hash, td::uint8 priority, td::Promise<bool> promise);
+  void set_file_priority_by_idx(td::Bits256 hash, size_t idx, td::uint8 priority, td::Promise<bool> promise);
+  void set_file_priority_by_name(td::Bits256 hash, std::string name, td::uint8 priority, td::Promise<bool> promise);
+
  private:
   adnl::AdnlNodeIdShort local_id_;
   std::string db_root_;
@@ -62,6 +66,14 @@ class StorageManager : public td::actor::Actor {
   std::map<td::Bits256, TorrentEntry> torrents_;
 
   td::Status add_torrent_impl(Torrent torrent, bool start_download);
+
+  td::Result<TorrentEntry*> get_torrent(td::Bits256 hash) {
+    auto it = torrents_.find(hash);
+    if (it == torrents_.end()) {
+      return td::Status::Error("No such torrent");
+    }
+    return &it->second;
+  }
 
   void got_torrent_meta_for_db(td::Bits256 hash, td::optional<TorrentMeta> meta);
 

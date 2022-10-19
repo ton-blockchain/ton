@@ -25,6 +25,7 @@
 #include "Torrent.h"
 
 #include "td/utils/Random.h"
+#include "td/utils/Variant.h"
 
 #include <map>
 
@@ -53,15 +54,19 @@ class NodeActor : public td::actor::Actor {
     bool active_download;
     double download_speed;
     double upload_speed;
+    const std::vector<td::uint8> &file_priority;
   };
   void with_torrent(td::Promise<NodeState> promise) {
     // TODO: Upload speed
-    promise.set_value(NodeState{torrent_, should_download_, download_.speed(), 0.0});
+    promise.set_value(NodeState{torrent_, should_download_, download_.speed(), 0.0, file_priority_});
   }
   std::string get_stats_str();
 
-  void set_file_priority(size_t i, td::uint8 priority);
   void set_should_download(bool should_download);
+
+  void set_all_files_priority(td::uint8 priority, td::Promise<bool> promise);
+  void set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise);
+  void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
 
  private:
   PeerId self_id_;
@@ -129,7 +134,17 @@ class NodeActor : public td::actor::Actor {
 
   td::Timestamp will_upload_at_;
 
+  struct PendingSetFilePriority {
+    struct All {};
+    td::Variant<All, size_t, std::string> file;
+    td::uint8 priority;
+  };
+  std::vector<PendingSetFilePriority> pending_set_file_priority_;
+  bool header_ready_ = false;
+  std::map<std::string, size_t> file_name_to_idx_;
+
   void init_torrent();
+  void init_torrent_header();
 
   void on_signal_from_peer(PeerId peer_id);
 

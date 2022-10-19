@@ -50,7 +50,6 @@ td::uint64 PeerActor::create_and_send_query(ArgsT &&... args) {
 
 td::uint64 PeerActor::send_query(td::BufferSlice query) {
   auto query_id = next_query_id_++;
-  //LOG(ERROR) << "send_query " << to_string(ton::fetch_tl_object<ton::ton_api::Function>(std::move(query), true).ok());
   callback_->send_query(query_id, std::move(query));
   return query_id;
 }
@@ -65,7 +64,6 @@ void PeerActor::notify_node() {
 
 void PeerActor::execute_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
   TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::ton_api::Function>(std::move(query), true));
-  //LOG(ERROR) << "execute_query " << to_string(f);
   ton::ton_api::downcast_call(
       *f, td::overloaded(
               [&](ton::ton_api::storage_ping &ping) {
@@ -393,7 +391,6 @@ void PeerActor::execute_add_update(ton::ton_api::storage_addUpdate &add_update, 
     notify_node();
   };
 
-  //LOG(ERROR) << "Got " << to_string(add_update);
   downcast_call(*add_update.update_,
                 td::overloaded(
                     [&](ton::ton_api::storage_updateHavePieces &have_pieces) {

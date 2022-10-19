@@ -112,7 +112,6 @@ class PeerManager : public td::actor::Actor {
   void unregister_src(ton::PeerId src, td::Promise<td::Unit> promise) {
     TRY_RESULT_PROMISE(promise, src_id, peer_to_andl(src));
     if (--subscribed_peers_[src] == 0) {
-      LOG(ERROR) << "Unsubscribe " << src_id;
       subscribed_peers_.erase(src);
       send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, src_id, overlay_id_.compute_short_id());
     }
@@ -143,7 +142,6 @@ class PeerManager : public td::actor::Actor {
         td::actor::ActorId<PeerManager> peer_manager_;
         ton::adnl::AdnlNodeIdShort dst_;
       };
-      LOG(ERROR) << "Subscribe " << src_id;
       send_closure(overlays_, &ton::overlay::Overlays::create_public_overlay, src_id, overlay_id_.clone(),
                    std::make_unique<Callback>(actor_id(this), src_id), rules, R"({ "type": "storage" })");
     }
@@ -160,7 +158,6 @@ class PeerManager : public td::actor::Actor {
   ton::PeerId register_adnl_id(ton::adnl::AdnlNodeIdShort id) {
     auto it = adnl_to_peer_id_.emplace(id, next_peer_id_);
     if (it.second) {
-      LOG(ERROR) << "Register AndlId " << id << " -> " << it.first->second;
       adnl_ids_.push_back(id);
       next_peer_id_++;
     }

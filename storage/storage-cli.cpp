@@ -140,7 +140,8 @@ class StorageCli : public td::actor::Actor {
 
     td::mkdir(options_.db_root).ignore();
     keyring_ = ton::keyring::Keyring::create(options_.db_root + "/keyring");
-    adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(td::narrow_cast<td::uint16>(options_.addr.get_port()));
+    adnl_network_manager_ =
+        ton::adnl::AdnlNetworkManager::create(td::narrow_cast<td::uint16>(options_.addr.get_port()));
     adnl_ = ton::adnl::Adnl::create(options_.db_root, keyring_.get());
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
     rldp_ = ton_rldp::Rldp::create(adnl_.get());
@@ -554,8 +555,11 @@ class StorageCli : public td::actor::Actor {
       return;
     }
     auto file_id_str = parser.read_word();
-    size_t file_id = std::numeric_limits<size_t>::max();
-    if (file_id_str != "*") {
+    size_t file_id = 0;
+    bool all = false;
+    if (file_id_str == "*") {
+      all = true;
+    } else {
       TRY_RESULT_PROMISE_ASSIGN(promise, file_id, td::to_integer_safe<std::size_t>(file_id_str));
     }
     TRY_RESULT_PROMISE(promise, priority, td::to_integer_safe<td::uint8>(parser.read_word()));
@@ -563,7 +567,13 @@ class StorageCli : public td::actor::Actor {
       promise.set_error(td::Status::Error("Priority = 255 is reserved"));
       return;
     }
-    send_closure(ptr->node, &ton::NodeActor::set_file_priority, file_id, priority);
+    if (all) {
+      send_closure(ptr->node, &ton::NodeActor::set_all_files_priority, priority,
+                   promise.wrap([](bool) { return td::Unit(); }));
+    } else {
+      send_closure(ptr->node, &ton::NodeActor::set_file_priority_by_idx, file_id, priority,
+                   promise.wrap([](bool) { return td::Unit(); }));
+    }
     promise.set_value(td::Unit());
   }
 
@@ -672,7 +682,8 @@ int main(int argc, char *argv[]) {
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
   });
   p.add_option('V', "version", "shows storage-cli build information", [&]() {
-    std::cout << "storage-cli build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "storage-cli build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('C', "config", "set ton config", [&](td::Slice arg) { options.config = arg.str(); });

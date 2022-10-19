@@ -208,6 +208,7 @@ void Torrent::validate() {
   std::fill(piece_is_ready_.begin(), piece_is_ready_.end(), false);
   not_ready_piece_count_ = info_.pieces_count();
 
+  included_ready_size_ = 0;
   for (auto &chunk : chunks_) {
     chunk.ready_size = 0;
     if (root_dir_) {
@@ -233,6 +234,9 @@ void Torrent::validate() {
       auto piece = info_.get_piece_info(piece_i);
       iterate_piece(piece, [&](auto it, auto info) {
         it->ready_size += info.size;
+        if (!it->excluded) {
+          included_ready_size_ += info.size;
+        }
         return td::Status::OK();
       });
       piece_is_ready_[piece_i] = true;
@@ -265,12 +269,10 @@ void Torrent::validate() {
       auto dest = buf.as_slice().truncate(info.size);
       TRY_STATUS(it->get_piece(dest, info.chunk_offset, &cache));
       sha256.feed(dest);
-      //LOG(ERROR) << dest;
       return td::Status::OK();
     });
     if (is_ok.is_error()) {
       LOG_IF(ERROR, !skipped) << "Failed: " << is_ok;
-      LOG(ERROR) << "Failed: " << is_ok;
       continue;
     }
     MerkleTree::Piece new_piece;
@@ -294,6 +296,10 @@ td::Result<std::string> Torrent::get_piece_data(td::uint64 piece_i) {
   if (it != pending_pieces_.end()) {
     return it->second;
   }
+  auto it2 = in_memory_pieces_.find(piece_i);
+  if (it2 != in_memory_pieces_.end()) {
+    return it2->second.second;
+  }
   auto piece = info_.get_piece_info(piece_i);
 
   std::string res(piece.size, '\0');
@@ -316,7 +322,6 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
     return td::Status::Error("Torrent info not inited");
   }
   TRY_STATUS(merkle_tree_.add_proof(proof));
-  //LOG(ERROR) << "Add piece #" << piece_i;
   CHECK(piece_i < info_.pieces_count());
   if (piece_is_ready_[piece_i]) {
     return td::Status::OK();
@@ -328,38 +333,56 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
   td::sha256(data, piece.hash.as_slice());
   TRY_STATUS(merkle_tree_.try_add_pieces({piece}));
 
-  if (chunks_.empty()) {
-    return add_header_piece(piece_i, data);
+  if (chunks_.empty() || !enabled_wirte_to_files_) {
+    return add_pending_piece(piece_i, data);
   }
 
   return add_validated_piece(piece_i, data);
 }
 
-td::Status Torrent::add_header_piece(td::uint64 piece_i, td::Slice data) {
+td::Status Torrent::add_pending_piece(td::uint64 piece_i, td::Slice data) {
   pending_pieces_[piece_i] = data.str();
 
   if (piece_i < header_pieces_count_) {
-    //LOG(ERROR) << "Add header piece #" << piece_i;
     auto piece = info_.get_piece_info(piece_i);
     auto dest = header_str_.as_slice().substr(piece.offset);
     data.truncate(dest.size());
     dest.copy_from(data);
     not_ready_pending_piece_count_--;
     if (not_ready_pending_piece_count_ == 0) {
-      //LOG(ERROR) << "Got full header";
       TorrentHeader header;
       TRY_STATUS(td::unserialize(header, header_str_.as_slice()));  // TODO: it is a fatal error
       set_header(header);
-      for (auto &it : pending_pieces_) {
-        TRY_STATUS(add_validated_piece(it.first, it.second));
+      if (enabled_wirte_to_files_) {
+        add_pending_pieces();
       }
-      pending_pieces_.clear();
     }
-  } else {
-    LOG(ERROR) << "PENDING";
   }
 
   return td::Status::OK();
+}
+
+void Torrent::enable_write_to_files() {
+  if (enabled_wirte_to_files_) {
+    return;
+  }
+  enabled_wirte_to_files_ = true;
+  if (header_) {
+    add_pending_pieces();
+  }
+}
+
+void Torrent::add_pending_pieces() {
+  for (auto it = pending_pieces_.begin(); it != pending_pieces_.end();) {
+    td::Status S = add_validated_piece(it->first, it->second);
+    if (S.is_ok()) {
+      it = pending_pieces_.erase(it);
+    } else {
+      // TODO: Process errors here
+      LOG(FATAL) << "Failed to add piece: " << S;
+      ++it;
+    }
+  }
 }
 
 std::string Torrent::get_chunk_path(td::Slice name) {
@@ -385,19 +408,29 @@ td::Status Torrent::add_validated_piece(td::uint64 piece_i, td::Slice data) {
   CHECK(!chunks_.empty());
 
   auto piece = info_.get_piece_info(piece_i);
+  size_t excluded_cnt = 0;
 
   TRY_STATUS(iterate_piece(piece, [&](auto it, auto info) {
+    if (it->excluded) {
+      ++excluded_cnt;
+      return td::Status::OK();
+    }
     TRY_STATUS(init_chunk_data(*it));
-    return it->add_piece(data.substr(info.piece_offset, info.size), info.chunk_offset);
+    TRY_STATUS(it->add_piece(data.substr(info.piece_offset, info.size), info.chunk_offset));
+    included_ready_size_ += info.size;
+    return td::Status::OK();
   }));
   piece_is_ready_[piece_i] = true;
   not_ready_piece_count_--;
+  if (excluded_cnt > 0) {
+    in_memory_pieces_[piece_i] = {excluded_cnt, data.str()};
+  }
 
   return td::Status::OK();
 }
 
 bool Torrent::is_completed() const {
-  return inited_info_ && not_ready_piece_count_ == 0;
+  return inited_info_ && enabled_wirte_to_files_ && included_ready_size_ == included_size_;
 }
 
 td::Result<td::BufferSlice> Torrent::read_file(td::Slice name) {
@@ -457,6 +490,7 @@ void Torrent::set_header(const TorrentHeader &header) {
     chunk.size = size;
     chunk.offset = offset;
     chunks_.push_back(std::move(chunk));
+    included_size_ += size;
   };
   add_chunk("", 0, header.serialization_size());
   chunks_.back().data = td::BufferSliceBlobView::create(header.serialize());
@@ -498,6 +532,39 @@ td::Status Torrent::init_info(Info info) {
   not_ready_pending_piece_count_ = header_pieces_count_;
   header_str_ = td::BufferSlice(info_.header_size);
   return td::Status::OK();
+}
+
+void Torrent::set_file_excluded(size_t i, bool excluded) {
+  CHECK(header_);
+  CHECK(i + 1 < chunks_.size());
+  if (!root_dir_) {
+    return;  // All files are in-memory, nothing to do
+  }
+  auto &chunk = chunks_[i + 1];
+  if (chunk.excluded == excluded) {
+    return;
+  }
+  included_size_ += (excluded ? -chunk.size : chunk.size);
+  included_ready_size_ += (excluded ? -chunk.ready_size : chunk.ready_size);
+  chunk.excluded = excluded;
+  if (!enabled_wirte_to_files_ || excluded) {
+    return;
+  }
+  auto range = get_file_parts_range(i);
+  for (auto it = in_memory_pieces_.lower_bound(range.begin); it != in_memory_pieces_.end() && it->first < range.end;) {
+    auto piece_i = it->first;
+    auto piece = info_.get_piece_info(piece_i);
+    auto l = td::max(chunk.offset, piece.offset);
+    auto r = td::min(chunk.offset + chunk.size, piece.offset + piece.size);
+    init_chunk_data(chunk).ensure(); // TODO: Process errors
+    chunk.add_piece(it->second.second.substr(l - piece.offset, r - l), l - chunk.offset).ensure();
+    included_ready_size_ += r - l;
+    if (--it->second.first == 0) {
+      it = in_memory_pieces_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 }  // namespace ton

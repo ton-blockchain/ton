@@ -44,12 +44,12 @@
 
 using namespace ton;
 
-td::BufferSlice create_query_error(std::string message) {
-  return create_serialize_tl_object<ton_api::storage_daemon_queryError>(std::move(message));
+td::BufferSlice create_query_error(td::CSlice message) {
+  return create_serialize_tl_object<ton_api::storage_daemon_queryError>(message.str());
 }
 
 td::BufferSlice create_query_error(td::Status error) {
-  return create_query_error(error.to_string());
+  return create_query_error(error.message());
 }
 
 class StorageDaemon : public td::actor::Actor {
@@ -290,14 +290,52 @@ class StorageDaemon : public td::actor::Actor {
   }
 
   void run_control_query(ton_api::storage_daemon_getTorrentMeta &query, td::Promise<td::BufferSlice> promise) {
-    td::actor::send_closure(manager_, &StorageManager::with_torrent, query.hash_, promise.wrap([](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
-      Torrent& torrent = state.torrent;
-      if (!torrent.inited_info()) {
-        return td::Status::Error("Torrent meta is not available");
-      }
-      std::string meta_str = torrent.get_meta(Torrent::GetMetaOptions().with_proof_depth_limit(10)).serialize();
-      return create_serialize_tl_object<ton_api::storage_daemon_torrentMeta>(td::BufferSlice(meta_str));
-    }));
+    td::actor::send_closure(
+        manager_, &StorageManager::with_torrent, query.hash_,
+        promise.wrap([](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
+          Torrent &torrent = state.torrent;
+          if (!torrent.inited_info()) {
+            return td::Status::Error("Torrent meta is not available");
+          }
+          std::string meta_str = torrent.get_meta(Torrent::GetMetaOptions().with_proof_depth_limit(10)).serialize();
+          return create_serialize_tl_object<ton_api::storage_daemon_torrentMeta>(td::BufferSlice(meta_str));
+        }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_setFilePriorityAll &query, td::Promise<td::BufferSlice> promise) {
+    TRY_RESULT_PROMISE(promise, priority, td::narrow_cast_safe<td::uint8>(query.priority_));
+    td::actor::send_closure(manager_, &StorageManager::set_all_files_priority, query.hash_, priority,
+                            promise.wrap([](bool done) -> td::Result<td::BufferSlice> {
+                              if (done) {
+                                return create_serialize_tl_object<ton_api::storage_daemon_prioritySet>();
+                              } else {
+                                return create_serialize_tl_object<ton_api::storage_daemon_priorityPending>();
+                              }
+                            }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_setFilePriorityByIdx &query, td::Promise<td::BufferSlice> promise) {
+    TRY_RESULT_PROMISE(promise, priority, td::narrow_cast_safe<td::uint8>(query.priority_));
+    td::actor::send_closure(manager_, &StorageManager::set_file_priority_by_idx, query.hash_, query.idx_, priority,
+                            promise.wrap([](bool done) -> td::Result<td::BufferSlice> {
+                              if (done) {
+                                return create_serialize_tl_object<ton_api::storage_daemon_prioritySet>();
+                              } else {
+                                return create_serialize_tl_object<ton_api::storage_daemon_priorityPending>();
+                              }
+                            }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_setFilePriorityByName &query, td::Promise<td::BufferSlice> promise) {
+    TRY_RESULT_PROMISE(promise, priority, td::narrow_cast_safe<td::uint8>(query.priority_));
+    td::actor::send_closure(manager_, &StorageManager::set_file_priority_by_name, query.hash_, std::move(query.name_),
+                            priority, promise.wrap([](bool done) -> td::Result<td::BufferSlice> {
+                              if (done) {
+                                return create_serialize_tl_object<ton_api::storage_daemon_prioritySet>();
+                              } else {
+                                return create_serialize_tl_object<ton_api::storage_daemon_priorityPending>();
+                              }
+                            }));
   }
 
   template <class T>
@@ -316,20 +354,22 @@ class StorageDaemon : public td::actor::Actor {
       obj.total_size_ = info.file_size;
       obj.description_ = info.description;
       if (obj.header_ready_) {
+        obj.included_size_ = torrent.get_included_size();
         auto count = torrent.get_files_count();
         obj.files_count_ = count ? count.value() : 0;
       } else {
         obj.files_count_ = 0;
       }
-      obj.downloaded_frac_ = (double)torrent.get_ready_parts_count() / (double)info.pieces_count();
+      obj.downloaded_size_ = torrent.get_included_ready_size();
       obj.completed_ = torrent.is_completed();
     } else {
       obj.info_ready_ = false;
       obj.header_ready_ = false;
       obj.total_size_ = 0;
+      obj.included_size_ = 0;
       obj.description_ = "";
       obj.files_count_ = 0;
-      obj.downloaded_frac_ = 0.0;
+      obj.downloaded_size_ = 0.0;
       obj.completed_ = false;
     }
   }
@@ -348,7 +388,7 @@ class StorageDaemon : public td::actor::Actor {
       auto file = create_tl_object<ton_api::storage_daemon_fileInfo>();
       file->name_ = torrent.get_file_name(i).str();
       file->size_ = torrent.get_file_size(i);
-      file->downloaded_frac_ = (file->size_ == 0 ? 1.0 : (double)torrent.get_file_ready_size(i) / (double)file->size_);
+      file->downloaded_size_ = torrent.get_file_ready_size(i);
       obj.files_.push_back(std::move(file));
     }
   }
@@ -384,6 +424,10 @@ class StorageDaemon : public td::actor::Actor {
                                 obj->torrent_->active_download_ = state.active_download;
                                 obj->torrent_->download_speed_ = state.download_speed;
                                 obj->torrent_->upload_speed_ = state.upload_speed;
+                                for (size_t i = 0; i < obj->files_.size(); ++i) {
+                                  obj->files_[i]->priority_ =
+                                      (i < state.file_priority.size() ? state.file_priority[i] : 1);
+                                }
                                 promise.set_result(serialize_tl_object(obj, true));
                               }
                             });
