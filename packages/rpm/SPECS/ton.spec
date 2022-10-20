@@ -15,7 +15,7 @@ A collection of The Open Network core software and utilities.
 %setup -q
 
 %build
-%define have_lib %( if [ -f lib ]; then echo "1" ; else echo "0"; fi )
+%define have_lib %( if [ -d lib ]; then echo "1" ; else echo "0"; fi )
 
 %install
 mkdir -p %{buildroot}/%{_bindir} %{buildroot}/%{_libdir}

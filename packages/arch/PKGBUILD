@@ -16,7 +16,7 @@ package() {
   cd "$srcdir"
   mkdir -p ${pkgdir}/usr/bin
   cp -a bin/* ${pkgdir}/usr/bin
-  if [ -f lib ]; then
+  if [ -d lib ]; then
     mkdir -p ${pkgdir}/usr/lib
     cp -a lib/* ${pkgdir}/usr/lib;
   fi
