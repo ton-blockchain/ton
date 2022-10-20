@@ -6,20 +6,12 @@
 #include "td/utils/base64.h"
 #include <utility>
 #include "vm/boc.h"
-#include "td/db/utils/BlobView.h"
-#include "vm/db/StaticBagOfCellsDb.h"
 #include "vm/cellslice.h"
-#include "vm/cells/MerkleUpdate.h"
 #include "vm/cp0.h"
 #include "pybind11/stl.h"
-#include "pybind11/complex.h"
-#include "pybind11/functional.h"
-#include "pybind11/chrono.h"
 #include "block/block.h"
 #include "block/block-parse.h"
-#include "block/block-auto.h"
 #include "td/utils/crypto.h"
-#include "td/utils/base64.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;  // to bring in the `_a` literal
@@ -35,49 +27,6 @@ std::string dump_as_boc(td::Ref<vm::Cell> root_cell) {
   auto s = td::base64_encode(std_boc_serialize(std::move(root_cell), 31).move_as_ok());
   return s;
 }
-//
-//td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
-//  // TODO: error codes
-//  // downcast_call
-//  return downcast_call2<td::Result<vm::StackEntry>>(
-//      entry,
-//      td::overloaded(
-//          [&](tonlib_api::tvm_stackEntryUnsupported& cell) { return td::Status::Error("Unsuppored stack entry"); },
-//          [&](tonlib_api::tvm_stackEntrySlice& cell) -> td::Result<vm::StackEntry> {
-//            TRY_RESULT(res, vm::std_boc_deserialize(cell.slice_->bytes_));
-//            auto slice = vm::load_cell_slice_ref(std::move(res));
-//            return vm::StackEntry{std::move(slice)};
-//          },
-//          [&](tonlib_api::tvm_stackEntryCell& cell) -> td::Result<vm::StackEntry> {
-//            TRY_RESULT(res, vm::std_boc_deserialize(cell.cell_->bytes_));
-//            return vm::StackEntry{std::move(res)};
-//          },
-//          [&](tonlib_api::tvm_stackEntryTuple& tuple) -> td::Result<vm::StackEntry> {
-//            std::vector<vm::StackEntry> elements;
-//            for (auto& element : tuple.tuple_->elements_) {
-//              TRY_RESULT(new_element, from_tonlib_api(*element));
-//              elements.push_back(std::move(new_element));
-//            }
-//            return td::Ref<vm::Tuple>(true, std::move(elements));
-//          },
-//          [&](tonlib_api::tvm_stackEntryList& tuple) -> td::Result<vm::StackEntry> {
-//            vm::StackEntry tail;
-//            for (auto& element : td::reversed(tuple.list_->elements_)) {
-//              TRY_RESULT(new_element, from_tonlib_api(*element));
-//              tail = vm::make_tuple_ref(std::move(new_element), std::move(tail));
-//            }
-//            return tail;
-//          },
-//          [&](tonlib_api::tvm_stackEntryNumber& number) -> td::Result<vm::StackEntry> {
-//            auto& dec = *number.number_;
-//            auto num = td::dec_string_to_int256(dec.number_);
-//            if (num.is_null()) {
-//              return td::Status::Error("Failed to parse dec string to int256");
-//            }
-//            return num;
-//          }));
-//}
-//
 
 // type converting utils
 td::Ref<vm::Cell> parseStringToCell(const std::string& base64string) {
