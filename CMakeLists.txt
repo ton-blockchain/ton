@@ -96,6 +96,7 @@ else()
 endif()
 option(TON_USE_ROCKSDB "Use \"ON\" to enable RocksDb." ${NOT_TON_ONLY_TONLIB})
 option(TON_USE_ABSEIL "Use \"ON\" to enable Abseil." ${NOT_TON_ONLY_TONLIB})
+option(TON_USE_PYTHON "Use \"ON\" to enable pybind11." OFF)
 option(TON_USE_JEMALLOC "Use \"ON\" to enable JeMalloc." OFF)
 #END internal
 
@@ -118,6 +119,11 @@ if (TON_USE_ABSEIL)
   set(ABSL_PROPAGATE_CXX_STD TRUE)
   add_subdirectory(third-party/abseil-cpp EXCLUDE_FROM_ALL)
   set(ABSL_FOUND 1)
+endif()
+
+if (TON_USE_PYTHON)
+  message("Add pybind11")
+  add_subdirectory(third-party/pybind11 EXCLUDE_FROM_ALL)
 endif()
 
 #add_subdirectory(third-party/libcuckoo EXCLUDE_FROM_ALL)
@@ -411,6 +417,10 @@ add_subdirectory(http)
 add_subdirectory(rldp-http-proxy)
 endif()
 #END internal
+
+if (TON_USE_PYTHON)
+  add_subdirectory(tvm-python)
+endif()
 
 if (NOT CMAKE_CROSSCOMPILING)
   if (TDUTILS_MIME_TYPE)
