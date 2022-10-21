@@ -12,6 +12,12 @@
 #include "block/block.h"
 #include "block/block-parse.h"
 #include "td/utils/crypto.h"
+#include "crypto/fift/Fift.h"
+#include "crypto/fift/IntCtx.h"
+#include "crypto/fift/words.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/PathView.h"
+#include "td/utils/port/path.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;  // to bring in the `_a` literal
@@ -174,6 +180,66 @@ class PythonLogger : public td::LogInterface {
 
 const int LOG_DEBUG = 2;
 const int LOG_INFO = 1;
+
+std::string code_disasseble(const std::string& code) {
+  auto codeCell = parseStringToCell(code);
+
+  fift::Fift::Config config;
+
+  config.source_lookup = fift::SourceLookup(std::make_unique<fift::OsFileLoader>());
+  config.source_lookup.add_include_path("./lib");
+
+  fift::init_words_common(config.dictionary);
+  fift::init_words_vm(config.dictionary);
+  fift::init_words_ton(config.dictionary);
+
+  fift::Fift fift(std::move(config));
+
+  std::stringstream ss;
+  std::stringstream output;
+
+  // TODO: add custom path to lib dir
+  const auto basePath = td::PathView(td::realpath(__FILE__).move_as_ok()).parent_dir().str() + "../crypto/fift/lib/";
+  const auto fiftLib = td::read_file_str(basePath + "Fift.fif");
+  const auto listsLib = td::read_file_str(basePath + "Lists.fif");
+  const auto disasmLib = td::read_file_str(basePath + "Disasm.fif");
+
+  // Fift.fif & Lists.fif & Disasm.fif
+  ss << fiftLib.ok();
+  ss << listsLib.ok();
+  ss << disasmLib.ok();
+  ss << "<s std-disasm disasm ";
+
+  fift::IntCtx ctx{ss, "stdin", "./", 0};
+  ctx.stack.push_cell(codeCell);
+
+  ctx.ton_db = &fift.config().ton_db;
+  ctx.source_lookup = &fift.config().source_lookup;
+  ctx.dictionary = ctx.context = ctx.main_dictionary = fift.config().dictionary;
+  ctx.output_stream = &output;
+  ctx.error_stream = fift.config().error_stream;
+
+  try {
+    auto res = ctx.run(td::make_ref<fift::InterpretCont>());
+    if (res.is_error()) {
+      std::cerr << "Disasm error: " << res.move_as_error().to_string();
+      throw std::invalid_argument("Error in disassembler");
+    } else {
+      auto disasm_out = output.str();
+      // cheap no-brainer
+      std::string_view pattern = " ok\n";
+      std::string::size_type n = pattern.length();
+      for (std::string::size_type i = disasm_out.find(pattern); i != std::string::npos; i = disasm_out.find(pattern)) {
+        disasm_out.erase(i, n);
+      }
+
+      return disasm_out;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Disasm error: " << e.what();
+    throw std::invalid_argument("Error in disassembler");
+  }
+}
 
 struct PyTVM {
   td::Ref<vm::Cell> code;
@@ -485,6 +551,7 @@ PYBIND11_MODULE(tvm_python, m) {
   });
 
   m.def("method_name_to_id", &method_name_to_id);
+  m.def("code_disasseble", &code_disasseble);
 
   py::class_<PyTVM>(m, "PyTVM")
       .def(py::init<int, std::string, std::string, bool, bool>(), py::arg("log_level") = 0, py::arg("code") = "",
