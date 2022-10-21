@@ -17,6 +17,7 @@ set(STORAGE_SOURCE
   TorrentInfo.cpp
   TorrentMeta.cpp
 
+  db.h
   Bitset.h
   LoadSpeed.h
   MerkleTree.h

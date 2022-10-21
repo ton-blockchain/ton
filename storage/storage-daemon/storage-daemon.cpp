@@ -73,8 +73,20 @@ class StorageDaemon : public td::actor::Actor {
       }
     }
     init_adnl();
-    init_control_interface();
-    manager_ = td::actor::create_actor<StorageManager>("storage", local_id_, db_root_ + "/torrent", adnl_.get(),
+
+    class Callback : public StorageManager::Callback {
+     public:
+      explicit Callback(td::actor::ActorId<StorageDaemon> actor) : actor_(std::move(actor)) {
+      }
+      void on_ready() override {
+        td::actor::send_closure(actor_, &StorageDaemon::init_control_interface);
+      }
+
+     private:
+      td::actor::ActorId<StorageDaemon> actor_;
+    };
+    manager_ = td::actor::create_actor<StorageManager>("storage", local_id_, db_root_ + "/torrent",
+                                                       td::make_unique<Callback>(actor_id(this)), adnl_.get(),
                                                        rldp_.get(), overlays_.get());
   }
 

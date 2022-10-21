@@ -25,13 +25,29 @@
 #include "td/utils/Enumerator.h"
 #include "td/utils/tests.h"
 #include "td/utils/overloaded.h"
+#include "tl-utils/common-utils.hpp"
+#include "tl-utils/tl-utils.hpp"
+#include "auto/tl/ton_api.hpp"
 
 namespace ton {
-NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, bool should_download)
+NodeActor::NodeActor(PeerId self_id, Torrent torrent, td::unique_ptr<Callback> callback, std::shared_ptr<db::DbType> db,
+                     bool should_download)
     : self_id_(self_id)
     , torrent_(std::move(torrent))
     , callback_(std::move(callback))
+    , db_(std::move(db))
     , should_download_(should_download) {
+}
+
+NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
+                     std::shared_ptr<db::DbType> db, bool should_download, DbInitialData db_initial_data)
+    : self_id_(self_id)
+    , torrent_(std::move(torrent))
+    , callback_(std::move(callback))
+    , db_(std::move(db))
+    , should_download_(should_download)
+    , pending_set_file_priority_(std::move(db_initial_data.priorities))
+    , pieces_in_db_(std::move(db_initial_data.pieces_in_db)) {
 }
 
 void NodeActor::start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise) {
@@ -51,6 +67,7 @@ void NodeActor::on_signal_from_peer(PeerId peer_id) {
 
 void NodeActor::start_up() {
   callback_->register_self(actor_id(this));
+  db_store_torrent();
   if (torrent_.inited_info()) {
     init_torrent();
   }
@@ -94,6 +111,7 @@ void NodeActor::init_torrent_header() {
   for (size_t i = 0; i < files_count; ++i) {
     file_name_to_idx_[torrent_.get_file_name(i).str()] = i;
   }
+  db_store_priorities_paused_ = true;
   file_priority_.resize(files_count, 1);
   for (auto &s : pending_set_file_priority_) {
     td::Promise<bool> P = [](td::Result<bool>) {};
@@ -104,6 +122,21 @@ void NodeActor::init_torrent_header() {
   }
   pending_set_file_priority_.clear();
   torrent_.enable_write_to_files();
+  db_store_priorities_paused_ = false;
+  db_store_priorities();
+
+  auto pieces = pieces_in_db_;
+  for (td::uint64 p : pieces) {
+    if (!torrent_.is_piece_in_memory(p)) {
+      db_erase_piece(p);
+    }
+  }
+  for (td::uint64 p : torrent_.get_pieces_in_memory()) {
+    if (!pieces_in_db_.count(p)) {
+      db_store_piece(p, torrent_.get_piece_data(p).move_as_ok());
+    }
+  }
+  db_update_pieces_list();
 }
 
 void NodeActor::loop_will_upload() {
@@ -168,9 +201,16 @@ void NodeActor::loop() {
     ready_parts_.clear();
   }
 
-  if (torrent_.is_completed() && !is_completed_) {
-    is_completed_ = true;
-    callback_->on_completed();
+  if (next_db_store_meta_at_ && next_db_store_meta_at_.is_in_past()) {
+    db_store_torrent_meta();
+  }
+
+  if (torrent_.is_completed()) {
+    db_store_torrent_meta();
+    if (!is_completed_) {
+      is_completed_ = true;
+      callback_->on_completed();
+    }
   }
 }
 
@@ -221,6 +261,7 @@ void NodeActor::set_all_files_priority(td::uint8 priority, td::Promise<bool> pro
   if (!header_ready_) {
     pending_set_file_priority_.clear();
     pending_set_file_priority_.push_back(PendingSetFilePriority{PendingSetFilePriority::All(), priority});
+    db_store_priorities();
     promise.set_result(false);
     return;
   }
@@ -234,6 +275,8 @@ void NodeActor::set_all_files_priority(td::uint8 priority, td::Promise<bool> pro
     file_priority_[i] = priority;
     torrent_.set_file_excluded(i, priority == 0);
   }
+  db_store_priorities();
+  update_pieces_in_db(0, torrent_.get_info().pieces_count());
   promise.set_result(true);
   yield();
 }
@@ -241,6 +284,7 @@ void NodeActor::set_all_files_priority(td::uint8 priority, td::Promise<bool> pro
 void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise) {
   if (!header_ready_) {
     pending_set_file_priority_.push_back(PendingSetFilePriority{i, priority});
+    db_store_priorities();
     promise.set_result(false);
     return;
   }
@@ -256,6 +300,8 @@ void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promi
   file_priority_[i] = priority;
   torrent_.set_file_excluded(i, priority == 0);
   auto range = torrent_.get_file_parts_range(i);
+  update_pieces_in_db(range.begin, range.end);
+  promise.set_result(true);
   for (auto i = range.begin; i < range.end; i++) {
     if (i == range.begin || i + 1 == range.end) {
       auto chunks = torrent_.chunks_by_piece(i);
@@ -272,6 +318,7 @@ void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promi
       parts_helper_.set_part_priority(i, priority);
     }
   }
+  db_store_priorities();
   promise.set_result(true);
   yield();
 }
@@ -279,6 +326,7 @@ void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promi
 void NodeActor::set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise) {
   if (!header_ready_) {
     pending_set_file_priority_.push_back(PendingSetFilePriority{name, priority});
+    db_store_priorities();
     promise.set_result(false);
     return;
   }
@@ -291,7 +339,11 @@ void NodeActor::set_file_priority_by_name(std::string name, td::uint8 priority, 
 }
 
 void NodeActor::set_should_download(bool should_download) {
+  if (should_download == should_download_) {
+    return;
+  }
   should_download_ = should_download;
+  db_store_torrent();
   yield();
 }
 
@@ -447,6 +499,7 @@ void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
     auto r_unit = p.second.move_fmap([&](PeerState::Part part) -> td::Result<td::Unit> {
       TRY_RESULT(proof, vm::std_boc_deserialize(part.proof));
       TRY_STATUS(torrent_.add_piece(part_id, part.data.as_slice(), std::move(proof)));
+      update_pieces_in_db(part_id, part_id + 1);
       download_.add(part.data.size(), td::Timestamp::now());
       return td::Unit();
     });
@@ -502,6 +555,326 @@ void NodeActor::got_torrent_info_str(td::BufferSlice data) {
   }
   init_torrent();
   loop();
+}
+
+void NodeActor::update_pieces_in_db(td::uint64 begin, td::uint64 end) {
+  if (!header_ready_) {
+    return;
+  }
+  bool changed = false;
+  for (auto i = begin; i < end; ++i) {
+    bool stored = pieces_in_db_.count(i);
+    bool need_store = torrent_.is_piece_in_memory(i);
+    if (need_store == stored) {
+      continue;
+    }
+    changed = true;
+    if (need_store) {
+      db_store_piece(i, torrent_.get_piece_data(i).move_as_ok());
+    } else {
+      db_erase_piece(i);
+    }
+  }
+  if (changed) {
+    db_update_pieces_list();
+  }
+}
+
+void NodeActor::db_store_torrent() {
+  if (!db_) {
+    return;
+  }
+  auto obj = create_tl_object<ton_api::storage_db_torrent>();
+  obj->active_download_ = should_download_;
+  obj->root_dir_ = torrent_.get_root_dir();
+  db_->set(create_hash_tl_object<ton_api::storage_db_key_torrent>(torrent_.get_hash()), serialize_tl_object(obj, true),
+           [](td::Result<td::Unit> R) {
+             if (R.is_error()) {
+               LOG(ERROR) << "Failed to save torrent to db: " << R.move_as_error();
+             }
+           });
+}
+
+void NodeActor::db_store_priorities() {
+  if (!db_ || db_store_priorities_paused_) {
+    return;
+  }
+  auto obj = create_tl_object<ton_api::storage_db_priorities>();
+  if (file_priority_.empty()) {
+    for (auto &s : pending_set_file_priority_) {
+      s.file.visit(td::overloaded(
+          [&](const PendingSetFilePriority::All &) {
+            obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_all>(s.priority));
+          },
+          [&](const size_t &i) {
+            obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_idx>(i, s.priority));
+          },
+          [&](const std::string &name) {
+            obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_name>(name, s.priority));
+          }));
+    }
+  } else {
+    size_t prior_cnt[256];
+    std::fill(prior_cnt, prior_cnt + 256, 0);
+    for (td::uint8 p : file_priority_) {
+      ++prior_cnt[p];
+    }
+    auto base_priority = (td::uint8)(std::max_element(prior_cnt, prior_cnt + 256) - prior_cnt);
+    obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_all>(base_priority));
+    for (size_t i = 0; i < file_priority_.size(); ++i) {
+      if (file_priority_[i] != base_priority) {
+        obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_idx>(i, file_priority_[i]));
+      }
+    }
+  }
+  db_->set(create_hash_tl_object<ton_api::storage_db_key_priorities>(torrent_.get_hash()),
+           serialize_tl_object(obj, true), [](td::Result<td::Unit> R) {
+             if (R.is_error()) {
+               LOG(ERROR) << "Failed to save torrent priorities to db: " << R.move_as_error();
+             }
+           });
+}
+
+void NodeActor::db_store_torrent_meta() {
+  if (!db_ || !torrent_.inited_info() || (td::int64)torrent_.get_ready_parts_count() == last_stored_meta_count_) {
+    after_db_store_torrent_meta(last_stored_meta_count_);
+    return;
+  }
+  next_db_store_meta_at_ = td::Timestamp::never();
+  auto meta = torrent_.get_meta_str();
+  db_->set(create_hash_tl_object<ton_api::storage_db_key_torrentMeta>(torrent_.get_hash()), td::BufferSlice(meta),
+           [new_count = (td::int64)torrent_.get_ready_parts_count(), SelfId = actor_id(this)](td::Result<td::Unit> R) {
+             if (R.is_error()) {
+               td::actor::send_closure(SelfId, &NodeActor::after_db_store_torrent_meta, R.move_as_error());
+             } else {
+               td::actor::send_closure(SelfId, &NodeActor::after_db_store_torrent_meta, new_count);
+             }
+           });
+}
+
+void NodeActor::after_db_store_torrent_meta(td::Result<td::int64> R) {
+  if (R.is_error()) {
+    LOG(ERROR) << "Failed to save torrent meta to db: " << R.move_as_error();
+  } else {
+    last_stored_meta_count_ = R.move_as_ok();
+  }
+  next_db_store_meta_at_ = td::Timestamp::in(td::Random::fast(10.0, 20.0));
+  alarm_timestamp().relax(next_db_store_meta_at_);
+}
+
+void NodeActor::db_store_piece(td::uint64 i, std::string s) {
+  pieces_in_db_.insert(i);
+  if (!db_) {
+    return;
+  }
+  db_->set(create_hash_tl_object<ton_api::storage_db_key_pieceInDb>(torrent_.get_hash(), i), td::BufferSlice(s),
+           [](td::Result<td::Unit> R) {
+             if (R.is_error()) {
+               LOG(ERROR) << "Failed to store piece to db: " << R.move_as_error();
+             }
+           });
+}
+
+void NodeActor::db_erase_piece(td::uint64 i) {
+  pieces_in_db_.erase(i);
+  if (!db_) {
+    return;
+  }
+  db_->erase(create_hash_tl_object<ton_api::storage_db_key_pieceInDb>(torrent_.get_hash(), i),
+             [](td::Result<td::Unit> R) {
+               if (R.is_error()) {
+                 LOG(ERROR) << "Failed to store piece to db: " << R.move_as_error();
+               }
+             });
+}
+
+void NodeActor::db_update_pieces_list() {
+  if (!db_) {
+    return;
+  }
+  auto obj = create_tl_object<ton_api::storage_db_piecesInDb>();
+  for (td::uint64 p : pieces_in_db_) {
+    obj->pieces_.push_back(p);
+  }
+  db_->set(create_hash_tl_object<ton_api::storage_db_key_piecesInDb>(torrent_.get_hash()),
+           serialize_tl_object(obj, true), [](td::Result<td::Unit> R) {
+             if (R.is_error()) {
+               LOG(ERROR) << "Failed to store list of pieces to db: " << R.move_as_error();
+             }
+           });
+}
+
+void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
+                             td::Promise<td::actor::ActorOwn<NodeActor>> promise) {
+  class Loader : public td::actor::Actor {
+   public:
+    Loader(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
+           td::Promise<td::actor::ActorOwn<NodeActor>> promise)
+        : db_(std::move(db)), hash_(hash), callback_(std::move(callback)), promise_(std::move(promise)) {
+    }
+
+    void finish(td::Result<td::actor::ActorOwn<NodeActor>> R) {
+      promise_.set_result(std::move(R));
+      stop();
+    }
+
+    void start_up() override {
+      db::db_get<ton_api::storage_db_torrent>(
+          *db_, create_hash_tl_object<ton_api::storage_db_key_torrent>(hash_), false,
+          [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_db_torrent>> R) {
+            if (R.is_error()) {
+              td::actor::send_closure(SelfId, &Loader::finish, R.move_as_error_prefix("Torrent: "));
+            } else {
+              td::actor::send_closure(SelfId, &Loader::got_torrent, R.move_as_ok());
+            }
+          });
+    }
+
+    void got_torrent(tl_object_ptr<ton_api::storage_db_torrent> obj) {
+      root_dir_ = std::move(obj->root_dir_);
+      active_download_ = obj->active_download_;
+      db_->get(create_hash_tl_object<ton_api::storage_db_key_torrentMeta>(hash_),
+               [SelfId = actor_id(this)](td::Result<db::DbType::GetResult> R) {
+                 if (R.is_error()) {
+                   td::actor::send_closure(SelfId, &Loader::finish, R.move_as_error_prefix("Meta: "));
+                   return;
+                 }
+                 auto r = R.move_as_ok();
+                 if (r.status == td::KeyValueReader::GetStatus::NotFound) {
+                   td::actor::send_closure(SelfId, &Loader::got_meta_str, td::optional<td::BufferSlice>());
+                 } else {
+                   td::actor::send_closure(SelfId, &Loader::got_meta_str, std::move(r.value));
+                 }
+               });
+    }
+
+    void got_meta_str(td::optional<td::BufferSlice> meta_str) {
+      auto r_torrent = [&]() -> td::Result<Torrent> {
+        Torrent::Options options;
+        options.root_dir = std::move(root_dir_);
+        options.in_memory = false;
+        options.validate = false;
+        if (meta_str) {
+          TRY_RESULT(meta, TorrentMeta::deserialize(meta_str.value().as_slice()));
+          options.validate = (bool)meta.header;
+          options.validate_check = true;
+          return Torrent::open(std::move(options), std::move(meta));
+        } else {
+          return Torrent::open(std::move(options), hash_);
+        }
+      }();
+      if (r_torrent.is_error()) {
+        finish(r_torrent.move_as_error());
+        return;
+      }
+      torrent_ = r_torrent.move_as_ok();
+
+      db::db_get<ton_api::storage_db_priorities>(
+          *db_, create_hash_tl_object<ton_api::storage_db_key_priorities>(hash_), true,
+          [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_db_priorities>> R) {
+            if (R.is_error()) {
+              td::actor::send_closure(SelfId, &Loader::finish, R.move_as_error_prefix("Priorities: "));
+            } else {
+              td::actor::send_closure(SelfId, &Loader::got_priorities, R.move_as_ok());
+            }
+          });
+    }
+
+    void got_priorities(tl_object_ptr<ton_api::storage_db_priorities> priorities) {
+      if (priorities != nullptr) {
+        for (auto &p : priorities->actions_) {
+          td::Variant<PendingSetFilePriority::All, size_t, std::string> file;
+          int priority = 0;
+          ton_api::downcast_call(*p, td::overloaded(
+                                         [&](ton_api::storage_db_priorityAction_all &obj) {
+                                           file = PendingSetFilePriority::All();
+                                           priority = obj.priority_;
+                                         },
+                                         [&](ton_api::storage_db_priorityAction_idx &obj) {
+                                           file = (size_t)obj.idx_;
+                                           priority = obj.priority_;
+                                         },
+                                         [&](ton_api::storage_db_priorityAction_name &obj) {
+                                           file = std::move(obj.name_);
+                                           priority = obj.priority_;
+                                         }));
+          auto R = td::narrow_cast_safe<td::uint8>(priority);
+          if (R.is_error()) {
+            LOG(ERROR) << "Invalid priority in db: " << R.move_as_error();
+            continue;
+          }
+          priorities_.push_back(PendingSetFilePriority{std::move(file), R.move_as_ok()});
+        }
+      }
+
+      db::db_get<ton_api::storage_db_piecesInDb>(
+          *db_, create_hash_tl_object<ton_api::storage_db_key_piecesInDb>(hash_), true,
+          [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_db_piecesInDb>> R) {
+            if (R.is_error()) {
+              td::actor::send_closure(SelfId, &Loader::finish, R.move_as_error_prefix("Pieces in db: "));
+            } else {
+              td::actor::send_closure(SelfId, &Loader::got_pieces_in_db, R.move_as_ok());
+            }
+          });
+    }
+
+    void got_pieces_in_db(tl_object_ptr<ton_api::storage_db_piecesInDb> list) {
+      for (auto idx : list == nullptr ? std::vector<td::int64>() : list->pieces_) {
+        ++remaining_pieces_in_db_;
+        db_->get(create_hash_tl_object<ton_api::storage_db_key_pieceInDb>(hash_, idx),
+                 [SelfId = actor_id(this), idx](td::Result<db::DbType::GetResult> R) {
+                   if (R.is_error()) {
+                     td::actor::send_closure(SelfId, &Loader::finish, R.move_as_error_prefix("Piece in db: "));
+                     return;
+                   }
+                   auto r = R.move_as_ok();
+                   td::optional<td::BufferSlice> piece;
+                   if (r.status == td::KeyValueReader::GetStatus::Ok) {
+                     piece = std::move(r.value);
+                   }
+                   td::actor::send_closure(SelfId, &Loader::got_piece_in_db, idx, std::move(piece));
+                 });
+      }
+      if (remaining_pieces_in_db_ == 0) {
+        finished_db_read();
+      }
+    }
+
+    void got_piece_in_db(size_t idx, td::optional<td::BufferSlice> data) {
+      if (data) {
+        auto r_proof = torrent_.value().get_piece_proof(idx);
+        if (r_proof.is_ok()) {
+          torrent_.value().add_piece(idx, data.unwrap(), r_proof.move_as_ok());
+        }
+        pieces_in_db_.insert(idx);
+      }
+      if (--remaining_pieces_in_db_ == 0) {
+        finished_db_read();
+      }
+    }
+
+    void finished_db_read() {
+      DbInitialData data;
+      data.priorities = std::move(priorities_);
+      data.pieces_in_db = std::move(pieces_in_db_);
+      finish(td::actor::create_actor<NodeActor>("Node", 1, torrent_.unwrap(), std::move(callback_), std::move(db_),
+                                                active_download_, std::move(data)));
+    }
+
+   private:
+    std::shared_ptr<db::DbType> db_;
+    td::Bits256 hash_;
+    td::unique_ptr<Callback> callback_;
+    td::Promise<td::actor::ActorOwn<NodeActor>> promise_;
+
+    std::string root_dir_;
+    bool active_download_{false};
+    td::optional<Torrent> torrent_;
+    std::vector<PendingSetFilePriority> priorities_;
+    std::set<td::uint64> pieces_in_db_;
+    size_t remaining_pieces_in_db_ = 0;
+  };
+  td::actor::create_actor<Loader>("loader", std::move(db), hash, std::move(callback), std::move(promise)).release();
 }
 
 }  // namespace ton

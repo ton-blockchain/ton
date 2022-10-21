@@ -742,12 +742,20 @@ validatorSession.stats id:tonNode.blockId timestamp:long self:int256 creator:int
 
 ---types---
 
-storage.daemon.db.key.torrentList = storage.daemon.db.key.TorrentList;
-storage.daemon.db.key.torrentShort hash:int256 = storage.daemon.db.key.TorrentShort;
-storage.daemon.db.key.torrentMeta hash:int256 = storage.daemon.db.key.TorrentMeta;
+storage.db.key.torrentList = storage.db.key.TorrentList;
+storage.db.key.torrent hash:int256 = storage.db.key.TorrentShort;
+storage.db.key.torrentMeta hash:int256 = storage.db.key.TorrentMeta;
+storage.db.key.priorities hash:int256 = storage.db.key.Priorities;
+storage.db.key.piecesInDb hash:int256 = storage.db.key.PiecesInDb;
+storage.db.key.pieceInDb hash:int256 idx:long = storage.db.key.PieceInDb;
 
-storage.daemon.db.torrentShort root_dir:string active_download:Bool = storage.daemon.db.TorrentShort;
-storage.daemon.db.torrentList torrents:(vector int256) = storage.daemon.db.TorrentList;
+storage.db.torrentList torrents:(vector int256) = storage.db.TorrentList;
+storage.db.torrent root_dir:string active_download:Bool = storage.db.TorrentShort;
+storage.db.priorityAction.all priority:int = storage.db.PriorityAction;
+storage.db.priorityAction.idx idx:long priority:int = storage.db.PriorityAction;
+storage.db.priorityAction.name name:string priority:int = storage.db.PriorityAction;
+storage.db.priorities actions:(vector storage.db.PriorityAction) = storage.db.Priorities;
+storage.db.piecesInDb pieces:(vector long) = storage.db.PiecesInDb;
 
 storage.daemon.queryError message:string = storage.daemon.QueryError;
 storage.daemon.success = storage.daemon.Success;

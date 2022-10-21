@@ -28,6 +28,7 @@
 #include "td/utils/Variant.h"
 
 #include <map>
+#include "db.h"
 
 namespace ton {
 class NodeActor : public td::actor::Actor {
@@ -46,7 +47,20 @@ class NodeActor : public td::actor::Actor {
     virtual void on_closed(ton::Torrent torrent) = 0;
   };
 
-  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, bool should_download = true);
+  struct PendingSetFilePriority {
+    struct All {};
+    td::Variant<All, size_t, std::string> file;
+    td::uint8 priority;
+  };
+  struct DbInitialData {
+    std::vector<PendingSetFilePriority> priorities;
+    std::set<td::uint64> pieces_in_db;
+  };
+
+  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, std::shared_ptr<db::DbType> db,
+            bool should_download = true);
+  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, std::shared_ptr<db::DbType> db,
+            bool should_download, DbInitialData db_initial_data);
   void start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise);
 
   struct NodeState {
@@ -68,12 +82,16 @@ class NodeActor : public td::actor::Actor {
   void set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise);
   void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
 
+  static void load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
+                           td::Promise<td::actor::ActorOwn<NodeActor>> promise);
+
  private:
   PeerId self_id_;
   ton::Torrent torrent_;
   std::shared_ptr<td::BufferSlice> torrent_info_str_;
   std::vector<td::uint8> file_priority_;
   td::unique_ptr<Callback> callback_;
+  std::shared_ptr<db::DbType> db_;
   bool should_download_{false};
 
   class Notifier : public td::actor::Actor {
@@ -134,14 +152,13 @@ class NodeActor : public td::actor::Actor {
 
   td::Timestamp will_upload_at_;
 
-  struct PendingSetFilePriority {
-    struct All {};
-    td::Variant<All, size_t, std::string> file;
-    td::uint8 priority;
-  };
   std::vector<PendingSetFilePriority> pending_set_file_priority_;
   bool header_ready_ = false;
   std::map<std::string, size_t> file_name_to_idx_;
+  std::set<td::uint64> pieces_in_db_;
+  bool db_store_priorities_paused_ = false;
+  td::int64 last_stored_meta_count_ = -1;
+  td::Timestamp next_db_store_meta_at_ = td::Timestamp::now();
 
   void init_torrent();
   void init_torrent_header();
@@ -159,8 +176,6 @@ class NodeActor : public td::actor::Actor {
   static constexpr size_t MAX_TOTAL_QUERIES = 20;
   static constexpr size_t MAX_PEER_TOTAL_QUERIES = 5;
   void loop_queries();
-  bool try_send_query();
-  bool try_send_part(PartId part_id);
   void loop_get_peers();
   void got_peers(td::Result<std::vector<PeerId>> r_peers);
   void loop_peer(const PeerId &peer_id, Peer &peer);
@@ -169,5 +184,15 @@ class NodeActor : public td::actor::Actor {
   void loop_will_upload();
 
   void got_torrent_info_str(td::BufferSlice data);
+
+  void update_pieces_in_db(td::uint64 begin, td::uint64 end);
+
+  void db_store_torrent();
+  void db_store_priorities();
+  void db_store_torrent_meta();
+  void after_db_store_torrent_meta(td::Result<td::int64> R);
+  void db_store_piece(td::uint64 i, std::string s);
+  void db_erase_piece(td::uint64 i);
+  void db_update_pieces_list();
 };
 }  // namespace ton

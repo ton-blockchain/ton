@@ -1338,14 +1338,15 @@ TEST(Torrent, Peer) {
     auto peer_manager = td::actor::create_actor<PeerManager>("PeerManager");
     guard->push_back(td::actor::create_actor<ton::NodeActor>(
         "Node#1", 1, std::move(torrent),
-        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2), stop_watcher, complete_watcher)));
+        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2), stop_watcher, complete_watcher), nullptr));
     for (size_t i = 2; i <= peers_n; i++) {
       ton::Torrent::Options options;
       options.in_memory = true;
       auto other_torrent = ton::Torrent::open(options, ton::TorrentMeta(info)).move_as_ok();
       auto node_actor = td::actor::create_actor<ton::NodeActor>(
           PSLICE() << "Node#" << i, i, std::move(other_torrent),
-          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2), stop_watcher, complete_watcher));
+          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2), stop_watcher, complete_watcher),
+          nullptr);
 
       if (i == 3) {
         td::actor::create_actor<StatsActor>("StatsActor", node_actor.get()).release();

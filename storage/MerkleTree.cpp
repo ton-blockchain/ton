@@ -358,4 +358,35 @@ td::Status MerkleTree::do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir
   TRY_STATUS(do_gen_proof(cs.fetch_ref(), ic + 1, ir, l, r));
   return td::Status::OK();
 }
+
+std::map<size_t, td::Bits256> MerkleTree::get_known_hashes() {
+  std::map<size_t, td::Bits256> result;
+  if (root_proof_.is_null()) {
+    return result;
+  }
+  vm::CellSlice cs(vm::NoVm(), root_proof_);
+  CHECK(cs.special_type() == vm::Cell::SpecialType::MerkleProof);
+  auto root = cs.fetch_ref();
+  do_get_known_hashes(root, 0, n_ - 1, result);
+  return result;
+}
+
+void MerkleTree::do_get_known_hashes(td::Ref<vm::Cell> node, size_t l, size_t r,
+                                     std::map<size_t, td::Bits256> &result) {
+  if (l >= total_blocks_) {
+    return;
+  }
+  vm::CellSlice cs(vm::NoVm(), std::move(node));
+  if (cs.is_special()) {
+    return;
+  }
+  if (l == r) {
+    CHECK(cs.fetch_bits_to(result[l].bits(), 256));
+    return;
+  }
+  CHECK(cs.size_refs() == 2);
+  size_t c = (l + r) / 2;
+  do_get_known_hashes(cs.fetch_ref(), l, c, result);
+  do_get_known_hashes(cs.fetch_ref(), c + 1, r, result);
+}
 }  // namespace ton

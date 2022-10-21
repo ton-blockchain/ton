@@ -25,6 +25,7 @@
 #include "td/db/utils/BlobView.h"
 
 #include <map>
+#include <set>
 
 namespace ton {
 class Torrent {
@@ -37,13 +38,14 @@ class Torrent {
     std::string root_dir;
     bool in_memory{false};
     bool validate{false};
+    bool validate_check{false};
   };
 
   // creation
   static td::Result<Torrent> open(Options options, td::Bits256 hash);
   static td::Result<Torrent> open(Options options, TorrentMeta meta);
   static td::Result<Torrent> open(Options options, td::Slice meta_str);
-  void validate();
+  void validate(bool check = false);
 
   std::string get_stats_str() const;
 
@@ -131,6 +133,17 @@ class Torrent {
   }
   td::uint64 get_included_ready_size() const {
     return included_ready_size_;
+  }
+
+  bool is_piece_in_memory(td::uint64 i) const {
+    return in_memory_pieces_.count(i);
+  }
+  std::set<td::uint64> get_pieces_in_memory() const {
+    std::set<td::uint64> pieces;
+    for (const auto& p : in_memory_pieces_) {
+      pieces.insert(p.first);
+    }
+    return pieces;
   }
 
  private:

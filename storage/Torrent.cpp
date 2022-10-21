@@ -67,7 +67,7 @@ td::Result<Torrent> Torrent::open(Options options, TorrentMeta meta) {
     res.set_root_dir(options.root_dir);
   }
   if (options.validate) {
-    res.validate();
+    res.validate(options.validate_check);
   }
   return std::move(res);
 }
@@ -202,7 +202,7 @@ std::string Torrent::get_stats_str() const {
   return sb.as_cslice().str();
 }
 
-void Torrent::validate() {
+void Torrent::validate(bool check) {
   CHECK(inited_info_ && header_);
 
   std::fill(piece_is_ready_.begin(), piece_is_ready_.end(), false);
@@ -221,9 +221,21 @@ void Torrent::validate() {
 
   std::vector<td::UInt256> hashes;
   std::vector<MerkleTree::Piece> pieces;
+  std::map<size_t, td::Bits256> known_hashes;
+  if (check) {
+    known_hashes = merkle_tree_.get_known_hashes();
+  }
 
   auto flush = [&] {
     td::Bitset bitmask;
+    if (check) {
+      pieces.erase(std::remove_if(pieces.begin(), pieces.end(),
+                                  [&](MerkleTree::Piece &p) {
+                                    auto it = known_hashes.find(p.index);
+                                    return it == known_hashes.end() || it->second != p.hash;
+                                  }),
+                   pieces.end());
+    }
     merkle_tree_.add_pieces(pieces, bitmask);
     for (size_t i = 0; i < pieces.size(); i++) {
       if (!bitmask.get(i)) {
@@ -556,7 +568,7 @@ void Torrent::set_file_excluded(size_t i, bool excluded) {
     auto piece = info_.get_piece_info(piece_i);
     auto l = td::max(chunk.offset, piece.offset);
     auto r = td::min(chunk.offset + chunk.size, piece.offset + piece.size);
-    init_chunk_data(chunk).ensure(); // TODO: Process errors
+    init_chunk_data(chunk).ensure();  // TODO: Process errors
     chunk.add_piece(it->second.second.substr(l - piece.offset, r - l), l - chunk.offset).ensure();
     included_ready_size_ += r - l;
     if (--it->second.first == 0) {

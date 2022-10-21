@@ -24,6 +24,7 @@
 #include "vm/cells.h"
 
 #include "Bitset.h"
+#include <map>
 
 namespace ton {
 // merkle_node$_ {n:#} left:^(ton::MerkleTree n) right:^(ton::MerkleTree n) = ton::MerkleTree (n + 1);
@@ -55,6 +56,8 @@ class MerkleTree {
   // generate proof for all pieces from l to r inclusive
   td::Result<td::Ref<vm::Cell>> gen_proof(size_t l, size_t r);
 
+  std::map<size_t, td::Bits256> get_known_hashes();
+
   // Trying to add and validate list of pieces simultaniously
   td::Status try_add_pieces(td::Span<Piece> pieces);
 
@@ -73,7 +76,7 @@ class MerkleTree {
   std::size_t n_;  // n = 2^log_n
   td::uint32 log_n_;
   std::size_t mark_id_{0};
-  std::vector<std::size_t> mark_;          // n_ * 2
+  std::vector<std::size_t> mark_;         // n_ * 2
   std::vector<td::Ref<vm::Cell>> proof_;  // n_ * 2
 
   td::optional<td::Bits256> root_hash_;
@@ -91,6 +94,7 @@ class MerkleTree {
   td::Status do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir, size_t l, size_t r) const;
   void do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) const;
   td::Status validate_existing_piece(const Piece &piece);
+  void do_get_known_hashes(td::Ref<vm::Cell> node, size_t l, size_t r, std::map<size_t, td::Bits256> &result);
 };
 
 }  // namespace ton

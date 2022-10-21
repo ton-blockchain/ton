@@ -20,17 +20,23 @@
 #include "rldp2/rldp.h"
 #include "overlay/overlays.h"
 #include "storage/PeerManager.h"
-#include "td/db/KeyValue.h"
+#include "db.h"
 
 using namespace ton;
 
 class StorageManager : public td::actor::Actor {
  public:
-  StorageManager(adnl::AdnlNodeIdShort local_id, std::string db_root, td::actor::ActorId<adnl::Adnl> adnl,
-                 td::actor::ActorId<ton_rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays);
+  class Callback {
+   public:
+    virtual ~Callback() = default;
+    virtual void on_ready() = 0;
+  };
+
+  StorageManager(adnl::AdnlNodeIdShort local_id, std::string db_root, td::unique_ptr<Callback> callback,
+                 td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<ton_rldp::Rldp> rldp,
+                 td::actor::ActorId<overlay::Overlays> overlays);
 
   void start_up() override;
-  void alarm() override;
 
   void add_torrent(Torrent torrent, bool start_download, td::Promise<td::Unit> promise);
   void add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, td::Promise<td::Unit> promise);
@@ -48,17 +54,15 @@ class StorageManager : public td::actor::Actor {
  private:
   adnl::AdnlNodeIdShort local_id_;
   std::string db_root_;
+  td::unique_ptr<Callback> callback_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<ton_rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
 
-  std::shared_ptr<td::KeyValue> db_;
-  td::Bits256 save_meta_ptr_ = td::Bits256::zero();
+  std::shared_ptr<db::DbType> db_;
 
   struct TorrentEntry {
     td::Bits256 hash;
-    std::string root_dir;
-    bool active_download;
     td::actor::ActorOwn<NodeActor> actor;
     td::actor::ActorOwn<PeerManager> peer_manager;
   };
@@ -75,10 +79,8 @@ class StorageManager : public td::actor::Actor {
     return &it->second;
   }
 
-  void got_torrent_meta_for_db(td::Bits256 hash, td::optional<TorrentMeta> meta);
-
-  std::vector<td::Bits256> db_load_torrent_list();
+  void load_torrents_from_db(std::vector<td::Bits256> torrents);
+  void loaded_torrent_from_db(td::Bits256 hash, td::Result<td::actor::ActorOwn<NodeActor>> R);
+  void after_load_torrents_from_db();
   void db_store_torrent_list();
-  void db_store_torrent_short(const TorrentEntry& entry);
-  void db_store_torrent_meta(td::Bits256 hash, TorrentMeta meta);
 };
