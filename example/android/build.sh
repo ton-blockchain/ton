@@ -34,7 +34,7 @@ cd build-$ARCH
 
 
 cmake .. \
-  -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DANDROID_ABI=${ABI} -DOPENSSL_ROOT_DIR=${OPENSSL_DIR} -DOPENSSL_SSL_LIBRARY=${OPENSSL_DIR}/libssl.a -DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_DIR}/lib/libcrypto.a -DOPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include -DTON_ARCH="" -DTON_ONLY_TONLIB=ON || exit 1
+  -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DANDROID_ABI=${ABI} -DOPENSSL_ROOT_DIR=${OPENSSL_DIR}/${ARCH} -DTON_ARCH="" -DTON_ONLY_TONLIB=ON || exit 1
 ninja native-lib || exit 1
 popd
 
