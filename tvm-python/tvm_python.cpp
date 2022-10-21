@@ -18,6 +18,7 @@
 #include "td/utils/filesystem.h"
 #include "td/utils/PathView.h"
 #include "td/utils/port/path.h"
+#include "crypto/common/refint.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;  // to bring in the `_a` literal
@@ -256,7 +257,7 @@ struct PyTVM {
   long long c7_blocklt = 0;
   long long c7_translt = 0;
   long long c7_randseed = 0;
-  long long c7_balanceRemainingGrams = 100000;
+  td::RefInt256 c7_balanceRemainingGrams = td::make_refint(101000000000);
   std::string c7_myaddress;
   std::string c7_globalConfig;
 
@@ -270,13 +271,14 @@ struct PyTVM {
   std::string new_data_out;
   std::string actions_out;
 
-  void set_c7(int c7_unixtime_, int c7_blocklt_, int c7_translt_, int c7_randseed_, int c7_balanceRemainingGrams_,
-              const std::string& c7_myaddress_, const std::string& c7_globalConfig_) {
+  void set_c7(int c7_unixtime_, int c7_blocklt_, int c7_translt_, int c7_randseed_,
+              const std::string& c7_balanceRemainingGrams_, const std::string& c7_myaddress_,
+              const std::string& c7_globalConfig_) {
     c7_unixtime = c7_unixtime_;
     c7_blocklt = c7_blocklt_;
     c7_translt = c7_translt_;
     c7_randseed = c7_randseed_;
-    c7_balanceRemainingGrams = c7_balanceRemainingGrams_;
+    c7_balanceRemainingGrams = td::dec_string_to_int256(c7_balanceRemainingGrams_);
     c7_myaddress = c7_myaddress_;
     c7_globalConfig = c7_globalConfig_;
   }
@@ -485,7 +487,7 @@ struct PyTVM {
     std::vector<py::object> pyStack;
 
     auto stack = vm_local.get_stack();
-    for (auto idx = stack.depth() - 1; idx >= 0 ; idx--) {
+    for (auto idx = stack.depth() - 1; idx >= 0; idx--) {
       log_debug("Parse stack item #" + std::to_string(idx));
       pyStack.push_back(cast_stack_item_to_python_object(stack.at(idx)));
     }
@@ -563,7 +565,7 @@ PYBIND11_MODULE(tvm_python, m) {
       .def("set_gasLimit", &PyTVM::set_gasLimit, py::arg("gas_limit") = 0, py::arg("gas_max") = -1)
       .def("run_vm", &PyTVM::run_vm)
       .def("set_c7", &PyTVM::set_c7, py::arg("unixtime") = 0, py::arg("blocklt") = 0, py::arg("translt") = 0,
-           py::arg("randseed") = 0, py::arg("balanceGrams") = 0, py::arg("address") = "", py::arg("globalConfig") = "")
+           py::arg("randseed") = 0, py::arg("balanceGrams") = "", py::arg("address") = "", py::arg("globalConfig") = "")
 
       .def_property("exit_code", &PyTVM::get_exit_code, &PyTVM::dummy_set)
       .def_property("vm_steps", &PyTVM::get_vm_steps, &PyTVM::dummy_set)
