@@ -113,7 +113,10 @@ var_uint$_ {n:#} len:(#< n) value:(uint (len * 8))
          = VarUInteger n;
 var_int$_ {n:#} len:(#< n) value:(int (len * 8)) 
         = VarInteger n;
-nanograms$_ amount:(VarUInteger 16) = Grams;  
+nanograms$_ amount:(VarUInteger 16) = Grams;
+
+_ grams:Grams = Coins;
+
 //
 extra_currencies$_ dict:(HashmapE 32 (VarUInteger 32)) 
                  = ExtraCurrencyCollection;
@@ -757,6 +760,14 @@ _ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
 _ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
 _ OracleBridgeParams = ConfigParam 73; // Polygon bridge
 
+jetton_bridge_params#_ bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 burn_bridge_fee:Coins = JettonBridgeParams;
+
+
+_ OracleBridgeParams = ConfigParam 79; // ETH->TON token bridge
+_ OracleBridgeParams = ConfigParam 80; // BNB->TON token bridge
+_ OracleBridgeParams = ConfigParam 81; // Polygon->TON token bridge
+
+
 //
 //  PROOFS
 //
@@ -883,4 +894,3 @@ chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
 
 
 chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
-
