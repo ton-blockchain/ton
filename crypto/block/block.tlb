@@ -765,6 +765,7 @@ jetton_bridge_params#_ bridge_address:bits256 oracles_address:bits256 oracles:(H
 
 _ OracleBridgeParams = ConfigParam 79; // ETH->TON token bridge
 _ OracleBridgeParams = ConfigParam 80; // BNB->TON token bridge
+_ OracleBridgeParams = ConfigParam 81; // Polygon->TON token bridge
 
 
 //
