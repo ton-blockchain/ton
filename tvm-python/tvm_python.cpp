@@ -368,7 +368,6 @@ struct PyTVM {
     auto iter = py::iter(std::move(stack));
     while (iter != py::iterator::sentinel()) {
       auto value = *iter;
-      py::print("got value: ", value);
       auto parsedStackItem = cast_python_item_to_stack_entry(value);
       stackVm.push(parsedStackItem);
       ++iter;
@@ -486,7 +485,7 @@ struct PyTVM {
     std::vector<py::object> pyStack;
 
     auto stack = vm_local.get_stack();
-    for (auto idx = 0; idx < stack.depth(); idx++) {
+    for (auto idx = stack.depth() - 1; idx >= 0 ; idx--) {
       log_debug("Parse stack item #" + std::to_string(idx));
       pyStack.push_back(cast_stack_item_to_python_object(stack.at(idx)));
     }
