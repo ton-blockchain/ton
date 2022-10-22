@@ -67,7 +67,7 @@ td::Result<Torrent> Torrent::open(Options options, TorrentMeta meta) {
     res.set_root_dir(options.root_dir);
   }
   if (options.validate) {
-    res.validate(options.validate_check);
+    res.validate();
   }
   return std::move(res);
 }
@@ -202,8 +202,10 @@ std::string Torrent::get_stats_str() const {
   return sb.as_cslice().str();
 }
 
-void Torrent::validate(bool check) {
-  CHECK(inited_info_ && header_);
+void Torrent::validate() {
+  if (!inited_info_ && !header_) {
+    return;
+  }
 
   std::fill(piece_is_ready_.begin(), piece_is_ready_.end(), false);
   not_ready_piece_count_ = info_.pieces_count();
@@ -220,29 +222,10 @@ void Torrent::validate(bool check) {
   }
 
   std::vector<td::UInt256> hashes;
-  std::vector<MerkleTree::Piece> pieces;
-  std::map<size_t, td::Bits256> known_hashes;
-  if (check) {
-    known_hashes = merkle_tree_.get_known_hashes();
-  }
+  std::vector<std::pair<size_t, td::Bits256>> pieces;
 
   auto flush = [&] {
-    td::Bitset bitmask;
-    if (check) {
-      pieces.erase(std::remove_if(pieces.begin(), pieces.end(),
-                                  [&](MerkleTree::Piece &p) {
-                                    auto it = known_hashes.find(p.index);
-                                    return it == known_hashes.end() || it->second != p.hash;
-                                  }),
-                   pieces.end());
-    }
-    merkle_tree_.add_pieces(pieces, bitmask);
-    for (size_t i = 0; i < pieces.size(); i++) {
-      if (!bitmask.get(i)) {
-        continue;
-      }
-
-      auto piece_i = pieces[i].index;
+    for (size_t piece_i : merkle_tree_.add_pieces(std::move(pieces))) {
       auto piece = info_.get_piece_info(piece_i);
       iterate_piece(piece, [&](auto it, auto info) {
         it->ready_size += info.size;
@@ -253,11 +236,9 @@ void Torrent::validate(bool check) {
       });
       piece_is_ready_[piece_i] = true;
       ready_parts_count_++;
-
       CHECK(not_ready_piece_count_);
       not_ready_piece_count_--;
     }
-
     hashes.clear();
     pieces.clear();
   };
@@ -287,11 +268,9 @@ void Torrent::validate(bool check) {
       LOG_IF(ERROR, !skipped) << "Failed: " << is_ok;
       continue;
     }
-    MerkleTree::Piece new_piece;
-    new_piece.index = piece_i;
-    sha256.extract(new_piece.hash.as_slice());
-
-    pieces.push_back(new_piece);
+    td::Bits256 hash;
+    sha256.extract(hash.as_slice());
+    pieces.emplace_back(piece_i, hash);
   }
   flush();
 }
@@ -338,17 +317,18 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
   if (piece_is_ready_[piece_i]) {
     return td::Status::OK();
   }
+  td::Bits256 hash;
+  td::sha256(data, hash.as_slice());
+  TRY_RESULT(expected_hash, merkle_tree_.get_piece_hash(piece_i));
+  if (expected_hash != hash) {
+    return td::Status::Error("Hash mismatch");
+  }
   piece_is_ready_[piece_i] = true;
   ready_parts_count_++;
-  ton::MerkleTree::Piece piece;
-  piece.index = piece_i;
-  td::sha256(data, piece.hash.as_slice());
-  TRY_STATUS(merkle_tree_.try_add_pieces({piece}));
 
   if (chunks_.empty() || !enabled_wirte_to_files_) {
     return add_pending_piece(piece_i, data);
   }
-
   return add_validated_piece(piece_i, data);
 }
 

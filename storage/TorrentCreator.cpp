@@ -115,11 +115,9 @@ td::Result<Torrent> Torrent::Creator::finalize() {
 
   auto header_size = header.serialization_size();
   auto file_size = header_size + data_offset;
-  auto chunks_count = (file_size + options_.piece_size - 1) / options_.piece_size;
-  ton::MerkleTree tree;
-  tree.init_begin(chunks_count);
+  auto pieces_count = (file_size + options_.piece_size - 1) / options_.piece_size;
   std::vector<Torrent::ChunkState> chunks;
-  size_t chunk_i = 0;
+  std::vector<td::Bits256> pieces;
   auto flush_reader = [&](bool force) {
     while (true) {
       auto slice = reader.prepare_read();
@@ -127,16 +125,14 @@ td::Result<Torrent> Torrent::Creator::finalize() {
       if (slice.empty() || (slice.size() != options_.piece_size && !force)) {
         break;
       }
-      td::UInt256 hash;
+      td::Bits256 hash;
       sha256(slice, hash.as_slice());
-      CHECK(chunk_i < chunks_count);
-      tree.init_add_piece(chunk_i, hash.as_slice());
-      chunk_i++;
+      pieces.push_back(hash);
       reader.confirm_read(slice.size());
     }
   };
   td::uint64 offset = 0;
-  auto add_blob = [&](auto &&data, td::Slice name) {
+  auto add_blob = [&](auto data, td::Slice name) {
     td::uint64 data_offset = 0;
     while (data_offset < data.size()) {
       auto dest = writer.prepare_write();
@@ -172,15 +168,15 @@ td::Result<Torrent> Torrent::Creator::finalize() {
     add_blob(std::move(file.data), file.name).ensure();
   }
   flush_reader(true);
-  tree.init_finish();
-  CHECK(chunk_i == chunks_count);
+  CHECK(pieces.size() == pieces_count);
   CHECK(offset == file_size);
+  MerkleTree tree(std::move(pieces));
 
   info.header_size = header.serialization_size();
   info.piece_size = options_.piece_size;
   info.description = options_.description;
   info.file_size = file_size;
-  info.depth = tree.get_depth();
+  info.depth = (td::uint32)tree.get_depth();
   info.root_hash = tree.get_root_hash();
 
   info.init_cell();

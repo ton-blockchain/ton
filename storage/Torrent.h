@@ -38,14 +38,13 @@ class Torrent {
     std::string root_dir;
     bool in_memory{false};
     bool validate{false};
-    bool validate_check{false};
   };
 
   // creation
   static td::Result<Torrent> open(Options options, td::Bits256 hash);
   static td::Result<Torrent> open(Options options, TorrentMeta meta);
   static td::Result<Torrent> open(Options options, td::Slice meta_str);
-  void validate(bool check = false);
+  void validate();
 
   std::string get_stats_str() const;
 

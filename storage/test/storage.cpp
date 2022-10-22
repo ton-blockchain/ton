@@ -777,7 +777,7 @@ TEST(Rldp, Main) {
 
   RldpBasicTest::run(Options::create(1, 100 * MegaByte, NetChannel::Options::perfect_net()));
 }
-
+/*
 TEST(MerkleTree, Manual) {
   td::Random::Xorshift128plus rnd(123);
   // create big random file
@@ -900,7 +900,7 @@ TEST(MerkleTree, Stress) {
       }
     }
   }
-};
+};*/
 
 struct TorrentMetas {
   td::optional<ton::Torrent> torrent;
@@ -1315,12 +1315,11 @@ TEST(Torrent, Peer) {
       alarm_timestamp() = td::Timestamp::in(1);
     }
     void alarm() override {
-      send_closure(node_actor_, &ton::NodeActor::with_torrent, [](td::Result<ton::Torrent *> r_torrent) {
-        if (r_torrent.is_error()) {
+      send_closure(node_actor_, &ton::NodeActor::with_torrent, [](td::Result<ton::NodeActor::NodeState> r_state) {
+        if (r_state.is_error()) {
           return;
         }
-        auto torrent = r_torrent.move_as_ok();
-        print_debug(torrent);
+        print_debug(&r_state.ok().torrent);
       });
       alarm_timestamp() = td::Timestamp::in(4);
     }

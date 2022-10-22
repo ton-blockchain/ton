@@ -756,8 +756,7 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
         options.validate = false;
         if (meta_str) {
           TRY_RESULT(meta, TorrentMeta::deserialize(meta_str.value().as_slice()));
-          options.validate = (bool)meta.header;
-          options.validate_check = true;
+          options.validate = true;
           return Torrent::open(std::move(options), std::move(meta));
         } else {
           return Torrent::open(std::move(options), hash_);
