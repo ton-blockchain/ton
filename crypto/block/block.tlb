@@ -763,9 +763,9 @@ _ OracleBridgeParams = ConfigParam 73; // Polygon bridge
 jetton_bridge_params#_ bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 burn_bridge_fee:Coins = JettonBridgeParams;
 
 
-_ OracleBridgeParams = ConfigParam 79; // ETH->TON token bridge
-_ OracleBridgeParams = ConfigParam 80; // BNB->TON token bridge
-_ OracleBridgeParams = ConfigParam 81; // Polygon->TON token bridge
+_ JettonBridgeParams = ConfigParam 79; // ETH->TON token bridge
+_ JettonBridgeParams = ConfigParam 80; // BNB->TON token bridge
+_ JettonBridgeParams = ConfigParam 81; // Polygon->TON token bridge
 
 
 //
