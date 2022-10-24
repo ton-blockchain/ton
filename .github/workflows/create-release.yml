@@ -18,7 +18,7 @@ jobs:
     secrets: inherit
 
   create-release:
-    needs: [compile-ubuntu, compile-windows, compile-macos]
+    needs: [compile-ubuntu]
     runs-on: ubuntu-22.04
 
     steps:
@@ -64,7 +64,7 @@ jobs:
       - name: Download artifact
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ${{ github.event.workflow_run.workflow_id }}
+          workflow: ./.github/workflows/ubuntu-18.04-compile.yml
           path: artifacts
           workflow_conclusion: success
 
