@@ -25,14 +25,19 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y.%m')"
 
+      - name: Get registration token
+        id: getRegToken
+        run: |
+          curl -X POST -H \"Accept: application/vnd.github.v3+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/neodiX42/HardTestDevelopment/actions/runners/registration-token
+
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ github.run_number }}-${{ steps.myref.outputs.date }}
-          release_name: v${{ github.run_number }}-${{ steps.myref.outputs.date }}
+          tag_name: v${{ github.run_number }}-${{ steps.date.outputs.date }}
+          release_name: v${{ github.run_number }}-${{ steps.date.outputs.date }}
           body: |
             ${{ steps.read_release.outputs.CHANGELOG_BODY }}
           draft: false
