@@ -54,6 +54,19 @@ jobs:
 
       - name: Show all artifacts
         run: |
+          mkdir artifacts
+          ls -lart artifacts
+
+      - name: Download artifact
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ${{ github.event.workflow_run.workflow_id }}
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Show all artifacts
+        run: |
+          mkdir artifacts
           ls -lart artifacts
 
       - name: Upload artifacts
