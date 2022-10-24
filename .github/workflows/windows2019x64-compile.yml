@@ -1,8 +1,6 @@
 name: Windows Server 2019 x64 Compile
 
-on:
-  workflow_dispatch:
-  push:
+on: [push,workflow_dispatch,workflow_call]
 
 defaults:
   run:
