@@ -5,11 +5,12 @@ on: [workflow_dispatch]
 permissions: write-all
 
 jobs:
-  call-ubuntu:
+  compile-ubuntu:
     uses: ./.github/workflows/ubuntu-18.04-compile.yml
     secrets: inherit
 
-  build:
+  create-release:
+    needs: compile-ubuntu
     runs-on: ubuntu-22.04
 
     steps:
