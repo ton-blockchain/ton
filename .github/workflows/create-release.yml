@@ -18,7 +18,7 @@ jobs:
     secrets: inherit
 
   create-release:
-    needs: [compile-ubuntu]
+    needs: [compile-ubuntu, compile-windows, compile-macos ]
     runs-on: ubuntu-22.04
 
     steps:
@@ -61,23 +61,36 @@ jobs:
           mkdir artifacts
           ls -lart artifacts
 
-      - name: Download artifact
+      - name: Download Ubuntu artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: ubuntu-18.04-compile.yml
           path: artifacts
           workflow_conclusion: success
 
+      - name: Download Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: windows2019x64-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Download MacOS artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: windows2019x64-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+
       - name: Show all artifacts
         run: |
-          mkdir artifacts
           ls -lart artifacts
 
       - name: Upload Ubuntu artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-binaries
+          file: artifacts/ton-binaries/*
           asset_name: ton-ubuntu-binaries
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
@@ -87,7 +100,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-win64-binaries
+          file: artifacts/ton-win64-binaries/*
           asset_name: ton-win64-binaries
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
@@ -97,7 +110,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-macos-binaries
+          file: artifacts/ton-macos-binaries/*
           asset_name: ton-macos-binaries
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
