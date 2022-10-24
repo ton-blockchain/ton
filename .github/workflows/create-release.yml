@@ -28,7 +28,7 @@ jobs:
       - name: Get registration token
         id: getRegToken
         run: |
-          curl -X POST -H \"Accept: application/vnd.github.v3+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/neodiX42/HardTestDevelopment/actions/runners/registration-token
+          curl -X POST -H \"Accept: application/vnd.github+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/neodix42/HardTestDevelopment/actions/runners/registration-token
 
       - name: Create release
         id: create_release
