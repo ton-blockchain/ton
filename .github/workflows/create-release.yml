@@ -13,8 +13,12 @@ jobs:
     uses: ./.github/workflows/windows2019x64-compile.yml
     secrets: inherit
 
+  compile-macos:
+    uses: ./.github/workflows/windows2019x64-compile.yml
+    secrets: inherit
+
   create-release:
-    needs: [compile-ubuntu, compile-windows]
+    needs: [compile-ubuntu, compile-windows, compile-macos]
     runs-on: ubuntu-22.04
 
     steps:
@@ -69,12 +73,32 @@ jobs:
           mkdir artifacts
           ls -lart artifacts
 
-      - name: Upload artifacts
+      - name: Upload Ubuntu artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/*
-          asset_name: ubuntu-fift
+          file: artifacts/ton-binaries
+          asset_name: ton-ubuntu-binaries
+          tag: v${{ steps.date.outputs.date }}
+          overwrite: true
+          file_glob: true
+
+      - name: Upload Windows artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win64-binaries
+          asset_name: ton-win64-binaries
+          tag: v${{ steps.date.outputs.date }}
+          overwrite: true
+          file_glob: true
+
+      - name: Upload MacOS artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-macos-binaries
+          asset_name: ton-macos-binaries
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
           file_glob: true
