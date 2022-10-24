@@ -1,0 +1,38 @@
+name: Create release
+
+on: [workflow_dispatch]
+
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Read Changelog.md and use it as a body of new release
+        id: read_release
+        shell: bash
+        run: |
+          r=$(cat Changelog.md)
+          r="${r//'%'/'%25'}"
+          r="${r//$'\n'/'%0A'}"
+          r="${r//$'\r'/'%0D'}"
+          echo "::set-output name=CHANGELOG_BODY::$r"
+
+      - name: Get current date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y.%m')"
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}-${{ steps.myref.outputs.date }}
+          release_name: v${{ github.run_number }}-${{ steps.myref.outputs.date }}
+          body: |
+            ${{ steps.read_release.outputs.CHANGELOG_BODY }}
+          draft: false
+          prerelease: false
