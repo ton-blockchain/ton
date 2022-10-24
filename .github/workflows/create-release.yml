@@ -64,7 +64,7 @@ jobs:
       - name: Download artifact
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ./.github/workflows/ubuntu-18.04-compile.yml
+          workflow: ubuntu-18.04-compile.yml
           path: artifacts
           workflow_conclusion: success
 
