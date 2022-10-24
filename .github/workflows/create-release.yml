@@ -36,8 +36,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ github.run_number }}-${{ steps.date.outputs.date }}
-          release_name: v${{ github.run_number }}-${{ steps.date.outputs.date }}
+          tag_name: v${{ steps.date.outputs.date }}
+          release_name: v${{ steps.date.outputs.date }}
           body: |
             ${{ steps.read_release.outputs.CHANGELOG_BODY }}
           draft: false
