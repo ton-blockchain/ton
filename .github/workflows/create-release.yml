@@ -5,6 +5,10 @@ on: [workflow_dispatch]
 permissions: write-all
 
 jobs:
+  call-ubuntu:
+    uses: ./.github/workflows/ubuntu-18.04-compile.yml
+    secrets: inherit
+
   build:
     runs-on: ubuntu-22.04
 
@@ -42,3 +46,12 @@ jobs:
             ${{ steps.read_release.outputs.CHANGELOG_BODY }}
           draft: false
           prerelease: false
+
+      - name: Upload artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/fift
+          asset_name: ubuntus
+          tag: v${{ steps.date.outputs.date }}
+          overwrite: true
