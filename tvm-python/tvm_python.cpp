@@ -568,7 +568,7 @@ PYBIND11_MODULE(tvm_python, m) {
 
   py::class_<PyTVM>(m, "PyTVM")
       .def(py::init<int, std::string, std::string, bool, bool, bool>(), py::arg("log_level") = 0, py::arg("code") = "",
-           py::arg("data") = "", py::arg("allow_debug") = false, py::arg("same_c3") = true, py::arg("skip_c7") = true)
+           py::arg("data") = "", py::arg("allow_debug") = false, py::arg("same_c3") = true, py::arg("skip_c7") = false)
       .def_property("code", &PyTVM::get_code, &PyTVM::set_code)
       .def_property("data", &PyTVM::set_data, &PyTVM::get_data)
       .def("set_stack", &PyTVM::set_stack)
