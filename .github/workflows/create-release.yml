@@ -18,7 +18,7 @@ jobs:
     secrets: inherit
 
   create-release:
-    needs: [ compile-windows ]
+    needs: [ compile-windows, compile-ubuntu, compile-macos ]
     runs-on: ubuntu-22.04
 
     steps:
