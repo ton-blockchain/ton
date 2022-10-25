@@ -92,16 +92,6 @@ jobs:
 
 # upload artifacts to release
 
-      - name: Upload Ubuntu artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-binaries/*
-          asset_name: ton-ubuntu-binaries
-          tag: v${{ steps.date.outputs.date }}
-          overwrite: true
-          file_glob: true
-
       - name: Upload Windows artifacts
         uses: svenstaro/upload-release-action@v2
         with:
@@ -121,3 +111,14 @@ jobs:
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
           file_glob: true
+
+      - name: Upload Ubuntu artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-binaries/*
+          asset_name: ton-ubuntu-binaries
+          tag: v${{ steps.date.outputs.date }}
+          overwrite: true
+          file_glob: true
+

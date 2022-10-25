@@ -17,7 +17,7 @@ jobs:
           systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 
       - name: Check out current repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: 'recursive'
 
@@ -70,6 +70,8 @@ jobs:
           mkdir artifacts
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
           copy build\tonlib\Release\tonlibjson.dll artifacts
+          xcopy /e /k /h /i crypto\smartcont artifacts
+          xcopy /e /k /h /i crypto\fift\ lib artifacts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
