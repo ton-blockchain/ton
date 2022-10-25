@@ -71,7 +71,7 @@ jobs:
           for /f %%a in ('dir *.exe /b /a /s') do copy /Y %%a artifacts
           copy build\tonlib\Release\tonlibjson.dll artifacts
           xcopy /e /k /h /i crypto\smartcont artifacts
-          xcopy /e /k /h /i crypto\fift\ lib artifacts
+          xcopy /e /k /h /i crypto\fift\lib artifacts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
