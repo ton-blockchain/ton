@@ -74,13 +74,13 @@ void StorageManager::load_torrents_from_db(std::vector<td::Bits256> torrents) {
     auto& entry = torrents_[hash];
     entry.peer_manager =
         td::actor::create_actor<PeerManager>("PeerManager", local_id_, get_overlay_id(hash), overlays_, adnl_, rldp_);
-    NodeActor::load_from_db(db_, hash, PeerManager::create_callback(entry.peer_manager.get()),
-                            [SelfId = actor_id(this), hash,
-                             promise = ig.get_promise()](td::Result<td::actor::ActorOwn<NodeActor>> R) mutable {
-                              td::actor::send_closure(SelfId, &StorageManager::loaded_torrent_from_db, hash,
-                                                      std::move(R));
-                              promise.set_result(td::Unit());
-                            });
+    NodeActor::load_from_db(
+        db_, hash, create_callback(hash, entry.closing_state), PeerManager::create_callback(entry.peer_manager.get()),
+        [SelfId = actor_id(this), hash,
+         promise = ig.get_promise()](td::Result<td::actor::ActorOwn<NodeActor>> R) mutable {
+          td::actor::send_closure(SelfId, &StorageManager::loaded_torrent_from_db, hash, std::move(R));
+          promise.set_result(td::Unit());
+        });
   }
 }
 
@@ -102,6 +102,29 @@ void StorageManager::after_load_torrents_from_db() {
   callback_->on_ready();
 }
 
+td::unique_ptr<NodeActor::Callback> StorageManager::create_callback(
+    td::Bits256 hash, std::shared_ptr<TorrentEntry::ClosingState> closing_state) {
+  class Callback : public NodeActor::Callback {
+   public:
+    Callback(td::actor::ActorId<StorageManager> id, td::Bits256 hash,
+             std::shared_ptr<TorrentEntry::ClosingState> closing_state)
+        : id_(std::move(id)), hash_(hash), closing_state_(std::move(closing_state)) {
+    }
+    void on_completed() override {
+    }
+    void on_closed(Torrent torrent) override {
+      CHECK(torrent.get_hash() == hash_);
+      td::actor::send_closure(id_, &StorageManager::on_torrent_closed, std::move(torrent), closing_state_);
+    }
+
+   private:
+    td::actor::ActorId<StorageManager> id_;
+    td::Bits256 hash_;
+    std::shared_ptr<TorrentEntry::ClosingState> closing_state_;
+  };
+  return td::make_unique<Callback>(actor_id(this), hash, std::move(closing_state));
+}
+
 void StorageManager::add_torrent(Torrent torrent, bool start_download, td::Promise<td::Unit> promise) {
   TRY_STATUS_PROMISE(promise, add_torrent_impl(std::move(torrent), start_download));
   db_store_torrent_list();
@@ -120,7 +143,8 @@ td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download
   auto context = PeerManager::create_callback(entry.peer_manager.get());
   LOG(INFO) << "Added torrent " << hash.to_hex() << " , root_dir = " << torrent.get_root_dir();
   entry.actor =
-      td::actor::create_actor<NodeActor>("Node", 1, std::move(torrent), std::move(context), db_, start_download);
+      td::actor::create_actor<NodeActor>("Node", 1, std::move(torrent), create_callback(hash, entry.closing_state),
+                                         std::move(context), db_, start_download);
   return td::Status::OK();
 }
 
@@ -190,4 +214,35 @@ void StorageManager::set_file_priority_by_name(td::Bits256 hash, std::string nam
   TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
   td::actor::send_closure(entry->actor, &NodeActor::set_file_priority_by_name, std::move(name), priority,
                           std::move(promise));
+}
+
+void StorageManager::remove_torrent(td::Bits256 hash, bool remove_files, td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  LOG(INFO) << "Removing torrent " << hash.to_hex();
+  entry->closing_state->removing = true;
+  entry->closing_state->remove_files = remove_files;
+  entry->closing_state->promise = std::move(promise);
+  torrents_.erase(hash);
+  db_store_torrent_list();
+}
+
+void StorageManager::on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentEntry::ClosingState> closing_state) {
+  if (!closing_state->removing) {
+    return;
+  }
+  if (closing_state->remove_files && torrent.inited_header()) {
+    size_t files_count = torrent.get_files_count().unwrap();
+    for (size_t i = 0; i < files_count; ++i) {
+      std::string path = torrent.get_file_path(i);
+      td::unlink(path).ignore();
+      // TODO: Check errors, remove empty directories
+    }
+  }
+  NodeActor::cleanup_db(db_, torrent.get_hash(),
+                        [promise = std::move(closing_state->promise)](td::Result<td::Unit> R) mutable {
+                          if (R.is_error()) {
+                            LOG(ERROR) << "Failed to cleanup database: " << R.move_as_error();
+                          }
+                          promise.set_result(td::Unit());
+                        });
 }

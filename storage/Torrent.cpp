@@ -377,8 +377,12 @@ void Torrent::add_pending_pieces() {
   }
 }
 
-std::string Torrent::get_chunk_path(td::Slice name) {
+std::string Torrent::get_chunk_path(td::Slice name) const {
   return PSTRING() << root_dir_.value() << TD_DIR_SLASH << header_.value().dir_name << TD_DIR_SLASH << name;
+}
+
+std::string Torrent::get_file_path(size_t i) const {
+  return get_chunk_path(chunks_.at(i + 1).name);
 }
 
 td::Status Torrent::init_chunk_data(ChunkState &chunk) {

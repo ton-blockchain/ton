@@ -93,6 +93,7 @@ class Torrent {
   td::CSlice get_file_name(size_t i) const;
   td::uint64 get_file_size(size_t i) const;
   td::uint64 get_file_ready_size(size_t i) const;
+  std::string get_file_path(size_t i) const;
 
   struct PartsRange {
     td::uint64 begin{0};
@@ -206,7 +207,7 @@ class Torrent {
     root_dir_ = std::move(root_dir);
   }
 
-  std::string get_chunk_path(td::Slice name);
+  std::string get_chunk_path(td::Slice name) const;
   td::Status init_chunk_data(ChunkState &chunk);
   template <class F>
   td::Status iterate_piece(Info::PieceInfo piece, F &&f);

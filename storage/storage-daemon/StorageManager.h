@@ -51,6 +51,8 @@ class StorageManager : public td::actor::Actor {
   void set_file_priority_by_idx(td::Bits256 hash, size_t idx, td::uint8 priority, td::Promise<bool> promise);
   void set_file_priority_by_name(td::Bits256 hash, std::string name, td::uint8 priority, td::Promise<bool> promise);
 
+  void remove_torrent(td::Bits256 hash, bool remove_files, td::Promise<td::Unit> promise);
+
  private:
   adnl::AdnlNodeIdShort local_id_;
   std::string db_root_;
@@ -65,6 +67,13 @@ class StorageManager : public td::actor::Actor {
     td::Bits256 hash;
     td::actor::ActorOwn<NodeActor> actor;
     td::actor::ActorOwn<PeerManager> peer_manager;
+
+    struct ClosingState {
+      bool removing = false;
+      td::Promise<td::Unit> promise;
+      bool remove_files = false;
+    };
+    std::shared_ptr<ClosingState> closing_state = std::make_shared<ClosingState>();
   };
 
   std::map<td::Bits256, TorrentEntry> torrents_;
@@ -79,8 +88,13 @@ class StorageManager : public td::actor::Actor {
     return &it->second;
   }
 
+  td::unique_ptr<NodeActor::Callback> create_callback(td::Bits256 hash,
+                                                      std::shared_ptr<TorrentEntry::ClosingState> closing_state);
+
   void load_torrents_from_db(std::vector<td::Bits256> torrents);
   void loaded_torrent_from_db(td::Bits256 hash, td::Result<td::actor::ActorOwn<NodeActor>> R);
   void after_load_torrents_from_db();
   void db_store_torrent_list();
+
+  void on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentEntry::ClosingState> closing_state);
 };

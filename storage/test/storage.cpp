@@ -1191,15 +1191,10 @@ TEST(Torrent, Peer) {
     }
   };
 
-  class PeerCreator : public ton::NodeActor::Callback {
+  class PeerCreator : public ton::NodeActor::NodeCallback {
    public:
-    PeerCreator(td::actor::ActorId<PeerManager> peer_manager, ton::PeerId self_id, std::vector<ton::PeerId> peers,
-                std::shared_ptr<td::Destructor> stop_watcher, std::shared_ptr<td::Destructor> complete_watcher)
-        : peer_manager_(std::move(peer_manager))
-        , peers_(std::move(peers))
-        , self_id_(self_id)
-        , stop_watcher_(stop_watcher)
-        , complete_watcher_(complete_watcher) {
+    PeerCreator(td::actor::ActorId<PeerManager> peer_manager, ton::PeerId self_id, std::vector<ton::PeerId> peers)
+        : peer_manager_(std::move(peer_manager)), peers_(std::move(peers)), self_id_(self_id) {
     }
     void get_peers(ton::PeerId src, td::Promise<std::vector<ton::PeerId>> promise) override {
       auto peers = peers_;
@@ -1255,6 +1250,19 @@ TEST(Torrent, Peer) {
                                                      std::move(state));
     }
 
+   private:
+    td::actor::ActorId<PeerManager> peer_manager_;
+    std::vector<ton::PeerId> peers_;
+    ton::PeerId self_id_;
+    td::actor::ActorId<ton::NodeActor> self_;
+  };
+
+  class TorrentCallback : public ton::NodeActor::Callback {
+   public:
+    TorrentCallback(std::shared_ptr<td::Destructor> stop_watcher, std::shared_ptr<td::Destructor> complete_watcher)
+        : stop_watcher_(stop_watcher), complete_watcher_(complete_watcher) {
+    }
+
     void on_completed() override {
       complete_watcher_.reset();
     }
@@ -1266,12 +1274,8 @@ TEST(Torrent, Peer) {
     }
 
    private:
-    td::actor::ActorId<PeerManager> peer_manager_;
-    std::vector<ton::PeerId> peers_;
-    ton::PeerId self_id_;
     std::shared_ptr<td::Destructor> stop_watcher_;
     std::shared_ptr<td::Destructor> complete_watcher_;
-    td::actor::ActorId<ton::NodeActor> self_;
   };
 
   size_t peers_n = 20;
@@ -1337,14 +1341,16 @@ TEST(Torrent, Peer) {
     auto peer_manager = td::actor::create_actor<PeerManager>("PeerManager");
     guard->push_back(td::actor::create_actor<ton::NodeActor>(
         "Node#1", 1, std::move(torrent),
-        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2), stop_watcher, complete_watcher), nullptr));
+        td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
+        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2)), nullptr));
     for (size_t i = 2; i <= peers_n; i++) {
       ton::Torrent::Options options;
       options.in_memory = true;
       auto other_torrent = ton::Torrent::open(options, ton::TorrentMeta(info)).move_as_ok();
       auto node_actor = td::actor::create_actor<ton::NodeActor>(
           PSLICE() << "Node#" << i, i, std::move(other_torrent),
-          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2), stop_watcher, complete_watcher),
+          td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
+          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2)),
           nullptr);
 
       if (i == 3) {

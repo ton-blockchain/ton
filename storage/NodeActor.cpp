@@ -28,22 +28,26 @@
 #include "tl-utils/common-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api.hpp"
+#include "td/actor/MultiPromise.h"
 
 namespace ton {
-NodeActor::NodeActor(PeerId self_id, Torrent torrent, td::unique_ptr<Callback> callback, std::shared_ptr<db::DbType> db,
-                     bool should_download)
+NodeActor::NodeActor(PeerId self_id, Torrent torrent, td::unique_ptr<Callback> callback,
+                     td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download)
     : self_id_(self_id)
     , torrent_(std::move(torrent))
     , callback_(std::move(callback))
+    , node_callback_(std::move(node_callback))
     , db_(std::move(db))
     , should_download_(should_download) {
 }
 
 NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
-                     std::shared_ptr<db::DbType> db, bool should_download, DbInitialData db_initial_data)
+                     td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download,
+                     DbInitialData db_initial_data)
     : self_id_(self_id)
     , torrent_(std::move(torrent))
     , callback_(std::move(callback))
+    , node_callback_(std::move(node_callback))
     , db_(std::move(db))
     , should_download_(should_download)
     , pending_set_file_priority_(std::move(db_initial_data.priorities))
@@ -66,7 +70,7 @@ void NodeActor::on_signal_from_peer(PeerId peer_id) {
 }
 
 void NodeActor::start_up() {
-  callback_->register_self(actor_id(this));
+  node_callback_->register_self(actor_id(this));
   db_store_torrent();
   if (torrent_.inited_info()) {
     init_torrent();
@@ -378,7 +382,7 @@ void NodeActor::loop_start_stop_peers() {
         };
       }
       peer.peer_token = parts_helper_.register_peer(peer_id);
-      peer.actor = callback_->create_peer(self_id_, peer_id, peer.state);
+      peer.actor = node_callback_->create_peer(self_id_, peer_id, peer.state);
     }
   }
 }
@@ -426,7 +430,7 @@ void NodeActor::loop_get_peers() {
     return;
   }
   if (next_get_peers_at_.is_in_past()) {
-    callback_->get_peers(self_id_, promise_send_closure(td::actor::actor_id(this), &NodeActor::got_peers));
+    node_callback_->get_peers(self_id_, promise_send_closure(td::actor::actor_id(this), &NodeActor::got_peers));
     has_get_peers_ = true;
     return;
   }
@@ -705,12 +709,17 @@ void NodeActor::db_update_pieces_list() {
 }
 
 void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
+                             td::unique_ptr<NodeCallback> node_callback,
                              td::Promise<td::actor::ActorOwn<NodeActor>> promise) {
   class Loader : public td::actor::Actor {
    public:
     Loader(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
-           td::Promise<td::actor::ActorOwn<NodeActor>> promise)
-        : db_(std::move(db)), hash_(hash), callback_(std::move(callback)), promise_(std::move(promise)) {
+           td::unique_ptr<NodeCallback> node_callback, td::Promise<td::actor::ActorOwn<NodeActor>> promise)
+        : db_(std::move(db))
+        , hash_(hash)
+        , callback_(std::move(callback))
+        , node_callback_(std::move(node_callback))
+        , promise_(std::move(promise)) {
     }
 
     void finish(td::Result<td::actor::ActorOwn<NodeActor>> R) {
@@ -856,14 +865,16 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
       DbInitialData data;
       data.priorities = std::move(priorities_);
       data.pieces_in_db = std::move(pieces_in_db_);
-      finish(td::actor::create_actor<NodeActor>("Node", 1, torrent_.unwrap(), std::move(callback_), std::move(db_),
-                                                active_download_, std::move(data)));
+      finish(td::actor::create_actor<NodeActor>("Node", 1, torrent_.unwrap(), std::move(callback_),
+                                                std::move(node_callback_), std::move(db_), active_download_,
+                                                std::move(data)));
     }
 
    private:
     std::shared_ptr<db::DbType> db_;
     td::Bits256 hash_;
     td::unique_ptr<Callback> callback_;
+    td::unique_ptr<NodeCallback> node_callback_;
     td::Promise<td::actor::ActorOwn<NodeActor>> promise_;
 
     std::string root_dir_;
@@ -873,7 +884,38 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
     std::set<td::uint64> pieces_in_db_;
     size_t remaining_pieces_in_db_ = 0;
   };
-  td::actor::create_actor<Loader>("loader", std::move(db), hash, std::move(callback), std::move(promise)).release();
+  td::actor::create_actor<Loader>("loader", std::move(db), hash, std::move(callback), std::move(node_callback),
+                                  std::move(promise))
+      .release();
+}
+
+void NodeActor::cleanup_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::Promise<td::Unit> promise) {
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+  db->erase(create_hash_tl_object<ton_api::storage_db_key_torrent>(hash), ig.get_promise());
+  db->erase(create_hash_tl_object<ton_api::storage_db_key_torrentMeta>(hash), ig.get_promise());
+  db->erase(create_hash_tl_object<ton_api::storage_db_key_priorities>(hash), ig.get_promise());
+  db::db_get<ton_api::storage_db_piecesInDb>(
+      *db, create_hash_tl_object<ton_api::storage_db_key_piecesInDb>(hash), true,
+      [db, promise = ig.get_promise(), hash](td::Result<tl_object_ptr<ton_api::storage_db_piecesInDb>> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error());
+          return;
+        }
+        auto pieces = R.move_as_ok();
+        if (pieces == nullptr) {
+          promise.set_result(td::Unit());
+          return;
+        }
+        td::MultiPromise mp;
+        auto ig = mp.init_guard();
+        ig.add_promise(std::move(promise));
+        db->erase(create_hash_tl_object<ton_api::storage_db_key_piecesInDb>(hash), ig.get_promise());
+        for (auto idx : pieces->pieces_) {
+          db->erase(create_hash_tl_object<ton_api::storage_db_key_pieceInDb>(hash, idx), ig.get_promise());
+        }
+      });
 }
 
 }  // namespace ton

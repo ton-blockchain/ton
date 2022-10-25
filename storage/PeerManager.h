@@ -170,8 +170,8 @@ class PeerManager : public td::actor::Actor {
                  30, promise.send_closure(actor_id(this), &PeerManager::got_overlay_random_peers));
   }
 
-  static td::unique_ptr<ton::NodeActor::Callback> create_callback(td::actor::ActorId<PeerManager> peer_manager) {
-    class Context : public ton::NodeActor::Callback {
+  static td::unique_ptr<ton::NodeActor::NodeCallback> create_callback(td::actor::ActorId<PeerManager> peer_manager) {
+    class Context : public ton::NodeActor::NodeCallback {
      public:
       Context(td::actor::ActorId<PeerManager> peer_manager) : peer_manager_(peer_manager) {
       }
@@ -221,12 +221,6 @@ class PeerManager : public td::actor::Actor {
         return td::actor::create_actor<ton::PeerActor>(PSLICE() << "PeerActor " << peer_id,
                                                        td::make_unique<PeerCallback>(self_id, peer_id, peer_manager_),
                                                        std::move(state));
-      }
-
-      void on_completed() override {
-      }
-
-      void on_closed(ton::Torrent torrent) override {
       }
 
      private:

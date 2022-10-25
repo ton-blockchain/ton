@@ -794,3 +794,5 @@ storage.daemon.getTorrentMeta hash:int256 = storage.daemon.TorrentMeta;
 storage.daemon.setFilePriorityAll hash:int256 priority:int = storage.daemon.SetPriorityStatus;
 storage.daemon.setFilePriorityByIdx hash:int256 idx:long priority:int = storage.daemon.SetPriorityStatus;
 storage.daemon.setFilePriorityByName hash:int256 name:string priority:int = storage.daemon.SetPriorityStatus;
+
+storage.daemon.removeTorrent hash:int256 remove_files:Bool = storage.daemon.Success;

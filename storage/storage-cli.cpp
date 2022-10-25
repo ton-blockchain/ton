@@ -427,63 +427,12 @@ class StorageCli : public td::actor::Actor {
     }
     ton::PeerId self_id = 1;
 
-    class Context : public ton::NodeActor::Callback {
+    class Callback : public ton::NodeActor::Callback {
      public:
-      Context(td::actor::ActorId<PeerManager> peer_manager, td::actor::ActorId<StorageCli> storage_cli,
-              ton::PeerId self_id, td::uint32 torrent_id, td::Promise<td::Unit> on_completed)
-          : peer_manager_(peer_manager)
-          , storage_cli_(std::move(storage_cli))
-          , self_id_(self_id)
+      Callback(td::actor::ActorId<StorageCli> storage_cli, td::uint32 torrent_id, td::Promise<td::Unit> on_completed)
+          : storage_cli_(std::move(storage_cli))
           , torrent_id_(std::move(torrent_id))
           , on_completed_(std::move(on_completed)) {
-      }
-      void get_peers(ton::PeerId src, td::Promise<std::vector<ton::PeerId>> promise) override {
-        send_closure(peer_manager_, &PeerManager::get_peers, src, std::move(promise));
-      }
-      void register_self(td::actor::ActorId<ton::NodeActor> self) override {
-        CHECK(self_.empty());
-        self_ = self;
-        send_closure(peer_manager_, &PeerManager::register_node, self_id_, self_);
-      }
-      ~Context() override {
-        if (!self_.empty()) {
-          send_closure(peer_manager_, &PeerManager::unregister_node, self_id_, self_);
-        }
-      }
-      td::actor::ActorOwn<ton::PeerActor> create_peer(ton::PeerId self_id, ton::PeerId peer_id,
-                                                      std::shared_ptr<ton::PeerState> state) override {
-        CHECK(self_id == self_id_);
-        class PeerCallback : public ton::PeerActor::Callback {
-         public:
-          PeerCallback(ton::PeerId self_id, ton::PeerId peer_id, td::actor::ActorId<PeerManager> peer_manager)
-              : self_id_(self_id), peer_id_(peer_id), peer_manager_(std::move(peer_manager)) {
-          }
-          void register_self(td::actor::ActorId<ton::PeerActor> self) override {
-            CHECK(self_.empty());
-            self_ = std::move(self);
-            send_closure(peer_manager_, &PeerManager::register_peer, self_id_, peer_id_, self_);
-          }
-          void send_query(td::uint64 query_id, td::BufferSlice query) override {
-            send_closure(peer_manager_, &PeerManager::send_query, self_id_, peer_id_, std::move(query),
-                         promise_send_closure(self_, &ton::PeerActor::on_query_result, query_id));
-          }
-
-          ~PeerCallback() {
-            if (!self_.empty()) {
-              send_closure(peer_manager_, &PeerManager::unregister_peer, self_id_, peer_id_, self_);
-            }
-          }
-
-         private:
-          td::actor::ActorId<ton::PeerActor> self_;
-          ton::PeerId self_id_;
-          ton::PeerId peer_id_;
-          td::actor::ActorId<PeerManager> peer_manager_;
-        };
-
-        return td::actor::create_actor<ton::PeerActor>(PSLICE() << "ton::PeerActor " << self_id << "->" << peer_id,
-                                                       td::make_unique<PeerCallback>(self_id, peer_id, peer_manager_),
-                                                       std::move(state));
       }
 
       void on_completed() override {
@@ -498,23 +447,20 @@ class StorageCli : public td::actor::Actor {
       }
 
      private:
-      td::actor::ActorId<PeerManager> peer_manager_;
       td::actor::ActorId<StorageCli> storage_cli_;
-      ton::PeerId self_id_;
       td::uint32 torrent_id_;
-      std::vector<ton::PeerId> peers_;
       td::Promise<td::Unit> on_completed_;
-      td::actor::ActorId<ton::NodeActor> self_;
     };
 
     td::Promise<td::Unit> on_completed;
     if (wait_download) {
       on_completed = std::move(promise);
     }
-    auto context =
-        td::make_unique<Context>(ptr->peer_manager.get(), actor_id(this), self_id, ptr->id, std::move(on_completed));
-    ptr->node = td::actor::create_actor<ton::NodeActor>(PSLICE() << "Node#" << self_id, self_id, ptr->torrent.unwrap(),
-                                                        std::move(context), nullptr, should_download);
+    auto callback = td::make_unique<Callback>(actor_id(this), ptr->id, std::move(on_completed));
+    auto context = PeerManager::create_callback(ptr->peer_manager.get());
+    ptr->node =
+        td::actor::create_actor<ton::NodeActor>(PSLICE() << "Node#" << self_id, self_id, ptr->torrent.unwrap(),
+                                                std::move(callback), std::move(context), nullptr, should_download);
     td::TerminalIO::out() << "Torrent #" << ptr->id << " started\n";
     promise.release().release();
     if (promise) {

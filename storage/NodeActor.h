@@ -33,16 +33,18 @@
 namespace ton {
 class NodeActor : public td::actor::Actor {
  public:
-  class Callback {
+  class NodeCallback {
    public:
-    virtual ~Callback() {
-    }
+    virtual ~NodeCallback() = default;
     virtual td::actor::ActorOwn<PeerActor> create_peer(PeerId self_id, PeerId peer_id,
                                                        std::shared_ptr<PeerState> state) = 0;
     virtual void get_peers(PeerId src, td::Promise<std::vector<PeerId>> peers) = 0;
     virtual void register_self(td::actor::ActorId<ton::NodeActor> self) = 0;
+  };
 
-    //TODO: proper callbacks
+  class Callback {
+   public:
+    virtual ~Callback() = default;
     virtual void on_completed() = 0;
     virtual void on_closed(ton::Torrent torrent) = 0;
   };
@@ -57,10 +59,11 @@ class NodeActor : public td::actor::Actor {
     std::set<td::uint64> pieces_in_db;
   };
 
-  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, std::shared_ptr<db::DbType> db,
-            bool should_download = true);
-  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, std::shared_ptr<db::DbType> db,
-            bool should_download, DbInitialData db_initial_data);
+  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download = true);
+  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download,
+            DbInitialData db_initial_data);
   void start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise);
 
   struct NodeState {
@@ -83,7 +86,9 @@ class NodeActor : public td::actor::Actor {
   void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
 
   static void load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
+                           td::unique_ptr<NodeCallback> node_callback,
                            td::Promise<td::actor::ActorOwn<NodeActor>> promise);
+  static void cleanup_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::Promise<td::Unit> promise);
 
  private:
   PeerId self_id_;
@@ -91,6 +96,7 @@ class NodeActor : public td::actor::Actor {
   std::shared_ptr<td::BufferSlice> torrent_info_str_;
   std::vector<td::uint8> file_priority_;
   td::unique_ptr<Callback> callback_;
+  td::unique_ptr<NodeCallback> node_callback_;
   std::shared_ptr<db::DbType> db_;
   bool should_download_{false};
 

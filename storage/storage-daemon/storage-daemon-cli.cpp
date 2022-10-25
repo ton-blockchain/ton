@@ -368,6 +368,28 @@ class StorageDaemonCli : public td::actor::Actor {
       TRY_RESULT(hash, parse_hash(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[3]), "Invalid priority: ");
       return execute_set_priority_name(hash, tokens[2], priority);
+    } else if (tokens[0] == "remove") {
+      td::Bits256 hash;
+      bool found_hash = false;
+      bool remove_files = false;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--remove-files") {
+            remove_files = true;
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        if (found_hash) {
+          return td::Status::Error("Unexpected token");
+        }
+        TRY_RESULT_ASSIGN(hash, parse_hash(tokens[i]));
+        found_hash = true;
+      }
+      if (!found_hash) {
+        return td::Status::Error("Unexpected EOLN");
+      }
+      return execute_remove(hash, remove_files);
     } else {
       return td::Status::Error(PSTRING() << "Error: unknown command " << tokens[0]);
     }
@@ -394,6 +416,8 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
     td::TerminalIO::out() << "priority-name <hash> <name> <p>\tSet priority of file <name> in torrent <hash> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
+    td::TerminalIO::out() << "remove <hash> [--remove-files]]\tRemove torrent <hash>\n";
+    td::TerminalIO::out() << "\t--remove-files - also remove all files\n";
     td::TerminalIO::out() << "exit\tExit\n";
     td::TerminalIO::out() << "quit\tExit\n";
     td::TerminalIO::out() << "setverbosity <level>\tSet vetbosity to <level> in [0..10]\n";
@@ -551,6 +575,17 @@ class StorageDaemonCli : public td::actor::Actor {
       } else {
         td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
       }
+    });
+    return td::Status::OK();
+  }
+
+  td::Status execute_remove(td::Bits256 hash, bool remove_files) {
+    auto query = create_tl_object<ton_api::storage_daemon_removeTorrent>(hash, remove_files);
+    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      td::TerminalIO::out() << "Success\n";
     });
     return td::Status::OK();
   }

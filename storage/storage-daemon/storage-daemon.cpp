@@ -350,6 +350,12 @@ class StorageDaemon : public td::actor::Actor {
                             }));
   }
 
+  void run_control_query(ton_api::storage_daemon_removeTorrent &query, td::Promise<td::BufferSlice> promise) {
+    td::actor::send_closure(
+        manager_, &StorageManager::remove_torrent, query.hash_, query.remove_files_,
+        promise.wrap([](td::Unit &&) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
+  }
+
   template <class T>
   void run_control_query(T &query, td::Promise<td::BufferSlice> promise) {
     promise.set_error(td::Status::Error("unknown query"));
