@@ -114,7 +114,9 @@ class Resolver : public td::actor::Actor {
     }
     auto r = R.move_as_ok();
     LOG(INFO) << "Got result";
-    td::TerminalIO::out() << td::base64_encode(r.value().as_slice()) << "\n";
+    td::TerminalIO::out() << "KEY: " << td::base64_encode(ton::serialize_tl_object(r.key().public_key().tl(), true))
+                          << "\n";
+    td::TerminalIO::out() << "VALUE: " << td::base64_encode(r.value().as_slice()) << "\n";
     std::exit(0);
   }
 
