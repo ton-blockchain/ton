@@ -252,6 +252,7 @@ struct PyTVM {
   bool allowDebug;
   bool sameC3;
   int log_level;
+  bool skip_c7 = false;
 
   long long c7_unixtime = 0;
   long long c7_blocklt = 0;
@@ -274,20 +275,25 @@ struct PyTVM {
   void set_c7(int c7_unixtime_, int c7_blocklt_, int c7_translt_, int c7_randseed_,
               const std::string& c7_balanceRemainingGrams_, const std::string& c7_myaddress_,
               const std::string& c7_globalConfig_) {
-    c7_unixtime = c7_unixtime_;
-    c7_blocklt = c7_blocklt_;
-    c7_translt = c7_translt_;
-    c7_randseed = c7_randseed_;
-    c7_balanceRemainingGrams = td::dec_string_to_int256(c7_balanceRemainingGrams_);
-    c7_myaddress = c7_myaddress_;
-    c7_globalConfig = c7_globalConfig_;
+    if (!skip_c7) {
+      c7_unixtime = c7_unixtime_;
+      c7_blocklt = c7_blocklt_;
+      c7_translt = c7_translt_;
+      c7_randseed = c7_randseed_;
+      c7_balanceRemainingGrams = td::dec_string_to_int256(c7_balanceRemainingGrams_);
+      c7_myaddress = c7_myaddress_;
+      c7_globalConfig = c7_globalConfig_;
+    } else {
+      throw std::invalid_argument("C7 will be skipped, because skip_c7=true");
+    }
   }
 
   // constructor
   explicit PyTVM(int log_level_ = 0, const std::string& code_ = "", const std::string& data_ = "",
-                 const bool allowDebug_ = false, const bool sameC3_ = true) {
+                 const bool allowDebug_ = false, const bool sameC3_ = true, const bool skip_c7_ = false) {
     allowDebug = allowDebug_;
     sameC3 = sameC3_;
+    skip_c7 = skip_c7_;
 
     this->log_level = log_level_;
 
@@ -432,17 +438,23 @@ struct PyTVM {
       global_config = parseStringToCell(c7_globalConfig);
     }
 
-    auto init_c7 =
-        vm::make_tuple_ref(td::make_refint(0x076ef1ea),            // [ magic:0x076ef1ea
-                           td::make_refint(0),                     //   actions:Integer
-                           td::make_refint(0),                     //   msgs_sent:Integer
-                           td::make_refint(c7_unixtime),           //   unixtime:Integer
-                           td::make_refint(c7_blocklt),            //   block_lt:Integer
-                           td::make_refint(c7_translt),            //   trans_lt:Integer
-                           td::make_refint(c7_randseed),           //   rand_seed:Integer
-                           balance.as_vm_tuple(),                  //   balance_remaining:[Integer (Maybe Cell)]
-                           std::move(my_addr),                     //  myself:MsgAddressInt
-                           vm::StackEntry::maybe(global_config));  //  global_config:(Maybe Cell) ] = SmartContractInfo;
+    td::Ref<vm::Tuple> init_c7;
+
+    if (!skip_c7) {
+      init_c7 = vm::make_tuple_ref(
+          td::make_refint(0x076ef1ea),            // [ magic:0x076ef1ea
+          td::make_refint(0),                     //   actions:Integer
+          td::make_refint(0),                     //   msgs_sent:Integer
+          td::make_refint(c7_unixtime),           //   unixtime:Integer
+          td::make_refint(c7_blocklt),            //   block_lt:Integer
+          td::make_refint(c7_translt),            //   trans_lt:Integer
+          td::make_refint(c7_randseed),           //   rand_seed:Integer
+          balance.as_vm_tuple(),                  //   balance_remaining:[Integer (Maybe Cell)]
+          std::move(my_addr),                     //  myself:MsgAddressInt
+          vm::StackEntry::maybe(global_config));  //  global_config:(Maybe Cell) ] = SmartContractInfo;
+    } else {
+      init_c7 = vm::make_tuple_ref();
+    }
 
     log_debug("Use code: " + code->get_hash().to_hex());
 
@@ -555,8 +567,8 @@ PYBIND11_MODULE(tvm_python, m) {
   m.def("code_disasseble", &code_disasseble);
 
   py::class_<PyTVM>(m, "PyTVM")
-      .def(py::init<int, std::string, std::string, bool, bool>(), py::arg("log_level") = 0, py::arg("code") = "",
-           py::arg("data") = "", py::arg("allow_debug") = false, py::arg("same_c3") = true)
+      .def(py::init<int, std::string, std::string, bool, bool, bool>(), py::arg("log_level") = 0, py::arg("code") = "",
+           py::arg("data") = "", py::arg("allow_debug") = false, py::arg("same_c3") = true, py::arg("skip_c7") = true)
       .def_property("code", &PyTVM::get_code, &PyTVM::set_code)
       .def_property("data", &PyTVM::set_data, &PyTVM::get_data)
       .def("set_stack", &PyTVM::set_stack)
