@@ -36,5 +36,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-binaries
+        name: ton-ubuntu-binaries
         path: artifacts
