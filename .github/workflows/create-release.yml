@@ -38,18 +38,17 @@ jobs:
           path: artifacts
           workflow_conclusion: success
 
-      - name: Download Windows artifacts
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          workflow: windows2019x64-compile.yml
-          name: ton-win64-binaries
-          path: artifacts
-          workflow_conclusion: success
-
       - name: Download MacOS artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: macos-10.15-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Download Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: windows2019x64-compile.yml
           path: artifacts
           workflow_conclusion: success
 
