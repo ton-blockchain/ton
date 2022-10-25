@@ -30,7 +30,8 @@ jobs:
 
     - name: Find & copy binaries
       run: |
-        cp build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson* build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts/
+        ls -l build/tonlib/
+        rsync build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson0.0.5.dylib build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts/
         rsync -r crypto/smartcont artifacts/
         rsync -r crypto/fift/lib artifacts/        
 
