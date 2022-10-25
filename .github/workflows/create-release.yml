@@ -14,7 +14,7 @@ jobs:
     secrets: inherit
 
   compile-macos:
-    uses: ./.github/workflows/windows2019x64-compile.yml
+    uses: ./.github/workflows/macos-10.15-compile.yml
     secrets: inherit
 
   create-release:
@@ -23,6 +23,41 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+
+      - name: Show all artifacts
+        run: |
+          mkdir artifacts
+          ls -lart artifacts
+
+# download artifacts from dependent jobs
+
+      - name: Download Ubuntu artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ubuntu-18.04-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Download Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: windows2019x64-compile.yml
+          name: ton-win64-binaries
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Download MacOS artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: macos-10.15-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Show all artifacts
+        run: |
+          ls -lart artifacts
+
+# create release
 
       - name: Read Changelog.md and use it as a body of new release
         id: read_release
@@ -56,36 +91,7 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Show all artifacts
-        run: |
-          mkdir artifacts
-          ls -lart artifacts
-
-      - name: Download Ubuntu artifacts
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          workflow: ubuntu-18.04-compile.yml
-          path: artifacts
-          workflow_conclusion: success
-
-      - name: Download Windows artifacts
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          workflow: windows2019x64-compile.yml
-          name: ton-win64-binaries
-          path: artifacts
-          workflow_conclusion: success
-
-      - name: Download MacOS artifacts
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          workflow: windows2019x64-compile.yml
-          path: artifacts
-          workflow_conclusion: success
-
-      - name: Show all artifacts
-        run: |
-          ls -lart artifacts
+# upload artifacts to release
 
       - name: Upload Ubuntu artifacts
         uses: svenstaro/upload-release-action@v2
