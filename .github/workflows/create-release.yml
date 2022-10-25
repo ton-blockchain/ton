@@ -55,6 +55,19 @@ jobs:
       - name: Show all artifacts
         run: |
           ls -lart artifacts
+          cd artifacts/ton-macos-binaries
+          zip -r ton-macos-binaries.zip .
+          mv ton-macos-binaries.zip ..
+          cd ..
+          cd artifacts/ton-win-binaries
+          zip -r ton-win-binaries.zip .
+          mv ton-win-binaries.zip ..
+          cd ..
+          cd artifacts/ton-binaries
+          zip -r ton-ubuntu-binaries.zip .
+          mv ton-ubuntu-binaries.zip ..
+          ls -lart artifacts
+          
 
 # create release
 
@@ -96,29 +109,22 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-win-binaries/*
-          asset_name: ton-win-binaries
+          file: artifacts/ton-win-binaries.zip
+          asset_name: ton-win-binaries.zip
           tag: v${{ steps.date.outputs.date }}
-          overwrite: true
-          file_glob: true
 
       - name: Upload MacOS artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-macos-binaries/*
-          asset_name: ton-macos-binaries
+          file: artifacts/ton-macos-binaries.zip
+          asset_name: ton-macos-binaries.zip
           tag: v${{ steps.date.outputs.date }}
-          overwrite: true
-          file_glob: true
 
       - name: Upload Ubuntu artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-binaries/*
-          asset_name: ton-ubuntu-binaries
+          file: artifacts/ton-ubuntu-binaries.zip
+          asset_name: ton-ubuntu-binaries.zip
           tag: v${{ steps.date.outputs.date }}
-          overwrite: true
-          file_glob: true
-
