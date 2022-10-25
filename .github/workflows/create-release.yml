@@ -5,17 +5,17 @@ on: [workflow_dispatch]
 permissions: write-all
 
 jobs:
-#  compile-ubuntu:
-#    uses: ./.github/workflows/ubuntu-18.04-compile.yml
-#    secrets: inherit
+  compile-ubuntu:
+    uses: ./.github/workflows/ubuntu-18.04-compile.yml
+    secrets: inherit
 
   compile-windows:
     uses: ./.github/workflows/win-2019-compile.yml
     secrets: inherit
 
-#  compile-macos:
-#    uses: ./.github/workflows/macos-10.15-compile.yml
-#    secrets: inherit
+  compile-macos:
+    uses: ./.github/workflows/macos-10.15-compile.yml
+    secrets: inherit
 
   create-release:
     needs: [ compile-windows ]
@@ -31,19 +31,19 @@ jobs:
 
 # download artifacts from dependent jobs
 
-#      - name: Download Ubuntu artifacts
-#        uses: dawidd6/action-download-artifact@v2
-#        with:
-#          workflow: ubuntu-18.04-compile.yml
-#          path: artifacts
-#          workflow_conclusion: success
-#
-#      - name: Download MacOS artifacts
-#        uses: dawidd6/action-download-artifact@v2
-#        with:
-#          workflow: macos-10.15-compile.yml
-#          path: artifacts
-#          workflow_conclusion: success
+      - name: Download Ubuntu artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ubuntu-18.04-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+
+      - name: Download MacOS artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: macos-10.15-compile.yml
+          path: artifacts
+          workflow_conclusion: success
 
       - name: Download Windows artifacts
         uses: dawidd6/action-download-artifact@v2
@@ -96,7 +96,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-binaries/*
+          file: artifacts/ton-ubuntu-binaries/*
           asset_name: ton-ubuntu-binaries
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
@@ -106,8 +106,8 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-win64-binaries/*
-          asset_name: ton-win64-binaries
+          file: artifacts/ton-win-binaries/*
+          asset_name: ton-win-binaries
           tag: v${{ steps.date.outputs.date }}
           overwrite: true
           file_glob: true
