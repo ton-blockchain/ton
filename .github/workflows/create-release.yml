@@ -72,6 +72,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: windows2019x64-compile.yml
+          name: ton-win64-binaries
           path: artifacts
           workflow_conclusion: success
 
