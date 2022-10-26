@@ -32,9 +32,21 @@ jobs:
 
     - name: Find & copy binaries
       run: |
+        mkdir artifacts
         cp build/crypto/fift artifacts/
         cp build/crypto/func artifacts/
-        rsync build/crypto/tlbc build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.0.5.dylib build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts/
+        cp build/crypto/create-state artifacts/
+        cp build/validator-engine-console/validator-engine-console artifacts/ 
+        cp build/tonlib/tonlib-cli artifacts/
+        cp build/tonlib/libtonlibjson.0.5.dylib artifacts/ 
+        cp build/http/http-proxy artifacts/
+        cp build/rldp-http-proxy/rldp-http-proxy artifacts/
+        cp build/dht-server/dht-server artifacts/
+        cp build/lite-client/lite-client artifacts/
+        cp build/validator-engine/validator-engine artifacts/
+        cp build/utils/generate-random-id artifacts/
+        cp build/utils/json2tlo artifacts/
+        cp build/adnl/adnl-proxy artifacts/
         rsync -r crypto/smartcont artifacts/
         rsync -r crypto/fift/lib artifacts/
         ls -laRt artifacts
