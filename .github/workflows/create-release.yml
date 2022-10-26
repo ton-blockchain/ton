@@ -58,14 +58,15 @@ jobs:
           cd artifacts/ton-macos-binaries
           zip -r ton-macos-binaries.zip .
           mv ton-macos-binaries.zip ..
-          cd ..
+          cd ../..
           cd artifacts/ton-win-binaries
           zip -r ton-win-binaries.zip .
           mv ton-win-binaries.zip ..
-          cd ..
+          cd ../..
           cd artifacts/ton-binaries
           zip -r ton-ubuntu-binaries.zip .
           mv ton-ubuntu-binaries.zip ..
+          cd ../..
           tree artifacts
           
 
