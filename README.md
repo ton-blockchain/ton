@@ -33,6 +33,12 @@ brew tap tonthemoon/ton-repo
 
 <https://aur.archlinux.org/packages/ton-git-bin>
 
+### chocolatey
+
+```sh
+choco install ton-nightly --pre
+```
+
 ## Updates flow:
 
 * **master branch** - mainnet is running on this stable branch.
