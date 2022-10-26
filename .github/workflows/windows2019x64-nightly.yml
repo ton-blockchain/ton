@@ -59,7 +59,7 @@ jobs:
       - name: Show executables
         run: |
           cd build
-          del Release\test-*
+          rmdir CMakeFiles
           dir *.exe /a-D /S /B
           dir *.dll /a-D /S /B
 
