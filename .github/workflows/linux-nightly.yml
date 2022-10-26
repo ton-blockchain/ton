@@ -5,9 +5,10 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 600
     env:
+      USER: runner
       SSH_AUTH_SOCK: /tmp/ssh_agent.sock
     steps:
     - run: |
@@ -106,14 +107,14 @@ jobs:
     - run: |
         # pacman makepkg build user
         # (makepkg refuses to work as root)
-        useradd builder
-        echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+        sudo useradd builder
+        echo "builder ALL=(ALL) NOPASSWD: ALL" | sudo tee -a /etc/sudoers > /dev/null
     - run: |
         nix develop \
           --command bash -e -c '
             cd packages/arch
-            chown -R builder .
-            sudo -u builder --preserve-env=PATH env MAKEPKG_CONF=/dev/null PKGEXT=".pkg.tar.gz" SRCEXT=".src.tar.gz" makepkg --printsrcinfo > .SRCINFO'
+            sudo chown -R builder .
+            sudo -u builder --preserve-env=PATH bash -c "PATH=$PATH MAKEPKG_CONF=/dev/null PKGEXT=.pkg.tar.gz SRCEXT=.src.tar.gz makepkg --printsrcinfo > .SRCINFO"'
     - run: |
         git clone ssh://aur@aur.archlinux.org/ton-git-bin.git aur-ton-git-bin
         cd aur-ton-git-bin
