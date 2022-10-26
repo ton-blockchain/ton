@@ -78,5 +78,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-win-binaries
+          name: ton-win-binaries.zip
           path: artifacts
