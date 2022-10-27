@@ -1,6 +1,6 @@
-name: C/C++ CI Ubuntu 18.04 Compile
+name: Ubuntu 18.04 Compile
 
-on: [push,workflow_dispatch]
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
@@ -9,7 +9,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:      
         submodules: 'recursive'
 

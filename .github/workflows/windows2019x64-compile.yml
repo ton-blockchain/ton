@@ -1,8 +1,6 @@
 name: Windows Server 2019 x64 Compile
 
-on:
-  workflow_dispatch:
-  push:
+on: [push,workflow_dispatch,workflow_call]
 
 defaults:
   run:
@@ -19,7 +17,7 @@ jobs:
           systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 
       - name: Check out current repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: 'recursive'
 

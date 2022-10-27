@@ -6,6 +6,7 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         arch: [amd64, arm64]
         ver: [18.04, 20.04, 22.04]

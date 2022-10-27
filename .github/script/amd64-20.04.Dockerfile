@@ -13,5 +13,6 @@ RUN mkdir /ton/build
 WORKDIR /ton/build
 ENV CC clang
 ENV CXX clang++
+ENV CCACHE_DISABLE 1
 RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
-RUN ninja tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id create-hardfork dht-server create-state lite-client
+RUN ninja tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id create-hardfork dht-server lite-client
