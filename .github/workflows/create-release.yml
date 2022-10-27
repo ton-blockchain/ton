@@ -5,20 +5,20 @@ on: [workflow_dispatch]
 permissions: write-all
 
 jobs:
-  compile-ubuntu:
-    uses: ./.github/workflows/ubuntu-18.04-compile.yml
-    secrets: inherit
-
-  compile-windows:
-    uses: ./.github/workflows/win-2019-compile.yml
-    secrets: inherit
-
-  compile-macos:
-    uses: ./.github/workflows/macos-10.15-compile.yml
-    secrets: inherit
+#  compile-ubuntu:
+#    uses: ./.github/workflows/ubuntu-18.04-compile.yml
+#    secrets: inherit
+#
+#  compile-windows:
+#    uses: ./.github/workflows/win-2019-compile.yml
+#    secrets: inherit
+#
+#  compile-macos:
+#    uses: ./.github/workflows/macos-10.15-compile.yml
+#    secrets: inherit
 
   create-release:
-    needs: [ compile-windows, compile-ubuntu, compile-macos ]
+#    needs: [ compile-windows, compile-ubuntu, compile-macos ]
     runs-on: ubuntu-22.04
 
     steps:
@@ -35,42 +35,42 @@ jobs:
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: ubuntu-18.04-compile.yml
-          commit: ${{github.event.pull_request.head.sha}}
           path: artifacts
           workflow_conclusion: success
+          skip_unpack: true
 
       - name: Download MacOS artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: macos-10.15-compile.yml
-          commit: ${{github.event.pull_request.head.sha}}
           path: artifacts
           workflow_conclusion: success
+          skip_unpack: true
 
       - name: Download Windows artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: win-2019-compile.yml
-          commit: ${{github.event.pull_request.head.sha}}
           path: artifacts
           workflow_conclusion: success
+          skip_unpack: true
 
       - name: Show all artifacts
         run: |
           tree artifacts
-          cd artifacts/ton-macos-binaries
-          zip -r ton-macos-binaries.zip .
-          mv ton-macos-binaries.zip ..
-          cd ../..
-          cd artifacts/ton-win-binaries
-          zip -r ton-win-binaries.zip .
-          mv ton-win-binaries.zip ..
-          cd ../..
-          cd artifacts/ton-binaries
-          zip -r ton-ubuntu-binaries.zip .
-          mv ton-ubuntu-binaries.zip ..
-          cd ../..
-          tree artifacts
+#          cd artifacts/ton-macos-binaries
+#          zip -r ton-macos-binaries.zip .
+#          mv ton-macos-binaries.zip ..
+#          cd ../..
+#          cd artifacts/ton-win-binaries
+#          zip -r ton-win-binaries.zip .
+#          mv ton-win-binaries.zip ..
+#          cd ../..
+#          cd artifacts/ton-binaries
+#          zip -r ton-ubuntu-binaries.zip .
+#          mv ton-ubuntu-binaries.zip ..
+#          cd ../..
+#          tree artifacts
           
 
 # create release
