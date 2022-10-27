@@ -102,7 +102,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-binaries-18.04.zip
+          file: artifacts/ton-binaries-ubuntu-18.04.zip
           asset_name: ton-ubuntu-binaries-18.04.zip
           tag: v${{ steps.date.outputs.date }}
 
@@ -110,7 +110,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-binaries-20.04.zip
+          file: artifacts/ton-binaries-ubuntu-20.04.zip
           asset_name: ton-ubuntu-binaries-20.04.zip
           tag: v${{ steps.date.outputs.date }}
 
@@ -118,6 +118,6 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-binaries-22.04.zip
+          file: artifacts/ton-binaries-ubuntu-22.04.zip
           asset_name: ton-ubuntu-binaries-22.04.zip
           tag: v${{ steps.date.outputs.date }}
