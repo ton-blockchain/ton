@@ -1060,9 +1060,16 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   std::unique_ptr<StringLoggerTail> logger;
   auto vm_log = vm::VmLog();
   if (cfg.with_vm_log) {
-    logger = std::make_unique<StringLoggerTail>();
+    size_t log_max_size = cfg.vm_log_verbosity > 0 ? 1024 * 1024 : 256;
+    logger = std::make_unique<StringLoggerTail>(log_max_size);
     vm_log.log_interface = logger.get();
     vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
+    if (cfg.vm_log_verbosity > 1) {
+      vm_log.log_mask |= vm::VmLog::ExecLocation;
+      if (cfg.vm_log_verbosity > 2) {
+        vm_log.log_mask |= vm::VmLog::DumpStack;
+      }
+    }
   }
   vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.set_max_data_depth(cfg.max_vm_data_depth);

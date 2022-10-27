@@ -8,7 +8,7 @@ using td::Ref;
 using namespace std::string_literals;
 
 namespace emulator {
-td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(
+td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmulator::emulate_transaction(
     block::Account&& account, td::Ref<vm::Cell> msg_root,
     ton::UnixTime utime, ton::LogicalTime lt, int trans_type, td::BitArray<256>* rand_seed) {
 
@@ -37,23 +37,36 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
       lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
     }
 
+    compute_phase_cfg.with_vm_log = true;
+    compute_phase_cfg.vm_log_verbosity = vm_log_verbosity_;
+
     auto res = create_transaction(msg_root, &account, utime, lt, trans_type,
                                                     &storage_phase_cfg, &compute_phase_cfg,
                                                     &action_phase_cfg);
     if(res.is_error()) {
-        return res.move_as_error_prefix("cannot run message on account ");
+      return res.move_as_error_prefix("cannot run message on account ");
     }
     std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
-    auto trans_root = trans->commit(account);
-    if (trans_root.is_null()) {
-        return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
+    if (!trans->compute_phase->accepted && trans->in_msg_extern) {
+      auto vm_log = trans->compute_phase->vm_log;
+      auto vm_exit_code = trans->compute_phase->exit_code;
+      return std::make_unique<TransactionEmulator::EmulationExternalNotAccepted>(std::move(vm_log), vm_exit_code);
     }
 
-    return TransactionEmulator::EmulationResult{ std::move(trans_root), std::move(account) };
+    if (!trans->serialize()) {
+      return td::Status::Error(-669,"cannot serialize new transaction for smart contract "s + trans->account.addr.to_hex());
+    }
+
+    auto trans_root = trans->commit(account);
+    if (trans_root.is_null()) {
+      return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
+    }
+
+    return std::make_unique<TransactionEmulator::EmulationSuccess>(std::move(trans_root), std::move(account), std::move(trans->compute_phase->vm_log));
 }
 
-td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
 
     block::gen::Transaction::Record record_trans;
     if (!tlb::unpack_cell(original_trans, record_trans)) {
@@ -102,8 +115,9 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
       }
     }
 
-    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, rand_seed));
+    TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, rand_seed));
 
+    auto emulation_result = dynamic_cast<EmulationSuccess&>(*emulation);
     if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
       return td::Status::Error("transaction hash mismatch");
     }
@@ -115,7 +129,7 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     return emulation_result;
 }
 
-td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationChain> TransactionEmulator::emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
 
   std::vector<td::Ref<vm::Cell>> emulated_transactions;
   for (const auto& original_trans : original_transactions) {
@@ -128,7 +142,7 @@ td::Result<TransactionEmulator::EmulationResults> TransactionEmulator::emulate_t
     account = std::move(emulation_result.account);
   }
 
-  return TransactionEmulator::EmulationResults{ std::move(emulated_transactions), std::move(account) };
+  return TransactionEmulator::EmulationChain{ std::move(emulated_transactions), std::move(account) };
 }
 
 bool TransactionEmulator::check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans) {
@@ -267,10 +281,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator
   }
 
   if (!trans->compute_phase->accepted) {
-    if (external) {
-      // inbound external message was not accepted
-      return td::Status::Error(-701,"inbound external message rejected by transaction "s + acc->addr.to_hex());
-    } else if (trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
+    if (!external && trans->compute_phase->skip_reason == block::ComputePhase::sk_none) {
       return td::Status::Error(-669,"new ordinary transaction for smart contract "s + acc->addr.to_hex() +
                 " has not been accepted by the smart contract (?)");
     }
@@ -282,10 +293,6 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator
 
   if (trans->bounce_enabled && !trans->compute_phase->success && !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(-669,"cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
-  }
-
-  if (!trans->serialize()) {
-    return td::Status::Error(-669,"cannot serialize new transaction for smart contract "s + acc->addr.to_hex());
   }
 
   return trans;

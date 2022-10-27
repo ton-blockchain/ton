@@ -5,7 +5,7 @@
 #include "td/utils/logging.h"
 #include "transaction-emulator.h"
 
-void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc) {
+void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc, int vm_log_verbosity) {
   auto config_params_decoded = td::base64_decode(td::Slice(config_params_boc));
   if (config_params_decoded.is_error()) {
     LOG(ERROR) << "Can't decode base64 config params boc: " << config_params_decoded.move_as_error();
@@ -38,15 +38,16 @@ void *transaction_emulator_create(const char *config_params_boc, const char *sha
     shardchain_libs = vm::Dictionary(shardchain_libs_cell.move_as_ok(), 256);
   }
 
-  return new emulator::TransactionEmulator(std::move(global_config), std::move(shardchain_libs));
+  return new emulator::TransactionEmulator(std::move(global_config), std::move(shardchain_libs), vm_log_verbosity);
 }
 
-const char *success_response(std::string&& transaction, std::string&& new_shard_account) {
+const char *success_response(std::string&& transaction, std::string&& new_shard_account, std::string&& vm_log) {
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonTrue());
   json_obj("transaction", std::move(transaction));
   json_obj("shard_account", std::move(new_shard_account));
+  json_obj("vm_log", std::move(vm_log));
   json_obj.leave();
   auto json_response = jb.string_builder().as_cslice().str();
   auto heap_response = new std::string(json_response);
@@ -58,6 +59,19 @@ const char *error_response(std::string&& error) {
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonFalse());
   json_obj("error", std::move(error));
+  json_obj.leave();
+  auto json_response = jb.string_builder().as_cslice().str();
+  auto heap_response = new std::string(json_response);
+  return heap_response->c_str();
+}
+
+const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_code) {
+  td::JsonBuilder jb;
+  auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonFalse());
+  json_obj("error", "External message not accepted by smart contract");
+  json_obj("vm_log", std::move(vm_log));
+  json_obj("vm_exit_code", vm_exit_code);
   json_obj.leave();
   auto json_response = jb.string_builder().as_cslice().str();
   auto heap_response = new std::string(json_response);
@@ -141,22 +155,28 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
   }
   auto emulation_result = result.move_as_ok();
 
-  auto trans_boc = vm::std_boc_serialize(std::move(emulation_result.transaction), vm::BagOfCells::Mode::WithCRC32C);
+  auto external_not_accepted = dynamic_cast<emulator::TransactionEmulator::EmulationExternalNotAccepted *>(emulation_result.get());
+  if (external_not_accepted) {
+    return external_not_accepted_response(std::move(external_not_accepted->vm_log), external_not_accepted->vm_exit_code);
+  }
+
+  auto emulation_success = dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result);
+  auto trans_boc = vm::std_boc_serialize(std::move(emulation_success.transaction), vm::BagOfCells::Mode::WithCRC32C);
   if (trans_boc.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc" << trans_boc.move_as_error());
   }
   auto trans_boc_b64 = td::base64_encode(trans_boc.move_as_ok().as_slice());
 
-  auto new_shard_account_cell = vm::CellBuilder().store_ref(emulation_result.account.total_state)
-                               .store_bits(emulation_result.account.last_trans_hash_.as_bitslice())
-                               .store_long(emulation_result.account.last_trans_lt_).finalize();
+  auto new_shard_account_cell = vm::CellBuilder().store_ref(emulation_success.account.total_state)
+                               .store_bits(emulation_success.account.last_trans_hash_.as_bitslice())
+                               .store_long(emulation_success.account.last_trans_lt_).finalize();
   auto new_shard_account_boc = vm::std_boc_serialize(std::move(new_shard_account_cell), vm::BagOfCells::Mode::WithCRC32C);
   if (new_shard_account_boc.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't serialize ShardAccount to boc" << new_shard_account_boc.move_as_error());
   }
   auto new_shard_account_boc_b64 = td::base64_encode(new_shard_account_boc.move_as_ok().as_slice());
 
-  return success_response(std::move(trans_boc_b64), std::move(new_shard_account_boc_b64));
+  return success_response(std::move(trans_boc_b64), std::move(new_shard_account_boc_b64), std::move(emulation_success.vm_log));
 }
 
 void transaction_emulator_destroy(void *transaction_emulator) {

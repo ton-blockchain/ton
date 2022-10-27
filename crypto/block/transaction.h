@@ -113,6 +113,7 @@ struct ComputePhaseConfig {
   bool with_vm_log{false};
   td::uint16 max_vm_data_depth = 512;
   std::unique_ptr<vm::Dictionary> suspended_addresses;
+  int vm_log_verbosity = 0;
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();

@@ -10,9 +10,11 @@ extern "C" {
  * @brief Creates TransactionEmulator object
  * @param config_params_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
  * @param shardchain_libs_boc Base64 encoded BoC serialized shardchain libraries dictionary (HashmapE 256 ^Cell). Can be NULL if no shardchain libraries needed.
+ * @param vm_log_verbosity Verbosity level of VM log. 0 - log truncated to last 256 characters. 1 - unlimited length log.
+ * 2 - for each command prints its cell hash and offset. 3 - for each command log prints all stack values.
  * @return Pointer to TransactionEmulator or nullptr in case of error
  */
-EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc);
+EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc, int vm_log_verbosity);
 
 /**
  * @brief Emulate transaction

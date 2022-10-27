@@ -11,18 +11,38 @@ namespace emulator {
 class TransactionEmulator {
   block::Config config_;
   vm::Dictionary libraries_;
+  int vm_log_verbosity_;
 
 public:
-  TransactionEmulator(block::Config&& config, vm::Dictionary&& libraries) : 
-    config_(std::move(config)), libraries_(std::move(libraries)) {
+  TransactionEmulator(block::Config&& config, vm::Dictionary&& libraries, int vm_log_verbosity = 0) : 
+    config_(std::move(config)), libraries_(std::move(libraries)), vm_log_verbosity_(vm_log_verbosity) {
   }
 
   struct EmulationResult {
-    td::Ref<vm::Cell> transaction;
-    block::Account account;
+    std::string vm_log;
+
+    EmulationResult(std::string vm_log_) : vm_log(vm_log_) {}
+    virtual ~EmulationResult() = default;
   };
 
-  struct EmulationResults {
+  struct EmulationSuccess: EmulationResult {
+    td::Ref<vm::Cell> transaction;
+    block::Account account;
+
+    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_) : 
+      EmulationResult(vm_log_), transaction(transaction_), account(account_) 
+    {}
+  };
+
+  struct EmulationExternalNotAccepted: EmulationResult {
+    int vm_exit_code;
+
+    EmulationExternalNotAccepted(std::string vm_log_, int vm_exit_code_) : 
+      EmulationResult(vm_log_), vm_exit_code(vm_exit_code_) 
+    {}
+  };
+
+  struct EmulationChain {
     std::vector<td::Ref<vm::Cell>> transactions;
     block::Account account;
   };
@@ -31,14 +51,14 @@ public:
     return config_;
   }
 
-  td::Result<EmulationResult> emulate_transaction(
+  td::Result<std::unique_ptr<EmulationResult>> emulate_transaction(
       block::Account&& account, td::Ref<vm::Cell> msg_root,
       ton::UnixTime utime = 0, ton::LogicalTime lt = 0,
       int trans_type = block::transaction::Transaction::tr_ord,
       td::BitArray<256>* rand_seed = nullptr);
 
-  td::Result<EmulationResult> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed);
-  td::Result<EmulationResults> emulate_transactions(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed);
+  td::Result<EmulationSuccess> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed);
+  td::Result<EmulationChain> emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed);
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
