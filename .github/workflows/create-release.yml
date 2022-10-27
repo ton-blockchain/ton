@@ -21,7 +21,7 @@ jobs:
       - name: Download Ubuntu artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ubuntu-18.04-compile.yml
+          workflow: ubuntu-compile.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
@@ -98,10 +98,26 @@ jobs:
           asset_name: ton-macos-binaries.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu artifacts
+      - name: Upload Ubuntu 18.04 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-binaries.zip
-          asset_name: ton-ubuntu-binaries.zip
+          file: artifacts/ton-ubuntu-binaries-18.04.zip
+          asset_name: ton-ubuntu-binaries-18.04.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 20.04 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-binaries-20.04.zip
+          asset_name: ton-ubuntu-binaries-20.04.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 22.04 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-binaries-22.04.zip
+          asset_name: ton-ubuntu-binaries-22.04.zip
           tag: v${{ steps.date.outputs.date }}
