@@ -1,6 +1,6 @@
-name: Docker Compile Ubuntu x86-64 & arm64
+name: Docker Ubuntu Compile arm64
 
-on: [push,workflow_dispatch]
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
@@ -8,8 +8,8 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        arch: [amd64, arm64]
-        ver: [18.04, 20.04, 22.04]
+        arch: [arm64]
+        ver: [22.04, 18.04, 20.04 ]
 
     runs-on: ubuntu-22.04
     steps:
@@ -33,7 +33,6 @@ jobs:
           docker cp -a $container_id:/ton/build/crypto/fift build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/crypto/func build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/crypto/create-state build-${{matrix.ver}}-${{matrix.arch}}/
-          docker cp -a $container_id:/ton/build/create-hardfork/create-hardfork build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/blockchain-explorer/blockchain-explorer build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/lite-client/lite-client build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/utils/generate-random-id build-${{matrix.ver}}-${{matrix.arch}}/      
