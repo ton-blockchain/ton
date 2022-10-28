@@ -101,6 +101,8 @@ void NodeActor::init_torrent() {
     state->torrent_info_str_ = torrent_info_str_;
     CHECK(!state->torrent_info_ready_.exchange(true));
   }
+  LOG(INFO) << "Inited torrent info for " << torrent_.get_hash().to_hex() << ": size=" << torrent_.get_info().file_size
+            << ", pieces=" << torrent_.get_info().pieces_count();
   if (torrent_.inited_header()) {
     init_torrent_header();
   }
@@ -141,6 +143,21 @@ void NodeActor::init_torrent_header() {
     }
   }
   db_update_pieces_list();
+  recheck_parts(Torrent::PartsRange{0, torrent_.get_info().pieces_count()});
+  db_store_torrent_meta();
+
+  LOG(INFO) << "Inited torrent header for " << torrent_.get_hash().to_hex()
+            << ": files=" << torrent_.get_files_count().value() << ", included_size=" << torrent_.get_included_size();
+}
+
+void NodeActor::recheck_parts(Torrent::PartsRange range) {
+  CHECK(torrent_.inited_header());
+  for (size_t i = range.begin; i < range.end; ++i) {
+    if (parts_.parts[i].ready && !torrent_.is_piece_ready(i)) {
+      parts_helper_.on_self_part_not_ready(i);
+      parts_.parts[i].ready = false;
+    }
+  }
 }
 
 void NodeActor::loop_will_upload() {
@@ -279,6 +296,7 @@ void NodeActor::set_all_files_priority(td::uint8 priority, td::Promise<bool> pro
     file_priority_[i] = priority;
     torrent_.set_file_excluded(i, priority == 0);
   }
+  recheck_parts(Torrent::PartsRange{0, torrent_.get_info().pieces_count()});
   db_store_priorities();
   update_pieces_in_db(0, torrent_.get_info().pieces_count());
   promise.set_result(true);
@@ -304,8 +322,8 @@ void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promi
   file_priority_[i] = priority;
   torrent_.set_file_excluded(i, priority == 0);
   auto range = torrent_.get_file_parts_range(i);
+  recheck_parts(range);
   update_pieces_in_db(range.begin, range.end);
-  promise.set_result(true);
   for (auto i = range.begin; i < range.end; i++) {
     if (i == range.begin || i + 1 == range.end) {
       auto chunks = torrent_.chunks_by_piece(i);
@@ -562,9 +580,6 @@ void NodeActor::got_torrent_info_str(td::BufferSlice data) {
 }
 
 void NodeActor::update_pieces_in_db(td::uint64 begin, td::uint64 end) {
-  if (!header_ready_) {
-    return;
-  }
   bool changed = false;
   for (auto i = begin; i < end; ++i) {
     bool stored = pieces_in_db_.count(i);

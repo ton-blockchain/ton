@@ -168,6 +168,7 @@ class NodeActor : public td::actor::Actor {
 
   void init_torrent();
   void init_torrent_header();
+  void recheck_parts(Torrent::PartsRange range);
 
   void on_signal_from_peer(PeerId peer_id);
 

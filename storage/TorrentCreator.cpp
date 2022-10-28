@@ -176,10 +176,11 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   info.piece_size = options_.piece_size;
   info.description = options_.description;
   info.file_size = file_size;
-  info.depth = (td::uint32)tree.get_depth();
   info.root_hash = tree.get_root_hash();
 
   info.init_cell();
+  TRY_STATUS_PREFIX(info.validate(), "Invalid torrent info: ");
+  TRY_STATUS_PREFIX(header.validate(info.file_size, info.header_size), "Invalid torrent header: ");
 
   Torrent torrent(info, std::move(header), std::move(tree), std::move(chunks));
 

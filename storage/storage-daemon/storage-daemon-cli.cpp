@@ -105,10 +105,16 @@ std::string size_to_str(td::uint64 size) {
 
 void print_torrent_full(const ton_api::storage_daemon_torrentFull& obj) {
   td::TerminalIO::out() << "Hash = " << obj.torrent_->hash_.to_hex() << "\n";
-  if (obj.torrent_->info_ready_) {
-    td::TerminalIO::out() << "Downloaded: " << td::format::as_size(obj.torrent_->downloaded_size_) << "/"
-                          << td::format::as_size(obj.torrent_->included_size_)
-                          << (obj.torrent_->completed_ ? " (completed)" : "") << "\n";
+  if (obj.torrent_->flags_ & 4) {  // fatal error
+    td::TerminalIO::out() << "FATAL ERROR: " << obj.torrent_->fatal_error_ << "\n";
+  }
+  if (obj.torrent_->flags_ & 1) {    // info ready
+    if (obj.torrent_->flags_ & 2) {  // header ready
+      td::TerminalIO::out() << "Downloaded: " << td::format::as_size(obj.torrent_->downloaded_size_) << "/"
+                            << td::format::as_size(obj.torrent_->included_size_)
+                            << (obj.torrent_->completed_ ? " (completed)" : "") << "\n";
+      td::TerminalIO::out() << "Dir name: " << obj.torrent_->dir_name_ << "\n";
+    }
     td::TerminalIO::out() << "Total size: " << td::format::as_size(obj.torrent_->total_size_) << "\n";
     if (!obj.torrent_->description_.empty()) {
       td::TerminalIO::out() << "------------\n";
@@ -126,7 +132,7 @@ void print_torrent_full(const ton_api::storage_daemon_torrentFull& obj) {
     td::TerminalIO::out() << "Download paused\n";
   }
   td::TerminalIO::out() << "Root dir: " << obj.torrent_->root_dir_ << "\n";
-  if (obj.torrent_->header_ready_) {
+  if (obj.torrent_->flags_ & 2) {  // header ready
     td::TerminalIO::out() << obj.files_.size() << " files:\n";
     td::TerminalIO::out() << "######  Prior   Ready/Size     Name\n";
     td::uint32 i = 0;
@@ -153,15 +159,21 @@ void print_torrent_list(const ton_api::storage_daemon_torrentList& obj) {
   for (const auto& torrent : obj.torrents_) {
     char str[256];
     std::string hash = torrent->hash_.to_hex();
-    std::string downloaded_size = torrent->info_ready_ ? size_to_str(torrent->downloaded_size_) : "0B";
-    std::string included_size = torrent->info_ready_ ? size_to_str(torrent->included_size_) : "???";
-    std::string total_size = torrent->info_ready_ ? size_to_str(torrent->total_size_) : "???";
-    std::string speed =
-        torrent->completed_
-            ? "COMPLETED"
-            : (torrent->active_download_ ? size_to_str((td::uint64)torrent->download_speed_) + "/s" : "Paused");
+    bool info_ready = torrent->flags_ & 1;
+    bool header_ready = torrent->flags_ & 2;
+    std::string downloaded_size = size_to_str(torrent->downloaded_size_);
+    std::string included_size = header_ready ? size_to_str(torrent->included_size_) : "???";
+    std::string total_size = info_ready ? size_to_str(torrent->total_size_) : "???";
+    std::string status;
+    if (torrent->flags_ & 4) {  // fatal error
+      status = "FATAL ERROR: " + torrent->fatal_error_;
+    } else {
+      status = torrent->completed_
+                   ? "COMPLETED"
+                   : (torrent->active_download_ ? size_to_str((td::uint64)torrent->download_speed_) + "/s" : "Paused");
+    }
     snprintf(str, sizeof(str), "  %64s %7s/%-7s %7s %9s", hash.c_str(), downloaded_size.c_str(), included_size.c_str(),
-             total_size.c_str(), speed.c_str());
+             total_size.c_str(), status.c_str());
     td::TerminalIO::out() << str << "\n";
   }
 }
@@ -451,6 +463,8 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_add_by_hash(td::Bits256 hash, std::string root_dir, bool start_download) {
     if (!root_dir.empty()) {
+      TRY_STATUS_PREFIX(td::mkpath(root_dir), "Failed to create directory: ");
+      TRY_STATUS_PREFIX(td::mkdir(root_dir), "Failed to create directory: ");
       TRY_RESULT_PREFIX_ASSIGN(root_dir, td::realpath(root_dir), "Invalid path: ");
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByHash>(hash, root_dir, start_download);
@@ -468,6 +482,8 @@ class StorageDaemonCli : public td::actor::Actor {
   td::Status execute_add_by_meta(std::string meta_file, std::string root_dir, bool start_download) {
     TRY_RESULT_PREFIX(meta, td::read_file(meta_file), "Failed to read meta: ");
     if (!root_dir.empty()) {
+      TRY_STATUS_PREFIX(td::mkpath(root_dir), "Failed to create directory: ");
+      TRY_STATUS_PREFIX(td::mkdir(root_dir), "Failed to create directory: ");
       TRY_RESULT_PREFIX_ASSIGN(root_dir, td::realpath(root_dir), "Invalid path: ");
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByMeta>(std::move(meta), root_dir, start_download);

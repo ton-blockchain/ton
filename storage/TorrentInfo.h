@@ -25,9 +25,8 @@
 #include "vm/cells.h"
 
 namespace ton {
-// torrent_info depth:# piece_size:uint32 file_size:uint64 root_hash:(## 256) header_size:uint64 header_hash:(## 256) description:Text = TorrentInfo;
+// torrent_info piece_size:uint32 file_size:uint64 root_hash:(## 256) header_size:uint64 header_hash:(## 256) description:Text = TorrentInfo;
 struct TorrentInfo {
-  td::uint32 depth{0};
   td::uint32 piece_size{768 * 128};
   td::uint64 file_size{0};
   td::Bits256 root_hash;
@@ -49,6 +48,8 @@ struct TorrentInfo {
 
   td::uint64 pieces_count() const;
   PieceInfo get_piece_info(td::uint64 piece_i) const;
+
+  td::Status validate() const;
 
  private:
   td::Ref<vm::Cell> cell_;

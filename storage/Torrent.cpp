@@ -27,26 +27,6 @@
 
 namespace ton {
 
-Torrent::Torrent(TorrentMeta meta)
-    : hash_(meta.info.get_hash().bits())
-    , inited_info_(true)
-    , info_(meta.info)
-    , merkle_tree_(info_.pieces_count(), info_.root_hash)
-    , piece_is_ready_(info_.pieces_count(), false) {
-  not_ready_piece_count_ = piece_is_ready_.size();
-  header_pieces_count_ = (info_.header_size + info_.piece_size - 1) / info_.piece_size;
-  not_ready_pending_piece_count_ = header_pieces_count_;
-
-  if (meta.header) {
-    set_header(meta.header.unwrap());
-  } else {
-    header_str_ = td::BufferSlice(info_.header_size);
-  }
-  if (meta.root_proof.not_null()) {
-    merkle_tree_.add_proof(meta.root_proof);
-  }
-}
-
 td::Result<Torrent> Torrent::open(Options options, td::Bits256 hash) {
   Torrent res(hash);
   if (!options.in_memory) {
@@ -59,7 +39,14 @@ td::Result<Torrent> Torrent::open(Options options, td::Bits256 hash) {
 }
 
 td::Result<Torrent> Torrent::open(Options options, TorrentMeta meta) {
-  Torrent res(std::move(meta));
+  Torrent res(td::Bits256(meta.info.get_hash().bits()));
+  TRY_STATUS(res.init_info(std::move(meta.info)));
+  if (meta.header) {
+    TRY_STATUS(res.set_header(meta.header.unwrap()));
+  }
+  if (meta.root_proof.not_null()) {
+    TRY_STATUS(res.merkle_tree_.add_proof(meta.root_proof));
+  }
   if (!options.in_memory) {
     if (options.root_dir.empty()) {
       options.root_dir = ".";
@@ -289,7 +276,7 @@ td::Result<std::string> Torrent::get_piece_data(td::uint64 piece_i) {
   }
   auto it2 = in_memory_pieces_.find(piece_i);
   if (it2 != in_memory_pieces_.end()) {
-    return it2->second.second;
+    return it2->second.data;
   }
   auto piece = info_.get_piece_info(piece_i);
 
@@ -309,6 +296,9 @@ td::Result<td::Ref<vm::Cell>> Torrent::get_piece_proof(td::uint64 piece_i) {
 }
 
 td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Cell> proof) {
+  if (fatal_error_.is_error()) {
+    return fatal_error_.clone().move_as_error_prefix("Fatal error: ");
+  }
   if (!inited_info_) {
     return td::Status::Error("Torrent info not inited");
   }
@@ -343,8 +333,15 @@ td::Status Torrent::add_pending_piece(td::uint64 piece_i, td::Slice data) {
     not_ready_pending_piece_count_--;
     if (not_ready_pending_piece_count_ == 0) {
       TorrentHeader header;
-      TRY_STATUS(td::unserialize(header, header_str_.as_slice()));  // TODO: it is a fatal error
-      set_header(header);
+      auto S = td::unserialize(header, header_str_.as_slice());
+      if (S.is_ok()) {
+        S = set_header(std::move(header));
+      }
+      if (S.is_error()) {
+        S = S.move_as_error_prefix("Invalid torrent header: ");
+        fatal_error_ = S.clone();
+        return S;
+      }
       if (enabled_wirte_to_files_) {
         add_pending_pieces();
       }
@@ -365,16 +362,13 @@ void Torrent::enable_write_to_files() {
 }
 
 void Torrent::add_pending_pieces() {
-  for (auto it = pending_pieces_.begin(); it != pending_pieces_.end();) {
-    td::Status S = add_validated_piece(it->first, it->second);
-    if (S.is_ok()) {
-      it = pending_pieces_.erase(it);
-    } else {
-      // TODO: Process errors here
-      LOG(FATAL) << "Failed to add piece: " << S;
-      ++it;
+  for (auto& p : pending_pieces_) {
+    td::Status S = add_validated_piece(p.first, std::move(p.second));
+    if (S.is_error()) {
+      LOG(WARNING) << "Failed to add pending piece #" << p.first << ": " << S;
     }
   }
+  pending_pieces_.clear();
 }
 
 std::string Torrent::get_chunk_path(td::Slice name) const {
@@ -404,22 +398,28 @@ td::Status Torrent::add_validated_piece(td::uint64 piece_i, td::Slice data) {
   CHECK(!chunks_.empty());
 
   auto piece = info_.get_piece_info(piece_i);
-  size_t excluded_cnt = 0;
+  std::set<size_t> excluded;
 
   TRY_STATUS(iterate_piece(piece, [&](auto it, auto info) {
     if (it->excluded) {
-      ++excluded_cnt;
+      excluded.insert(it - chunks_.begin());
       return td::Status::OK();
     }
     TRY_STATUS(init_chunk_data(*it));
-    TRY_STATUS(it->add_piece(data.substr(info.piece_offset, info.size), info.chunk_offset));
-    included_ready_size_ += info.size;
+    TRY_STATUS(it->write_piece(data.substr(info.piece_offset, info.size), info.chunk_offset));
+    return td::Status::OK();
+  }));
+  TRY_STATUS(iterate_piece(piece, [&](auto it, auto info) {
+    if (!it->excluded) {
+      it->ready_size += info.size;
+      included_ready_size_ += info.size;
+    }
     return td::Status::OK();
   }));
   piece_is_ready_[piece_i] = true;
   not_ready_piece_count_--;
-  if (excluded_cnt > 0) {
-    in_memory_pieces_[piece_i] = {excluded_cnt, data.str()};
+  if (!excluded.empty()) {
+    in_memory_pieces_[piece_i] = {data.str(), std::move(excluded)};
   }
 
   return td::Status::OK();
@@ -477,8 +477,11 @@ Torrent::Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree 
     , chunks_(std::move(chunks)) {
 }
 
-void Torrent::set_header(const TorrentHeader &header) {
-  header_ = header;
+td::Status Torrent::set_header(TorrentHeader header) {
+  if (header_) {
+    return td::Status::OK();
+  }
+  TRY_STATUS_PREFIX(header.validate(info_.file_size, info_.header_size), "Invalid torrent header: ");
   auto add_chunk = [&](td::Slice name, td::uint64 offset, td::uint64 size) {
     ChunkState chunk;
     chunk.name = name.str();
@@ -495,6 +498,8 @@ void Torrent::set_header(const TorrentHeader &header) {
     auto r = header.get_data_end(i);
     add_chunk(header.get_name(i), l, r - l);
   }
+  header_ = std::move(header);
+  return td::Status::OK();
 }
 
 size_t Torrent::get_ready_parts_count() const {
@@ -519,6 +524,12 @@ td::Status Torrent::init_info(Info info) {
   if (inited_info_) {
     return td::Status::OK();
   }
+  auto S = info.validate();
+  if (S.is_error()) {
+    S = S.move_as_error_prefix("Invalid torrent info: ");
+    fatal_error_ = S.clone();
+    return S;
+  }
   inited_info_ = true;
   info_ = std::move(info);
   merkle_tree_ = MerkleTree(info_.pieces_count(), info_.root_hash);
@@ -536,26 +547,56 @@ void Torrent::set_file_excluded(size_t i, bool excluded) {
   if (!root_dir_) {
     return;  // All files are in-memory, nothing to do
   }
-  auto &chunk = chunks_[i + 1];
+  size_t chunk_i = i + 1;
+  auto &chunk = chunks_[chunk_i];
   if (chunk.excluded == excluded) {
     return;
   }
-  included_size_ += (excluded ? -chunk.size : chunk.size);
-  included_ready_size_ += (excluded ? -chunk.ready_size : chunk.ready_size);
+  if (excluded) {
+    included_size_ -= chunk.size;
+    included_ready_size_ -= chunk.ready_size;
+  } else {
+    included_size_ += chunk.size;
+    included_ready_size_ += chunk.ready_size;
+  }
   chunk.excluded = excluded;
   if (!enabled_wirte_to_files_ || excluded) {
     return;
   }
   auto range = get_file_parts_range(i);
   for (auto it = in_memory_pieces_.lower_bound(range.begin); it != in_memory_pieces_.end() && it->first < range.end;) {
+    if (!it->second.pending_chunks.count(chunk_i)) {
+      ++it;
+      continue;
+    }
     auto piece_i = it->first;
     auto piece = info_.get_piece_info(piece_i);
-    auto l = td::max(chunk.offset, piece.offset);
-    auto r = td::min(chunk.offset + chunk.size, piece.offset + piece.size);
-    init_chunk_data(chunk).ensure();  // TODO: Process errors
-    chunk.add_piece(it->second.second.substr(l - piece.offset, r - l), l - chunk.offset).ensure();
-    included_ready_size_ += r - l;
-    if (--it->second.first == 0) {
+    auto S = [&]() {
+      auto l = td::max(chunk.offset, piece.offset);
+      auto r = td::min(chunk.offset + chunk.size, piece.offset + piece.size);
+      TRY_STATUS(init_chunk_data(chunk));
+      TRY_STATUS(chunk.write_piece(it->second.data.substr(l - piece.offset, r - l), l - chunk.offset));
+      chunk.ready_size += r - l;
+      return td::Status::OK();
+    }();
+    if (S.is_error()) {
+      // Erase piece completely
+      piece_is_ready_[piece_i] = false;
+      not_ready_piece_count_++;
+      iterate_piece(piece, [&](auto it2, auto info) {
+        if (!it2->excluded) {
+          included_ready_size_ -= info.size;
+        }
+        if (!it2->excluded || !it->second.pending_chunks.count(it2 - chunks_.begin())) {
+          it2->ready_size -= info.size;
+        }
+        return td::Status::OK();
+      });
+      it = in_memory_pieces_.erase(it);
+      continue;
+    }
+    it->second.pending_chunks.erase(chunk_i);
+    if (it->second.pending_chunks.empty()) {
       it = in_memory_pieces_.erase(it);
     } else {
       ++it;

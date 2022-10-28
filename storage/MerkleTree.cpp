@@ -227,7 +227,7 @@ td::Ref<vm::Cell> MerkleTree::do_add_pieces(td::Ref<vm::Cell> node, std::vector<
     return node;
   }
   vm::CellSlice cs;
-  if (node.is_null() || il + 1 == ir || (cs = vm::CellSlice(vm::NoVm(), node)).is_special()) {
+  if (node.is_null() || (cs = vm::CellSlice(vm::NoVm(), node)).is_special() || il + 1 == ir) {
     if ((size_t)(pr - pl) != std::min(ir, pieces_count_) - il) {
       return node;
     }
@@ -268,10 +268,10 @@ std::vector<size_t> MerkleTree::add_pieces(std::vector<std::pair<size_t, td::Bit
   CHECK(pieces.back().first < pieces_count_);
   std::vector<size_t> ok_pieces;
   td::Ref<vm::Cell> root;
-  root = do_add_pieces(root, ok_pieces, 0, n_, pieces.data(), pieces.data() + pieces.size());
   if (!root_proof_.is_null()) {
     root = unpack_proof(root_proof_).move_as_ok();
   }
+  root = do_add_pieces(root, ok_pieces, 0, n_, pieces.data(), pieces.data() + pieces.size());
   if (!root.is_null()) {
     root_proof_ = vm::CellBuilder::create_merkle_proof(std::move(root));
   }

@@ -760,13 +760,16 @@ storage.db.piecesInDb pieces:(vector long) = storage.db.PiecesInDb;
 storage.daemon.queryError message:string = storage.daemon.QueryError;
 storage.daemon.success = storage.daemon.Success;
 storage.daemon.torrent
-    hash:int256 info_ready:Bool header_ready:Bool
-    total_size:long description:string
-    files_count:long
-    included_size:long
+    hash:int256 flags:#
+    // 0 - info ready
+    // 1 - header ready
+    // 2 - fatal error
+    total_size:flags.0?long description:flags.0?string
+    files_count:flags.1?long included_size:flags.1?long dir_name:flags.1?string
     downloaded_size:long
     root_dir:string active_download:Bool completed:Bool
     download_speed:double upload_speed:double
+    fatal_error:flags.2?string
     = storage.daemon.Torrent;
 storage.daemon.fileInfo
     name:string size:long

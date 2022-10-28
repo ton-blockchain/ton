@@ -127,6 +127,22 @@ struct PartsHelper {
     change_key(part_id, part->rnd, part->peers_count, 0, part->priority, part->priority);
   }
 
+  void on_self_part_not_ready(PartId part_id) {
+    auto peer = get_peer(self_token_);
+    if (!peer->ready_parts.set_zero(part_id)) {
+      return;
+    }
+    auto part = get_part(part_id);
+    CHECK(part->is_ready);
+    part->is_ready = false;
+    for (auto &peer : peers_) {
+      if (peer.ready_parts.get(part_id)) {
+        peer.want_download_count++;
+      }
+    }
+    change_key(part_id, part->rnd, 0, part->peers_count, part->priority, part->priority);
+  }
+
   struct RarePart {
     PartId part_id;
     PeerId peer_id;

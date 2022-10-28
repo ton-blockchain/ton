@@ -146,6 +146,15 @@ class Torrent {
     return pieces;
   }
 
+  const td::Status& get_fatal_error() const {
+    return fatal_error_;
+  }
+
+  const TorrentHeader& get_header() const {
+    CHECK(inited_header())
+    return header_.value();
+  }
+
  private:
   td::Bits256 hash_;
   bool inited_info_ = false;
@@ -159,13 +168,19 @@ class Torrent {
   size_t header_pieces_count_{0};
   std::map<td::uint64, td::string> pending_pieces_;
   bool enabled_wirte_to_files_ = false;
-  std::map<td::uint64, std::pair<size_t, td::string>> in_memory_pieces_; // Pieces that overlap excluded files
+  struct InMemoryPiece {
+    std::string data;
+    std::set<size_t> pending_chunks;
+  };
+  std::map<td::uint64, InMemoryPiece> in_memory_pieces_; // Pieces that overlap excluded files
 
   ton::MerkleTree merkle_tree_;
 
   std::vector<bool> piece_is_ready_;
   size_t not_ready_piece_count_{0};
   size_t ready_parts_count_{0};
+
+  td::Status fatal_error_ = td::Status::OK();
 
   struct ChunkState {
     std::string name;
@@ -185,10 +200,11 @@ class Torrent {
       return ready_size == size;
     }
 
-    TD_WARN_UNUSED_RESULT td::Status add_piece(td::Slice piece, td::uint64 offset) {
+    TD_WARN_UNUSED_RESULT td::Status write_piece(td::Slice piece, td::uint64 offset) {
       TRY_RESULT(written, data.write(piece, offset));
-      CHECK(written == piece.size());
-      ready_size += written;
+      if (written != piece.size()) {
+        return td::Status::Error("Written less than expected");
+      }
       return td::Status::OK();
     }
     bool has_piece(td::uint64 offset, td::uint64 size) {
@@ -202,7 +218,6 @@ class Torrent {
 
   explicit Torrent(td::Bits256 hash);
   explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk);
-  explicit Torrent(TorrentMeta meta);
   void set_root_dir(std::string root_dir) {
     root_dir_ = std::move(root_dir);
   }
@@ -215,7 +230,7 @@ class Torrent {
 
   td::Status add_pending_piece(td::uint64 piece_i, td::Slice data);
   td::Status add_validated_piece(td::uint64 piece_i, td::Slice data);
-  void set_header(const TorrentHeader &header);
+  td::Status set_header(TorrentHeader header);
 };
 
 }  // namespace ton

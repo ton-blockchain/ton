@@ -367,28 +367,27 @@ class StorageDaemon : public td::actor::Actor {
     obj.root_dir_ = torrent.get_root_dir();
     if (torrent.inited_info()) {
       const Torrent::Info &info = torrent.get_info();
-      obj.info_ready_ = true;
-      obj.header_ready_ = torrent.inited_header();
+      obj.flags_ = 1;
+      if (torrent.inited_header()) {
+        obj.flags_ |= 2;
+      }
       obj.total_size_ = info.file_size;
       obj.description_ = info.description;
-      if (obj.header_ready_) {
+      if (torrent.inited_header()) {
         obj.included_size_ = torrent.get_included_size();
-        auto count = torrent.get_files_count();
-        obj.files_count_ = count ? count.value() : 0;
-      } else {
-        obj.files_count_ = 0;
+        obj.files_count_ = torrent.get_files_count().unwrap();
+        obj.dir_name_ = torrent.get_header().dir_name;
       }
       obj.downloaded_size_ = torrent.get_included_ready_size();
       obj.completed_ = torrent.is_completed();
     } else {
-      obj.info_ready_ = false;
-      obj.header_ready_ = false;
-      obj.total_size_ = 0;
-      obj.included_size_ = 0;
-      obj.description_ = "";
-      obj.files_count_ = 0;
-      obj.downloaded_size_ = 0.0;
+      obj.flags_ = 0;
+      obj.downloaded_size_ = 0;
       obj.completed_ = false;
+    }
+    if (torrent.get_fatal_error().is_error()) {
+      obj.flags_ |= 4;
+      obj.fatal_error_ = torrent.get_fatal_error().message().str();
     }
   }
 
