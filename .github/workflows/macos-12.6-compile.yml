@@ -32,7 +32,24 @@ jobs:
 
     - name: Find & copy binaries
       run: |
-        rsync -r --exclude 'CMakeFiles' --exclude 'Makefile' --exclude '*.a' --exclude '*.cmake' --exclude 'third-party' --exclude 'test-*' --exclude '*.cc' --exclude '*.json' --exclude '*.txt' build/* artifacts/
+        mkdir artifacts
+        cp build/crypto/fift artifacts/
+        cp build/crypto/func artifacts/
+        cp build/crypto/create-state artifacts/
+        cp build/validator-engine-console/validator-engine-console artifacts/ 
+        cp build/tonlib/tonlib-cli artifacts/
+        cp build/tonlib/libtonlibjson.0.5.dylib artifacts/ 
+        cp build/http/http-proxy artifacts/
+        cp build/rldp-http-proxy/rldp-http-proxy artifacts/
+        cp build/dht-server/dht-server artifacts/
+        cp build/lite-client/lite-client artifacts/
+        cp build/validator-engine/validator-engine artifacts/
+        cp build/utils/generate-random-id artifacts/
+        cp build/utils/json2tlo artifacts/
+        cp build/adnl/adnl-proxy artifacts/
+        rsync -r crypto/smartcont artifacts/
+        rsync -r crypto/fift/lib artifacts/
+        ls -laRt artifacts
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
