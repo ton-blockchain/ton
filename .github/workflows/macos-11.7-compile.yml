@@ -1,11 +1,11 @@
-name: MacOS-10.15 x86-64 Compile
+name: MacOS-11.7 x86-64 Compile
 
 on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
 
-    runs-on: macos-10.15
+    runs-on: macos-11
 
     steps:
     - name: Check out repository
@@ -17,7 +17,7 @@ jobs:
         git clone https://github.com/openssl/openssl openssl_1_1_1
         cd openssl_1_1_1
         git checkout OpenSSL_1_1_1-stable
-        ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=10.15
+        ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=11.7
         make build_libs -j4
 
     - name: Build all
@@ -25,7 +25,7 @@ jobs:
         rootPath=`pwd`
         mkdir build
         cd build
-        cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.15 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
+        cmake -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=11.7 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
         make -j4
 
     - name: Find & copy binaries
