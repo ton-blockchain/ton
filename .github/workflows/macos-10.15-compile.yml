@@ -1,4 +1,4 @@
-name: C/C++ CI macOS-10.15 Compile
+name: MacOS-10.15 x86-64 Compile
 
 on: [push,workflow_dispatch,workflow_call]
 
