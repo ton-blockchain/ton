@@ -27,8 +27,6 @@ class VmDumper {
   }
 
   void dump_stack(const Ref<vm::Stack>& stack) const {
-    std::cerr << "I'm here" << std::endl;
-
     if (!enable) {
       throw std::invalid_argument("Must be enabled to dump");
     }
@@ -36,17 +34,10 @@ class VmDumper {
     std::vector<StackEntry> current_stack;
 
     stack->for_each_scalar([&current_stack](const StackEntry& stackPointer) {
-      std::cerr << "Got: ";
-      stackPointer.dump(std::cerr);
-      std::cerr << std::endl;
-
       current_stack.push_back(stackPointer);
     });
 
-    std::cerr << "Final round";
     stacks->push_back(std::move(current_stack));
-
-    std::cerr << "Done round";
   };
 
   void dump_op(std::string op) const {
