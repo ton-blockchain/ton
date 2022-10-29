@@ -186,7 +186,7 @@ py::object cast_stack_item_to_python_object(const vm::StackEntry& item) {
     cb.append_builder(builder_item);
     auto body_cell = cb.finalize();
 
-    py::dict d("type"_a = "continuation", "value"_a = py::str(dump_as_boc(body_cell)));
+    py::dict d("type"_a = "builder", "value"_a = py::str(dump_as_boc(body_cell)));
     return d;
   }
 
