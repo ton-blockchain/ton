@@ -84,6 +84,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
 
 #BEGIN internal
+option(USE_LTO "Use \"ON\" to enable LTO." OFF)
 option(USE_EMSCRIPTEN "Use \"ON\" for config building wasm." OFF)
 option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
 if (USE_EMSCRIPTEN)
@@ -104,6 +105,11 @@ option(TON_USE_ASAN "Use \"ON\" to enable AddressSanitizer." OFF)
 option(TON_USE_TSAN "Use \"ON\" to enable ThreadSanitizer." OFF)
 option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
+
+set(TON_SAN FALSE)
+if (TON_USE_ASAN OR TON_USE_TSAN OR TON_USE_UBSAN)
+  set(TON_SAN TRUE)
+endif()
 
 #BEGIN M1 support
 EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )
@@ -203,7 +209,7 @@ find_package(ZLIB REQUIRED)
 if (TON_ARCH AND NOT MSVC)
   CHECK_CXX_COMPILER_FLAG( "-march=${TON_ARCH}" COMPILER_OPT_ARCH_SUPPORTED )
   if (TON_ARCH STREQUAL "apple-m1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")	
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")
   elseif(COMPILER_OPT_ARCH_SUPPORTED)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")
   elseif(NOT TON_ARCH STREQUAL "native")
@@ -223,6 +229,25 @@ Works under macOS and Linux when compiled using glibc. \
 In FAST mode stack is unwinded only using frame pointers, which may fail. \
 In SAFE mode stack is unwinded using backtrace function from execinfo.h, which may be very slow. \
 By default both methods are used to achieve maximum speed and accuracy")
+
+if (USE_LTO AND NOT TON_SAN)
+  if (CLANG)
+    string(APPEND CMAKE_CXX_FLAGS " -flto=thin")
+    string(APPEND LDFLAGS " -fuse-ld=lld")
+  endif()
+
+  if (GCC)
+    string(APPEND CMAKE_CXX_FLAGS " -flto")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -flto")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -flto")
+  endif()
+
+  if (MSVC)
+    string(APPEND CMAKE_CXX_FLAGS " /GL")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " /LTCG")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " /LTCG")
+  endif()
+endif()
 
 if (CLANG OR GCC)
   if (MEMPROF)
