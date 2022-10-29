@@ -16,9 +16,7 @@ jobs:
           mkdir artifacts
           ls -lart artifacts
 
-# download artifacts from dependent jobs
-
-      - name: Download Ubuntu artifacts
+      - name: Download Ubuntu x86-64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: ubuntu-compile.yml
@@ -26,10 +24,26 @@ jobs:
           workflow_conclusion: success
           skip_unpack: true
 
-      - name: Download MacOS artifacts
+      - name: Download Ubuntu arm64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: macos-10.15-compile.yml
+          workflow: docker-compile-ubuntu.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download MacOS 11.7 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: macos-11.7-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download MacOS 12.6 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: macos-12.6-compile.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
@@ -80,44 +94,74 @@ jobs:
           draft: false
           prerelease: false
 
-# upload artifacts to release
-
-      - name: Upload Windows artifacts
+      - name: Upload Windows 2019 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-win-binaries.zip
-          asset_name: ton-win-binaries.zip
+          asset_name: ton-windows-2019-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload MacOS artifacts
+      - name: Upload MacOS 11.7 x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-macos-binaries.zip
-          asset_name: ton-macos-binaries.zip
+          file: artifacts/ton-macos-11.7.zip
+          asset_name: ton-macos-11.7-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu 18.04 artifacts
+      - name: Upload MacOS 12.6 x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-macos-12.6.zip
+          asset_name: ton-macos-12.6-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 18.04 x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-binaries-ubuntu-18.04.zip
-          asset_name: ton-ubuntu-binaries-18.04.zip
+          asset_name: ton-ubuntu-18.04-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu 20.04 artifacts
+      - name: Upload Ubuntu 20.04 x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-binaries-ubuntu-20.04.zip
-          asset_name: ton-ubuntu-binaries-20.04.zip
+          asset_name: ton-ubuntu-20.04-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu 22.04 artifacts
+      - name: Upload Ubuntu 22.04 x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-binaries-ubuntu-22.04.zip
-          asset_name: ton-ubuntu-binaries-22.04.zip
+          asset_name: ton-ubuntu-22.04-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 18.04 arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-18.04-arm64.zip
+          asset_name: ton-ubuntu-18.04-arm64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 20.04 arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-20.04-arm64.zip
+          asset_name: ton-ubuntu-20.04-arm64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 22.04 arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-22.04-arm64.zip
+          asset_name: ton-ubuntu-22.04-arm64.zip
           tag: v${{ steps.date.outputs.date }}
