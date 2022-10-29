@@ -190,17 +190,24 @@ py::object cast_stack_item_to_python_object(const vm::StackEntry& item) {
     return d;
   }
 
-  throw std::invalid_argument("Not supported type: " + std::to_string(item.type()));
+  py::dict d("type"_a = "not supported");
+  return d;
 }
 
 // Vm logger
 class PythonLogger : public td::LogInterface {
  public:
+  bool muted = false;
   vm::VmDumper* vm_dumper{0};
 
   void set_vm_dumper(vm::VmDumper* vm_dumper_) {
     vm_dumper = vm_dumper_;
   }
+
+  void mute() {
+    muted = true;
+  }
+
   void append(td::CSlice slice) override {
     if (vm_dumper->enable) {
       if (slice.str().find("execute") != std::string::npos) {
@@ -208,7 +215,9 @@ class PythonLogger : public td::LogInterface {
       }
     }
 
-    py::print(slice.str());
+    if (!muted) {
+      py::print(slice.str());
+    }
   }
 };
 
@@ -450,16 +459,16 @@ struct PyTVM {
     vm::VmLog vm_log;
     vm::VmDumper vm_dumper{true, &stacks, &vm_ops};
 
-    if (log_level >= LOG_DEBUG) {
-      vm_log = vm::VmLog();
+    vm_log = vm::VmLog();
 
-      auto pyLogger = new PythonLogger();
-      pyLogger->set_vm_dumper(&vm_dumper);
+    auto pyLogger = new PythonLogger();
+    pyLogger->set_vm_dumper(&vm_dumper);
 
-      vm_log.log_interface = pyLogger;
-    } else {
-      vm_log = vm::VmLog::Null();
+    if (log_level < LOG_DEBUG) {
+      pyLogger->mute();
     }
+
+    vm_log.log_interface = pyLogger;
 
     auto balance = block::CurrencyCollection{c7_balanceRemainingGrams};
 
