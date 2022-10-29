@@ -25,6 +25,7 @@
 #include "vm/log.h"
 #include "vm/continuation.h"
 #include "td/utils/HashSet.h"
+#include "vm/dumper.hpp"
 
 namespace vm {
 
@@ -97,6 +98,7 @@ class VmState final : public VmStateInterface {
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   td::ConstBitPtr missing_library{0};
+  VmDumper vm_dumper;
 
  public:
   enum {
@@ -117,6 +119,8 @@ class VmState final : public VmStateInterface {
           std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
   VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
           VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
+  VmState(Ref<CellSlice> _code, Ref<Stack> _stack, VmDumper *vm_dumper_, const GasLimits& _gas, int flags = 0,
+          Ref<Cell> _data = {}, VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
   template <typename... Args>
   VmState(Ref<Cell> code_cell, Args&&... args)
       : VmState(convert_code_cell(std::move(code_cell)), std::forward<Args>(args)...) {

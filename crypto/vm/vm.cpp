@@ -21,6 +21,7 @@
 #include "vm/dict.h"
 #include "vm/log.h"
 #include "vm/vm.h"
+#include "vm/dumper.hpp"
 
 namespace vm {
 
@@ -73,6 +74,28 @@ VmState::VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& gas, 
   }
   init_cregs(flags & 1, flags & 2);
 }
+
+VmState::VmState(Ref<CellSlice> _code, Ref<Stack> _stack, VmDumper *vm_dumper_, const GasLimits& gas, int flags, Ref<Cell> _data, VmLog log,
+                 std::vector<Ref<Cell>> _libraries, Ref<Tuple> init_c7)
+    : code(std::move(_code))
+    , stack(std::move(_stack))
+    , cp(-1)
+    , dispatch(&dummy_dispatch_table)
+    , quit0(true, 0)
+    , quit1(true, 1)
+    , log(log)
+    , gas(gas)
+    , libraries(std::move(_libraries))
+    , stack_trace((flags >> 2) & 1)
+    , vm_dumper(vm_dumper_){
+  ensure_throw(init_cp(0));
+  set_c4(std::move(_data));
+  if (init_c7.not_null()) {
+    set_c7(std::move(init_c7));
+  }
+  init_cregs(flags & 1, flags & 2);
+}
+
 
 void VmState::init_cregs(bool same_c3, bool push_0) {
   cr.set_c0(quit0);
@@ -438,6 +461,11 @@ int VmState::step() {
   if (stack_trace) {
     stack->dump(std::cerr, 3);
   }
+
+  if (vm_dumper.enable) {
+    vm_dumper.dump_stack(stack);
+  }
+
   ++steps;
   if (code->size()) {
     return dispatch->dispatch(this, code.write());
