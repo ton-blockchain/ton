@@ -69,7 +69,16 @@ vm::StackEntry cast_python_item_to_stack_entry(const py::handle item) {
     tmpEntry.set_int(td::make_refint(tmp));
 
     return tmpEntry;
-  } else if (item.get_type().is(py_list)) {
+  } else if (item.get_type().is(py_str)) {
+    std::string asStrValue = item.cast<py::str>().cast<std::string>();
+    td::BigIntG<257, td::BigIntInfo> tmp;
+    tmp.parse_dec(asStrValue);
+
+    vm::StackEntry tmpEntry;
+    tmpEntry.set_int(td::make_refint(tmp));
+
+    return tmpEntry;
+  }  else if (item.get_type().is(py_list)) {
     std::vector<vm::StackEntry> tmp;
 
     auto iter = py::iter(item);
@@ -255,9 +264,9 @@ struct PyTVM {
   bool skip_c7 = false;
 
   long long c7_unixtime = 0;
-  long long c7_blocklt = 0;
-  long long c7_translt = 0;
-  long long c7_randseed = 0;
+  td::RefInt256 c7_blocklt = td::make_refint(0);
+  td::RefInt256 c7_translt = td::make_refint(0);
+  td::RefInt256 c7_randseed = td::make_refint(0);
   td::RefInt256 c7_balanceRemainingGrams = td::make_refint(101000000000);
   std::string c7_myaddress;
   std::string c7_globalConfig;
@@ -272,14 +281,14 @@ struct PyTVM {
   std::string new_data_out;
   std::string actions_out;
 
-  void set_c7(int c7_unixtime_, int c7_blocklt_, int c7_translt_, int c7_randseed_,
-              const std::string& c7_balanceRemainingGrams_, const std::string& c7_myaddress_,
-              const std::string& c7_globalConfig_) {
+  void set_c7(int c7_unixtime_, const std::string& c7_blocklt_, const std::string& c7_translt_,
+              const std::string& c7_randseed_, const std::string& c7_balanceRemainingGrams_,
+              const std::string& c7_myaddress_, const std::string& c7_globalConfig_) {
     if (!skip_c7) {
       c7_unixtime = c7_unixtime_;
-      c7_blocklt = c7_blocklt_;
-      c7_translt = c7_translt_;
-      c7_randseed = c7_randseed_;
+      c7_blocklt = td::dec_string_to_int256(c7_blocklt_);
+      c7_translt = td::dec_string_to_int256(c7_translt_);
+      c7_randseed = td::dec_string_to_int256(c7_randseed_);
       c7_balanceRemainingGrams = td::dec_string_to_int256(c7_balanceRemainingGrams_);
       c7_myaddress = c7_myaddress_;
       c7_globalConfig = c7_globalConfig_;
@@ -446,9 +455,9 @@ struct PyTVM {
           td::make_refint(0),                     //   actions:Integer
           td::make_refint(0),                     //   msgs_sent:Integer
           td::make_refint(c7_unixtime),           //   unixtime:Integer
-          td::make_refint(c7_blocklt),            //   block_lt:Integer
-          td::make_refint(c7_translt),            //   trans_lt:Integer
-          td::make_refint(c7_randseed),           //   rand_seed:Integer
+          td::make_refint(c7_blocklt->to_long()),            //   block_lt:Integer
+          td::make_refint(c7_translt->to_long()),            //   trans_lt:Integer
+          td::make_refint(c7_randseed->to_long()),           //   rand_seed:Integer
           balance.as_vm_tuple(),                  //   balance_remaining:[Integer (Maybe Cell)]
           std::move(my_addr),                     //  myself:MsgAddressInt
           vm::StackEntry::maybe(global_config));  //  global_config:(Maybe Cell) ] = SmartContractInfo;
@@ -477,7 +486,7 @@ struct PyTVM {
                          data,
                          vm_log,
                          std::move(lib_set),
-                         std::move(init_c7)};
+                         vm::make_tuple_ref(std::move(init_c7))};
 
     vm_init_state_hash_out = vm_local.get_state_hash().to_hex();
     exit_code_out = vm_local.run();
@@ -576,8 +585,9 @@ PYBIND11_MODULE(tvm_python, m) {
       .def("clear_stack", &PyTVM::clear_stack)
       .def("set_gasLimit", &PyTVM::set_gasLimit, py::arg("gas_limit") = 0, py::arg("gas_max") = -1)
       .def("run_vm", &PyTVM::run_vm)
-      .def("set_c7", &PyTVM::set_c7, py::arg("unixtime") = 0, py::arg("blocklt") = 0, py::arg("translt") = 0,
-           py::arg("randseed") = 0, py::arg("balanceGrams") = "", py::arg("address") = "", py::arg("globalConfig") = "")
+      .def("set_c7", &PyTVM::set_c7, py::arg("unixtime") = 0, py::arg("blocklt") = "0", py::arg("translt") = "0",
+           py::arg("randseed") = "", py::arg("balanceGrams") = "", py::arg("address") = "",
+           py::arg("globalConfig") = "")
 
       .def_property("exit_code", &PyTVM::get_exit_code, &PyTVM::dummy_set)
       .def_property("vm_steps", &PyTVM::get_vm_steps, &PyTVM::dummy_set)
