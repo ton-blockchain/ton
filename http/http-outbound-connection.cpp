@@ -42,10 +42,10 @@ td::Status HttpOutboundConnection::receive(td::ChainBufferReader &input) {
       answer_error(HttpStatusCode::status_bad_request, "", std::move(promise_));
       return td::Status::OK();
     }
+    cur_response_ = R.move_as_ok();
     if (exit_loop) {
       return td::Status::OK();
     }
-    cur_response_ = R.move_as_ok();
   }
 
   if (cur_response_->code() == 100) {

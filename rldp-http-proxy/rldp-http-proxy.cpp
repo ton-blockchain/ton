@@ -117,7 +117,7 @@ class HttpRemote : public td::actor::Actor {
             }
           });
       td::actor::send_closure(client_, &ton::http::HttpClient::send_request, std::move(request), std::move(payload),
-                              td::Timestamp::in(30.0), std::move(P));
+                              td::Timestamp::never(), std::move(P));
     } else {
       ton::http::answer_error(ton::http::HttpStatusCode::status_bad_request, "", std::move(promise));
     }
@@ -801,6 +801,7 @@ class RldpToTcpRequestSender : public td::actor::Actor {
       , dst_(dst)
       , request_(std::move(request))
       , request_payload_(std::move(request_payload))
+      , proto_version_(request_->proto_version())
       , promise_(std::move(promise))
       , adnl_(adnl)
       , rldp_(rldp)
@@ -824,11 +825,9 @@ class RldpToTcpRequestSender : public td::actor::Actor {
   }
 
   void got_result(std::pair<std::unique_ptr<ton::http::HttpResponse>, std::shared_ptr<ton::http::HttpPayload>> R) {
-    if (R.first->need_payload()) {
-      td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
-                                                     rldp_)
-          .release();
-    }
+    td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
+                                                   rldp_)
+        .release();
     auto f = ton::serialize_tl_object(R.first->store_tl(), true);
     promise_.set_value(std::move(f));
     stop();
@@ -836,7 +835,7 @@ class RldpToTcpRequestSender : public td::actor::Actor {
 
   void abort_query(td::Status error) {
     LOG(INFO) << "aborting http over rldp query: " << error;
-    promise_.set_result(create_error_response(request_->proto_version(), 502, "Bad Gateway"));
+    promise_.set_result(create_error_response(proto_version_, 502, "Bad Gateway"));
     stop();
   }
 
@@ -848,6 +847,7 @@ class RldpToTcpRequestSender : public td::actor::Actor {
 
   std::unique_ptr<ton::http::HttpRequest> request_;
   std::shared_ptr<ton::http::HttpPayload> request_payload_;
+  std::string proto_version_;
 
   td::Promise<td::BufferSlice> promise_;
 
@@ -1090,6 +1090,7 @@ class RldpHttpProxy : public td::actor::Actor {
     }
 
     rldp_ = ton::rldp::Rldp::create(adnl_.get());
+    td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 16 << 10);
     td::actor::send_closure(rldp_, &ton::rldp::Rldp::add_id, local_id_);
     for (auto &serv_id : server_ids_) {
       td::actor::send_closure(rldp_, &ton::rldp::Rldp::add_id, serv_id);

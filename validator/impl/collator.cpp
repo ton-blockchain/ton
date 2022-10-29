@@ -67,6 +67,8 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
+    , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
+    , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
     , perf_timer_("collate", 0.1, [manager](double duration) {
         send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
@@ -1596,6 +1598,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
     prng::rand_gen().strong_rand_bytes(rand_seed->data(), 32);
     LOG(DEBUG) << "block random seed set to " << rand_seed->to_hex();
   }
+  TRY_RESULT(size_limits, config->get_size_limits_config());
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config->get_config_param(wc == ton::masterchainId ? 20 : 21);
@@ -1608,6 +1611,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
     }
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
+    compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg->global_config = config->get_root_cell();
   }
   {
@@ -1629,6 +1633,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>>
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg->workchains = &config->get_workchain_list();
     action_phase_cfg->bounce_msg_body = (config->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg->size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -2503,6 +2508,11 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     block_full_ = true;
     return 3;
   }
+  if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+    LOG(WARNING) << "soft timeout reached, stop processing new messages";
+    block_full_ = true;
+    return 3;
+  }
   return 1;
 }
 
@@ -2767,6 +2777,11 @@ bool Collator::process_inbound_internal_messages() {
       LOG(INFO) << "BLOCK FULL, stop processing inbound internal messages";
       break;
     }
+    if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+      block_full_ = true;
+      LOG(WARNING) << "soft timeout reached, stop processing inbound internal messages";
+      break;
+    }
     auto kv = nb_out_msgs_->extract_cur();
     CHECK(kv && kv->msg.not_null());
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
@@ -2798,6 +2813,10 @@ bool Collator::process_inbound_external_messages() {
   for (auto& ext_msg_pair : ext_msg_list_) {
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
+      break;
+    }
+    if (medium_timeout_.is_in_past(td::Timestamp::now())) {
+      LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       break;
     }
     auto ext_msg = ext_msg_pair.first;
@@ -3079,7 +3098,7 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
     if (info.is_fsm_none() && (info.want_split_ || depth < wc_info->min_split) && depth < wc_info->max_split &&
         depth < 60) {
       // prepare split
-      info.set_fsm_split(now + ton::split_merge_delay, ton::split_merge_interval);
+      info.set_fsm_split(now + wc_info->split_merge_delay, wc_info->split_merge_interval);
       changed = true;
       LOG(INFO) << "preparing to split shard " << info.shard().to_str() << " during " << info.fsm_utime() << " .. "
                 << info.fsm_utime_end();
@@ -3087,7 +3106,7 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
                sibling && !sibling->before_split_ && sibling->is_fsm_none() &&
                (sibling->want_merge_ || depth > wc_info->max_split)) {
       // prepare merge
-      info.set_fsm_merge(now + ton::split_merge_delay, ton::split_merge_interval);
+      info.set_fsm_merge(now + wc_info->split_merge_delay, wc_info->split_merge_interval);
       changed = true;
       LOG(INFO) << "preparing to merge shard " << info.shard().to_str() << " with " << sibling->shard().to_str()
                 << " during " << info.fsm_utime() << " .. " << info.fsm_utime_end();

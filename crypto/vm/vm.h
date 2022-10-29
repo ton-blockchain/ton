@@ -97,6 +97,7 @@ class VmState final : public VmStateInterface {
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   td::ConstBitPtr missing_library{0};
+  td::uint16 max_data_depth = 512; // Default value
 
  public:
   enum {
@@ -108,8 +109,7 @@ class VmState final : public VmStateInterface {
     implicit_jmpref_gas_price = 10,
     implicit_ret_gas_price = 5,
     free_stack_depth = 32,
-    stack_entry_gas_price = 1,
-    max_data_depth = 512
+    stack_entry_gas_price = 1
   };
   VmState();
   VmState(Ref<CellSlice> _code);
@@ -324,6 +324,9 @@ class VmState final : public VmStateInterface {
   }
   td::ConstBitPtr get_missing_library() const {
     return missing_library;
+  }
+  void set_max_data_depth(td::uint16 depth) {
+    max_data_depth = depth;
   }
 
  private:

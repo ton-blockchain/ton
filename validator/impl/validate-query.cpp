@@ -734,6 +734,8 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error(limits.move_as_error());
     }
     block_limits_ = limits.move_as_ok();
+    block_limits_->start_lt = start_lt_;
+    block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
     if (!fetch_config_params()) {
       return false;
     }
@@ -762,6 +764,14 @@ bool ValidateQuery::fetch_config_params() {
     // recover (not generate) rand seed from block header
     CHECK(!rand_seed_.is_zero());
   }
+  block::SizeLimitsConfig size_limits;
+  {
+    auto res = config_->get_size_limits_config();
+    if (res.is_error()) {
+      return fatal_error(res.move_as_error());
+    }
+    size_limits = res.move_as_ok();
+  }
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config_->get_config_param(is_masterchain() ? 20 : 21);
@@ -774,6 +784,7 @@ bool ValidateQuery::fetch_config_params() {
     }
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
+    compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg_.global_config = config_->get_root_cell();
   }
   {
@@ -795,6 +806,7 @@ bool ValidateQuery::fetch_config_params() {
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
     action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg_.size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -1608,8 +1620,8 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                     (sibling->want_merge_ || depth > wc_info->max_split);
   if (!fsm_inherited && !info.is_fsm_none()) {
     if (info.fsm_utime() < now_ || info.fsm_utime_end() <= info.fsm_utime() ||
-        info.fsm_utime_end() < info.fsm_utime() + ton::min_split_merge_interval ||
-        info.fsm_utime_end() > now_ + ton::max_split_merge_delay) {
+        info.fsm_utime_end() < info.fsm_utime() + wc_info->min_split_merge_interval ||
+        info.fsm_utime_end() > now_ + wc_info->max_split_merge_delay) {
       return reject_query(PSTRING() << "incorrect future split/merge interval " << info.fsm_utime() << " .. "
                                     << info.fsm_utime_end() << " set for shard " << shard.to_str()
                                     << " in new shard configuration (it is " << now_ << " now)");
@@ -4335,6 +4347,13 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   int trans_type = block::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
+      if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
+        return reject_query(PSTRING() << "cannod add ordinary transaction because hard block limits are exceeded: "
+                                      << "gas_used=" << block_limit_status_->gas_used
+                                      << "(limit=" << block_limits_->gas.hard() << "), "
+                                      << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
+                                      << "(limit=" << block_limits_->lt_delta.hard() << ")");
+      }
       trans_type = block::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
@@ -4480,7 +4499,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (block_limit_status_ && !trs->update_limits(*block_limit_status_)) {
+  if (!trs->update_limits(*block_limit_status_, false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
   }

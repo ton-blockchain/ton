@@ -35,7 +35,7 @@ void ExtClient::with_last_config(td::Promise<LastConfigState> promise) {
       self->last_config_queries_.extract(query_id).set_result(std::move(result));
     });
   };
-  if (client_.last_block_actor_.empty()) {
+  if (client_.last_config_actor_.empty()) {
     return P.set_error(TonlibError::NoLiteServers());
   }
   td::actor::send_closure(client_.last_config_actor_, &LastConfig::get_last_config, std::move(P));
@@ -62,10 +62,10 @@ void ExtClient::send_raw_query(td::BufferSlice query, td::Promise<td::BufferSlic
       self->queries_.extract(query_id).set_result(std::move(result));
     });
   };
-  if (client_.andl_ext_client_.empty()) {
+  if (client_.adnl_ext_client_.empty()) {
     return P.set_error(TonlibError::NoLiteServers());
   }
-  td::actor::send_closure(client_.andl_ext_client_, &ton::adnl::AdnlExtClient::send_query, "query", std::move(query),
+  td::actor::send_closure(client_.adnl_ext_client_, &ton::adnl::AdnlExtClient::send_query, "query", std::move(query),
                           td::Timestamp::in(10.0), std::move(P));
 }
 }  // namespace tonlib

@@ -84,6 +84,7 @@ class MasterchainState : virtual public ShardState {
   virtual td::Status prepare() {
     return td::Status::OK();
   }
+  virtual block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const = 0;
 };
 
 }  // namespace validator
