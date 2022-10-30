@@ -22,7 +22,7 @@ jobs:
           submodules: 'recursive'
 
       - name: Check out zlib repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: desktop-app/zlib
           path: zlib
