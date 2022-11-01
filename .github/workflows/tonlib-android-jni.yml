@@ -37,6 +37,10 @@ jobs:
         ninja prepare_cross_compiling
         rm CMakeCache.txt
         ./build-all.sh
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/x86/libnative-lib.so
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/x86_64/libnative-lib.so
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/armeabi-v7a/libnative-lib.so
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/arm64-v8a/libnative-lib.so
         find . -name "*.debug" -type f -delete
 
     - name: Find & copy binaries
