@@ -31,7 +31,7 @@ jobs:
         export ANDROID_NDK_ROOT=$(pwd)/android-ndk-r25b
         export OPENSSL_DIR=$(pwd)/example/android/third_party/crypto
         
-        rm example/android/src/drinkless/org/ton/TonApi.java        
+        rm -rf example/android/src/drinkless/org/ton/TonApi.java
         cd example/android/
         mkdir build
         cd build
