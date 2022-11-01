@@ -26,12 +26,18 @@ rm CMakeCache.txt
 ```
 # Generation of Tonlib libraries for iOS in Xcode
 
-1. Clone repository: https://github.com/labraburn/tonlib-xcframework
+1. Clone repository https://github.com/labraburn/tonlib-xcframework
 2. Open repository directory in Terminal
-3. Run command "swift run builder --output ./build --clean"
-4. Run command "echo ./build/TON.xcframework/* | xargs -n 1 cp -R ./Resources/Headers"
-5. Import **OpenSSL.xcframework** and **TON.xcframework** in XCode in section _"Frameworks, Libraries, and Embedded Content"_
-6. Now you can start using Tonlib client by importing it in C or Objective-C source files:
+3. Run command:
+```bash
+swift run builder --output ./build --clean
+```
+5. Run command:
+```bash
+echo ./build/TON.xcframework/* | xargs -n 1 cp -R ./Resources/Headers
+````
+7. Import **OpenSSL.xcframework** and **TON.xcframework** in XCode in section _"Frameworks, Libraries, and Embedded Content"_
+8. Now you can start using Tonlib client by importing it in C or Objective-C source files:
 ```objective-c
 #import <tonlib/Client.h>
 ```
