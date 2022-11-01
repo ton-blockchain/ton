@@ -37,6 +37,6 @@ rm CMakeCache.txt
 ```
 
 # Generation of Tonlib libraries for Desktop applications
-You can use Tonlib compiled in ordinary way for desktop applications. If you use Java you can load library using JNA.
+You can use Tonlib compiled in an ordinary way for desktop applications. If you use Java you can load the library using JNA.
 
-The latest Tonlib library can be found among other TON artifacts either on TON release page or inside [appropriate GitHub action](https://github.com/ton-blockchain/ton/actions/).
+The latest Tonlib library can be found among other TON artifacts either on TON release page or inside the [appropriate GitHub action](https://github.com/ton-blockchain/ton/actions/).
