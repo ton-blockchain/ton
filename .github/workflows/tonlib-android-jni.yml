@@ -1,8 +1,6 @@
 name: Tonlib Android JNI
 
-on:
-  workflow_dispatch:
-  push:
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
@@ -11,7 +9,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:      
         submodules: 'recursive'
 
@@ -37,7 +35,7 @@ jobs:
         cd example/android/
         mkdir build
         cd build
-        cmake -DTON_ONLY_TONLIB=ON .. -GNinja
+        cmake -GNinja -DTON_ONLY_TONLIB=ON .. 
         ninja target prepare_cross_compiling
         rm CMakeCache.txt
         ./build-all.sh
