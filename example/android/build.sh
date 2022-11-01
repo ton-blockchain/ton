@@ -34,7 +34,7 @@ cd build-$ARCH
 
 
 cmake .. -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DANDROID_ABI=${ABI} -DOPENSSL_ROOT_DIR=${OPENSSL_DIR}/${ARCH} -DTON_ARCH="" -DTON_ONLY_TONLIB=ON || exit 1
-cmake --build . --target native-lib --config Release -j 4 || exit 1
+ninja native-lib || exit 1
 popd
 
 mkdir -p libs/$ARCH/
