@@ -22,9 +22,9 @@ EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc,
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
  * @param message_boc Base64 encoded BoC serialized inbound Message (internal or external)
  * @return Json object with error:
- * { "success": false, "error": "Error description" }
- * or success:
- * { "success": true, "transaction": "Base64 encoded Transaction boc", "shard_account": "Base64 encoded ShardAccount boc" }
+ * { "success": false, "error": "Error description" } and optional fields "vm_exit_code" and "vm_log" in case external message was not accepted.
+ * Or success:
+ * { "success": true, "transaction": "Base64 encoded Transaction boc", "shard_account": "Base64 encoded ShardAccount boc", "vm_log": "execute DUP..." }
  */
 EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc);
 

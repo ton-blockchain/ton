@@ -9,7 +9,7 @@ To emulate a transaction you need the following data:
 - Global config of type *(Hashmap 32 ^Cell)*.
 - Inbound message of type *MessageAny*.
 
-Emulator output is transaction object (*Transaction*) and new account state (*ShardAccount*).
+Emulator output is transaction object (*Transaction*), new account state (*ShardAccount*), TVM log.
 
 When emulating transactions keep in mind the following:
 - *chksig* instructions are set to always succeed in case of an external message.
