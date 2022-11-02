@@ -92,6 +92,8 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     ERROR_RESPONSE(PSTRING() << "Can't deserialize message boc: " << message_cell_r.move_as_error());
   }
   auto message_cell = message_cell_r.move_as_ok();
+  auto message_cs = vm::load_cell_slice(message_cell);
+  int msg_tag = block::gen::t_CommonMsgInfo.get_tag(message_cs);
 
   auto shard_account_decoded = td::base64_decode(td::Slice(shard_account_boc));
   if (shard_account_decoded.is_error()) {
@@ -110,19 +112,16 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
   td::Ref<vm::CellSlice> addr_slice;
   auto account_slice = vm::load_cell_slice(shard_account.account);
   if (block::gen::t_Account.get_tag(account_slice) == block::gen::Account::account_none) {
-    auto cs = vm::load_cell_slice(message_cell);
-    td::Ref<vm::CellSlice> dest;
-    int msg_tag = block::gen::t_CommonMsgInfo.get_tag(cs);
     if (msg_tag == block::gen::CommonMsgInfo::ext_in_msg_info) {
       block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
-      if (!tlb::unpack(cs, info)) {
+      if (!tlb::unpack(message_cs, info)) {
         ERROR_RESPONSE(PSTRING() <<  "Can't unpack inbound external message");
       }
       addr_slice = std::move(info.dest);
     }
     else if (msg_tag == block::gen::CommonMsgInfo::int_msg_info) {
       block::gen::CommonMsgInfo::Record_int_msg_info info;
-      if (!tlb::unpack(cs, info)) {
+      if (!tlb::unpack(message_cs, info)) {
           ERROR_RESPONSE(PSTRING() << "Can't unpack inbound internal message");
       }
       addr_slice = std::move(info.dest);
@@ -149,7 +148,8 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
 
-  auto result = emulator->emulate_transaction(std::move(account), message_cell);
+  auto result = emulator->emulate_transaction(std::move(account), message_cell, 0, 0, 
+    block::transaction::Transaction::tr_ord, nullptr, msg_tag == block::gen::CommonMsgInfo::ext_in_msg_info);
   if (result.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Emulate transaction failed: " << result.move_as_error());
   }

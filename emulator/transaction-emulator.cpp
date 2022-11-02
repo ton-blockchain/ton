@@ -9,8 +9,8 @@ using namespace std::string_literals;
 
 namespace emulator {
 td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmulator::emulate_transaction(
-    block::Account&& account, td::Ref<vm::Cell> msg_root,
-    ton::UnixTime utime, ton::LogicalTime lt, int trans_type, td::BitArray<256>* rand_seed) {
+    block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, 
+    ton::LogicalTime lt, int trans_type, td::BitArray<256>* rand_seed, bool ignore_chksig) {
 
     td::Ref<vm::Cell> old_mparams;
     std::vector<block::StoragePrices> storage_prices;
@@ -37,6 +37,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
     }
 
+    compute_phase_cfg.ignore_chksig = ignore_chksig;
     compute_phase_cfg.with_vm_log = true;
     compute_phase_cfg.vm_log_verbosity = vm_log_verbosity_;
 
@@ -115,7 +116,7 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
       }
     }
 
-    TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, rand_seed));
+    TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, rand_seed, false));
 
     auto emulation_result = dynamic_cast<EmulationSuccess&>(*emulation);
     if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
