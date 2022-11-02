@@ -39,7 +39,7 @@ echo ./build/TON.xcframework/* | xargs -n 1 cp -R ./Resources/Headers
 7. Import **OpenSSL.xcframework** and **TON.xcframework** in XCode in section _"Frameworks, Libraries, and Embedded Content"_
 8. Now you can start using Tonlib client by importing it in C or Objective-C source files:
 ```objective-c
-#import <tonlib/Client.h>
+#import <tonlib/tonlib_client_json.h>
 ```
 
 # Generation of Tonlib libraries for Desktop applications
