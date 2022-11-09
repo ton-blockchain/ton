@@ -19,6 +19,10 @@
 #include "ton/ton-types.h"
 #include "crypto/vm/cellslice.h"
 #include "block/block-parse.h"
+#include "td/actor/actor.h"
+#include "tonlib/tonlib/TonlibClientWrapper.h"
+#include <queue>
+#include "keyring/keyring.h"
 
 using namespace ton;
 
@@ -52,3 +56,91 @@ struct ContractAddress {
     return wc == other.wc ? addr < other.addr : wc < other.wc;
   }
 };
+
+void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client, std::string method,
+                    std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
+                    td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise);
+
+class FabricContractWrapper : public td::actor::Actor {
+ public:
+  class Callback {
+   public:
+    virtual ~Callback() = default;
+    virtual void on_transaction(tl_object_ptr<tonlib_api::raw_transaction> transaction) = 0;
+  };
+
+  explicit FabricContractWrapper(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                                 td::actor::ActorId<keyring::Keyring> keyring, td::unique_ptr<Callback> callback,
+                                 td::uint64 last_processed_lt);
+
+  void start_up() override;
+  void alarm() override;
+
+  void run_get_method(std::string method, std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
+                      td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise);
+  void send_internal_message(ContractAddress dest, td::uint64 coins, vm::CellSlice body, td::Promise<td::Unit> promise);
+  void send_internal_message_raw(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise);
+
+ private:
+  ContractAddress address_;
+  td::actor::ActorId<tonlib::TonlibClientWrapper> client_;
+  td::actor::ActorId<keyring::Keyring> keyring_;
+  td::unique_ptr<Callback> callback_;
+
+  td::Timestamp process_transactions_at_ = td::Timestamp::now();
+  td::uint64 last_processed_lt_ = 0;
+
+  struct SentMessage {
+    td::Ref<vm::Cell> int_msg;
+    td::Promise<td::Unit> promise;
+    bool sent = false;
+    td::uint32 seqno = 0;
+    td::Bits256 ext_msg_body_hash = td::Bits256::zero();
+    td::Timestamp timeout = td::Timestamp::never();
+  };
+  td::optional<SentMessage> sent_message_;
+  std::queue<std::pair<td::Ref<vm::Cell>, td::Promise<td::Unit>>> pending_messages_;
+
+  void load_transactions();
+  void load_last_transactions(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
+                                   tl_object_ptr<tonlib_api::internal_transactionId> next_id);
+  void loaded_last_transactions(td::Result<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>> R);
+
+  void do_send_internal_message(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise);
+  void do_send_internal_message_cont(td::uint32 seqno, td::uint32 subwallet_id, td::Bits256 public_key);
+  void do_send_internal_message_cont2(td::Ref<vm::Cell> ext_msg_body);
+  void do_send_internal_message_finish(td::Result<td::Unit> R);
+};
+
+template <typename T>
+inline td::Result<T> entry_to_int(const tl_object_ptr<tonlib_api::tvm_StackEntry>& entry) {
+  auto num = dynamic_cast<tonlib_api::tvm_stackEntryNumber*>(entry.get());
+  if (num == nullptr) {
+    return td::Status::Error("Unexpected value type");
+  }
+  return td::to_integer_safe<T>(num->number_->number_);
+}
+
+template <>
+inline td::Result<td::RefInt256> entry_to_int<td::RefInt256>(const tl_object_ptr<tonlib_api::tvm_StackEntry>& entry) {
+  auto num = dynamic_cast<tonlib_api::tvm_stackEntryNumber*>(entry.get());
+  if (num == nullptr) {
+    return td::Status::Error("Unexpected value type");
+  }
+  auto x = td::dec_string_to_int256(num->number_->number_);
+  if (x.is_null()) {
+    return td::Status::Error("Invalid integer value");
+  }
+  return x;
+}
+
+inline td::Result<td::Bits256> entry_to_bits256(const tl_object_ptr<tonlib_api::tvm_StackEntry>& entry) {
+  TRY_RESULT(x, entry_to_int<td::RefInt256>(entry));
+  td::Bits256 bits;
+  if (!x->export_bytes(bits.data(), 32, false)) {
+    return td::Status::Error("Invalid int256");
+  }
+  return bits;
+}
+
+bool store_coins(vm::CellBuilder& b, const td::RefInt256& x);

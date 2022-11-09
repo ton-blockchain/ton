@@ -59,14 +59,8 @@ class StorageProvider : public td::actor::Actor {
 
   std::unique_ptr<td::KeyValue> db_;
   td::actor::ActorOwn<tonlib::TonlibClientWrapper> tonlib_client_;
-
-  PublicKeyHash public_key_hash_ = PublicKeyHash::zero();
+  td::actor::ActorOwn<FabricContractWrapper> contract_wrapper_;
   td::uint64 last_processed_lt_ = 0;
-  bool public_key_query_active_ = false;
-  std::vector<td::Promise<td::Unit>> public_key_waiting_;
-
-  td::Timestamp next_load_transactions_at_ = td::Timestamp::now();
-  std::vector<tl_object_ptr<tonlib_api::raw_transaction>> unprocessed_transactions_;
 
   struct StorageContract {
     enum State { st_downloading = 0, st_downloaded = 1, st_active = 2, st_closing = 3 };
@@ -81,36 +75,24 @@ class StorageProvider : public td::actor::Actor {
   };
   std::map<ContractAddress, StorageContract> contracts_;
 
+  void process_transaction(tl_object_ptr<tonlib_api::raw_transaction> transaction);
+
   void db_store_state();
   void db_update_storage_contract(const ContractAddress& address, bool update_list);
   void db_update_microchunk_tree(const ContractAddress& address);
-
-  void run_get_method(ContractAddress address, std::string method,
-                      std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
-                      td::Promise<tl_object_ptr<tonlib_api::smc_runResult>> promise);
-  void send_internal_message(ContractAddress dest, td::uint64 coins, vm::CellSlice body, td::Promise<td::Unit> promise);
-  void send_internal_message_cont(td::Ref<vm::Cell> int_msg, td::uint32 seqno, td::Promise<td::Unit> promise);
-  void wait_public_key(td::Promise<td::Unit> promise);
-  void wait_public_key_finish(td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R);
-  void get_seqno(td::Promise<td::uint32> promise);
-
-  void load_last_transactions();
-  void load_last_transactions_cont(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
-                                   tl_object_ptr<tonlib_api::internal_transactionId> next_id);
-  void loaded_last_transactions(td::Result<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>> R);
-  void process_last_transactions();
-  void processed_transaction(td::uint64 lt);
 
   void on_new_storage_contract(ContractAddress address, td::Promise<td::Unit> promise, int max_retries = 3);
   void on_new_storage_contract_cont(ContractAddress address, td::Bits256 hash, td::Promise<td::Unit> promise);
   void init_new_storage_contract(ContractAddress address, StorageContract& contract);
   void downloaded_torrent(ContractAddress address, MicrochunkTree microchunk_tree);
-  void activate_contract(ContractAddress address);
+  void check_contract_active(ContractAddress address, td::Timestamp retry_until = td::Timestamp::in(30.0),
+                             td::Timestamp retry_false_until = td::Timestamp::never());
   void activate_contract_cont(ContractAddress address);
   void activated_storage_contract(ContractAddress address);
   void close_storage_contract(ContractAddress address);
 
   void check_next_proof(ContractAddress address, StorageContract& contract);
-  void got_next_proof_info(ContractAddress address, td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R);
+  void got_next_proof_info(ContractAddress address, td::Result<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> R);
   void got_next_proof(ContractAddress address, td::Result<td::Ref<vm::Cell>> R);
+  void sent_next_proof(ContractAddress address);
 };

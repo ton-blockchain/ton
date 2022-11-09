@@ -24,14 +24,6 @@
 #include "block/block-auto.h"
 #include "common/delay.h"
 
-static bool store_coins(vm::CellBuilder& b, const td::RefInt256& x) {
-  unsigned len = (((unsigned)x->bit_size(false) + 7) >> 3);
-  if (len >= 16) {
-    return false;
-  }
-  return b.store_long_bool(len, 4) && b.store_int256_bool(*x, len * 8, false);
-}
-
 ProviderParams::ProviderParams(const tl_object_ptr<ton_api::storage_daemon_provider_params>& obj)
     : accept_new_contracts(obj->accept_new_contracts_)
     , rate_per_mb_day(true)
@@ -83,11 +75,24 @@ void StorageProvider::start_up() {
   auto state = r_state.move_as_ok();
   if (state) {
     last_processed_lt_ = state->last_processed_lt_;
-    public_key_hash_ = PublicKeyHash(state->public_key_hash_);
     LOG(INFO) << "Loaded storage provider state";
-    LOG(INFO) << "Public key hash: " << public_key_hash_.bits256_value().to_hex();
     LOG(INFO) << "Last processed lt: " << last_processed_lt_;
   }
+
+  class Callback : public FabricContractWrapper::Callback {
+   public:
+    explicit Callback(td::actor::ActorId<StorageProvider> id) : id_(std::move(id)) {
+    }
+    void on_transaction(tl_object_ptr<tonlib_api::raw_transaction> transaction) override {
+      td::actor::send_closure(id_, &StorageProvider::process_transaction, std::move(transaction));
+    }
+
+   private:
+    td::actor::ActorId<StorageProvider> id_;
+  };
+  contract_wrapper_ =
+      td::actor::create_actor<FabricContractWrapper>("ContractWrapper", main_address_, tonlib_client_.get(), keyring_,
+                                                     td::make_unique<Callback>(actor_id(this)), last_processed_lt_);
 
   auto r_contract_list = db::db_get<ton_api::storage_provider_db_contractList>(
       *db_, create_hash_tl_object<ton_api::storage_provider_db_key_contractList>(), true);
@@ -133,7 +138,7 @@ void StorageProvider::start_up() {
         init_new_storage_contract(address, contract);
         break;
       case StorageContract::st_downloaded:
-        activate_contract(address);
+        check_contract_active(address);
         break;
       case StorageContract::st_active:
         contract.check_next_proof_at = td::Timestamp::now();
@@ -150,45 +155,11 @@ void StorageProvider::start_up() {
   alarm();
 }
 
-template <typename T>
-static td::Result<T> entry_to_int(const tl_object_ptr<tonlib_api::tvm_StackEntry>& entry) {
-  auto num = dynamic_cast<tonlib_api::tvm_stackEntryNumber*>(entry.get());
-  if (num == nullptr) {
-    return td::Status::Error("Unexpected value type");
-  }
-  return td::to_integer_safe<T>(num->number_->number_);
-}
-
-template <>
-td::Result<td::RefInt256> entry_to_int<td::RefInt256>(const tl_object_ptr<tonlib_api::tvm_StackEntry>& entry) {
-  auto num = dynamic_cast<tonlib_api::tvm_stackEntryNumber*>(entry.get());
-  if (num == nullptr) {
-    return td::Status::Error("Unexpected value type");
-  }
-  auto x = td::dec_string_to_int256(num->number_->number_);
-  if (x.is_null()) {
-    return td::Status::Error("Invalid integer value");
-  }
-  return x;
-}
-
-td::Result<td::Bits256> entry_to_bits256(const tl_object_ptr<tonlib_api::tvm_StackEntry>& entry) {
-  TRY_RESULT(x, entry_to_int<td::RefInt256>(entry));
-  td::Bits256 bits;
-  if (!x->export_bytes(bits.data(), 32, false)) {
-    return td::Status::Error("Invalid int256");
-  }
-  return bits;
-}
-
 void StorageProvider::get_params(td::Promise<ProviderParams> promise) {
-  run_get_method(
-      main_address_, "get_storage_params", {},
-      promise.wrap([](tl_object_ptr<tonlib_api::smc_runResult> r) -> td::Result<ProviderParams> {
-        if (r->exit_code_ != 0) {
-          return td::Status::Error(PSTRING() << "Method execution finished with code " << r->exit_code_);
-        }
-        auto stack = std::move(r->stack_);
+  td::actor::send_closure(
+      contract_wrapper_, &FabricContractWrapper::run_get_method, "get_storage_params",
+      std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>(),
+      promise.wrap([](std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> stack) -> td::Result<ProviderParams> {
         if (stack.size() != 5) {
           return td::Status::Error(PSTRING() << "Method returned " << stack.size() << " values, 5 expected");
         }
@@ -215,195 +186,19 @@ void StorageProvider::set_params(ProviderParams params, td::Promise<td::Unit> pr
     promise.set_error(td::Status::Error("Failed to store params to builder"));
     return;
   }
-  send_internal_message(main_address_, 100'000'000, std::move(b.as_cellslice()), std::move(promise));
+  td::actor::send_closure(contract_wrapper_, &FabricContractWrapper::send_internal_message, main_address_, 100'000'000,
+                          b.as_cellslice(), std::move(promise));
 }
 
 void StorageProvider::db_store_state() {
   db_->begin_transaction().ensure();
   db_->set(create_hash_tl_object<ton_api::storage_provider_db_key_state>().as_slice(),
-           create_serialize_tl_object<ton_api::storage_provider_db_state>(public_key_hash_.bits256_value(),
-                                                                          last_processed_lt_))
+           create_serialize_tl_object<ton_api::storage_provider_db_state>(last_processed_lt_))
       .ensure();
   db_->commit_transaction().ensure();
 }
 
-void StorageProvider::run_get_method(ContractAddress address, std::string method,
-                                     std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
-                                     td::Promise<tl_object_ptr<tonlib_api::smc_runResult>> promise) {
-  auto query =
-      create_tl_object<tonlib_api::smc_load>(create_tl_object<tonlib_api::accountAddress>(address.to_string()));
-  td::actor::send_closure(
-      tonlib_client_, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-      [client = tonlib_client_.get(), method = std::move(method), args = std::move(args),
-       promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-          return;
-        }
-        auto obj = dynamic_cast<tonlib_api::smc_info*>(R.ok_ref().get());
-        if (obj == nullptr) {
-          promise.set_result(td::Status::Error("Invalid response from tonlib"));
-          return;
-        }
-        auto query = create_tl_object<tonlib_api::smc_runGetMethod>(
-            obj->id_, create_tl_object<tonlib_api::smc_methodIdName>(std::move(method)), std::move(args));
-        td::actor::send_closure(
-            client, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-            [promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
-              if (R.is_error()) {
-                promise.set_error(R.move_as_error());
-                return;
-              }
-              auto obj = dynamic_cast<tonlib_api::smc_runResult*>(R.ok_ref().get());
-              if (obj == nullptr) {
-                promise.set_result(td::Status::Error("Invalid response from tonlib"));
-                return;
-              }
-              promise.set_result(
-                  create_tl_object<tonlib_api::smc_runResult>(obj->gas_used_, std::move(obj->stack_), obj->exit_code_));
-            });
-      });
-}
-
-void StorageProvider::send_internal_message(ContractAddress dest, td::uint64 coins, vm::CellSlice body,
-                                            td::Promise<td::Unit> promise) {
-  if (public_key_hash_.is_zero()) {
-    wait_public_key([SelfId = actor_id(this), dest, coins, body = std::move(body),
-                     promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        promise.set_error(R.move_as_error());
-        return;
-      }
-      td::actor::send_closure(SelfId, &StorageProvider::send_internal_message, dest, coins, std::move(body),
-                              std::move(promise));
-    });
-    return;
-  }
-
-  vm::CellBuilder b;
-  b.store_long(3 << 2, 6);                  // 0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddressInt
-  b.append_cellslice(dest.to_cellslice());  // dest:MsgAddressInt
-  store_coins(b, td::make_refint(coins));   // grams:Grams
-  b.store_zeroes(1 + 4 + 4 + 64 + 32 + 1);  // ihr_fee, fwd_fee, created_lt, created_at, init
-  // body:(Either X ^X)
-  if (b.remaining_bits() >= 1 + body.size() && b.remaining_refs() >= body.size_refs()) {
-    b.store_zeroes(1);
-    b.append_cellslice(body);
-  } else {
-    b.store_ones(1);
-    b.store_ref(vm::CellBuilder().append_cellslice(body).finalize_novm());
-  }
-  td::Ref<vm::Cell> int_msg = b.finalize_novm();
-
-  get_seqno([SelfId = actor_id(this), int_msg = std::move(int_msg),
-             promise = std::move(promise)](td::Result<td::uint32> R) mutable {
-    TRY_RESULT_PROMISE(promise, seqno, std::move(R));
-    td::actor::send_closure(SelfId, &StorageProvider::send_internal_message_cont, std::move(int_msg), seqno,
-                            std::move(promise));
-  });
-}
-
-void StorageProvider::send_internal_message_cont(td::Ref<vm::Cell> int_msg, td::uint32 seqno,
-                                                 td::Promise<td::Unit> promise) {
-  vm::CellBuilder b;
-  b.store_long(0, 32);                                      // subwallet id. TODO: non-zero id
-  b.store_long((td::uint32)td::Clocks::system() + 60, 32);  // valid until
-  b.store_long(seqno, 32);                                  // seqno
-  b.store_long(0, 8);                                       // mode
-  b.store_ref(std::move(int_msg));                          // message
-  td::Ref<vm::Cell> to_sign = b.finalize_novm();
-  td::BufferSlice hash(to_sign->get_hash().as_slice());
-  td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, public_key_hash_, std::move(hash),
-                          [promise = std::move(promise), data = std::move(to_sign), client = tonlib_client_.get(),
-                           address = main_address_](td::Result<td::BufferSlice> R) mutable {
-                            TRY_RESULT_PROMISE_PREFIX(promise, signature, std::move(R), "Failed to sign message: ");
-                            CHECK(signature.size() == 64);
-                            vm::CellBuilder b;
-                            b.store_bytes(signature);
-                            b.append_cellslice(vm::load_cell_slice(data));
-                            auto body = vm::std_boc_serialize(b.finalize_novm()).move_as_ok().as_slice().str();
-                            auto query = create_tl_object<tonlib_api::raw_createAndSendMessage>(
-                                create_tl_object<tonlib_api::accountAddress>(address.to_string()), "", std::move(body));
-                            td::actor::send_closure(client, &tonlib::TonlibClientWrapper::send_request,
-                                                    std::move(query), promise.wrap([](auto&&) { return td::Unit(); }));
-                          });
-}
-
-void StorageProvider::wait_public_key(td::Promise<td::Unit> promise) {
-  if (!public_key_hash_.is_zero()) {
-    promise.set_result(td::Unit());
-    return;
-  }
-  public_key_waiting_.push_back(std::move(promise));
-  if (public_key_query_active_) {
-    return;
-  }
-  public_key_query_active_ = true;
-  LOG(INFO) << "Asking public key of the smart contract";
-  run_get_method(main_address_, "get_public_key", {},
-                 [SelfId = actor_id(this)](td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R) {
-                   td::actor::send_closure(SelfId, &StorageProvider::wait_public_key_finish, std::move(R));
-                 });
-}
-
-void StorageProvider::wait_public_key_finish(td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R) {
-  CHECK(public_key_query_active_);
-  public_key_query_active_ = false;
-  auto r_key = [&]() -> td::Result<td::Bits256> {
-    TRY_RESULT(r, std::move(R));
-    if (r->exit_code_ != 0) {
-      return td::Status::Error(PSTRING() << "Exit code = " << r->exit_code_);
-    }
-    if (r->stack_.size() != 1) {
-      return td::Status::Error(PSTRING() << "Metrod returned " << r->stack_.size() << ", expected 1");
-    }
-    TRY_RESULT(key, entry_to_int<td::RefInt256>(r->stack_[0]));
-    td::Bits256 key_bits;
-    if (!key->export_bytes(key_bits.data(), 32, false)) {
-      return td::Status::Error("Invalid key");
-    }
-    return key_bits;
-  }();
-  td::Result<td::Unit> result;
-  if (r_key.is_error()) {
-    result = r_key.move_as_error_prefix("Failed to get public key from contract: ");
-    LOG(ERROR) << result.error().message();
-  } else {
-    result = td::Unit();
-    public_key_hash_ = PublicKey(pubkeys::Ed25519(r_key.move_as_ok())).compute_short_id();
-    LOG(INFO) << "Got public key of the smart contract, key hash = " << public_key_hash_.bits256_value().to_hex();
-    db_store_state();
-  }
-  for (auto& p : public_key_waiting_) {
-    p.set_result(result.clone());
-  }
-  public_key_waiting_.clear();
-}
-
-void StorageProvider::get_seqno(td::Promise<td::uint32> promise) {
-  run_get_method(main_address_, "seqno", {},
-                 promise.wrap([](tl_object_ptr<tonlib_api::smc_runResult> r) -> td::Result<td::uint32> {
-                   if (r->exit_code_ != 0) {
-                     return td::Status::Error(PSTRING() << "Failed to get seqno: method execution finished with code "
-                                                        << r->exit_code_);
-                   }
-                   auto stack = std::move(r->stack_);
-                   if (stack.size() != 1) {
-                     return td::Status::Error(PSTRING() << "Failed to get seqno: method returned " << stack.size()
-                                                        << " values, 1 expected");
-                   }
-                   TRY_RESULT_PREFIX(seqno, entry_to_int<td::uint32>(stack[0]), "Failed to get seqno: ");
-                   return seqno;
-                 }));
-}
-
 void StorageProvider::alarm() {
-  if (next_load_transactions_at_ && next_load_transactions_at_.is_in_past()) {
-    next_load_transactions_at_ = td::Timestamp::never();
-    load_last_transactions();
-  }
-  alarm_timestamp().relax(next_load_transactions_at_);
-
   for (auto& p : contracts_) {
     if (p.second.check_next_proof_at && p.second.check_next_proof_at.is_in_past()) {
       p.second.check_next_proof_at = td::Timestamp::never();
@@ -413,80 +208,7 @@ void StorageProvider::alarm() {
   }
 }
 
-void StorageProvider::load_last_transactions() {
-  auto query = create_tl_object<tonlib_api::getAccountState>(
-      create_tl_object<tonlib_api::accountAddress>(main_address_.to_string()));
-  td::actor::send_closure(tonlib_client_, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-                          [SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
-                            if (R.is_error()) {
-                              td::actor::send_closure(SelfId, &StorageProvider::loaded_last_transactions,
-                                                      R.move_as_error());
-                              return;
-                            }
-                            auto obj = dynamic_cast<tonlib_api::fullAccountState*>(R.ok_ref().get());
-                            if (obj == nullptr) {
-                              td::actor::send_closure(SelfId, &StorageProvider::loaded_last_transactions,
-                                                      td::Status::Error("Invalid response from tonlib"));
-                              return;
-                            }
-                            td::actor::send_closure(SelfId, &StorageProvider::load_last_transactions_cont,
-                                                    std::vector<tl_object_ptr<tonlib_api::raw_transaction>>(),
-                                                    std::move(obj->last_transaction_id_));
-                          });
-}
-
-void StorageProvider::load_last_transactions_cont(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
-                                                  tl_object_ptr<tonlib_api::internal_transactionId> next_id) {
-  if ((td::uint64)next_id->lt_ <= last_processed_lt_) {
-    loaded_last_transactions(std::move(transactions));
-    return;
-  }
-  auto query = create_tl_object<tonlib_api::raw_getTransactionsV2>(
-      nullptr, create_tl_object<tonlib_api::accountAddress>(main_address_.to_string()), std::move(next_id), 10, false);
-  td::actor::send_closure(
-      tonlib_client_, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-      [transactions = std::move(transactions), last_processed_lt = last_processed_lt_,
-       SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
-        if (R.is_error()) {
-          td::actor::send_closure(SelfId, &StorageProvider::loaded_last_transactions, R.move_as_error());
-          return;
-        }
-        auto obj = dynamic_cast<tonlib_api::raw_transactions*>(R.ok_ref().get());
-        if (obj == nullptr) {
-          td::actor::send_closure(SelfId, &StorageProvider::loaded_last_transactions,
-                                  td::Status::Error("Invalid response from tonlib"));
-          return;
-        }
-        for (auto& transaction : obj->transactions_) {
-          if ((td::uint64)transaction->transaction_id_->lt_ <= last_processed_lt ||
-              (double)transaction->utime_ < td::Clocks::system() - 3600 || transactions.size() >= 1000) {
-            td::actor::send_closure(SelfId, &StorageProvider::loaded_last_transactions, std::move(transactions));
-            return;
-          }
-          transactions.push_back(std::move(transaction));
-        }
-        td::actor::send_closure(SelfId, &StorageProvider::load_last_transactions_cont, std::move(transactions),
-                                std::move(obj->previous_transaction_id_));
-      });
-}
-
-void StorageProvider::loaded_last_transactions(td::Result<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>> R) {
-  if (R.is_error()) {
-    LOG(ERROR) << "Error during loading last transactions: " << R.move_as_error();
-    alarm_timestamp().relax(next_load_transactions_at_ = td::Timestamp::in(60.0));
-    return;
-  }
-  unprocessed_transactions_ = R.move_as_ok();
-  process_last_transactions();
-}
-
-void StorageProvider::process_last_transactions() {
-  if (unprocessed_transactions_.empty()) {
-    alarm_timestamp().relax(next_load_transactions_at_ = td::Timestamp::in(10.0));
-    return;
-  }
-  auto transaction = std::move(unprocessed_transactions_.back());
-  unprocessed_transactions_.pop_back();
+void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transaction> transaction) {
   std::string new_contract_address;
   for (auto& message : transaction->out_msgs_) {
     auto data = dynamic_cast<tonlib_api::msg_dataRaw*>(message->msg_data_.get());
@@ -505,34 +227,25 @@ void StorageProvider::process_last_transactions() {
       new_contract_address = message->destination_->account_address_;
     }
   }
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), lt = (td::uint64)transaction->transaction_id_->lt_](td::Result<td::Unit> R) {
-        if (R.is_error()) {
-          LOG(ERROR) << "Error during processing new storage contract, skipping: " << R.move_as_error();
-        }
-        td::actor::send_closure(SelfId, &StorageProvider::processed_transaction, lt);
-      });
-  if (new_contract_address.empty()) {
-    P.set_result(td::Unit());
-  } else {
+  if (!new_contract_address.empty()) {
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), lt = (td::uint64)transaction->transaction_id_->lt_](td::Result<td::Unit> R) {
+          if (R.is_error()) {
+            LOG(ERROR) << "Error during processing new storage contract, skipping: " << R.move_as_error();
+          }
+        });
     on_new_storage_contract(ContractAddress::parse(new_contract_address).move_as_ok(), std::move(P));
   }
-}
 
-void StorageProvider::processed_transaction(td::uint64 lt) {
-  last_processed_lt_ = lt;
+  last_processed_lt_ = transaction->transaction_id_->lt_;
   db_store_state();
-  process_last_transactions();
 }
 
 void StorageProvider::on_new_storage_contract(ContractAddress address, td::Promise<td::Unit> promise, int max_retries) {
   LOG(INFO) << "Processing new storage contract: " << address.to_string();
-  run_get_method(address, "get_torrent_hash", {},
+  run_get_method(address, tonlib_client_.get(), "get_torrent_hash", {},
                  [SelfId = actor_id(this), address, promise = std::move(promise),
-                  max_retries](td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R) mutable {
-                   if (R.is_ok() && R.ok()->exit_code_ != 0) {
-                     R = td::Status::Error(PSTRING() << "Method execution finished with code " << R.ok()->exit_code_);
-                   }
+                  max_retries](td::Result<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> R) mutable {
                    if (R.is_error()) {
                      if (max_retries > 0) {
                        delay_action(
@@ -547,8 +260,7 @@ void StorageProvider::on_new_storage_contract(ContractAddress address, td::Promi
                      }
                      return;
                    }
-                   auto r = R.move_as_ok();
-                   auto stack = std::move(r->stack_);
+                   auto stack = R.move_as_ok();
                    if (stack.size() != 1) {
                      promise.set_error(
                          td::Status::Error(PSTRING() << "Method returned " << stack.size() << " values, 1 expected"));
@@ -671,25 +383,28 @@ void StorageProvider::downloaded_torrent(ContractAddress address, MicrochunkTree
   contract.microchunk_tree = std::make_shared<MicrochunkTree>(std::move(microchunk_tree));
   db_update_microchunk_tree(address);
   db_update_storage_contract(address, false);
-  activate_contract(address);
+  check_contract_active(address);
 }
 
-void StorageProvider::activate_contract(ContractAddress address) {
+void StorageProvider::check_contract_active(ContractAddress address, td::Timestamp retry_until,
+                                            td::Timestamp retry_false_until) {
   run_get_method(
-      address, "is_active", {},
-      [SelfId = actor_id(this), address](td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R) mutable {
+      address, tonlib_client_.get(), "is_active", {},
+      [=, SelfId = actor_id(this)](td::Result<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> R) mutable {
         if (R.is_error()) {
-          LOG(WARNING) << "Failed to check that contract is active, retrying later: " << R.move_as_error();
-          delay_action([=]() { td::actor::send_closure(SelfId, &StorageProvider::activate_contract, address); },
-                       td::Timestamp::in(5.0));
+          LOG(WARNING) << "Failed to check that contract is active: " << R.move_as_error();
+          if (retry_until && retry_until.is_in_past()) {
+            delay_action(
+                [=]() {
+                  td::actor::send_closure(SelfId, &StorageProvider::check_contract_active, address, retry_until,
+                                          retry_false_until);
+                },
+                td::Timestamp::in(5.0));
+          }
           return;
         }
-        auto r = R.move_as_ok();
+        auto stack = R.move_as_ok();
         auto active = [&]() -> td::Result<bool> {
-          if (r->exit_code_ != 0) {
-            return td::Status::Error(PSTRING() << "Method execution finished with code " << r->exit_code_);
-          }
-          auto stack = std::move(r->stack_);
           if (stack.size() != 1) {
             return td::Status::Error(PSTRING() << "Method returned " << stack.size() << " values, 1 expected");
           }
@@ -701,6 +416,13 @@ void StorageProvider::activate_contract(ContractAddress address) {
           td::actor::send_closure(SelfId, &StorageProvider::close_storage_contract, address);
         } else if (active.ok()) {
           td::actor::send_closure(SelfId, &StorageProvider::activated_storage_contract, address);
+        } else if (retry_false_until && retry_false_until.is_in_past()) {
+          delay_action(
+              [=]() {
+                td::actor::send_closure(SelfId, &StorageProvider::check_contract_active, address, retry_until,
+                                        retry_false_until);
+              },
+              td::Timestamp::in(5.0));
         } else {
           td::actor::send_closure(SelfId, &StorageProvider::activate_contract_cont, address);
         }
@@ -711,16 +433,17 @@ void StorageProvider::activate_contract_cont(ContractAddress address) {
   vm::CellBuilder b;
   b.store_long(9, 32);  // const op::accept_contract = 9;
   b.store_long(0, 64);  // query_id
-  send_internal_message(
-      address, 100'000'000, std::move(b.as_cellslice()), [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
+  td::actor::send_closure(
+      contract_wrapper_, &FabricContractWrapper::send_internal_message, address, 100'000'000, b.as_cellslice(),
+      [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
         if (R.is_error()) {
           LOG(ERROR) << "Failed to send activate message, retrying later: " << R.move_as_error();
           delay_action([=]() { td::actor::send_closure(SelfId, &StorageProvider::activate_contract_cont, address); },
-                       td::Timestamp::in(5.0));
+                       td::Timestamp::in(10.0));
           return;
         }
-        delay_action([=]() { td::actor::send_closure(SelfId, &StorageProvider::activate_contract, address); },
-                     td::Timestamp::in(30.0));
+        td::actor::send_closure(SelfId, &StorageProvider::check_contract_active, address, td::Timestamp::in(60.0),
+                                td::Timestamp::in(40.0));
       });
 }
 
@@ -755,14 +478,15 @@ void StorageProvider::check_next_proof(ContractAddress address, StorageContract&
     return;
   }
   CHECK(contract.microchunk_tree != nullptr);
-  run_get_method(address, "get_next_proof_info", {},
-                 [SelfId = actor_id(this), address](td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R) {
-                   td::actor::send_closure(SelfId, &StorageProvider::got_next_proof_info, address, std::move(R));
-                 });
+  run_get_method(
+      address, tonlib_client_.get(), "get_next_proof_info", {},
+      [SelfId = actor_id(this), address](td::Result<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> R) {
+        td::actor::send_closure(SelfId, &StorageProvider::got_next_proof_info, address, std::move(R));
+      });
 }
 
 void StorageProvider::got_next_proof_info(ContractAddress address,
-                                          td::Result<tl_object_ptr<tonlib_api::smc_runResult>> R) {
+                                          td::Result<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> R) {
   auto it = contracts_.find(address);
   if (it == contracts_.end() || it->second.state != StorageContract::st_active) {
     return;
@@ -771,11 +495,7 @@ void StorageProvider::got_next_proof_info(ContractAddress address,
   td::uint64 next_proof = 0;
   td::uint32 last_proof_time = 0, max_span = 0;
   auto S = [&]() -> td::Status {
-    TRY_RESULT(r, std::move(R));
-    if (r->exit_code_ != 0) {
-      return td::Status::Error(PSTRING() << "Method execution finished with code " << r->exit_code_);
-    }
-    auto stack = std::move(r->stack_);
+    TRY_RESULT(stack, std::move(R));
     if (stack.size() != 3) {
       return td::Status::Error(PSTRING() << "Method returned " << stack.size() << " values, 3 expected");
     }
@@ -813,12 +533,6 @@ void StorageProvider::got_next_proof_info(ContractAddress address,
 }
 
 void StorageProvider::got_next_proof(ContractAddress address, td::Result<td::Ref<vm::Cell>> R) {
-  auto it = contracts_.find(address);
-  if (it == contracts_.end() || it->second.state != StorageContract::st_active) {
-    return;
-  }
-  auto& contract = it->second;
-  alarm_timestamp().relax(contract.check_next_proof_at = td::Timestamp::in(30.0));
   if (R.is_error()) {
     LOG(ERROR) << "Failed to build proof: " << R.move_as_error();
     return;
@@ -829,10 +543,20 @@ void StorageProvider::got_next_proof(ContractAddress address, td::Result<td::Ref
   b.store_long(11, 32);  // const op::proof_storage = 11;
   b.store_long(0, 64);   // query_id
   b.store_ref(R.move_as_ok());
-  send_internal_message(address, 100'000'000, std::move(b.as_cellslice()),
-                        [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
-                          if (R.is_error()) {
-                            LOG(ERROR) << "Failed to send proof message: " << R.move_as_error();
-                          }
-                        });
+  td::actor::send_closure(contract_wrapper_, &FabricContractWrapper::send_internal_message, address, 100'000'000,
+                          b.as_cellslice(), [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
+                            if (R.is_error()) {
+                              LOG(ERROR) << "Failed to send proof message: " << R.move_as_error();
+                            }
+                            td::actor::send_closure(SelfId, &StorageProvider::sent_next_proof, address);
+                          });
+}
+
+void StorageProvider::sent_next_proof(ContractAddress address) {
+  auto it = contracts_.find(address);
+  if (it == contracts_.end() || it->second.state != StorageContract::st_active) {
+    return;
+  }
+  auto& contract = it->second;
+  alarm_timestamp().relax(contract.check_next_proof_at = td::Timestamp::in(30.0));
 }

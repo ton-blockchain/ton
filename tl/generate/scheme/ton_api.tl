@@ -766,7 +766,7 @@ storage.provider.db.key.contractList = storage.provider.db.key.ContractList;
 storage.provider.db.key.storageContract wc:int addr:int256 = storage.provider.db.key.StorageContract;
 storage.provider.db.key.microchunkTree wc:int addr:int256 = storage.provider.db.key.MicrochunkTree;
 
-storage.provider.db.state public_key_hash:int256 last_processed_lt:long = storage.provider.db.State;
+storage.provider.db.state last_processed_lt:long = storage.provider.db.State;
 storage.provider.db.contractAddress wc:int addr:int256 = storage.db.ContractAddress;
 storage.provider.db.contractList contracts:(vector storage.provider.db.contractAddress) = storage.db.ContractList;
 storage.provider.db.storageContract torrent_hash:int256 created_time:int state:int = storage.provider.db.StorageContract;

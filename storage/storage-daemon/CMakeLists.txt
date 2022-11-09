@@ -6,7 +6,8 @@ set(STORAGE_DAEMON_SOURCE
   StorageManager.cpp
   StorageProvider.h
   StorageProvider.cpp
-  smc-util.h)
+  smc-util.h
+  smc-util.cpp)
 
 set(STORAGE_DAEMON_CLI_SOURCE
   storage-daemon-cli.cpp

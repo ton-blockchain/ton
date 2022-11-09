@@ -794,6 +794,7 @@ class StorageDaemonCli : public td::actor::Actor {
     if (new_params.maximal_file_size) {
       params->maximal_file_size_ = new_params.maximal_file_size.unwrap();
     }
+    td::TerminalIO::out() << "Sending external message to update provider parameters...\n";
     auto query_set = create_tl_object<ton_api::storage_daemon_setProviderParams>(std::move(params));
     send_query(std::move(query_set), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) mutable {
       if (R.is_error()) {
@@ -806,7 +807,7 @@ class StorageDaemonCli : public td::actor::Actor {
   template <typename T>
   void send_query(tl_object_ptr<T> query, td::Promise<typename T::ReturnType> promise) {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "q", serialize_tl_object(query, true),
-                            td::Timestamp::in(20.0),
+                            td::Timestamp::in(60.0),
                             [promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
                               if (R.is_error()) {
                                 td::TerminalIO::out() << "Query error: " << R.error().message() << "\n";
