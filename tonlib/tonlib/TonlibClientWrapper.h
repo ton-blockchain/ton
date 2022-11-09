@@ -28,9 +28,11 @@
 #include "auto/tl/tonlib_api.hpp"
 #include "tonlib/tonlib/TonlibClient.h"
 
-class TonlibClient : public td::actor::Actor {
+namespace tonlib {
+
+class TonlibClientWrapper : public td::actor::Actor {
  public:
-  explicit TonlibClient(ton::tl_object_ptr<tonlib_api::options> options);
+  explicit TonlibClientWrapper(ton::tl_object_ptr<tonlib_api::options> options);
 
   void start_up() override;
 
@@ -45,3 +47,5 @@ class TonlibClient : public td::actor::Actor {
   std::map<td::uint64, td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>> requests_;
   td::uint64 next_request_id_{1};
 };
+
+}
