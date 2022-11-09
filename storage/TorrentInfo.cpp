@@ -28,12 +28,25 @@ namespace ton {
 bool TorrentInfo::pack(vm::CellBuilder &cb) const {
   return cb.store_long_bool(piece_size, 32) && cb.store_long_bool(file_size, 64) && cb.store_bits_bool(root_hash) &&
          cb.store_long_bool(header_size, 64) && cb.store_bits_bool(header_hash) &&
+         cb.store_bool_bool((bool)microchunk_hash) &&
+         (!microchunk_hash || cb.store_bits_bool(microchunk_hash.value())) &&
          vm::CellText::store(cb, description).is_ok();
 }
 
 bool TorrentInfo::unpack(vm::CellSlice &cs) {
-  return cs.fetch_uint_to(32, piece_size) && cs.fetch_uint_to(64, file_size) && cs.fetch_bits_to(root_hash) &&
-         cs.fetch_uint_to(64, header_size) && cs.fetch_bits_to(header_hash) && vm::CellText::fetch_to(cs, description);
+  bool have_microchunk_hash;
+  if (!(cs.fetch_uint_to(32, piece_size) && cs.fetch_uint_to(64, file_size) && cs.fetch_bits_to(root_hash) &&
+        cs.fetch_uint_to(64, header_size) && cs.fetch_bits_to(header_hash) && cs.fetch_bool_to(have_microchunk_hash))) {
+    return false;
+  }
+  if (have_microchunk_hash) {
+    td::Bits256 value;
+    if (!cs.fetch_bits_to(value)) {
+      return false;
+    }
+    microchunk_hash = value;
+  }
+  return vm::CellText::fetch_to(cs, description);
 }
 
 vm::Cell::Hash TorrentInfo::get_hash() const {
@@ -62,12 +75,16 @@ TorrentInfo::PieceInfo TorrentInfo::get_piece_info(td::uint64 piece_i) const {
   info.size = td::min(static_cast<td::uint64>(piece_size), file_size - info.offset);
   return info;
 }
+
 td::Status TorrentInfo::validate() const {
   if (piece_size == 0) {
     return td::Status::Error("Piece size is 0");
   }
   if (header_size > file_size) {
     return td::Status::Error("Header is too big");
+  }
+  if (microchunk_hash && piece_size % 64 != 0) {
+    return td::Status::Error("Microchunk tree requires that piece_size is a multiple of 64");
   }
   return td::Status::OK();
 }

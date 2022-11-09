@@ -140,17 +140,17 @@ class Torrent {
   }
   std::set<td::uint64> get_pieces_in_memory() const {
     std::set<td::uint64> pieces;
-    for (const auto& p : in_memory_pieces_) {
+    for (const auto &p : in_memory_pieces_) {
       pieces.insert(p.first);
     }
     return pieces;
   }
 
-  const td::Status& get_fatal_error() const {
+  const td::Status &get_fatal_error() const {
     return fatal_error_;
   }
 
-  const TorrentHeader& get_header() const {
+  const TorrentHeader &get_header() const {
     CHECK(inited_header())
     return header_.value();
   }
@@ -172,7 +172,7 @@ class Torrent {
     std::string data;
     std::set<size_t> pending_chunks;
   };
-  std::map<td::uint64, InMemoryPiece> in_memory_pieces_; // Pieces that overlap excluded files
+  std::map<td::uint64, InMemoryPiece> in_memory_pieces_;  // Pieces that overlap excluded files
 
   ton::MerkleTree merkle_tree_;
 
@@ -217,7 +217,8 @@ class Torrent {
   td::uint64 included_ready_size_{0};
 
   explicit Torrent(td::Bits256 hash);
-  explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk);
+  explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk,
+                   std::string root_dir);
   void set_root_dir(std::string root_dir) {
     root_dir_ = std::move(root_dir);
   }

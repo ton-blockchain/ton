@@ -362,7 +362,7 @@ void Torrent::enable_write_to_files() {
 }
 
 void Torrent::add_pending_pieces() {
-  for (auto& p : pending_pieces_) {
+  for (auto &p : pending_pieces_) {
     td::Status S = add_validated_piece(p.first, std::move(p.second));
     if (S.is_error()) {
       LOG(WARNING) << "Failed to add pending piece #" << p.first << ": " << S;
@@ -466,15 +466,20 @@ TorrentMeta Torrent::get_meta(const GetMetaOptions &options) const {
 Torrent::Torrent(td::Bits256 hash) : hash_(hash), inited_info_(false) {
 }
 
-Torrent::Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunks)
+Torrent::Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunks,
+                 std::string root_dir)
     : hash_(info.get_hash().bits())
     , inited_info_(true)
     , info_(info)
+    , root_dir_(std::move(root_dir))
     , header_(std::move(header))
+    , enabled_wirte_to_files_(true)
     , merkle_tree_(std::move(tree))
     , piece_is_ready_(info_.pieces_count(), true)
     , ready_parts_count_{info_.pieces_count()}
-    , chunks_(std::move(chunks)) {
+    , chunks_(std::move(chunks))
+    , included_size_(info_.file_size)
+    , included_ready_size_(info_.file_size) {
 }
 
 td::Status Torrent::set_header(TorrentHeader header) {

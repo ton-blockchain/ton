@@ -36,6 +36,7 @@
 #include "Torrent.h"
 #include "TorrentCreator.h"
 #include "StorageManager.h"
+#include "StorageProvider.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -54,11 +55,13 @@ td::BufferSlice create_query_error(td::Status error) {
 
 class StorageDaemon : public td::actor::Actor {
  public:
-  StorageDaemon(td::IPAddress ip_addr, std::string global_config, std::string db_root, td::uint16 control_port)
+  StorageDaemon(td::IPAddress ip_addr, std::string global_config, std::string db_root, td::uint16 control_port,
+                bool enable_storage_provider)
       : ip_addr_(ip_addr)
       , global_config_(std::move(global_config))
       , db_root_(std::move(db_root))
-      , control_port_(control_port) {
+      , control_port_(control_port)
+      , enable_storage_provider_(enable_storage_provider) {
   }
 
   void start_up() override {
@@ -68,8 +71,7 @@ class StorageDaemon : public td::actor::Actor {
     {
       auto S = load_global_config();
       if (S.is_error()) {
-        LOG(ERROR) << "Failed t load global config: " << S;
-        std::exit(2);
+        LOG(FATAL) << "Failed to load global config: " << S;
       }
     }
     init_adnl();
@@ -79,7 +81,7 @@ class StorageDaemon : public td::actor::Actor {
       explicit Callback(td::actor::ActorId<StorageDaemon> actor) : actor_(std::move(actor)) {
       }
       void on_ready() override {
-        td::actor::send_closure(actor_, &StorageDaemon::init_control_interface);
+        td::actor::send_closure(actor_, &StorageDaemon::inited_storage_manager);
       }
 
      private:
@@ -139,6 +141,28 @@ class StorageDaemon : public td::actor::Actor {
     rldp_ = ton_rldp::Rldp::create(adnl_.get());
     td::actor::send_closure(rldp_, &ton_rldp::Rldp::add_id, local_id_);
     overlays_ = overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_.get());
+  }
+
+  void inited_storage_manager() {
+    if (enable_storage_provider_) {
+      td::optional<ContractAddress> provider_account;
+      [&]() -> td::Status {
+        TRY_RESULT(provider_conf_data, td::read_file(provider_config_file()));
+        TRY_RESULT(provider_conf_json, td::json_decode(provider_conf_data.as_slice()));
+        ton_api::storage_daemon_provider_config conf;
+        TRY_STATUS(ton_api::from_json(conf, provider_conf_json.get_object()));
+        TRY_RESULT_ASSIGN(provider_account, ContractAddress::parse(conf.account_address_));
+        return td::Status::OK();
+      }();
+      if (provider_account) {
+        provider_ =
+            td::actor::create_actor<StorageProvider>("provider", provider_account.unwrap(), db_root_ + "/provider",
+                                                     global_config_, manager_.get(), keyring_.get());
+      } else {
+        LOG(WARNING) << "Storage provider account is not set, it can be set in storage-daemon-cli";
+      }
+    }
+    init_control_interface();
   }
 
   void init_control_interface() {
@@ -216,6 +240,7 @@ class StorageDaemon : public td::actor::Actor {
     Torrent::Creator::Options options;
     options.piece_size = 128 * 1024;
     options.description = std::move(query.description_);
+    options.create_microchunk_tree = query.create_microchunk_tree_;
     TRY_RESULT_PROMISE(promise, torrent, Torrent::Creator::create_from_path(std::move(options), query.path_));
     td::Bits256 hash = torrent.get_hash();
     td::actor::send_closure(
@@ -314,6 +339,19 @@ class StorageDaemon : public td::actor::Actor {
         }));
   }
 
+  void run_control_query(ton_api::storage_daemon_getTorrentInfoBoc &query, td::Promise<td::BufferSlice> promise) {
+    td::actor::send_closure(
+        manager_, &StorageManager::with_torrent, query.hash_,
+        promise.wrap([](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
+          Torrent &torrent = state.torrent;
+          if (!torrent.inited_info()) {
+            return td::Status::Error("Torrent info is not available");
+          }
+          TRY_RESULT(boc, vm::std_boc_serialize(torrent.get_info().as_cell()));
+          return create_serialize_tl_object<ton_api::storage_daemon_torrentInfoBoc>(std::move(boc));
+        }));
+  }
+
   void run_control_query(ton_api::storage_daemon_setFilePriorityAll &query, td::Promise<td::BufferSlice> promise) {
     TRY_RESULT_PROMISE(promise, priority, td::narrow_cast_safe<td::uint8>(query.priority_));
     td::actor::send_closure(manager_, &StorageManager::set_all_files_priority, query.hash_, priority,
@@ -354,6 +392,53 @@ class StorageDaemon : public td::actor::Actor {
     td::actor::send_closure(
         manager_, &StorageManager::remove_torrent, query.hash_, query.remove_files_,
         promise.wrap([](td::Unit &&) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_importPrivateKey &query, td::Promise<td::BufferSlice> promise) {
+    auto pk = ton::PrivateKey{query.key_};
+    td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false,
+                            promise.wrap([hash = pk.compute_short_id()](td::Unit) mutable {
+                              return create_serialize_tl_object<ton_api::storage_daemon_keyHash>(hash.bits256_value());
+                            }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_initProvider &query, td::Promise<td::BufferSlice> promise) {
+    if (!enable_storage_provider_) {
+      promise.set_error(
+          td::Status::Error("Storage provider is not enabled, run daemon with --storage-provider to enable it"));
+      return;
+    }
+    if (!provider_.empty()) {
+      promise.set_error(td::Status::Error("Storage provider already exists"));
+      return;
+    }
+    TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.account_address_), "Invalid address: ");
+    auto provider_config = create_tl_object<ton_api::storage_daemon_provider_config>(query.account_address_);
+    auto s = td::json_encode<std::string>(td::ToJson(*provider_config), true);
+    TRY_STATUS_PROMISE_PREFIX(promise, td::write_file(provider_config_file(), s), "Failed to write provider config: ");
+    provider_ = td::actor::create_actor<StorageProvider>("provider", address, db_root_ + "/provider",
+                                                         global_config_, manager_.get(), keyring_.get());
+    promise.set_result(create_serialize_tl_object<ton_api::storage_daemon_success>());
+  }
+
+  void run_control_query(ton_api::storage_daemon_getProviderParams &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    td::actor::send_closure(provider_, &StorageProvider::get_params, promise.wrap([](ProviderParams params) mutable {
+      return serialize_tl_object(params.tl(), true);
+    }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_setProviderParams &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    td::actor::send_closure(
+        provider_, &StorageProvider::set_params, ProviderParams(query.params_),
+        promise.wrap([](td::Unit) mutable { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
   }
 
   template <class T>
@@ -454,6 +539,7 @@ class StorageDaemon : public td::actor::Actor {
   std::string global_config_;
   std::string db_root_;
   td::uint16 control_port_;
+  bool enable_storage_provider_;
 
   std::shared_ptr<dht::DhtGlobalConfig> dht_config_;
   adnl::AdnlNodeIdShort local_id_;
@@ -468,6 +554,12 @@ class StorageDaemon : public td::actor::Actor {
   td::actor::ActorOwn<adnl::AdnlExtServer> ext_server_;
 
   td::actor::ActorOwn<StorageManager> manager_;
+
+  td::actor::ActorOwn<StorageProvider> provider_;
+
+  std::string provider_config_file() {
+    return db_root_ + "/provider-config.json";
+  }
 };
 
 int main(int argc, char *argv[]) {
@@ -482,6 +574,7 @@ int main(int argc, char *argv[]) {
   td::IPAddress ip_addr;
   std::string global_config, db_root;
   td::uint16 control_port = 0;
+  bool enable_storage_provider = false;
 
   td::OptionParser p;
   p.set_description("Server for seeding and downloading torrents\n");
@@ -524,12 +617,15 @@ int main(int argc, char *argv[]) {
     logger_ = td::FileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
   });
+  p.add_option('P', "storage-provider", "run storage provider", [&]() { enable_storage_provider = true; });
 
   td::actor::Scheduler scheduler({7});
 
   scheduler.run_in_context([&] {
     p.run(argc, argv).ensure();
-    td::actor::create_actor<StorageDaemon>("storage-daemon", ip_addr, global_config, db_root, control_port).release();
+    td::actor::create_actor<StorageDaemon>("storage-daemon", ip_addr, global_config, db_root, control_port,
+                                           enable_storage_provider)
+        .release();
   });
   while (scheduler.run(1)) {
   }

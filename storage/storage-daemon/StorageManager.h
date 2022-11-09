@@ -15,12 +15,13 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#pragma once
 #include "td/actor/actor.h"
 #include "adnl/adnl.h"
 #include "rldp2/rldp.h"
 #include "overlay/overlays.h"
 #include "storage/PeerManager.h"
-#include "db.h"
+#include "storage/db.h"
 
 using namespace ton;
 
@@ -52,6 +53,8 @@ class StorageManager : public td::actor::Actor {
   void set_file_priority_by_name(td::Bits256 hash, std::string name, td::uint8 priority, td::Promise<bool> promise);
 
   void remove_torrent(td::Bits256 hash, bool remove_files, td::Promise<td::Unit> promise);
+
+  void wait_for_completion(td::Bits256 hash, td::Promise<td::Unit> promise);
 
  private:
   adnl::AdnlNodeIdShort local_id_;

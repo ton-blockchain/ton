@@ -31,7 +31,7 @@ set(STORAGE_SOURCE
   TorrentInfo.h
   TorrentMeta.h
   PeerManager.h
-)
+  MicrochunkTree.h MicrochunkTree.cpp)
 set(STORAGE_CLI_SOURCE
   storage-cli.cpp
 )

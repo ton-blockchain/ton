@@ -25,11 +25,19 @@
 #include "td/utils/PathView.h"
 #include "td/utils/port/path.h"
 #include "td/utils/tl_helpers.h"
+#include "MicrochunkTree.h"
 
 namespace ton {
 td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSlice raw_path) {
   TRY_RESULT(path, td::realpath(raw_path));
   TRY_RESULT(stat, td::stat(path));
+  std::string root_dir = path;
+  while (!root_dir.empty() && root_dir.back() == TD_DIR_SLASH) {
+    root_dir.pop_back();
+  }
+  while (!root_dir.empty() && root_dir.back() != TD_DIR_SLASH) {
+    root_dir.pop_back();
+  }
   if (stat.is_dir_) {
     if (!path.empty() && path.back() != TD_DIR_SLASH) {
       path += TD_DIR_SLASH;
@@ -50,10 +58,12 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
     });
     TRY_STATUS(std::move(status));
     TRY_STATUS(std::move(walk_status));
+    creator.root_dir_ = std::move(root_dir);
     return creator.finalize();
   } else {
     Torrent::Creator creator(options);
     TRY_STATUS(creator.add_file(td::PathView(path).file_name(), path));
+    creator.root_dir_ = std::move(root_dir);
     return creator.finalize();
   }
 }
@@ -118,6 +128,7 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   auto pieces_count = (file_size + options_.piece_size - 1) / options_.piece_size;
   std::vector<Torrent::ChunkState> chunks;
   std::vector<td::Bits256> pieces;
+  MicrochunkTree::Builder microchunk_tree_builder(file_size);
   auto flush_reader = [&](bool force) {
     while (true) {
       auto slice = reader.prepare_read();
@@ -128,6 +139,9 @@ td::Result<Torrent> Torrent::Creator::finalize() {
       td::Bits256 hash;
       sha256(slice, hash.as_slice());
       pieces.push_back(hash);
+      if (options_.create_microchunk_tree) {
+        microchunk_tree_builder.add_data(slice);
+      }
       reader.confirm_read(slice.size());
     }
   };
@@ -177,12 +191,15 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   info.description = options_.description;
   info.file_size = file_size;
   info.root_hash = tree.get_root_hash();
+  if (options_.create_microchunk_tree) {
+    info.microchunk_hash = microchunk_tree_builder.finalize().get_root_hash();
+  }
 
   info.init_cell();
   TRY_STATUS_PREFIX(info.validate(), "Invalid torrent info: ");
   TRY_STATUS_PREFIX(header.validate(info.file_size, info.header_size), "Invalid torrent header: ");
 
-  Torrent torrent(info, std::move(header), std::move(tree), std::move(chunks));
+  Torrent torrent(info, std::move(header), std::move(tree), std::move(chunks), root_dir_);
 
   return std::move(torrent);
 }

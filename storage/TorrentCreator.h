@@ -35,6 +35,7 @@ class Torrent::Creator {
     td::optional<std::string> dir_name;
 
     std::string description;
+    bool create_microchunk_tree = false;
   };
 
   // If path is a file create a torrent with one file in it.
@@ -61,5 +62,6 @@ class Torrent::Creator {
     td::BlobView data;
   };
   std::vector<File> files_;
+  std::string root_dir_;
 };
 }  // namespace ton

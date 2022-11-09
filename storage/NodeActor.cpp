@@ -226,9 +226,18 @@ void NodeActor::loop() {
     db_store_torrent_meta();
   }
 
-  if (torrent_.is_completed()) {
+  if (torrent_.get_fatal_error().is_error()) {
+    for (auto &promise : wait_for_completion_) {
+      promise.set_error(torrent_.get_fatal_error().clone());
+    }
+    wait_for_completion_.clear();
+  } else if (torrent_.is_completed()) {
     db_store_torrent_meta();
     if (!is_completed_) {
+      for (auto &promise : wait_for_completion_) {
+        promise.set_result(td::Unit());
+      }
+      wait_for_completion_.clear();
       is_completed_ = true;
       callback_->on_completed();
     }
@@ -299,6 +308,9 @@ void NodeActor::set_all_files_priority(td::uint8 priority, td::Promise<bool> pro
   recheck_parts(Torrent::PartsRange{0, torrent_.get_info().pieces_count()});
   db_store_priorities();
   update_pieces_in_db(0, torrent_.get_info().pieces_count());
+  if (!torrent_.is_completed()) {
+    is_completed_ = false;
+  }
   promise.set_result(true);
   yield();
 }
@@ -341,6 +353,9 @@ void NodeActor::set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promi
     }
   }
   db_store_priorities();
+  if (!torrent_.is_completed()) {
+    is_completed_ = false;
+  }
   promise.set_result(true);
   yield();
 }
@@ -360,6 +375,16 @@ void NodeActor::set_file_priority_by_name(std::string name, td::uint8 priority, 
   set_file_priority_by_idx(it->second, priority, std::move(promise));
 }
 
+void NodeActor::wait_for_completion(td::Promise<td::Unit> promise) {
+  if (torrent_.get_fatal_error().is_error()) {
+    promise.set_error(torrent_.get_fatal_error().clone());
+  } else if (is_completed_) {
+    promise.set_result(td::Unit());
+  } else {
+    wait_for_completion_.push_back(std::move(promise));
+  }
+}
+
 void NodeActor::set_should_download(bool should_download) {
   if (should_download == should_download_) {
     return;
@@ -370,6 +395,9 @@ void NodeActor::set_should_download(bool should_download) {
 }
 
 void NodeActor::tear_down() {
+  for (auto &promise : wait_for_completion_) {
+    promise.set_error(td::Status::Error("Torrent closed"));
+  }
   callback_->on_closed(std::move(torrent_));
 }
 

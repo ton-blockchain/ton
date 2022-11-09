@@ -40,4 +40,18 @@ inline void db_get(DbType& db, td::Bits256 key, bool allow_not_found,
   });
 }
 
+template <typename T>
+inline td::Result<ton::tl_object_ptr<T>> db_get(td::KeyValue& db, td::Bits256 key, bool allow_not_found) {
+  std::string value;
+  TRY_RESULT(r, db.get(key.as_slice(), value));
+  if (r == td::KeyValue::GetStatus::NotFound) {
+    if (allow_not_found) {
+      return nullptr;
+    } else {
+      return td::Status::Error("Key not found");
+    }
+  }
+  return ton::fetch_tl_object<T>(td::Slice(value), true);
+}
+
 }  // namespace db

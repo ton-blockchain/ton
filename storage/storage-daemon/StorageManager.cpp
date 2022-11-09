@@ -246,3 +246,8 @@ void StorageManager::on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentE
                           promise.set_result(td::Unit());
                         });
 }
+
+void StorageManager::wait_for_completion(td::Bits256 hash, td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::wait_for_completion, std::move(promise));
+}
