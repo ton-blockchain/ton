@@ -50,6 +50,7 @@ class SmartContract : public td::CntObject {
     td::int32 code;
     td::int64 gas_used;
     td::ConstBitPtr missing_library{0};
+    std::string vm_log;
     static int output_actions_count(td::Ref<vm::Cell> list);
   };
 
@@ -62,6 +63,7 @@ class SmartContract : public td::CntObject {
     bool ignore_chksig{false};
     td::uint64 amount{0};
     td::uint64 balance{0};
+    int vm_log_verbosity_level{0};
 
     td::optional<block::StdAddress> address;
     td::optional<std::shared_ptr<const block::Config>> config;
@@ -122,6 +124,10 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_libraries(vm::Dictionary libraries) {
       this->libraries = libraries;
+      return std::move(*this);
+    }
+    Args&& set_vm_verbosity_level(int vm_log_verbosity_level) {
+      this->vm_log_verbosity_level = vm_log_verbosity_level;
       return std::move(*this);
     }
 

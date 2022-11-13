@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include "emulator_export.h"
 
 #ifdef __cplusplus
@@ -35,10 +36,65 @@ EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *trans
 EMULATOR_EXPORT void transaction_emulator_destroy(void *transaction_emulator);
 
 /**
- * @brief Set verbosity level
+ * @brief Set global verbosity level of the library
  * @param verbosity_level New verbosity level (0 - never, 1 - error, 2 - warning, 3 - info, 4 - debug)
  */
-EMULATOR_EXPORT void transaction_emulator_set_verbosity_level(int verbosity_level);
+EMULATOR_EXPORT void emulator_set_verbosity_level(int verbosity_level);
+
+/**
+ * @brief Create TVM emulator
+ * @param code_boc Base64 encoded BoC serialized smart contract code cell
+ * @param data_boc Base64 encoded BoC serialized smart contract data cell
+ * @param vm_log_verbosity Verbosity level of VM log
+ * @return Pointer to TVM emulator object
+ */
+EMULATOR_EXPORT void *tvm_emulator_create(const char *code_boc, const char *data_boc, int vm_log_verbosity);
+
+/**
+ * @brief Set libraries for TVM emulator
+ * @param libs_boc Base64 encoded BoC serialized libraries dictionary (HashmapE 256 ^Cell).
+ */
+EMULATOR_EXPORT void tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc);
+
+/**
+ * @brief Set c7 parameters
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param address Adress of smart contract
+ * @param unixtime Unix timestamp
+ * @param balance Smart contract balance
+ * @param config Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
+ * @return EMULATOR_EXPORT 
+ */
+EMULATOR_EXPORT void tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *config);
+
+/**
+ * @brief Run get method
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param method_id Integer method id
+ * @param stack_json Json array with stack entries the following format:
+ * [
+ *     {
+ *          "type": "cell, slice, number or tuple",
+ *          "value": value (string or in case of tuple array of stack entries)
+ *     },
+ *     { ... }
+ * ]
+ * @return Json object with result:
+ * {
+ *     "vm_log": "...", 
+ *     "vm_exit_code": 0, 
+ *     "stack": [], 
+ *     "missing_library": null, 
+ *     "gas_used": 1212
+ * }
+ */
+EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_json);
+
+/**
+ * @brief Destroy TVM emulator object
+ * @param tvm_emulator Pointer to TVM emulator object
+ */
+EMULATOR_EXPORT void tvm_emulator_destroy(void *tvm_emulator);
 
 #ifdef __cplusplus
 }  // extern "C"
