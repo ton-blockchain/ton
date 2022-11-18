@@ -18,10 +18,14 @@ set(EMULATOR_SOURCE
   emulator-extern.cpp
 )
 
+set(EMULATOR_EXEC_SOURCE
+  transaction-emulator-main.cpp
+)
+
 include(GenerateExportHeader)
 
 add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
-target_link_libraries(emulator_static PUBLIC ton_validator ton_crypto ton_block smc-envelope)
+target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope)
 
 add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
 target_link_libraries(emulator PUBLIC emulator_static)
@@ -33,3 +37,19 @@ if (APPLE)
   set_target_properties(emulator PROPERTIES LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/emulator_export_list")
 endif()
 
+if (USE_EMSCRIPTEN)
+  add_executable(emulator-exec ${EMULATOR_EXEC_SOURCE})
+  target_link_libraries(emulator-exec PUBLIC emulator)
+  target_link_options(emulator-exec PRIVATE -sEXPORTED_RUNTIME_METHODS=_malloc,free,UTF8ToString,stringToUTF8,allocate,ALLOC_NORMAL,lengthBytesUTF8)
+  target_link_options(emulator-exec PRIVATE -sEXPORTED_FUNCTIONS=_emulate,_free)
+  target_link_options(emulator-exec PRIVATE -sEXPORT_NAME=EmulatorModule)
+  target_link_options(emulator-exec PRIVATE -sERROR_ON_UNDEFINED_SYMBOLS=0)
+  target_link_options(emulator-exec PRIVATE -Oz)
+  target_link_options(emulator-exec PRIVATE -sIGNORE_MISSING_MAIN=1)
+  target_link_options(emulator-exec PRIVATE -sAUTO_NATIVE_LIBRARIES=0)
+  target_link_options(emulator-exec PRIVATE -sMODULARIZE=1)
+  target_link_options(emulator-exec PRIVATE -sENVIRONMENT=web)
+  target_link_options(emulator-exec PRIVATE -sFILESYSTEM=0)
+  target_link_options(emulator-exec PRIVATE -fexceptions)
+  target_compile_options(emulator-exec PRIVATE -fexceptions)
+endif()

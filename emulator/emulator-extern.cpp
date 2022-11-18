@@ -9,7 +9,6 @@
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
 
-
 vm::StackEntry from_emulator_api(td::JsonValue& entry) {
   auto& object = entry.get_object();
   CHECK(object.size() == 2);
@@ -149,9 +148,7 @@ const char *success_response(std::string&& transaction, std::string&& new_shard_
   json_obj("shard_account", std::move(new_shard_account));
   json_obj("vm_log", std::move(vm_log));
   json_obj.leave();
-  auto json_response = jb.string_builder().as_cslice().str();
-  auto heap_response = new std::string(json_response);
-  return heap_response->c_str();
+  return strdup(jb.string_builder().as_cslice().c_str());
 }
 
 const char *error_response(std::string&& error) {
@@ -160,9 +157,7 @@ const char *error_response(std::string&& error) {
   json_obj("success", td::JsonFalse());
   json_obj("error", std::move(error));
   json_obj.leave();
-  auto json_response = jb.string_builder().as_cslice().str();
-  auto heap_response = new std::string(json_response);
-  return heap_response->c_str();
+  return strdup(jb.string_builder().as_cslice().c_str());
 }
 
 const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_code) {
@@ -173,9 +168,7 @@ const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_cod
   json_obj("vm_log", std::move(vm_log));
   json_obj("vm_exit_code", vm_exit_code);
   json_obj.leave();
-  auto json_response = jb.string_builder().as_cslice().str();
-  auto heap_response = new std::string(json_response);
-  return heap_response->c_str();
+  return strdup(jb.string_builder().as_cslice().c_str());
 }
 
 #define ERROR_RESPONSE(error) return error_response(error)
@@ -216,7 +209,49 @@ void *transaction_emulator_create(const char *config_params_boc, const char *sha
   return new emulator::TransactionEmulator(std::move(global_config), std::move(shardchain_libs), vm_log_verbosity);
 }
 
-const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
+struct TransactionEmulationParams {
+  ton::UnixTime utime;
+  ton::LogicalTime lt;
+  bool is_rand_seed_set;
+  td::Bits256 rand_seed;
+  bool ignore_chksig;
+};
+
+td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const char* json) {
+  TransactionEmulationParams params;
+
+  std::string json_str(json);
+  TRY_RESULT(input_json, td::json_decode(td::MutableSlice(json_str)));
+  auto &obj = input_json.get_object();
+
+  TRY_RESULT(utime_field, td::get_json_object_field(obj, "utime", td::JsonValue::Type::Number, false));
+  TRY_RESULT(utime, td::to_integer_safe<td::uint32>(utime_field.get_number()));
+  params.utime = utime;
+
+  TRY_RESULT(lt_field, td::get_json_object_field(obj, "lt", td::JsonValue::Type::String, false));
+  TRY_RESULT(lt, td::to_integer_safe<td::uint64>(lt_field.get_string()));
+  params.lt = lt;
+
+  TRY_RESULT(rand_seed_str, td::get_json_object_string_field(obj, "rand_seed", false));
+  if (rand_seed_str.size() == 0) {
+    params.is_rand_seed_set = false;
+  } else {
+    TRY_RESULT(rand_seed_decoded, td::base64_decode(rand_seed_str));
+    auto s = params.rand_seed.as_slice();
+    if (rand_seed_decoded.size() != s.size()) {
+      return td::Status::Error("rand seed is of wrong size");
+    }
+    params.is_rand_seed_set = true;
+    s.copy_from(rand_seed_decoded);
+  }
+
+  TRY_RESULT(ignore_chksig, td::get_json_object_bool_field(obj, "ignore_chksig", false));
+  params.ignore_chksig = ignore_chksig;
+
+  return params;
+}
+
+const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc, const char *other_params) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
   
   auto message_decoded = td::base64_decode(td::Slice(message_boc));
@@ -284,8 +319,14 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
 
-  auto result = emulator->emulate_transaction(std::move(account), message_cell, 0, 0, 
-    block::transaction::Transaction::tr_ord, nullptr, msg_tag == block::gen::CommonMsgInfo::ext_in_msg_info);
+  auto decoded_params_res = decode_transaction_emulation_params(other_params);
+  if (decoded_params_res.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't decode other params");
+  }
+  auto decoded_params = decoded_params_res.move_as_ok();
+
+  auto result = emulator->emulate_transaction(std::move(account), message_cell, decoded_params.utime, decoded_params.lt,
+    block::transaction::Transaction::tr_ord, decoded_params.is_rand_seed_set ? &decoded_params.rand_seed : nullptr, decoded_params.ignore_chksig);
   if (result.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Emulate transaction failed: " << result.move_as_error());
   }
