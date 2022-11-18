@@ -26,6 +26,7 @@
 #include "td/utils/port/path.h"
 #include "td/utils/tl_helpers.h"
 #include "MicrochunkTree.h"
+#include "TorrentHeader.hpp"
 
 namespace ton {
 td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSlice raw_path) {
@@ -59,6 +60,8 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
     TRY_STATUS(std::move(status));
     TRY_STATUS(std::move(walk_status));
     creator.root_dir_ = std::move(root_dir);
+    std::sort(creator.files_.begin(), creator.files_.end(),
+              [](const Torrent::Creator::File& a, const Torrent::Creator::File& b) { return a.name < b.name; });
     return creator.finalize();
   } else {
     Torrent::Creator creator(options);
@@ -70,7 +73,7 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
 
 td::Result<Torrent> Torrent::Creator::create_from_blobs(Options options, td::Span<Blob> blobs) {
   Torrent::Creator creator(options);
-  for (auto &blob : blobs) {
+  for (auto& blob : blobs) {
     TRY_STATUS(creator.add_blob(blob.name, blob.data));
   }
   return creator.finalize();
@@ -178,7 +181,7 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   td::sha256(header_str, info.header_hash.as_slice());
 
   add_blob(td::BufferSliceBlobView::create(td::BufferSlice(header_str)), "").ensure();
-  for (auto &file : files_) {
+  for (auto& file : files_) {
     add_blob(std::move(file.data), file.name).ensure();
   }
   flush_reader(true);
