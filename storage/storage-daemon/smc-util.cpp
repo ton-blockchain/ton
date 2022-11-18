@@ -16,6 +16,9 @@
 */
 
 #include "smc-util.h"
+#include "td/utils/filesystem.h"
+#include "keys/encryptor.h"
+#include "smartcont/provider-code.h"
 
 void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client, std::string method,
                     std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
@@ -23,32 +26,24 @@ void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibCl
   auto query =
       create_tl_object<tonlib_api::smc_load>(create_tl_object<tonlib_api::accountAddress>(address.to_string()));
   td::actor::send_closure(
-      client, &tonlib::TonlibClientWrapper::send_request, std::move(query),
+      client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_load>, std::move(query),
       [client, method = std::move(method), args = std::move(args),
-       promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
+       promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_info>> R) mutable {
         if (R.is_error()) {
           promise.set_error(R.move_as_error());
           return;
         }
-        auto obj = dynamic_cast<tonlib_api::smc_info*>(R.ok_ref().get());
-        if (obj == nullptr) {
-          promise.set_result(td::Status::Error("Invalid response from tonlib"));
-          return;
-        }
+        auto obj = R.move_as_ok();
         auto query = create_tl_object<tonlib_api::smc_runGetMethod>(
             obj->id_, create_tl_object<tonlib_api::smc_methodIdName>(std::move(method)), std::move(args));
         td::actor::send_closure(
-            client, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-            [promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
+            client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_runGetMethod>, std::move(query),
+            [promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_runResult>> R) mutable {
               if (R.is_error()) {
                 promise.set_error(R.move_as_error());
                 return;
               }
-              auto obj = dynamic_cast<tonlib_api::smc_runResult*>(R.ok_ref().get());
-              if (obj == nullptr) {
-                promise.set_error(td::Status::Error("Invalid response from tonlib"));
-                return;
-              }
+              auto obj = R.move_as_ok();
               if (obj->exit_code_ != 0 && obj->exit_code_ != 1) {
                 promise.set_error(
                     td::Status::Error(PSTRING() << "Method execution finished with code " << obj->exit_code_));
@@ -57,6 +52,38 @@ void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibCl
               promise.set_result(std::move(obj->stack_));
             });
       });
+}
+
+void check_contract_exists(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                           td::Promise<bool> promise) {
+  auto query =
+      create_tl_object<tonlib_api::smc_load>(create_tl_object<tonlib_api::accountAddress>(address.to_string()));
+  td::actor::send_closure(
+      client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_load>, std::move(query),
+      [client, promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_info>> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error());
+          return;
+        }
+        auto obj = R.move_as_ok();
+        auto query = create_tl_object<tonlib_api::smc_getState>(obj->id_);
+        td::actor::send_closure(client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_getState>,
+                                std::move(query),
+                                promise.wrap([](tonlib_api::object_ptr<tonlib_api::tvm_cell> r) -> td::Result<bool> {
+                                  return !r->bytes_.empty();
+                                }));
+      });
+}
+
+void get_contract_balance(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                          td::Promise<td::uint64> promise) {
+  auto query =
+      create_tl_object<tonlib_api::getAccountState>(create_tl_object<tonlib_api::accountAddress>(address.to_string()));
+  td::actor::send_closure(
+      client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::getAccountState>, std::move(query),
+      promise.wrap([](tonlib_api::object_ptr<tonlib_api::fullAccountState> r) -> td::Result<td::uint64> {
+        return r->balance_;
+      }));
 }
 
 FabricContractWrapper::FabricContractWrapper(ContractAddress address,
@@ -91,23 +118,18 @@ void FabricContractWrapper::alarm() {
 void FabricContractWrapper::load_transactions() {
   auto query =
       create_tl_object<tonlib_api::getAccountState>(create_tl_object<tonlib_api::accountAddress>(address_.to_string()));
-  td::actor::send_closure(client_, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-                          [SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
-                            if (R.is_error()) {
-                              td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions,
-                                                      R.move_as_error());
-                              return;
-                            }
-                            auto obj = dynamic_cast<tonlib_api::fullAccountState*>(R.ok_ref().get());
-                            if (obj == nullptr) {
-                              td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions,
-                                                      td::Status::Error("Invalid response from tonlib"));
-                              return;
-                            }
-                            td::actor::send_closure(SelfId, &FabricContractWrapper::load_last_transactions,
-                                                    std::vector<tl_object_ptr<tonlib_api::raw_transaction>>(),
-                                                    std::move(obj->last_transaction_id_));
-                          });
+  td::actor::send_closure(
+      client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::getAccountState>, std::move(query),
+      [SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::fullAccountState>> R) mutable {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions, R.move_as_error());
+          return;
+        }
+        auto obj = R.move_as_ok();
+        td::actor::send_closure(SelfId, &FabricContractWrapper::load_last_transactions,
+                                std::vector<tl_object_ptr<tonlib_api::raw_transaction>>(),
+                                std::move(obj->last_transaction_id_));
+      });
 }
 
 void FabricContractWrapper::load_last_transactions(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
@@ -119,19 +141,14 @@ void FabricContractWrapper::load_last_transactions(std::vector<tl_object_ptr<ton
   auto query = create_tl_object<tonlib_api::raw_getTransactionsV2>(
       nullptr, create_tl_object<tonlib_api::accountAddress>(address_.to_string()), std::move(next_id), 10, false);
   td::actor::send_closure(
-      client_, &tonlib::TonlibClientWrapper::send_request, std::move(query),
+      client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::raw_getTransactionsV2>, std::move(query),
       [transactions = std::move(transactions), last_processed_lt = last_processed_lt_,
-       SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
+       SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::raw_transactions>> R) mutable {
         if (R.is_error()) {
           td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions, R.move_as_error());
           return;
         }
-        auto obj = dynamic_cast<tonlib_api::raw_transactions*>(R.ok_ref().get());
-        if (obj == nullptr) {
-          td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions,
-                                  td::Status::Error("Invalid response from tonlib"));
-          return;
-        }
+        auto obj = R.move_as_ok();
         for (auto& transaction : obj->transactions_) {
           if ((td::uint64)transaction->transaction_id_->lt_ <= last_processed_lt ||
               (double)transaction->utime_ < td::Clocks::system() - 3600 || transactions.size() >= 1000) {
@@ -295,8 +312,8 @@ void FabricContractWrapper::do_send_internal_message_cont2(td::Ref<vm::Cell> ext
   auto body = vm::std_boc_serialize(ext_msg_body).move_as_ok().as_slice().str();
   auto query = create_tl_object<tonlib_api::raw_createAndSendMessage>(
       create_tl_object<tonlib_api::accountAddress>(address_.to_string()), "", std::move(body));
-  td::actor::send_closure(client_, &tonlib::TonlibClientWrapper::send_request, std::move(query),
-                          [SelfId = actor_id(this)](td::Result<tl_object_ptr<tonlib_api::Object>> R) {
+  td::actor::send_closure(client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::raw_createAndSendMessage>,
+                          std::move(query), [SelfId = actor_id(this)](td::Result<tl_object_ptr<tonlib_api::ok>> R) {
                             if (R.is_error()) {
                               td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_internal_message_finish,
                                                       R.move_as_error_prefix("Failed to send message: "));
@@ -321,4 +338,49 @@ bool store_coins(vm::CellBuilder& b, const td::RefInt256& x) {
     return false;
   }
   return b.store_long_bool(len, 4) && b.store_int256_bool(*x, len * 8, false);
+}
+
+bool store_coins(vm::CellBuilder& b, td::uint64 x) {
+  return store_coins(b, td::make_refint(x));
+}
+
+td::Result<FabricContractInit> generate_fabric_contract(td::actor::ActorId<keyring::Keyring> keyring) {
+  auto private_key = PrivateKey{privkeys::Ed25519::random()};
+
+  td::Slice code_boc(STORAGE_PROVIDER_CODE, sizeof(STORAGE_PROVIDER_CODE));
+  TRY_RESULT(code, vm::std_boc_deserialize(code_boc));
+
+  vm::CellBuilder b;
+  b.store_long(0, 32);                                                               // seqno
+  b.store_long(0, 32);                                                               // subwallet_id
+  b.store_bytes(private_key.compute_public_key().ed25519_value().raw().as_slice());  // public_key
+  b.store_long(0, 1);         // accept_new_contracts (false by default)
+  store_coins(b, 1'000'000);  // rate_per_mb_day
+  b.store_long(86400, 32);    // max_span
+  b.store_long(1 << 20, 64);  // min_file_size
+  b.store_long(1 << 30, 64);  // max_file_size
+  td::Ref<vm::Cell> data = b.finalize_novm();
+
+  // _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+  //   code:(Maybe ^Cell) data:(Maybe ^Cell)
+  //   library:(HashmapE 256 SimpleLib) = StateInit;
+  td::Ref<vm::Cell> state_init =
+      vm::CellBuilder().store_long(0b00110, 5).store_ref(std::move(code)).store_ref(std::move(data)).finalize_novm();
+  ContractAddress address{basechainId, state_init->get_hash().bits()};
+
+  // Message body
+  b = vm::CellBuilder();
+  b.store_long(0, 32);                                                 // subwallet_id
+  b.store_long((td::uint32)td::Clocks::system() + 3600 * 24 * 7, 32);  // valid_until
+  b.store_long(0, 32);                                                 // seqno
+  td::Ref<vm::Cell> to_sign = b.finalize_novm();
+  TRY_RESULT(decryptor, private_key.create_decryptor());
+  TRY_RESULT(signature, decryptor->sign(to_sign->get_hash().as_slice()));
+  CHECK(signature.size() == 64);
+  td::Ref<vm::Cell> msg_body =
+      vm::CellBuilder().store_bytes(signature).append_cellslice(vm::CellSlice(vm::NoVm(), to_sign)).finalize_novm();
+
+  td::actor::send_closure(keyring, &keyring::Keyring::add_key, private_key, false,
+                          [](td::Result<td::Unit> R) { R.ensure(); });
+  return FabricContractInit{address, state_init, msg_body};
 }

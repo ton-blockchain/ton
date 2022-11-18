@@ -57,6 +57,7 @@ class Torrent {
   // add piece (with an optional proof)
   td::Status add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Cell> proof);
   //TODO: add multiple pieces? Merkle tree supports much more general interface
+  td::Status add_proof(td::Ref<vm::Cell> proof);
 
   bool is_completed() const;
 
@@ -122,6 +123,7 @@ class Torrent {
     return root_dir_ ? root_dir_.value() : "";
   }
   td::Status init_info(Info info);
+  td::Status set_header(TorrentHeader header);
 
   void enable_write_to_files();
   void set_file_excluded(size_t i, bool excluded);
@@ -154,6 +156,8 @@ class Torrent {
     CHECK(inited_header())
     return header_.value();
   }
+
+  void load_from_files(std::string files_path);
 
  private:
   td::Bits256 hash_;
@@ -231,7 +235,6 @@ class Torrent {
 
   td::Status add_pending_piece(td::uint64 piece_i, td::Slice data);
   td::Status add_validated_piece(td::uint64 piece_i, td::Slice data);
-  td::Status set_header(TorrentHeader header);
 };
 
 }  // namespace ton

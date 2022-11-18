@@ -61,10 +61,13 @@ class MicrochunkTree {
   td::Bits256 get_root_hash() const {
     return root_hash_;
   }
+  td::uint64 get_total_size() const {
+    return total_size_;
+  }
 
  private:
   td::Bits256 root_hash_ = td::Bits256::zero();
-  size_t total_size_ = 0;
+  td::uint64 total_size_ = 0;
   td::Ref<vm::Cell> root_proof_ = {};
 };
 

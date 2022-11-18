@@ -39,7 +39,7 @@ td::Result<Torrent> Torrent::open(Options options, td::Bits256 hash) {
 }
 
 td::Result<Torrent> Torrent::open(Options options, TorrentMeta meta) {
-  Torrent res(td::Bits256(meta.info.get_hash().bits()));
+  Torrent res(td::Bits256(meta.info.get_hash()));
   TRY_STATUS(res.init_info(std::move(meta.info)));
   if (meta.header) {
     TRY_STATUS(res.set_header(meta.header.unwrap()));
@@ -190,7 +190,7 @@ std::string Torrent::get_stats_str() const {
 }
 
 void Torrent::validate() {
-  if (!inited_info_ && !header_) {
+  if (!inited_info_ || !header_) {
     return;
   }
 
@@ -302,7 +302,9 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
   if (!inited_info_) {
     return td::Status::Error("Torrent info not inited");
   }
-  TRY_STATUS(merkle_tree_.add_proof(proof));
+  if (!proof.is_null()) {
+    TRY_STATUS(merkle_tree_.add_proof(proof));
+  }
   CHECK(piece_i < info_.pieces_count());
   if (piece_is_ready_[piece_i]) {
     return td::Status::OK();
@@ -320,6 +322,13 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
     return add_pending_piece(piece_i, data);
   }
   return add_validated_piece(piece_i, data);
+}
+
+td::Status Torrent::add_proof(td::Ref<vm::Cell> proof) {
+  if (!inited_info_) {
+    return td::Status::Error("Torrent info not inited");
+  }
+  return merkle_tree_.add_proof(std::move(proof));
 }
 
 td::Status Torrent::add_pending_piece(td::uint64 piece_i, td::Slice data) {
@@ -468,7 +477,7 @@ Torrent::Torrent(td::Bits256 hash) : hash_(hash), inited_info_(false) {
 
 Torrent::Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunks,
                  std::string root_dir)
-    : hash_(info.get_hash().bits())
+    : hash_(info.get_hash())
     , inited_info_(true)
     , info_(info)
     , root_dir_(std::move(root_dir))
@@ -486,6 +495,12 @@ td::Status Torrent::set_header(TorrentHeader header) {
   if (header_) {
     return td::Status::OK();
   }
+  auto header_str = header.serialize();
+  td::Bits256 header_hash;
+  td::sha256(header_str.as_slice(), header_hash.as_slice());
+  if (header_hash != info_.header_hash) {
+    return td::Status::Error("Incorrect header hash");
+  }
   TRY_STATUS_PREFIX(header.validate(info_.file_size, info_.header_size), "Invalid torrent header: ");
   auto add_chunk = [&](td::Slice name, td::uint64 offset, td::uint64 size) {
     ChunkState chunk;
@@ -496,8 +511,8 @@ td::Status Torrent::set_header(TorrentHeader header) {
     chunks_.push_back(std::move(chunk));
     included_size_ += size;
   };
-  add_chunk("", 0, header.serialization_size());
-  chunks_.back().data = td::BufferSliceBlobView::create(header.serialize());
+  add_chunk("", 0, header_str.size());
+  chunks_.back().data = td::BufferSliceBlobView::create(std::move(header_str));
   for (size_t i = 0; i < header.files_count; i++) {
     auto l = header.get_data_begin(i);
     auto r = header.get_data_end(i);
@@ -523,7 +538,7 @@ std::vector<size_t> Torrent::chunks_by_piece(td::uint64 piece_id) {
 }
 
 td::Status Torrent::init_info(Info info) {
-  if (hash_ != info.get_hash().bits()) {
+  if (hash_ != info.get_hash()) {
     return td::Status::Error("Hash mismatch");
   }
   if (inited_info_) {
@@ -582,6 +597,7 @@ void Torrent::set_file_excluded(size_t i, bool excluded) {
       TRY_STATUS(init_chunk_data(chunk));
       TRY_STATUS(chunk.write_piece(it->second.data.substr(l - piece.offset, r - l), l - chunk.offset));
       chunk.ready_size += r - l;
+      included_ready_size_ += r - l;
       return td::Status::OK();
     }();
     if (S.is_error()) {
@@ -606,6 +622,79 @@ void Torrent::set_file_excluded(size_t i, bool excluded) {
     } else {
       ++it;
     }
+  }
+}
+
+void Torrent::load_from_files(std::string files_path) {
+  CHECK(inited_header());
+  std::vector<td::optional<td::BlobView>> new_blobs;
+  new_blobs.push_back(td::BufferSliceBlobView::create(get_header().serialize()));
+  size_t files_count = get_files_count().unwrap();
+  for (size_t i = 0; i < files_count; ++i) {
+    std::string new_path = PSTRING() << files_path << TD_DIR_SLASH << header_.value().dir_name << TD_DIR_SLASH
+                                     << get_file_name(i);
+    auto R = td::FileNoCacheBlobView::create(new_path, get_file_size(i), false);
+    if (R.is_error() && files_count == 1) {
+      R = td::FileNoCacheBlobView::create(files_path, get_file_size(i), false);
+    }
+    if (R.is_error()) {
+      new_blobs.emplace_back();
+    } else {
+      new_blobs.push_back(R.move_as_ok());
+    }
+  }
+  auto load_new_piece = [&](size_t piece_i) -> td::Result<std::string> {
+    auto piece = info_.get_piece_info(piece_i);
+    bool included = false;
+    TRY_STATUS(iterate_piece(piece, [&](auto it, IterateInfo info) {
+      if (!it->excluded) {
+        included = true;
+      }
+      return td::Status::OK();
+    }));
+    if (!included) {
+      return td::Status::Error("Piece is excluded");
+    }
+    std::string data(piece.size, '\0');
+    TRY_STATUS(iterate_piece(piece, [&](auto it, IterateInfo info) {
+      size_t chunk_i = it - chunks_.begin();
+      if (!new_blobs[chunk_i]) {
+        return td::Status::Error("No such file");
+      }
+      TRY_RESULT(s, new_blobs[chunk_i].value().view_copy(td::MutableSlice(data).substr(info.piece_offset, info.size),
+                                                         info.chunk_offset));
+      if (s != info.size) {
+        return td::Status::Error("Can't read file");
+      }
+      return td::Status::OK();
+    }));
+    return data;
+  };
+  std::vector<std::pair<size_t, td::Bits256>> new_pieces;
+  for (size_t i = 0; i < piece_is_ready_.size(); ++i) {
+    if (piece_is_ready_[i]) {
+      continue;
+    }
+    auto r_data = load_new_piece(i);
+    if (r_data.is_error()) {
+      continue;
+    }
+    td::Bits256 hash;
+    td::sha256(r_data.ok(), hash.as_slice());
+    new_pieces.emplace_back(i, hash);
+  }
+  size_t added_cnt = 0;
+  for (size_t i : merkle_tree_.add_pieces(std::move(new_pieces))) {
+    auto r_data = load_new_piece(i);
+    if (r_data.is_error()) {
+      continue;
+    }
+    if (add_piece(i, r_data.ok(), {}).is_ok()) {
+      ++added_cnt;
+    }
+  }
+  if (added_cnt > 0) {
+    LOG(INFO) << "Loaded " << added_cnt << " new pieces for " << get_hash().to_hex();
   }
 }
 

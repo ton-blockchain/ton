@@ -49,8 +49,8 @@ bool TorrentInfo::unpack(vm::CellSlice &cs) {
   return vm::CellText::fetch_to(cs, description);
 }
 
-vm::Cell::Hash TorrentInfo::get_hash() const {
-  return as_cell()->get_hash();
+td::Bits256 TorrentInfo::get_hash() const {
+  return as_cell()->get_hash().bits();
 }
 
 void TorrentInfo::init_cell() {

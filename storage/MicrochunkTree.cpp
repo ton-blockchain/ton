@@ -83,7 +83,7 @@ void MicrochunkTree::Builder::add_microchunk(td::Slice s) {
     td::Ref<vm::Cell> left = std::move(proof_.back());
     proof_.pop_back();
     node = vm::CellBuilder().store_zeroes(2).store_ref(std::move(left)).store_ref(std::move(node)).finalize_novm();
-    if ((1ULL << node->get_depth(0)) <= prun_size_) {
+    if ((MICROCHUNK_SIZE << node->get_depth(0)) <= prun_size_) {
       node = prun(node);
     }
   }
@@ -168,11 +168,11 @@ class GetMicrochunkProof {
       if (piece_i < torrent.get_info().pieces_count()) {
         TRY_RESULT(piece, torrent.get_piece_data(piece_i));
         piece.resize(piece_size, '\0');
-        cache_offset = piece_i * piece_size;
         cache = std::move(piece);
       } else {
         cache = std::string(piece_size, '\0');
       }
+      cache_offset = piece_i * piece_size;
     }
     return td::Slice{cache.data() + (l - cache_offset), MicrochunkTree::MICROCHUNK_SIZE};
   }

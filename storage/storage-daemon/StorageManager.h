@@ -53,6 +53,8 @@ class StorageManager : public td::actor::Actor {
   void set_file_priority_by_name(td::Bits256 hash, std::string name, td::uint8 priority, td::Promise<bool> promise);
 
   void remove_torrent(td::Bits256 hash, bool remove_files, td::Promise<td::Unit> promise);
+  void load_from(td::Bits256 hash, td::optional<TorrentMeta> meta, std::string files_path,
+                 td::Promise<td::Unit> promise);
 
   void wait_for_completion(td::Bits256 hash, td::Promise<td::Unit> promise);
 

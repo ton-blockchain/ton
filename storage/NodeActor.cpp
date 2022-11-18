@@ -89,8 +89,7 @@ void NodeActor::init_torrent() {
   }
   for (td::uint32 i = 0; i < pieces_count; i++) {
     if (torrent_.is_piece_ready(i)) {
-      parts_helper_.on_self_part_ready(i);
-      parts_.parts[i].ready = true;
+      on_part_ready(i);
     }
   }
 
@@ -151,11 +150,13 @@ void NodeActor::init_torrent_header() {
 }
 
 void NodeActor::recheck_parts(Torrent::PartsRange range) {
-  CHECK(torrent_.inited_header());
+  CHECK(torrent_.inited_info());
   for (size_t i = range.begin; i < range.end; ++i) {
     if (parts_.parts[i].ready && !torrent_.is_piece_ready(i)) {
       parts_helper_.on_self_part_not_ready(i);
       parts_.parts[i].ready = false;
+    } else if (!parts_.parts[i].ready && torrent_.is_piece_ready(i)) {
+      on_part_ready((PartId)i);
     }
   }
 }
@@ -392,6 +393,49 @@ void NodeActor::set_should_download(bool should_download) {
   should_download_ = should_download;
   db_store_torrent();
   yield();
+}
+
+void NodeActor::load_from(td::optional<TorrentMeta> meta, std::string files_path, td::Promise<td::Unit> promise) {
+  auto S = [&]() -> td::Status {
+    if (meta) {
+      TorrentInfo &info = meta.value().info;
+      if (info.get_hash() != torrent_.get_hash()) {
+        return td::Status::Error("Incorrect hash in meta");
+      }
+      if (!torrent_.inited_info()) {
+        LOG(INFO) << "Loading torrent info for " << torrent_.get_hash().to_hex();
+        TRY_STATUS(torrent_.init_info(std::move(info)));
+        init_torrent();
+      }
+      auto &header = meta.value().header;
+      if (header && !torrent_.inited_header()) {
+        LOG(INFO) << "Loading torrent header for " << torrent_.get_hash().to_hex();
+        TRY_STATUS(torrent_.set_header(header.unwrap()));
+        init_torrent_header();
+      }
+      auto proof = std::move(meta.value().root_proof);
+      if (!proof.is_null()) {
+        LOG(INFO) << "Loading proof for " << torrent_.get_hash().to_hex();
+        TRY_STATUS(torrent_.add_proof(std::move(proof)));
+      }
+    }
+    TRY_STATUS_PREFIX(torrent_.get_fatal_error().clone(), "Fatal error: ");
+    if (torrent_.inited_header() && !files_path.empty()) {
+      torrent_.load_from_files(std::move(files_path));
+    }
+    TRY_STATUS_PREFIX(torrent_.get_fatal_error().clone(), "Fatal error: ");
+    return td::Status::OK();
+  }();
+  if (S.is_error()) {
+    LOG(WARNING) << "Load from failed: " << S;
+    promise.set_error(std::move(S));
+  } else {
+    promise.set_result(td::Unit());
+  }
+  if (torrent_.inited_header()) {
+    recheck_parts(Torrent::PartsRange{0, torrent_.get_info().pieces_count()});
+  }
+  loop();
 }
 
 void NodeActor::tear_down() {

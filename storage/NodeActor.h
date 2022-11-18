@@ -85,6 +85,8 @@ class NodeActor : public td::actor::Actor {
   void set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise);
   void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
 
+  void load_from(td::optional<TorrentMeta> meta, std::string files_path, td::Promise<td::Unit> promise);
+
   void wait_for_completion(td::Promise<td::Unit> promise);
 
   static void load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,

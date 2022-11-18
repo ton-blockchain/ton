@@ -27,6 +27,7 @@
 #include "checksum.h"
 #include "git.h"
 #include "auto/tl/ton_api_json.h"
+#include "common/delay.h"
 
 #include "adnl/adnl.h"
 #include "rldp2/rldp.h"
@@ -74,6 +75,13 @@ class StorageDaemon : public td::actor::Actor {
         LOG(FATAL) << "Failed to load global config: " << S;
       }
     }
+    {
+      auto S = load_daemon_config();
+      if (S.is_error()) {
+        LOG(FATAL) << "Failed to load daemon config: " << S;
+      }
+    }
+
     init_adnl();
 
     class Callback : public StorageManager::Callback {
@@ -102,6 +110,42 @@ class StorageDaemon : public td::actor::Actor {
     }
     TRY_RESULT_PREFIX(dht, dht::Dht::create_global_config(std::move(conf.dht_)), "bad [dht] section: ");
     dht_config_ = std::move(dht);
+    return td::Status::OK();
+  }
+
+  td::Status load_daemon_config() {
+    daemon_config_ = create_tl_object<ton_api::storage_daemon_config>();
+    auto r_conf_data = td::read_file(daemon_config_file());
+    if (r_conf_data.is_ok()) {
+      auto conf_data = r_conf_data.move_as_ok();
+      TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
+      TRY_STATUS_PREFIX(ton_api::from_json(*daemon_config_, conf_json.get_object()), "json does not fit TL scheme: ");
+      return td::Status::OK();
+    }
+    std::string keys_dir = db_root_ + "/cli-keys/";
+    LOG(INFO) << "First launch, storing keys for storage-daemon-cli to " << keys_dir;
+    td::mkdir(keys_dir).ensure();
+    {
+      // Server key
+      auto pk = PrivateKey{privkeys::Ed25519::random()};
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, pk, false,
+                              [](td::Result<td::Unit> R) { R.ensure(); });
+      auto pub = pk.compute_public_key();
+      daemon_config_->server_key_ = pub.tl();
+      TRY_STATUS(td::write_file(keys_dir + "server.pub", serialize_tl_object(daemon_config_->server_key_, true)));
+    }
+    {
+      // Client key
+      auto pk = PrivateKey{privkeys::Ed25519::random()};
+      daemon_config_->cli_key_hash_ = pk.compute_short_id().bits256_value();
+      TRY_STATUS(td::write_file(keys_dir + "client", serialize_tl_object(pk.tl(), true)));
+    }
+    return save_daemon_config();
+  }
+
+  td::Status save_daemon_config() {
+    auto s = td::json_encode<std::string>(td::ToJson(*daemon_config_), true);
+    TRY_STATUS_PREFIX(td::write_file(daemon_config_file(), s), "Failed to write daemon config: ");
     return td::Status::OK();
   }
 
@@ -145,19 +189,11 @@ class StorageDaemon : public td::actor::Actor {
 
   void inited_storage_manager() {
     if (enable_storage_provider_) {
-      td::optional<ContractAddress> provider_account;
-      [&]() -> td::Status {
-        TRY_RESULT(provider_conf_data, td::read_file(provider_config_file()));
-        TRY_RESULT(provider_conf_json, td::json_decode(provider_conf_data.as_slice()));
-        ton_api::storage_daemon_provider_config conf;
-        TRY_STATUS(ton_api::from_json(conf, provider_conf_json.get_object()));
-        TRY_RESULT_ASSIGN(provider_account, ContractAddress::parse(conf.account_address_));
-        return td::Status::OK();
-      }();
-      if (provider_account) {
-        provider_ =
-            td::actor::create_actor<StorageProvider>("provider", provider_account.unwrap(), db_root_ + "/provider",
-                                                     global_config_, manager_.get(), keyring_.get());
+      if (!daemon_config_->provider_address_.empty()) {
+        auto provider_account = ContractAddress::parse(daemon_config_->provider_address_).move_as_ok();
+        init_tonlib_client();
+        provider_ = td::actor::create_actor<StorageProvider>("provider", provider_account, db_root_ + "/provider",
+                                                             tonlib_client_.get(), manager_.get(), keyring_.get());
       } else {
         LOG(WARNING) << "Storage provider account is not set, it can be set in storage-daemon-cli";
       }
@@ -170,13 +206,9 @@ class StorageDaemon : public td::actor::Actor {
       return;
     }
 
-    // Hardcoded adnl id
-    // TODO: something else
-    auto pk = PrivateKey{privkeys::Ed25519(td::sha256_bits256("storage-daemon-control"))};
-    auto pub = pk.compute_public_key();
-    td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
-    auto adnl_id = adnl::AdnlNodeIdShort{pub.compute_short_id()};
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_id, adnl::AdnlNodeIdFull{pub}, adnl::AdnlAddressList(),
+    auto adnl_id_full = adnl::AdnlNodeIdFull::create(daemon_config_->server_key_).move_as_ok();
+    auto adnl_id = adnl_id_full.compute_short_id();
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_id, adnl_id_full, adnl::AdnlAddressList(),
                             static_cast<td::uint8>(255));
 
     class Callback : public adnl::Adnl::Callback {
@@ -187,7 +219,8 @@ class StorageDaemon : public td::actor::Actor {
       }
       void receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                          td::Promise<td::BufferSlice> promise) override {
-        td::actor::send_closure(self_id_, &StorageDaemon::process_control_query, std::move(data), std::move(promise));
+        td::actor::send_closure(self_id_, &StorageDaemon::process_control_query, src, std::move(data),
+                                std::move(promise));
       }
 
      private:
@@ -210,7 +243,7 @@ class StorageDaemon : public td::actor::Actor {
     LOG(INFO) << "Started control interface on port " << control_port_;
   }
 
-  void process_control_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+  void process_control_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
     promise = [promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
       if (R.is_error()) {
         promise.set_value(create_query_error(R.move_as_error()));
@@ -218,6 +251,10 @@ class StorageDaemon : public td::actor::Actor {
         promise.set_value(R.move_as_ok());
       }
     };
+    if (src.bits256_value() != daemon_config_->cli_key_hash_) {
+      promise.set_error(td::Status::Error("Not authorized"));
+      return;
+    }
     auto F = fetch_tl_object<ton_api::Function>(data, true);
     if (F.is_error()) {
       promise.set_error(F.move_as_error_prefix("failed to parse control query: "));
@@ -237,21 +274,25 @@ class StorageDaemon : public td::actor::Actor {
   }
 
   void run_control_query(ton_api::storage_daemon_createTorrent &query, td::Promise<td::BufferSlice> promise) {
-    Torrent::Creator::Options options;
-    options.piece_size = 128 * 1024;
-    options.description = std::move(query.description_);
-    options.create_microchunk_tree = query.create_microchunk_tree_;
-    TRY_RESULT_PROMISE(promise, torrent, Torrent::Creator::create_from_path(std::move(options), query.path_));
-    td::Bits256 hash = torrent.get_hash();
-    td::actor::send_closure(
-        manager_, &StorageManager::add_torrent, std::move(torrent), false,
-        [manager = manager_.get(), hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-          if (R.is_error()) {
-            promise.set_error(R.move_as_error());
-          } else {
-            get_torrent_info_full_serialized(manager, hash, std::move(promise));
-          }
-        });
+    // Run in a separate thread
+    delay_action(
+        [promise = std::move(promise), manager = manager_.get(), query = std::move(query)]() mutable {
+          Torrent::Creator::Options options;
+          options.piece_size = 128 * 1024;
+          options.description = std::move(query.description_);
+          options.create_microchunk_tree = query.create_microchunk_tree_;
+          TRY_RESULT_PROMISE(promise, torrent, Torrent::Creator::create_from_path(std::move(options), query.path_));
+          td::Bits256 hash = torrent.get_hash();
+          td::actor::send_closure(manager, &StorageManager::add_torrent, std::move(torrent), false,
+                                  [manager, hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+                                    if (R.is_error()) {
+                                      promise.set_error(R.move_as_error());
+                                    } else {
+                                      get_torrent_info_full_serialized(manager, hash, std::move(promise));
+                                    }
+                                  });
+        },
+        td::Timestamp::now());
   }
 
   void run_control_query(ton_api::storage_daemon_addByHash &query, td::Promise<td::BufferSlice> promise) {
@@ -269,7 +310,7 @@ class StorageDaemon : public td::actor::Actor {
 
   void run_control_query(ton_api::storage_daemon_addByMeta &query, td::Promise<td::BufferSlice> promise) {
     TRY_RESULT_PROMISE(promise, meta, TorrentMeta::deserialize(query.meta_));
-    td::Bits256 hash(meta.info.get_hash().bits());
+    td::Bits256 hash(meta.info.get_hash());
     td::actor::send_closure(
         manager_, &StorageManager::add_torrent_by_meta, std::move(meta), std::move(query.root_dir_),
         query.start_download_,
@@ -340,16 +381,15 @@ class StorageDaemon : public td::actor::Actor {
   }
 
   void run_control_query(ton_api::storage_daemon_getTorrentInfoBoc &query, td::Promise<td::BufferSlice> promise) {
-    td::actor::send_closure(
-        manager_, &StorageManager::with_torrent, query.hash_,
-        promise.wrap([](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
-          Torrent &torrent = state.torrent;
-          if (!torrent.inited_info()) {
-            return td::Status::Error("Torrent info is not available");
-          }
-          TRY_RESULT(boc, vm::std_boc_serialize(torrent.get_info().as_cell()));
-          return create_serialize_tl_object<ton_api::storage_daemon_torrentInfoBoc>(std::move(boc));
-        }));
+    td::actor::send_closure(manager_, &StorageManager::with_torrent, query.hash_,
+                            promise.wrap([](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
+                              Torrent &torrent = state.torrent;
+                              if (!torrent.inited_info()) {
+                                return td::Status::Error("Torrent info is not available");
+                              }
+                              TRY_RESULT(boc, vm::std_boc_serialize(torrent.get_info().as_cell()));
+                              return create_serialize_tl_object<ton_api::storage_daemon_torrentInfoBoc>(std::move(boc));
+                            }));
   }
 
   void run_control_query(ton_api::storage_daemon_setFilePriorityAll &query, td::Promise<td::BufferSlice> promise) {
@@ -394,6 +434,24 @@ class StorageDaemon : public td::actor::Actor {
         promise.wrap([](td::Unit &&) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
   }
 
+  void run_control_query(ton_api::storage_daemon_loadFrom &query, td::Promise<td::BufferSlice> promise) {
+    td::optional<TorrentMeta> meta;
+    if (!query.meta_.empty()) {
+      TRY_RESULT_PROMISE_ASSIGN(promise, meta, TorrentMeta::deserialize(query.meta_));
+    }
+    td::actor::send_closure(
+        manager_, &StorageManager::load_from, query.hash_, std::move(meta), std::move(query.path_),
+        [manager = manager_.get(), hash = query.hash_, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            promise.set_error(R.move_as_error());
+          } else {
+            get_torrent_info_short(manager, hash, promise.wrap([](tl_object_ptr<ton_api::storage_daemon_torrent> obj) {
+              return serialize_tl_object(obj, true);
+            }));
+          }
+        });
+  }
+
   void run_control_query(ton_api::storage_daemon_importPrivateKey &query, td::Promise<td::BufferSlice> promise) {
     auto pk = ton::PrivateKey{query.key_};
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false,
@@ -402,22 +460,107 @@ class StorageDaemon : public td::actor::Actor {
                             }));
   }
 
+  void run_control_query(ton_api::storage_daemon_deployProvider &query, td::Promise<td::BufferSlice> promise) {
+    if (!enable_storage_provider_) {
+      promise.set_error(
+          td::Status::Error("Storage provider is not enabled, run daemon with --storage-provider to enable it"));
+      return;
+    }
+    if (!provider_.empty() || deploying_provider_) {
+      promise.set_error(td::Status::Error("Storage provider already exists"));
+      return;
+    }
+    TRY_RESULT_PROMISE_ASSIGN(promise, deploying_provider_, generate_fabric_contract(keyring_.get()));
+    promise.set_result(create_serialize_tl_object<ton_api::storage_daemon_providerAddress>(
+        deploying_provider_.value().address.to_string()));
+    do_deploy_provider();
+  }
+
   void run_control_query(ton_api::storage_daemon_initProvider &query, td::Promise<td::BufferSlice> promise) {
     if (!enable_storage_provider_) {
       promise.set_error(
           td::Status::Error("Storage provider is not enabled, run daemon with --storage-provider to enable it"));
       return;
     }
-    if (!provider_.empty()) {
+    if (!provider_.empty() || deploying_provider_) {
       promise.set_error(td::Status::Error("Storage provider already exists"));
       return;
     }
     TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.account_address_), "Invalid address: ");
-    auto provider_config = create_tl_object<ton_api::storage_daemon_provider_config>(query.account_address_);
-    auto s = td::json_encode<std::string>(td::ToJson(*provider_config), true);
-    TRY_STATUS_PROMISE_PREFIX(promise, td::write_file(provider_config_file(), s), "Failed to write provider config: ");
+    do_init_provider(
+        address, promise.wrap([](td::Unit) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
+  }
+
+  void do_init_provider(ContractAddress address, td::Promise<td::Unit> promise, bool deploying = false) {
+    if (deploying && (!deploying_provider_ || deploying_provider_.value().address != address)) {
+      promise.set_error(td::Status::Error("Deploying was cancelled"));
+      return;
+    }
+    daemon_config_->provider_address_ = address.to_string();
+    TRY_STATUS_PROMISE(promise, save_daemon_config());
+    init_tonlib_client();
     provider_ = td::actor::create_actor<StorageProvider>("provider", address, db_root_ + "/provider",
-                                                         global_config_, manager_.get(), keyring_.get());
+                                                         tonlib_client_.get(), manager_.get(), keyring_.get());
+    deploying_provider_ = {};
+    promise.set_result(td::Unit());
+  }
+
+  void do_deploy_provider() {
+    if (!deploying_provider_) {
+      return;
+    }
+    init_tonlib_client();
+    check_contract_exists(
+        deploying_provider_.value().address, tonlib_client_.get(),
+        [SelfId = actor_id(this), client = tonlib_client_.get(),
+         init = deploying_provider_.value()](td::Result<bool> R) mutable {
+          if (R.is_error()) {
+            LOG(INFO) << "Deploying storage contract: " << R.move_as_error();
+            delay_action([=]() { td::actor::send_closure(SelfId, &StorageDaemon::do_deploy_provider); },
+                         td::Timestamp::in(5.0));
+            return;
+          }
+          if (R.ok()) {
+            LOG(INFO) << "Deploying storage contract: DONE";
+            td::actor::send_closure(SelfId, &StorageDaemon::do_init_provider, init.address,
+                                    [](td::Result<td::Unit>) {}, true);
+            return;
+          }
+          ContractAddress address = init.address;
+          td::BufferSlice state_init_boc = vm::std_boc_serialize(init.state_init).move_as_ok();
+          td::BufferSlice body_boc = vm::std_boc_serialize(init.msg_body).move_as_ok();
+          auto query = create_tl_object<tonlib_api::raw_createAndSendMessage>(
+              create_tl_object<tonlib_api::accountAddress>(address.to_string()), state_init_boc.as_slice().str(),
+              body_boc.as_slice().str());
+          td::actor::send_closure(
+              client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::raw_createAndSendMessage>,
+              std::move(query), [=](td::Result<tl_object_ptr<tonlib_api::ok>> R) {
+                if (R.is_error()) {
+                  LOG(INFO) << "Deploying storage contract: " << R.move_as_error();
+                }
+                delay_action([=]() { td::actor::send_closure(SelfId, &StorageDaemon::do_deploy_provider); },
+                             td::Timestamp::in(5.0));
+              });
+        });
+  }
+
+  void run_control_query(ton_api::storage_daemon_removeStorageProvider &query, td::Promise<td::BufferSlice> promise) {
+    if (!enable_storage_provider_) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    if (provider_.empty() && !deploying_provider_) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    daemon_config_->provider_address_ = "";
+    TRY_STATUS_PROMISE(promise, save_daemon_config());
+    deploying_provider_ = {};
+    provider_ = {};
+    auto S = td::rmrf(db_root_ + "/provider");
+    if (S.is_error()) {
+      LOG(ERROR) << "Failed to delete provider directory: " << S;
+    }
     promise.set_result(create_serialize_tl_object<ton_api::storage_daemon_success>());
   }
 
@@ -444,6 +587,60 @@ class StorageDaemon : public td::actor::Actor {
   template <class T>
   void run_control_query(T &query, td::Promise<td::BufferSlice> promise) {
     promise.set_error(td::Status::Error("unknown query"));
+  }
+
+  void run_control_query(ton_api::storage_daemon_getProviderInfo &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    td::actor::send_closure(provider_, &StorageProvider::get_provider_info, query.with_balances_, query.with_contracts_,
+                            promise.wrap([](tl_object_ptr<ton_api::storage_daemon_providerInfo> info) {
+                              return serialize_tl_object(info, true);
+                            }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_withdraw &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.contract_), "Invalid address: ");
+    td::actor::send_closure(provider_, &StorageProvider::withdraw, address, promise.wrap([](td::Unit) {
+      return create_serialize_tl_object<ton_api::storage_daemon_success>();
+    }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_withdrawAll &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    td::actor::send_closure(provider_, &StorageProvider::withdraw_all, promise.wrap([](td::Unit) {
+      return create_serialize_tl_object<ton_api::storage_daemon_success>();
+    }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_sendCoins &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.address_), "Invalid address: ");
+    td::actor::send_closure(
+        provider_, &StorageProvider::send_coins, address, query.amount_, std::move(query.message_),
+        promise.wrap([](td::Unit) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_closeStorageContract &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.address_), "Invalid address: ");
+    td::actor::send_closure(provider_, &StorageProvider::close_storage_contract, address, promise.wrap([](td::Unit) {
+      return create_serialize_tl_object<ton_api::storage_daemon_success>();
+    }));
   }
 
  private:
@@ -541,6 +738,7 @@ class StorageDaemon : public td::actor::Actor {
   td::uint16 control_port_;
   bool enable_storage_provider_;
 
+  tl_object_ptr<ton_api::storage_daemon_config> daemon_config_;
   std::shared_ptr<dht::DhtGlobalConfig> dht_config_;
   adnl::AdnlNodeIdShort local_id_;
   adnl::AdnlNodeIdShort dht_id_;
@@ -555,10 +753,24 @@ class StorageDaemon : public td::actor::Actor {
 
   td::actor::ActorOwn<StorageManager> manager_;
 
+  td::actor::ActorOwn<tonlib::TonlibClientWrapper> tonlib_client_;
   td::actor::ActorOwn<StorageProvider> provider_;
+  td::optional<FabricContractInit> deploying_provider_;
 
-  std::string provider_config_file() {
-    return db_root_ + "/provider-config.json";
+  void init_tonlib_client() {
+    if (!tonlib_client_.empty()) {
+      return;
+    }
+    auto r_conf_data = td::read_file(global_config_);
+    r_conf_data.ensure();
+    auto tonlib_options = tonlib_api::make_object<tonlib_api::options>(
+        tonlib_api::make_object<tonlib_api::config>(r_conf_data.move_as_ok().as_slice().str(), "", false, false),
+        tonlib_api::make_object<tonlib_api::keyStoreTypeInMemory>());
+    tonlib_client_ = td::actor::create_actor<tonlib::TonlibClientWrapper>("tonlibclient", std::move(tonlib_options));
+  }
+
+  std::string daemon_config_file() {
+    return db_root_ + "/config.json";
   }
 };
 

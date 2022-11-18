@@ -150,7 +150,7 @@ td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download
 
 void StorageManager::add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download,
                                          td::Promise<td::Unit> promise) {
-  td::Bits256 hash(meta.info.get_hash().bits());
+  td::Bits256 hash(meta.info.get_hash());
   Torrent::Options options;
   options.root_dir = root_dir.empty() ? db_root_ + "/torrent-files/" + hash.to_hex() : root_dir;
   TRY_RESULT_PROMISE(promise, torrent, Torrent::open(std::move(options), std::move(meta)));
@@ -226,6 +226,13 @@ void StorageManager::remove_torrent(td::Bits256 hash, bool remove_files, td::Pro
   db_store_torrent_list();
 }
 
+void StorageManager::load_from(td::Bits256 hash, td::optional<TorrentMeta> meta, std::string files_path,
+                               td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::load_from, std::move(meta), std::move(files_path),
+                          std::move(promise));
+}
+
 void StorageManager::on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentEntry::ClosingState> closing_state) {
   if (!closing_state->removing) {
     return;
@@ -238,6 +245,7 @@ void StorageManager::on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentE
       // TODO: Check errors, remove empty directories
     }
   }
+  td::rmrf(db_root_ + "/torrent-files/" + torrent.get_hash().to_hex()).ignore();
   NodeActor::cleanup_db(db_, torrent.get_hash(),
                         [promise = std::move(closing_state->promise)](td::Result<td::Unit> R) mutable {
                           if (R.is_error()) {

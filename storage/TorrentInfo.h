@@ -41,7 +41,7 @@ struct TorrentInfo {
   bool unpack(vm::CellSlice &cs);
 
   void init_cell();
-  vm::Cell::Hash get_hash() const;
+  td::Bits256 get_hash() const;
   td::Ref<vm::Cell> as_cell() const;
 
   struct PieceInfo {

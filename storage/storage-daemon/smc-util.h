@@ -60,6 +60,10 @@ struct ContractAddress {
 void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client, std::string method,
                     std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
                     td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise);
+void check_contract_exists(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                           td::Promise<bool> promise);
+void get_contract_balance(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                          td::Promise<td::uint64> promise);
 
 class FabricContractWrapper : public td::actor::Actor {
  public:
@@ -103,7 +107,7 @@ class FabricContractWrapper : public td::actor::Actor {
 
   void load_transactions();
   void load_last_transactions(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
-                                   tl_object_ptr<tonlib_api::internal_transactionId> next_id);
+                              tl_object_ptr<tonlib_api::internal_transactionId> next_id);
   void loaded_last_transactions(td::Result<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>> R);
 
   void do_send_internal_message(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise);
@@ -144,3 +148,11 @@ inline td::Result<td::Bits256> entry_to_bits256(const tl_object_ptr<tonlib_api::
 }
 
 bool store_coins(vm::CellBuilder& b, const td::RefInt256& x);
+bool store_coins(vm::CellBuilder& b, td::uint64 x);
+
+struct FabricContractInit {
+  ContractAddress address;
+  td::Ref<vm::Cell> state_init;
+  td::Ref<vm::Cell> msg_body;
+};
+td::Result<FabricContractInit> generate_fabric_contract(td::actor::ActorId<keyring::Keyring> keyring);

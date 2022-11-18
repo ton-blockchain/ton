@@ -36,8 +36,8 @@
 #include <cstdio>
 #include <set>
 #include "git.h"
-#include "common/checksum.h"
 #include "common/refint.h"
+#include "crypto/block/block.h"
 
 using namespace ton;
 
@@ -102,6 +102,45 @@ std::string size_to_str(td::uint64 size) {
   td::StringBuilder s;
   s << td::format::as_size(size);
   return s.as_cslice().str();
+}
+
+std::string time_to_str(td::uint32 time) {
+  char time_buffer[80];
+  time_t rawtime = time;
+  struct tm tInfo;
+#if defined(_WIN32) || defined(_WIN64)
+  struct tm* timeinfo = localtime_s(&tInfo, &rawtime) ? nullptr : &tInfo;
+#else
+  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+#endif
+  assert(timeinfo == &tInfo);
+  strftime(time_buffer, 80, "%c", timeinfo);
+  return time_buffer;
+}
+
+void print_table(const std::vector<std::vector<std::string>>& table) {
+  if (table.empty()) {
+    return;
+  }
+  size_t cols = table[0].size();
+  std::vector<size_t> col_size(cols, 0);
+  for (const auto& row : table) {
+    CHECK(row.size() == cols);
+    for (size_t i = 0; i < cols; ++i) {
+      col_size[i] = std::max(col_size[i], row[i].size());
+    }
+  }
+  for (const auto& row : table) {
+    std::string row_str;
+    for (size_t i = 0; i < cols; ++i) {
+      size_t pad = col_size[i] - row[i].size() + (i == 0 ? 0 : 2);
+      while (pad--) {
+        row_str += ' ';
+      }
+      row_str += row[i];
+    }
+    td::TerminalIO::out() << row_str << "\n";
+  }
 }
 
 void print_torrent_full(const ton_api::storage_daemon_torrentFull& obj) {
@@ -189,43 +228,63 @@ struct OptionalProviderParams {
 
 class StorageDaemonCli : public td::actor::Actor {
  public:
-  explicit StorageDaemonCli(td::IPAddress server_ip) : server_ip_(server_ip) {
+  explicit StorageDaemonCli(td::IPAddress server_ip, PrivateKey client_private_key, PublicKey server_public_key,
+                            td::optional<std::string> command)
+      : server_ip_(server_ip)
+      , client_private_key_(client_private_key)
+      , server_public_key_(server_public_key)
+      , command_(command)
+      , ex_mode_(command_) {
   }
 
   void start_up() override {
     class ExtClientCallback : public adnl::AdnlExtClient::Callback {
      public:
+      explicit ExtClientCallback(td::actor::ActorId<StorageDaemonCli> id) : id_(id) {
+      }
       void on_ready() override {
         LOG(INFO) << "Connected";
+        td::actor::send_closure(id_, &StorageDaemonCli::on_conn_status, true);
       }
       void on_stop_ready() override {
         LOG(WARNING) << "Connection closed";
-      }
-    };
-    CHECK(server_ip_.is_valid());
-    auto pk = PrivateKey{privkeys::Ed25519(td::sha256_bits256("storage-daemon-control"))};
-    client_ = adnl::AdnlExtClient::create(adnl::AdnlNodeIdFull{pk.compute_public_key()}, server_ip_,
-                                          std::make_unique<ExtClientCallback>());
-
-    class TerminalCallback : public td::TerminalIO::Callback {
-     public:
-      void line_cb(td::BufferSlice line) override {
-        td::actor::send_closure(id_, &StorageDaemonCli::parse_line, std::move(line));
-      }
-      TerminalCallback(td::actor::ActorId<StorageDaemonCli> id) : id_(std::move(id)) {
+        td::actor::send_closure(id_, &StorageDaemonCli::on_conn_status, false);
       }
 
      private:
       td::actor::ActorId<StorageDaemonCli> id_;
     };
-    io_ = td::TerminalIO::create("> ", true, false, std::make_unique<TerminalCallback>(actor_id(this)));
-    td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
+    CHECK(server_ip_.is_valid());
+    client_ = adnl::AdnlExtClient::create(adnl::AdnlNodeIdFull{server_public_key_}, client_private_key_, server_ip_,
+                                          std::make_unique<ExtClientCallback>(actor_id(this)));
+
+    if (!ex_mode_) {
+      class TerminalCallback : public td::TerminalIO::Callback {
+       public:
+        void line_cb(td::BufferSlice line) override {
+          td::actor::send_closure(id_, &StorageDaemonCli::parse_line, std::move(line));
+        }
+        TerminalCallback(td::actor::ActorId<StorageDaemonCli> id) : id_(std::move(id)) {
+        }
+
+       private:
+        td::actor::ActorId<StorageDaemonCli> id_;
+      };
+      io_ = td::TerminalIO::create("> ", true, false, std::make_unique<TerminalCallback>(actor_id(this)));
+      td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
+    }
+  }
+
+  void on_conn_status(bool status) {
+    if (command_) {
+      parse_line(td::BufferSlice(command_.unwrap()));
+    }
   }
 
   void parse_line(td::BufferSlice line) {
     td::Status S = parse_line_impl(std::move(line));
     if (S.is_error()) {
-      td::TerminalIO::out() << S.message() << "\n";
+      command_finished(std::move(S));
     }
   }
 
@@ -240,6 +299,7 @@ class StorageDaemonCli : public td::actor::Actor {
 
     TRY_RESULT_PREFIX(tokens, tokenize(line), "Failed to parse line: ");
     if (tokens.empty()) {
+      command_finished(td::Status::OK());
       return td::Status::OK();
     }
     if (tokens[0] == "quit" || tokens[0] == "exit") {
@@ -422,6 +482,34 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected EOLN");
       }
       return execute_remove(hash, remove_files);
+    } else if (tokens[0] == "load-from") {
+      td::Bits256 hash;
+      std::string meta, path;
+      bool found_hash = false;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--meta") {
+            ++i;
+            meta = tokens[i];
+            continue;
+          }
+          if (tokens[i] == "--files") {
+            ++i;
+            path = tokens[i];
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        if (found_hash) {
+          return td::Status::Error("Unexpected token");
+        }
+        TRY_RESULT_ASSIGN(hash, parse_hash(tokens[i]));
+        found_hash = true;
+      }
+      if (!found_hash) {
+        return td::Status::Error("Unexpected EOLN");
+      }
+      return execute_load_from(hash, std::move(meta), std::move(path));
     } else if (tokens[0] == "import-pk") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected filename");
@@ -432,11 +520,21 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected tokens");
       }
       return execute_get_provider_params();
+    } else if (tokens[0] == "deploy-provider") {
+      if (tokens.size() != 1) {
+        return td::Status::Error("Unexpected tokens");
+      }
+      return execute_deploy_provider();
     } else if (tokens[0] == "init-provider") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected address");
       }
       return execute_init_provider(tokens[1]);
+    } else if (tokens[0] == "remove-storage-provider") {
+      if (tokens.size() != 1) {
+        return td::Status::Error("Unexpected tokens");
+      }
+      return execute_remove_storage_provider();
     } else if (tokens[0] == "set-provider-params") {
       if (tokens.size() == 1) {
         return td::Status::Error("No parameters specified");
@@ -482,6 +580,68 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error(PSTRING() << "Unexpected token " << tokens[i]);
       }
       return execute_set_provider_params(std::move(new_params));
+    } else if (tokens[0] == "get-provider-info") {
+      bool with_balances = false;
+      bool with_contracts = false;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--balances") {
+            with_balances = true;
+            continue;
+          }
+          if (tokens[i] == "--contracts") {
+            with_contracts = true;
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+      }
+      return execute_get_provider_info(with_balances, with_contracts);
+    } else if (tokens[0] == "withdraw") {
+      if (tokens.size() != 2) {
+        return td::Status::Error("Expected contract address");
+      }
+      return execute_withdraw(tokens[1]);
+    } else if (tokens[0] == "withdraw-all") {
+      if (tokens.size() != 1) {
+        return td::Status::Error("Unexpected tokens");
+      }
+      return execute_withdraw_all();
+    } else if (tokens[0] == "send-coins") {
+      std::string address;
+      td::uint64 amount = 0;
+      int cnt = 0;
+      std::string message;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--message") {
+            ++i;
+            if (i == tokens.size()) {
+              return td::Status::Error("Expected message");
+            }
+            message = tokens[i];
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        if (cnt == 0) {
+          address = tokens[i];
+        } else if (cnt == 1) {
+          TRY_RESULT_ASSIGN(amount, td::to_integer_safe<td::uint64>(tokens[i]));
+        } else {
+          return td::Status::Error("Expected address and amount");
+        }
+        ++cnt;
+      }
+      if (cnt != 2) {
+        return td::Status::Error("Expected address and amount");
+      }
+      return execute_send_coins(address, amount, message);
+    } else if (tokens[0] == "close-contract") {
+      if (tokens.size() != 2) {
+        return td::Status::Error("Expected address");
+      }
+      return execute_close_contract(tokens[1]);
     } else {
       return td::Status::Error(PSTRING() << "Error: unknown command " << tokens[0]);
     }
@@ -512,14 +672,23 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
     td::TerminalIO::out() << "priority-name <hash> <name> <p>\tSet priority of file <name> in torrent <hash> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "remove <hash> [--remove-files]]\tRemove torrent <hash>\n";
+    td::TerminalIO::out() << "remove <hash> [--remove-files]\tRemove torrent <hash>\n";
     td::TerminalIO::out() << "\t--remove-files - also remove all files\n";
+    td::TerminalIO::out()
+        << "load-from <hash> [--meta meta] [--files path]\tProvide meta and data for an existing incomplete torrent.\n";
+    td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
+    td::TerminalIO::out() << "\t--files path\tdata for torrent files will be taken from here\n";
     td::TerminalIO::out() << "exit\tExit\n";
     td::TerminalIO::out() << "quit\tExit\n";
     td::TerminalIO::out() << "setverbosity <level>\tSet vetbosity to <level> in [0..10]\n";
     td::TerminalIO::out() << "\nStorage provider control:\n";
     td::TerminalIO::out() << "import-pk <file>\tImport private key from <file>\n";
-    td::TerminalIO::out() << "init-provider <smc-addr>\tSet address of the storage provider smart contract\n";
+    td::TerminalIO::out() << "deploy-provider\tInit storage provider by deploying a new provider smart contract\n";
+    td::TerminalIO::out()
+        << "init-provider <smc-addr>\tInit storage provider using the existing provider smart contract\n";
+    td::TerminalIO::out() << "remove-storage-provider\tRemove storage provider\n";
+    td::TerminalIO::out()
+        << "\tSmart contracts in blockchain and torrents will remain intact, but they will not be managed anymore\n";
     td::TerminalIO::out() << "get-provider-params\tPrint parameters of the smart contract\n";
     td::TerminalIO::out() << "set-provider-params [--accept x] [--rate x] [--max-span x] [--min-file-size x] "
                              "[--max-file-size x]\tSet parameters of the smart contract\n";
@@ -528,31 +697,45 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\t--max-span\n";
     td::TerminalIO::out() << "\t--min-file-size\tMinimal total size of a torrent (bytes)\n";
     td::TerminalIO::out() << "\t--max-file-size\tMaximal total size of a torrent (bytes)\n";
+    td::TerminalIO::out() << "get-provider-info [--balances] [--contracts]\tPrint information about storage provider\n";
+    td::TerminalIO::out() << "\t--contracts\tPrint list of storage contracts\n";
+    td::TerminalIO::out() << "\t--balances\tPrint balances of the main contract and storage contracts\n";
+    td::TerminalIO::out() << "withdraw <address>\tSend bounty from storage contract <address> to the main contract\n";
+    td::TerminalIO::out() << "withdraw-all\tSend bounty from all storage contracts to the main contract\n";
+    td::TerminalIO::out()
+        << "send-coins <address> <amount> [--message msg]\tSend <amount> nanoTON to <address> from the main contract\n";
+    td::TerminalIO::out()
+        << "close-contract <address>\tClose storage contract <address> and delete torrent (if possible)\n";
+    command_finished(td::Status::OK());
     return td::Status::OK();
   }
 
   td::Status execute_set_verbosity(int level) {
     auto query = create_tl_object<ton_api::storage_daemon_setVerbosity>(level);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      td::TerminalIO::out() << "Success";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Success";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_create(std::string path, std::string description, bool create_microchunk_tree) {
     TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
     auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, create_microchunk_tree);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto obj = R.move_as_ok();
-      td::TerminalIO::out() << "Torrent created\n";
-      print_torrent_full(*obj);
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 td::TerminalIO::out() << "Torrent created\n";
+                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
@@ -563,14 +746,16 @@ class StorageDaemonCli : public td::actor::Actor {
       TRY_RESULT_PREFIX_ASSIGN(root_dir, td::realpath(root_dir), "Invalid path: ");
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByHash>(hash, root_dir, start_download);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto obj = R.move_as_ok();
-      td::TerminalIO::out() << "Torrent added\n";
-      print_torrent_full(*obj);
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 td::TerminalIO::out() << "Torrent added\n";
+                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
@@ -582,139 +767,201 @@ class StorageDaemonCli : public td::actor::Actor {
       TRY_RESULT_PREFIX_ASSIGN(root_dir, td::realpath(root_dir), "Invalid path: ");
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByMeta>(std::move(meta), root_dir, start_download);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto obj = R.move_as_ok();
-      td::TerminalIO::out() << "Torrent added\n";
-      print_torrent_full(*obj);
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 td::TerminalIO::out() << "Torrent added\n";
+                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_list() {
     auto query = create_tl_object<ton_api::storage_daemon_getTorrents>();
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentList>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto obj = R.move_as_ok();
-      print_torrent_list(*obj);
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentList>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 print_torrent_list(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_get(td::Bits256 hash) {
     auto query = create_tl_object<ton_api::storage_daemon_getTorrentFull>(hash);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto obj = R.move_as_ok();
-      print_torrent_full(*obj);
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_get_meta(td::Bits256 hash, std::string meta_file) {
     auto query = create_tl_object<ton_api::storage_daemon_getTorrentMeta>(hash);
-    send_query(std::move(query), [meta_file](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentMeta>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto data = std::move(R.ok_ref()->meta_);
-      auto S = td::write_file(meta_file, data);
-      if (S.is_error()) {
-        td::TerminalIO::out() << "Failed to write torrent meta (" << data.size() << " B): " << S << "\n";
-        return;
-      }
-      td::TerminalIO::out() << "Saved torrent meta (" << data.size() << " B)\n";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this), meta_file](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentMeta>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto data = std::move(R.ok_ref()->meta_);
+                 auto S = td::write_file(meta_file, data);
+                 if (S.is_error()) {
+                   td::actor::send_closure(
+                       SelfId, &StorageDaemonCli::command_finished,
+                       S.move_as_error_prefix(PSTRING() << "Failed to write torrent meta (" << data.size() << " B): "));
+                   return;
+                 }
+                 td::TerminalIO::out() << "Saved torrent meta (" << data.size() << " B)\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_get_info(td::Bits256 hash, std::string file) {
     auto query = create_tl_object<ton_api::storage_daemon_getTorrentInfoBoc>(hash);
-    send_query(std::move(query), [file](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentInfoBoc>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto data = std::move(R.ok_ref()->info_);
-      auto S = td::write_file(file, data);
-      if (S.is_error()) {
-        td::TerminalIO::out() << "Failed to write torrent info (" << data.size() << " B): " << S << "\n";
-        return;
-      }
-      td::TerminalIO::out() << "Saved torrent info (" << data.size() << " B)\n";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this), file](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentInfoBoc>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto data = std::move(R.ok_ref()->info_);
+                 auto S = td::write_file(file, data);
+                 if (S.is_error()) {
+                   td::actor::send_closure(
+                       SelfId, &StorageDaemonCli::command_finished,
+                       S.move_as_error_prefix(PSTRING() << "Failed to write torrent meta (" << data.size() << " B): "));
+                   return;
+                 }
+                 td::TerminalIO::out() << "Saved torrent info (" << data.size() << " B)\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_set_active_download(td::Bits256 hash, bool active) {
     auto query = create_tl_object<ton_api::storage_daemon_setActiveDownload>(hash, active);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      td::TerminalIO::out() << "Success\n";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Success\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_set_priority_all(td::Bits256 hash, td::uint8 priority) {
     auto query = create_tl_object<ton_api::storage_daemon_setFilePriorityAll>(hash, priority);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_SetPriorityStatus>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      if (R.ok()->get_id() == ton_api::storage_daemon_prioritySet::ID) {
-        td::TerminalIO::out() << "Priority was set\n";
-      } else {
-        td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
-      }
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_SetPriorityStatus>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 if (R.ok()->get_id() == ton_api::storage_daemon_prioritySet::ID) {
+                   td::TerminalIO::out() << "Priority was set\n";
+                 } else {
+                   td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
+                 }
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_set_priority_idx(td::Bits256 hash, td::uint64 idx, td::uint8 priority) {
     auto query = create_tl_object<ton_api::storage_daemon_setFilePriorityByIdx>(hash, idx, priority);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_SetPriorityStatus>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      if (R.ok()->get_id() == ton_api::storage_daemon_prioritySet::ID) {
-        td::TerminalIO::out() << "Priority was set\n";
-      } else {
-        td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
-      }
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_SetPriorityStatus>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 if (R.ok()->get_id() == ton_api::storage_daemon_prioritySet::ID) {
+                   td::TerminalIO::out() << "Priority was set\n";
+                 } else {
+                   td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
+                 }
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_set_priority_name(td::Bits256 hash, std::string name, td::uint8 priority) {
     auto query = create_tl_object<ton_api::storage_daemon_setFilePriorityByName>(hash, std::move(name), priority);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_SetPriorityStatus>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      if (R.ok()->get_id() == ton_api::storage_daemon_prioritySet::ID) {
-        td::TerminalIO::out() << "Priority was set\n";
-      } else {
-        td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
-      }
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_SetPriorityStatus>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 if (R.ok()->get_id() == ton_api::storage_daemon_prioritySet::ID) {
+                   td::TerminalIO::out() << "Priority was set\n";
+                 } else {
+                   td::TerminalIO::out() << "Torrent header is not available, priority will be set later\n";
+                 }
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_remove(td::Bits256 hash, bool remove_files) {
     auto query = create_tl_object<ton_api::storage_daemon_removeTorrent>(hash, remove_files);
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      td::TerminalIO::out() << "Success\n";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Success\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_load_from(td::Bits256 hash, std::string meta, std::string path) {
+    if (meta.empty() && path.empty()) {
+      return td::Status::Error("Expected meta or files");
+    }
+    td::BufferSlice meta_data;
+    if (!meta.empty()) {
+      TRY_RESULT_PREFIX_ASSIGN(meta_data, td::read_file(meta), "Failed to read meta: ");
+    }
+    if (!path.empty()) {
+      TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
+    }
+    auto query = create_tl_object<ton_api::storage_daemon_loadFrom>(hash, std::move(meta_data), std::move(path));
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrent>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto torrent = R.move_as_ok();
+                 td::TerminalIO::out() << "Loaded data for torrent " << torrent->hash_.to_hex() << "\n";
+                 if (torrent->flags_ & 4) {  // fatal error
+                   td::TerminalIO::out() << "FATAL ERROR: " << torrent->fatal_error_ << "\n";
+                 }
+                 if (torrent->flags_ & 1) {  // info ready
+                   td::TerminalIO::out() << "Total size: " << td::format::as_size(torrent->total_size_) << "\n";
+                   if (torrent->flags_ & 2) {  // header ready
+                     td::TerminalIO::out() << "Ready: " << td::format::as_size(torrent->downloaded_size_) << "/"
+                                           << td::format::as_size(torrent->included_size_)
+                                           << (torrent->completed_ ? " (completed)" : "") << "\n";
+                   } else {
+                     td::TerminalIO::out() << "Torrent header is not ready\n";
+                   }
+                 } else {
+                   td::TerminalIO::out() << "Torrent info is not ready\n";
+                 }
+               });
     return td::Status::OK();
   }
 
@@ -722,42 +969,81 @@ class StorageDaemonCli : public td::actor::Actor {
     TRY_RESULT(data, td::read_file_secure(file));
     TRY_RESULT(pk, ton::PrivateKey::import(data.as_slice()));
     auto query = create_tl_object<ton_api::storage_daemon_importPrivateKey>(pk.tl());
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_keyHash>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      td::TerminalIO::out() << "Imported private key. Public key hash: " << R.ok()->key_hash_.to_hex() << "\n";
-    });
+    send_query(
+        std::move(query), [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_keyHash>> R) {
+          if (R.is_error()) {
+            return;
+          }
+          td::TerminalIO::out() << "Imported private key. Public key hash: " << R.ok()->key_hash_.to_hex() << "\n";
+          td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+        });
+    return td::Status::OK();
+  }
+
+  td::Status execute_deploy_provider() {
+    auto query = create_tl_object<ton_api::storage_daemon_deployProvider>();
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_providerAddress>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 block::StdAddress std_address;
+                 CHECK(std_address.parse_addr(obj->address_));
+                 std_address.bounceable = false;
+                 td::TerminalIO::out() << "Address: " << obj->address_ << "\n";
+                 td::TerminalIO::out() << "Non-bounceable address: " << std_address.rserialize() << "\n";
+                 td::TerminalIO::out()
+                     << "Send a non-bounceable message with 1 TON to this address to initialize smart contract.\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_init_provider(std::string address) {
     auto query = create_tl_object<ton_api::storage_daemon_initProvider>(std::move(address));
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      td::TerminalIO::out() << "Address of the storage provider was set\n";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Address of the storage provider was set\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_remove_storage_provider() {
+    auto query = create_tl_object<ton_api::storage_daemon_removeStorageProvider>();
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Storage provider removed\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
   td::Status execute_get_provider_params() {
     auto query = create_tl_object<ton_api::storage_daemon_getProviderParams>();
-    send_query(std::move(query), [](td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
-      if (R.is_error()) {
-        return;
-      }
-      auto params = R.move_as_ok();
-      td::RefInt256 rate{true};
-      rate.write().import_bytes(params->rate_per_mb_day_.data(), 32, false);
-      td::TerminalIO::out() << "Storage provider parameters:\n";
-      td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
-      td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << rate << "\n";
-      td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
-      td::TerminalIO::out() << "Min file size: " << (td::uint64)params->minimal_file_size_ << "\n";
-      td::TerminalIO::out() << "Max file size: " << (td::uint64)params->maximal_file_size_ << "\n";
-    });
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto params = R.move_as_ok();
+                 td::RefInt256 rate{true};
+                 rate.write().import_bytes(params->rate_per_mb_day_.data(), 32, false);
+                 td::TerminalIO::out() << "Storage provider parameters:\n";
+                 td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
+                 td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << rate << "\n";
+                 td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
+                 td::TerminalIO::out() << "Min file size: " << (td::uint64)params->minimal_file_size_ << "\n";
+                 td::TerminalIO::out() << "Max file size: " << (td::uint64)params->maximal_file_size_ << "\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
@@ -781,7 +1067,7 @@ class StorageDaemonCli : public td::actor::Actor {
     }
     if (new_params.rate_per_mb_day) {
       if (!new_params.rate_per_mb_day.value()->export_bytes(params->rate_per_mb_day_.data(), 32, false)) {
-        td::TerminalIO::out() << "Invalid value of rate_per_mb_day\n";
+        command_finished(td::Status::Error("Invalid value of rate_per_mb_day"));
         return;
       }
     }
@@ -796,42 +1082,183 @@ class StorageDaemonCli : public td::actor::Actor {
     }
     td::TerminalIO::out() << "Sending external message to update provider parameters...\n";
     auto query_set = create_tl_object<ton_api::storage_daemon_setProviderParams>(std::move(params));
-    send_query(std::move(query_set), [](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) mutable {
+    send_query(std::move(query_set),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) mutable {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Storage provider parameters were updated\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+  }
+
+  td::Status execute_get_provider_info(bool with_balances, bool with_contracts) {
+    auto query = create_tl_object<ton_api::storage_daemon_getProviderInfo>(with_balances, with_contracts);
+    send_query(std::move(query), [=, SelfId = actor_id(this)](
+                                     td::Result<tl_object_ptr<ton_api::storage_daemon_providerInfo>> R) {
       if (R.is_error()) {
         return;
       }
-      td::TerminalIO::out() << "Storage provider parameters were updated\n";
+      auto coins_to_str = [](td::uint64 x) -> std::string {
+        if (x == (td::uint64)-1) {
+          return "???";
+        }
+        char s[24];
+        snprintf(s, sizeof(s), "%llu.%09llu", (unsigned long long)x / 1000000000, (unsigned long long)x % 1000000000);
+        return s;
+      };
+      auto info = R.move_as_ok();
+      td::TerminalIO::out() << "Storage provider " << info->address_ << "\n";
+      if (with_balances) {
+        td::TerminalIO::out() << "Main contract balance: " << coins_to_str(info->balance_) << " TON\n";
+      }
+      if (with_contracts) {
+        td::TerminalIO::out() << "Storage contracts: " << info->contracts_.size() << "\n";
+        std::vector<std::vector<std::string>> table;
+        table.push_back({"Address", "Torrent hash", "Created at", "Size", "State"});
+        if (with_balances) {
+          table.back().push_back("Client$");
+          table.back().push_back("Contract$");
+        }
+        for (const auto& c : info->contracts_) {
+          table.emplace_back();
+          table.back().push_back(c->address_);
+          table.back().push_back(c->torrent_.to_hex());
+          table.back().push_back(time_to_str(c->created_time_));
+          table.back().push_back(size_to_str(c->file_size_));
+          // enum State { st_downloading = 0, st_downloaded = 1, st_active = 2, st_closing = 3 };
+          switch (c->state_) {
+            case 0:
+              table.back().push_back("Downloading (" + size_to_str(c->downloaded_size_) + ")");
+              break;
+            case 1:
+              table.back().push_back("Downloaded");
+              break;
+            case 2:
+              table.back().push_back("Active");
+              break;
+            case 3:
+              table.back().push_back("Closing");
+              break;
+            default:
+              table.back().push_back("???");
+          }
+          if (with_balances) {
+            table.back().push_back(coins_to_str(c->client_balance_));
+            table.back().push_back(coins_to_str(c->contract_balance_));
+          }
+        }
+        print_table(table);
+      }
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
     });
+    return td::Status::OK();
+  }
+
+  td::Status execute_withdraw(std::string address) {
+    auto query = create_tl_object<ton_api::storage_daemon_withdraw>(std::move(address));
+    td::TerminalIO::out() << "Sending external message...\n";
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Bounty was withdrawn\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_withdraw_all() {
+    auto query = create_tl_object<ton_api::storage_daemon_withdrawAll>();
+    td::TerminalIO::out() << "Sending external messages...\n";
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Bounty was withdrawn\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_send_coins(std::string address, td::uint64 amount, std::string message) {
+    auto query = create_tl_object<ton_api::storage_daemon_sendCoins>(std::move(address), amount, std::move(message));
+    td::TerminalIO::out() << "Sending external messages...\n";
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Internal message was sent\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_close_contract(std::string address) {
+    auto query = create_tl_object<ton_api::storage_daemon_closeStorageContract>(std::move(address));
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Closing storage contract\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
   }
 
   template <typename T>
   void send_query(tl_object_ptr<T> query, td::Promise<typename T::ReturnType> promise) {
-    td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "q", serialize_tl_object(query, true),
-                            td::Timestamp::in(60.0),
-                            [promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-                              if (R.is_error()) {
-                                td::TerminalIO::out() << "Query error: " << R.error().message() << "\n";
-                                promise.set_error(R.move_as_error());
-                                return;
-                              }
-                              td::BufferSlice data = R.move_as_ok();
-                              auto R2 = fetch_tl_object<typename T::ReturnType::element_type>(data, true);
-                              if (R2.is_error()) {
-                                auto R3 = fetch_tl_object<ton_api::storage_daemon_queryError>(data, true);
-                                if (R3.is_ok()) {
-                                  td::TerminalIO::out() << "Query error: " << R3.move_as_ok()->message_ << "\n";
-                                } else {
-                                  td::TerminalIO::out() << "Query error: failed to parse answer\n";
-                                }
-                                promise.set_error(td::Status::Error());
-                                return;
-                              }
-                              promise.set_value(R2.move_as_ok());
-                            });
+    td::actor::send_closure(
+        client_, &adnl::AdnlExtClient::send_query, "q", serialize_tl_object(query, true), td::Timestamp::in(60.0),
+        [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+          if (R.is_error()) {
+            promise.set_error(td::Status::Error(""));
+            if (R.error().message().empty() && R.error().code() == ErrorCode::cancelled) {
+              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
+                                      td::Status::Error("Query error: failed to connect"));
+            } else {
+              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
+                                      R.move_as_error_prefix("Query error: "));
+            }
+            return;
+          }
+          td::BufferSlice data = R.move_as_ok();
+          auto R2 = fetch_tl_object<typename T::ReturnType::element_type>(data, true);
+          if (R2.is_error()) {
+            auto R3 = fetch_tl_object<ton_api::storage_daemon_queryError>(data, true);
+            if (R3.is_ok()) {
+              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
+                                      td::Status::Error("Query error: " + R3.ok()->message_));
+            } else {
+              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
+                                      td::Status::Error("Query error: failed to parse answer"));
+            }
+            promise.set_error(td::Status::Error(""));
+            return;
+          }
+          promise.set_value(R2.move_as_ok());
+        });
+  }
+
+  void command_finished(td::Status S) {
+    if (S.is_error()) {
+      td::TerminalIO::out() << S.message() << "\n";
+    }
+    if (ex_mode_) {
+      std::exit(S.is_ok() ? 0 : 2);
+    }
   }
 
  private:
   td::IPAddress server_ip_;
+  PrivateKey client_private_key_;
+  PublicKey server_public_key_;
+  td::optional<std::string> command_;
+  bool ex_mode_;
   td::actor::ActorOwn<adnl::AdnlExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
 };
@@ -840,6 +1267,9 @@ int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler();
   td::IPAddress ip_addr;
+  PrivateKey client_private_key;
+  PublicKey server_public_key;
+  td::optional<std::string> command;
   td::OptionParser p;
   p.set_description("command-line interface for storage-daemon");
   p.add_option('h', "help", "prints_help", [&]() {
@@ -860,15 +1290,31 @@ int main(int argc, char* argv[]) {
     TRY_STATUS(ip_addr.init_host_port(arg.str()));
     return td::Status::OK();
   });
+  p.add_option('c', "cmd", "execute command", [&](td::Slice arg) { command = arg.str(); });
+  p.add_checked_option('k', "key", "private key", [&](td::Slice arg) {
+    TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
+    TRY_RESULT_ASSIGN(client_private_key, PrivateKey::import(data));
+    return td::Status::OK();
+  });
+  p.add_checked_option('p', "pub", "server public key", [&](td::Slice arg) {
+    TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
+    TRY_RESULT_ASSIGN(server_public_key, PublicKey::import(data));
+    return td::Status::OK();
+  });
 
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     std::cerr << S.move_as_error().message().str() << std::endl;
     std::_Exit(2);
   }
+  LOG_IF(FATAL, client_private_key.empty()) << "Client private key is not set";
+  LOG_IF(FATAL, server_public_key.empty()) << "Server public key is not set";
 
   td::actor::Scheduler scheduler({0});
-  scheduler.run_in_context([&] { td::actor::create_actor<StorageDaemonCli>("console", ip_addr).release(); });
+  scheduler.run_in_context([&] {
+    td::actor::create_actor<StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key, command)
+        .release();
+  });
   scheduler.run();
   return 0;
 }
