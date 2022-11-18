@@ -15,12 +15,12 @@ library TonUtil // TON Blockchain Fift Library
 { over null? ' swap if drop } : replace-if-null
 
 // Private key load/generate
-// ( fname -- pubkey privkey )
+// ( fname -- privkey pubkey )
 { dup ."Loading private key from file " type cr 
   file>B dup Blen 32 <> abort"Private key must be exactly 32 bytes long"
   dup priv>pub swap 
 } : load-keypair
-// ( fname -- pubkey privkey )
+// ( fname -- privkey pubkey )
 { dup file-exists?
   { load-keypair }
   { dup newkeypair swap rot over swap B>file
