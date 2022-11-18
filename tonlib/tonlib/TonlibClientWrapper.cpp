@@ -50,16 +50,9 @@ void TonlibClientWrapper::start_up() {
 
   tonlib_client_ = td::actor::create_actor<tonlib::TonlibClient>("tonlibclient", td::make_unique<Cb>(actor_id(this)));
   auto init = tonlib_api::make_object<tonlib_api::init>(std::move(options_));
-  auto P =
-      td::PromiseCreator::lambda([](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable { R.ensure(); });
+  auto P = td::PromiseCreator::lambda(
+      [](td::Result<tonlib_api::object_ptr<tonlib_api::options_info>> R) mutable { R.ensure(); });
   send_request(std::move(init), std::move(P));
-}
-
-void TonlibClientWrapper::send_request(tonlib_api::object_ptr<tonlib_api::Function> obj,
-                                       td::Promise<tonlib_api::object_ptr<tonlib_api::Object>> promise) {
-  auto id = next_request_id_++;
-  CHECK(requests_.emplace(id, std::move(promise)).second);
-  td::actor::send_closure(tonlib_client_, &tonlib::TonlibClient::request, id, std::move(obj));
 }
 
 void TonlibClientWrapper::receive_request_result(td::uint64 id,
@@ -74,4 +67,4 @@ void TonlibClientWrapper::receive_request_result(td::uint64 id,
   promise.set_result(std::move(R));
 }
 
-}
+}  // namespace tonlib
