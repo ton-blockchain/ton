@@ -12,10 +12,16 @@ class TransactionEmulator {
   block::Config config_;
   vm::Dictionary libraries_;
   int vm_log_verbosity_;
+  ton::UnixTime unixtime_;
+  ton::LogicalTime lt_;
+  bool is_rand_seed_set_;
+  td::BitArray<256> rand_seed_;
+  bool ignore_chksig_;
 
 public:
-  TransactionEmulator(block::Config&& config, vm::Dictionary&& libraries, int vm_log_verbosity = 0) : 
-    config_(std::move(config)), libraries_(std::move(libraries)), vm_log_verbosity_(vm_log_verbosity) {
+  TransactionEmulator(block::Config&& config, int vm_log_verbosity = 0) : 
+    config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),
+    unixtime_(0), lt_(0), is_rand_seed_set_(false), ignore_chksig_(false) {
   }
 
   struct EmulationResult {
@@ -52,11 +58,17 @@ public:
   }
 
   td::Result<std::unique_ptr<EmulationResult>> emulate_transaction(
-      block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, ton::LogicalTime lt,
-      int trans_type, td::BitArray<256>* rand_seed, bool ignore_chksig);
+      block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, ton::LogicalTime lt, int trans_type);
 
-  td::Result<EmulationSuccess> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed);
-  td::Result<EmulationChain> emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed);
+  td::Result<EmulationSuccess> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans);
+  td::Result<EmulationChain> emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions);
+
+  void set_unixtime(ton::UnixTime unixtime);
+  void set_lt(ton::LogicalTime lt);
+  void set_rand_seed(td::BitArray<256>* rand_seed);
+  void set_ignore_chksig(bool ignore_chksig);
+  void set_config(block::Config &&config);
+  void set_libs(vm::Dictionary &&libs);
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
@@ -78,5 +90,7 @@ private:
                                                          block::StoragePhaseConfig* storage_phase_cfg,
                                                          block::ComputePhaseConfig* compute_phase_cfg,
                                                          block::ActionPhaseConfig* action_phase_cfg);
+
+  td::BitArray<256> *get_rand_seed_ptr();
 };
 } // namespace emulator

@@ -9,8 +9,7 @@ using namespace std::string_literals;
 
 namespace emulator {
 td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmulator::emulate_transaction(
-    block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, 
-    ton::LogicalTime lt, int trans_type, td::BitArray<256>* rand_seed, bool ignore_chksig) {
+    block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, ton::LogicalTime lt, int trans_type) {
 
     td::Ref<vm::Cell> old_mparams;
     std::vector<block::StoragePrices> storage_prices;
@@ -21,7 +20,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     
     auto fetch_res = fetch_config_params(config_, &old_mparams,
                                         &storage_prices, &storage_phase_cfg,
-                                        rand_seed, &compute_phase_cfg,
+                                        get_rand_seed_ptr(), &compute_phase_cfg,
                                         &action_phase_cfg, &masterchain_create_fee,
                                         &basechain_create_fee, account.workchain);
     if(fetch_res.is_error()) {
@@ -31,13 +30,20 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     vm::init_op_cp0();
 
     if (!utime) {
+      utime = unixtime_;
+    }
+    if (!utime) {
       utime = (unsigned)std::time(nullptr);
+    }
+
+    if (!lt) {
+      lt = lt_;
     }
     if (!lt) {
       lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
     }
 
-    compute_phase_cfg.ignore_chksig = ignore_chksig;
+    compute_phase_cfg.ignore_chksig = ignore_chksig_;
     compute_phase_cfg.with_vm_log = true;
     compute_phase_cfg.vm_log_verbosity = vm_log_verbosity_;
 
@@ -67,7 +73,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     return std::make_unique<TransactionEmulator::EmulationSuccess>(std::move(trans_root), std::move(account), std::move(trans->compute_phase->vm_log));
 }
 
-td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans) {
 
     block::gen::Transaction::Record record_trans;
     if (!tlb::unpack_cell(original_trans, record_trans)) {
@@ -116,7 +122,7 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
       }
     }
 
-    TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type, rand_seed, false));
+    TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type));
 
     auto emulation_result = dynamic_cast<EmulationSuccess&>(*emulation);
     if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
@@ -130,7 +136,7 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
     return emulation_result;
 }
 
-td::Result<TransactionEmulator::EmulationChain> TransactionEmulator::emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions, td::BitArray<256>* rand_seed) {
+td::Result<TransactionEmulator::EmulationChain> TransactionEmulator::emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions) {
 
   std::vector<td::Ref<vm::Cell>> emulated_transactions;
   for (const auto& original_trans : original_transactions) {
@@ -138,7 +144,7 @@ td::Result<TransactionEmulator::EmulationChain> TransactionEmulator::emulate_tra
       continue;
     }
 
-    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), original_trans, rand_seed));
+    TRY_RESULT(emulation_result, emulate_transaction(std::move(account), original_trans));
     emulated_transactions.push_back(std::move(emulation_result.transaction));
     account = std::move(emulation_result.account);
   }
@@ -298,4 +304,38 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator
 
   return trans;
 }
+
+void TransactionEmulator::set_unixtime(ton::UnixTime unixtime) {
+  unixtime_ = unixtime;
+}
+
+void TransactionEmulator::set_lt(ton::LogicalTime lt) {
+  lt_ = lt;
+}
+
+void TransactionEmulator::set_rand_seed(td::BitArray<256>* rand_seed) {
+  if (rand_seed == nullptr) {
+    is_rand_seed_set_ = false;
+  } else {
+    is_rand_seed_set_ = true;
+    rand_seed_ = *rand_seed;
+  }
+}
+
+void TransactionEmulator::set_ignore_chksig(bool ignore_chksig) {
+  ignore_chksig_ = ignore_chksig;
+}
+
+void TransactionEmulator::set_config(block::Config &&config) {
+  config_ = std::forward<block::Config>(config);
+}
+
+void TransactionEmulator::set_libs(vm::Dictionary &&libs) {
+  libraries_ = std::forward<vm::Dictionary>(libs);
+}
+
+td::BitArray<256> *TransactionEmulator::get_rand_seed_ptr() {
+  return is_rand_seed_set_ ? &rand_seed_ : nullptr;
+}
+
 } // namespace emulator

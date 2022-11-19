@@ -15,7 +15,19 @@ extern "C" {
  * 2 - for each command prints its cell hash and offset. 3 - for each command log prints all stack values.
  * @return Pointer to TransactionEmulator or nullptr in case of error
  */
-EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc, int vm_log_verbosity);
+EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, int vm_log_verbosity);
+
+EMULATOR_EXPORT bool transaction_emulator_set_unixtime(void *transaction_emulator, uint32_t unixtime);
+
+EMULATOR_EXPORT bool transaction_emulator_set_lt(void *transaction_emulator, uint64_t lt);
+
+EMULATOR_EXPORT bool transaction_emulator_set_rand_seed(void *transaction_emulator, const char* rand_seed);
+
+EMULATOR_EXPORT bool transaction_emulator_set_ignore_chksig(void *transaction_emulator, bool ignore_chksig);
+
+EMULATOR_EXPORT bool transaction_emulator_set_config(void *transaction_emulator, const char* config_boc);
+
+EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, const char* libs_boc);
 
 /**
  * @brief Emulate transaction

@@ -10,16 +10,10 @@ class StringLog : public td::LogInterface {
   }
 
   void append(td::CSlice new_slice, int log_level) override {
-    lock.lock();
     str.append(new_slice.str());
-    lock.unlock();
   }
 
   void rotate() override {
-  }
-
-  void clear() {
-    str.clear();
   }
 
   std::string get_string() const {
@@ -28,7 +22,6 @@ class StringLog : public td::LogInterface {
 
  private:
   std::string str;
-  std::mutex lock;
 };
 
 #endif  //TON_STRINGLOG_H
