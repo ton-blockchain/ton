@@ -133,6 +133,11 @@ td::BufferSlice create_error_response(const std::string &proto_version, int code
       proto_version, code, reason, std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>(), true);
 }
 
+const std::string PROXY_SITE_VERISON_HEADER_NAME = "Ton-Proxy-Site-Version";
+const std::string PROXY_ENTRY_VERISON_HEADER_NAME = "Ton-Proxy-Entry-Version";
+const std::string PROXY_VERSION_HEADER = PSTRING() << "Commit: " << GitMetadata::CommitSHA1()
+                                                   << ", Date: " << GitMetadata::CommitDate();
+
 using RegisteredPayloadSenderGuard =
     std::unique_ptr<std::pair<td::actor::ActorId<RldpHttpProxy>, td::Bits256>,
                     std::function<void(std::pair<td::actor::ActorId<RldpHttpProxy>, td::Bits256> *)>>;
@@ -482,6 +487,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
       }
       response_->add_header(std::move(h));
     }
+    response_->add_header({PROXY_ENTRY_VERISON_HEADER_NAME, PROXY_VERSION_HEADER});
     auto S = response_->complete_parse_header();
     if (S.is_error()) {
       abort_query(S.move_as_error());
@@ -767,6 +773,7 @@ class RldpToTcpRequestSender : public td::actor::Actor {
     td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
                                                    rldp_, proxy_)
         .release();
+    R.first->add_header({PROXY_SITE_VERISON_HEADER_NAME, PROXY_VERSION_HEADER});
     auto f = ton::serialize_tl_object(R.first->store_tl(), true);
     promise_.set_value(std::move(f));
     stop();
@@ -1215,9 +1222,11 @@ class RldpHttpProxy : public td::actor::Actor {
     td::actor::create_actor<RldpTcpTunnel>(td::actor::ActorOptions().with_name("tunnel").with_poll(), id, src, local_id,
                                            adnl_.get(), rldp_.get(), actor_id(this), fd.move_as_ok())
         .release();
+    std::vector<ton::tl_object_ptr<ton::ton_api::http_header>> headers;
+    headers.push_back(
+        ton::create_tl_object<ton::ton_api::http_header>(PROXY_SITE_VERISON_HEADER_NAME, PROXY_VERSION_HEADER));
     promise.set_result(ton::create_serialize_tl_object<ton::ton_api::http_response>(
-        http_version, 200, "Connection Established", std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>(),
-        false));
+        http_version, 200, "Connection Established", std::move(headers), false));
   }
 
   void receive_payload_part_request(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
