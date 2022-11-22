@@ -1,6 +1,6 @@
 FROM ubuntu:20.04 as builder
 RUN apt-get update && \
-	DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang-6.0 openssl libssl-dev zlib1g-dev gperf wget git libatomic1 ninja-build && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang-6.0 openssl libssl-dev zlib1g-dev gperf wget git ninja-build && \
 	rm -rf /var/lib/apt/lists/*
 ENV CC clang-6.0
 ENV CXX clang++-6.0
@@ -16,7 +16,7 @@ RUN mkdir build && \
 
 FROM ubuntu:20.04
 RUN apt-get update && \
-	apt-get install -y openssl wget&& \
+	apt-get install -y openssl wget libatomic1 && \
 	rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /var/ton-work/db && \
 	mkdir -p /var/ton-work/db/static
