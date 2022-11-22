@@ -2,7 +2,7 @@
 Dockerfile for The Open Network Node
 
 #### Install
-```docker pull ghcr.io/newton-blockchain/ton```
+```docker pull ghcr.io/ton-blockchain/ton:latest```
 #### Create volume
 ```docker volume create ton-db```
 #### Run
