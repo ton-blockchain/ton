@@ -34,9 +34,10 @@ public:
   struct EmulationSuccess: EmulationResult {
     td::Ref<vm::Cell> transaction;
     block::Account account;
+    td::Ref<vm::Cell> actions;
 
-    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_) : 
-      EmulationResult(vm_log_), transaction(transaction_), account(account_) 
+    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_, td::Ref<vm::Cell> actions_) :
+      EmulationResult(vm_log_), transaction(transaction_), account(account_) , actions(actions_)
     {}
   };
 

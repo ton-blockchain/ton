@@ -70,7 +70,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
     }
 
-    return std::make_unique<TransactionEmulator::EmulationSuccess>(std::move(trans_root), std::move(account), std::move(trans->compute_phase->vm_log));
+    return std::make_unique<TransactionEmulator::EmulationSuccess>(std::move(trans_root), std::move(account), std::move(trans->compute_phase->vm_log), std::move(trans->compute_phase->actions));
 }
 
 td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans) {

@@ -140,13 +140,14 @@ public:
   }
 };
 
-const char *success_response(std::string&& transaction, std::string&& new_shard_account, std::string&& vm_log) {
+const char *success_response(std::string&& transaction, std::string&& new_shard_account, std::string&& vm_log, std::string&& actions) {
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonTrue());
   json_obj("transaction", std::move(transaction));
   json_obj("shard_account", std::move(new_shard_account));
   json_obj("vm_log", std::move(vm_log));
+  json_obj("actions", std::move(actions));
   json_obj.leave();
   return strdup(jb.string_builder().as_cslice().c_str());
 }
@@ -295,7 +296,13 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
   }
   auto new_shard_account_boc_b64 = td::base64_encode(new_shard_account_boc.move_as_ok().as_slice());
 
-  return success_response(std::move(trans_boc_b64), std::move(new_shard_account_boc_b64), std::move(emulation_success.vm_log));
+  auto actions_boc = vm::std_boc_serialize(std::move(emulation_success.actions), vm::BagOfCells::Mode::WithCRC32C);
+  if (actions_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize actions list cell to boc" << actions_boc.move_as_error());
+  }
+  auto actions_boc_b64 = td::base64_encode(actions_boc.move_as_ok().as_slice());
+
+  return success_response(std::move(trans_boc_b64), std::move(new_shard_account_boc_b64), std::move(emulation_success.vm_log), std::move(actions_boc_b64));
 }
 
 bool transaction_emulator_set_unixtime(void *transaction_emulator, uint32_t unixtime) {
