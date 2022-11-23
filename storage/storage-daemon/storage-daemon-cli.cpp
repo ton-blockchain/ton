@@ -349,11 +349,11 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected EOLN");
       }
       return execute_create(std::move(path), std::move(description), microchunk);
-    } else if (tokens[0] == "add-by-hash") {
-      td::Bits256 hash;
-      bool found_hash = false;
+    } else if (tokens[0] == "add-by-hash" || tokens[0] == "add-by-meta") {
+      td::optional<std::string> param;
       std::string root_dir;
-      bool start_download = false;
+      bool paused = false;
+      td::optional<std::vector<std::string>> partial;
       for (size_t i = 1; i < tokens.size(); ++i) {
         if (!tokens[i].empty() && tokens[i][0] == '-') {
           if (tokens[i] == "-d") {
@@ -364,51 +364,30 @@ class StorageDaemonCli : public td::actor::Actor {
             root_dir = tokens[i];
             continue;
           }
-          if (tokens[i] == "--download") {
-            start_download = true;
+          if (tokens[i] == "--paused") {
+            paused = true;
             continue;
+          }
+          if (tokens[i] == "--partial") {
+            partial = std::vector<std::string>(tokens.begin() + i + 1, tokens.end());
+            break;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
         }
-        if (found_hash) {
+        if (param) {
           return td::Status::Error("Unexpected token");
         }
-        TRY_RESULT_ASSIGN(hash, parse_hash(tokens[i]));
-        found_hash = true;
+        param = tokens[i];
       }
-      if (!found_hash) {
+      if (!param) {
         return td::Status::Error("Unexpected EOLN");
       }
-      return execute_add_by_hash(hash, std::move(root_dir), start_download);
-    } else if (tokens[0] == "add-by-meta") {
-      std::string meta_file;
-      std::string root_dir;
-      bool start_download = false;
-      for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
-          if (tokens[i] == "-d") {
-            ++i;
-            if (i == tokens.size()) {
-              return td::Status::Error("Unexpected EOLN");
-            }
-            root_dir = tokens[i];
-            continue;
-          }
-          if (tokens[i] == "--download") {
-            start_download = true;
-            continue;
-          }
-          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
-        }
-        if (!meta_file.empty()) {
-          return td::Status::Error("Unexpected token");
-        }
-        meta_file = tokens[i];
+      if (tokens[0] == "add-by-hash") {
+        TRY_RESULT(hash, parse_hash(param.value()));
+        return execute_add_by_hash(hash, std::move(root_dir), paused, std::move(partial));
+      } else {
+        return execute_add_by_meta(param.value(), std::move(root_dir), paused, std::move(partial));
       }
-      if (meta_file.empty()) {
-        return td::Status::Error("Unexpected EOLN");
-      }
-      return execute_add_by_meta(std::move(meta_file), std::move(root_dir), start_download);
     } else if (tokens[0] == "list") {
       if (tokens.size() != 1) {
         return td::Status::Error("Unexpected tokens");
@@ -653,13 +632,15 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\t-d - Description what will be stored in torrent info.\n";
     td::TerminalIO::out() << "\t--microchunk - Compute microchunk tree hash and store it in torrent info. Required for "
                              "storage providers.\n";
-    td::TerminalIO::out() << "add-by-hash [-d root_dir] [--download] <hash>\tAdd torrent with given <hash> (in hex)\n";
-    td::TerminalIO::out() << "\tTorrent will be downloaded to root_dir, "
-                             "default is an internal directory of storage-daemon\n";
-    td::TerminalIO::out() << "add-by-meta [-d root_dir] [--download] <meta>\tLoad meta from file and add torrent\n";
-    td::TerminalIO::out() << "\tTorrent will be downloaded to root_dir, "
-                             "default is an internal directory of storage-daemon\n";
-    td::TerminalIO::out() << "\t--download - start download immediately\n";
+    td::TerminalIO::out() << "add-by-hash <hash> [-d root_dir] [--paused] [--partial file1 file2 ...]\tAdd torrent "
+                             "with given <hash> (in hex)\n";
+    td::TerminalIO::out() << "\t-d\tTarget directory, default is an internal directory of storage-daemon\n";
+    td::TerminalIO::out() << "\t--paused\tDon't start download immediately\n";
+    td::TerminalIO::out()
+        << "\t--partial\tEverything after this flag is a list of filenames. Only these files will be downloaded.\n";
+    td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--partial file1 file2 ...]\tLoad torrent "
+                             "meta from file and add torreent\n";
+    td::TerminalIO::out() << "\tFlags are the same as in add-by-hash\n";
     td::TerminalIO::out() << "list\tPrint list of torrents\n";
     td::TerminalIO::out() << "get <hash>\tPrint information about torrent <hash> (hash in hex)\n";
     td::TerminalIO::out() << "get-meta <hash> <file>\tSave torrent meta of <hash> to <file>\n";
@@ -739,13 +720,22 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_add_by_hash(td::Bits256 hash, std::string root_dir, bool start_download) {
+  td::Status execute_add_by_hash(td::Bits256 hash, std::string root_dir, bool paused,
+                                 td::optional<std::vector<std::string>> partial) {
     if (!root_dir.empty()) {
       TRY_STATUS_PREFIX(td::mkpath(root_dir), "Failed to create directory: ");
       TRY_STATUS_PREFIX(td::mkdir(root_dir), "Failed to create directory: ");
       TRY_RESULT_PREFIX_ASSIGN(root_dir, td::realpath(root_dir), "Invalid path: ");
     }
-    auto query = create_tl_object<ton_api::storage_daemon_addByHash>(hash, root_dir, start_download);
+    std::vector<tl_object_ptr<ton_api::storage_PriorityAction>> priorities;
+    if (partial) {
+      priorities.push_back(create_tl_object<ton_api::storage_priorityAction_all>(0));
+      for (std::string& f : partial.value()) {
+        priorities.push_back(create_tl_object<ton_api::storage_priorityAction_name>(std::move(f), 1));
+      }
+    }
+    auto query =
+        create_tl_object<ton_api::storage_daemon_addByHash>(hash, std::move(root_dir), !paused, std::move(priorities));
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -759,14 +749,23 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_add_by_meta(std::string meta_file, std::string root_dir, bool start_download) {
+  td::Status execute_add_by_meta(std::string meta_file, std::string root_dir, bool paused,
+                                 td::optional<std::vector<std::string>> partial) {
     TRY_RESULT_PREFIX(meta, td::read_file(meta_file), "Failed to read meta: ");
     if (!root_dir.empty()) {
       TRY_STATUS_PREFIX(td::mkpath(root_dir), "Failed to create directory: ");
       TRY_STATUS_PREFIX(td::mkdir(root_dir), "Failed to create directory: ");
       TRY_RESULT_PREFIX_ASSIGN(root_dir, td::realpath(root_dir), "Invalid path: ");
     }
-    auto query = create_tl_object<ton_api::storage_daemon_addByMeta>(std::move(meta), root_dir, start_download);
+    std::vector<tl_object_ptr<ton_api::storage_PriorityAction>> priorities;
+    if (partial) {
+      priorities.push_back(create_tl_object<ton_api::storage_priorityAction_all>(0));
+      for (std::string& f : partial.value()) {
+        priorities.push_back(create_tl_object<ton_api::storage_priorityAction_name>(std::move(f), 1));
+      }
+    }
+    auto query = create_tl_object<ton_api::storage_daemon_addByMeta>(std::move(meta), std::move(root_dir), !paused,
+                                                                     std::move(priorities));
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {

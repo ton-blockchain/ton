@@ -695,13 +695,13 @@ void NodeActor::db_store_priorities() {
     for (auto &s : pending_set_file_priority_) {
       s.file.visit(td::overloaded(
           [&](const PendingSetFilePriority::All &) {
-            obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_all>(s.priority));
+            obj->actions_.push_back(create_tl_object<ton_api::storage_priorityAction_all>(s.priority));
           },
           [&](const size_t &i) {
-            obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_idx>(i, s.priority));
+            obj->actions_.push_back(create_tl_object<ton_api::storage_priorityAction_idx>(i, s.priority));
           },
           [&](const std::string &name) {
-            obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_name>(name, s.priority));
+            obj->actions_.push_back(create_tl_object<ton_api::storage_priorityAction_name>(name, s.priority));
           }));
     }
   } else {
@@ -711,10 +711,10 @@ void NodeActor::db_store_priorities() {
       ++prior_cnt[p];
     }
     auto base_priority = (td::uint8)(std::max_element(prior_cnt, prior_cnt + 256) - prior_cnt);
-    obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_all>(base_priority));
+    obj->actions_.push_back(create_tl_object<ton_api::storage_priorityAction_all>(base_priority));
     for (size_t i = 0; i < file_priority_.size(); ++i) {
       if (file_priority_[i] != base_priority) {
-        obj->actions_.push_back(create_tl_object<ton_api::storage_db_priorityAction_idx>(i, file_priority_[i]));
+        obj->actions_.push_back(create_tl_object<ton_api::storage_priorityAction_idx>(i, file_priority_[i]));
       }
     }
   }
@@ -881,15 +881,15 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
           td::Variant<PendingSetFilePriority::All, size_t, std::string> file;
           int priority = 0;
           ton_api::downcast_call(*p, td::overloaded(
-                                         [&](ton_api::storage_db_priorityAction_all &obj) {
+                                         [&](ton_api::storage_priorityAction_all &obj) {
                                            file = PendingSetFilePriority::All();
                                            priority = obj.priority_;
                                          },
-                                         [&](ton_api::storage_db_priorityAction_idx &obj) {
+                                         [&](ton_api::storage_priorityAction_idx &obj) {
                                            file = (size_t)obj.idx_;
                                            priority = obj.priority_;
                                          },
-                                         [&](ton_api::storage_db_priorityAction_name &obj) {
+                                         [&](ton_api::storage_priorityAction_name &obj) {
                                            file = std::move(obj.name_);
                                            priority = obj.priority_;
                                          }));

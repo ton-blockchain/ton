@@ -751,11 +751,12 @@ storage.db.key.pieceInDb hash:int256 idx:long = storage.db.key.PieceInDb;
 
 storage.db.torrentList torrents:(vector int256) = storage.db.TorrentList;
 storage.db.torrent root_dir:string active_download:Bool = storage.db.TorrentShort;
-storage.db.priorityAction.all priority:int = storage.db.PriorityAction;
-storage.db.priorityAction.idx idx:long priority:int = storage.db.PriorityAction;
-storage.db.priorityAction.name name:string priority:int = storage.db.PriorityAction;
-storage.db.priorities actions:(vector storage.db.PriorityAction) = storage.db.Priorities;
+storage.db.priorities actions:(vector storage.PriorityAction) = storage.db.Priorities;
 storage.db.piecesInDb pieces:(vector long) = storage.db.PiecesInDb;
+
+storage.priorityAction.all priority:int = storage.PriorityAction;
+storage.priorityAction.idx idx:long priority:int = storage.PriorityAction;
+storage.priorityAction.name name:string priority:int = storage.PriorityAction;
 
 storage.daemon.config server_key:PublicKey cli_key_hash:int256 provider_address:string = storage.daemon.provider.Config;
 
@@ -810,8 +811,8 @@ storage.daemon.providerAddress address:string = storage.daemon.ProviderAddress;
 ---functions---
 storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
 storage.daemon.createTorrent path:string description:string create_microchunk_tree:Bool = storage.daemon.TorrentFull;
-storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool = storage.daemon.TorrentFull;
-storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool = storage.daemon.TorrentFull;
+storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
+storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
 storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Success;
 
 storage.daemon.getTorrents = storage.daemon.TorrentList;
