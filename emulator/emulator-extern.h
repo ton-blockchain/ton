@@ -110,6 +110,10 @@ EMULATOR_EXPORT bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_
  */
 EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_json);
 
+EMULATOR_EXPORT const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc);
+
+EMULATOR_EXPORT const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *message_body_boc, uint64_t amount);
+
 /**
  * @brief Destroy TVM emulator object
  * @param tvm_emulator Pointer to TVM emulator object

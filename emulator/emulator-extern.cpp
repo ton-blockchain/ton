@@ -9,6 +9,16 @@
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
 
+td::Result<td::Ref<vm::Cell>> boc_b64_to_cell(const char *boc) {
+  TRY_RESULT_PREFIX(boc_decoded, td::base64_decode(td::Slice(boc)), "Can't decode base64 boc: ");
+  return vm::std_boc_deserialize(boc_decoded);
+}
+
+td::Result<std::string> cell_to_boc_b64(td::Ref<vm::Cell> cell) {
+  TRY_RESULT_PREFIX(boc, vm::std_boc_serialize(std::move(cell), vm::BagOfCells::Mode::WithCRC32C), "Can't serialize cell: ");
+  return td::base64_encode(boc.as_slice());
+}
+
 td::Result<vm::StackEntry> from_emulator_api(td::JsonValue& entry) {
   if (entry.type() != td::JsonValue::Type::Object) {
     return td::Status::Error(PSLICE() << "Stack entry of object type expected");
@@ -18,16 +28,12 @@ td::Result<vm::StackEntry> from_emulator_api(td::JsonValue& entry) {
 
   if (type == "cell") {
     TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
-    auto boc_b64 = value.get_string();
-    TRY_RESULT(boc_decoded, td::base64_decode(td::Slice(boc_b64)));
-    TRY_RESULT(cell, vm::std_boc_deserialize(std::move(boc_decoded)));
+    TRY_RESULT(cell, boc_b64_to_cell(value.get_string().str().c_str()));
     return vm::StackEntry(std::move(cell));
   }
   if (type == "cell_slice") {
     TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
-    auto boc_b64 = value.get_string();
-    TRY_RESULT(boc_decoded, td::base64_decode(td::Slice(boc_b64)));
-    TRY_RESULT(cell, vm::std_boc_deserialize(std::move(boc_decoded)));
+    TRY_RESULT(cell, boc_b64_to_cell(value.get_string().str().c_str()));
     auto slice = vm::load_cell_slice_ref(std::move(cell));
     return vm::StackEntry(slice);
   }
@@ -66,21 +72,19 @@ public:
     td::Variant<td::JsonValue, td::JsonArray> value;
     switch (entry_.type()) {
       case vm::StackEntry::t_cell: {
-        auto boc = vm::std_boc_serialize(entry_.as_cell(), vm::BagOfCells::Mode::WithCRC32C);
-        CHECK(boc.is_ok());
-        auto boc_b64 = td::base64_encode(boc.move_as_ok().as_slice());
+        auto boc_b64 = cell_to_boc_b64(entry_.as_cell());
+        CHECK(boc_b64.is_ok());
         auto object = scope->enter_object();
         object("type", "cell");
-        object("value", std::move(boc_b64));
+        object("value", boc_b64.move_as_ok());
         break;
       }
       case vm::StackEntry::t_slice: {
-        auto cell = vm::CellBuilder().append_cellslice(entry_.as_slice()).finalize();
-        auto boc = vm::std_boc_serialize(std::move(cell), vm::BagOfCells::Mode::WithCRC32C);
-        auto boc_b64 = td::base64_encode(boc.move_as_ok().as_slice());
+        auto boc_b64 = cell_to_boc_b64(entry_.as_cell());
+        CHECK(boc_b64.is_ok());
         auto object = scope->enter_object();
         object("type", "cell_slice");
-        object("value", std::move(boc_b64));
+        object("value", boc_b64.move_as_ok());
         break;
       }
       case vm::StackEntry::t_int: {
@@ -166,19 +170,9 @@ const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_cod
 #define ERROR_RESPONSE(error) return error_response(error)
 
 td::Result<block::Config> decode_config(const char* config_boc) {
-  auto config_params_decoded = td::base64_decode(td::Slice(config_boc));
-  if (config_params_decoded.is_error()) {
-    return config_params_decoded.move_as_error_prefix("Can't decode base64 config params boc: ");
-  }
-  auto config_params_cell = vm::std_boc_deserialize(config_params_decoded.move_as_ok());
-  if (config_params_cell.is_error()) {
-    return config_params_cell.move_as_error_prefix("Can't deserialize config params boc: ");
-  }
-  auto global_config = block::Config(config_params_cell.move_as_ok(), td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
-  auto unpack_res = global_config.unpack();
-  if (unpack_res.is_error()) {
-    return unpack_res.move_as_error_prefix("Can't unpack config params: ");
-  }
+  TRY_RESULT_PREFIX(config_params_cell, boc_b64_to_cell(config_boc), "Can't deserialize config params boc: ");
+  auto global_config = block::Config(config_params_cell, td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
+  TRY_RESULT_PREFIX(unpack_res, global_config.unpack(), "Can't unpack config params: ");
   return global_config;
 }
 
@@ -195,11 +189,7 @@ void *transaction_emulator_create(const char *config_params_boc, int vm_log_verb
 const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc, const char *other_params) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
   
-  auto message_decoded = td::base64_decode(td::Slice(message_boc));
-  if (message_decoded.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Can't decode base64 message boc: " << message_decoded.move_as_error());
-  }
-  auto message_cell_r = vm::std_boc_deserialize(message_decoded.move_as_ok());
+  auto message_cell_r = boc_b64_to_cell(message_boc);
   if (message_cell_r.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't deserialize message boc: " << message_cell_r.move_as_error());
   }
@@ -207,11 +197,7 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
   auto message_cs = vm::load_cell_slice(message_cell);
   int msg_tag = block::gen::t_CommonMsgInfo.get_tag(message_cs);
 
-  auto shard_account_decoded = td::base64_decode(td::Slice(shard_account_boc));
-  if (shard_account_decoded.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Can't decode base64 shard account boc: " << shard_account_decoded.move_as_error());
-  }
-  auto shard_account_cell = vm::std_boc_deserialize(shard_account_decoded.move_as_ok());
+  auto shard_account_cell = boc_b64_to_cell(shard_account_boc);
   if (shard_account_cell.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't deserialize shard account boc: " << shard_account_cell.move_as_error());
   }
@@ -272,20 +258,18 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
   }
 
   auto emulation_success = dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result);
-  auto trans_boc = vm::std_boc_serialize(std::move(emulation_success.transaction), vm::BagOfCells::Mode::WithCRC32C);
-  if (trans_boc.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc" << trans_boc.move_as_error());
+  auto trans_boc_b64 = cell_to_boc_b64(std::move(emulation_success.transaction));
+  if (trans_boc_b64.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc" << trans_boc_b64.move_as_error());
   }
-  auto trans_boc_b64 = td::base64_encode(trans_boc.move_as_ok().as_slice());
 
   auto new_shard_account_cell = vm::CellBuilder().store_ref(emulation_success.account.total_state)
                                .store_bits(emulation_success.account.last_trans_hash_.as_bitslice())
                                .store_long(emulation_success.account.last_trans_lt_).finalize();
-  auto new_shard_account_boc = vm::std_boc_serialize(std::move(new_shard_account_cell), vm::BagOfCells::Mode::WithCRC32C);
-  if (new_shard_account_boc.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Can't serialize ShardAccount to boc" << new_shard_account_boc.move_as_error());
+  auto new_shard_account_boc_b64 = cell_to_boc_b64(std::move(new_shard_account_cell));
+ if (new_shard_account_boc_b64.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize ShardAccount to boc" << new_shard_account_boc_b64.move_as_error());
   }
-  auto new_shard_account_boc_b64 = td::base64_encode(new_shard_account_boc.move_as_ok().as_slice());
 
   auto actions_boc = vm::std_boc_serialize(std::move(emulation_success.actions), vm::BagOfCells::Mode::WithCRC32C);
   if (actions_boc.is_error()) {
@@ -358,12 +342,7 @@ bool transaction_emulator_set_libs(void *transaction_emulator, const char* shard
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 
   if (shardchain_libs_boc != nullptr) {
-    auto shardchain_libs_decoded = td::base64_decode(td::Slice(shardchain_libs_boc));
-    if (shardchain_libs_decoded.is_error()) {
-      LOG(ERROR) << "Can't decode base64 shardchain libraries boc: " << shardchain_libs_decoded.move_as_error();
-      return false;
-    }
-    auto shardchain_libs_cell = vm::std_boc_deserialize(shardchain_libs_decoded.move_as_ok());
+    auto shardchain_libs_cell = boc_b64_to_cell(shardchain_libs_boc);
     if (shardchain_libs_cell.is_error()) {
       LOG(ERROR) << "Can't deserialize shardchain libraries boc: " << shardchain_libs_cell.move_as_error();
       return false;
@@ -387,23 +366,12 @@ bool emulator_set_verbosity_level(int verbosity_level) {
 }
 
 void *tvm_emulator_create(const char *code, const char *data, int vm_log_verbosity) {
-  auto code_decoded = td::base64_decode(td::Slice(code));
-  if (code_decoded.is_error()) {
-    LOG(ERROR) << "Can't deserialize code boc: " << code_decoded.move_as_error();
-    return nullptr;
-  }
-  auto code_cell = vm::std_boc_deserialize(code_decoded.move_as_ok());
+  auto code_cell = boc_b64_to_cell(code);
   if (code_cell.is_error()) {
     LOG(ERROR) << "Can't deserialize code boc: " << code_cell.move_as_error();
     return nullptr;
   }
-
-  auto data_decoded = td::base64_decode(td::Slice(data));
-  if (data_decoded.is_error()) {
-    LOG(ERROR) << "Can't deserialize data boc: " << data_decoded.move_as_error();
-    return nullptr;
-  }
-  auto data_cell = vm::std_boc_deserialize(data_decoded.move_as_ok());
+  auto data_cell = boc_b64_to_cell(data);
   if (data_cell.is_error()) {
     LOG(ERROR) << "Can't deserialize code boc: " << data_cell.move_as_error();
     return nullptr;
@@ -416,12 +384,7 @@ void *tvm_emulator_create(const char *code, const char *data, int vm_log_verbosi
 
 bool tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc) {
   vm::Dictionary libs{256};
-  auto libs_decoded = td::base64_decode(td::Slice(libs_boc));
-  if (libs_decoded.is_error()) {
-    LOG(ERROR) << "Can't decode base64 libraries boc: " << libs_decoded.move_as_error();
-    return false;
-  }
-  auto libs_cell = vm::std_boc_deserialize(libs_decoded.move_as_ok());
+  auto libs_cell = boc_b64_to_cell(libs_boc);
   if (libs_cell.is_error()) {
     LOG(ERROR) << "Can't deserialize libraries boc: " << libs_cell.move_as_error();
     return false;
@@ -442,12 +405,7 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
     return false;
   }
   
-  auto config_params_decoded = td::base64_decode(td::Slice(config_boc));
-  if (config_params_decoded.is_error()) {
-    LOG(ERROR) << "Can't decode base64 config params boc: " << config_params_decoded.move_as_error();
-    return false;
-  }
-  auto config_params_cell = vm::std_boc_deserialize(config_params_decoded.move_as_ok());
+  auto config_params_cell = boc_b64_to_cell(config_boc);
   if (config_params_cell.is_error()) {
     LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell.move_as_error();
     return false;
@@ -487,17 +445,17 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   std::string stack_json_str(stack_json_raw);
   auto stack_json = td::json_decode(stack_json_str);
   if (stack_json.is_error()) {
-    return error_response(PSTRING() << "Couldn't decode stack json: " << stack_json.move_as_error().to_string());
+    ERROR_RESPONSE(PSTRING() << "Couldn't decode stack json: " << stack_json.move_as_error().to_string());
   }
   if (stack_json.ok_ref().type() != td::JsonValue::Type::Array) {
-    return error_response(PSTRING() << "Stack of type array expected");
+    ERROR_RESPONSE(PSTRING() << "Stack of type array expected");
   }
   auto& stack_json_array = stack_json.ok_ref().get_array();
   std::vector<vm::StackEntry> stack_entries;
   for (auto& stack_entry_json : stack_json_array) {
     auto stack_entry = from_emulator_api(stack_entry_json);
     if (stack_entry.is_error()) {
-      return error_response(PSTRING() << "Error parsing stack: " << stack_entry.move_as_error().to_string());
+      ERROR_RESPONSE(PSTRING() << "Error parsing stack: " << stack_entry.move_as_error().to_string());
     }
     stack_entries.push_back(stack_entry.move_as_ok());
   }
@@ -519,9 +477,68 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
     json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
   }
   json_obj.leave();
-  auto json_response = jb.string_builder().as_cslice().str();
-  auto heap_response = new std::string(json_response);
-  return heap_response->c_str();
+
+  return strdup(jb.string_builder().as_cslice().c_str());
+}
+
+const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc) {
+  auto message_body_cell = boc_b64_to_cell(message_body_boc);
+  if (message_body_cell.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't deserialize message body boc: " << message_body_cell.move_as_error());
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->send_external_message(message_body_cell.move_as_ok());
+
+  td::JsonBuilder jb;
+  auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonTrue());
+  json_obj("stack", StackJsonable(result.stack));
+  json_obj("gas_used", std::to_string(result.gas_used));
+  json_obj("vm_exit_code", result.code);
+  json_obj("accepted", td::JsonBool(result.accepted));
+  json_obj("vm_log", result.vm_log);
+  if (result.missing_library.is_null()) {
+    json_obj("missing_library", td::JsonNull());
+  } else {
+    json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
+  }
+  json_obj("actions", cell_to_boc_b64(result.actions).move_as_ok());
+  json_obj("new_code", cell_to_boc_b64(result.new_state.code).move_as_ok());
+  json_obj("new_data", cell_to_boc_b64(result.new_state.data).move_as_ok());
+  json_obj.leave();
+
+  return strdup(jb.string_builder().as_cslice().c_str());
+}
+
+const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *message_body_boc, uint64_t amount) {
+  auto message_body_cell = boc_b64_to_cell(message_body_boc);
+  if (message_body_cell.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't deserialize message body boc: " << message_body_cell.move_as_error());
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->send_internal_message(message_body_cell.move_as_ok(), amount);
+
+  td::JsonBuilder jb;
+  auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonTrue());
+  json_obj("stack", StackJsonable(result.stack));
+  json_obj("gas_used", std::to_string(result.gas_used));
+  json_obj("vm_exit_code", result.code);
+  json_obj("accepted", td::JsonBool(result.accepted));
+  json_obj("vm_log", result.vm_log);
+  if (result.missing_library.is_null()) {
+    json_obj("missing_library", td::JsonNull());
+  } else {
+    json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
+  }
+  json_obj("actions", cell_to_boc_b64(result.actions).move_as_ok());
+  json_obj("new_code", cell_to_boc_b64(result.new_state.code).move_as_ok());
+  json_obj("new_data", cell_to_boc_b64(result.new_state.data).move_as_ok());
+  json_obj.leave();
+
+  return strdup(jb.string_builder().as_cslice().c_str());
 }
 
 void tvm_emulator_destroy(void *tvm_emulator) {
