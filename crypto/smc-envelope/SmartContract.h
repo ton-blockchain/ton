@@ -60,6 +60,7 @@ class SmartContract : public td::CntObject {
     td::optional<td::Ref<vm::Tuple>> c7;
     td::optional<td::Ref<vm::Stack>> stack;
     td::optional<td::int32> now;
+    td::optional<td::BitArray<256>> rand_seed;
     bool ignore_chksig{false};
     td::uint64 amount{0};
     td::uint64 balance{0};
@@ -100,6 +101,10 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_stack(td::Ref<vm::Stack> stack) {
       this->stack = std::move(stack);
+      return std::move(*this);
+    }
+    Args&& set_rand_seed(td::BitArray<256> rand_seed) {
+      this->rand_seed = std::move(rand_seed);
       return std::move(*this);
     }
     Args&& set_ignore_chksig(bool ignore_chksig) {

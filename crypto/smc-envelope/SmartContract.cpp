@@ -54,7 +54,11 @@ td::Ref<vm::Stack> prepare_vm_stack(td::RefInt256 amount, td::Ref<vm::CellSlice>
 
 td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
   td::BitArray<256> rand_seed;
-  rand_seed.as_slice().fill(0);
+  if (args.rand_seed) {
+    rand_seed = args.rand_seed.unwrap();
+  } else {
+    rand_seed.as_slice().fill(0);
+  }
   td::RefInt256 rand_seed_int{true};
   rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false);
 

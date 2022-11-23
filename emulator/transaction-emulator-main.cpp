@@ -2,7 +2,7 @@
 #include "td/utils/logging.h"
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/misc.h"
-#include "td/utils/base64.h"
+#include "td/utils/optional.h"
 #include "StringLog.h"
 #include <iostream>
 #include "crypto/common/bitstring.h"
@@ -10,8 +10,7 @@
 struct TransactionEmulationParams {
   uint32_t utime;
   uint64_t lt;
-  bool is_rand_seed_set;
-  td::BitArray<256> rand_seed;
+  td::optional<std::string> rand_seed_hex;
   bool ignore_chksig;
 };
 
@@ -30,17 +29,9 @@ td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const
   TRY_RESULT(lt, td::to_integer_safe<td::uint64>(lt_field.get_string()));
   params.lt = lt;
 
-  TRY_RESULT(rand_seed_str, td::get_json_object_string_field(obj, "rand_seed", false));
-  if (rand_seed_str.size() == 0) {
-    params.is_rand_seed_set = false;
-  } else {
-    TRY_RESULT(rand_seed_decoded, td::base64_decode(rand_seed_str));
-    auto s = params.rand_seed.as_slice();
-    if (rand_seed_decoded.size() != s.size()) {
-      return td::Status::Error("rand seed is of wrong size");
-    }
-    params.is_rand_seed_set = true;
-    s.copy_from(rand_seed_decoded);
+  TRY_RESULT(rand_seed_str, td::get_json_object_string_field(obj, "rand_seed", true));
+  if (rand_seed_str.size() > 0) {
+    params.rand_seed_hex = rand_seed_str;
   }
 
   TRY_RESULT(ignore_chksig, td::get_json_object_bool_field(obj, "ignore_chksig", false));
@@ -68,11 +59,16 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
 
     auto em = transaction_emulator_create(config, verbosity);
 
+    bool rand_seed_set = true;
+    if (decoded_params.rand_seed_hex) {
+      rand_seed_set = transaction_emulator_set_rand_seed(em, decoded_params.rand_seed_hex.unwrap().c_str());
+    }
+
     if (!transaction_emulator_set_libs(em, libs) ||
         !transaction_emulator_set_lt(em, decoded_params.lt) ||
         !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
         !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
-        !transaction_emulator_set_rand_seed(em, decoded_params.is_rand_seed_set ? (const char*) decoded_params.rand_seed.data() : nullptr)) {
+        !rand_seed_set) {
         transaction_emulator_destroy(em);
         output = strdup(R"({"fail":true,"message":"Can't set params"})");
         return output;

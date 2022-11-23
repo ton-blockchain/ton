@@ -14,14 +14,13 @@ class TransactionEmulator {
   int vm_log_verbosity_;
   ton::UnixTime unixtime_;
   ton::LogicalTime lt_;
-  bool is_rand_seed_set_;
-  td::BitArray<256> rand_seed_;
+  td::optional<td::BitArray<256>> rand_seed_;
   bool ignore_chksig_;
 
 public:
   TransactionEmulator(block::Config&& config, int vm_log_verbosity = 0) : 
     config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),
-    unixtime_(0), lt_(0), is_rand_seed_set_(false), ignore_chksig_(false) {
+    unixtime_(0), lt_(0), ignore_chksig_(false) {
   }
 
   struct EmulationResult {
@@ -66,7 +65,7 @@ public:
 
   void set_unixtime(ton::UnixTime unixtime);
   void set_lt(ton::LogicalTime lt);
-  void set_rand_seed(td::BitArray<256>* rand_seed);
+  void set_rand_seed(td::BitArray<256>& rand_seed);
   void set_ignore_chksig(bool ignore_chksig);
   void set_config(block::Config &&config);
   void set_libs(vm::Dictionary &&libs);
@@ -78,7 +77,7 @@ private:
                             td::Ref<vm::Cell>* old_mparams,
                             std::vector<block::StoragePrices>* storage_prices,
                             block::StoragePhaseConfig* storage_phase_cfg,
-                            td::BitArray<256>* rand_seed,
+                            td::optional<td::BitArray<256>> rand_seed_maybe,
                             block::ComputePhaseConfig* compute_phase_cfg,
                             block::ActionPhaseConfig* action_phase_cfg,
                             td::RefInt256* masterchain_create_fee,
@@ -91,7 +90,5 @@ private:
                                                          block::StoragePhaseConfig* storage_phase_cfg,
                                                          block::ComputePhaseConfig* compute_phase_cfg,
                                                          block::ActionPhaseConfig* action_phase_cfg);
-
-  td::BitArray<256> *get_rand_seed_ptr();
 };
 } // namespace emulator

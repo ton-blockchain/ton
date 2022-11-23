@@ -20,7 +20,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     
     auto fetch_res = fetch_config_params(config_, &old_mparams,
                                         &storage_prices, &storage_phase_cfg,
-                                        get_rand_seed_ptr(), &compute_phase_cfg,
+                                        rand_seed_, &compute_phase_cfg,
                                         &action_phase_cfg, &masterchain_create_fee,
                                         &basechain_create_fee, account.workchain);
     if(fetch_res.is_error()) {
@@ -163,7 +163,7 @@ td::Status TransactionEmulator::fetch_config_params(const block::Config& config,
                                               Ref<vm::Cell>* old_mparams,
                                               std::vector<block::StoragePrices>* storage_prices,
                                               block::StoragePhaseConfig* storage_phase_cfg,
-                                              td::BitArray<256>* rand_seed_maybe,
+                                              td::optional<td::BitArray<256>> rand_seed_maybe,
                                               block::ComputePhaseConfig* compute_phase_cfg,
                                               block::ActionPhaseConfig* action_phase_cfg,
                                               td::RefInt256* masterchain_create_fee,
@@ -313,13 +313,8 @@ void TransactionEmulator::set_lt(ton::LogicalTime lt) {
   lt_ = lt;
 }
 
-void TransactionEmulator::set_rand_seed(td::BitArray<256>* rand_seed) {
-  if (rand_seed == nullptr) {
-    is_rand_seed_set_ = false;
-  } else {
-    is_rand_seed_set_ = true;
-    rand_seed_ = *rand_seed;
-  }
+void TransactionEmulator::set_rand_seed(td::BitArray<256>& rand_seed) {
+  rand_seed_ = rand_seed;
 }
 
 void TransactionEmulator::set_ignore_chksig(bool ignore_chksig) {
@@ -332,10 +327,6 @@ void TransactionEmulator::set_config(block::Config &&config) {
 
 void TransactionEmulator::set_libs(vm::Dictionary &&libs) {
   libraries_ = std::forward<vm::Dictionary>(libs);
-}
-
-td::BitArray<256> *TransactionEmulator::get_rand_seed_ptr() {
-  return is_rand_seed_set_ ? &rand_seed_ : nullptr;
 }
 
 } // namespace emulator

@@ -9,59 +9,50 @@
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
 
-vm::StackEntry from_emulator_api(td::JsonValue& entry) {
+td::Result<vm::StackEntry> from_emulator_api(td::JsonValue& entry) {
+  if (entry.type() != td::JsonValue::Type::Object) {
+    return td::Status::Error(PSLICE() << "Stack entry of object type expected");
+  }
   auto& object = entry.get_object();
-  CHECK(object.size() == 2);
-  
-  td::MutableSlice *type;
-  td::JsonValue *value;
-  if (object[0].first == "type") {
-    type = &object[0].second.get_string();
-    CHECK(object[1].first == "value");
-    value = &object[1].second;
-  } else if (object[1].first == "type") {
-    type = &object[1].second.get_string();
-    CHECK(object[0].first == "value");
-    value = &object[0].second;
-  } else {
-    CHECK(false);
-  }
+  TRY_RESULT(type, td::get_json_object_string_field(object, "type", false));
 
-  if (*type == "cell") {
-    auto boc_b64 = value->get_string();
-    auto boc_decoded = td::base64_decode(td::Slice(boc_b64));
-    CHECK(boc_decoded.is_ok());
-    auto cell = vm::std_boc_deserialize(boc_decoded.move_as_ok());
-    CHECK(cell.is_ok());
-    return vm::StackEntry(cell.move_as_ok());
+  if (type == "cell") {
+    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
+    auto boc_b64 = value.get_string();
+    TRY_RESULT(boc_decoded, td::base64_decode(td::Slice(boc_b64)));
+    TRY_RESULT(cell, vm::std_boc_deserialize(std::move(boc_decoded)));
+    return vm::StackEntry(std::move(cell));
   }
-  if (*type == "slice") {
-    auto boc_b64 = value->get_string();
-    auto boc_decoded = td::base64_decode(td::Slice(boc_b64));
-    CHECK(boc_decoded.is_ok());
-    auto cell = vm::std_boc_deserialize(boc_decoded.move_as_ok());
-    CHECK(cell.is_ok());
-    auto slice = vm::load_cell_slice_ref(cell.move_as_ok());
+  if (type == "cell_slice") {
+    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
+    auto boc_b64 = value.get_string();
+    TRY_RESULT(boc_decoded, td::base64_decode(td::Slice(boc_b64)));
+    TRY_RESULT(cell, vm::std_boc_deserialize(std::move(boc_decoded)));
+    auto slice = vm::load_cell_slice_ref(std::move(cell));
     return vm::StackEntry(slice);
   }
-  if (*type == "number") {
-    auto num = td::dec_string_to_int256(value->get_string());
-    CHECK(!num.is_null());
+  if (type == "number") {
+    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
+    auto num = td::dec_string_to_int256(value.get_string());
+    if (num.is_null()) {
+      return td::Status::Error("Error parsing string to int256");
+    } 
     return vm::StackEntry(num);
   }
-  if (*type == "tuple") {
+  if (type == "tuple") {
     std::vector<vm::StackEntry> elements;
-    for (auto& element : value->get_array()) {
-      auto new_element = from_emulator_api(element);
+    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::Array, false));
+    for (auto& element : value.get_array()) {
+      TRY_RESULT(new_element, from_emulator_api(element));
       elements.push_back(std::move(new_element));
     }
     return td::Ref<vm::Tuple>(true, std::move(elements));
   }
-  if (*type == "null") {
+  if (type == "null") {
     return vm::StackEntry();
   }
   
-  CHECK(false);
+  return td::Status::Error(PSLICE() << "Unsupported type: " << type);
 }
 
 class StackEntryJsonable: public td::Jsonable {
@@ -88,7 +79,7 @@ public:
         auto boc = vm::std_boc_serialize(std::move(cell), vm::BagOfCells::Mode::WithCRC32C);
         auto boc_b64 = td::base64_encode(boc.move_as_ok().as_slice());
         auto object = scope->enter_object();
-        object("type", "slice");
+        object("type", "cell_slice");
         object("value", std::move(boc_b64));
         break;
       }
@@ -321,17 +312,23 @@ bool transaction_emulator_set_lt(void *transaction_emulator, uint64_t lt) {
   return true;
 }
 
-bool transaction_emulator_set_rand_seed(void *transaction_emulator, const char* rand_seed) {
+bool transaction_emulator_set_rand_seed(void *transaction_emulator, const char* rand_seed_hex) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 
-  if (rand_seed == nullptr) {
-    emulator->set_rand_seed(nullptr);
-  } else {
-    td::BitArray<256> arr;
-    arr.as_slice().copy_from(td::Slice(rand_seed, 32));
-    emulator->set_rand_seed(&arr);
+  auto rand_seed_hex_slice = td::Slice(rand_seed_hex);
+  if (rand_seed_hex_slice.size() != 64) {
+    LOG(ERROR) << "Rand seed expected as 64 characters hex string";
+    return false;
   }
+  auto rand_seed_bytes = td::hex_decode(rand_seed_hex_slice);
+  if (rand_seed_bytes.is_error()) {
+    LOG(ERROR) << "Can't decode hex rand seed";
+    return false;
+  }
+  td::BitArray<256> rand_seed;
+  rand_seed.as_slice().copy_from(rand_seed_bytes.move_as_ok());
 
+  emulator->set_rand_seed(rand_seed);
   return true;
 }
 
@@ -381,10 +378,12 @@ void transaction_emulator_destroy(void *transaction_emulator) {
   delete static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 }
 
-void emulator_set_verbosity_level(int verbosity_level) {
+bool emulator_set_verbosity_level(int verbosity_level) {
   if (0 <= verbosity_level && verbosity_level <= VERBOSITY_NAME(NEVER)) {
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity_level);
+    return true;
   }
+  return false;
 }
 
 void *tvm_emulator_create(const char *code, const char *data, int vm_log_verbosity) {
@@ -415,64 +414,92 @@ void *tvm_emulator_create(const char *code, const char *data, int vm_log_verbosi
   return emulator;
 }
 
-void tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc) {
+bool tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc) {
   vm::Dictionary libs{256};
   auto libs_decoded = td::base64_decode(td::Slice(libs_boc));
   if (libs_decoded.is_error()) {
     LOG(ERROR) << "Can't decode base64 libraries boc: " << libs_decoded.move_as_error();
-    return;
+    return false;
   }
   auto libs_cell = vm::std_boc_deserialize(libs_decoded.move_as_ok());
   if (libs_cell.is_error()) {
     LOG(ERROR) << "Can't deserialize libraries boc: " << libs_cell.move_as_error();
-    return;
+    return false;
   }
   libs = vm::Dictionary(libs_cell.move_as_ok(), 256);
 
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   emulator->set_libraries(std::move(libs));
+
+  return true;
 }
 
-void tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *config_boc) {
+bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *rand_seed_hex, const char *config_boc) {
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto std_address = block::StdAddress::parse(td::Slice(address));
   if (std_address.is_error()) {
     LOG(ERROR) << "Can't parse address: " << std_address.move_as_error();
-    return;
+    return false;
   }
   
   auto config_params_decoded = td::base64_decode(td::Slice(config_boc));
   if (config_params_decoded.is_error()) {
     LOG(ERROR) << "Can't decode base64 config params boc: " << config_params_decoded.move_as_error();
-    return;
+    return false;
   }
   auto config_params_cell = vm::std_boc_deserialize(config_params_decoded.move_as_ok());
   if (config_params_cell.is_error()) {
     LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell.move_as_error();
-    return;
+    return false;
   }
   auto global_config = std::make_shared<block::Config>(config_params_cell.move_as_ok(), td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
   auto unpack_res = global_config->unpack();
   if (unpack_res.is_error()) {
     LOG(ERROR) << "Can't unpack config params";
-    return;
+    return false;
   }
 
-  emulator->set_c7(std_address.move_as_ok(), unixtime, balance, std::const_pointer_cast<const block::Config>(global_config));
+  auto rand_seed_hex_slice = td::Slice(rand_seed_hex);
+  if (rand_seed_hex_slice.size() != 64) {
+    LOG(ERROR) << "Rand seed expected as 64 characters hex string";
+    return false;
+  }
+  auto rand_seed_bytes = td::hex_decode(rand_seed_hex_slice);
+  if (rand_seed_bytes.is_error()) {
+    LOG(ERROR) << "Can't decode hex rand seed";
+    return false;
+  }
+  td::BitArray<256> rand_seed;
+  rand_seed.as_slice().copy_from(rand_seed_bytes.move_as_ok());
+
+  emulator->set_c7(std_address.move_as_ok(), unixtime, balance, rand_seed, std::const_pointer_cast<const block::Config>(global_config));
+  
+  return true;
+}
+
+bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_limit) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  emulator->set_gas_limit(gas_limit);
+  return true;
 }
 
 const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_json_raw) {
   std::string stack_json_str(stack_json_raw);
-  auto stack_json = json_decode(td::MutableCSlice(stack_json_str));
+  auto stack_json = td::json_decode(stack_json_str);
   if (stack_json.is_error()) {
-    LOG(ERROR) << "Couldn't decode stack json: " << stack_json.move_as_error();
-    return nullptr;
+    return error_response(PSTRING() << "Couldn't decode stack json: " << stack_json.move_as_error().to_string());
+  }
+  if (stack_json.ok_ref().type() != td::JsonValue::Type::Array) {
+    return error_response(PSTRING() << "Stack of type array expected");
   }
   auto& stack_json_array = stack_json.ok_ref().get_array();
   std::vector<vm::StackEntry> stack_entries;
   for (auto& stack_entry_json : stack_json_array) {
     auto stack_entry = from_emulator_api(stack_entry_json);
-    stack_entries.push_back(std::move(stack_entry));
+    if (stack_entry.is_error()) {
+      return error_response(PSTRING() << "Error parsing stack: " << stack_entry.move_as_error().to_string());
+    }
+    stack_entries.push_back(stack_entry.move_as_ok());
   }
 
   td::Ref<vm::Stack> stack(true, std::move(stack_entries));
@@ -481,14 +508,15 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
 
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonTrue());
   json_obj("stack", StackJsonable(result.stack));
   json_obj("gas_used", std::to_string(result.gas_used));
-  json_obj("vm_exit_code", result.vm_exit_code);
+  json_obj("vm_exit_code", result.code);
   json_obj("vm_log", result.vm_log);
-  if (!result.missing_library) {
+  if (result.missing_library.is_null()) {
     json_obj("missing_library", td::JsonNull());
   } else {
-    json_obj("missing_library", result.missing_library.value().to_hex());
+    json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
   }
   json_obj.leave();
   auto json_response = jb.string_builder().as_cslice().str();
