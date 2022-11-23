@@ -37,8 +37,6 @@ class ExtMessageQ : public ExtMessage {
   ton::StdSmcAddress addr_;
 
  public:
-  static constexpr unsigned max_ext_msg_size = 65535;
-  static constexpr unsigned max_ext_msg_depth = 512;
   AccountIdPrefixFull shard() const override {
     return addr_prefix_;
   }
@@ -59,10 +57,13 @@ class ExtMessageQ : public ExtMessage {
     return addr_;
   }
 
-  ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull shard, ton::WorkchainId wc, ton::StdSmcAddress addr);
-  static td::Result<td::Ref<ExtMessageQ>> create_ext_message(td::BufferSlice data);
-  static void run_message(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-                        td::Promise<td::Unit> promise);
+  ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull shard, ton::WorkchainId wc,
+              ton::StdSmcAddress addr);
+  static td::Result<td::Ref<ExtMessageQ>> create_ext_message(td::BufferSlice data,
+                                                             block::SizeLimitsConfig::ExtMsgLimits limits);
+  static void run_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                          td::actor::ActorId<ton::validator::ValidatorManager> manager,
+                          td::Promise<td::Ref<ExtMessage>> promise);
   static td::Status run_message_on_account(ton::WorkchainId wc,
                                            block::Account* acc,
                                            UnixTime utime, LogicalTime lt,

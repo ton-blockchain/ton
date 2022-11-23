@@ -2510,7 +2510,18 @@ struct ToRawTransactions {
     auto body_cell = vm::CellBuilder().append_cellslice(*body).finalize();
     auto body_hash = body_cell->get_hash().as_slice().str();
 
-    auto get_data = [body = std::move(body), body_cell, this](td::Slice salt) mutable {
+    td::Ref<vm::Cell> init_state_cell;
+    auto& init_state_cs = message.init.write(); 
+    if (init_state_cs.fetch_ulong(1) == 1) {
+      if (init_state_cs.fetch_long(1) == 0) {
+        init_state_cell = vm::CellBuilder().append_cellslice(init_state_cs).finalize();
+      } else {
+        init_state_cell = init_state_cs.fetch_ref();
+      }
+    }
+
+    auto get_data = [body = std::move(body), body_cell = std::move(body_cell), 
+                     init_state_cell = std::move(init_state_cell), this](td::Slice salt) mutable {
       tonlib_api::object_ptr<tonlib_api::msg_Data> data;
       if (try_decode_messages_ && body->size() >= 32 && static_cast<td::uint32>(body->prefetch_long(32)) <= 1) {
         auto type = body.write().fetch_long(32);
@@ -2540,7 +2551,7 @@ struct ToRawTransactions {
         }
       }
       if (!data) {
-        data = tonlib_api::make_object<tonlib_api::msg_dataRaw>(to_bytes(std::move(body_cell)), "");
+        data = tonlib_api::make_object<tonlib_api::msg_dataRaw>(to_bytes(std::move(body_cell)), to_bytes(std::move(init_state_cell)));
       }
       return data;
     };
@@ -4807,7 +4818,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof&
   TRY_RESULT(id, to_block_id(*request.id_));
   ton::BlockIdExt from;
   if (request.mode_ & 1) {
-    TRY_RESULT_ASSIGN(from, to_block_id(*request.id_));
+    TRY_RESULT_ASSIGN(from, to_block_id(*request.from_));
   }
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetShardBlockProof>("GetShardBlockProof", client_.get_client(), id, from,

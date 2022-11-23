@@ -1,8 +1,6 @@
-name: Ubuntu 18.04 TON ccpcheck
+name: TON ccpcheck
 
-on:
-  workflow_dispatch:
-  push:
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
@@ -11,7 +9,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:      
         submodules: 'recursive'
 
