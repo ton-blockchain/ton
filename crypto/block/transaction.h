@@ -237,6 +237,7 @@ struct Account {
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
   Ref<vm::Cell> total_state;       // ^Account
+  Ref<vm::CellSlice> storage;      // AccountStorage
   Ref<vm::CellSlice> inner_state;  // StateInit
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
   Ref<vm::Cell> code, data, library, orig_library;
@@ -324,6 +325,7 @@ struct Transaction {
   ton::UnixTime last_paid;
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;
+  Ref<vm::CellSlice> new_storage;
   Ref<vm::CellSlice> new_inner_state;
   Ref<vm::Cell> new_code, new_data, new_library;
   Ref<vm::Cell> in_msg, in_msg_state;
