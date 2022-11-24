@@ -18,8 +18,8 @@ set(EMULATOR_SOURCE
   emulator-extern.cpp
 )
 
-set(EMULATOR_EXEC_SOURCE
-  transaction-emulator-main.cpp
+set(EMULATOR_EMSCRIPTEN_SOURCE
+  transaction-emscripten.cpp
 )
 
 include(GenerateExportHeader)
@@ -38,18 +38,18 @@ if (APPLE)
 endif()
 
 if (USE_EMSCRIPTEN)
-  add_executable(emulator-exec ${EMULATOR_EXEC_SOURCE})
-  target_link_libraries(emulator-exec PUBLIC emulator)
-  target_link_options(emulator-exec PRIVATE -sEXPORTED_RUNTIME_METHODS=_malloc,free,UTF8ToString,stringToUTF8,allocate,ALLOC_NORMAL,lengthBytesUTF8)
-  target_link_options(emulator-exec PRIVATE -sEXPORTED_FUNCTIONS=_emulate,_free)
-  target_link_options(emulator-exec PRIVATE -sEXPORT_NAME=EmulatorModule)
-  target_link_options(emulator-exec PRIVATE -sERROR_ON_UNDEFINED_SYMBOLS=0)
-  target_link_options(emulator-exec PRIVATE -Oz)
-  target_link_options(emulator-exec PRIVATE -sIGNORE_MISSING_MAIN=1)
-  target_link_options(emulator-exec PRIVATE -sAUTO_NATIVE_LIBRARIES=0)
-  target_link_options(emulator-exec PRIVATE -sMODULARIZE=1)
-  target_link_options(emulator-exec PRIVATE -sENVIRONMENT=web)
-  target_link_options(emulator-exec PRIVATE -sFILESYSTEM=0)
-  target_link_options(emulator-exec PRIVATE -fexceptions)
-  target_compile_options(emulator-exec PRIVATE -fexceptions)
+  add_executable(emulator-emscripten ${EMULATOR_EMSCRIPTEN_SOURCE})
+  target_link_libraries(emulator-emscripten PUBLIC emulator)
+  target_link_options(emulator-emscripten PRIVATE -sEXPORTED_RUNTIME_METHODS=_malloc,free,UTF8ToString,stringToUTF8,allocate,ALLOC_NORMAL,lengthBytesUTF8)
+  target_link_options(emulator-emscripten PRIVATE -sEXPORTED_FUNCTIONS=_emulate,_free)
+  target_link_options(emulator-emscripten PRIVATE -sEXPORT_NAME=EmulatorModule)
+  target_link_options(emulator-emscripten PRIVATE -sERROR_ON_UNDEFINED_SYMBOLS=0)
+  target_link_options(emulator-emscripten PRIVATE -Oz)
+  target_link_options(emulator-emscripten PRIVATE -sIGNORE_MISSING_MAIN=1)
+  target_link_options(emulator-emscripten PRIVATE -sAUTO_NATIVE_LIBRARIES=0)
+  target_link_options(emulator-emscripten PRIVATE -sMODULARIZE=1)
+  target_link_options(emulator-emscripten PRIVATE -sENVIRONMENT=web)
+  target_link_options(emulator-emscripten PRIVATE -sFILESYSTEM=0)
+  target_link_options(emulator-emscripten PRIVATE -fexceptions)
+  target_compile_options(emulator-emscripten PRIVATE -fexceptions)
 endif()

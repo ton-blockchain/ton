@@ -172,7 +172,7 @@ const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_cod
 td::Result<block::Config> decode_config(const char* config_boc) {
   TRY_RESULT_PREFIX(config_params_cell, boc_b64_to_cell(config_boc), "Can't deserialize config params boc: ");
   auto global_config = block::Config(config_params_cell, td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
-  TRY_RESULT_PREFIX(unpack_res, global_config.unpack(), "Can't unpack config params: ");
+  TRY_STATUS_PREFIX(global_config.unpack(), "Can't unpack config params: ");
   return global_config;
 }
 
@@ -186,7 +186,7 @@ void *transaction_emulator_create(const char *config_params_boc, int vm_log_verb
   return new emulator::TransactionEmulator(global_config_res.move_as_ok(), vm_log_verbosity);
 }
 
-const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc, const char *other_params) {
+const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
   
   auto message_cell_r = boc_b64_to_cell(message_boc);

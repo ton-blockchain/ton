@@ -39,7 +39,7 @@ EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, c
  * Or success:
  * { "success": true, "transaction": "Base64 encoded Transaction boc", "shard_account": "Base64 encoded ShardAccount boc", "vm_log": "execute DUP..." }
  */
-EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc, const char *other_params);
+EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc);
 
 /**
  * @brief Destroy TransactionEmulator object

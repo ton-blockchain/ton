@@ -74,7 +74,7 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
         return output;
     }
 
-    auto tx = transaction_emulator_emulate_transaction(em, account, message, params);
+    auto tx = transaction_emulator_emulate_transaction(em, account, message);
 
     transaction_emulator_destroy(em);
 
