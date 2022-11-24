@@ -1,4 +1,4 @@
-#include "pybind11/pybind11.h"
+#include "third-party/pybind11/include/pybind11/pybind11.h"
 #include <string>
 
 #include "vm/vm.h"
@@ -8,7 +8,7 @@
 #include "vm/boc.h"
 #include "vm/cellslice.h"
 #include "vm/cp0.h"
-#include "pybind11/stl.h"
+#include "third-party/pybind11/include/pybind11/stl.h"
 #include "block/block.h"
 #include "block/block-parse.h"
 #include "td/utils/crypto.h"
@@ -619,6 +619,39 @@ struct PyTVM {
   }
 };
 
+py::object pack_address(const std::string& address) {
+  auto paddr_parse = block::StdAddress::parse(address);
+
+  if (paddr_parse.is_ok()) {
+    auto paddr = paddr_parse.move_as_ok();
+    td::BigInt256 dest_addr;
+    vm::CellBuilder cb;
+
+    dest_addr.import_bits(paddr.addr.as_bitslice());
+    cb.store_ones(1).store_zeroes(2).store_long(paddr.workchain, 8).store_int256(dest_addr, 256);
+    auto body_cell = cb.finalize();
+
+    py::dict d("type"_a = "cellSlice", "value"_a = py::str(dump_as_boc(body_cell)));
+    return d;
+  } else {
+    throw std::invalid_argument("Parse address error: not valid address");
+  }
+}
+
+// todo: make cell & cell slice bindings
+std::string load_address(const std::string& boc) {
+  auto cell = parseStringToCell(boc);
+  auto cs = load_cell_slice(cell);
+  ton::StdSmcAddress addr;
+  ton::WorkchainId workchain;
+  if (!block::tlb::t_MsgAddressInt.extract_std_address(cs, workchain, addr)) {
+    throw std::invalid_argument("Parse address error: not valid address");
+  }
+  auto friendlyAddr = block::StdAddress(workchain, addr);
+
+  return friendlyAddr.rserialize(true);
+}
+
 PYBIND11_MODULE(tvm_python, m) {
   static py::exception<vm::VmError> exc(m, "VmError");
   py::register_exception_translator([](std::exception_ptr p) {
@@ -636,6 +669,8 @@ PYBIND11_MODULE(tvm_python, m) {
 
   m.def("method_name_to_id", &method_name_to_id);
   m.def("code_disasseble", &code_disasseble);
+  m.def("pack_address", &pack_address);
+  m.def("load_address", &load_address);
 
   py::class_<PyTVM>(m, "PyTVM")
       .def(py::init<int, std::string, std::string, bool, bool, bool>(), py::arg("log_level") = 0, py::arg("code") = "",
