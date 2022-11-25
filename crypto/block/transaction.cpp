@@ -1127,6 +1127,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
 
   td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
   auto enforce_state_size_limits = [&]() {
+    if (account.is_special) {
+      return true;
+    }
     if (!check_state_size_limit(cfg)) {
       // Rollback changes to state, fail action phase
       LOG(INFO) << "Account state size exceeded limits";
