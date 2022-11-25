@@ -1039,9 +1039,15 @@ bool CellStorageStat::add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup,
 bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, unsigned skip_count_root) {
   if (!(skip_count_root & 1)) {
     ++cells;
+    if (cells > limit_cells) {
+      return false;
+    }
   }
   if (!(skip_count_root & 2)) {
     bits += cs.size();
+    if (bits > limit_bits) {
+      return false;
+    }
   }
   for (unsigned i = 0; i < cs.size_refs(); i++) {
     if (!add_used_storage(cs.prefetch_ref(i), kill_dup)) {
@@ -1054,9 +1060,15 @@ bool CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup, unsig
 bool CellStorageStat::add_used_storage(CellSlice&& cs, bool kill_dup, unsigned skip_count_root) {
   if (!(skip_count_root & 1)) {
     ++cells;
+    if (cells > limit_cells) {
+      return false;
+    }
   }
   if (!(skip_count_root & 2)) {
     bits += cs.size();
+    if (bits > limit_bits) {
+      return false;
+    }
   }
   while (cs.size_refs()) {
     if (!add_used_storage(cs.fetch_ref(), kill_dup)) {
