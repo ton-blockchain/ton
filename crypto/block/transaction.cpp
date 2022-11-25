@@ -1843,7 +1843,7 @@ bool Transaction::check_state_size_limit(const ActionPhaseConfig& cfg) {
     }
     return a->get_hash() == b->get_hash();
   };
-  if (cell_equal(account.code, new_code) && cell_equal(account.data, compute_phase->new_data) &&
+  if (cell_equal(account.code, new_code) && cell_equal(account.data, new_data) &&
       cell_equal(account.library, new_library)) {
     return true;
   }
