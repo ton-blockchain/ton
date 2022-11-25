@@ -1004,6 +1004,16 @@ bool ValidateQuery::check_this_shard_mc_info() {
 
 bool ValidateQuery::compute_prev_state() {
   CHECK(prev_states.size() == 1u + after_merge_);
+  // Extend validator timeout if previous block is too old
+  UnixTime prev_ts = prev_states[0]->get_unix_time();
+  if (after_merge_) {
+    prev_ts = std::max(prev_ts, prev_states[1]->get_unix_time());
+  }
+  td::Timestamp new_timeout = td::Timestamp::in(std::min(60.0, (td::Clocks::system() - (double)prev_ts) / 2));
+  if (timeout < new_timeout) {
+    alarm_timestamp() = timeout = new_timeout;
+  }
+
   prev_state_root_ = prev_states[0]->root_cell();
   CHECK(prev_state_root_.not_null());
   if (after_merge_) {
@@ -4113,6 +4123,9 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
 
 bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
                                           bool is_first, bool is_last) {
+  if (!check_timeout()) {
+    return false;
+  }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
   const StdSmcAddress& addr = account.addr;
   block::gen::Transaction::Record trans;

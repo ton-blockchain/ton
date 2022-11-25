@@ -1725,6 +1725,9 @@ bool Collator::init_value_create() {
 }
 
 bool Collator::do_collate() {
+  // After do_collate started it will not be interrupted by timeout
+  alarm_timestamp() = td::Timestamp::never();
+
   LOG(DEBUG) << "do_collate() : start";
   if (!fetch_config_params()) {
     return fatal_error("cannot fetch required configuration parameters from masterchain state");
