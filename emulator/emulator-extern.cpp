@@ -523,7 +523,6 @@ const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *m
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonTrue());
-  json_obj("stack", StackJsonable(result.stack));
   json_obj("gas_used", std::to_string(result.gas_used));
   json_obj("vm_exit_code", result.code);
   json_obj("accepted", td::JsonBool(result.accepted));
