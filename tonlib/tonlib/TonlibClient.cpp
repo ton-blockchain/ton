@@ -5212,6 +5212,8 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                         td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise) {
   TRY_RESULT(block, to_lite_api(*request.id_))
   TRY_RESULT(account, to_bits256((*request.after_).account_, "account"));
+  bool check_proof = request.mode_ & 32;
+  auto root_hash = block->root_hash_;
   auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, (*request.after_).lt_);
   client_.send_query(ton::lite_api::liteServer_listBlockTransactions(
                        std::move(block),
@@ -5219,17 +5221,58 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                        request.count_,
                        std::move(after),
                        false,
-                       false),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
-                        const auto& id = bTxes->id_;
-                        //for (auto id : ids) {
+                       check_proof),
+                     promise.wrap([check_proof, root_hash](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) -> td::Result<object_ptr<tonlib_api::blocks_transactions>> {
+                        if (check_proof) {
+                          try {
+                            TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(bTxes->proof_)));
+                            auto virt_root = vm::MerkleProof::virtualize(proof_cell, 1);
+
+                            if (root_hash != virt_root->get_hash().bits()) {
+                              return td::Status::Error("Invalid block proof root hash");
+                            }
+                            block::gen::Block::Record blk;
+                            block::gen::BlockExtra::Record extra;
+                            if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(std::move(blk.extra), extra))) {
+                              return td::Status::Error("Error unpacking proof cell");
+                            }
+                            vm::AugmentedDictionary acc_dict{vm::load_cell_slice_ref(extra.account_blocks), 256,
+                                        block::tlb::aug_ShardAccountBlocks};
+
+                            for (auto& id: bTxes->ids_) {
+                              auto acc_blk_cs = acc_dict.lookup(id->account_.bits(), 256);
+                              if (acc_blk_cs.is_null()) {
+                                return td::Status::Error("Couldn't verify proof (account)");
+                              }
+                              block::gen::AccountBlock::Record acc_blk;
+                              if (!tlb::csr_unpack(std::move(acc_blk_cs), acc_blk)) {
+                                return td::Status::Error("Error unpacking proof account block");
+                              }
+                              vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
+                                          block::tlb::aug_AccountTransactions};
+                              td::BitArray<64> lt{(long long)id->lt_};
+                              auto trans_cs = trans_dict.lookup_ref(lt.bits(), 64);
+                              if (trans_cs.is_null()) {
+                                return td::Status::Error("Couldn't verify proof (lt)");
+                              }
+                              if (!trans_cs->get_hash().bits().equals(id->hash_.bits(), 256)) {
+                                return td::Status::Error("Couldn't verify proof (hash)");
+                              }
+                            }
+                          } catch (vm::VmError& err) {
+                            return err.as_status("Couldn't verify proof: ");
+                          } catch (vm::VmVirtError& err) {
+                            return err.as_status("Couldn't verify proof: ");
+                          } catch (...) {
+                            return td::Status::Error("Unknown exception raised while verifying proof");
+                          }
+                        }
+                        
                         tonlib_api::blocks_transactions r;
-                        r.id_ = to_tonlib_api(*id);
+                        r.id_ = to_tonlib_api(*bTxes->id_);
                         r.req_count_ = bTxes->req_count_;
                         r.incomplete_ = bTxes->incomplete_;
                         for (auto& id: bTxes->ids_) {
-                          //tonlib_api::blocks_shortTxId txid = tonlib_api::blocks_shortTxId(id->mode_, id->account_.as_slice().str(), id->lt_, id->hash_.as_slice().str());
-                          //r.transactions_.push_back(txid);
                           r.transactions_.push_back(to_tonlib_api(*id));
                         }
                         return tonlib_api::make_object<tonlib_api::blocks_transactions>(std::move(r));
