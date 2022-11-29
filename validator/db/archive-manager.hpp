@@ -97,6 +97,7 @@ class ArchiveManager : public td::actor::Actor {
     void clear_actor_id() {
       file.reset();
     }
+    bool has_account_prefix(AccountIdPrefixFull account_id) const;
     PackageId id;
     bool deleted;
 
