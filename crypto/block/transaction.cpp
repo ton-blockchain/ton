@@ -460,7 +460,6 @@ bool Account::deactivate() {
   return true;
 }
 
-
 bool Account::belongs_to_shard(ton::ShardIdFull shard) const {
   return workchain == shard.workchain && ton::shard_is_ancestor(shard.shard, addr);
 }
@@ -1126,6 +1125,25 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.total_action_fees = td::zero_refint();
   ap.reserved_balance.set_zero();
 
+  td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
+  auto enforce_state_size_limits = [&]() {
+    if (account.is_special) {
+      return true;
+    }
+    if (!check_state_size_limit(cfg)) {
+      // Rollback changes to state, fail action phase
+      LOG(INFO) << "Account state size exceeded limits";
+      new_storage_stat.clear();
+      new_code = old_code;
+      new_data = old_data;
+      new_library = old_library;
+      ap.result_code = 50;
+      ap.state_size_too_big = true;
+      return false;
+    }
+    return true;
+  };
+
   int n = 0;
   while (true) {
     ap.action_list.push_back(list);
@@ -1201,9 +1219,21 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         ap.no_funds = true;
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
+      // This is reuqired here because changes to libraries are applied even if actipn phase fails
+      enforce_state_size_limits();
       return true;
     }
   }
+
+  end_lt = ap.end_lt;
+  if (ap.new_code.not_null()) {
+    new_code = ap.new_code;
+  }
+  new_data = compute_phase->new_data;  // tentative persistent data update applied
+  if (!enforce_state_size_limits()) {
+    return true;
+  }
+
   ap.result_arg = 0;
   ap.result_code = 0;
   CHECK(ap.remaining_balance.grams->sgn() >= 0);
@@ -1217,12 +1247,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     was_deleted = true;
   }
   ap.success = true;
-  end_lt = ap.end_lt;
   out_msgs = std::move(ap.out_msgs);
-  if (ap.new_code.not_null()) {
-    new_code = ap.new_code;
-  }
-  new_data = compute_phase->new_data;  // tentative persistent data update applied
   total_fees +=
       ap.total_action_fees;  // NB: forwarding fees are not accounted here (they are not collected by the validators in this transaction)
   balance = ap.remaining_balance;
@@ -1811,6 +1836,35 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
   return 0;
 }
 
+bool Transaction::check_state_size_limit(const ActionPhaseConfig& cfg) {
+  auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
+    if (a.is_null()) {
+      return b.is_null();
+    }
+    if (b.is_null()) {
+      return false;
+    }
+    return a->get_hash() == b->get_hash();
+  };
+  if (cell_equal(account.code, new_code) && cell_equal(account.data, new_data) &&
+      cell_equal(account.library, new_library)) {
+    return true;
+  }
+  // new_storage_stat is used here beause these stats will be reused in compute_state()
+  new_storage_stat.limit_cells = cfg.size_limits.max_acc_state_cells;
+  new_storage_stat.limit_bits = cfg.size_limits.max_acc_state_bits;
+  new_storage_stat.add_used_storage(new_code);
+  new_storage_stat.add_used_storage(new_data);
+  new_storage_stat.add_used_storage(new_library);
+  if (acc_status == Account::acc_active) {
+    new_storage_stat.clear_limit();
+  } else {
+    new_storage_stat.clear();
+  }
+  return new_storage_stat.cells <= cfg.size_limits.max_acc_state_cells &&
+         new_storage_stat.bits <= cfg.size_limits.max_acc_state_bits;
+}
+
 bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   if (in_msg.is_null() || !bounce_enabled) {
     return false;
@@ -2035,7 +2089,7 @@ bool Transaction::compute_state() {
     stats = new_stats.unwrap();
   } else {
     td::Timer timer;
-    CHECK(stats.compute_used_storage(Ref<vm::Cell>(storage)));
+    CHECK(stats.add_used_storage(Ref<vm::Cell>(storage)));
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
     }

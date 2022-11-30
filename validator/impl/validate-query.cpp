@@ -66,8 +66,8 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
-      }) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
+    }) {
   proc_hash_.zero();
 }
 
@@ -1004,6 +1004,16 @@ bool ValidateQuery::check_this_shard_mc_info() {
 
 bool ValidateQuery::compute_prev_state() {
   CHECK(prev_states.size() == 1u + after_merge_);
+  // Extend validator timeout if previous block is too old
+  UnixTime prev_ts = prev_states[0]->get_unix_time();
+  if (after_merge_) {
+    prev_ts = std::max(prev_ts, prev_states[1]->get_unix_time());
+  }
+  td::Timestamp new_timeout = td::Timestamp::in(std::min(60.0, (td::Clocks::system() - (double)prev_ts) / 2));
+  if (timeout < new_timeout) {
+    alarm_timestamp() = timeout = new_timeout;
+  }
+
   prev_state_root_ = prev_states[0]->root_cell();
   CHECK(prev_state_root_.not_null());
   if (after_merge_) {
@@ -4113,6 +4123,9 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
 
 bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
                                           bool is_first, bool is_last) {
+  if (!check_timeout()) {
+    return false;
+  }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
   const StdSmcAddress& addr = account.addr;
   block::gen::Transaction::Record trans;
@@ -4318,7 +4331,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
   }
   if (is_first && is_masterchain() && account.is_special && account.tick &&
-      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) && account.orig_status == block::Account::acc_active) {
+      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) &&
+      account.orig_status == block::Account::acc_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                   << " is the first transaction for this special tick account in this block, but the "
                                      "transaction is not a tick transaction");
@@ -4491,7 +4505,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (trs->bounce_enabled && !trs->compute_phase->success && !trs->prepare_bounce_phase(action_phase_cfg_)) {
+  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_size_too_big) &&
+      !trs->prepare_bounce_phase(action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
@@ -4974,7 +4989,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return reject_query("no important parameters have been changed, but the block is marked as a key block");
   }
   vm::Dictionary dict1{ocfg_root, 32};
-  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long) 0});
+  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long)0});
   if (param0.is_null()) {
     if (cfg_acc_changed) {
       return reject_query("new state of old configuration smart contract "s + old_cfg_addr.to_hex() +

@@ -108,7 +108,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   block.id = next_block_id;
   run_validate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
-                     manager_, td::Timestamp::in(10.0), std::move(P));
+                     manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
 void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block_data,

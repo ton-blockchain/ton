@@ -184,6 +184,7 @@ struct ActionPhase {
   bool code_changed{false};
   bool action_list_invalid{false};
   bool acc_delete_req{false};
+  bool state_size_too_big{false};
   enum { acst_unchanged = 0, acst_frozen = 2, acst_deleted = 3 };
   int acc_status_change{acst_unchanged};
   td::RefInt256 total_fwd_fees;     // all fees debited from the account
@@ -351,6 +352,7 @@ struct Transaction {
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
+  bool check_state_size_limit(const ActionPhaseConfig& cfg);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state();
   bool serialize();
