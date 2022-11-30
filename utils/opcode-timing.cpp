@@ -131,7 +131,8 @@ runtimeStats timeInstruction(const std::string& setupCode, const std::string& to
   const auto totalCodeTime = averageRuntime(setupCode + toMeasure);
   return {
       {totalCodeTime.runtime.mean - setupCodeTime.runtime.mean, totalCodeTime.runtime.stddev},
-      {totalCodeTime.gasUsage.mean - setupCodeTime.gasUsage.mean, totalCodeTime.gasUsage.stddev}
+      {totalCodeTime.gasUsage.mean - setupCodeTime.gasUsage.mean, totalCodeTime.gasUsage.stddev},
+      false
   };
 }
 
