@@ -2297,14 +2297,21 @@ const MasterConfig& get_default_master_config() {
           "root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
           "file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg="
         },
-        "init_block" : {
-          "root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
-          "seqno": 0,
-          "file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg=",
+        "init_block": {
+          "file_hash": "jF3RTD+OyOoP+OI9oIjdV6M8EaOh9E+8+c3m5JkPYdg=",
+          "seqno": 5141579,
+          "root_hash": "6JSqIYIkW7y8IorxfbQBoXiuY3kXjcoYgQOxTJpjXXA=",
           "workchain": -1,
           "shard": -9223372036854775808
         },
-        "hardforks": [
+        "hardforks": [ 
+          {
+            "file_hash": "jF3RTD+OyOoP+OI9oIjdV6M8EaOh9E+8+c3m5JkPYdg=",
+            "seqno": 5141579,
+            "root_hash": "6JSqIYIkW7y8IorxfbQBoXiuY3kXjcoYgQOxTJpjXXA=",
+            "workchain": -1,
+            "shard": -9223372036854775808
+          }
         ]
       }
     })abc");
