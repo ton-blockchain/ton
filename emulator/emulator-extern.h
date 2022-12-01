@@ -138,14 +138,7 @@ EMULATOR_EXPORT bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_
  * @brief Run get method
  * @param tvm_emulator Pointer to TVM emulator
  * @param method_id Integer method id
- * @param stack_json Json array with stack entries the following format:
- * [
- *   {
- *      "type": "cell, cell_slice, number or tuple",
- *      "value": value (string or in case of tuple array of stack entries)
- *   },
- *   { ... }
- * ]
+ * @param stack_boc Base64 encoded BoC serialized stack (VmStack)
  * @return Json object with error:
  * { 
  *   "success": false, 
@@ -156,12 +149,12 @@ EMULATOR_EXPORT bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_
  *   "success": true
  *   "vm_log": "...", 
  *   "vm_exit_code": 0, 
- *   "stack": [], 
+ *   "stack": "Base64 encoded BoC serialized stack (VmStack)", 
  *   "missing_library": null, 
  *   "gas_used": 1212
  * }
  */
-EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_json);
+EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc);
 
 /**
  * @brief Send external message

@@ -19,122 +19,6 @@ td::Result<std::string> cell_to_boc_b64(td::Ref<vm::Cell> cell) {
   return td::base64_encode(boc.as_slice());
 }
 
-td::Result<vm::StackEntry> from_emulator_api(td::JsonValue& entry) {
-  if (entry.type() != td::JsonValue::Type::Object) {
-    return td::Status::Error(PSLICE() << "Stack entry of object type expected");
-  }
-  auto& object = entry.get_object();
-  TRY_RESULT(type, td::get_json_object_string_field(object, "type", false));
-
-  if (type == "cell") {
-    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
-    TRY_RESULT(cell, boc_b64_to_cell(value.get_string().str().c_str()));
-    return vm::StackEntry(std::move(cell));
-  }
-  if (type == "cell_slice") {
-    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
-    TRY_RESULT(cell, boc_b64_to_cell(value.get_string().str().c_str()));
-    auto slice = vm::load_cell_slice_ref(std::move(cell));
-    return vm::StackEntry(slice);
-  }
-  if (type == "number") {
-    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::String, false));
-    auto num = td::dec_string_to_int256(value.get_string());
-    if (num.is_null()) {
-      return td::Status::Error("Error parsing string to int256");
-    } 
-    return vm::StackEntry(num);
-  }
-  if (type == "tuple") {
-    std::vector<vm::StackEntry> elements;
-    TRY_RESULT(value, td::get_json_object_field(object, "value", td::JsonValue::Type::Array, false));
-    for (auto& element : value.get_array()) {
-      TRY_RESULT(new_element, from_emulator_api(element));
-      elements.push_back(std::move(new_element));
-    }
-    return td::Ref<vm::Tuple>(true, std::move(elements));
-  }
-  if (type == "null") {
-    return vm::StackEntry();
-  }
-  
-  return td::Status::Error(PSLICE() << "Unsupported type: " << type);
-}
-
-class StackEntryJsonable: public td::Jsonable {
-  vm::StackEntry entry_;
-public:
-  explicit StackEntryJsonable(const vm::StackEntry &entry) : entry_(entry) {
-  }
-
-  void store(td::JsonValueScope *scope) const {
-    std::string type;
-    td::Variant<td::JsonValue, td::JsonArray> value;
-    switch (entry_.type()) {
-      case vm::StackEntry::t_cell: {
-        auto boc_b64 = cell_to_boc_b64(entry_.as_cell());
-        CHECK(boc_b64.is_ok());
-        auto object = scope->enter_object();
-        object("type", "cell");
-        object("value", boc_b64.move_as_ok());
-        break;
-      }
-      case vm::StackEntry::t_slice: {
-        auto boc_b64 = cell_to_boc_b64(entry_.as_cell());
-        CHECK(boc_b64.is_ok());
-        auto object = scope->enter_object();
-        object("type", "cell_slice");
-        object("value", boc_b64.move_as_ok());
-        break;
-      }
-      case vm::StackEntry::t_int: {
-        auto object = scope->enter_object();
-        object("type", "number");
-        object("value", dec_string(entry_.as_int()));
-        break;
-      }
-      case vm::StackEntry::t_tuple: {
-        auto object = scope->enter_object();
-        td::JsonBuilder jb;
-        auto array = jb.enter_array();
-        for (const auto& x : *entry_.as_tuple()) {
-          array << StackEntryJsonable(x);
-        }
-        array.leave();
-        object("type", "tuple");
-        object("value", td::JsonRaw(jb.string_builder().as_cslice()));
-        break;
-      }
-      case vm::StackEntry::t_null: {
-        auto object = scope->enter_object();
-        object("type", "null");
-        object("value", td::JsonNull());
-        break;
-      }
-      default: {
-        auto object = scope->enter_object();
-        object("type", "UNSUPPORTED STACK ENTRY TYPE");
-        object("value", td::JsonNull());
-        break;
-      }
-    }
-  }
-};
-
-class StackJsonable: public td::Jsonable {
-  td::Ref<vm::Stack> stack_;
-public:
-  explicit StackJsonable(td::Ref<vm::Stack> stack) : stack_(stack) {  
-  }
-
-  void store(td::JsonValueScope *scope) const {
-    auto array = scope->enter_array();
-    for (auto& entry : stack_->as_span()) {
-      array << StackEntryJsonable(entry);
-    }
-  }
-};
-
 const char *success_response(std::string&& transaction, std::string&& new_shard_account, std::string&& vm_log, td::optional<std::string>&& actions) {
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
@@ -449,33 +333,33 @@ bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_limit) {
   return true;
 }
 
-const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_json_raw) {
-  std::string stack_json_str(stack_json_raw);
-  auto stack_json = td::json_decode(stack_json_str);
-  if (stack_json.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Couldn't decode stack json: " << stack_json.move_as_error().to_string());
+const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc) {
+  auto stack_cell = boc_b64_to_cell(stack_boc);
+  if (stack_cell.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't deserialize stack cell: " << stack_cell.move_as_error().to_string());
   }
-  if (stack_json.ok_ref().type() != td::JsonValue::Type::Array) {
-    ERROR_RESPONSE(PSTRING() << "Stack of type array expected");
-  }
-  auto& stack_json_array = stack_json.ok_ref().get_array();
-  std::vector<vm::StackEntry> stack_entries;
-  for (auto& stack_entry_json : stack_json_array) {
-    auto stack_entry = from_emulator_api(stack_entry_json);
-    if (stack_entry.is_error()) {
-      ERROR_RESPONSE(PSTRING() << "Error parsing stack: " << stack_entry.move_as_error().to_string());
-    }
-    stack_entries.push_back(stack_entry.move_as_ok());
+  auto stack_cs = vm::load_cell_slice(stack_cell.move_as_ok());
+  td::Ref<vm::Stack> stack;
+  if (!vm::Stack::deserialize_to(stack_cs, stack)) {
+     ERROR_RESPONSE(PSTRING() << "Couldn't deserialize stack");
   }
 
-  td::Ref<vm::Stack> stack(true, std::move(stack_entries));
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto result = emulator->run_get_method(method_id, stack);
+  
+  vm::CellBuilder stack_cb;
+  if (!result.stack->serialize(stack_cb)) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize stack");
+  }
+  auto result_stack_boc = cell_to_boc_b64(stack_cb.finalize());
+  if (result_stack_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize stack cell: " << result_stack_boc.move_as_error().to_string());
+  }
 
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonTrue());
-  json_obj("stack", StackJsonable(result.stack));
+  json_obj("stack", result_stack_boc.move_as_ok());
   json_obj("gas_used", std::to_string(result.gas_used));
   json_obj("vm_exit_code", result.code);
   json_obj("vm_log", result.vm_log);
@@ -501,7 +385,6 @@ const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *m
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonTrue());
-  json_obj("stack", StackJsonable(result.stack));
   json_obj("gas_used", std::to_string(result.gas_used));
   json_obj("vm_exit_code", result.code);
   json_obj("accepted", td::JsonBool(result.accepted));
