@@ -143,81 +143,6 @@ void print_table(const std::vector<std::vector<std::string>>& table) {
   }
 }
 
-void print_torrent_full(const ton_api::storage_daemon_torrentFull& obj) {
-  td::TerminalIO::out() << "Hash = " << obj.torrent_->hash_.to_hex() << "\n";
-  if (obj.torrent_->flags_ & 4) {  // fatal error
-    td::TerminalIO::out() << "FATAL ERROR: " << obj.torrent_->fatal_error_ << "\n";
-  }
-  if (obj.torrent_->flags_ & 1) {    // info ready
-    if (obj.torrent_->flags_ & 2) {  // header ready
-      td::TerminalIO::out() << "Downloaded: " << td::format::as_size(obj.torrent_->downloaded_size_) << "/"
-                            << td::format::as_size(obj.torrent_->included_size_)
-                            << (obj.torrent_->completed_ ? " (completed)" : "") << "\n";
-      td::TerminalIO::out() << "Dir name: " << obj.torrent_->dir_name_ << "\n";
-    }
-    td::TerminalIO::out() << "Total size: " << td::format::as_size(obj.torrent_->total_size_) << "\n";
-    if (!obj.torrent_->description_.empty()) {
-      td::TerminalIO::out() << "------------\n";
-      td::TerminalIO::out() << obj.torrent_->description_ << "\n";
-      td::TerminalIO::out() << "------------\n";
-    }
-  } else {
-    td::TerminalIO::out() << "Torrent info is not available\n";
-  }
-  if (obj.torrent_->completed_) {
-  } else if (obj.torrent_->active_download_) {
-    td::TerminalIO::out() << "Download speed: " << td::format::as_size((td::uint64)obj.torrent_->download_speed_)
-                          << "/s\n";
-  } else {
-    td::TerminalIO::out() << "Download paused\n";
-  }
-  td::TerminalIO::out() << "Root dir: " << obj.torrent_->root_dir_ << "\n";
-  if (obj.torrent_->flags_ & 2) {  // header ready
-    td::TerminalIO::out() << obj.files_.size() << " files:\n";
-    td::TerminalIO::out() << "######  Prior   Ready/Size     Name\n";
-    td::uint32 i = 0;
-    for (const auto& f : obj.files_) {
-      char str[64];
-      char priority[4] = "---";
-      if (f->priority_ > 0) {
-        CHECK(f->priority_ <= 255);
-        snprintf(priority, sizeof(priority), "%03d", f->priority_);
-      }
-      snprintf(str, sizeof(str), "%6u: (%s) %7s/%-7s  ", i, priority,
-               f->priority_ == 0 ? "---" : size_to_str(f->downloaded_size_).c_str(), size_to_str(f->size_).c_str());
-      td::TerminalIO::out() << str << f->name_ << "\n";
-      ++i;
-    }
-  } else {
-    td::TerminalIO::out() << "Torrent header is not available\n";
-  }
-}
-
-void print_torrent_list(const ton_api::storage_daemon_torrentList& obj) {
-  td::TerminalIO::out() << obj.torrents_.size() << " torrents\n";
-  td::TerminalIO::out() << "Torrent hash" << std::string(53, ' ') << "     Downloaded     Total    Speed\n";
-  for (const auto& torrent : obj.torrents_) {
-    char str[256];
-    std::string hash = torrent->hash_.to_hex();
-    bool info_ready = torrent->flags_ & 1;
-    bool header_ready = torrent->flags_ & 2;
-    std::string downloaded_size = size_to_str(torrent->downloaded_size_);
-    std::string included_size = header_ready ? size_to_str(torrent->included_size_) : "???";
-    std::string total_size = info_ready ? size_to_str(torrent->total_size_) : "???";
-    std::string status;
-    if (torrent->flags_ & 4) {  // fatal error
-      status = "FATAL ERROR: " + torrent->fatal_error_;
-    } else {
-      status = torrent->completed_
-                   ? "COMPLETED"
-                   : (torrent->active_download_ ? size_to_str((td::uint64)torrent->download_speed_) + "/s" : "Paused");
-    }
-    snprintf(str, sizeof(str), "  %64s %7s/%-7s %7s %9s", hash.c_str(), downloaded_size.c_str(), included_size.c_str(),
-             total_size.c_str(), status.c_str());
-    td::TerminalIO::out() << str << "\n";
-  }
-}
-
 struct OptionalProviderParams {
   td::optional<bool> accept_new_contracts;
   td::optional<td::RefInt256> rate_per_mb_day;
@@ -229,12 +154,12 @@ struct OptionalProviderParams {
 class StorageDaemonCli : public td::actor::Actor {
  public:
   explicit StorageDaemonCli(td::IPAddress server_ip, PrivateKey client_private_key, PublicKey server_public_key,
-                            td::optional<std::string> command)
+                            std::vector<std::string> commands)
       : server_ip_(server_ip)
       , client_private_key_(client_private_key)
       , server_public_key_(server_public_key)
-      , command_(command)
-      , ex_mode_(command_) {
+      , commands_(std::move(commands))
+      , batch_mode_(!commands_.empty()) {
   }
 
   void start_up() override {
@@ -258,7 +183,7 @@ class StorageDaemonCli : public td::actor::Actor {
     client_ = adnl::AdnlExtClient::create(adnl::AdnlNodeIdFull{server_public_key_}, client_private_key_, server_ip_,
                                           std::make_unique<ExtClientCallback>(actor_id(this)));
 
-    if (!ex_mode_) {
+    if (!batch_mode_) {
       class TerminalCallback : public td::TerminalIO::Callback {
        public:
         void line_cb(td::BufferSlice line) override {
@@ -276,8 +201,8 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   void on_conn_status(bool status) {
-    if (command_) {
-      parse_line(td::BufferSlice(command_.unwrap()));
+    if (batch_mode_) {
+      parse_line(td::BufferSlice(commands_[cur_command_++]));
     }
   }
 
@@ -295,6 +220,20 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Invalid hash");
       }
       return hash;
+    };
+    auto parse_torrent = [&](const std::string& s) -> td::Result<td::Bits256> {
+      if (s.length() == 64) {
+        return parse_hash(s);
+      }
+      if (batch_mode_) {
+        return td::Status::Error("Torrent ids are not available in batch mode");
+      }
+      TRY_RESULT(id, td::to_integer_safe<td::uint32>(s));
+      auto it = id_to_hash_.find(id);
+      if (it == id_to_hash_.end()) {
+        return td::Status::Error(PSTRING() << "Unknown torrent id " << id);
+      }
+      return it->second;
     };
 
     TRY_RESULT_PREFIX(tokens, tokenize(line), "Failed to parse line: ");
@@ -389,46 +328,51 @@ class StorageDaemonCli : public td::actor::Actor {
         return execute_add_by_meta(param.value(), std::move(root_dir), paused, std::move(partial));
       }
     } else if (tokens[0] == "list") {
-      if (tokens.size() != 1) {
-        return td::Status::Error("Unexpected tokens");
+      bool with_hashes = false;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (tokens[i] == "--hashes") {
+          with_hashes = true;
+          continue;
+        }
+        return td::Status::Error(PSTRING() << "Unexpected argument " << tokens[i]);
       }
-      return execute_list();
+      return execute_list(with_hashes);
     } else if (tokens[0] == "get") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected hash");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get(hash);
     } else if (tokens[0] == "get-meta") {
       if (tokens.size() != 3) {
         return td::Status::Error("Expected hash and file");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get_meta(hash, tokens[2]);
     } else if (tokens[0] == "get-info") {
       if (tokens.size() != 3) {
         return td::Status::Error("Expected hash and file");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get_info(hash, tokens[2]);
     } else if (tokens[0] == "download-pause" || tokens[0] == "download-resume") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected hash");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_set_active_download(hash, tokens[0] == "download-resume");
     } else if (tokens[0] == "priority-all") {
       if (tokens.size() != 3) {
         return td::Status::Error("Expected hash and priority");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[2]), "Invalid priority: ");
       return execute_set_priority_all(hash, priority);
     } else if (tokens[0] == "priority-idx") {
       if (tokens.size() != 4) {
         return td::Status::Error("Expected hash, idx and priority");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(idx, td::to_integer_safe<td::uint64>(tokens[2]), "Invalid idx: ");
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[3]), "Invalid priority: ");
       return execute_set_priority_idx(hash, idx, priority);
@@ -436,7 +380,7 @@ class StorageDaemonCli : public td::actor::Actor {
       if (tokens.size() != 4) {
         return td::Status::Error("Expected hash, name and priority");
       }
-      TRY_RESULT(hash, parse_hash(tokens[1]));
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[3]), "Invalid priority: ");
       return execute_set_priority_name(hash, tokens[2], priority);
     } else if (tokens[0] == "remove") {
@@ -454,7 +398,7 @@ class StorageDaemonCli : public td::actor::Actor {
         if (found_hash) {
           return td::Status::Error("Unexpected token");
         }
-        TRY_RESULT_ASSIGN(hash, parse_hash(tokens[i]));
+        TRY_RESULT_ASSIGN(hash, parse_torrent(tokens[i]));
         found_hash = true;
       }
       if (!found_hash) {
@@ -482,7 +426,7 @@ class StorageDaemonCli : public td::actor::Actor {
         if (found_hash) {
           return td::Status::Error("Unexpected token");
         }
-        TRY_RESULT_ASSIGN(hash, parse_hash(tokens[i]));
+        TRY_RESULT_ASSIGN(hash, parse_torrent(tokens[i]));
         found_hash = true;
       }
       if (!found_hash) {
@@ -641,22 +585,24 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--partial file1 file2 ...]\tLoad torrent "
                              "meta from file and add torreent\n";
     td::TerminalIO::out() << "\tFlags are the same as in add-by-hash\n";
-    td::TerminalIO::out() << "list\tPrint list of torrents\n";
-    td::TerminalIO::out() << "get <hash>\tPrint information about torrent <hash> (hash in hex)\n";
-    td::TerminalIO::out() << "get-meta <hash> <file>\tSave torrent meta of <hash> to <file>\n";
-    td::TerminalIO::out() << "get-info <hash> <file>\tSave torrent info (serialized BOC) of <hash> to <file>\n";
-    td::TerminalIO::out() << "download-pause <hash>\tPause download of torrent <hash> (hash in hex)\n";
-    td::TerminalIO::out() << "download-resume <hash>\tResume download of torrent <hash> (hash in hex)\n";
-    td::TerminalIO::out() << "priority-all <hash> <p>\tSet priority of all files in torrent <hash> to <p>\n";
+    td::TerminalIO::out() << "list [--hashes]\tPrint list of torrents\n";
+    td::TerminalIO::out() << "\t--hashes\tPrint full hashes of torrents\n";
+    td::TerminalIO::out() << "get <torrent>\tPrint information about <torrent>\n";
+    td::TerminalIO::out() << "\tHere and below torrents are identified by hash (in hex) or id (see torrent list)\n";
+    td::TerminalIO::out() << "get-meta <torrent> <file>\tSave torrent meta of <torrent> to <file>\n";
+    td::TerminalIO::out() << "get-info <torrent> <file>\tSave torrent info (serialized BOC) of <torrent> to <file>\n";
+    td::TerminalIO::out() << "download-pause <torrent>\tPause download of <torrent>\n";
+    td::TerminalIO::out() << "download-resume <torrent>\tResume download of <torrent>\n";
+    td::TerminalIO::out() << "priority-all <torrent> <p>\tSet priority of all files in <torrent> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "priority-idx <hash> <idx> <p>\tSet priority of file #<idx> in torrent <hash> to <p>\n";
+    td::TerminalIO::out() << "priority-idx <torrent> <idx> <p>\tSet priority of file #<idx> in <torrent> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "priority-name <hash> <name> <p>\tSet priority of file <name> in torrent <hash> to <p>\n";
+    td::TerminalIO::out() << "priority-name <torrent> <name> <p>\tSet priority of file <name> in <torrent> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "remove <hash> [--remove-files]\tRemove torrent <hash>\n";
+    td::TerminalIO::out() << "remove <torrent> [--remove-files]\tRemove <torrent>\n";
     td::TerminalIO::out() << "\t--remove-files - also remove all files\n";
-    td::TerminalIO::out()
-        << "load-from <hash> [--meta meta] [--files path]\tProvide meta and data for an existing incomplete torrent.\n";
+    td::TerminalIO::out() << "load-from <torrent> [--meta meta] [--files path]\tProvide meta and data for an existing "
+                             "incomplete torrent.\n";
     td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
     td::TerminalIO::out() << "\t--files path\tdata for torrent files will be taken from here\n";
     td::TerminalIO::out() << "exit\tExit\n";
@@ -712,9 +658,8 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (R.is_error()) {
                    return;
                  }
-                 auto obj = R.move_as_ok();
                  td::TerminalIO::out() << "Torrent created\n";
-                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
@@ -741,9 +686,8 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (R.is_error()) {
                    return;
                  }
-                 auto obj = R.move_as_ok();
                  td::TerminalIO::out() << "Torrent added\n";
-                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
@@ -771,25 +715,23 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (R.is_error()) {
                    return;
                  }
-                 auto obj = R.move_as_ok();
                  td::TerminalIO::out() << "Torrent added\n";
-                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
   }
 
-  td::Status execute_list() {
+  td::Status execute_list(bool with_hashes) {
     auto query = create_tl_object<ton_api::storage_daemon_getTorrents>();
-    send_query(std::move(query),
-               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentList>> R) {
-                 if (R.is_error()) {
-                   return;
-                 }
-                 auto obj = R.move_as_ok();
-                 print_torrent_list(*obj);
-                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
-               });
+    send_query(std::move(query), [SelfId = actor_id(this),
+                                  with_hashes](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentList>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_list, R.move_as_ok(), with_hashes);
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
     return td::Status::OK();
   }
 
@@ -800,8 +742,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (R.is_error()) {
                    return;
                  }
-                 auto obj = R.move_as_ok();
-                 print_torrent_full(*obj);
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
@@ -916,11 +857,12 @@ class StorageDaemonCli : public td::actor::Actor {
   td::Status execute_remove(td::Bits256 hash, bool remove_files) {
     auto query = create_tl_object<ton_api::storage_daemon_removeTorrent>(hash, remove_files);
     send_query(std::move(query),
-               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+               [SelfId = actor_id(this), hash](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
                  if (R.is_error()) {
                    return;
                  }
                  td::TerminalIO::out() << "Success\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::delete_id, hash);
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
@@ -1246,9 +1188,15 @@ class StorageDaemonCli : public td::actor::Actor {
   void command_finished(td::Status S) {
     if (S.is_error()) {
       td::TerminalIO::out() << S.message() << "\n";
-    }
-    if (ex_mode_) {
-      std::exit(S.is_ok() ? 0 : 2);
+      if (batch_mode_) {
+        std::exit(2);
+      }
+    } else if (batch_mode_) {
+      if (cur_command_ == commands_.size()) {
+        std::exit(0);
+      } else {
+        parse_line(td::BufferSlice(commands_[cur_command_++]));
+      }
     }
   }
 
@@ -1256,10 +1204,138 @@ class StorageDaemonCli : public td::actor::Actor {
   td::IPAddress server_ip_;
   PrivateKey client_private_key_;
   PublicKey server_public_key_;
-  td::optional<std::string> command_;
-  bool ex_mode_;
+  bool batch_mode_ = false;
+  std::vector<std::string> commands_;
+  size_t cur_command_ = 0;
   td::actor::ActorOwn<adnl::AdnlExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
+
+  std::map<td::uint32, td::Bits256> id_to_hash_;
+  std::map<td::Bits256, td::uint32> hash_to_id_;
+  td::uint32 cur_id_ = 0;
+
+  void add_id(td::Bits256 hash) {
+    if (hash_to_id_.emplace(hash, cur_id_).second) {
+      id_to_hash_[cur_id_++] = hash;
+    }
+  }
+
+  void delete_id(td::Bits256 hash) {
+    auto it = hash_to_id_.find(hash);
+    if (it != hash_to_id_.end()) {
+      id_to_hash_.erase(it->second);
+      hash_to_id_.erase(it);
+    }
+  }
+
+  void update_ids(std::vector<td::Bits256> hashes) {
+    for (const td::Bits256& hash : hashes) {
+      add_id(hash);
+    }
+    std::sort(hashes.begin(), hashes.end());
+    for (auto it = hash_to_id_.begin(); it != hash_to_id_.end();) {
+      if (std::binary_search(hashes.begin(), hashes.end(), it->first)) {
+        ++it;
+      } else {
+        id_to_hash_.erase(it->second);
+        it = hash_to_id_.erase(it);
+      }
+    }
+  }
+
+  void print_torrent_full(tl_object_ptr<ton_api::storage_daemon_torrentFull> ptr) {
+    auto& obj = *ptr;
+    add_id(obj.torrent_->hash_);
+    td::TerminalIO::out() << "Hash = " << obj.torrent_->hash_.to_hex() << "\n";
+    td::TerminalIO::out() << "ID = " << hash_to_id_[obj.torrent_->hash_] << "\n";
+    if (obj.torrent_->flags_ & 4) {  // fatal error
+      td::TerminalIO::out() << "FATAL ERROR: " << obj.torrent_->fatal_error_ << "\n";
+    }
+    if (obj.torrent_->flags_ & 1) {    // info ready
+      if (obj.torrent_->flags_ & 2) {  // header ready
+        td::TerminalIO::out() << "Downloaded: " << td::format::as_size(obj.torrent_->downloaded_size_) << "/"
+                              << td::format::as_size(obj.torrent_->included_size_)
+                              << (obj.torrent_->completed_ ? " (completed)" : "") << "\n";
+        td::TerminalIO::out() << "Dir name: " << obj.torrent_->dir_name_ << "\n";
+      }
+      td::TerminalIO::out() << "Total size: " << td::format::as_size(obj.torrent_->total_size_) << "\n";
+      if (!obj.torrent_->description_.empty()) {
+        td::TerminalIO::out() << "------------\n";
+        td::TerminalIO::out() << obj.torrent_->description_ << "\n";
+        td::TerminalIO::out() << "------------\n";
+      }
+    } else {
+      td::TerminalIO::out() << "Torrent info is not available\n";
+    }
+    if (obj.torrent_->completed_) {
+    } else if (obj.torrent_->active_download_) {
+      td::TerminalIO::out() << "Download speed: " << td::format::as_size((td::uint64)obj.torrent_->download_speed_)
+                            << "/s\n";
+    } else {
+      td::TerminalIO::out() << "Download paused\n";
+    }
+    td::TerminalIO::out() << "Root dir: " << obj.torrent_->root_dir_ << "\n";
+    if (obj.torrent_->flags_ & 2) {  // header ready
+      td::TerminalIO::out() << obj.files_.size() << " files:\n";
+      td::TerminalIO::out() << "######  Prior   Ready/Size     Name\n";
+      td::uint32 i = 0;
+      for (const auto& f : obj.files_) {
+        char str[64];
+        char priority[4] = "---";
+        if (f->priority_ > 0) {
+          CHECK(f->priority_ <= 255);
+          snprintf(priority, sizeof(priority), "%03d", f->priority_);
+        }
+        snprintf(str, sizeof(str), "%6u: (%s) %7s/%-7s  ", i, priority,
+                 f->priority_ == 0 ? "---" : size_to_str(f->downloaded_size_).c_str(), size_to_str(f->size_).c_str());
+        td::TerminalIO::out() << str << f->name_ << "\n";
+        ++i;
+      }
+    } else {
+      td::TerminalIO::out() << "Torrent header is not available\n";
+    }
+  }
+
+  void print_torrent_list(tl_object_ptr<ton_api::storage_daemon_torrentList> ptr, bool with_hashes) {
+    auto& obj = *ptr;
+    std::vector<td::Bits256> hashes;
+    for (const auto& torrent : obj.torrents_) {
+      hashes.push_back(torrent->hash_);
+    }
+    update_ids(std::move(hashes));
+    std::sort(obj.torrents_.begin(), obj.torrents_.end(),
+              [&](const tl_object_ptr<ton_api::storage_daemon_torrent>& a,
+                  const tl_object_ptr<ton_api::storage_daemon_torrent>& b) {
+                return hash_to_id_[a->hash_] < hash_to_id_[b->hash_];
+              });
+    td::TerminalIO::out() << obj.torrents_.size() << " torrents\n";
+    td::TerminalIO::out() << "###### Hash" << std::string(with_hashes ? 59 : 6, ' ')
+                          << "     Downloaded     Total    Speed\n";
+    for (const auto& torrent : obj.torrents_) {
+      char str[256];
+      std::string hash = torrent->hash_.to_hex();
+      if (!with_hashes) {
+        hash = hash.substr(0, 8) + "...";
+      }
+      bool info_ready = torrent->flags_ & 1;
+      bool header_ready = torrent->flags_ & 2;
+      std::string downloaded_size = size_to_str(torrent->downloaded_size_);
+      std::string included_size = header_ready ? size_to_str(torrent->included_size_) : "???";
+      std::string total_size = info_ready ? size_to_str(torrent->total_size_) : "???";
+      std::string status;
+      if (torrent->flags_ & 4) {  // fatal error
+        status = "FATAL ERROR: " + torrent->fatal_error_;
+      } else {
+        status =
+            torrent->completed_
+                ? "COMPLETED"
+                : (torrent->active_download_ ? size_to_str((td::uint64)torrent->download_speed_) + "/s" : "Paused");
+      }
+      snprintf(str, sizeof(str), "%6u %s %7s/%-7s %7s %9s", hash_to_id_[torrent->hash_], hash.c_str(),
+               downloaded_size.c_str(), included_size.c_str(), total_size.c_str(), status.c_str());
+      td::TerminalIO::out() << str << "\n";
+    }
+  }
 };
 
 int main(int argc, char* argv[]) {
@@ -1268,7 +1344,7 @@ int main(int argc, char* argv[]) {
   td::IPAddress ip_addr;
   PrivateKey client_private_key;
   PublicKey server_public_key;
-  td::optional<std::string> command;
+  std::vector<std::string> commands;
   td::OptionParser p;
   p.set_description("command-line interface for storage-daemon");
   p.add_option('h', "help", "prints_help", [&]() {
@@ -1289,7 +1365,7 @@ int main(int argc, char* argv[]) {
     TRY_STATUS(ip_addr.init_host_port(arg.str()));
     return td::Status::OK();
   });
-  p.add_option('c', "cmd", "execute command", [&](td::Slice arg) { command = arg.str(); });
+  p.add_option('c', "cmd", "execute command", [&](td::Slice arg) { commands.push_back(arg.str()); });
   p.add_checked_option('k', "key", "private key", [&](td::Slice arg) {
     TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
     TRY_RESULT_ASSIGN(client_private_key, PrivateKey::import(data));
@@ -1311,7 +1387,8 @@ int main(int argc, char* argv[]) {
 
   td::actor::Scheduler scheduler({0});
   scheduler.run_in_context([&] {
-    td::actor::create_actor<StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key, command)
+    td::actor::create_actor<StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key,
+                                              std::move(commands))
         .release();
   });
   scheduler.run();
