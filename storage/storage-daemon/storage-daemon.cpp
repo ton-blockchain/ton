@@ -56,9 +56,10 @@ td::BufferSlice create_query_error(td::Status error) {
 
 class StorageDaemon : public td::actor::Actor {
  public:
-  StorageDaemon(td::IPAddress ip_addr, std::string global_config, std::string db_root, td::uint16 control_port,
-                bool enable_storage_provider)
+  StorageDaemon(td::IPAddress ip_addr, bool client_mode, std::string global_config, std::string db_root,
+                td::uint16 control_port, bool enable_storage_provider)
       : ip_addr_(ip_addr)
+      , client_mode_(client_mode)
       , global_config_(std::move(global_config))
       , db_root_(std::move(db_root))
       , control_port_(control_port)
@@ -96,8 +97,8 @@ class StorageDaemon : public td::actor::Actor {
       td::actor::ActorId<StorageDaemon> actor_;
     };
     manager_ = td::actor::create_actor<StorageManager>("storage", local_id_, db_root_ + "/torrent",
-                                                       td::make_unique<Callback>(actor_id(this)), adnl_.get(),
-                                                       rldp_.get(), overlays_.get());
+                                                       td::make_unique<Callback>(actor_id(this)), client_mode_,
+                                                       adnl_.get(), rldp_.get(), overlays_.get());
   }
 
   td::Status load_global_config() {
@@ -161,9 +162,9 @@ class StorageDaemon : public td::actor::Actor {
                             std::move(cat_mask), 0);
 
     adnl::AdnlAddressList addr_list;
-    adnl::AdnlAddress addr = adnl::AdnlAddressImpl::create(
-        create_tl_object<ton_api::adnl_address_udp>(ip_addr_.get_ipv4(), ip_addr_.get_port()));
-    addr_list.add_addr(std::move(addr));
+    if (!client_mode_) {
+      addr_list.add_udp_address(ip_addr_).ensure();
+    }
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(adnl::Adnl::adnl_start_time());
     auto generate_adnl_id = [&]() -> adnl::AdnlNodeIdShort {
@@ -177,9 +178,15 @@ class StorageDaemon : public td::actor::Actor {
     };
     local_id_ = generate_adnl_id();
     dht_id_ = generate_adnl_id();
-    auto D = dht::Dht::create(dht_id_, db_root_, dht_config_, keyring_.get(), adnl_.get());
-    D.ensure();
-    dht_ = D.move_as_ok();
+    if (client_mode_) {
+      auto D = dht::Dht::create_client(dht_id_, db_root_, dht_config_, keyring_.get(), adnl_.get());
+      D.ensure();
+      dht_ = D.move_as_ok();
+    } else {
+      auto D = dht::Dht::create(dht_id_, db_root_, dht_config_, keyring_.get(), adnl_.get());
+      D.ensure();
+      dht_ = D.move_as_ok();
+    }
     td::actor::send_closure(adnl_, &adnl::Adnl::register_dht_node, dht_.get());
 
     rldp_ = ton_rldp::Rldp::create(adnl_.get());
@@ -758,6 +765,7 @@ class StorageDaemon : public td::actor::Actor {
   }
 
   td::IPAddress ip_addr_;
+  bool client_mode_;
   std::string global_config_;
   std::string db_root_;
   td::uint16 control_port_;
@@ -809,6 +817,7 @@ int main(int argc, char *argv[]) {
   };
 
   td::IPAddress ip_addr;
+  bool client_mode = false;
   std::string global_config, db_root;
   td::uint16 control_port = 0;
   bool enable_storage_provider = false;
@@ -831,10 +840,20 @@ int main(int argc, char *argv[]) {
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
   });
-  p.add_checked_option('I', "ip", "set <ip>:<port> for adnl", [&](td::Slice arg) -> td::Status {
-    TRY_STATUS(ip_addr.init_host_port(arg.str()));
-    return td::Status::OK();
-  });
+  p.add_checked_option('I', "ip", "set <ip>:<port> for adnl. :<port> for client mode",
+                       [&](td::Slice arg) -> td::Status {
+                         if (ip_addr.is_valid()) {
+                           return td::Status::Error("Duplicate ip address");
+                         }
+                         if (!arg.empty() && arg[0] == ':') {
+                           TRY_RESULT(port, td::to_integer_safe<td::uint16>(arg.substr(1)));
+                           TRY_STATUS(ip_addr.init_ipv4_port("127.0.0.1", port));
+                           client_mode = true;
+                         } else {
+                           TRY_STATUS(ip_addr.init_host_port(arg.str()));
+                         }
+                         return td::Status::OK();
+                       });
   p.add_checked_option('p', "control-port", "port for control interface", [&](td::Slice arg) -> td::Status {
     TRY_RESULT_ASSIGN(control_port, td::to_integer_safe<td::uint16>(arg));
     return td::Status::OK();
@@ -860,7 +879,7 @@ int main(int argc, char *argv[]) {
 
   scheduler.run_in_context([&] {
     p.run(argc, argv).ensure();
-    td::actor::create_actor<StorageDaemon>("storage-daemon", ip_addr, global_config, db_root, control_port,
+    td::actor::create_actor<StorageDaemon>("storage-daemon", ip_addr, client_mode, global_config, db_root, control_port,
                                            enable_storage_provider)
         .release();
   });

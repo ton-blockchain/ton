@@ -24,10 +24,11 @@ namespace ton_rldp = ton::rldp2;
 
 class PeerManager : public td::actor::Actor {
  public:
-  PeerManager(ton::adnl::AdnlNodeIdShort adnl_id, ton::overlay::OverlayIdFull overlay_id,
+  PeerManager(ton::adnl::AdnlNodeIdShort adnl_id, ton::overlay::OverlayIdFull overlay_id, bool client_mode,
               td::actor::ActorId<ton::overlay::Overlays> overlays, td::actor::ActorId<ton::adnl::Adnl> adnl,
               td::actor::ActorId<ton_rldp::Rldp> rldp)
       : overlay_id_(std::move(overlay_id))
+      , client_mode_(client_mode)
       , overlays_(std::move(overlays))
       , adnl_(std::move(adnl))
       , rldp_(std::move(rldp)) {
@@ -142,8 +143,9 @@ class PeerManager : public td::actor::Actor {
         td::actor::ActorId<PeerManager> peer_manager_;
         ton::adnl::AdnlNodeIdShort dst_;
       };
-      send_closure(overlays_, &ton::overlay::Overlays::create_public_overlay, src_id, overlay_id_.clone(),
-                   std::make_unique<Callback>(actor_id(this), src_id), rules, R"({ "type": "storage" })");
+      send_closure(overlays_, &ton::overlay::Overlays::create_public_overlay_ex, src_id, overlay_id_.clone(),
+                   std::make_unique<Callback>(actor_id(this), src_id), rules, R"({ "type": "storage" })",
+                   !client_mode_);
     }
     promise.set_value({});
   }
@@ -233,6 +235,7 @@ class PeerManager : public td::actor::Actor {
 
  private:
   ton::overlay::OverlayIdFull overlay_id_;
+  bool client_mode_ = false;
   td::actor::ActorId<ton::overlay::Overlays> overlays_;
   td::actor::ActorId<ton::adnl::Adnl> adnl_;
   td::actor::ActorId<ton_rldp::Rldp> rldp_;

@@ -34,7 +34,7 @@ class StorageManager : public td::actor::Actor {
   };
 
   StorageManager(adnl::AdnlNodeIdShort local_id, std::string db_root, td::unique_ptr<Callback> callback,
-                 td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<ton_rldp::Rldp> rldp,
+                 bool client_mode, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<ton_rldp::Rldp> rldp,
                  td::actor::ActorId<overlay::Overlays> overlays);
 
   void start_up() override;
@@ -62,6 +62,7 @@ class StorageManager : public td::actor::Actor {
   adnl::AdnlNodeIdShort local_id_;
   std::string db_root_;
   td::unique_ptr<Callback> callback_;
+  bool client_mode_ = false;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<ton_rldp::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;

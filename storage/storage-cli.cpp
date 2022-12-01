@@ -412,7 +412,7 @@ class StorageCli : public td::actor::Actor {
     td::BufferSlice hash_str(hash.as_slice());
     ton::overlay::OverlayIdFull overlay_id(std::move(hash_str));
     auto adnl_id = ton::adnl::AdnlNodeIdShort{public_key_.compute_short_id()};
-    return td::actor::create_actor<PeerManager>("PeerManager", adnl_id, std::move(overlay_id), overlays_.get(),
+    return td::actor::create_actor<PeerManager>("PeerManager", adnl_id, std::move(overlay_id), false, overlays_.get(),
                                                 adnl_.get(), rldp_.get());
   }
 

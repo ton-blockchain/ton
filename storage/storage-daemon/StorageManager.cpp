@@ -27,11 +27,12 @@ static overlay::OverlayIdFull get_overlay_id(td::Bits256 hash) {
 }
 
 StorageManager::StorageManager(adnl::AdnlNodeIdShort local_id, std::string db_root, td::unique_ptr<Callback> callback,
-                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<ton_rldp::Rldp> rldp,
-                               td::actor::ActorId<overlay::Overlays> overlays)
+                               bool client_mode, td::actor::ActorId<adnl::Adnl> adnl,
+                               td::actor::ActorId<ton_rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays)
     : local_id_(local_id)
     , db_root_(std::move(db_root))
     , callback_(std::move(callback))
+    , client_mode_(client_mode)
     , adnl_(std::move(adnl))
     , rldp_(std::move(rldp))
     , overlays_(std::move(overlays)) {
@@ -72,8 +73,8 @@ void StorageManager::load_torrents_from_db(std::vector<td::Bits256> torrents) {
   for (auto hash : torrents) {
     CHECK(!torrents_.count(hash))
     auto& entry = torrents_[hash];
-    entry.peer_manager =
-        td::actor::create_actor<PeerManager>("PeerManager", local_id_, get_overlay_id(hash), overlays_, adnl_, rldp_);
+    entry.peer_manager = td::actor::create_actor<PeerManager>("PeerManager", local_id_, get_overlay_id(hash),
+                                                              client_mode_, overlays_, adnl_, rldp_);
     NodeActor::load_from_db(
         db_, hash, create_callback(hash, entry.closing_state), PeerManager::create_callback(entry.peer_manager.get()),
         [SelfId = actor_id(this), hash,
@@ -138,8 +139,8 @@ td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download
   }
   TorrentEntry& entry = torrents_[hash];
   entry.hash = hash;
-  entry.peer_manager =
-      td::actor::create_actor<PeerManager>("PeerManager", local_id_, get_overlay_id(hash), overlays_, adnl_, rldp_);
+  entry.peer_manager = td::actor::create_actor<PeerManager>("PeerManager", local_id_, get_overlay_id(hash),
+                                                            client_mode_, overlays_, adnl_, rldp_);
   auto context = PeerManager::create_callback(entry.peer_manager.get());
   LOG(INFO) << "Added torrent " << hash.to_hex() << " , root_dir = " << torrent.get_root_dir();
   entry.actor =
