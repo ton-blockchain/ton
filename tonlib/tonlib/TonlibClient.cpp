@@ -2289,31 +2289,46 @@ const MasterConfig& get_default_master_config() {
       "liteservers": [
       ],
       "validator": {
-        "@type": "validator.config.global",
-        "zero_state": {
-          "workchain": -1,
-          "shard": -9223372036854775808,
-          "seqno": 0,
-          "root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
-          "file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg="
-        },
-        "init_block": {
-          "file_hash": "jF3RTD+OyOoP+OI9oIjdV6M8EaOh9E+8+c3m5JkPYdg=",
-          "seqno": 5141579,
-          "root_hash": "6JSqIYIkW7y8IorxfbQBoXiuY3kXjcoYgQOxTJpjXXA=",
-          "workchain": -1,
-          "shard": -9223372036854775808
-        },
-        "hardforks": [ 
-          {
-            "file_hash": "jF3RTD+OyOoP+OI9oIjdV6M8EaOh9E+8+c3m5JkPYdg=",
-            "seqno": 5141579,
-            "root_hash": "6JSqIYIkW7y8IorxfbQBoXiuY3kXjcoYgQOxTJpjXXA=",
-            "workchain": -1,
-            "shard": -9223372036854775808
-          }
-        ]
-      }
+      		"zero_state": {
+      			"file_hash": "Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg=",
+      			"seqno": 0,
+      			"root_hash": "gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=",
+      			"workchain": -1,
+      			"shard": -9223372036854775808
+      		},
+      		"@type": "validator.config.global",
+      		"init_block":
+      		      {
+      			"file_hash": "xRaxgUwgTXYFb16YnR+Q+VVsczLl6jmYwvzhQ/ncrh4=",
+      			"seqno": 5176527,
+      			"root_hash": "SoPLqMe9Dz26YJPOGDOHApTSe5i0kXFtRmRh/zPMGuI=",
+      			"workchain": -1,
+      			"shard": -9223372036854775808
+      		      },
+      		"hardforks": [
+      		      {
+      			"file_hash": "jF3RTD+OyOoP+OI9oIjdV6M8EaOh9E+8+c3m5JkPYdg=",
+      			"seqno": 5141579,
+      			"root_hash": "6JSqIYIkW7y8IorxfbQBoXiuY3kXjcoYgQOxTJpjXXA=",
+      			"workchain": -1,
+      			"shard": -9223372036854775808
+      		      },
+      		      {
+      			"file_hash": "WrNoMrn5UIVPDV/ug/VPjYatvde8TPvz5v1VYHCLPh8=",
+      			"seqno": 5172980,
+      			"root_hash": "054VCNNtUEwYGoRe1zjH+9b1q21/MeM+3fOo76Vcjes=",
+      			"workchain": -1,
+      			"shard": -9223372036854775808
+      		      },
+      		      {
+      			"file_hash": "xRaxgUwgTXYFb16YnR+Q+VVsczLl6jmYwvzhQ/ncrh4=",
+      			"seqno": 5176527,
+      			"root_hash": "SoPLqMe9Dz26YJPOGDOHApTSe5i0kXFtRmRh/zPMGuI=",
+      			"workchain": -1,
+      			"shard": -9223372036854775808
+      		      }
+      		    ]
+      	}
     })abc");
     return res;
   }();
