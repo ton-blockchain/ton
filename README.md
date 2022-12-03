@@ -58,6 +58,17 @@ brew tap tonthemoon/ton-repo
 choco install ton-nightly --pre
 ```
 
+### Direct download
+
+Binaries for all platforms are available at [GitHub releases](https://github.com/tonthemoon/ton/releases).
+
+```sh
+# example: x64 linux
+mkdir /opt/ton
+cd /opt/ton
+curl -L https://github.com/tonthemoon/ton/releases/download/nightly-linux-x86_64/ton-x86_64.tar.gz | tar -x
+```
+
 ## Updates flow:
 
 * **master branch** - mainnet is running on this stable branch.
