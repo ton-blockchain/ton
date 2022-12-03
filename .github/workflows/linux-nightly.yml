@@ -52,12 +52,12 @@ jobs:
         nix shell nixpkgs#gh \
           --command bash -e -c '
             tar --create --mode 755 -h --file ton-x86_64.tar.gz -C result-x86_64* .
-            gh release edit nightly-linux-x86_64 --target master
-            gh release upload --clobber nightly-linux-x86_64 ton-x86_64.tar.gz
+            gh release delete -y nightly-linux-x86_64
+            gh release create --notes "" nightly-linux-x86_64 ton-x86_64.tar.gz
 
             tar --create --mode 755 -h --file ton-aarch64.tar.gz -C result-aarch64* .
-            gh release edit nightly-linux-aarch64 --target master
-            gh release upload --clobber nightly-linux-aarch64 ton-aarch64.tar.gz'
+            gh release delete -y nightly-linux-aarch64
+            gh release create --notes "" nightly-linux-aarch64 ton-aarch64.tar.gz'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -69,8 +69,8 @@ jobs:
             dpkg-scanpackages . > Packages
             apt-ftparchive release . > Release'
     - run: |
-        gh release edit nightly-deb --target master
-        gh release upload --clobber nightly-deb packages-out/deb-install/*
+        gh release delete -y nightly-deb
+        gh release create --notes "" nightly-deb packages-out/deb-install/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

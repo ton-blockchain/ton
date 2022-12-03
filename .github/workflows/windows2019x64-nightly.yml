@@ -80,7 +80,7 @@ jobs:
 
       - run: |
           powershell Compress-Archive artifacts ton-x86_64.zip
-          gh release edit nightly-windows-x86_64 --target master
-          gh release upload --clobber nightly-windows-x86_64 ton-x86_64.zip
+          gh release delete -y nightly-windows-x86_64
+          gh release create --notes "" nightly-windows-x86_64 ton-x86_64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
