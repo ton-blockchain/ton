@@ -1,0 +1,41 @@
+name: "Nightly brew build"
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-12, [self-hosted, macOS, ARM64]]
+    env:
+      SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+    - uses: cachix/cachix-action@v11
+      with:
+        name: ton
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+    - run: nix build .?submodules=1#packages.$(nix eval --raw 'nixpkgs#system').ton-staticbin-dylib --print-build-logs
+    - run: |
+        nix develop \
+          --command bash -e -c '
+            mkdir packages-out
+            ./packages/brew.sh packages-out $PWD/packages/brew $PWD/result*'
+    - if: ${{ !env.ACT }}
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries
+        path: result*
+    - run: |
+        gh release edit nightly-brew --target master
+        gh release upload --clobber nightly-brew packages-out/brew-install/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

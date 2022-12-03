@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Do not remove this test for UTF-8: if “Ω” doesn’t appear as greek uppercase omega letter enclosed in quotation marks, you should use an editor that supports UTF-8, not this one. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>ton-nightly</id>
+    <version>0.0.0.1666784850-nightly</version>
+    <packageSourceUrl>https://github.com/tonthemoon/ton</packageSourceUrl>
+    <owners>tonthemoon</owners>
+
+    <title>ton-nightly</title>
+    <authors>TON authors</authors>
+    <projectUrl>https://github.com/ton-blockchain/ton</projectUrl>
+    <iconUrl>https://avatars.githubusercontent.com/u/55018343</iconUrl>
+    <licenseUrl>https://raw.githubusercontent.com/ton-blockchain/ton/master/LICENSE.LGPL</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/ton-blockchain/ton</projectSourceUrl>
+    <tags>ton blockchain</tags>
+    <summary>The Open Network tools</summary>
+    <description><![CDATA[TON is a fully decentralized layer-1 blockchain designed by Telegram to onboard billions of users. It boasts ultra-fast transactions, tiny fees, easy-to-use apps, and is environmentally friendly.
+
+This package includes everything needed to run a TON node.
+]]></description>
+    <releaseNotes>https://raw.githubusercontent.com/ton-blockchain/ton/master/Changelog.md</releaseNotes>
+	<dependencies>
+      <dependency id="openssl" version="[1.1.0, 1.2.0)" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
