@@ -1919,16 +1919,29 @@ td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
   if (param.is_null()) {
     return limits;
   }
-  gen::SizeLimitsConfig::Record rec;
-  if (!tlb::unpack_cell(param, rec)) {
+  auto unpack_v1 = [&](auto& rec) {
+    limits.max_msg_bits = rec.max_msg_bits;
+    limits.max_msg_cells = rec.max_msg_cells;
+    limits.max_library_cells = rec.max_library_cells;
+    limits.max_vm_data_depth = static_cast<td::uint16>(rec.max_vm_data_depth);
+    limits.ext_msg_limits.max_size = rec.max_ext_msg_size;
+    limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
+  };
+
+  auto unpack_v2 = [&](auto& rec) {
+    unpack_v1(rec);
+    limits.max_acc_state_bits = rec.max_acc_state_bits;
+    limits.max_acc_state_cells = rec.max_acc_state_cells;
+  };
+  gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
+  gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
+  if (tlb::unpack_cell(param, rec_v1)) {
+    unpack_v1(rec_v1);
+  } else if (tlb::unpack_cell(param, rec_v2)) {
+    unpack_v2(rec_v2);
+  } else {
     return td::Status::Error("configuration parameter 43 is invalid");
   }
-  limits.max_msg_bits = rec.max_msg_bits;
-  limits.max_msg_cells = rec.max_msg_cells;
-  limits.max_library_cells = rec.max_library_cells;
-  limits.max_vm_data_depth = static_cast<td::uint16>(rec.max_vm_data_depth);
-  limits.ext_msg_limits.max_size = rec.max_ext_msg_size;
-  limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
   return limits;
 }
 
