@@ -53,6 +53,8 @@ enum Keyword {
   _Do,
   _While,
   _Until,
+  _Try,
+  _Catch,
   _If,
   _Ifnot,
   _Then,
@@ -537,6 +539,7 @@ struct Op {
     _Until,
     _Repeat,
     _Again,
+    _TryCatch,
     _SliceConst
   };
   int cl;
