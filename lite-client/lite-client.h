@@ -191,10 +191,11 @@ class TestNode : public td::actor::Actor {
   td::Status send_ext_msg_from_filename(std::string filename);
   td::Status save_db_file(ton::FileHash file_hash, td::BufferSlice data);
   bool get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                         int addr_ext = 0, std::string filename = "", int mode = -1);
+                         int addr_ext = 0, std::string filename = "", int mode = -1, bool prunned = false);
   void got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
                          td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
-                         ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string filename, int mode);
+                         ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string filename, int mode,
+                         bool prunned);
   bool parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid, int addr_ext,
                         std::string method_name, bool ext_mode);
   bool after_parse_run_method(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,

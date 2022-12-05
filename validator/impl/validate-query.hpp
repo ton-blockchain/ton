@@ -368,6 +368,14 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
+
+  bool check_timeout() {
+    if (timeout && timeout.is_in_past()) {
+      abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
+      return false;
+    }
+    return true;
+  }
 };
 
 }  // namespace validator
