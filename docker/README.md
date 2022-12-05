@@ -2,11 +2,11 @@
 Dockerfile for The Open Network Node
 
 #### Install
-```docker pull ghcr.io/newton-blockchain/ton```
+```docker pull ghcr.io/ton-blockchain/ton:latest```
 #### Create volume
 ```docker volume create ton-db```
 #### Run
-```docker run -d --name ton-node --mount source=ton-db,target=/var/ton-work/db --network host -e "PUBLIC_IP=<YOUR_PUBLIC_IP>" -e "CONSOLE_PORT=<TCP-PORT1>" -e "LITESERVER=true" -e "LITE_PORT=<TCP-PORT2>" -it ghcr.io/newton-blockchain/ton```
+```docker run -d --name ton-node --mount source=ton-db,target=/var/ton-work/db --network host -e "PUBLIC_IP=<YOUR_PUBLIC_IP>" -e "CONSOLE_PORT=<TCP-PORT1>" -e "LITESERVER=true" -e "LITE_PORT=<TCP-PORT2>" -it ghcr.io/ton-blockchain/ton```
 
 
 If you don't need Liteserver, then remove -e "LITESERVER=true".

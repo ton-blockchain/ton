@@ -117,7 +117,12 @@ struct CellStorageStat {
   }
   void clear() {
     cells = bits = public_cells = 0;
+    clear_limit();
     clear_seen();
+  }
+  void clear_limit() {
+    limit_cells = std::numeric_limits<unsigned long long>::max();
+    limit_bits = std::numeric_limits<unsigned long long>::max();
   }
   bool compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true, unsigned skip_count_root = 0);
   bool compute_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
@@ -128,6 +133,9 @@ struct CellStorageStat {
   bool add_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
   bool add_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
   bool add_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
+
+  unsigned long long limit_cells = std::numeric_limits<unsigned long long>::max();
+  unsigned long long limit_bits = std::numeric_limits<unsigned long long>::max();
 };
 
 struct VmStorageStat {

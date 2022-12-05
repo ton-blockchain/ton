@@ -184,6 +184,7 @@ struct ActionPhase {
   bool code_changed{false};
   bool action_list_invalid{false};
   bool acc_delete_req{false};
+  bool state_size_too_big{false};
   enum { acst_unchanged = 0, acst_frozen = 2, acst_deleted = 3 };
   int acc_status_change{acst_unchanged};
   td::RefInt256 total_fwd_fees;     // all fees debited from the account
@@ -237,6 +238,7 @@ struct Account {
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
   Ref<vm::Cell> total_state;       // ^Account
+  Ref<vm::CellSlice> storage;      // AccountStorage
   Ref<vm::CellSlice> inner_state;  // StateInit
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
   Ref<vm::Cell> code, data, library, orig_library;
@@ -324,6 +326,7 @@ struct Transaction {
   ton::UnixTime last_paid;
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;
+  Ref<vm::CellSlice> new_storage;
   Ref<vm::CellSlice> new_inner_state;
   Ref<vm::Cell> new_code, new_data, new_library;
   Ref<vm::Cell> in_msg, in_msg_state;
@@ -349,6 +352,7 @@ struct Transaction {
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
+  bool check_state_size_limit(const ActionPhaseConfig& cfg);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state();
   bool serialize();
