@@ -66,6 +66,15 @@ class DhtMemberImpl : public DhtMember {
 
   DhtKeyId last_republish_key_ = DhtKeyId::zero();
   DhtKeyId last_check_key_ = DhtKeyId::zero();
+  adnl::AdnlNodeIdShort last_check_reverse_conn_ = adnl::AdnlNodeIdShort::zero();
+
+  struct ReverseConnection {
+    adnl::AdnlNodeIdShort dht_node_;
+    DhtKeyId key_id_;
+    td::Timestamp ttl_;
+  };
+  std::map<adnl::AdnlNodeIdShort, ReverseConnection> reverse_connections_;
+  std::set<adnl::AdnlNodeIdShort> our_reverse_connections_;
 
   class Callback : public adnl::Adnl::Callback {
    public:
@@ -122,6 +131,10 @@ class DhtMemberImpl : public DhtMember {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_store &query, td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_getSignedAddressList &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_registerReverseConnection &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_requestReversePing &query,
+                     td::Promise<td::BufferSlice> promise);
 
  public:
   DhtMemberImpl(adnl::AdnlNodeIdShort id, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
@@ -142,6 +155,12 @@ class DhtMemberImpl : public DhtMember {
 
   void set_value(DhtValue key_value, td::Promise<td::Unit> result) override;
   td::uint32 distance(DhtKeyId key_id, td::uint32 max_value);
+
+  void register_reverse_connection(adnl::AdnlNodeIdFull client, td::Promise<td::Unit> promise) override;
+  void request_reverse_ping(adnl::AdnlNode target, adnl::AdnlNodeIdShort client,
+                            td::Promise<td::Unit> promise) override;
+  void request_reverse_ping_cont(adnl::AdnlNode target, td::BufferSlice signature, adnl::AdnlNodeIdShort client,
+                                 td::Promise<td::Unit> promise);
 
   td::Status store_in(DhtValue value) override;
   void send_store(DhtValue value, td::Promise<td::Unit> promise);
