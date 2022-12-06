@@ -90,8 +90,11 @@ void DhtMemberImpl::start_up() {
                                     ton_api::dht_findValue::ID,
                                     ton_api::dht_store::ID,
                                     ton_api::dht_ping::ID,
+                                    ton_api::dht_registerReverseConnection::ID,
+                                    ton_api::dht_requestReversePing::ID,
                                     ton_api::dht_query::ID,
-                                    ton_api::dht_message::ID};
+                                    ton_api::dht_message::ID,
+                                    ton_api::dht_requestReversePingCont::ID};
 
   for (auto it : methods) {
     td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, id_, adnl::Adnl::int_to_bytestring(it),
@@ -131,8 +134,11 @@ void DhtMemberImpl::tear_down() {
                                     ton_api::dht_findValue::ID,
                                     ton_api::dht_store::ID,
                                     ton_api::dht_ping::ID,
+                                    ton_api::dht_registerReverseConnection::ID,
+                                    ton_api::dht_requestReversePing::ID,
                                     ton_api::dht_query::ID,
-                                    ton_api::dht_message::ID};
+                                    ton_api::dht_message::ID,
+                                    ton_api::dht_requestReversePingCont::ID};
 
   for (auto it : methods) {
     td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, id_, adnl::Adnl::int_to_bytestring(it));
@@ -299,6 +305,61 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_getSig
   get_self_node(std::move(P));
 }
 
+static td::BufferSlice register_reverse_connection_to_sign(adnl::AdnlNodeIdShort client, adnl::AdnlNodeIdShort dht_id,
+                                                           td::uint32 ttl) {
+  td::BufferSlice result(32 + 32 + 4);
+  td::MutableSlice s = result.as_slice();
+  s.copy_from(client.as_slice());
+  s.remove_prefix(32);
+  s.copy_from(dht_id.as_slice());
+  s.remove_prefix(32);
+  s.copy_from(std::string(reinterpret_cast<char *>(&ttl), 4));
+  return result;
+}
+
+void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_registerReverseConnection &query,
+                                  td::Promise<td::BufferSlice> promise) {
+  td::uint32 ttl = query.ttl_, now = (td::uint32)td::Clocks::system();
+  if (ttl <= now) {
+    return;
+  }
+  PublicKey pub{query.node_};
+  adnl::AdnlNodeIdShort client_id{pub.compute_short_id()};
+  td::BufferSlice to_sign = register_reverse_connection_to_sign(client_id, src, ttl);
+  TRY_RESULT_PROMISE(promise, encryptor, pub.create_encryptor());
+  TRY_STATUS_PROMISE(promise, encryptor->check_signature(to_sign, query.signature_));
+  DhtKeyId key_id = get_reverse_connection_key(client_id).compute_key_id();
+  reverse_connections_[client_id] = ReverseConnection{src, key_id, td::Timestamp::at_unix(std::min(ttl, now + 300))};
+  promise.set_value(create_serialize_tl_object<ton_api::dht_stored>());
+}
+
+void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_requestReversePing &query,
+                                  td::Promise<td::BufferSlice> promise) {
+  adnl::AdnlNodeIdShort client{query.client_};
+  auto it = reverse_connections_.find(client);
+  if (it != reverse_connections_.end()) {
+    if (it->second.ttl_.is_in_past()) {
+      reverse_connections_.erase(it);
+    } else {
+      PublicKey pub{query.target_->id_};
+      TRY_RESULT_PROMISE(promise, encryptor, pub.create_encryptor());
+      TRY_STATUS_PROMISE(promise,
+                         encryptor->check_signature(serialize_tl_object(query.target_, true), query.signature_));
+      td::actor::send_closure(adnl_, &adnl::Adnl::send_message, id_, it->second.dht_node_,
+                              create_serialize_tl_object<ton_api::dht_requestReversePingCont>(
+                                  std::move(query.target_), std::move(query.signature_), query.client_));
+      promise.set_result(create_serialize_tl_object<ton_api::dht_reversePingOk>());
+      return;
+    }
+  }
+  auto k = static_cast<td::uint32>(query.k_);
+  if (k > max_k()) {
+    k = max_k();
+  }
+  auto R = get_nearest_nodes(get_reverse_connection_key(client).compute_key_id(), k);
+  promise.set_value(create_serialize_tl_object<ton_api::dht_clientNotFound>(R.tl()));
+}
+
 void DhtMemberImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                   td::Promise<td::BufferSlice> promise) {
   if (client_only_) {
@@ -369,6 +430,27 @@ void DhtMemberImpl::receive_ping(DhtKeyId key, DhtNode result) {
 }
 
 void DhtMemberImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
+  auto F = fetch_tl_object<ton_api::dht_requestReversePingCont>(data, true);
+  if (F.is_ok()) {
+    auto S = [&]() -> td::Status {
+      auto f = F.move_as_ok();
+      adnl::AdnlNodeIdShort client{f->client_};
+      if (!our_reverse_connections_.count(client)) {
+        return td::Status::Error(PSTRING() << ": unknown id for reverse ping: " << client);
+      }
+      TRY_RESULT_PREFIX(node, adnl::AdnlNode::create(f->target_), "failed to parse node: ");
+      TRY_RESULT_PREFIX(encryptor, node.pub_id().pubkey().create_encryptor(), "failed to create encryptor: ");
+      TRY_STATUS_PREFIX(encryptor->check_signature(serialize_tl_object(f->target_, true), f->signature_),
+                        "invalid signature: ");
+      VLOG(DHT_INFO) << this << ": sending reverse ping to " << node.compute_short_id();
+      td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, client, node.pub_id(), node.addr_list());
+      td::actor::send_closure(adnl_, &adnl::Adnl::send_message, client, node.compute_short_id(), td::BufferSlice());
+      return td::Status::OK();
+    }();
+    if (S.is_error()) {
+      VLOG(DHT_INFO) << this << ": " << S;
+    }
+  }
 }
 
 void DhtMemberImpl::set_value(DhtValue value, td::Promise<td::Unit> promise) {
@@ -394,6 +476,70 @@ void DhtMemberImpl::get_value_in(DhtKeyId key, td::Promise<DhtValue> result) {
   });
 
   get_self_node(std::move(P));
+}
+
+void DhtMemberImpl::register_reverse_connection(adnl::AdnlNodeIdFull client, td::Promise<td::Unit> promise) {
+  auto client_short = client.compute_short_id();
+  td::uint32 ttl = (td::uint32)td::Clocks::system() + 300;
+  our_reverse_connections_.insert(client_short);
+  auto key_id = get_reverse_connection_key(client_short).compute_key_id();
+  td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, client_short.pubkey_hash(),
+                          register_reverse_connection_to_sign(client_short, id_, ttl),
+                          [=, print_id = print_id(), list = get_nearest_nodes(key_id, k_), SelfId = actor_id(this),
+                           promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+                            TRY_RESULT_PROMISE_PREFIX(promise, signature, std::move(R), "Failed to sign: ");
+                            td::actor::send_closure(SelfId, &DhtMemberImpl::get_self_node,
+                                                    [=, list = std::move(list), signature = std::move(signature),
+                                                     promise = std::move(promise)](td::Result<DhtNode> R) mutable {
+                                                      R.ensure();
+                                                      td::actor::create_actor<DhtQueryRegisterReverseConnection>(
+                                                          "RegisterReverseQuery", key_id, std::move(client), ttl,
+                                                          std::move(signature), print_id, id_, std::move(list), k_, a_,
+                                                          R.move_as_ok(), client_only_, SelfId, adnl_,
+                                                          std::move(promise))
+                                                          .release();
+                                                    });
+                          });
+}
+
+void DhtMemberImpl::request_reverse_ping(adnl::AdnlNode target, adnl::AdnlNodeIdShort client,
+                                         td::Promise<td::Unit> promise) {
+  auto pubkey_hash = target.compute_short_id().pubkey_hash();
+  td::BufferSlice to_sign = serialize_tl_object(target.tl(), true);
+  td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, pubkey_hash, std::move(to_sign),
+                          [SelfId = actor_id(this), promise = std::move(promise), target = std::move(target),
+                           client](td::Result<td::BufferSlice> R) mutable {
+                            TRY_RESULT_PROMISE(promise, signature, std::move(R));
+                            td::actor::send_closure(SelfId, &DhtMemberImpl::request_reverse_ping_cont,
+                                                    std::move(target), std::move(signature), client,
+                                                    std::move(promise));
+                          });
+}
+
+void DhtMemberImpl::request_reverse_ping_cont(adnl::AdnlNode target, td::BufferSlice signature,
+                                              adnl::AdnlNodeIdShort client, td::Promise<td::Unit> promise) {
+  auto it = reverse_connections_.find(client);
+  if (it != reverse_connections_.end()) {
+    if (it->second.ttl_.is_in_past()) {
+      reverse_connections_.erase(it);
+    } else {
+      td::actor::send_closure(adnl_, &adnl::Adnl::send_message, id_, it->second.dht_node_,
+                              create_serialize_tl_object<ton_api::dht_requestReversePingCont>(
+                                  target.tl(), std::move(signature), client.bits256_value()));
+      promise.set_result(td::Unit());
+      return;
+    }
+  }
+  auto key_id = get_reverse_connection_key(client).compute_key_id();
+  get_self_node([=, target = std::move(target), signature = std::move(signature), promise = std::move(promise),
+                 SelfId = actor_id(this), print_id = print_id(), list = get_nearest_nodes(key_id, k_),
+                 client_only = client_only_](td::Result<DhtNode> R) mutable {
+    R.ensure();
+    td::actor::create_actor<DhtQueryRequestReversePing>("RequestReversePing", client, std::move(target),
+                                                        std::move(signature), print_id, id_, std::move(list), k_, a_,
+                                                        R.move_as_ok(), client_only, SelfId, adnl_, std::move(promise))
+        .release();
+  });
 }
 
 void DhtMemberImpl::check() {
@@ -452,6 +598,16 @@ void DhtMemberImpl::check() {
       if (it == values_.end()) {
         it = values_.begin();
       }
+    }
+  }
+  if (reverse_connections_.size() > 0) {
+    auto it = reverse_connections_.upper_bound(last_check_reverse_conn_);
+    if (it == reverse_connections_.end()) {
+      it = reverse_connections_.begin();
+    }
+    last_check_reverse_conn_ = it->first;
+    if (it->second.ttl_.is_in_past()) {
+      reverse_connections_.erase(it);
     }
   }
 

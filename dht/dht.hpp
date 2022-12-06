@@ -101,6 +101,10 @@ class DhtMember : public Dht {
   virtual void get_self_node(td::Promise<DhtNode> promise) = 0;
 
   virtual PrintId print_id() const = 0;
+
+  static DhtKey get_reverse_connection_key(adnl::AdnlNodeIdShort node) {
+    return DhtKey{node.pubkey_hash(), "address", 0};
+  }
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const DhtMember::PrintId &id) {
