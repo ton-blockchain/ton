@@ -57,6 +57,7 @@ class StorageManager : public td::actor::Actor {
                  td::Promise<td::Unit> promise);
 
   void wait_for_completion(td::Bits256 hash, td::Promise<td::Unit> promise);
+  void get_peers_info(td::Bits256 hash, td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise);
 
  private:
   adnl::AdnlNodeIdShort local_id_;

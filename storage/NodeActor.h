@@ -40,6 +40,9 @@ class NodeActor : public td::actor::Actor {
                                                        std::shared_ptr<PeerState> state) = 0;
     virtual void get_peers(PeerId src, td::Promise<std::vector<PeerId>> peers) = 0;
     virtual void register_self(td::actor::ActorId<ton::NodeActor> self) = 0;
+    virtual void get_peer_info(PeerId src, PeerId peer, td::Promise<std::pair<td::Bits256, std::string>> promise) {
+      promise.set_error(td::Status::Error("Not implemented"));
+    }
   };
 
   class Callback {
@@ -74,8 +77,8 @@ class NodeActor : public td::actor::Actor {
     const std::vector<td::uint8> &file_priority;
   };
   void with_torrent(td::Promise<NodeState> promise) {
-    // TODO: Upload speed
-    promise.set_value(NodeState{torrent_, should_download_, download_.speed(), 0.0, file_priority_});
+    promise.set_value(
+        NodeState{torrent_, should_download_, download_speed_.speed(), upload_speed_.speed(), file_priority_});
   }
   std::string get_stats_str();
 
@@ -88,6 +91,7 @@ class NodeActor : public td::actor::Actor {
   void load_from(td::optional<TorrentMeta> meta, std::string files_path, td::Promise<td::Unit> promise);
 
   void wait_for_completion(td::Promise<td::Unit> promise);
+  void get_peers_info(td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise);
 
   static void load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
                            td::unique_ptr<NodeCallback> node_callback,
@@ -123,21 +127,10 @@ class NodeActor : public td::actor::Actor {
     td::actor::ActorOwn<Notifier> notifier;
     std::shared_ptr<PeerState> state;
     PartsHelper::PeerToken peer_token;
+    LoadSpeed download_speed, upload_speed;
   };
 
   std::map<PeerId, Peer> peers_;
-
-  struct QueryId {
-    PeerId peer;
-    PartId part;
-
-    auto key() const {
-      return std::tie(peer, part);
-    }
-    bool operator<(const QueryId &other) const {
-      return key() < other.key();
-    }
-  };
 
   struct PartsSet {
     struct Info {
@@ -151,7 +144,7 @@ class NodeActor : public td::actor::Actor {
   PartsSet parts_;
   PartsHelper parts_helper_;
   std::vector<PartId> ready_parts_;
-  LoadSpeed download_;
+  LoadSpeed download_speed_, upload_speed_;
 
   td::Timestamp next_get_peers_at_;
   bool has_get_peers_{false};

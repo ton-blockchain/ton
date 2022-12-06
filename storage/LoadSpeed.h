@@ -22,26 +22,23 @@
 #include "td/utils/StringBuilder.h"
 #include "td/utils/Time.h"
 #include "td/utils/VectorQueue.h"
-#include <atomic>
 
 namespace ton {
-// Thread-safe: allows one writer and multiple readers
 class LoadSpeed {
  public:
-  void add(std::size_t size, td::Timestamp now);
+  void add(td::uint64 size, td::Timestamp now = td::Timestamp::now());
   double speed(td::Timestamp now = td::Timestamp::now()) const;
   friend td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed);
 
  private:
   struct Event {
-    std::size_t size;
+    td::uint64 size;
     td::Timestamp at;
   };
   mutable td::VectorQueue<Event> events_;
-  mutable std::size_t total_size_{0};
-  std::atomic<double> speed_{0.0};
+  mutable td::uint64 total_size_{0};
 
-  double duration() const;
+  double duration(td::Timestamp now) const;
   void update(td::Timestamp now) const;
 };
 }  // namespace ton

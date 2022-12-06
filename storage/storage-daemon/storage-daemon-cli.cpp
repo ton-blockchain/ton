@@ -339,38 +339,44 @@ class StorageDaemonCli : public td::actor::Actor {
       return execute_list(with_hashes);
     } else if (tokens[0] == "get") {
       if (tokens.size() != 2) {
-        return td::Status::Error("Expected hash");
+        return td::Status::Error("Expected torrent");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get(hash);
     } else if (tokens[0] == "get-meta") {
       if (tokens.size() != 3) {
-        return td::Status::Error("Expected hash and file");
+        return td::Status::Error("Expected torrent and file");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get_meta(hash, tokens[2]);
     } else if (tokens[0] == "get-info") {
       if (tokens.size() != 3) {
-        return td::Status::Error("Expected hash and file");
+        return td::Status::Error("Expected torrent and file");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get_info(hash, tokens[2]);
+    } else if (tokens[0] == "get-peers") {
+      if (tokens.size() != 2) {
+        return td::Status::Error("Expected torrent");
+      }
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
+      return execute_get_peers(hash);
     } else if (tokens[0] == "download-pause" || tokens[0] == "download-resume") {
       if (tokens.size() != 2) {
-        return td::Status::Error("Expected hash");
+        return td::Status::Error("Expected torrent");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_set_active_download(hash, tokens[0] == "download-resume");
     } else if (tokens[0] == "priority-all") {
       if (tokens.size() != 3) {
-        return td::Status::Error("Expected hash and priority");
+        return td::Status::Error("Expected torrent and priority");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[2]), "Invalid priority: ");
       return execute_set_priority_all(hash, priority);
     } else if (tokens[0] == "priority-idx") {
       if (tokens.size() != 4) {
-        return td::Status::Error("Expected hash, idx and priority");
+        return td::Status::Error("Expected torrent, idx and priority");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(idx, td::to_integer_safe<td::uint64>(tokens[2]), "Invalid idx: ");
@@ -378,7 +384,7 @@ class StorageDaemonCli : public td::actor::Actor {
       return execute_set_priority_idx(hash, idx, priority);
     } else if (tokens[0] == "priority-name") {
       if (tokens.size() != 4) {
-        return td::Status::Error("Expected hash, name and priority");
+        return td::Status::Error("Expected torrent, name and priority");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[3]), "Invalid priority: ");
@@ -591,6 +597,7 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\tHere and below torrents are identified by hash (in hex) or id (see torrent list)\n";
     td::TerminalIO::out() << "get-meta <torrent> <file>\tSave torrent meta of <torrent> to <file>\n";
     td::TerminalIO::out() << "get-info <torrent> <file>\tSave torrent info (serialized BOC) of <torrent> to <file>\n";
+    td::TerminalIO::out() << "get-peers <torrent>\tPrint a list of peers\n";
     td::TerminalIO::out() << "download-pause <torrent>\tPause download of <torrent>\n";
     td::TerminalIO::out() << "download-resume <torrent>\tResume download of <torrent>\n";
     td::TerminalIO::out() << "priority-all <torrent> <p>\tSet priority of all files in <torrent> to <p>\n";
@@ -787,6 +794,41 @@ class StorageDaemonCli : public td::actor::Actor {
                  td::TerminalIO::out() << "Saved torrent info (" << data.size() << " B)\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
+    return td::Status::OK();
+  }
+
+  td::Status execute_get_peers(td::Bits256 hash) {
+    auto query = create_tl_object<ton_api::storage_daemon_getTorrentPeers>(hash);
+    send_query(std::move(query), [SelfId = actor_id(this),
+                                  hash](td::Result<tl_object_ptr<ton_api::storage_daemon_peerList>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      auto obj = R.move_as_ok();
+      td::TerminalIO::out() << "Torrent " << hash.to_hex() << "\n";
+      td::TerminalIO::out() << "Download speed: " << td::format::as_size((td::uint64)obj->download_speed_) << "/s\n";
+      td::TerminalIO::out() << "Upload speed: " << td::format::as_size((td::uint64)obj->upload_speed_) << "/s\n";
+      td::TerminalIO::out() << "Peers: " << obj->peers_.size() << "\n";
+      std::vector<std::vector<std::string>> table;
+      table.push_back({"ADNL id", "Address", "Download", "Upload", "Ready"});
+      for (auto& peer : obj->peers_) {
+        std::vector<std::string> row;
+        row.push_back(PSTRING() << peer->adnl_id_);
+        row.push_back(peer->ip_str_);
+        row.push_back(PSTRING() << td::format::as_size((td::uint64)peer->download_speed_) << "/s");
+        row.push_back(PSTRING() << td::format::as_size((td::uint64)peer->upload_speed_) << "/s");
+        if (obj->total_parts_ > 0) {
+          char buf[10];
+          snprintf(buf, sizeof(buf), "%5.1f%%", (double)peer->ready_parts_ / (double)obj->total_parts_ * 100);
+          row.push_back(buf);
+        } else {
+          row.push_back("???");
+        }
+        table.push_back(std::move(row));
+      }
+      print_table(table);
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
     return td::Status::OK();
   }
 
@@ -1204,8 +1246,8 @@ class StorageDaemonCli : public td::actor::Actor {
   td::IPAddress server_ip_;
   PrivateKey client_private_key_;
   PublicKey server_public_key_;
-  bool batch_mode_ = false;
   std::vector<std::string> commands_;
+  bool batch_mode_ = false;
   size_t cur_command_ = 0;
   td::actor::ActorOwn<adnl::AdnlExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
@@ -1274,6 +1316,7 @@ class StorageDaemonCli : public td::actor::Actor {
     } else {
       td::TerminalIO::out() << "Download paused\n";
     }
+    td::TerminalIO::out() << "Upload speed: " << td::format::as_size((td::uint64)obj.torrent_->upload_speed_) << "/s\n";
     td::TerminalIO::out() << "Root dir: " << obj.torrent_->root_dir_ << "\n";
     if (obj.torrent_->flags_ & 2) {  // header ready
       td::TerminalIO::out() << obj.files_.size() << " files:\n";

@@ -27,8 +27,6 @@
 #include <map>
 #include <atomic>
 
-#include "LoadSpeed.h"
-
 namespace ton {
 using PeerId = td::uint64;
 using PartId = td::uint32;
@@ -129,10 +127,6 @@ struct PeerState {
   const td::actor::ActorId<> node;
   std::atomic_bool peer_ready_{false};
   td::actor::ActorId<> peer;
-
-  // Peer -> Node
-  LoadSpeed upload;
-  LoadSpeed download;
 
   void notify_node();
   void notify_peer();

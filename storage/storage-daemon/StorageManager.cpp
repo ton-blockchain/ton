@@ -260,3 +260,9 @@ void StorageManager::wait_for_completion(td::Bits256 hash, td::Promise<td::Unit>
   TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
   td::actor::send_closure(entry->actor, &NodeActor::wait_for_completion, std::move(promise));
 }
+
+void StorageManager::get_peers_info(td::Bits256 hash,
+                                    td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::get_peers_info, std::move(promise));
+}

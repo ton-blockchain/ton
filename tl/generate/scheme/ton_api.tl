@@ -798,6 +798,9 @@ storage.daemon.torrentList torrents:(vector storage.daemon.torrent) = storage.da
 storage.daemon.torrentMeta meta:bytes = storage.daemon.TorrentMeta;
 storage.daemon.torrentInfoBoc info:bytes = storage.daemon.TorrentInfoBoc;
 
+storage.daemon.peer adnl_id:int256 ip_str:string download_speed:double upload_speed:double ready_parts:long = storage.daemon.Peer;
+storage.daemon.peerList peers:(vector storage.daemon.peer) download_speed:double upload_speed:double total_parts:long = storage.daemon.PeerList;
+
 storage.daemon.prioritySet = storage.daemon.SetPriorityStatus;
 storage.daemon.priorityPending = storage.daemon.SetPriorityStatus;
 
@@ -819,6 +822,7 @@ storage.daemon.getTorrents = storage.daemon.TorrentList;
 storage.daemon.getTorrentFull hash:int256 = storage.daemon.TorrentFull;
 storage.daemon.getTorrentMeta hash:int256 = storage.daemon.TorrentMeta;
 storage.daemon.getTorrentInfoBoc hash:int256 = storage.daemon.TorrentInfoBoc;
+storage.daemon.getTorrentPeers hash:int256 = storage.daemon.PeerList;
 
 storage.daemon.setFilePriorityAll hash:int256 priority:int = storage.daemon.SetPriorityStatus;
 storage.daemon.setFilePriorityByIdx hash:int256 idx:long priority:int = storage.daemon.SetPriorityStatus;

@@ -66,7 +66,11 @@ void NodeActor::start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerAc
 }
 
 void NodeActor::on_signal_from_peer(PeerId peer_id) {
-  loop_peer(peer_id, peers_[peer_id]);
+  auto it = peers_.find(peer_id);
+  if (it == peers_.end()) {
+    return;
+  }
+  loop_peer(peer_id, it->second);
 }
 
 void NodeActor::start_up() {
@@ -180,7 +184,7 @@ void NodeActor::loop_will_upload() {
     if (state->peer_state_ready_) {
       needed = state->peer_state_.load().want_download;
     }
-    peers.emplace_back(!needed, !state->node_state_.load().want_download, -state->download.speed(), it.first);
+    peers.emplace_back(!needed, !state->node_state_.load().want_download, -it.second.download_speed.speed(), it.first);
   }
   std::sort(peers.begin(), peers.end());
 
@@ -247,7 +251,7 @@ void NodeActor::loop() {
 
 std::string NodeActor::get_stats_str() {
   td::StringBuilder sb;
-  sb << "Node " << self_id_ << " " << torrent_.get_ready_parts_count() << "\t" << download_;
+  sb << "Node " << self_id_ << " " << torrent_.get_ready_parts_count() << "\t" << download_speed_;
   sb << "\toutq " << parts_.total_queries;
   sb << "\n";
   for (auto &it : peers_) {
@@ -256,7 +260,7 @@ std::string NodeActor::get_stats_str() {
     if (torrent_.inited_info()) {
       sb << "\t" << parts_helper_.get_ready_parts(it.second.peer_token).ones_count();
     }
-    sb << "\t" << state->download;
+    sb << "\t" << it.second.download_speed;
     if (state->peer_state_ready_) {
       auto peer_state = state->peer_state_.load();
       sb << "\t  up:" << peer_state.will_upload;
@@ -578,6 +582,9 @@ void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
       TRY_RESULT(proof_serialized, vm::std_boc_serialize(std::move(proof)));
       res.proof = std::move(proof_serialized);
       res.data = td::BufferSlice(std::move(data));
+      td::uint64 size = res.data.size() + res.proof.size();
+      upload_speed_.add(size);
+      peer.upload_speed.add(size);
       return std::move(res);
     }();
     results.emplace_back(part_id, std::move(res));
@@ -594,7 +601,8 @@ void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
       TRY_RESULT(proof, vm::std_boc_deserialize(part.proof));
       TRY_STATUS(torrent_.add_piece(part_id, part.data.as_slice(), std::move(proof)));
       update_pieces_in_db(part_id, part_id + 1);
-      download_.add(part.data.size(), td::Timestamp::now());
+      download_speed_.add(part.data.size());
+      peer.download_speed.add(part.data.size());
       return td::Unit();
     });
 
@@ -1003,6 +1011,43 @@ void NodeActor::cleanup_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td:
           db->erase(create_hash_tl_object<ton_api::storage_db_key_pieceInDb>(hash, idx), ig.get_promise());
         }
       });
+}
+
+void NodeActor::get_peers_info(td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise) {
+  auto result = std::make_shared<std::vector<tl_object_ptr<ton_api::storage_daemon_peer>>>();
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise([result, promise = std::move(promise), download_speed = download_speed_.speed(),
+                  upload_speed = upload_speed_.speed(), parts = parts_.parts.size()](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+      return;
+    }
+    promise.set_result(
+        create_tl_object<ton_api::storage_daemon_peerList>(std::move(*result), download_speed, upload_speed, parts));
+  });
+
+  result->reserve(peers_.size());
+  size_t i = 0;
+  for (auto &peer : peers_) {
+    if (!peer.second.state->peer_online_) {
+      continue;
+    }
+    result->push_back(create_tl_object<ton_api::storage_daemon_peer>());
+    auto &obj = *result->back();
+    obj.download_speed_ = peer.second.download_speed.speed();
+    obj.upload_speed_ = peer.second.upload_speed.speed();
+    obj.ready_parts_ = parts_helper_.get_ready_parts(peer.second.peer_token).ones_count();
+    node_callback_->get_peer_info(
+        self_id_, peer.first,
+        [result, i, promise = ig.get_promise()](td::Result<std::pair<td::Bits256, std::string>> R) mutable {
+          TRY_RESULT_PROMISE(promise, r, std::move(R));
+          result->at(i)->adnl_id_ = r.first;
+          result->at(i)->ip_str_ = r.second;
+          promise.set_result(td::Unit());
+        });
+    ++i;
+  }
 }
 
 }  // namespace ton

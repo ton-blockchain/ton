@@ -63,6 +63,7 @@ void PeerActor::notify_node() {
 }
 
 void PeerActor::execute_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
+  on_pong();
   TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::ton_api::Function>(std::move(query), true));
   ton::ton_api::downcast_call(
       *f, td::overloaded(
@@ -84,7 +85,7 @@ void PeerActor::on_ping_result(td::Result<td::BufferSlice> r_answer) {
 }
 
 void PeerActor::on_pong() {
-  wait_pong_till_ = td::Timestamp::in(4);
+  wait_pong_till_ = td::Timestamp::in(10);
   state_->peer_online_ = true;
   notify_node();
 }
@@ -137,7 +138,6 @@ void PeerActor::on_get_info_result(td::Result<td::BufferSlice> r_answer) {
 void PeerActor::on_query_result(td::uint64 query_id, td::Result<td::BufferSlice> r_answer) {
   if (r_answer.is_ok()) {
     on_pong();
-    state_->download.add(r_answer.ok().size(), td::Timestamp::now());
   }
   if (ping_query_id_ && ping_query_id_.value() == query_id) {
     on_ping_result(std::move(r_answer));

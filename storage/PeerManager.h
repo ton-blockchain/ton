@@ -172,6 +172,14 @@ class PeerManager : public td::actor::Actor {
                  30, promise.send_closure(actor_id(this), &PeerManager::got_overlay_random_peers));
   }
 
+  void get_peer_info(ton::PeerId src, ton::PeerId peer, td::Promise<std::pair<td::Bits256, std::string>> promise) {
+    TRY_RESULT_PROMISE(promise, src_id, peer_to_andl(src));
+    TRY_RESULT_PROMISE(promise, peer_id, peer_to_andl(peer));
+    td::actor::send_closure(
+        adnl_, &ton::adnl::Adnl::get_conn_ip_str, src_id, peer_id,
+        promise.wrap([peer_id](std::string s) { return std::make_pair(peer_id.bits256_value(), std::move(s)); }));
+  }
+
   static td::unique_ptr<ton::NodeActor::NodeCallback> create_callback(td::actor::ActorId<PeerManager> peer_manager) {
     class Context : public ton::NodeActor::NodeCallback {
      public:
@@ -223,6 +231,11 @@ class PeerManager : public td::actor::Actor {
         return td::actor::create_actor<ton::PeerActor>(PSLICE() << "PeerActor " << peer_id,
                                                        td::make_unique<PeerCallback>(self_id, peer_id, peer_manager_),
                                                        std::move(state));
+      }
+
+      void get_peer_info(ton::PeerId src, ton::PeerId peer,
+                         td::Promise<std::pair<td::Bits256, std::string>> promise) override {
+        td::actor::send_closure(peer_manager_, &PeerManager::get_peer_info, src, peer, std::move(promise));
       }
 
      private:

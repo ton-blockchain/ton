@@ -424,6 +424,13 @@ class StorageDaemon : public td::actor::Actor {
                             }));
   }
 
+  void run_control_query(ton_api::storage_daemon_getTorrentPeers &query, td::Promise<td::BufferSlice> promise) {
+    td::actor::send_closure(manager_, &StorageManager::get_peers_info, query.hash_,
+                            promise.wrap([](tl_object_ptr<ton_api::storage_daemon_peerList> obj) -> td::BufferSlice {
+                              return serialize_tl_object(obj, true);
+                            }));
+  }
+
   void run_control_query(ton_api::storage_daemon_setFilePriorityAll &query, td::Promise<td::BufferSlice> promise) {
     TRY_RESULT_PROMISE(promise, priority, td::narrow_cast_safe<td::uint8>(query.priority_));
     td::actor::send_closure(manager_, &StorageManager::set_all_files_priority, query.hash_, priority,
