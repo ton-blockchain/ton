@@ -758,7 +758,7 @@ storage.priorityAction.all priority:int = storage.PriorityAction;
 storage.priorityAction.idx idx:long priority:int = storage.PriorityAction;
 storage.priorityAction.name name:string priority:int = storage.PriorityAction;
 
-storage.daemon.config server_key:PublicKey cli_key_hash:int256 provider_address:string = storage.daemon.provider.Config;
+storage.daemon.config server_key:PublicKey cli_key_hash:int256 provider_address:string adnl_id:PublicKey dht_id:PublicKey = storage.daemon.provider.Config;
 
 storage.daemon.provider.params accept_new_contracts:Bool rate_per_mb_day:int256 max_span:int
     minimal_file_size:long maximal_file_size:long = storage.daemon.provider.Params;

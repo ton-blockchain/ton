@@ -126,13 +126,15 @@ class StorageDaemon : public td::actor::Actor {
     std::string keys_dir = db_root_ + "/cli-keys/";
     LOG(INFO) << "First launch, storing keys for storage-daemon-cli to " << keys_dir;
     td::mkdir(keys_dir).ensure();
+    auto generate_public_key = [&]() -> PublicKey {
+      auto pk = PrivateKey{privkeys::Ed25519::random()};
+      auto pub = pk.compute_public_key();
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), false, [](td::Unit) {});
+      return pub;
+    };
     {
       // Server key
-      auto pk = PrivateKey{privkeys::Ed25519::random()};
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, pk, false,
-                              [](td::Result<td::Unit> R) { R.ensure(); });
-      auto pub = pk.compute_public_key();
-      daemon_config_->server_key_ = pub.tl();
+      daemon_config_->server_key_ = generate_public_key().tl();
       TRY_STATUS(td::write_file(keys_dir + "server.pub", serialize_tl_object(daemon_config_->server_key_, true)));
     }
     {
@@ -141,6 +143,8 @@ class StorageDaemon : public td::actor::Actor {
       daemon_config_->cli_key_hash_ = pk.compute_short_id().bits256_value();
       TRY_STATUS(td::write_file(keys_dir + "client", serialize_tl_object(pk.tl(), true)));
     }
+    daemon_config_->adnl_id_ = generate_public_key().tl();
+    daemon_config_->dht_id_ = generate_public_key().tl();
     return save_daemon_config();
   }
 
@@ -167,17 +171,14 @@ class StorageDaemon : public td::actor::Actor {
     }
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(adnl::Adnl::adnl_start_time());
-    auto generate_adnl_id = [&]() -> adnl::AdnlNodeIdShort {
-      auto pk = PrivateKey{privkeys::Ed25519::random()};
-      auto pub = pk.compute_public_key();
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
-      auto adnl_id = adnl::AdnlNodeIdShort{pub.compute_short_id()};
-      td::actor::send_closure(adnl_, &adnl::Adnl::add_id, adnl::AdnlNodeIdFull{pub}, addr_list,
-                              static_cast<td::uint8>(0));
-      return adnl_id;
-    };
-    local_id_ = generate_adnl_id();
-    dht_id_ = generate_adnl_id();
+
+    adnl::AdnlNodeIdFull local_id_full = adnl::AdnlNodeIdFull::create(daemon_config_->adnl_id_).move_as_ok();
+    local_id_ = local_id_full.compute_short_id();
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_id, local_id_full, addr_list, static_cast<td::uint8>(0));
+    adnl::AdnlNodeIdFull dht_id_full = adnl::AdnlNodeIdFull::create(daemon_config_->dht_id_).move_as_ok();
+    dht_id_ = dht_id_full.compute_short_id();
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_id, dht_id_full, addr_list, static_cast<td::uint8>(0));
+
     if (client_mode_) {
       auto D = dht::Dht::create_client(dht_id_, db_root_, dht_config_, keyring_.get(), adnl_.get());
       D.ensure();
