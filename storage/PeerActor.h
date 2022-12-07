@@ -64,9 +64,11 @@ class PeerActor : public td::actor::Actor {
   td::optional<td::uint64> peer_session_id_;
   td::optional<td::uint64> update_query_id_;
   bool peer_is_inited_{false};
+  size_t peer_init_offset_{0};
   td::uint32 node_seqno_{0};
   td::Bitset have_pieces_;
   std::vector<PartId> have_pieces_list_;
+  std::vector<PartId> sent_have_pieces_list_;
   td::uint32 peer_seqno_{0};
 
   // update state
@@ -129,5 +131,7 @@ class PeerActor : public td::actor::Actor {
 
   void schedule_loop();
   void notify_node();
+
+  static const size_t UPDATE_INIT_BLOCK_SIZE = 6000;
 };
 }  // namespace ton

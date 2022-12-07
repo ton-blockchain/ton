@@ -93,9 +93,16 @@ void PeerActor::on_pong() {
 void PeerActor::on_update_result(td::Result<td::BufferSlice> r_answer) {
   update_query_id_ = {};
   if (r_answer.is_ok()) {
-    peer_is_inited_ = true;
-    have_pieces_list_.clear();
+    if (!peer_is_inited_) {
+      peer_init_offset_ += UPDATE_INIT_BLOCK_SIZE;
+      if (peer_init_offset_ >= have_pieces_.as_slice().size()) {
+        peer_is_inited_ = true;
+      }
+    }
+  } else {
+    have_pieces_list_.insert(have_pieces_list_.end(), sent_have_pieces_list_.begin(), sent_have_pieces_list_.end());
   }
+  sent_have_pieces_list_.clear();
 }
 
 void PeerActor::on_get_piece_result(PartId piece_id, td::Result<td::BufferSlice> r_answer) {
@@ -218,22 +225,21 @@ td::BufferSlice PeerActor::create_update_query(ton::tl_object_ptr<ton::ton_api::
 }
 
 void PeerActor::loop_update_init() {
-  if (!peer_session_id_) {
-    return;
-  }
-  if (update_query_id_) {
-    return;
-  }
-  if (peer_is_inited_) {
+  if (!peer_session_id_ || update_query_id_ || peer_is_inited_) {
     return;
   }
 
   update_have_pieces();
-  have_pieces_list_.clear();
 
   auto node_state = state_->node_state_.load();
+  auto s = have_pieces_.as_slice();
+  if (s.size() <= peer_init_offset_) {
+    peer_is_inited_ = true;
+    return;
+  }
+  s = s.substr(peer_init_offset_, UPDATE_INIT_BLOCK_SIZE);
   auto query = create_update_query(ton::create_tl_object<ton::ton_api::storage_updateInit>(
-      td::BufferSlice(have_pieces_.as_slice()), to_ton_api(node_state)));
+      td::BufferSlice(s), (int)peer_init_offset_, to_ton_api(node_state)));
 
   // take care about update_state_query initial state
   update_state_query_.state = node_state;
@@ -264,26 +270,27 @@ void PeerActor::loop_update_state() {
 
 void PeerActor::update_have_pieces() {
   auto node_ready_parts = state_->node_ready_parts_.read();
-  have_pieces_list_.insert(have_pieces_list_.end(), node_ready_parts.begin(), node_ready_parts.end());
   for (auto piece_id : node_ready_parts) {
+    if (piece_id < peer_init_offset_ + UPDATE_INIT_BLOCK_SIZE) {
+      have_pieces_list_.push_back(piece_id);
+    }
     have_pieces_.set_one(piece_id);
   }
 }
 
 void PeerActor::loop_update_pieces() {
-  if (update_query_id_) {
-    return;
-  }
-
-  if (!peer_is_inited_) {
+  if (update_query_id_ || !peer_is_inited_) {
     return;
   }
 
   update_have_pieces();
 
   if (!have_pieces_list_.empty()) {
+    size_t count = std::min<size_t>(have_pieces_list_.size(), 1500);
+    sent_have_pieces_list_.assign(have_pieces_list_.end() - count, have_pieces_list_.end());
+    have_pieces_list_.erase(have_pieces_list_.end() - count, have_pieces_list_.end());
     auto query = create_update_query(ton::create_tl_object<ton::ton_api::storage_updateHavePieces>(
-        td::transform(have_pieces_list_, [](auto x) { return static_cast<td::int32>(x); })));
+        td::transform(sent_have_pieces_list_, [](auto x) { return static_cast<td::int32>(x); })));
     update_query_id_ = send_query(std::move(query));
   }
 }
@@ -351,6 +358,7 @@ void PeerActor::execute_ping(td::uint64 session_id, td::Promise<td::BufferSlice>
   if (!peer_session_id_ || peer_session_id_.value() != session_id) {
     peer_session_id_ = session_id;
     peer_is_inited_ = false;
+    peer_init_offset_ = 0;
 
     update_query_id_ = {};
     update_state_query_.query_id = {};
@@ -403,9 +411,10 @@ void PeerActor::execute_add_update(ton::ton_api::storage_addUpdate &add_update, 
                       update_peer_state(from_ton_api(*init.state_));
                       td::Bitset new_bitset;
                       new_bitset.set_raw(init.have_pieces_.as_slice().str());
+                      size_t offset = init.have_pieces_offset_ * 8;
                       for (auto size = new_bitset.size(), i = size_t(0); i < size; i++) {
                         if (new_bitset.get(i)) {
-                          add_piece(static_cast<PartId>(i));
+                          add_piece(static_cast<PartId>(offset + i));
                         }
                       }
                     }));

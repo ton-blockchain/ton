@@ -695,7 +695,7 @@ storage.state will_upload:Bool want_download:Bool = storage.State;
 storage.piece proof:bytes data:bytes = storage.Piece;
 storage.torrentInfo data:bytes = storage.TorrentInfo;
 
-storage.updateInit have_pieces:bytes state:storage.State = storage.Update;
+storage.updateInit have_pieces:bytes have_pieces_offset:int state:storage.State = storage.Update;
 storage.updateHavePieces piece_id:(vector int) = storage.Update;
 storage.updateState state:storage.State = storage.Update;
 
