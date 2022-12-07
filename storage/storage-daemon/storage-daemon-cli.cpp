@@ -41,11 +41,14 @@
 
 using namespace ton;
 
+bool is_whitespace(char c) {
+  return strchr(" \t\n\r", c) != nullptr;
+};
+
 td::Result<std::vector<std::string>> tokenize(td::Slice s) {
   const char* ptr = s.begin();
-  auto is_ws = [&](char c) { return strchr(" \t\n\r", c) != nullptr; };
   auto skip_ws = [&]() {
-    while (ptr != s.end() && is_ws(*ptr)) {
+    while (ptr != s.end() && is_whitespace(*ptr)) {
       ++ptr;
     }
   };
@@ -86,7 +89,7 @@ td::Result<std::vector<std::string>> tokenize(td::Slice s) {
             token += *ptr;
         }
         ++ptr;
-      } else if (*ptr == quote || (!quote && is_ws(*ptr))) {
+      } else if (*ptr == quote || (!quote && is_whitespace(*ptr))) {
         ++ptr;
         break;
       } else {
@@ -118,7 +121,7 @@ std::string time_to_str(td::uint32 time) {
   return time_buffer;
 }
 
-void print_table(const std::vector<std::vector<std::string>>& table) {
+void print_table(const std::vector<std::vector<std::string>>& table, std::set<size_t> left_cols = {}) {
   if (table.empty()) {
     return;
   }
@@ -133,11 +136,21 @@ void print_table(const std::vector<std::vector<std::string>>& table) {
   for (const auto& row : table) {
     std::string row_str;
     for (size_t i = 0; i < cols; ++i) {
-      size_t pad = col_size[i] - row[i].size() + (i == 0 ? 0 : 2);
-      while (pad--) {
-        row_str += ' ';
+      if (i != 0) {
+        row_str += "  ";
+      }
+      size_t pad = col_size[i] - row[i].size();
+      if (!left_cols.count(i)) {
+        while (pad--) {
+          row_str += ' ';
+        }
       }
       row_str += row[i];
+      if (left_cols.count(i)) {
+        while (pad--) {
+          row_str += ' ';
+        }
+      }
     }
     td::TerminalIO::out() << row_str << "\n";
   }
@@ -1293,7 +1306,12 @@ class StorageDaemonCli : public td::actor::Actor {
     if (obj.torrent_->flags_ & 4) {  // fatal error
       td::TerminalIO::out() << "FATAL ERROR: " << obj.torrent_->fatal_error_ << "\n";
     }
-    if (obj.torrent_->flags_ & 1) {    // info ready
+    if (obj.torrent_->flags_ & 1) {  // info ready
+      if (!obj.torrent_->description_.empty()) {
+        td::TerminalIO::out() << "-----------------------------------\n";
+        td::TerminalIO::out() << obj.torrent_->description_ << "\n";
+        td::TerminalIO::out() << "-----------------------------------\n";
+      }
       if (obj.torrent_->flags_ & 2) {  // header ready
         td::TerminalIO::out() << "Downloaded: " << td::format::as_size(obj.torrent_->downloaded_size_) << "/"
                               << td::format::as_size(obj.torrent_->included_size_)
@@ -1301,11 +1319,6 @@ class StorageDaemonCli : public td::actor::Actor {
         td::TerminalIO::out() << "Dir name: " << obj.torrent_->dir_name_ << "\n";
       }
       td::TerminalIO::out() << "Total size: " << td::format::as_size(obj.torrent_->total_size_) << "\n";
-      if (!obj.torrent_->description_.empty()) {
-        td::TerminalIO::out() << "------------\n";
-        td::TerminalIO::out() << obj.torrent_->description_ << "\n";
-        td::TerminalIO::out() << "------------\n";
-      }
     } else {
       td::TerminalIO::out() << "Torrent info is not available\n";
     }
@@ -1352,14 +1365,34 @@ class StorageDaemonCli : public td::actor::Actor {
                 return hash_to_id_[a->hash_] < hash_to_id_[b->hash_];
               });
     td::TerminalIO::out() << obj.torrents_.size() << " torrents\n";
-    td::TerminalIO::out() << "###### Hash" << std::string(with_hashes ? 59 : 6, ' ')
-                          << "     Downloaded     Total    Speed\n";
+    std::vector<std::vector<std::string>> table;
+    table.push_back({"#####", "Hash", "Description", "Downloaded", "Total", "Speed"});
     for (const auto& torrent : obj.torrents_) {
-      char str[256];
-      std::string hash = torrent->hash_.to_hex();
+      std::vector<std::string> row;
+      row.push_back(std::to_string(hash_to_id_[torrent->hash_]));
+      std::string hash_str = torrent->hash_.to_hex();
       if (!with_hashes) {
-        hash = hash.substr(0, 8) + "...";
+        hash_str = hash_str.substr(0, 8) + "...";
       }
+      row.push_back(hash_str);
+      std::string description = torrent->description_;
+      for (size_t i = 0; i < description.size(); ++i) {
+        if (!is_whitespace(description[i])) {
+          description.erase(description.begin(), description.begin() + i);
+          break;
+        }
+      }
+      for (size_t i = 0; i < description.size(); ++i) {
+        if (description[i] == '\n') {
+          description.resize(i);
+          break;
+        }
+      }
+      if (description.size() > 25) {
+        description.resize(22);
+        description += "...";
+      }
+      row.push_back(description);
       bool info_ready = torrent->flags_ & 1;
       bool header_ready = torrent->flags_ & 2;
       std::string downloaded_size = size_to_str(torrent->downloaded_size_);
@@ -1374,10 +1407,12 @@ class StorageDaemonCli : public td::actor::Actor {
                 ? "COMPLETED"
                 : (torrent->active_download_ ? size_to_str((td::uint64)torrent->download_speed_) + "/s" : "Paused");
       }
-      snprintf(str, sizeof(str), "%6u %s %7s/%-7s %7s %9s", hash_to_id_[torrent->hash_], hash.c_str(),
-               downloaded_size.c_str(), included_size.c_str(), total_size.c_str(), status.c_str());
-      td::TerminalIO::out() << str << "\n";
+      row.push_back(downloaded_size.append("/").append(included_size));
+      row.push_back(total_size);
+      row.push_back(status);
+      table.push_back(std::move(row));
     }
+    print_table(table, {2});
   }
 };
 
