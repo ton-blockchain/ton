@@ -293,7 +293,9 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         return db_->load_cell(hash);
       }
       TRY_RESULT(load_result, cell_loader_->load(hash, true, *this));
-      CHECK(load_result.status == CellLoader::LoadResult::Ok);
+      if (load_result.status != CellLoader::LoadResult::Ok) {
+        return td::Status::Error("cell not found");
+      }
       return std::move(load_result.cell());
     }
 
