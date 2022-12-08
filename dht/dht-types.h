@@ -119,6 +119,9 @@ class DhtUpdateRule {
   virtual td::Status check_value(const DhtValue &value) = 0;
   virtual td::Status update_value(DhtValue &value, DhtValue &&new_value) = 0;
   virtual bool need_republish() const = 0;
+  virtual bool check_is_acceptable(const DhtValue &value) {
+    return true;
+  }
   virtual tl_object_ptr<ton_api::dht_UpdateRule> tl() const = 0;
   static td::Result<std::shared_ptr<DhtUpdateRule>> create(tl_object_ptr<ton_api::dht_UpdateRule> obj);
 };
@@ -210,6 +213,7 @@ class DhtValue {
   void update_signature(td::BufferSlice signature);
   void update_signature(td::SharedSlice signature);
   td::Status check() const;
+  bool check_is_acceptable() const;
 
   DhtKeyId key_id() const;
 
@@ -249,6 +253,7 @@ class DhtUpdateRuleOverlayNodes : public DhtUpdateRule {
   bool need_republish() const override {
     return false;
   }
+  bool check_is_acceptable(const DhtValue &value) override;
   tl_object_ptr<ton_api::dht_UpdateRule> tl() const override;
   static td::Result<std::shared_ptr<DhtUpdateRule>> create();
 };

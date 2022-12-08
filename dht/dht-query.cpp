@@ -149,6 +149,23 @@ void DhtQueryFindValue::send_one_query(adnl::AdnlNodeIdShort id) {
                           td::Timestamp::in(2.0 + td::Random::fast(0, 20) * 0.1), std::move(B));
 }
 
+void DhtQueryFindValue::send_one_query_nodes(adnl::AdnlNodeIdShort id) {
+  auto P = create_serialize_tl_object<ton_api::dht_findNode>(get_key().tl(), get_k());
+  td::BufferSlice B;
+  if (client_only_) {
+    B = std::move(P);
+  } else {
+    B = create_serialize_tl_object_suffix<ton_api::dht_query>(P.as_slice(), self_.tl());
+  }
+
+  auto Pr = td::PromiseCreator::lambda([SelfId = actor_id(this), dst = id](td::Result<td::BufferSlice> R) {
+    td::actor::send_closure(SelfId, &DhtQueryFindValue::on_result_nodes, std::move(R), dst);
+  });
+
+  td::actor::send_closure(adnl_, &adnl::Adnl::send_query, get_src(), id, "dht findValue", std::move(Pr),
+                          td::Timestamp::in(2.0 + td::Random::fast(0, 20) * 0.1), std::move(B));
+}
+
 void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
   if (R.is_error()) {
     VLOG(DHT_INFO) << this << ": failed find value query " << get_src() << "->" << dst << ": " << R.move_as_error();
@@ -164,6 +181,7 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
   }
 
   bool need_stop = false;
+  bool send_get_nodes = false;
 
   auto A = Res.move_as_ok();
   ton_api::downcast_call(
@@ -180,15 +198,39 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
                         VLOG(DHT_WARNING) << this << ": received value for bad key on find value query from " << dst;
                         return;
                       }
+                      if (!value.check_is_acceptable()) {
+                        send_get_nodes = true;
+                        return;
+                      }
                       promise_.set_value(std::move(value));
                       need_stop = true;
                     },
                     [&](ton_api::dht_valueNotFound &v) { add_nodes(DhtNodesList{std::move(v.nodes_)}); }));
   if (need_stop) {
     stop();
+  } else if (send_get_nodes) {
+    send_one_query_nodes(dst);
   } else {
     finish_query();
   }
+}
+
+void DhtQueryFindValue::on_result_nodes(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
+  if (R.is_error()) {
+    VLOG(DHT_INFO) << this << ": failed find nodes query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    finish_query();
+    return;
+  }
+  auto Res = fetch_tl_object<ton_api::dht_nodes>(R.move_as_ok(), true);
+  if (Res.is_error()) {
+    VLOG(DHT_WARNING) << this << ": dropping incorrect answer on dht.findNodes query from " << dst << ": "
+                      << Res.move_as_error();
+    finish_query();
+    return;
+  }
+  auto r = Res.move_as_ok();
+  add_nodes(DhtNodesList{create_tl_object<ton_api::dht_nodes>(std::move(r->nodes_))});
+  finish_query();
 }
 
 void DhtQueryFindValue::finish(DhtNodesList list) {
