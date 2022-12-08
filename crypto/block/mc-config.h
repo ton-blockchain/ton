@@ -387,6 +387,8 @@ struct SizeLimitsConfig {
   td::uint32 max_library_cells = 1000;
   td::uint16 max_vm_data_depth = 512;
   ExtMsgLimits ext_msg_limits;
+  td::uint32 max_acc_state_cells = 1 << 16;
+  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
 };
 
 struct CatchainValidatorsConfig {

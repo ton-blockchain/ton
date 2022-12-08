@@ -153,6 +153,9 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
     }
   }
 
+  void request_reverse_ping();
+  void request_reverse_ping_result(td::Result<td::Unit> R);
+
   struct Conn {
     class ConnCallback : public AdnlNetworkConnection::Callback {
      public:
@@ -250,6 +253,10 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   td::Timestamp next_dht_query_at_ = td::Timestamp::never();
   td::Timestamp next_db_update_at_ = td::Timestamp::never();
   td::Timestamp retry_send_at_ = td::Timestamp::never();
+
+  bool has_reverse_addr_ = false;
+  td::Timestamp request_reverse_ping_after_ = td::Timestamp::now();
+  bool request_reverse_ping_active_ = false;
 };
 
 class AdnlPeerImpl : public AdnlPeer {

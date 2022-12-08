@@ -68,6 +68,7 @@ adnl.address.udp6 ip:int128 port:int = adnl.Address;
 //adnl.address.tcp6 ip:int128 port:int = adnl.Address;
 
 adnl.address.tunnel to:int256 pubkey:PublicKey = adnl.Address; 
+adnl.address.reverse = adnl.Address;
 
 adnl.addressList addrs:(vector adnl.Address) version:int reinit_date:int priority:int expire_at:int = adnl.AddressList;
 
@@ -183,8 +184,12 @@ dht.pong random_id:long = dht.Pong;
 dht.valueNotFound nodes:dht.nodes = dht.ValueResult;
 dht.valueFound value:dht.Value = dht.ValueResult;
 
+dht.clientNotFound nodes:dht.nodes = dht.ReversePingResult;
+dht.reversePingOk = dht.ReversePingResult;
+
 dht.stored = dht.Stored;
 dht.message node:dht.node = dht.Message;
+dht.requestReversePingCont target:adnl.Node signature:bytes client:int256 = dht.RequestReversePingCont;
 
 dht.db.bucket nodes:dht.nodes = dht.db.Bucket;
 dht.db.key.bucket id:int = dht.db.Key;
@@ -196,6 +201,8 @@ dht.store value:dht.value = dht.Stored;
 dht.findNode key:int256 k:int = dht.Nodes; 
 dht.findValue key:int256 k:int = dht.ValueResult; 
 dht.getSignedAddressList = dht.Node;
+dht.registerReverseConnection node:PublicKey ttl:int signature:bytes = dht.Stored;
+dht.requestReversePing target:adnl.Node signature:bytes client:int256 k:int = dht.ReversePingResult;
 
 dht.query node:dht.node = True;
 

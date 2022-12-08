@@ -34,9 +34,39 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
     promise.set_error(td::Status::Error(ErrorCode::notready, "cannot collate block: group not started"));
     return;
   }
-  run_collate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
-                    Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
-                    td::Timestamp::in(10.0), std::move(promise));
+  if (cached_collated_block_) {
+    if (cached_collated_block_->result) {
+      promise.set_result(cached_collated_block_->result.value().clone());
+    } else {
+      cached_collated_block_->promises.push_back(std::move(promise));
+    }
+    return;
+  }
+  cached_collated_block_ = std::make_shared<CachedCollatedBlock>();
+  cached_collated_block_->promises.push_back(std::move(promise));
+  run_collate_query(
+      shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
+      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_, td::Timestamp::in(10.0),
+      [SelfId = actor_id(this), cache = cached_collated_block_](td::Result<BlockCandidate> R) {
+        td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
+      });
+}
+
+void ValidatorGroup::generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R) {
+  if (R.is_error()) {
+    for (auto &p : cache->promises) {
+      p.set_error(R.error().clone());
+    }
+    if (cache == cached_collated_block_) {
+      cached_collated_block_ = nullptr;
+    }
+  } else {
+    cache->result = R.move_as_ok();
+    for (auto &p : cache->promises) {
+      p.set_value(cache->result.value().clone());
+    }
+  }
+  cache->promises.clear();
 }
 
 void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidate block,
@@ -78,7 +108,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   block.id = next_block_id;
   run_validate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
-                     manager_, td::Timestamp::in(10.0), std::move(P));
+                     manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
 void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block_data,
@@ -124,6 +154,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
   run_accept_block_query(next_block_id, std::move(block), prev_block_ids_, validator_set_, std::move(sig_set),
                          std::move(approve_sig_set), src == local_id_, manager_, std::move(P));
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
+  cached_collated_block_ = nullptr;
 }
 
 void ValidatorGroup::retry_accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block,
@@ -278,6 +309,7 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
   prev_block_ids_ = prev;
   min_masterchain_block_id_ = min_masterchain_block_id;
   min_ts_ = min_ts;
+  cached_collated_block_ = nullptr;
   started_ = true;
 
   if (init_) {

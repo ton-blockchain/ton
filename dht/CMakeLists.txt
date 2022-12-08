@@ -30,3 +30,8 @@ target_include_directories(dht PUBLIC
 )
 target_link_libraries(dht PRIVATE tdutils tdactor adnl tl_api)
 
+add_executable(dht-ping-servers utils/dht-ping-servers.cpp)
+target_link_libraries(dht-ping-servers PRIVATE tdutils tdactor adnl dht terminal)
+
+add_executable(dht-resolve utils/dht-resolve.cpp)
+target_link_libraries(dht-resolve PRIVATE tdutils tdactor adnl dht terminal)

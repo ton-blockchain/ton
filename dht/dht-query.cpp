@@ -149,6 +149,23 @@ void DhtQueryFindValue::send_one_query(adnl::AdnlNodeIdShort id) {
                           td::Timestamp::in(2.0 + td::Random::fast(0, 20) * 0.1), std::move(B));
 }
 
+void DhtQueryFindValue::send_one_query_nodes(adnl::AdnlNodeIdShort id) {
+  auto P = create_serialize_tl_object<ton_api::dht_findNode>(get_key().tl(), get_k());
+  td::BufferSlice B;
+  if (client_only_) {
+    B = std::move(P);
+  } else {
+    B = create_serialize_tl_object_suffix<ton_api::dht_query>(P.as_slice(), self_.tl());
+  }
+
+  auto Pr = td::PromiseCreator::lambda([SelfId = actor_id(this), dst = id](td::Result<td::BufferSlice> R) {
+    td::actor::send_closure(SelfId, &DhtQueryFindValue::on_result_nodes, std::move(R), dst);
+  });
+
+  td::actor::send_closure(adnl_, &adnl::Adnl::send_query, get_src(), id, "dht findValue", std::move(Pr),
+                          td::Timestamp::in(2.0 + td::Random::fast(0, 20) * 0.1), std::move(B));
+}
+
 void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
   if (R.is_error()) {
     VLOG(DHT_INFO) << this << ": failed find value query " << get_src() << "->" << dst << ": " << R.move_as_error();
@@ -164,6 +181,7 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
   }
 
   bool need_stop = false;
+  bool send_get_nodes = false;
 
   auto A = Res.move_as_ok();
   ton_api::downcast_call(
@@ -180,15 +198,39 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
                         VLOG(DHT_WARNING) << this << ": received value for bad key on find value query from " << dst;
                         return;
                       }
+                      if (!value.check_is_acceptable()) {
+                        send_get_nodes = true;
+                        return;
+                      }
                       promise_.set_value(std::move(value));
                       need_stop = true;
                     },
                     [&](ton_api::dht_valueNotFound &v) { add_nodes(DhtNodesList{std::move(v.nodes_)}); }));
   if (need_stop) {
     stop();
+  } else if (send_get_nodes) {
+    send_one_query_nodes(dst);
   } else {
     finish_query();
   }
+}
+
+void DhtQueryFindValue::on_result_nodes(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
+  if (R.is_error()) {
+    VLOG(DHT_INFO) << this << ": failed find nodes query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    finish_query();
+    return;
+  }
+  auto Res = fetch_tl_object<ton_api::dht_nodes>(R.move_as_ok(), true);
+  if (Res.is_error()) {
+    VLOG(DHT_WARNING) << this << ": dropping incorrect answer on dht.findNodes query from " << dst << ": "
+                      << Res.move_as_error();
+    finish_query();
+    return;
+  }
+  auto r = Res.move_as_ok();
+  add_nodes(DhtNodesList{create_tl_object<ton_api::dht_nodes>(std::move(r->nodes_))});
+  finish_query();
 }
 
 void DhtQueryFindValue::finish(DhtNodesList list) {
@@ -277,6 +319,131 @@ void DhtQueryStore::store_ready(td::Result<td::BufferSlice> R) {
     }
     stop();
   }
+}
+
+DhtQueryRegisterReverseConnection::DhtQueryRegisterReverseConnection(
+    DhtKeyId key_id, adnl::AdnlNodeIdFull client, td::uint32 ttl, td::BufferSlice signature,
+    DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k, td::uint32 a, DhtNode self,
+    bool client_only, td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+    td::Promise<td::Unit> promise)
+    : print_id_(print_id)
+    , k_(k)
+    , a_(a)
+    , promise_(std::move(promise))
+    , key_id_(key_id)
+    , list_(std::move(list))
+    , self_(std::move(self))
+    , client_only_(client_only) {
+  node_ = node;
+  adnl_ = adnl;
+  src_ = src;
+  query_ = create_serialize_tl_object<ton_api::dht_registerReverseConnection>(client.tl(), ttl, std::move(signature));
+}
+
+void DhtQueryRegisterReverseConnection::start_up() {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<DhtNodesList> res) {
+    td::actor::send_closure(SelfId, &DhtQueryRegisterReverseConnection::send_queries, std::move(res));
+  });
+
+  auto A = td::actor::create_actor<DhtQueryFindNodes>("FindNodesQuery", key_id_, print_id_, src_, std::move(list_), k_,
+                                                      a_, self_.clone(), client_only_, node_, adnl_, std::move(P));
+  A.release();
+}
+
+void DhtQueryRegisterReverseConnection::send_queries(td::Result<DhtNodesList> R) {
+  if (R.is_error()) {
+    auto S = R.move_as_error();
+    VLOG(DHT_NOTICE) << this << ": failed to get nearest nodes to " << key_id_ << ": " << S;
+    promise_.set_error(std::move(S));
+    stop();
+    return;
+  }
+  auto list = R.move_as_ok();
+
+  remaining_ = static_cast<td::uint32>(list.size());
+  if (remaining_ == 0) {
+    VLOG(DHT_NOTICE) << this << ": failed to get nearest nodes to " << key_id_ << ": no nodes";
+    promise_.set_error(td::Status::Error("no dht nodes"));
+    stop();
+    return;
+  }
+
+  for (auto &node : list.list()) {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      td::actor::send_closure(SelfId, &DhtQueryRegisterReverseConnection::ready, std::move(R));
+    });
+    td::actor::send_closure(adnl_, &adnl::Adnl::send_query, src_, node.adnl_id().compute_short_id(), "dht regrevcon",
+                            std::move(P), td::Timestamp::in(2.0 + td::Random::fast(0, 20) * 0.1), query_.clone());
+  }
+}
+
+void DhtQueryRegisterReverseConnection::ready(td::Result<td::BufferSlice> R) {
+  if (R.is_error()) {
+    fail_++;
+    VLOG(DHT_INFO) << this << ": failed register reverse connection query: " << R.move_as_error();
+  } else {
+    auto R2 = fetch_tl_object<ton_api::dht_stored>(R.move_as_ok(), true);
+    if (R2.is_error()) {
+      fail_++;
+      VLOG(DHT_WARNING) << this << ": can not parse answer (expected dht.stored): " << R2.move_as_error();
+    } else {
+      success_++;
+    }
+  }
+  CHECK(remaining_ > 0);
+  remaining_--;
+  if (remaining_ == 0) {
+    if (success_ > 0) {
+      promise_.set_value(td::Unit());
+    } else {
+      promise_.set_result(td::Status::Error("failed to make actual query"));
+    }
+    stop();
+  }
+}
+
+void DhtQueryRequestReversePing::send_one_query(adnl::AdnlNodeIdShort id) {
+  td::BufferSlice B;
+  if (client_only_) {
+    B = query_.clone();
+  } else {
+    B = create_serialize_tl_object_suffix<ton_api::dht_query>(query_.as_slice(), self_.tl());
+  }
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), dst = id](td::Result<td::BufferSlice> R) {
+    td::actor::send_closure(SelfId, &DhtQueryRequestReversePing::on_result, std::move(R), dst);
+  });
+  td::actor::send_closure(adnl_, &adnl::Adnl::send_query, get_src(), id, "dht requestReversePing", std::move(P),
+                          td::Timestamp::in(2.0 + td::Random::fast(0, 20) * 0.1), std::move(B));
+}
+
+void DhtQueryRequestReversePing::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
+  if (R.is_error()) {
+    VLOG(DHT_INFO) << this << ": failed reverse ping query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    finish_query();
+    return;
+  }
+  auto Res = fetch_tl_object<ton_api::dht_ReversePingResult>(R.move_as_ok(), true);
+  if (Res.is_error()) {
+    VLOG(DHT_WARNING) << this << ": dropping incorrect answer on dht.requestReversePing query from " << dst << ": "
+                      << Res.move_as_error();
+    finish_query();
+    return;
+  }
+
+  auto A = Res.move_as_ok();
+  ton_api::downcast_call(*A, td::overloaded(
+                                 [&](ton_api::dht_reversePingOk &v) {
+                                   promise_.set_value(td::Unit());
+                                   stop();
+                                 },
+                                 [&](ton_api::dht_clientNotFound &v) {
+                                   add_nodes(DhtNodesList{std::move(v.nodes_)});
+                                   finish_query();
+                                 }));
+}
+
+void DhtQueryRequestReversePing::finish(DhtNodesList list) {
+  promise_.set_error(td::Status::Error(ErrorCode::notready, "dht key not found"));
 }
 
 }  // namespace dht

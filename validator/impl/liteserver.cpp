@@ -153,6 +153,10 @@ void LiteQuery::start_up() {
             this->perform_getAccountState(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
                                           q.account_->id_, 0);
           },
+          [&](lite_api::liteServer_getAccountStatePrunned& q) {
+            this->perform_getAccountState(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
+                                          q.account_->id_, 0x40000000);
+          },
           [&](lite_api::liteServer_getOneTransaction& q) {
             this->perform_getOneTransaction(ton::create_block_id(q.id_),
                                             static_cast<WorkchainId>(q.account_->workchain_), q.account_->id_,
@@ -1206,6 +1210,19 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   }
   td::BufferSlice data;
   if (acc_root.not_null()) {
+    if (mode_ & 0x40000000) {
+      vm::MerkleProofBuilder mpb{acc_root};
+      // account_none$0 = Account;
+      // account$1 addr:MsgAddressInt storage_stat:StorageInfo storage:AccountStorage = Account;
+      // account_storage$_ last_trans_lt:uint64 balance:CurrencyCollection state:AccountState = AccountStorage;
+      // account_active$1 _:StateInit = AccountState;
+      auto S = mpb.root()->load_cell();
+      if (S.is_error()) {
+        fatal_error(S.move_as_error_prefix("Failed to load account: "));
+        return;
+      }
+      acc_root = mpb.extract_proof();
+    }
     auto res = vm::std_boc_serialize(std::move(acc_root));
     if (res.is_error()) {
       fatal_error(res.move_as_error());
