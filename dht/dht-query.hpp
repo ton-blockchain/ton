@@ -129,7 +129,9 @@ class DhtQueryFindValue : public DhtQuery {
       , promise_(std::move(promise)) {
   }
   void send_one_query(adnl::AdnlNodeIdShort id) override;
+  void send_one_query_nodes(adnl::AdnlNodeIdShort id);
   void on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst);
+  void on_result_nodes(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst);
   void finish(DhtNodesList list) override;
   std::string get_name() const override {
     return "find value";
