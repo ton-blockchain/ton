@@ -1,5 +1,11 @@
 #include "third-party/pybind11/include/pybind11/pybind11.h"
 #include <string>
+#include <cassert>
+#include <codecvt>
+#include <iostream>
+#include <locale>
+#include <sstream>
+#include <string>
 
 #include "vm/vm.h"
 #include "vm/vmstate.h"
@@ -652,6 +658,140 @@ std::string load_address(const std::string& boc) {
   return friendlyAddr.rserialize(true);
 }
 
+std::string onchain_hash_key_to_string(const std::string& hash) {
+  td::Bits256 uri;
+  td::Bits256 name;
+  td::Bits256 description;
+  td::Bits256 image;
+  td::Bits256 image_data;
+  td::Bits256 symbol;
+  td::Bits256 decimals;
+  td::Bits256 amount_style;
+  td::Bits256 render_type;
+  td::Bits256 jetton;
+  td::Bits256 master;
+  td::Bits256 address;
+
+  td::sha256(td::Slice("uri", strlen("uri")), uri.as_slice());
+  td::sha256(td::Slice("name", strlen("name")), name.as_slice());
+  td::sha256(td::Slice("description", strlen("description")), description.as_slice());
+  td::sha256(td::Slice("image", strlen("image")), image.as_slice());
+  td::sha256(td::Slice("image_data", strlen("image_data")), image_data.as_slice());
+  td::sha256(td::Slice("symbol", strlen("symbol")), symbol.as_slice());
+  td::sha256(td::Slice("decimals", strlen("decimals")), decimals.as_slice());
+  td::sha256(td::Slice("amount_style", strlen("amount_style")), amount_style.as_slice());
+  td::sha256(td::Slice("render_type", strlen("render_type")), render_type.as_slice());
+  td::sha256(td::Slice("jetton", strlen("jetton")), jetton.as_slice());
+  td::sha256(td::Slice("master", strlen("master")), master.as_slice());
+  td::sha256(td::Slice("address", strlen("address")), address.as_slice());
+
+  if (hash == uri.to_hex()) {
+    return "uri";
+  } else if (hash == name.to_hex()) {
+    return "name";
+  } else if (hash == description.to_hex()) {
+    return "description";
+  } else if (hash == image.to_hex()) {
+    return "image";
+  } else if (hash == image_data.to_hex()) {
+    return "image_data";
+  } else if (hash == symbol.to_hex()) {
+    return "symbol";
+  } else if (hash == decimals.to_hex()) {
+    return "decimals";
+  } else if (hash == amount_style.to_hex()) {
+    return "amount_style";
+  } else if (hash == render_type.to_hex()) {
+    return "render_type";
+  } else {
+    return hash;
+  }
+}
+
+std::string map_to_utf8(const long long val) {
+  std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+  return converter.to_bytes(static_cast<char32_t>(val));
+}
+
+std::string parse_snake_data_string(vm::CellSlice& cs) {
+  auto text_size = cs.size() / 8;
+  bool has_next_ref = cs.have_refs();
+
+  std::string text;
+
+  while (text_size > 0) {
+    auto text_tmp = map_to_utf8(cs.fetch_long(8));
+    text += text_tmp;
+    text_size -= 1;
+  }
+
+  auto rcf = cs;
+
+  while (has_next_ref) {
+    rcf = load_cell_slice(rcf.prefetch_ref());
+    auto rtext_size = rcf.size() / 8;
+
+    while (rtext_size > 0) {
+      auto text_tmp = map_to_utf8(rcf.fetch_long(8));
+      text += text_tmp;
+      text_size -= 1;
+    }
+
+    has_next_ref = rcf.have_refs();
+  }
+
+  return text;
+}
+
+py::dict parse_token_data(const std::string& boc) {
+  auto cell = parseStringToCell(boc);
+  auto cs = load_cell_slice(cell);
+
+  int content_type;
+  cs.fetch_uint_to(8, content_type);
+
+  if (content_type == 0) {
+    auto data = cs.fetch_ref();
+
+    vm::Dictionary data_dict{data, 256};
+    py::dict py_dict;
+
+    while (!data_dict.is_empty()) {
+      td::BitArray<256> key{};
+      data_dict.get_minmax_key(key);
+      auto key_text = onchain_hash_key_to_string(key.to_hex());
+
+      td::Ref<vm::Cell> value = data_dict.lookup_delete_ref(key);
+      if (value.not_null()) {
+        std::stringstream a;
+        auto vs = load_cell_slice(value);
+
+        int value_type;
+        vs.fetch_uint_to(8, value_type);
+
+        if (value_type == 0) {
+          py::dict d("type"_a = "snake", "value"_a = parse_snake_data_string(vs));
+          py_dict[py::str(key_text)] = d;
+        } else if (value_type == 1) {
+          py::dict d("type"_a = "chunks", "value"_a = "");
+          py_dict[py::str(key_text)] = d;
+        } else {
+          py::dict d("type"_a = "unknown", "value"_a = "");
+          py_dict[py::str(key_text)] = d;
+        }
+      }
+    };
+
+    py::dict d("type"_a = "onchain", "value"_a = py_dict);
+    return d;
+  } else if (content_type == 1) {
+    py::dict d("type"_a = "offchain", "value"_a = parse_snake_data_string(cs));
+    return d;
+  } else {
+    throw std::invalid_argument("Not valid prefix, must be 0x00 / 0x01");
+  }
+}
+
 PYBIND11_MODULE(tvm_python, m) {
   static py::exception<vm::VmError> exc(m, "VmError");
   py::register_exception_translator([](std::exception_ptr p) {
@@ -671,6 +811,7 @@ PYBIND11_MODULE(tvm_python, m) {
   m.def("code_disasseble", &code_disasseble);
   m.def("pack_address", &pack_address);
   m.def("load_address", &load_address);
+  m.def("parse_token_data", &parse_token_data);
 
   py::class_<PyTVM>(m, "PyTVM")
       .def(py::init<int, std::string, std::string, bool, bool, bool>(), py::arg("log_level") = 0, py::arg("code") = "",
