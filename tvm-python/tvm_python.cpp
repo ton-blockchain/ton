@@ -725,7 +725,7 @@ std::string parse_snake_data_string(vm::CellSlice& cs) {
     text_size -= 1;
   }
 
-  auto rcf = cs;
+  vm::CellSlice rcf = cs;
 
   while (has_next_ref) {
     rcf = load_cell_slice(rcf.prefetch_ref());
@@ -734,7 +734,7 @@ std::string parse_snake_data_string(vm::CellSlice& cs) {
     while (rtext_size > 0) {
       auto text_tmp = map_to_utf8(rcf.fetch_long(8));
       text += text_tmp;
-      text_size -= 1;
+      rtext_size -= 1;
     }
 
     has_next_ref = rcf.have_refs();
@@ -747,11 +747,19 @@ py::dict parse_token_data(const std::string& boc) {
   auto cell = parseStringToCell(boc);
   auto cs = load_cell_slice(cell);
 
+  if (cs.size() < 8) {
+    throw std::invalid_argument("Not valid cell slice, must be at least 8 bits");
+  }
+
   int content_type;
   cs.fetch_uint_to(8, content_type);
 
   if (content_type == 0) {
     auto data = cs.fetch_ref();
+
+    if (data.is_null()) {
+      throw std::invalid_argument("Can't find ref with dictionary");
+    }
 
     vm::Dictionary data_dict{data, 256};
     py::dict py_dict;
@@ -759,22 +767,29 @@ py::dict parse_token_data(const std::string& boc) {
     while (!data_dict.is_empty()) {
       td::BitArray<256> key{};
       data_dict.get_minmax_key(key);
+
       auto key_text = onchain_hash_key_to_string(key.to_hex());
 
-      td::Ref<vm::Cell> value = data_dict.lookup_delete_ref(key);
+      td::Ref<vm::Cell> value = data_dict.lookup_delete(key)->prefetch_ref();
       if (value.not_null()) {
         std::stringstream a;
+
         auto vs = load_cell_slice(value);
 
-        int value_type;
-        vs.fetch_uint_to(8, value_type);
+        if (vs.size() >= 8) {
+          int value_type;
+          vs.fetch_uint_to(8, value_type);
 
-        if (value_type == 0) {
-          py::dict d("type"_a = "snake", "value"_a = parse_snake_data_string(vs));
-          py_dict[py::str(key_text)] = d;
-        } else if (value_type == 1) {
-          py::dict d("type"_a = "chunks", "value"_a = "");
-          py_dict[py::str(key_text)] = d;
+          if (value_type == 0) {
+            py::dict d("type"_a = "snake", "value"_a = parse_snake_data_string(vs));
+            py_dict[py::str(key_text)] = d;
+          } else if (value_type == 1) {
+            py::dict d("type"_a = "chunks", "value"_a = "");
+            py_dict[py::str(key_text)] = d;
+          } else {
+            py::dict d("type"_a = "unknown", "value"_a = "");
+            py_dict[py::str(key_text)] = d;
+          }
         } else {
           py::dict d("type"_a = "unknown", "value"_a = "");
           py_dict[py::str(key_text)] = d;
