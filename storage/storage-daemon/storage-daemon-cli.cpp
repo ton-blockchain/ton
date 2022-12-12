@@ -509,10 +509,15 @@ class StorageDaemonCli : public td::actor::Actor {
       }
       return execute_import_pk(tokens[1]);
     } else if (tokens[0] == "get-provider-params") {
-      if (tokens.size() != 1) {
+      std::string address;
+      if (tokens.size() == 1) {
+        address = "";
+      } else if (tokens.size() == 2) {
+        address = tokens[1];
+      } else {
         return td::Status::Error("Unexpected tokens");
       }
-      return execute_get_provider_params();
+      return execute_get_provider_params(address);
     } else if (tokens[0] == "deploy-provider") {
       if (tokens.size() != 1) {
         return td::Status::Error("Unexpected tokens");
@@ -707,7 +712,9 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "remove-storage-provider\tRemove storage provider\n";
     td::TerminalIO::out()
         << "\tSmart contracts in blockchain and torrents will remain intact, but they will not be managed anymore\n";
-    td::TerminalIO::out() << "get-provider-params\tPrint parameters of the smart contract\n";
+    td::TerminalIO::out() << "get-provider-params [address]\tPrint parameters of the smart contract\n";
+    td::TerminalIO::out()
+        << "\taddress\tAddress of a smart contract. Default is the provider managed by this daemon.\n";
     td::TerminalIO::out() << "set-provider-params [--accept x] [--rate x] [--max-span x] [--min-file-size x] "
                              "[--max-file-size x]\tSet parameters of the smart contract\n";
     td::TerminalIO::out() << "\t--accept\tAccept new contracts: 0 (no) or 1 (yes)\n";
@@ -1113,8 +1120,8 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_get_provider_params() {
-    auto query = create_tl_object<ton_api::storage_daemon_getProviderParams>();
+  td::Status execute_get_provider_params(std::string address) {
+    auto query = create_tl_object<ton_api::storage_daemon_getProviderParams>(address);
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
                  if (R.is_error()) {

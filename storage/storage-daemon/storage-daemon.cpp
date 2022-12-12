@@ -632,11 +632,18 @@ class StorageDaemon : public td::actor::Actor {
   }
 
   void run_control_query(ton_api::storage_daemon_getProviderParams &query, td::Promise<td::BufferSlice> promise) {
+    if (!query.address_.empty()) {
+      TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.address_), "Invalid address: ");
+      init_tonlib_client();
+      StorageProvider::get_provider_params(tonlib_client_.get(), address, promise.wrap([](ProviderParams params) {
+        return serialize_tl_object(params.tl(), true);
+      }));
+    }
     if (provider_.empty()) {
       promise.set_error(td::Status::Error("No storage provider"));
       return;
     }
-    td::actor::send_closure(provider_, &StorageProvider::get_params, promise.wrap([](ProviderParams params) mutable {
+    td::actor::send_closure(provider_, &StorageProvider::get_params, promise.wrap([](ProviderParams params) {
       return serialize_tl_object(params.tl(), true);
     }));
   }
