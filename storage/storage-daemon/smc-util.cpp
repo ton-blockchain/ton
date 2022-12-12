@@ -20,6 +20,16 @@
 #include "keys/encryptor.h"
 #include "smartcont/provider-code.h"
 
+static void smc_forget(td::actor::ActorId<tonlib::TonlibClientWrapper> client, td::int64 id) {
+  auto query = create_tl_object<tonlib_api::smc_forget>(id);
+  td::actor::send_closure(client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_forget>, std::move(query),
+                          [](td::Result<tonlib_api::object_ptr<tonlib_api::ok>> R) mutable {
+                            if (R.is_error()) {
+                              LOG(WARNING) << "smc_forget failed: " << R.move_as_error();
+                            }
+                          });
+}
+
 void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client, std::string method,
                     std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
                     td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise) {
@@ -30,21 +40,15 @@ void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibCl
       client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_load>, std::move(query),
       [client, method = std::move(method), args = std::move(args),
        promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_info>> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-          return;
-        }
-        auto obj = R.move_as_ok();
+        TRY_RESULT_PROMISE(promise, obj, std::move(R));
         auto query = create_tl_object<tonlib_api::smc_runGetMethod>(
             obj->id_, create_tl_object<tonlib_api::smc_methodIdName>(std::move(method)), std::move(args));
         td::actor::send_closure(
             client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_runGetMethod>, std::move(query),
-            [promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_runResult>> R) mutable {
-              if (R.is_error()) {
-                promise.set_error(R.move_as_error());
-                return;
-              }
-              auto obj = R.move_as_ok();
+            [client, id = obj->id_,
+             promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_runResult>> R) mutable {
+              smc_forget(client, id);
+              TRY_RESULT_PROMISE(promise, obj, std::move(R));
               if (obj->exit_code_ != 0 && obj->exit_code_ != 1) {
                 promise.set_error(
                     td::Status::Error(PSTRING() << "Method execution finished with code " << obj->exit_code_));
@@ -62,17 +66,16 @@ void check_contract_exists(ContractAddress address, td::actor::ActorId<tonlib::T
   td::actor::send_closure(
       client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_load>, std::move(query),
       [client, promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::smc_info>> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-          return;
-        }
-        auto obj = R.move_as_ok();
+        TRY_RESULT_PROMISE(promise, obj, std::move(R));
         auto query = create_tl_object<tonlib_api::smc_getState>(obj->id_);
-        td::actor::send_closure(client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_getState>,
-                                std::move(query),
-                                promise.wrap([](tonlib_api::object_ptr<tonlib_api::tvm_cell> r) -> td::Result<bool> {
-                                  return !r->bytes_.empty();
-                                }));
+        td::actor::send_closure(
+            client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_getState>, std::move(query),
+            [client, id = obj->id_,
+             promise = std::move(promise)](td::Result<tonlib_api::object_ptr<tonlib_api::tvm_cell>> R) mutable {
+              smc_forget(client, id);
+              TRY_RESULT_PROMISE(promise, r, std::move(R));
+              promise.set_result(!r->bytes_.empty());
+            });
       });
 }
 
