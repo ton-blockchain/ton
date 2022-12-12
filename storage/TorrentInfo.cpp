@@ -70,6 +70,9 @@ td::Status TorrentInfo::validate() const {
   if (header_size > file_size) {
     return td::Status::Error("Header is too big");
   }
+  if (description.size() > 1024) {
+    return td::Status::Error("Description is too long");
+  }
   return td::Status::OK();
 }
 }  // namespace ton
