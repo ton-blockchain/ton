@@ -121,7 +121,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
         (int active, int balance, slice provider, slice rest) =
                 (ds~load_int(1), ds~load_coins(), ds~load_msg_addr(), ds);
         var (client, torrent_hash) = get_client_data(rest);
-        throw_unless(error::unauthorized, equal_slice_bits(sender_address, provider));
+        throw_unless(error::unauthorized, equal_slice_bits(sender_address, provider) | equal_slice_bits(sender_address, client));
         var client_msg = begin_cell()
                 .store_uint(0x18, 6)
                 .store_slice(client)

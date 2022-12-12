@@ -591,7 +591,9 @@ void StorageProvider::got_next_proof_info(ContractAddress address, td::Result<St
   auto& contract = it->second;
   if (R.is_error()) {
     LOG(ERROR) << "get_next_proof_info for " << address.to_string() << ": " << R.move_as_error();
-    alarm_timestamp().relax(contract.check_next_proof_at = td::Timestamp::in(10.0));
+    check_contract_exists(address, tonlib_client_, [SelfId = actor_id(this), address](td::Result<bool> R) {
+      td::actor::send_closure(SelfId, &StorageProvider::got_contract_exists, address, std::move(R));
+    });
     return;
   }
   auto data = R.move_as_ok();
@@ -622,6 +624,24 @@ void StorageProvider::got_next_proof_info(ContractAddress address, td::Result<St
         auto proof = tree->get_proof(l, r, state.torrent);
         td::actor::send_closure(SelfId, &StorageProvider::got_next_proof, address, std::move(proof));
       });
+}
+
+void StorageProvider::got_contract_exists(ContractAddress address, td::Result<bool> R) {
+  auto it = contracts_.find(address);
+  if (it == contracts_.end() || it->second.state != StorageContract::st_active) {
+    return;
+  }
+  auto& contract = it->second;
+  if (R.is_error()) {
+    LOG(ERROR) << "Check contract exists for " << address.to_string() << ": " << R.move_as_error();
+    alarm_timestamp().relax(contract.check_next_proof_at = td::Timestamp::in(10.0));
+    return;
+  }
+  if (R.ok()) {
+    alarm_timestamp().relax(contract.check_next_proof_at = td::Timestamp::in(10.0));
+    return;
+  }
+  storage_contract_deleted(address);
 }
 
 void StorageProvider::got_next_proof(ContractAddress address, td::Result<td::Ref<vm::Cell>> R) {

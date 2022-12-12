@@ -121,6 +121,7 @@ class StorageProvider : public td::actor::Actor {
 
   void check_next_proof(ContractAddress address, StorageContract& contract);
   void got_next_proof_info(ContractAddress address, td::Result<StorageContractData> R);
+  void got_contract_exists(ContractAddress address, td::Result<bool> R);
   void got_next_proof(ContractAddress address, td::Result<td::Ref<vm::Cell>> R);
   void sent_next_proof(ContractAddress address);
 };
