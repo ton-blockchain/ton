@@ -27,14 +27,13 @@
 
 namespace ton {
 // torrent_info piece_size:uint32 file_size:uint64 root_hash:(## 256) header_size:uint64 header_hash:(## 256)
-//              microchunk_hash:(Maybe (## 256)) description:Text = TorrentInfo;
+//              description:Text = TorrentInfo;
 struct TorrentInfo {
   td::uint32 piece_size{768 * 128};
   td::uint64 file_size{0};
   td::Bits256 root_hash;
   td::uint64 header_size;
   td::Bits256 header_hash;
-  td::optional<td::Bits256> microchunk_hash;
   std::string description;
 
   bool pack(vm::CellBuilder &cb) const;

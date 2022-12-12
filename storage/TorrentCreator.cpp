@@ -131,7 +131,6 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   auto pieces_count = (file_size + options_.piece_size - 1) / options_.piece_size;
   std::vector<Torrent::ChunkState> chunks;
   std::vector<td::Bits256> pieces;
-  MicrochunkTree::Builder microchunk_tree_builder(file_size);
   auto flush_reader = [&](bool force) {
     while (true) {
       auto slice = reader.prepare_read();
@@ -142,9 +141,6 @@ td::Result<Torrent> Torrent::Creator::finalize() {
       td::Bits256 hash;
       sha256(slice, hash.as_slice());
       pieces.push_back(hash);
-      if (options_.create_microchunk_tree) {
-        microchunk_tree_builder.add_data(slice);
-      }
       reader.confirm_read(slice.size());
     }
   };
@@ -194,9 +190,6 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   info.description = options_.description;
   info.file_size = file_size;
   info.root_hash = tree.get_root_hash();
-  if (options_.create_microchunk_tree) {
-    info.microchunk_hash = microchunk_tree_builder.finalize().get_root_hash();
-  }
 
   info.init_cell();
   TRY_STATUS_PREFIX(info.validate(), "Invalid torrent info: ");

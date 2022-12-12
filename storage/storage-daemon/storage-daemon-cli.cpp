@@ -121,6 +121,19 @@ std::string time_to_str(td::uint32 time) {
   return time_buffer;
 }
 
+std::string coins_to_str(const td::RefInt256& x) {
+  if (x.is_null() || x->sgn() < 0) {
+    return "???";
+  }
+  char buf[12];
+  snprintf(buf, sizeof(buf), ".%09llu", (x % td::make_refint(1'000'000'000))->to_long());
+  return (x / td::make_refint(1'000'000'000))->to_dec_string() + buf;
+}
+
+std::string coins_to_str(const std::string& s) {
+  return coins_to_str(td::string_to_int256(s));
+}
+
 void print_table(const std::vector<std::vector<std::string>>& table, std::set<size_t> left_cols = {}) {
   if (table.empty()) {
     return;
@@ -158,10 +171,15 @@ void print_table(const std::vector<std::vector<std::string>>& table, std::set<si
 
 struct OptionalProviderParams {
   td::optional<bool> accept_new_contracts;
-  td::optional<td::RefInt256> rate_per_mb_day;
+  td::optional<std::string> rate_per_mb_day;
   td::optional<td::uint32> max_span;
   td::optional<td::uint64> minimal_file_size;
   td::optional<td::uint64> maximal_file_size;
+};
+
+struct OptionalProviderConfig {
+  td::optional<td::uint32> max_contracts;
+  td::optional<td::uint64> max_total_size;
 };
 
 class StorageDaemonCli : public td::actor::Actor {
@@ -274,7 +292,6 @@ class StorageDaemonCli : public td::actor::Actor {
       std::string path;
       bool found_path = false;
       std::string description;
-      bool microchunk = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
         if (!tokens[i].empty() && tokens[i][0] == '-') {
           if (tokens[i] == "-d") {
@@ -283,10 +300,6 @@ class StorageDaemonCli : public td::actor::Actor {
               return td::Status::Error("Unexpected EOLN");
             }
             description = tokens[i];
-            continue;
-          }
-          if (tokens[i] == "--microchunk") {
-            microchunk = true;
             continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
@@ -300,7 +313,7 @@ class StorageDaemonCli : public td::actor::Actor {
       if (!found_path) {
         return td::Status::Error("Unexpected EOLN");
       }
-      return execute_create(std::move(path), std::move(description), microchunk);
+      return execute_create(std::move(path), std::move(description));
     } else if (tokens[0] == "add-by-hash" || tokens[0] == "add-by-meta") {
       td::optional<std::string> param;
       std::string root_dir;
@@ -362,12 +375,6 @@ class StorageDaemonCli : public td::actor::Actor {
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get_meta(hash, tokens[2]);
-    } else if (tokens[0] == "get-info") {
-      if (tokens.size() != 3) {
-        return td::Status::Error("Expected torrent and file");
-      }
-      TRY_RESULT(hash, parse_torrent(tokens[1]));
-      return execute_get_info(hash, tokens[2]);
     } else if (tokens[0] == "get-peers") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected torrent");
@@ -452,6 +459,50 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected EOLN");
       }
       return execute_load_from(hash, std::move(meta), std::move(path));
+    } else if (tokens[0] == "new-contract-message") {
+      td::Bits256 hash;
+      std::string file;
+      td::uint64 query_id = 0;
+      int cnt = 0;
+      td::optional<std::string> provider_address;
+      td::optional<std::string> rate;
+      td::optional<td::uint32> max_span;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--query-id") {
+            ++i;
+            TRY_RESULT_PREFIX_ASSIGN(query_id, td::to_integer_safe<td::uint64>(tokens[i]), "Invalid query id: ");
+            continue;
+          }
+          if (tokens[i] == "--provider") {
+            ++i;
+            provider_address = tokens[i];
+            continue;
+          }
+          if (tokens[i] == "--rate") {
+            ++i;
+            rate = tokens[i];
+            continue;
+          }
+          if (tokens[i] == "--max-span") {
+            ++i;
+            TRY_RESULT_PREFIX_ASSIGN(max_span, td::to_integer_safe<td::uint8>(tokens[i]), "Invalid max span: ");
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        if (cnt == 0) {
+          TRY_RESULT_ASSIGN(hash, parse_torrent(tokens[i]));
+        } else if (cnt == 1) {
+          file = tokens[i];
+        }
+        ++cnt;
+      }
+      if (cnt != 2) {
+        return td::Status::Error("Unexpected EOLN");
+      }
+      return execute_new_contract_message(hash, std::move(file), query_id, std::move(provider_address), std::move(rate),
+                                          max_span);
     } else if (tokens[0] == "import-pk") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected filename");
@@ -497,11 +548,7 @@ class StorageDaemonCli : public td::actor::Actor {
           continue;
         }
         if (tokens[i] == "--rate") {
-          auto x = td::dec_string_to_int256(tokens[i + 1]);
-          if (x.is_null()) {
-            return td::Status::Error("Invalid value for --rate");
-          }
-          new_params.rate_per_mb_day = x;
+          new_params.rate_per_mb_day = tokens[i + 1];
           continue;
         }
         if (tokens[i] == "--max-span") {
@@ -539,6 +586,28 @@ class StorageDaemonCli : public td::actor::Actor {
         }
       }
       return execute_get_provider_info(with_balances, with_contracts);
+    } else if (tokens[0] == "set-provider-config") {
+      if (tokens.size() == 1) {
+        return td::Status::Error("No parameters specified");
+      }
+      if (tokens.size() % 2 == 0) {
+        return td::Status::Error("Unexpected number of tokens");
+      }
+      OptionalProviderConfig new_config;
+      for (size_t i = 1; i < tokens.size(); i += 2) {
+        if (tokens[i] == "--max-contracts") {
+          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint32>(tokens[i + 1]), "Invalid value for --max-contracts: ");
+          new_config.max_contracts = x;
+          continue;
+        }
+        if (tokens[i] == "--max-total-size") {
+          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --max-total-size: ");
+          new_config.max_total_size = x;
+          continue;
+        }
+        return td::Status::Error(PSTRING() << "Unexpected token " << tokens[i]);
+      }
+      return execute_set_provider_config(std::move(new_config));
     } else if (tokens[0] == "withdraw") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected contract address");
@@ -551,7 +620,7 @@ class StorageDaemonCli : public td::actor::Actor {
       return execute_withdraw_all();
     } else if (tokens[0] == "send-coins") {
       std::string address;
-      td::uint64 amount = 0;
+      std::string amount;
       int cnt = 0;
       std::string message;
       for (size_t i = 1; i < tokens.size(); ++i) {
@@ -569,7 +638,7 @@ class StorageDaemonCli : public td::actor::Actor {
         if (cnt == 0) {
           address = tokens[i];
         } else if (cnt == 1) {
-          TRY_RESULT_ASSIGN(amount, td::to_integer_safe<td::uint64>(tokens[i]));
+          amount = tokens[i];
         } else {
           return td::Status::Error("Expected address and amount");
         }
@@ -591,10 +660,8 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_help() {
     td::TerminalIO::out() << "help\tPrint this help\n";
-    td::TerminalIO::out() << "create [-d description] [--microchunk] <file/dir>\tCreate torrent from <file/dir>\n";
+    td::TerminalIO::out() << "create [-d description] <file/dir>\tCreate torrent from <file/dir>\n";
     td::TerminalIO::out() << "\t-d - Description what will be stored in torrent info.\n";
-    td::TerminalIO::out() << "\t--microchunk - Compute microchunk tree hash and store it in torrent info. Required for "
-                             "storage providers.\n";
     td::TerminalIO::out() << "add-by-hash <hash> [-d root_dir] [--paused] [--partial file1 file2 ...]\tAdd torrent "
                              "with given <hash> (in hex)\n";
     td::TerminalIO::out() << "\t-d\tTarget directory, default is an internal directory of storage-daemon\n";
@@ -609,7 +676,6 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "get <torrent>\tPrint information about <torrent>\n";
     td::TerminalIO::out() << "\tHere and below torrents are identified by hash (in hex) or id (see torrent list)\n";
     td::TerminalIO::out() << "get-meta <torrent> <file>\tSave torrent meta of <torrent> to <file>\n";
-    td::TerminalIO::out() << "get-info <torrent> <file>\tSave torrent info (serialized BOC) of <torrent> to <file>\n";
     td::TerminalIO::out() << "get-peers <torrent>\tPrint a list of peers\n";
     td::TerminalIO::out() << "download-pause <torrent>\tPause download of <torrent>\n";
     td::TerminalIO::out() << "download-resume <torrent>\tResume download of <torrent>\n";
@@ -625,6 +691,11 @@ class StorageDaemonCli : public td::actor::Actor {
                              "incomplete torrent.\n";
     td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
     td::TerminalIO::out() << "\t--files path\tdata for torrent files will be taken from here\n";
+    td::TerminalIO::out() << "new-contract-message <torrent> <file> [--query-id id] --provider <provider>\tCreate "
+                             "\"new contract message\" for storage provider. Saves message body to <file>.\n";
+    td::TerminalIO::out() << "\t<provider>\tAddress of storage provider account to take parameters from.\n";
+    td::TerminalIO::out() << "new-contract-message <torrent> <file> [--query-id id] --rate <rate> --max-span "
+                             "<max-span>\tSame thing, but parameters are not fetched automatically.\n";
     td::TerminalIO::out() << "exit\tExit\n";
     td::TerminalIO::out() << "quit\tExit\n";
     td::TerminalIO::out() << "setverbosity <level>\tSet vetbosity to <level> in [0..10]\n";
@@ -647,8 +718,13 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "get-provider-info [--balances] [--contracts]\tPrint information about storage provider\n";
     td::TerminalIO::out() << "\t--contracts\tPrint list of storage contracts\n";
     td::TerminalIO::out() << "\t--balances\tPrint balances of the main contract and storage contracts\n";
+    td::TerminalIO::out()
+        << "set-provider-config [--max-contracts x] [--max-total-size x]\tSet configuration parameters\n";
+    td::TerminalIO::out() << "\t--max-contracts\tMaximal number of storage contracts\n";
+    td::TerminalIO::out() << "\t--max-total-size\tMaximal total size storage contracts (in bytes)\n";
     td::TerminalIO::out() << "withdraw <address>\tSend bounty from storage contract <address> to the main contract\n";
-    td::TerminalIO::out() << "withdraw-all\tSend bounty from all storage contracts to the main contract\n";
+    td::TerminalIO::out() << "withdraw-all\tSend bounty from all storage contracts (where at least 1 TON is available) "
+                             "to the main contract\n";
     td::TerminalIO::out()
         << "send-coins <address> <amount> [--message msg]\tSend <amount> nanoTON to <address> from the main contract\n";
     td::TerminalIO::out()
@@ -670,9 +746,9 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_create(std::string path, std::string description, bool create_microchunk_tree) {
+  td::Status execute_create(std::string path, std::string description) {
     TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
-    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, create_microchunk_tree);
+    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description);
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -784,27 +860,6 @@ class StorageDaemonCli : public td::actor::Actor {
                    return;
                  }
                  td::TerminalIO::out() << "Saved torrent meta (" << data.size() << " B)\n";
-                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
-               });
-    return td::Status::OK();
-  }
-
-  td::Status execute_get_info(td::Bits256 hash, std::string file) {
-    auto query = create_tl_object<ton_api::storage_daemon_getTorrentInfoBoc>(hash);
-    send_query(std::move(query),
-               [SelfId = actor_id(this), file](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentInfoBoc>> R) {
-                 if (R.is_error()) {
-                   return;
-                 }
-                 auto data = std::move(R.ok_ref()->info_);
-                 auto S = td::write_file(file, data);
-                 if (S.is_error()) {
-                   td::actor::send_closure(
-                       SelfId, &StorageDaemonCli::command_finished,
-                       S.move_as_error_prefix(PSTRING() << "Failed to write torrent meta (" << data.size() << " B): "));
-                   return;
-                 }
-                 td::TerminalIO::out() << "Saved torrent info (" << data.size() << " B)\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
@@ -961,6 +1016,42 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
+  td::Status execute_new_contract_message(td::Bits256 hash, std::string file, td::uint64 query_id,
+                                          td::optional<std::string> provider_address, td::optional<std::string> rate,
+                                          td::optional<td::uint32> max_span) {
+    tl_object_ptr<ton_api::storage_daemon_NewContractParams> params;
+    if (provider_address) {
+      if (rate || max_span) {
+        return td::Status::Error("Incompatible flags");
+      }
+      params = create_tl_object<ton_api::storage_daemon_newContractParamsAuto>(provider_address.unwrap());
+    } else {
+      if (!rate || !max_span) {
+        return td::Status::Error("No flags are set");
+      }
+      params = create_tl_object<ton_api::storage_daemon_newContractParams>(rate.unwrap(), max_span.unwrap());
+    }
+    auto query = create_tl_object<ton_api::storage_daemon_getNewContractMessage>(hash, query_id, std::move(params));
+    send_query(std::move(query), [SelfId = actor_id(this),
+                                  file](td::Result<tl_object_ptr<ton_api::storage_daemon_newContractMessage>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      auto obj = R.move_as_ok();
+      auto S = td::write_file(file, obj->body_);
+      if (S.is_error()) {
+        td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
+                                S.move_as_error_prefix(PSTRING() << "Failed to write to file: "));
+        return;
+      }
+      td::TerminalIO::out() << "Saved message body to file\n";
+      td::TerminalIO::out() << "Rate (nanoTON per mb*day): " << obj->rate_ << "\n";
+      td::TerminalIO::out() << "Max span: " << obj->max_span_ << "\n";
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
+    return td::Status::OK();
+  }
+
   td::Status execute_import_pk(std::string file) {
     TRY_RESULT(data, td::read_file_secure(file));
     TRY_RESULT(pk, ton::PrivateKey::import(data.as_slice()));
@@ -1030,11 +1121,9 @@ class StorageDaemonCli : public td::actor::Actor {
                    return;
                  }
                  auto params = R.move_as_ok();
-                 td::RefInt256 rate{true};
-                 rate.write().import_bytes(params->rate_per_mb_day_.data(), 32, false);
                  td::TerminalIO::out() << "Storage provider parameters:\n";
                  td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
-                 td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << rate << "\n";
+                 td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << params->rate_per_mb_day_ << "\n";
                  td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
                  td::TerminalIO::out() << "Min file size: " << (td::uint64)params->minimal_file_size_ << "\n";
                  td::TerminalIO::out() << "Max file size: " << (td::uint64)params->maximal_file_size_ << "\n";
@@ -1062,10 +1151,7 @@ class StorageDaemonCli : public td::actor::Actor {
       params->accept_new_contracts_ = new_params.accept_new_contracts.unwrap();
     }
     if (new_params.rate_per_mb_day) {
-      if (!new_params.rate_per_mb_day.value()->export_bytes(params->rate_per_mb_day_.data(), 32, false)) {
-        command_finished(td::Status::Error("Invalid value of rate_per_mb_day"));
-        return;
-      }
+      params->rate_per_mb_day_ = new_params.rate_per_mb_day.unwrap();
     }
     if (new_params.max_span) {
       params->max_span_ = new_params.max_span.unwrap();
@@ -1090,65 +1176,94 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_get_provider_info(bool with_balances, bool with_contracts) {
     auto query = create_tl_object<ton_api::storage_daemon_getProviderInfo>(with_balances, with_contracts);
-    send_query(std::move(query), [=, SelfId = actor_id(this)](
-                                     td::Result<tl_object_ptr<ton_api::storage_daemon_providerInfo>> R) {
+    send_query(std::move(query),
+               [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_providerInfo>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 auto info = R.move_as_ok();
+                 td::TerminalIO::out() << "Storage provider " << info->address_ << "\n";
+                 td::TerminalIO::out() << "Storage contracts: " << (td::uint32)info->contracts_count_ << " / "
+                                       << (td::uint32)info->config_->max_contracts_ << "\n";
+                 td::TerminalIO::out() << "Total size: " << size_to_str(info->contracts_total_size_) << " / "
+                                       << size_to_str(info->config_->max_total_size_) << "\n";
+                 if (with_balances) {
+                   td::TerminalIO::out() << "Main contract balance: " << coins_to_str(info->balance_) << " TON\n";
+                 }
+                 if (with_contracts) {
+                   td::TerminalIO::out() << "Storage contracts: " << info->contracts_.size() << "\n";
+                   std::vector<std::vector<std::string>> table;
+                   table.push_back({"Address", "Torrent hash", "Created at", "Size", "State"});
+                   if (with_balances) {
+                     table.back().push_back("Client$");
+                     table.back().push_back("Contract$");
+                   }
+                   for (const auto& c : info->contracts_) {
+                     table.emplace_back();
+                     table.back().push_back(c->address_);
+                     table.back().push_back(c->torrent_.to_hex());
+                     table.back().push_back(time_to_str(c->created_time_));
+                     table.back().push_back(size_to_str(c->file_size_));
+                     // enum State { st_downloading = 0, st_downloaded = 1, st_active = 2, st_closing = 3 };
+                     switch (c->state_) {
+                       case 0:
+                         table.back().push_back("Downloading (" + size_to_str(c->downloaded_size_) + ")");
+                         break;
+                       case 1:
+                         table.back().push_back("Downloaded");
+                         break;
+                       case 2:
+                         table.back().push_back("Active");
+                         break;
+                       case 3:
+                         table.back().push_back("Closing");
+                         break;
+                       default:
+                         table.back().push_back("???");
+                     }
+                     if (with_balances) {
+                       table.back().push_back(coins_to_str(c->client_balance_));
+                       table.back().push_back(coins_to_str(c->contract_balance_));
+                     }
+                   }
+                   print_table(table);
+                 }
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_set_provider_config(OptionalProviderConfig new_config) {
+    auto query_get = create_tl_object<ton_api::storage_daemon_getProviderInfo>(false, false);
+    send_query(std::move(query_get), [SelfId = actor_id(this), new_config = std::move(new_config)](
+                                         td::Result<tl_object_ptr<ton_api::storage_daemon_providerInfo>> R) mutable {
       if (R.is_error()) {
         return;
       }
-      auto coins_to_str = [](td::uint64 x) -> std::string {
-        if (x == (td::uint64)-1) {
-          return "???";
-        }
-        char s[24];
-        snprintf(s, sizeof(s), "%llu.%09llu", (unsigned long long)x / 1000000000, (unsigned long long)x % 1000000000);
-        return s;
-      };
       auto info = R.move_as_ok();
-      td::TerminalIO::out() << "Storage provider " << info->address_ << "\n";
-      if (with_balances) {
-        td::TerminalIO::out() << "Main contract balance: " << coins_to_str(info->balance_) << " TON\n";
-      }
-      if (with_contracts) {
-        td::TerminalIO::out() << "Storage contracts: " << info->contracts_.size() << "\n";
-        std::vector<std::vector<std::string>> table;
-        table.push_back({"Address", "Torrent hash", "Created at", "Size", "State"});
-        if (with_balances) {
-          table.back().push_back("Client$");
-          table.back().push_back("Contract$");
-        }
-        for (const auto& c : info->contracts_) {
-          table.emplace_back();
-          table.back().push_back(c->address_);
-          table.back().push_back(c->torrent_.to_hex());
-          table.back().push_back(time_to_str(c->created_time_));
-          table.back().push_back(size_to_str(c->file_size_));
-          // enum State { st_downloading = 0, st_downloaded = 1, st_active = 2, st_closing = 3 };
-          switch (c->state_) {
-            case 0:
-              table.back().push_back("Downloading (" + size_to_str(c->downloaded_size_) + ")");
-              break;
-            case 1:
-              table.back().push_back("Downloaded");
-              break;
-            case 2:
-              table.back().push_back("Active");
-              break;
-            case 3:
-              table.back().push_back("Closing");
-              break;
-            default:
-              table.back().push_back("???");
-          }
-          if (with_balances) {
-            table.back().push_back(coins_to_str(c->client_balance_));
-            table.back().push_back(coins_to_str(c->contract_balance_));
-          }
-        }
-        print_table(table);
-      }
-      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+      td::actor::send_closure(SelfId, &StorageDaemonCli::execute_set_provider_config_cont, std::move(info->config_),
+                              std::move(new_config));
     });
     return td::Status::OK();
+  }
+
+  void execute_set_provider_config_cont(tl_object_ptr<ton_api::storage_daemon_providerConfig> config,
+                                        OptionalProviderConfig new_config) {
+    if (new_config.max_contracts) {
+      config->max_contracts_ = new_config.max_contracts.unwrap();
+    }
+    if (new_config.max_total_size) {
+      config->max_total_size_ = new_config.max_total_size.unwrap();
+    }
+    auto query_set = create_tl_object<ton_api::storage_daemon_setProviderConfig>(std::move(config));
+    send_query(std::move(query_set),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) mutable {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Storage provider config was updated\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
   }
 
   td::Status execute_withdraw(std::string address) {
@@ -1166,21 +1281,58 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   td::Status execute_withdraw_all() {
-    auto query = create_tl_object<ton_api::storage_daemon_withdrawAll>();
-    td::TerminalIO::out() << "Sending external messages...\n";
+    auto query = create_tl_object<ton_api::storage_daemon_getProviderInfo>(true, true);
     send_query(std::move(query),
-               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+               [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_providerInfo>> R) {
                  if (R.is_error()) {
                    return;
                  }
-                 td::TerminalIO::out() << "Bounty was withdrawn\n";
-                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+                 auto info = R.move_as_ok();
+                 std::vector<std::string> addresses;
+                 for (auto& contract : info->contracts_) {
+                   if (contract->state_ != 2) {
+                     continue;
+                   }
+                   td::RefInt256 remaining = td::dec_string_to_int256(contract->contract_balance_) -
+                                             td::dec_string_to_int256(contract->client_balance_);
+                   if (remaining < td::make_refint(1'000'000'000)) {
+                     continue;
+                   }
+                   td::TerminalIO::out() << "Withdrawing from " << contract->address_ << " (" << coins_to_str(remaining)
+                                         << " TON)\n";
+                   addresses.push_back(contract->address_);
+                 }
+                 if (addresses.empty()) {
+                   td::TerminalIO::out() << "Nothing to withdraw\n";
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+                 } else {
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::execute_withdraw_all_cont, std::move(addresses));
+                 }
                });
     return td::Status::OK();
   }
 
-  td::Status execute_send_coins(std::string address, td::uint64 amount, std::string message) {
-    auto query = create_tl_object<ton_api::storage_daemon_sendCoins>(std::move(address), amount, std::move(message));
+  void execute_withdraw_all_cont(std::vector<std::string> addresses) {
+    td::MultiPromise mp;
+    auto ig = mp.init_guard();
+    ig.add_promise([SelfId = actor_id(this), cnt = addresses.size()](td::Result<td::Unit> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, R.move_as_error());
+        return;
+      }
+      td::TerminalIO::out() << "Sent bounty from " << cnt << " contracts\n";
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
+    for (auto& address : addresses) {
+      auto query = create_tl_object<ton_api::storage_daemon_withdraw>(std::move(address));
+      send_query(std::move(query),
+                 ig.get_promise().wrap([](tl_object_ptr<ton_api::storage_daemon_success>) { return td::Unit(); }));
+    }
+  }
+
+  td::Status execute_send_coins(std::string address, std::string amount, std::string message) {
+    auto query =
+        create_tl_object<ton_api::storage_daemon_sendCoins>(std::move(address), std::move(amount), std::move(message));
     td::TerminalIO::out() << "Sending external messages...\n";
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
@@ -1207,36 +1359,35 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   template <typename T>
-  void send_query(tl_object_ptr<T> query, td::Promise<typename T::ReturnType> promise) {
+  void send_query(tl_object_ptr<T> query, td::Promise<typename T::ReturnType> promise, bool process_error = true) {
     td::actor::send_closure(
-        client_, &adnl::AdnlExtClient::send_query, "q", serialize_tl_object(query, true), td::Timestamp::in(60.0),
-        [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        client_, &adnl::AdnlExtClient::send_query, "q", serialize_tl_object(query, true), td::Timestamp::in(1800.0),
+        [SelfId = actor_id(this), promise = std::move(promise), process_error](td::Result<td::BufferSlice> R) mutable {
+          td::Result<typename T::ReturnType> result;
           if (R.is_error()) {
-            promise.set_error(td::Status::Error(""));
             if (R.error().message().empty() && R.error().code() == ErrorCode::cancelled) {
-              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
-                                      td::Status::Error("Query error: failed to connect"));
+              result = td::Status::Error("Query error: failed to connect");
             } else {
-              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
-                                      R.move_as_error_prefix("Query error: "));
+              result = R.move_as_error_prefix("Query error: ");
             }
-            return;
-          }
-          td::BufferSlice data = R.move_as_ok();
-          auto R2 = fetch_tl_object<typename T::ReturnType::element_type>(data, true);
-          if (R2.is_error()) {
-            auto R3 = fetch_tl_object<ton_api::storage_daemon_queryError>(data, true);
-            if (R3.is_ok()) {
-              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
-                                      td::Status::Error("Query error: " + R3.ok()->message_));
-            } else {
-              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished,
-                                      td::Status::Error("Query error: failed to parse answer"));
+          } else {
+            td::BufferSlice data = R.move_as_ok();
+            result = fetch_tl_object<typename T::ReturnType::element_type>(data, true);
+            if (result.is_error()) {
+              auto R3 = fetch_tl_object<ton_api::storage_daemon_queryError>(data, true);
+              if (R3.is_ok()) {
+                result = td::Status::Error("Query error: " + R3.ok()->message_);
+              }
             }
-            promise.set_error(td::Status::Error(""));
-            return;
           }
-          promise.set_value(R2.move_as_ok());
+          if (result.is_ok()) {
+            promise.set_value(result.move_as_ok());
+          } else {
+            promise.set_error(result.error().clone());
+            if (process_error) {
+              td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, result.move_as_error());
+            }
+          }
         });
   }
 
@@ -1388,8 +1539,8 @@ class StorageDaemonCli : public td::actor::Actor {
           break;
         }
       }
-      if (description.size() > 25) {
-        description.resize(22);
+      if (description.size() > 45) {
+        description.resize(42);
         description += "...";
       }
       row.push_back(description);

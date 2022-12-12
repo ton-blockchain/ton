@@ -1,5 +1,4 @@
 const op::new_storage_contract = 1;
-const op::topup_balance = 2;
 const op::destroy_storage_contract = 3;
 const op::contract_registered = 4;
 const op::contract_accepted = 5;

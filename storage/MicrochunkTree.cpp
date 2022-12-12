@@ -201,9 +201,6 @@ td::Result<MicrochunkTree> MicrochunkTree::Builder::build_for_torrent(Torrent &t
     return td::Status::Error("Torrent info is not available");
   }
   const TorrentInfo &info = torrent.get_info();
-  if (!info.microchunk_hash) {
-    return td::Status::Error("Microchunk tree hash is not present in torrent info");
-  }
   Builder builder(info.file_size, prun_size);
   td::uint64 pieces_count = info.pieces_count();
   for (td::uint64 i = 0; i < pieces_count; ++i) {
@@ -211,9 +208,6 @@ td::Result<MicrochunkTree> MicrochunkTree::Builder::build_for_torrent(Torrent &t
     builder.add_data(piece);
   }
   MicrochunkTree tree = builder.finalize();
-  if (tree.get_root_hash() != info.microchunk_hash.value()) {
-    return td::Status::Error("Microchunk tree hash mismatch");
-  }
   return tree;
 }
 

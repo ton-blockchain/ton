@@ -76,13 +76,13 @@ void check_contract_exists(ContractAddress address, td::actor::ActorId<tonlib::T
 }
 
 void get_contract_balance(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
-                          td::Promise<td::uint64> promise) {
+                          td::Promise<td::RefInt256> promise) {
   auto query =
       create_tl_object<tonlib_api::getAccountState>(create_tl_object<tonlib_api::accountAddress>(address.to_string()));
   td::actor::send_closure(
       client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::getAccountState>, std::move(query),
-      promise.wrap([](tonlib_api::object_ptr<tonlib_api::fullAccountState> r) -> td::Result<td::uint64> {
-        return r->balance_;
+      promise.wrap([](tonlib_api::object_ptr<tonlib_api::fullAccountState> r) -> td::Result<td::RefInt256> {
+        return td::make_refint(r->balance_);
       }));
 }
 
@@ -151,7 +151,7 @@ void FabricContractWrapper::load_last_transactions(std::vector<tl_object_ptr<ton
         auto obj = R.move_as_ok();
         for (auto& transaction : obj->transactions_) {
           if ((td::uint64)transaction->transaction_id_->lt_ <= last_processed_lt ||
-              (double)transaction->utime_ < td::Clocks::system() - 3600 || transactions.size() >= 1000) {
+              (double)transaction->utime_ < td::Clocks::system() - 86400 || transactions.size() >= 1000) {
             td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions, std::move(transactions));
             return;
           }
@@ -217,12 +217,13 @@ void FabricContractWrapper::run_get_method(
   ::run_get_method(address_, client_, std::move(method), std::move(args), std::move(promise));
 }
 
-void FabricContractWrapper::send_internal_message(ContractAddress dest, td::uint64 coins, vm::CellSlice body,
+void FabricContractWrapper::send_internal_message(ContractAddress dest, td::RefInt256 coins, vm::CellSlice body,
                                                   td::Promise<td::Unit> promise) {
+  CHECK(coins->sgn() >= 0);
   vm::CellBuilder b;
   b.store_long(3 << 2, 6);                  // 0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddressInt
   b.append_cellslice(dest.to_cellslice());  // dest:MsgAddressInt
-  store_coins(b, td::make_refint(coins));   // grams:Grams
+  store_coins(b, coins);                    // grams:Grams
   b.store_zeroes(1 + 4 + 4 + 64 + 32 + 1);  // ihr_fee, fwd_fee, created_lt, created_at, init
   // body:(Either X ^X)
   if (b.remaining_bits() >= 1 + body.size() && b.remaining_refs() >= body.size_refs()) {
@@ -383,4 +384,42 @@ td::Result<FabricContractInit> generate_fabric_contract(td::actor::ActorId<keyri
   td::actor::send_closure(keyring, &keyring::Keyring::add_key, private_key, false,
                           [](td::Result<td::Unit> R) { R.ensure(); });
   return FabricContractInit{address, state_init, msg_body};
+}
+
+td::Ref<vm::Cell> create_new_contract_message_body(td::Ref<vm::Cell> info, td::Bits256 microchunk_hash,
+                                                   td::uint64 query_id, td::RefInt256 rate, td::uint32 max_span) {
+  // new_storage_contract#00000001 query_id:uint64 info:(^ TorrentInfo) microchunk_hash:uint256
+  //     expected_rate:Coins expected_max_span:uint32 = NewStorageContract;
+  vm::CellBuilder b;
+  b.store_long(1, 32);  // const op::new_storage_contract = 1;
+  b.store_long(query_id, 64);
+  b.store_ref(std::move(info));
+  b.store_bytes(microchunk_hash.as_slice());
+  store_coins(b, rate);
+  b.store_long(max_span, 32);
+  return b.finalize_novm();
+}
+
+void get_storage_contract_data(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                               td::Promise<StorageContractData> promise) {
+  run_get_method(
+      address, client, "get_contract_data", {},
+      promise.wrap([](std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> stack) -> td::Result<StorageContractData> {
+        if (stack.size() < 11) {
+          return td::Status::Error("Too few entries");
+        }
+        // active, balance, provider, merkle_hash, file_size, next_proof, rate_per_mb_day, max_span, last_proof_time,
+        // client, torrent_hash
+        TRY_RESULT(active, entry_to_int<int>(stack[0]));
+        TRY_RESULT(balance, entry_to_int<td::RefInt256>(stack[1]));
+        TRY_RESULT(microchunk_hash, entry_to_bits256(stack[3]));
+        TRY_RESULT(file_size, entry_to_int<td::uint64>(stack[4]));
+        TRY_RESULT(next_proof, entry_to_int<td::uint64>(stack[5]));
+        TRY_RESULT(rate_per_mb_day, entry_to_int<td::RefInt256>(stack[6]));
+        TRY_RESULT(max_span, entry_to_int<td::uint32>(stack[7]));
+        TRY_RESULT(last_proof_time, entry_to_int<td::uint32>(stack[8]));
+        TRY_RESULT(torrent_hash, entry_to_bits256(stack[10]));
+        return StorageContractData{(bool)active,    balance,  microchunk_hash, file_size,   next_proof,
+                                   rate_per_mb_day, max_span, last_proof_time, torrent_hash};
+      }));
 }

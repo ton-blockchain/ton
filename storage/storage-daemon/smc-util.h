@@ -63,7 +63,7 @@ void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibCl
 void check_contract_exists(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
                            td::Promise<bool> promise);
 void get_contract_balance(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
-                          td::Promise<td::uint64> promise);
+                          td::Promise<td::RefInt256> promise);
 
 class FabricContractWrapper : public td::actor::Actor {
  public:
@@ -82,7 +82,8 @@ class FabricContractWrapper : public td::actor::Actor {
 
   void run_get_method(std::string method, std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
                       td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise);
-  void send_internal_message(ContractAddress dest, td::uint64 coins, vm::CellSlice body, td::Promise<td::Unit> promise);
+  void send_internal_message(ContractAddress dest, td::RefInt256 coins, vm::CellSlice body,
+                             td::Promise<td::Unit> promise);
   void send_internal_message_raw(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise);
 
  private:
@@ -156,3 +157,21 @@ struct FabricContractInit {
   td::Ref<vm::Cell> msg_body;
 };
 td::Result<FabricContractInit> generate_fabric_contract(td::actor::ActorId<keyring::Keyring> keyring);
+
+td::Ref<vm::Cell> create_new_contract_message_body(td::Ref<vm::Cell> info, td::Bits256 microchunk_hash,
+                                                   td::uint64 query_id, td::RefInt256 rate, td::uint32 max_span);
+
+struct StorageContractData {
+  bool active;
+  td::RefInt256 balance;
+  td::Bits256 microchunk_hash;
+  td::uint64 file_size;
+  td::uint64 next_proof;
+  td::RefInt256 rate_per_mb_day;
+  td::uint32 max_span;
+  td::uint32 last_proof_time;
+  td::Bits256 torrent_hash;
+};
+
+void get_storage_contract_data(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
+                               td::Promise<StorageContractData> promise);

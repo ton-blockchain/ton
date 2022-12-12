@@ -288,7 +288,6 @@ class StorageDaemon : public td::actor::Actor {
           Torrent::Creator::Options options;
           options.piece_size = 128 * 1024;
           options.description = std::move(query.description_);
-          options.create_microchunk_tree = query.create_microchunk_tree_;
           TRY_RESULT_PROMISE(promise, torrent, Torrent::Creator::create_from_path(std::move(options), query.path_));
           td::Bits256 hash = torrent.get_hash();
           td::actor::send_closure(manager, &StorageManager::add_torrent, std::move(torrent), false,
@@ -413,18 +412,6 @@ class StorageDaemon : public td::actor::Actor {
         }));
   }
 
-  void run_control_query(ton_api::storage_daemon_getTorrentInfoBoc &query, td::Promise<td::BufferSlice> promise) {
-    td::actor::send_closure(manager_, &StorageManager::with_torrent, query.hash_,
-                            promise.wrap([](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
-                              Torrent &torrent = state.torrent;
-                              if (!torrent.inited_info()) {
-                                return td::Status::Error("Torrent info is not available");
-                              }
-                              TRY_RESULT(boc, vm::std_boc_serialize(torrent.get_info().as_cell()));
-                              return create_serialize_tl_object<ton_api::storage_daemon_torrentInfoBoc>(std::move(boc));
-                            }));
-  }
-
   void run_control_query(ton_api::storage_daemon_getTorrentPeers &query, td::Promise<td::BufferSlice> promise) {
     td::actor::send_closure(manager_, &StorageManager::get_peers_info, query.hash_,
                             promise.wrap([](tl_object_ptr<ton_api::storage_daemon_peerList> obj) -> td::BufferSlice {
@@ -490,6 +477,46 @@ class StorageDaemon : public td::actor::Actor {
             }));
           }
         });
+  }
+
+  void run_control_query(ton_api::storage_daemon_getNewContractMessage &query, td::Promise<td::BufferSlice> promise) {
+    td::Promise<std::pair<td::RefInt256, td::uint32>> P =
+        [promise = std::move(promise), hash = query.hash_, query_id = query.query_id_,
+         manager = manager_.get()](td::Result<std::pair<td::RefInt256, td::uint32>> R) mutable {
+          TRY_RESULT_PROMISE(promise, r, std::move(R));
+          td::actor::send_closure(
+              manager, &StorageManager::with_torrent, hash,
+              promise.wrap([r = std::move(r), query_id](NodeActor::NodeState state) -> td::Result<td::BufferSlice> {
+                Torrent &torrent = state.torrent;
+                if (!torrent.is_completed()) {
+                  return td::Status::Error("Torrent is not complete");
+                }
+                TRY_RESULT(microchunk_tree, MicrochunkTree::Builder::build_for_torrent(torrent, 1LL << 60));
+                td::Ref<vm::Cell> msg = create_new_contract_message_body(
+                    torrent.get_info().as_cell(), microchunk_tree.get_root_hash(), query_id, r.first, r.second);
+                return create_serialize_tl_object<ton_api::storage_daemon_newContractMessage>(
+                    vm::std_boc_serialize(msg).move_as_ok(), r.first->to_dec_string(), r.second);
+              }));
+        };
+
+    ton_api::downcast_call(*query.params_,
+                           td::overloaded(
+                               [&](ton_api::storage_daemon_newContractParams &obj) {
+                                 td::RefInt256 rate = td::string_to_int256(obj.rate_);
+                                 if (rate.is_null() || rate->sgn() < 0) {
+                                   P.set_error(td::Status::Error("Invalid rate"));
+                                   return;
+                                 }
+                                 P.set_result(std::make_pair(std::move(rate), (td::uint32)obj.max_span_));
+                               },
+                               [&](ton_api::storage_daemon_newContractParamsAuto &obj) {
+                                 TRY_RESULT_PROMISE(P, address, ContractAddress::parse(obj.provider_address_));
+                                 init_tonlib_client();
+                                 StorageProvider::get_provider_params(
+                                     tonlib_client_.get(), address, P.wrap([](ProviderParams params) {
+                                       return std::make_pair(std::move(params.rate_per_mb_day), params.max_span);
+                                     }));
+                               }));
   }
 
   void run_control_query(ton_api::storage_daemon_importPrivateKey &query, td::Promise<td::BufferSlice> promise) {
@@ -619,8 +646,9 @@ class StorageDaemon : public td::actor::Actor {
       promise.set_error(td::Status::Error("No storage provider"));
       return;
     }
+    TRY_RESULT_PROMISE(promise, params, ProviderParams::create(query.params_));
     td::actor::send_closure(
-        provider_, &StorageProvider::set_params, ProviderParams(query.params_),
+        provider_, &StorageProvider::set_params, std::move(params),
         promise.wrap([](td::Unit) mutable { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
   }
 
@@ -640,6 +668,16 @@ class StorageDaemon : public td::actor::Actor {
                             }));
   }
 
+  void run_control_query(ton_api::storage_daemon_setProviderConfig &query, td::Promise<td::BufferSlice> promise) {
+    if (provider_.empty()) {
+      promise.set_error(td::Status::Error("No storage provider"));
+      return;
+    }
+    td::actor::send_closure(
+        provider_, &StorageProvider::set_provider_config, StorageProvider::Config(query.config_),
+        promise.wrap([](td::Unit) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
+  }
+
   void run_control_query(ton_api::storage_daemon_withdraw &query, td::Promise<td::BufferSlice> promise) {
     if (provider_.empty()) {
       promise.set_error(td::Status::Error("No storage provider"));
@@ -651,24 +689,19 @@ class StorageDaemon : public td::actor::Actor {
     }));
   }
 
-  void run_control_query(ton_api::storage_daemon_withdrawAll &query, td::Promise<td::BufferSlice> promise) {
-    if (provider_.empty()) {
-      promise.set_error(td::Status::Error("No storage provider"));
-      return;
-    }
-    td::actor::send_closure(provider_, &StorageProvider::withdraw_all, promise.wrap([](td::Unit) {
-      return create_serialize_tl_object<ton_api::storage_daemon_success>();
-    }));
-  }
-
   void run_control_query(ton_api::storage_daemon_sendCoins &query, td::Promise<td::BufferSlice> promise) {
     if (provider_.empty()) {
       promise.set_error(td::Status::Error("No storage provider"));
       return;
     }
     TRY_RESULT_PROMISE_PREFIX(promise, address, ContractAddress::parse(query.address_), "Invalid address: ");
+    td::RefInt256 amount = td::string_to_int256(query.amount_);
+    if (amount.is_null()) {
+      promise.set_error(td::Status::Error("Invalid amount"));
+      return;
+    }
     td::actor::send_closure(
-        provider_, &StorageProvider::send_coins, address, query.amount_, std::move(query.message_),
+        provider_, &StorageProvider::send_coins, address, amount, std::move(query.message_),
         promise.wrap([](td::Unit) { return create_serialize_tl_object<ton_api::storage_daemon_success>(); }));
   }
 
