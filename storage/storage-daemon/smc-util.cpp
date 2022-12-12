@@ -23,6 +23,7 @@
 void run_get_method(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client, std::string method,
                     std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
                     td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise) {
+  LOG(DEBUG) << "Running get method " << method << " on " << address.to_string();
   auto query =
       create_tl_object<tonlib_api::smc_load>(create_tl_object<tonlib_api::accountAddress>(address.to_string()));
   td::actor::send_closure(
@@ -116,6 +117,7 @@ void FabricContractWrapper::alarm() {
 }
 
 void FabricContractWrapper::load_transactions() {
+  LOG(DEBUG) << "Loading transactions for " << address_.to_string() << ", last_lt=" << last_processed_lt_;
   auto query =
       create_tl_object<tonlib_api::getAccountState>(create_tl_object<tonlib_api::accountAddress>(address_.to_string()));
   td::actor::send_closure(
@@ -152,9 +154,11 @@ void FabricContractWrapper::load_last_transactions(std::vector<tl_object_ptr<ton
         for (auto& transaction : obj->transactions_) {
           if ((td::uint64)transaction->transaction_id_->lt_ <= last_processed_lt ||
               (double)transaction->utime_ < td::Clocks::system() - 86400 || transactions.size() >= 1000) {
+            LOG(DEBUG) << "Stopping loading transactions (too many or too old)";
             td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions, std::move(transactions));
             return;
           }
+          LOG(DEBUG) << "Adding trtansaction, lt=" << transaction->transaction_id_->lt_;
           transactions.push_back(std::move(transaction));
         }
         td::actor::send_closure(SelfId, &FabricContractWrapper::load_last_transactions, std::move(transactions),
@@ -170,8 +174,10 @@ void FabricContractWrapper::loaded_last_transactions(
     return;
   }
   auto transactions = R.move_as_ok();
+  LOG(DEBUG) << "Finished loading " << transactions.size() << " transactions";
   std::reverse(transactions.begin(), transactions.end());
   for (tl_object_ptr<tonlib_api::raw_transaction>& transaction : transactions) {
+    LOG(DEBUG) << "Processing transaction tl=" << transaction->transaction_id_->lt_;
     last_processed_lt_ = transaction->transaction_id_->lt_;
     // transaction->in_msg_->source_->account_address_.empty() - message is external
     if (sent_message_ && sent_message_.value().sent && transaction->in_msg_->source_->account_address_.empty()) {
@@ -219,6 +225,8 @@ void FabricContractWrapper::run_get_method(
 
 void FabricContractWrapper::send_internal_message(ContractAddress dest, td::RefInt256 coins, vm::CellSlice body,
                                                   td::Promise<td::Unit> promise) {
+  LOG(DEBUG) << "sent_internal_message " << address_.to_string() << " -> " << dest.to_string() << ", "
+             << coins->to_dec_string() << " nanoTON";
   CHECK(coins->sgn() >= 0);
   vm::CellBuilder b;
   b.store_long(3 << 2, 6);                  // 0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddressInt
@@ -238,6 +246,7 @@ void FabricContractWrapper::send_internal_message(ContractAddress dest, td::RefI
 
 void FabricContractWrapper::send_internal_message_raw(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise) {
   if (sent_message_) {
+    LOG(DEBUG) << "Adding internal message to queue";
     pending_messages_.emplace(std::move(int_msg), std::move(promise));
   } else {
     do_send_internal_message(std::move(int_msg), std::move(promise));
@@ -245,6 +254,7 @@ void FabricContractWrapper::send_internal_message_raw(td::Ref<vm::Cell> int_msg,
 }
 
 void FabricContractWrapper::do_send_internal_message(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise) {
+  LOG(DEBUG) << "do_send_internal_message";
   CHECK(!sent_message_);
   sent_message_ = SentMessage();
   sent_message_.value().int_msg = std::move(int_msg);
@@ -288,6 +298,7 @@ void FabricContractWrapper::do_send_internal_message_cont(td::uint32 seqno, td::
   b.store_ref(sent_message_.value().int_msg);               // message
   td::Ref<vm::Cell> to_sign = b.finalize_novm();
   td::BufferSlice hash(to_sign->get_hash().as_slice());
+  LOG(DEBUG) << "Signing internal message: seqno=" << seqno;
   td::actor::send_closure(
       keyring_, &keyring::Keyring::sign_message, PublicKey(pubkeys::Ed25519(public_key)).compute_short_id(),
       std::move(hash), [SelfId = actor_id(this), data = std::move(to_sign)](td::Result<td::BufferSlice> R) mutable {
@@ -307,6 +318,7 @@ void FabricContractWrapper::do_send_internal_message_cont(td::uint32 seqno, td::
 
 void FabricContractWrapper::do_send_internal_message_cont2(td::Ref<vm::Cell> ext_msg_body) {
   CHECK(sent_message_);
+  LOG(DEBUG) << "Sending internal message: seqno=" << sent_message_.value().seqno;
   sent_message_.value().sent = true;
   sent_message_.value().ext_msg_body_hash = ext_msg_body->get_hash().bits();
   alarm_timestamp().relax(sent_message_.value().timeout = td::Timestamp::in(60.0));
@@ -323,6 +335,11 @@ void FabricContractWrapper::do_send_internal_message_cont2(td::Ref<vm::Cell> ext
 }
 
 void FabricContractWrapper::do_send_internal_message_finish(td::Result<td::Unit> R) {
+  if (R.is_error()) {
+    LOG(WARNING) << "Send internal message error: " << R.move_as_error();
+  } else {
+    LOG(DEBUG) << "Internal message seqno=" << sent_message_.value().seqno << " was sent";
+  }
   CHECK(sent_message_);
   sent_message_.value().promise.set_result(std::move(R));
   sent_message_ = {};
@@ -347,19 +364,23 @@ bool store_coins(vm::CellBuilder& b, td::uint64 x) {
 
 td::Result<FabricContractInit> generate_fabric_contract(td::actor::ActorId<keyring::Keyring> keyring) {
   auto private_key = PrivateKey{privkeys::Ed25519::random()};
+  td::Bits256 public_key = private_key.compute_public_key().ed25519_value().raw();
 
   td::Slice code_boc(STORAGE_PROVIDER_CODE, sizeof(STORAGE_PROVIDER_CODE));
   TRY_RESULT(code, vm::std_boc_deserialize(code_boc));
 
+  LOG(DEBUG) << "Generating storage provider state init. code_hash=" << code->get_hash().to_hex()
+             << " public_key=" << public_key.to_hex();
+
   vm::CellBuilder b;
-  b.store_long(0, 32);                                                               // seqno
-  b.store_long(0, 32);                                                               // subwallet_id
-  b.store_bytes(private_key.compute_public_key().ed25519_value().raw().as_slice());  // public_key
-  b.store_long(0, 1);         // accept_new_contracts (false by default)
-  store_coins(b, 1'000'000);  // rate_per_mb_day
-  b.store_long(86400, 32);    // max_span
-  b.store_long(1 << 20, 64);  // min_file_size
-  b.store_long(1 << 30, 64);  // max_file_size
+  b.store_long(0, 32);                   // seqno
+  b.store_long(0, 32);                   // subwallet_id
+  b.store_bytes(public_key.as_slice());  // public_key
+  b.store_long(0, 1);                    // accept_new_contracts (false by default)
+  store_coins(b, 1'000'000);             // rate_per_mb_day
+  b.store_long(86400, 32);               // max_span
+  b.store_long(1 << 20, 64);             // min_file_size
+  b.store_long(1 << 30, 64);             // max_file_size
   td::Ref<vm::Cell> data = b.finalize_novm();
 
   // _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)

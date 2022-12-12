@@ -269,6 +269,7 @@ class StorageDaemon : public td::actor::Actor {
       return;
     }
     auto f = F.move_as_ok();
+    LOG(DEBUG) << "Running control query " << f->get_id();
     ton_api::downcast_call(*f, [&](auto &obj) { run_control_query(obj, std::move(promise)); });
   }
 

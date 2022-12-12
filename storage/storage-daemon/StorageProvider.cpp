@@ -95,10 +95,13 @@ void StorageProvider::start_up() {
   r_config.ensure();
   auto config_obj = r_config.move_as_ok();
   if (config_obj) {
+    LOG(INFO) << "Loaded config from db";
     config_ = Config(config_obj);
   } else {
+    LOG(INFO) << "Using default config";
     db_store_config();
   }
+  LOG(INFO) << "Config: max_contracts=" << config_.max_contracts << ", max_total_size=" << config_.max_total_size;
 
   auto r_contract_list = db::db_get<ton_api::storage_provider_db_contractList>(
       *db_, create_hash_tl_object<ton_api::storage_provider_db_key_contractList>(), true);
@@ -138,6 +141,9 @@ void StorageProvider::start_up() {
       if (tree) {
         contract.microchunk_tree = std::make_shared<MicrochunkTree>(vm::std_boc_deserialize(tree->data_).move_as_ok());
       }
+
+      LOG(INFO) << "Loaded contract from db: " << address.to_string() << ", torrent=" << contract.torrent_hash.to_hex()
+                << ", state=" << contract.state;
     }
   }
 
@@ -201,12 +207,15 @@ void StorageProvider::set_params(ProviderParams params, td::Promise<td::Unit> pr
     promise.set_error(td::Status::Error("Failed to store params to builder"));
     return;
   }
-  LOG(INFO) << "Sending external message to update provider parameters";
+  LOG(INFO) << "Sending external message to update provider parameters: " << params.accept_new_contracts << ", "
+            << params.max_span << ", " << params.rate_per_mb_day << ", " << params.minimal_file_size << ", "
+            << params.maximal_file_size;
   td::actor::send_closure(contract_wrapper_, &FabricContractWrapper::send_internal_message, main_address_,
                           td::make_refint(100'000'000), b.as_cellslice(), std::move(promise));
 }
 
 void StorageProvider::db_store_state() {
+  LOG(DEBUG) << "db_store_state last_lt=" << last_processed_lt_;
   db_->begin_transaction().ensure();
   db_->set(create_hash_tl_object<ton_api::storage_provider_db_key_state>().as_slice(),
            create_serialize_tl_object<ton_api::storage_provider_db_state>(last_processed_lt_))
@@ -215,6 +224,7 @@ void StorageProvider::db_store_state() {
 }
 
 void StorageProvider::db_store_config() {
+  LOG(DEBUG) << "db_store_config";
   db_->begin_transaction().ensure();
   db_->set(create_hash_tl_object<ton_api::storage_provider_db_key_providerConfig>().as_slice(),
            serialize_tl_object(config_.tl(), true))
@@ -299,6 +309,9 @@ void StorageProvider::on_new_storage_contract_cont(ContractAddress address, Stor
     return;
   }
   LOG(INFO) << "New storage contract " << address.to_string() << ", torrent hash: " << data.torrent_hash.to_hex();
+  LOG(DEBUG) << "Stoage contract data: microchunk_hash=" << data.microchunk_hash << ", balance=" << data.balance
+             << ", file_size=" << data.file_size << ", next_proof=" << data.next_proof
+             << ", rate=" << data.rate_per_mb_day << ", max_span=" << data.max_span;
   StorageContract& contract = it.first->second;
   contract.torrent_hash = data.torrent_hash;
   contract.microchunk_hash = data.microchunk_hash;
@@ -327,6 +340,7 @@ void StorageProvider::on_new_storage_contract_cont(ContractAddress address, Stor
 }
 
 void StorageProvider::db_update_storage_contract(const ContractAddress& address, bool update_list) {
+  LOG(DEBUG) << "db_update_storage_contract " << address.to_string() << " " << update_list;
   db_->begin_transaction().ensure();
   if (update_list) {
     std::vector<tl_object_ptr<ton_api::storage_provider_db_contractAddress>> list;
@@ -352,6 +366,7 @@ void StorageProvider::db_update_storage_contract(const ContractAddress& address,
 }
 
 void StorageProvider::db_update_microchunk_tree(const ContractAddress& address) {
+  LOG(DEBUG) << "db_update_microchunk_tree " << address.to_string();
   db_->begin_transaction().ensure();
   auto key = create_hash_tl_object<ton_api::storage_provider_db_key_microchunkTree>(address.wc, address.addr);
   auto it = contracts_.find(address);
@@ -367,8 +382,13 @@ void StorageProvider::db_update_microchunk_tree(const ContractAddress& address) 
 void StorageProvider::init_new_storage_contract(ContractAddress address, StorageContract& contract) {
   CHECK(contract.state == StorageContract::st_downloading);
   td::actor::send_closure(storage_manager_, &StorageManager::add_torrent_by_hash, contract.torrent_hash, "", false,
-                          [](td::Result<td::Unit>) {
+                          [](td::Result<td::Unit> R) {
                             // Ignore errors: error can mean that the torrent already exists, other errors will be caught later
+                            if (R.is_error()) {
+                              LOG(DEBUG) << "Add torrent: OK";
+                            } else {
+                              LOG(DEBUG) << "Add torrent: " << R.move_as_error();
+                            }
                           });
   td::actor::send_closure(storage_manager_, &StorageManager::set_active_download, contract.torrent_hash, true,
                           [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
@@ -377,6 +397,7 @@ void StorageProvider::init_new_storage_contract(ContractAddress address, Storage
                               td::actor::send_closure(SelfId, &StorageProvider::do_close_storage_contract, address);
                               return;
                             }
+                            LOG(DEBUG) << "Set active download: OK";
                           });
   td::actor::send_closure(
       storage_manager_, &StorageManager::wait_for_completion, contract.torrent_hash,
@@ -387,6 +408,7 @@ void StorageProvider::init_new_storage_contract(ContractAddress address, Storage
           td::actor::send_closure(SelfId, &StorageProvider::do_close_storage_contract, address);
           return;
         }
+        LOG(DEBUG) << "Downloaded torrent " << hash;
         td::actor::send_closure(
             manager, &StorageManager::with_torrent, hash,
             [SelfId, address, hash, microchunk_hash](td::Result<NodeActor::NodeState> R) {
@@ -396,6 +418,7 @@ void StorageProvider::init_new_storage_contract(ContractAddress address, Storage
                 if (!torrent.is_completed() || torrent.get_included_size() != torrent.get_info().file_size) {
                   return td::Status::Error("unknown error");
                 }
+                LOG(DEBUG) << "Building microchunk tree for " << hash;
                 TRY_RESULT(tree, MicrochunkTree::Builder::build_for_torrent(torrent));
                 if (tree.get_root_hash() != microchunk_hash) {
                   return td::Status::Error("microchunk tree hash mismatch");
@@ -464,6 +487,7 @@ void StorageProvider::activate_contract_cont(ContractAddress address) {
   vm::CellBuilder b;
   b.store_long(9, 32);  // const op::accept_contract = 9;
   b.store_long(0, 64);  // query_id
+  LOG(DEBUG) << "Sending op::accept_contract to " << address.to_string();
   td::actor::send_closure(
       contract_wrapper_, &FabricContractWrapper::send_internal_message, address, td::make_refint(100'000'000),
       b.as_cellslice(), [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
@@ -508,6 +532,7 @@ void StorageProvider::send_close_storage_contract(ContractAddress address) {
   vm::CellBuilder b;
   b.store_long(7, 32);  // const op::close_contract = 7;
   b.store_long(0, 64);  // query_id
+  LOG(DEBUG) << "Sending op::close_contract to " << address.to_string();
   td::actor::send_closure(
       contract_wrapper_, &FabricContractWrapper::send_internal_message, address, td::make_refint(100'000'000),
       b.as_cellslice(), [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
@@ -604,6 +629,8 @@ void StorageProvider::got_next_proof_info(ContractAddress address, td::Result<St
   }
   td::uint32 send_at = data.last_proof_time + data.max_span / 2, now = (td::uint32)td::Clocks::system();
   if (now < send_at) {
+    LOG(DEBUG) << "Will send proof in " << send_at - now << "s (last_proof_time=" << data.last_proof_time
+               << ", max_span=" << data.max_span << ")";
     alarm_timestamp().relax(contract.check_next_proof_at = td::Timestamp::in(send_at - now + 2));
     return;
   }
@@ -660,6 +687,8 @@ void StorageProvider::got_next_proof(ContractAddress address, td::Result<td::Ref
                           [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
                             if (R.is_error()) {
                               LOG(ERROR) << "Failed to send proof message: " << R.move_as_error();
+                            } else {
+                              LOG(DEBUG) << "Proof for " << address.to_string() << " was sent";
                             }
                             td::actor::send_closure(SelfId, &StorageProvider::sent_next_proof, address);
                           });
@@ -749,6 +778,8 @@ void StorageProvider::get_provider_info(bool with_balances, bool with_contracts,
 
 void StorageProvider::set_provider_config(Config config, td::Promise<td::Unit> promise) {
   config_ = config;
+  LOG(INFO) << "Changing provider config: max_contracts=" << config_.max_contracts
+            << ", max_total_size=" << config_.max_total_size;
   db_store_config();
   promise.set_result(td::Unit());
 }
