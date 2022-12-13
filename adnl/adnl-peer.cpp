@@ -824,7 +824,7 @@ void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::
     }
   }
 
-  td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet_checked, std::move(packet));
+  td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet, std::move(packet));
 }
 
 void AdnlPeerImpl::send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
