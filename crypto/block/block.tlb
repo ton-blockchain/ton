@@ -762,9 +762,15 @@ _ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
 _ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
 _ OracleBridgeParams = ConfigParam 73; // Polygon bridge
 
+// Note that chains in which bridge, minter and jetton-wallet operate are fixated
+jetton_bridge_prices#_ bridge_burn_fee:Coins bridge_mint_fee:Coins 
+                       wallet_min_tons_for_storage:Coins
+                       wallet_gas_consumption:Coins
+                       minter_min_tons_for_storage:Coins
+                       discover_gas_consumption:Coins = JettonBridgePrices;
 
 jetton_bridge_params_v0#00 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 burn_bridge_fee:Coins = JettonBridgeParams;
-jetton_bridge_params_v1#01 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 burn_bridge_fee:Coins external_chain_address:bits256 = JettonBridgeParams;
+jetton_bridge_params_v1#01 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 prices:^JettonBridgePrices external_chain_address:bits256 = JettonBridgeParams;
 
 _ JettonBridgeParams = ConfigParam 79; // ETH->TON token bridge
 _ JettonBridgeParams = ConfigParam 80; // BNB->TON token bridge
