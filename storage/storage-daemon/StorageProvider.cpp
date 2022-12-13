@@ -385,9 +385,9 @@ void StorageProvider::init_new_storage_contract(ContractAddress address, Storage
                           [](td::Result<td::Unit> R) {
                             // Ignore errors: error can mean that the torrent already exists, other errors will be caught later
                             if (R.is_error()) {
-                              LOG(DEBUG) << "Add torrent: OK";
-                            } else {
                               LOG(DEBUG) << "Add torrent: " << R.move_as_error();
+                            } else {
+                              LOG(DEBUG) << "Add torrent: OK";
                             }
                           });
   td::actor::send_closure(storage_manager_, &StorageManager::set_active_download, contract.torrent_hash, true,

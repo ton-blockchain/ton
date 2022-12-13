@@ -84,7 +84,6 @@ class FabricContractWrapper : public td::actor::Actor {
                       td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise);
   void send_internal_message(ContractAddress dest, td::RefInt256 coins, vm::CellSlice body,
                              td::Promise<td::Unit> promise);
-  void send_internal_message_raw(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise);
 
  private:
   ContractAddress address_;
@@ -95,26 +94,34 @@ class FabricContractWrapper : public td::actor::Actor {
   td::Timestamp process_transactions_at_ = td::Timestamp::now();
   td::uint64 last_processed_lt_ = 0;
 
-  struct SentMessage {
-    td::Ref<vm::Cell> int_msg;
+  struct PendingMessage {
+    ContractAddress dest;
+    td::RefInt256 value;
+    vm::CellSlice body;
+    td::Bits256 body_hash;
     td::Promise<td::Unit> promise;
-    bool sent = false;
-    td::uint32 seqno = 0;
-    td::Bits256 ext_msg_body_hash = td::Bits256::zero();
-    td::Timestamp timeout = td::Timestamp::never();
   };
-  td::optional<SentMessage> sent_message_;
-  std::queue<std::pair<td::Ref<vm::Cell>, td::Promise<td::Unit>>> pending_messages_;
+  struct CurrentExtMessage {
+    std::vector<PendingMessage> int_msgs;
+    td::uint32 seqno = 0;
+    bool sent = false;
+    td::Bits256 ext_msg_body_hash = td::Bits256::zero();
+    td::uint32 timeout = 0;
+  };
+  std::queue<PendingMessage> pending_messages_;
+  td::Timestamp send_message_at_ = td::Timestamp::never();
+  td::optional<CurrentExtMessage> current_ext_message_;
 
   void load_transactions();
   void load_last_transactions(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
-                              tl_object_ptr<tonlib_api::internal_transactionId> next_id);
-  void loaded_last_transactions(td::Result<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>> R);
+                              tl_object_ptr<tonlib_api::internal_transactionId> next_id, td::uint32 utime);
+  void loaded_last_transactions(
+      td::Result<std::pair<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>, td::uint32>> R);
 
-  void do_send_internal_message(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise);
-  void do_send_internal_message_cont(td::uint32 seqno, td::uint32 subwallet_id, td::Bits256 public_key);
-  void do_send_internal_message_cont2(td::Ref<vm::Cell> ext_msg_body);
-  void do_send_internal_message_finish(td::Result<td::Unit> R);
+  void do_send_external_message();
+  void do_send_external_message_cont(td::uint32 seqno, td::uint32 subwallet_id, td::Bits256 public_key);
+  void do_send_external_message_cont2(td::Ref<vm::Cell> ext_msg_body);
+  void do_send_external_message_finish(td::Result<const std::vector<tl_object_ptr<tonlib_api::raw_message>>*> R);
 };
 
 template <typename T>

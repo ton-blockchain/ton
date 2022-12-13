@@ -1473,7 +1473,12 @@ class StorageDaemonCli : public td::actor::Actor {
       if (obj.torrent_->flags_ & 2) {  // header ready
         td::TerminalIO::out() << "Downloaded: " << td::format::as_size(obj.torrent_->downloaded_size_) << "/"
                               << td::format::as_size(obj.torrent_->included_size_)
-                              << (obj.torrent_->completed_ ? " (completed)" : "") << "\n";
+                              << (obj.torrent_->completed_
+                                      ? " (completed)"
+                                      : " (remaining " +
+                                            size_to_str(obj.torrent_->included_size_ - obj.torrent_->downloaded_size_) +
+                                            ")")
+                              << "\n";
         td::TerminalIO::out() << "Dir name: " << obj.torrent_->dir_name_ << "\n";
       }
       td::TerminalIO::out() << "Total size: " << td::format::as_size(obj.torrent_->total_size_) << "\n";
@@ -1491,7 +1496,7 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "Root dir: " << obj.torrent_->root_dir_ << "\n";
     if (obj.torrent_->flags_ & 2) {  // header ready
       td::TerminalIO::out() << obj.files_.size() << " files:\n";
-      td::TerminalIO::out() << "######  Prior   Ready/Size     Name\n";
+      td::TerminalIO::out() << "######  Prior   Ready/Size       Name\n";
       td::uint32 i = 0;
       for (const auto& f : obj.files_) {
         char str[64];
@@ -1500,8 +1505,9 @@ class StorageDaemonCli : public td::actor::Actor {
           CHECK(f->priority_ <= 255);
           snprintf(priority, sizeof(priority), "%03d", f->priority_);
         }
-        snprintf(str, sizeof(str), "%6u: (%s) %7s/%-7s  ", i, priority,
-                 f->priority_ == 0 ? "---" : size_to_str(f->downloaded_size_).c_str(), size_to_str(f->size_).c_str());
+        snprintf(str, sizeof(str), "%6u: (%s) %7s/%-7s %s  ", i, priority,
+                 f->priority_ == 0 ? "---" : size_to_str(f->downloaded_size_).c_str(), size_to_str(f->size_).c_str(),
+                 (f->downloaded_size_ == f->size_ ? "+" : " "));
         td::TerminalIO::out() << str << f->name_ << "\n";
         ++i;
       }

@@ -111,12 +111,11 @@ void FabricContractWrapper::alarm() {
     load_transactions();
   }
   alarm_timestamp().relax(process_transactions_at_);
-  if (sent_message_ && sent_message_.value().timeout && sent_message_.value().timeout.is_in_past()) {
-    do_send_internal_message_finish(td::Status::Error(ErrorCode::timeout, "Timeout"));
+  if (send_message_at_ && send_message_at_.is_in_past()) {
+    send_message_at_ = td::Timestamp::never();
+    do_send_external_message();
   }
-  if (sent_message_) {
-    alarm_timestamp().relax(sent_message_.value().timeout);
-  }
+  alarm_timestamp().relax(send_message_at_);
 }
 
 void FabricContractWrapper::load_transactions() {
@@ -133,22 +132,23 @@ void FabricContractWrapper::load_transactions() {
         auto obj = R.move_as_ok();
         td::actor::send_closure(SelfId, &FabricContractWrapper::load_last_transactions,
                                 std::vector<tl_object_ptr<tonlib_api::raw_transaction>>(),
-                                std::move(obj->last_transaction_id_));
+                                std::move(obj->last_transaction_id_), (td::uint32)obj->sync_utime_);
       });
 }
 
 void FabricContractWrapper::load_last_transactions(std::vector<tl_object_ptr<tonlib_api::raw_transaction>> transactions,
-                                                   tl_object_ptr<tonlib_api::internal_transactionId> next_id) {
+                                                   tl_object_ptr<tonlib_api::internal_transactionId> next_id,
+                                                   td::uint32 utime) {
   if ((td::uint64)next_id->lt_ <= last_processed_lt_) {
-    loaded_last_transactions(std::move(transactions));
+    loaded_last_transactions(std::make_pair(std::move(transactions), utime));
     return;
   }
   auto query = create_tl_object<tonlib_api::raw_getTransactionsV2>(
       nullptr, create_tl_object<tonlib_api::accountAddress>(address_.to_string()), std::move(next_id), 10, false);
   td::actor::send_closure(
       client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::raw_getTransactionsV2>, std::move(query),
-      [transactions = std::move(transactions), last_processed_lt = last_processed_lt_,
-       SelfId = actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::raw_transactions>> R) mutable {
+      [transactions = std::move(transactions), last_processed_lt = last_processed_lt_, SelfId = actor_id(this),
+       utime](td::Result<tonlib_api::object_ptr<tonlib_api::raw_transactions>> R) mutable {
         if (R.is_error()) {
           td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions, R.move_as_error());
           return;
@@ -158,32 +158,36 @@ void FabricContractWrapper::load_last_transactions(std::vector<tl_object_ptr<ton
           if ((td::uint64)transaction->transaction_id_->lt_ <= last_processed_lt ||
               (double)transaction->utime_ < td::Clocks::system() - 86400 || transactions.size() >= 1000) {
             LOG(DEBUG) << "Stopping loading transactions (too many or too old)";
-            td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions, std::move(transactions));
+            td::actor::send_closure(SelfId, &FabricContractWrapper::loaded_last_transactions,
+                                    std::make_pair(std::move(transactions), utime));
             return;
           }
           LOG(DEBUG) << "Adding trtansaction, lt=" << transaction->transaction_id_->lt_;
           transactions.push_back(std::move(transaction));
         }
         td::actor::send_closure(SelfId, &FabricContractWrapper::load_last_transactions, std::move(transactions),
-                                std::move(obj->previous_transaction_id_));
+                                std::move(obj->previous_transaction_id_), utime);
       });
 }
 
 void FabricContractWrapper::loaded_last_transactions(
-    td::Result<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>> R) {
+    td::Result<std::pair<std::vector<tl_object_ptr<tonlib_api::raw_transaction>>, td::uint32>> R) {
   if (R.is_error()) {
     LOG(ERROR) << "Error during loading last transactions: " << R.move_as_error();
     alarm_timestamp().relax(process_transactions_at_ = td::Timestamp::in(30.0));
     return;
   }
-  auto transactions = R.move_as_ok();
-  LOG(DEBUG) << "Finished loading " << transactions.size() << " transactions";
+  auto r = R.move_as_ok();
+  auto transactions = std::move(r.first);
+  td::uint32 utime = r.second;
+  LOG(DEBUG) << "Finished loading " << transactions.size() << " transactions. sync_utime=" << utime;
   std::reverse(transactions.begin(), transactions.end());
   for (tl_object_ptr<tonlib_api::raw_transaction>& transaction : transactions) {
     LOG(DEBUG) << "Processing transaction tl=" << transaction->transaction_id_->lt_;
     last_processed_lt_ = transaction->transaction_id_->lt_;
     // transaction->in_msg_->source_->account_address_.empty() - message is external
-    if (sent_message_ && sent_message_.value().sent && transaction->in_msg_->source_->account_address_.empty()) {
+    if (current_ext_message_ && current_ext_message_.value().sent &&
+        transaction->in_msg_->source_->account_address_.empty()) {
       auto msg_data = dynamic_cast<tonlib_api::msg_dataRaw*>(transaction->in_msg_->msg_data_.get());
       if (msg_data == nullptr) {
         continue;
@@ -200,22 +204,21 @@ void FabricContractWrapper::loaded_last_transactions(
       }
       cs.skip_first(512 + 64);
       auto seqno = (td::uint32)cs.fetch_ulong(32);
-      if (seqno != sent_message_.value().seqno) {
+      if (seqno != current_ext_message_.value().seqno) {
         continue;
       }
-      if (sent_message_.value().ext_msg_body_hash != body->get_hash().bits()) {
-        do_send_internal_message_finish(td::Status::Error("Another external message with the same seqno was accepted"));
+      if (current_ext_message_.value().ext_msg_body_hash != body->get_hash().bits()) {
+        do_send_external_message_finish(td::Status::Error("Another external message with the same seqno was accepted"));
         continue;
       }
-      if (transaction->out_msgs_.empty()) {
-        do_send_internal_message_finish(td::Status::Error("Internal message was not sent from the transaction"));
-        continue;
-      }
-      do_send_internal_message_finish(td::Unit());
+      do_send_external_message_finish(&transaction->out_msgs_);
     }
   }
   for (tl_object_ptr<tonlib_api::raw_transaction>& transaction : transactions) {
     callback_->on_transaction(std::move(transaction));
+  }
+  if (current_ext_message_ && current_ext_message_.value().sent && current_ext_message_.value().timeout < utime) {
+    do_send_external_message_finish(td::Status::Error("Timeout"));
   }
   alarm_timestamp().relax(process_transactions_at_ = td::Timestamp::in(10.0));
 }
@@ -228,41 +231,28 @@ void FabricContractWrapper::run_get_method(
 
 void FabricContractWrapper::send_internal_message(ContractAddress dest, td::RefInt256 coins, vm::CellSlice body,
                                                   td::Promise<td::Unit> promise) {
-  LOG(DEBUG) << "sent_internal_message " << address_.to_string() << " -> " << dest.to_string() << ", "
-             << coins->to_dec_string() << " nanoTON";
+  td::Bits256 body_hash = vm::CellBuilder().append_cellslice(body).finalize_novm()->get_hash().bits();
+  LOG(DEBUG) << "send_internal_message " << address_.to_string() << " -> " << dest.to_string() << ", " << coins
+             << " nanoTON, body=" << body_hash.to_hex();
   CHECK(coins->sgn() >= 0);
-  vm::CellBuilder b;
-  b.store_long(3 << 2, 6);                  // 0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddressInt
-  b.append_cellslice(dest.to_cellslice());  // dest:MsgAddressInt
-  store_coins(b, coins);                    // grams:Grams
-  b.store_zeroes(1 + 4 + 4 + 64 + 32 + 1);  // ihr_fee, fwd_fee, created_lt, created_at, init
-  // body:(Either X ^X)
-  if (b.remaining_bits() >= 1 + body.size() && b.remaining_refs() >= body.size_refs()) {
-    b.store_zeroes(1);
-    b.append_cellslice(body);
-  } else {
-    b.store_ones(1);
-    b.store_ref(vm::CellBuilder().append_cellslice(body).finalize_novm());
-  }
-  send_internal_message_raw(b.finalize_novm(), std::move(promise));
-}
-
-void FabricContractWrapper::send_internal_message_raw(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise) {
-  if (sent_message_) {
-    LOG(DEBUG) << "Adding internal message to queue";
-    pending_messages_.emplace(std::move(int_msg), std::move(promise));
-  } else {
-    do_send_internal_message(std::move(int_msg), std::move(promise));
+  pending_messages_.push(PendingMessage{dest, std::move(coins), std::move(body), body_hash, std::move(promise)});
+  if (!send_message_at_ && !current_ext_message_) {
+    alarm_timestamp().relax(send_message_at_ = td::Timestamp::in(1.0));
   }
 }
 
-void FabricContractWrapper::do_send_internal_message(td::Ref<vm::Cell> int_msg, td::Promise<td::Unit> promise) {
-  LOG(DEBUG) << "do_send_internal_message";
-  CHECK(!sent_message_);
-  sent_message_ = SentMessage();
-  sent_message_.value().int_msg = std::move(int_msg);
-  sent_message_.value().promise = std::move(promise);
-
+void FabricContractWrapper::do_send_external_message() {
+  CHECK(!current_ext_message_);
+  LOG(DEBUG) << "do_send_external message: " << pending_messages_.size() << " messages in queue";
+  if (pending_messages_.empty()) {
+    return;
+  }
+  current_ext_message_ = CurrentExtMessage();
+  while (current_ext_message_.value().int_msgs.size() < 4 && !pending_messages_.empty()) {
+    PendingMessage msg = std::move(pending_messages_.front());
+    current_ext_message_.value().int_msgs.push_back(std::move(msg));
+    pending_messages_.pop();
+  }
   run_get_method(
       "get_wallet_params", {},
       [SelfId = actor_id(this)](td::Result<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> R) {
@@ -280,33 +270,51 @@ void FabricContractWrapper::do_send_internal_message(td::Ref<vm::Cell> int_msg, 
           return td::Status::OK();
         }();
         if (S.is_error()) {
-          td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_internal_message_finish,
+          td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_external_message_finish,
                                   S.move_as_error_prefix("Failed to get wallet params: "));
           return;
         }
-        td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_internal_message_cont, seqno, subwallet_id,
+        td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_external_message_cont, seqno, subwallet_id,
                                 public_key);
       });
 }
 
-void FabricContractWrapper::do_send_internal_message_cont(td::uint32 seqno, td::uint32 subwallet_id,
+void FabricContractWrapper::do_send_external_message_cont(td::uint32 seqno, td::uint32 subwallet_id,
                                                           td::Bits256 public_key) {
-  CHECK(sent_message_);
-  sent_message_.value().seqno = seqno;
+  LOG(DEBUG) << "Got wallet params: seqno=" << seqno << ", subwallet_id=" << subwallet_id
+             << ", key=" << public_key.to_hex();
+  CHECK(current_ext_message_);
+  current_ext_message_.value().seqno = seqno;
+  current_ext_message_.value().timeout = (td::uint32)td::Clocks::system() + 45;
   vm::CellBuilder b;
-  b.store_long(subwallet_id, 32);                           // subwallet id.
-  b.store_long((td::uint32)td::Clocks::system() + 45, 32);  // valid until
-  b.store_long(seqno, 32);                                  // seqno
-  b.store_long(0, 8);                                       // mode
-  b.store_ref(sent_message_.value().int_msg);               // message
+  b.store_long(subwallet_id, 32);                          // subwallet id.
+  b.store_long(current_ext_message_.value().timeout, 32);  // valid until
+  b.store_long(seqno, 32);                                 // seqno
+  for (const PendingMessage& msg : current_ext_message_.value().int_msgs) {
+    vm::CellBuilder b2;
+    b2.store_long(3 << 2, 6);                      // 0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddressInt
+    b2.append_cellslice(msg.dest.to_cellslice());  // dest:MsgAddressInt
+    store_coins(b2, msg.value);                    // grams:Grams
+    b2.store_zeroes(1 + 4 + 4 + 64 + 32 + 1);      // extre, ihr_fee, fwd_fee, created_lt, created_at, init
+    // body:(Either X ^X)
+    if (b2.remaining_bits() >= 1 + msg.body.size() && b2.remaining_refs() >= msg.body.size_refs()) {
+      b2.store_zeroes(1);
+      b2.append_cellslice(msg.body);
+    } else {
+      b2.store_ones(1);
+      b2.store_ref(vm::CellBuilder().append_cellslice(msg.body).finalize_novm());
+    }
+    b.store_long(1, 8);               // mode
+    b.store_ref(b2.finalize_novm());  // message
+  }
   td::Ref<vm::Cell> to_sign = b.finalize_novm();
   td::BufferSlice hash(to_sign->get_hash().as_slice());
-  LOG(DEBUG) << "Signing internal message: seqno=" << seqno;
+  LOG(DEBUG) << "Signing external message";
   td::actor::send_closure(
       keyring_, &keyring::Keyring::sign_message, PublicKey(pubkeys::Ed25519(public_key)).compute_short_id(),
       std::move(hash), [SelfId = actor_id(this), data = std::move(to_sign)](td::Result<td::BufferSlice> R) mutable {
         if (R.is_error()) {
-          td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_internal_message_finish,
+          td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_external_message_finish,
                                   R.move_as_error_prefix("Failed to sign message: "));
           return;
         }
@@ -315,41 +323,71 @@ void FabricContractWrapper::do_send_internal_message_cont(td::uint32 seqno, td::
         vm::CellBuilder b;
         b.store_bytes(signature);
         b.append_cellslice(vm::load_cell_slice(data));
-        td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_internal_message_cont2, b.finalize_novm());
+        td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_external_message_cont2, b.finalize_novm());
       });
 }
 
-void FabricContractWrapper::do_send_internal_message_cont2(td::Ref<vm::Cell> ext_msg_body) {
-  CHECK(sent_message_);
-  LOG(DEBUG) << "Sending internal message: seqno=" << sent_message_.value().seqno;
-  sent_message_.value().sent = true;
-  sent_message_.value().ext_msg_body_hash = ext_msg_body->get_hash().bits();
-  alarm_timestamp().relax(sent_message_.value().timeout = td::Timestamp::in(60.0));
+void FabricContractWrapper::do_send_external_message_cont2(td::Ref<vm::Cell> ext_msg_body) {
+  CHECK(current_ext_message_);
+  LOG(DEBUG) << "Signed external message, sending: seqno=" << current_ext_message_.value().seqno;
+  current_ext_message_.value().sent = true;
+  current_ext_message_.value().ext_msg_body_hash = ext_msg_body->get_hash().bits();
   auto body = vm::std_boc_serialize(ext_msg_body).move_as_ok().as_slice().str();
   auto query = create_tl_object<tonlib_api::raw_createAndSendMessage>(
       create_tl_object<tonlib_api::accountAddress>(address_.to_string()), "", std::move(body));
   td::actor::send_closure(client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::raw_createAndSendMessage>,
                           std::move(query), [SelfId = actor_id(this)](td::Result<tl_object_ptr<tonlib_api::ok>> R) {
                             if (R.is_error()) {
-                              td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_internal_message_finish,
+                              td::actor::send_closure(SelfId, &FabricContractWrapper::do_send_external_message_finish,
                                                       R.move_as_error_prefix("Failed to send message: "));
+                            } else {
+                              LOG(DEBUG) << "External message was sent to liteserver";
                             }
                           });
 }
 
-void FabricContractWrapper::do_send_internal_message_finish(td::Result<td::Unit> R) {
+void FabricContractWrapper::do_send_external_message_finish(
+    td::Result<const std::vector<tl_object_ptr<tonlib_api::raw_message>>*> R) {
+  CHECK(current_ext_message_);
   if (R.is_error()) {
-    LOG(WARNING) << "Send internal message error: " << R.move_as_error();
+    LOG(DEBUG) << "Failed to send external message seqno=" << current_ext_message_.value().seqno << ": " << R.error();
+    for (auto& msg : current_ext_message_.value().int_msgs) {
+      msg.promise.set_error(R.error().clone());
+    }
   } else {
-    LOG(DEBUG) << "Internal message seqno=" << sent_message_.value().seqno << " was sent";
+    LOG(DEBUG) << "External message seqno=" << current_ext_message_.value().seqno << " was sent";
+    const auto& out_msgs = *R.ok();
+    auto& msgs = current_ext_message_.value().int_msgs;
+    for (const auto& out_msg : out_msgs) {
+      ContractAddress dest = ContractAddress::parse(out_msg->destination_->account_address_).move_as_ok();
+      td::RefInt256 value = td::make_refint((td::uint64)out_msg->value_);
+      td::Bits256 body_hash;
+      body_hash.as_slice().copy_from(out_msg->body_hash_);
+      bool found = false;
+      for (size_t i = 0; i < msgs.size(); ++i) {
+        if (msgs[i].dest == dest && msgs[i].value->cmp(*value) == 0 && msgs[i].body_hash == body_hash) {
+          LOG(DEBUG) << "Internal message was sent dest=" << dest.to_string() << ", value=" << value
+                     << ", body_hash=" << body_hash.to_hex();
+          msgs[i].promise.set_result(td::Unit());
+          msgs.erase(msgs.begin() + i);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        LOG(DEBUG) << "Unexpected internal message was sent: dest=" << dest.to_string() << " value=" << value
+                   << " body_hash=" << body_hash;
+      }
+    }
+    for (auto& msg : msgs) {
+      LOG(DEBUG) << "Internal message WAS NOT SENT dest=" << msg.dest.to_string() << ", value=" << msg.value
+                 << ", body_hash=" << msg.body_hash.to_hex();
+      msg.promise.set_result(td::Status::Error("External message was accepted, but internal message was not sent"));
+    }
   }
-  CHECK(sent_message_);
-  sent_message_.value().promise.set_result(std::move(R));
-  sent_message_ = {};
+  current_ext_message_ = {};
   if (!pending_messages_.empty()) {
-    auto m = std::move(pending_messages_.front());
-    pending_messages_.pop();
-    do_send_internal_message(std::move(m.first), std::move(m.second));
+    do_send_external_message();
   }
 }
 
