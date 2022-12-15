@@ -245,6 +245,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_key_block_handle_;
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
+  td::Ref<MasterchainState> last_liteserver_state_;
+
+  td::Ref<MasterchainState> do_get_last_liteserver_state();
 
   BlockHandle gc_masterchain_handle_;
   td::Ref<MasterchainState> gc_masterchain_state_;
@@ -269,7 +272,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
   void try_advance_gc_masterchain_block();
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
-  void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
+  void update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
+                                        td::Promise<td::Unit> promise) override;
 
   bool out_of_sync();
   void applied_hardfork();
@@ -430,6 +434,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) override;
   void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override;
   void get_top_masterchain_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
+  void get_last_liteserver_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
 
   void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override;
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override;

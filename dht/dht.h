@@ -54,6 +54,10 @@ class Dht : public td::actor::Actor {
   virtual void set_value(DhtValue key_value, td::Promise<td::Unit> result) = 0;
   virtual void get_value(DhtKey key, td::Promise<DhtValue> result) = 0;
 
+  virtual void register_reverse_connection(adnl::AdnlNodeIdFull client, td::Promise<td::Unit> promise) = 0;
+  virtual void request_reverse_ping(adnl::AdnlNode target, adnl::AdnlNodeIdShort client,
+                                    td::Promise<td::Unit> promise) = 0;
+
   virtual void dump(td::StringBuilder &sb) const = 0;
 
   virtual ~Dht() = default;

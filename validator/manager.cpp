@@ -401,11 +401,12 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg) {
   }
 }
 void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
-  if (last_masterchain_state_.is_null()) {
+  auto state = do_get_last_liteserver_state();
+  if (state.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
     return;
   }
-  run_check_external_message(std::move(data), last_masterchain_state_->get_ext_msg_limits(), actor_id(this),
+  run_check_external_message(std::move(data), state->get_ext_msg_limits(), actor_id(this),
                              std::move(promise));
 }
 
@@ -1342,6 +1343,16 @@ void ValidatorManagerImpl::get_top_masterchain_state(td::Promise<td::Ref<Masterc
   }
 }
 
+td::Ref<MasterchainState> ValidatorManagerImpl::do_get_last_liteserver_state() {
+  if (last_masterchain_state_.is_null()) {
+    return {};
+  }
+  if (last_liteserver_state_.is_null() || last_liteserver_state_->get_unix_time() < td::Clocks::system() - 30) {
+    last_liteserver_state_ = last_masterchain_state_;
+  }
+  return last_liteserver_state_;
+}
+
 void ValidatorManagerImpl::get_top_masterchain_block(td::Promise<BlockIdExt> promise) {
   if (!last_masterchain_block_id_.is_valid()) {
     promise.set_error(td::Status::Error(ton::ErrorCode::notready, "not started"));
@@ -1357,6 +1368,16 @@ void ValidatorManagerImpl::get_top_masterchain_state_block(
   } else {
     promise.set_result(
         std::pair<td::Ref<MasterchainState>, BlockIdExt>{last_masterchain_state_, last_masterchain_block_id_});
+  }
+}
+
+void ValidatorManagerImpl::get_last_liteserver_state_block(
+    td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) {
+  auto state = do_get_last_liteserver_state();
+  if (state.is_null()) {
+    promise.set_error(td::Status::Error(ton::ErrorCode::notready, "not started"));
+  } else {
+    promise.set_result(std::pair<td::Ref<MasterchainState>, BlockIdExt>{state, state->get_block_id()});
   }
 }
 
@@ -2274,9 +2295,13 @@ void ValidatorManagerImpl::advance_gc(BlockHandle handle, td::Ref<MasterchainSta
   try_advance_gc_masterchain_block();
 }
 
-void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
+                                                            td::Promise<td::Unit> promise) {
   shard_client_handle_ = std::move(handle);
   auto seqno = shard_client_handle_->id().seqno();
+  if (last_liteserver_state_.is_null() || last_liteserver_state_->get_block_id().seqno() < seqno) {
+    last_liteserver_state_ = std::move(state);
+  }
   shard_client_update(seqno);
   promise.set_value(td::Unit());
 }
