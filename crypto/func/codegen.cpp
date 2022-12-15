@@ -796,7 +796,7 @@ bool Op::generate_code_step(Stack& stack) {
         if (stack.find(var.idx) >= 0) {
           catch_stack.push_new_var(var.idx);
           catch_vars.push_back(var.idx);
-          catch_last.push_back(var.is_last());
+          catch_last.push_back(!block0->var_info[var.idx]);
         }
       }
       catch_stack.push_new_var(left[0]);
@@ -834,7 +834,11 @@ bool Op::generate_code_step(Stack& stack) {
         stack.mode |= Stack::_NeedRetAlt;
       }
       block0->generate_code_all(stack);
-      stack.merge_state(catch_stack);
+      if (block0->noreturn()) {
+        stack.s = std::move(catch_stack.s);
+      } else if (!block1->noreturn()) {
+        stack.merge_state(catch_stack);
+      }
       stack.opt_show();
       stack.o.undent();
       stack.o << "}>CONT";

@@ -1110,6 +1110,7 @@ blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
   code.close_pop_cur(lex.cur().loc);
   lex.expect(_Catch);
   code.push_set_cur(try_catch_op.block1);
+  sym::open_scope(lex);
   Expr* expr = parse_expr(lex, code, true);
   expr->chk_lvalue(lex.cur());
   TypeExpr* tvm_error_type = TypeExpr::new_tensor(TypeExpr::new_var(), TypeExpr::new_atomic(_Int));
@@ -1125,6 +1126,7 @@ blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
   try_catch_op.left = expr->pre_compile(code);
   assert(try_catch_op.left.size() == 2);
   blk_fl::val res1 = parse_block_stmt(lex, code);
+  sym::close_scope(lex);
   code.close_pop_cur(lex.cur().loc);
   blk_fl::combine_parallel(res0, res1);
   return res0;

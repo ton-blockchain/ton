@@ -1596,6 +1596,7 @@ struct Stack {
   void apply_wrappers() {
     if (o.retalt_) {
       o.insert(0, "SAMEALTSAVE");
+      o.insert(0, "c2 SAVE");
       if (mode & _InlineFunc) {
         o.indent_all();
         o.insert(0, "CONT:<{");
