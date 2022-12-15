@@ -52,8 +52,30 @@ int divide_by_ten(int num) {
   throw_unless(503, (a == 57) & (b == 0));
 }
 
+int get_x(int x, int y) {
+  try {
+  } catch (x, e) {
+    return -1;
+  }
+  return x;
+}
+
+int get_y(int x, int y) {
+  try {
+    return -1;
+  } catch (x, e) {
+  }
+  return y;
+}
+
+() test4() impure {
+  throw_unless(504, get_x(3, 4) == 3);
+  throw_unless(504, get_y(3, 4) == -1);
+}
+
 () main() {
   test1();
   test2();
   test3();
+  test4();
 }
