@@ -278,7 +278,7 @@ class StorageDaemon : public td::actor::Actor {
       promise.set_value(create_query_error("verbosity should be in range [0..10]"));
       return;
     }
-    SET_VERBOSITY_LEVEL(VERBOSITY_NAME(ERROR) + query.verbosity_);
+    SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + query.verbosity_);
     promise.set_result(create_serialize_tl_object<ton_api::storage_daemon_success>());
   }
 

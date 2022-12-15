@@ -197,7 +197,7 @@ void PeerActor::loop() {
 void PeerActor::loop_pong() {
   if (wait_pong_till_ && wait_pong_till_.is_in_past()) {
     wait_pong_till_ = {};
-    LOG(INFO) << "Disconnected";
+    LOG(DEBUG) << "Disconnected from peer";
     state_->peer_online_ = false;
     notify_node();
   }

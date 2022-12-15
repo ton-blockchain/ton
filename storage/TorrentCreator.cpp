@@ -92,7 +92,7 @@ td::Status Torrent::Creator::add_blob(td::Slice name, td::BlobView blob) {
 }
 
 TD_WARN_UNUSED_RESULT td::Status Torrent::Creator::add_file(td::Slice name, td::CSlice path) {
-  LOG(INFO) << "Add file " << name << " " << path;
+  LOG(DEBUG) << "Add file " << name << " " << path;
   TRY_RESULT(data, td::FileNoCacheBlobView::create(path));
   return add_blob(name, std::move(data));
 }

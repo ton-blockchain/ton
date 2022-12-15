@@ -747,7 +747,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (R.is_error()) {
                    return;
                  }
-                 td::TerminalIO::out() << "Success";
+                 td::TerminalIO::out() << "Success\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
