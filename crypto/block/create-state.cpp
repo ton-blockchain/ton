@@ -810,22 +810,14 @@ void usage(const char* progname) {
   std::exit(2);
 }
 
-constexpr char include_path_separator =
-#if _WIN32
-    ';'
-#else
-    ':'
-#endif  //
-    ;
-
 void parse_include_path_set(std::string include_path_set, std::vector<std::string>& res) {
   td::Parser parser(include_path_set);
   while (!parser.empty()) {
-    auto path = parser.read_till_nofail(include_path_separator);
+    auto path = parser.read_till_nofail(':');
     if (!path.empty()) {
       res.push_back(path.str());
     }
-    parser.skip_nofail(include_path_separator);
+    parser.skip_nofail(':');
   }
 }
 
