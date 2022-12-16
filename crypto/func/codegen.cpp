@@ -801,6 +801,8 @@ bool Op::generate_code_step(Stack& stack) {
       }
       catch_stack.push_new_var(left[0]);
       catch_stack.push_new_var(left[1]);
+      std::reverse(catch_vars.begin(), catch_vars.end());
+      std::reverse(catch_last.begin(), catch_last.end());
       stack.rearrange_top(catch_vars, catch_last);
       stack.opt_show();
       stack.o << "c4 PUSH";
