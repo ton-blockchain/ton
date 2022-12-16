@@ -794,15 +794,19 @@ bool Op::generate_code_step(Stack& stack) {
       std::vector<bool> catch_last;
       for (const VarDescr& var : block1->var_info.list) {
         if (stack.find(var.idx) >= 0) {
-          catch_stack.push_new_var(var.idx);
           catch_vars.push_back(var.idx);
           catch_last.push_back(!block0->var_info[var.idx]);
         }
       }
+      const size_t block_size = 255;
+      for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
+        begin = end >= block_size ? end - block_size : 0;
+        for (size_t i = begin; i < end; ++i) {
+          catch_stack.push_new_var(catch_vars[i]);
+        }
+      }
       catch_stack.push_new_var(left[0]);
       catch_stack.push_new_var(left[1]);
-      std::reverse(catch_vars.begin(), catch_vars.end());
-      std::reverse(catch_last.begin(), catch_last.end());
       stack.rearrange_top(catch_vars, catch_last);
       stack.opt_show();
       stack.o << "c4 PUSH";
@@ -821,9 +825,8 @@ bool Op::generate_code_step(Stack& stack) {
       stack.o << "c7 SETCONT";
       stack.o << "c5 SETCONT";
       stack.o << "c4 SETCONT";
-      const size_t block_size = 255;
-      for (size_t begin = 0; begin < catch_vars.size(); begin += block_size) {
-        size_t end = td::min(begin + block_size, catch_vars.size());
+      for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
+        begin = end >= block_size ? end - block_size : 0;
         stack.o << std::to_string(end - begin) + " PUSHINT";
         stack.o << "-1 PUSHINT";
         stack.o << "SETCONTVARARGS";

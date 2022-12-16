@@ -73,9 +73,28 @@ int get_y(int x, int y) {
   throw_unless(504, get_y(3, 4) == -1);
 }
 
+(int, int, int, int, int) foo(int a, int b, int c, int d, int e) {
+  try {
+    throw(11);
+  } catch (x, y) {
+    a += 1;
+    b += 2;
+    c += 3;
+    d += 4;
+    e += 5;
+  }
+  return (a, b, c, d, e);
+}
+
+() test5() impure {
+  var (a, b, c, d, e) = foo(10, 20, 30, 40, 50);
+  throw_unless(505, (a == 11) & (b == 22) & (c == 33) & (d == 44) & (e == 55));
+}
+
 () main() {
   test1();
   test2();
   test3();
   test4();
+  test5();
 }
