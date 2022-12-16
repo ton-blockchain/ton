@@ -5210,19 +5210,41 @@ auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid)
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& request,
                         td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise) {
+  constexpr int max_answer_transactions = 256;
   TRY_RESULT(block, to_lite_api(*request.id_))
-  TRY_RESULT(account, to_bits256((*request.after_).account_, "account"));
-  bool check_proof = request.mode_ & 32;
   auto root_hash = block->root_hash_;
-  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, (*request.after_).lt_);
+  bool check_proof = request.mode_ & 32;
+  bool reverse_mode = request.mode_ & 64;
+  bool no_starting_point = request.mode_ & 128;
+  
+  td::Bits256 account;
+  ton::LogicalTime start_lt;
+  if (no_starting_point) {
+    if (reverse_mode) {
+      account = td::Bits256::ones();
+      start_lt = ~0ULL;
+    } else {
+      account = td::Bits256::zero();
+      start_lt = 0;
+    }
+  } else {
+    if (!request.after_) {
+      return td::Status::Error("Missing tx id `after`");
+    }
+    TRY_RESULT_ASSIGN(account, to_bits256(request.after_->account_, "account"));    
+    start_lt = request.after_->lt_;
+  }
+  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, start_lt);
+
   client_.send_query(ton::lite_api::liteServer_listBlockTransactions(
                        std::move(block),
                        request.mode_,
                        request.count_,
                        std::move(after),
-                       false,
+                       reverse_mode,
                        check_proof),
-                     promise.wrap([check_proof, root_hash](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) -> td::Result<object_ptr<tonlib_api::blocks_transactions>> {
+                     promise.wrap([check_proof, reverse_mode, root_hash, req_count = request.count_, start_addr = account, mode = request.mode_]
+                                  (lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) -> td::Result<object_ptr<tonlib_api::blocks_transactions>> {
                         if (check_proof) {
                           try {
                             TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(bTxes->proof_)));
@@ -5239,25 +5261,52 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                             vm::AugmentedDictionary acc_dict{vm::load_cell_slice_ref(extra.account_blocks), 256,
                                         block::tlb::aug_ShardAccountBlocks};
 
-                            for (auto& id: bTxes->ids_) {
-                              auto acc_blk_cs = acc_dict.lookup(id->account_.bits(), 256);
-                              if (acc_blk_cs.is_null()) {
-                                return td::Status::Error("Couldn't verify proof (account)");
+                            bool eof = false;
+                            ton::LogicalTime reverse = reverse_mode ? ~0ULL : 0;
+                            ton::LogicalTime trans_lt = reverse;
+                            td::Bits256 cur_addr = start_addr;
+                            bool allow_same = true;
+                            int count = 0;
+                            while (!eof && count < req_count && count < max_answer_transactions) {
+                              auto value = acc_dict.extract_value(
+                                    acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
+                              if (value.is_null()) {
+                                eof = true;
+                                break;
                               }
+                              allow_same = false;
+                              if (cur_addr != start_addr) {
+                                trans_lt = reverse;
+                              }
+
                               block::gen::AccountBlock::Record acc_blk;
-                              if (!tlb::csr_unpack(std::move(acc_blk_cs), acc_blk)) {
+                              if (!tlb::csr_unpack(std::move(value), acc_blk) || acc_blk.account_addr != cur_addr) {
                                 return td::Status::Error("Error unpacking proof account block");
                               }
                               vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
                                           block::tlb::aug_AccountTransactions};
-                              td::BitArray<64> lt{(long long)id->lt_};
-                              auto trans_cs = trans_dict.lookup_ref(lt.bits(), 64);
-                              if (trans_cs.is_null()) {
-                                return td::Status::Error("Couldn't verify proof (lt)");
+                              td::BitArray<64> cur_trans{(long long)trans_lt};
+                              while (count < req_count && count < max_answer_transactions) {
+                                auto tvalue = trans_dict.extract_value_ref(
+                                      trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
+                                if (tvalue.is_null()) {
+                                  trans_lt = reverse;
+                                  break;
+                                }
+                                if (mode & 4 && !tvalue->get_hash().bits().equals(bTxes->ids_[count]->hash_.bits(), 256)) {
+                                  return td::Status::Error("Couldn't verify proof (hash)");
+                                }
+                                if (mode & 2 && cur_trans != td::BitArray<64>(bTxes->ids_[count]->lt_)) {
+                                  return td::Status::Error("Couldn't verify proof (lt)");
+                                }
+                                if (mode & 1 && cur_addr != bTxes->ids_[count]->account_) {
+                                  return td::Status::Error("Couldn't verify proof (account)");
+                                }
+                                count++;
                               }
-                              if (!trans_cs->get_hash().bits().equals(id->hash_.bits(), 256)) {
-                                return td::Status::Error("Couldn't verify proof (hash)");
-                              }
+                            }
+                            if (static_cast<size_t>(count) != bTxes->ids_.size()) {
+                              return td::Status::Error(PSLICE() << "Txs count mismatch in proof (" << count << ") and response (" << bTxes->ids_.size() << ")");
                             }
                           } catch (vm::VmError& err) {
                             return err.as_status("Couldn't verify proof: ");
