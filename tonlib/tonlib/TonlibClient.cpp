@@ -5217,24 +5217,24 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
   bool reverse_mode = request.mode_ & 64;
   bool no_starting_point = request.mode_ & 128;
   
-  td::Bits256 account;
+  td::Bits256 start_addr;
   ton::LogicalTime start_lt;
   if (no_starting_point) {
     if (reverse_mode) {
-      account = td::Bits256::ones();
+      start_addr = td::Bits256::ones();
       start_lt = ~0ULL;
     } else {
-      account = td::Bits256::zero();
+      start_addr = td::Bits256::zero();
       start_lt = 0;
     }
   } else {
     if (!request.after_) {
       return td::Status::Error("Missing tx id `after`");
     }
-    TRY_RESULT_ASSIGN(account, to_bits256(request.after_->account_, "account"));    
+    TRY_RESULT_ASSIGN(start_addr, to_bits256(request.after_->account_, "account"));    
     start_lt = request.after_->lt_;
   }
-  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(account, start_lt);
+  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(start_addr, start_lt);
 
   client_.send_query(ton::lite_api::liteServer_listBlockTransactions(
                        std::move(block),
@@ -5243,7 +5243,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                        std::move(after),
                        reverse_mode,
                        check_proof),
-                     promise.wrap([check_proof, reverse_mode, root_hash, req_count = request.count_, start_addr = account, mode = request.mode_]
+                     promise.wrap([check_proof, reverse_mode, root_hash, req_count = request.count_, start_addr, start_lt, mode = request.mode_]
                                   (lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) -> td::Result<object_ptr<tonlib_api::blocks_transactions>> {
                         if (check_proof) {
                           try {
@@ -5263,7 +5263,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
 
                             bool eof = false;
                             ton::LogicalTime reverse = reverse_mode ? ~0ULL : 0;
-                            ton::LogicalTime trans_lt = reverse;
+                            ton::LogicalTime trans_lt = static_cast<ton::LogicalTime>(start_lt);
                             td::Bits256 cur_addr = start_addr;
                             bool allow_same = true;
                             int count = 0;
