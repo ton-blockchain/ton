@@ -1562,6 +1562,9 @@ struct Stack {
   int find_outside(var_idx_t var, int from, int to) const;
   void forget_const();
   void validate(int i) const {
+    if (i > 255) {
+      throw src::Fatal{"Too deep stack"};
+    }
     assert(i >= 0 && i < depth() && "invalid stack reference");
   }
   void modified() {
