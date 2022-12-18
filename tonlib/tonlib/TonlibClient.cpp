@@ -5215,11 +5215,19 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
   auto root_hash = block->root_hash_;
   bool check_proof = request.mode_ & 32;
   bool reverse_mode = request.mode_ & 64;
-  bool no_starting_point = request.mode_ & 128;
+  bool has_starting_tx = request.mode_ & 128;
   
   td::Bits256 start_addr;
   ton::LogicalTime start_lt;
-  if (no_starting_point) {
+  ton::lite_api::object_ptr<ton::lite_api::liteServer_transactionId3> after;
+  if (has_starting_tx) {
+    if (!request.after_) {
+      return td::Status::Error("Missing field `after`");
+    }
+    TRY_RESULT_ASSIGN(start_addr, to_bits256(request.after_->account_, "account"));    
+    start_lt = request.after_->lt_;
+    after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(start_addr, start_lt);
+  } else {
     if (reverse_mode) {
       start_addr = td::Bits256::ones();
       start_lt = ~0ULL;
@@ -5227,14 +5235,8 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
       start_addr = td::Bits256::zero();
       start_lt = 0;
     }
-  } else {
-    if (!request.after_) {
-      return td::Status::Error("Missing tx id `after`");
-    }
-    TRY_RESULT_ASSIGN(start_addr, to_bits256(request.after_->account_, "account"));    
-    start_lt = request.after_->lt_;
+    after = nullptr;
   }
-  auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(start_addr, start_lt);
 
   client_.send_query(ton::lite_api::liteServer_listBlockTransactions(
                        std::move(block),
@@ -5293,14 +5295,16 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                                   trans_lt = reverse;
                                   break;
                                 }
-                                if (mode & 4 && !tvalue->get_hash().bits().equals(bTxes->ids_[count]->hash_.bits(), 256)) {
-                                  return td::Status::Error("Couldn't verify proof (hash)");
-                                }
-                                if (mode & 2 && cur_trans != td::BitArray<64>(bTxes->ids_[count]->lt_)) {
-                                  return td::Status::Error("Couldn't verify proof (lt)");
-                                }
-                                if (mode & 1 && cur_addr != bTxes->ids_[count]->account_) {
-                                  return td::Status::Error("Couldn't verify proof (account)");
+                                if (static_cast<size_t>(count) < bTxes->ids_.size()) {
+                                  if (mode & 4 && !tvalue->get_hash().bits().equals(bTxes->ids_[count]->hash_.bits(), 256)) {
+                                    return td::Status::Error("Couldn't verify proof (hash)");
+                                  }
+                                  if (mode & 2 && cur_trans != td::BitArray<64>(bTxes->ids_[count]->lt_)) {
+                                    return td::Status::Error("Couldn't verify proof (lt)");
+                                  }
+                                  if (mode & 1 && cur_addr != bTxes->ids_[count]->account_) {
+                                    return td::Status::Error("Couldn't verify proof (account)");
+                                  }
                                 }
                                 count++;
                               }
