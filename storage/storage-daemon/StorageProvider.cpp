@@ -201,8 +201,8 @@ void StorageProvider::get_provider_params(td::actor::ActorId<tonlib::TonlibClien
 
 void StorageProvider::set_params(ProviderParams params, td::Promise<td::Unit> promise) {
   vm::CellBuilder b;
-  b.store_long(102, 32);  // const op::update_storage_params = 102;
-  b.store_long(0, 64);    // query_id
+  b.store_long(0x54cbf19b, 32);  // const op::update_storage_params = 0x54cbf19b;
+  b.store_long(0, 64);           // query_id
   if (!params.to_builder(b)) {
     promise.set_error(td::Status::Error("Failed to store params to builder"));
     return;
@@ -256,8 +256,8 @@ void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transact
     }
     td::Ref<vm::Cell> body = r_body.move_as_ok();
     vm::CellSlice cs = vm::load_cell_slice(body);
-    // const op::new_storage_contract = 1;
-    if (cs.size() >= 32 && cs.prefetch_long(32) == 1) {
+    // const op::offer_storage_contract = 0x107c49ef;
+    if (cs.size() >= 32 && cs.prefetch_long(32) == 0x107c49ef) {
       new_contract_address = message->destination_->account_address_;
     }
   }
@@ -485,9 +485,9 @@ void StorageProvider::check_contract_active(ContractAddress address, td::Timesta
 
 void StorageProvider::activate_contract_cont(ContractAddress address) {
   vm::CellBuilder b;
-  b.store_long(9, 32);  // const op::accept_contract = 9;
-  b.store_long(0, 64);  // query_id
-  LOG(DEBUG) << "Sending op::accept_contract to " << address.to_string();
+  b.store_long(0x7a361688, 32);  // const op::accept_storage_contract = 0x7a361688;
+  b.store_long(0, 64);           // query_id
+  LOG(DEBUG) << "Sending op::accept_storage_contract to " << address.to_string();
   td::actor::send_closure(
       contract_wrapper_, &FabricContractWrapper::send_internal_message, address, td::make_refint(100'000'000),
       b.as_cellslice(), [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
@@ -530,8 +530,8 @@ void StorageProvider::do_close_storage_contract(ContractAddress address) {
 
 void StorageProvider::send_close_storage_contract(ContractAddress address) {
   vm::CellBuilder b;
-  b.store_long(7, 32);  // const op::close_contract = 7;
-  b.store_long(0, 64);  // query_id
+  b.store_long(0x79f937ea, 32);  // const op::close_contract = 0x79f937ea;
+  b.store_long(0, 64);           // query_id
   LOG(DEBUG) << "Sending op::close_contract to " << address.to_string();
   td::actor::send_closure(
       contract_wrapper_, &FabricContractWrapper::send_internal_message, address, td::make_refint(100'000'000),
@@ -679,8 +679,8 @@ void StorageProvider::got_next_proof(ContractAddress address, td::Result<td::Ref
   LOG(INFO) << "Got proof, sending";
 
   vm::CellBuilder b;
-  b.store_long(11, 32);  // const op::proof_storage = 11;
-  b.store_long(0, 64);   // query_id
+  b.store_long(0x419d5d4d, 32);  // const op::proof_storage = 0x419d5d4d;
+  b.store_long(0, 64);           // query_id
   b.store_ref(R.move_as_ok());
   td::actor::send_closure(contract_wrapper_, &FabricContractWrapper::send_internal_message, address,
                           td::make_refint(100'000'000), b.as_cellslice(),
@@ -795,9 +795,9 @@ void StorageProvider::withdraw(ContractAddress address, td::Promise<td::Unit> pr
     return;
   }
   vm::CellBuilder b;
-  b.store_long(10, 32);  // const op::withdraw = 10;
-  b.store_long(0, 64);   // query_id
-  LOG(INFO) << "Sending 'withdraw' query to storage contract " << address.to_string();
+  b.store_long(0x46ed2e94, 32);  // const op::withdraw = 0x46ed2e94;
+  b.store_long(0, 64);           // query_id
+  LOG(INFO) << "Sending op::withdraw to storage contract " << address.to_string();
   td::actor::send_closure(contract_wrapper_, &FabricContractWrapper::send_internal_message, address,
                           td::make_refint(100'000'000), b.as_cellslice(), std::move(promise));
 }

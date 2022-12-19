@@ -5,7 +5,10 @@ PROGRAM{
   DECLPROC add_to_balance
   DECLPROC get_client_data
   DECLPROC recv_internal
-  94150 DECLMETHOD get_contract_data
+  86593 DECLMETHOD get_storage_contract_data
+  71463 DECLMETHOD get_torrent_hash
+  122058 DECLMETHOD is_active
+  81490 DECLMETHOD get_next_proof_info
   check_proof PROC:<{
     //  merkle_hash byte_to_proof file_size file_dict_proof
     x{D739} s,	//  merkle_hash byte_to_proof file_size cs special
@@ -107,8 +110,9 @@ PROGRAM{
       add_to_balance INLINECALLDICT
     }>	//  msg_value sender_address op in_msg_body
     64 LDU	//  msg_value sender_address op query_id in_msg_body
-    s2 PUSH	//  msg_value sender_address op query_id in_msg_body op
-    1 EQINT	//  msg_value sender_address op query_id in_msg_body _28
+    s2 PUSH
+    276580847 PUSHINT	//  msg_value sender_address op query_id in_msg_body op _27=276580847
+    EQUAL	//  msg_value sender_address op query_id in_msg_body _28
     IF:<{	//  msg_value sender_address op query_id in_msg_body
       s0 s4 XCHG
       40000000 PUSHINT	//  in_msg_body sender_address op query_id msg_value _31
@@ -117,18 +121,18 @@ PROGRAM{
       c4 PUSH	//  in_msg_body sender_address op query_id _36
       CTOS	//  in_msg_body sender_address op query_id _37
       get_client_data CALLDICT	//  in_msg_body sender_address op query_id client torrent_hash
-      4 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=4
-      0 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=4 _41=0
-      24 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=4 _41=0 _42=24
-      NEWC	//  in_msg_body sender_address op query_id client torrent_hash _40=4 _41=0 _42=24 _43
-      6 STU	//  in_msg_body sender_address op query_id client torrent_hash _40=4 _41=0 _45
-      s0 s4 XCHG2	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=4 _45 client
-      STSLICER	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=4 _46
-      20000000 PUSHINT	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=4 _46 _47=20000000
-      STGRAMS	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=4 _48
-      s1 s3 XCHG	//  in_msg_body sender_address op query_id _40=4 torrent_hash _41=0 _48
-      107 STU	//  in_msg_body sender_address op query_id _40=4 torrent_hash _62
-      s1 s2 XCHG	//  in_msg_body sender_address op query_id torrent_hash _40=4 _62
+      3212562625 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625
+      0 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0
+      24 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0 _42=24
+      NEWC	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0 _42=24 _43
+      6 STU	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0 _45
+      s0 s4 XCHG2	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _45 client
+      STSLICER	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _46
+      20000000 PUSHINT	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _46 _47=20000000
+      STGRAMS	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _48
+      s1 s3 XCHG	//  in_msg_body sender_address op query_id _40=3212562625 torrent_hash _41=0 _48
+      107 STU	//  in_msg_body sender_address op query_id _40=3212562625 torrent_hash _62
+      s1 s2 XCHG	//  in_msg_body sender_address op query_id torrent_hash _40=3212562625 _62
       32 STU	//  in_msg_body sender_address op query_id torrent_hash _64
       s2 s(-1) PUXC	//  in_msg_body sender_address op query_id torrent_hash query_id _64
       64 STU	//  in_msg_body sender_address op query_id torrent_hash _66
@@ -139,8 +143,9 @@ PROGRAM{
     }>ELSE<{
       s4 POP	//  in_msg_body sender_address op query_id
     }>
-    OVER	//  in_msg_body sender_address op query_id op
-    9 EQINT	//  in_msg_body sender_address op query_id _73
+    OVER
+    2050365064 PUSHINT	//  in_msg_body sender_address op query_id op _72=2050365064
+    EQUAL	//  in_msg_body sender_address op query_id _73
     IF:<{	//  in_msg_body sender_address op query_id
       c4 PUSH	//  in_msg_body sender_address op query_id _75
       CTOS	//  in_msg_body sender_address op query_id ds
@@ -166,18 +171,18 @@ PROGRAM{
       c4 POP
       get_client_data CALLDICT	//  in_msg_body sender_address op query_id client torrent_hash
       LTIME	//  in_msg_body sender_address op query_id client torrent_hash _107
-      5 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=5
-      0 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=5 _109=0
-      24 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=5 _109=0 _110=24
-      NEWC	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=5 _109=0 _110=24 _111
-      6 STU	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=5 _109=0 _113
-      s0 s5 XCHG2	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=5 _113 client
-      STSLICER	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=5 _114
-      20000000 PUSHINT	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=5 _114 _115=20000000
-      STGRAMS	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=5 _116
-      s1 s4 XCHG	//  in_msg_body sender_address op query_id _108=5 torrent_hash _107 _109=0 _116
-      107 STU	//  in_msg_body sender_address op query_id _108=5 torrent_hash _107 _130
-      s1 s3 XCHG	//  in_msg_body sender_address op query_id _107 torrent_hash _108=5 _130
+      3570068941 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941
+      0 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0
+      24 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0 _110=24
+      NEWC	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0 _110=24 _111
+      6 STU	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0 _113
+      s0 s5 XCHG2	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _113 client
+      STSLICER	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _114
+      20000000 PUSHINT	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _114 _115=20000000
+      STGRAMS	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _116
+      s1 s4 XCHG	//  in_msg_body sender_address op query_id _108=3570068941 torrent_hash _107 _109=0 _116
+      107 STU	//  in_msg_body sender_address op query_id _108=3570068941 torrent_hash _107 _130
+      s1 s3 XCHG	//  in_msg_body sender_address op query_id _107 torrent_hash _108=3570068941 _130
       32 STU	//  in_msg_body sender_address op query_id _107 torrent_hash _132
       s1 s2 XCHG	//  in_msg_body sender_address op query_id torrent_hash _107 _132
       64 STU	//  in_msg_body sender_address op query_id torrent_hash _134
@@ -186,8 +191,9 @@ PROGRAM{
       0 PUSHINT	//  in_msg_body sender_address op query_id msg _138=0
       SENDRAWMSG
     }>	//  in_msg_body sender_address op query_id
-    OVER	//  in_msg_body sender_address op query_id op
-    7 EQINT	//  in_msg_body sender_address op query_id _141
+    OVER
+    2046375914 PUSHINT	//  in_msg_body sender_address op query_id op _140=2046375914
+    EQUAL	//  in_msg_body sender_address op query_id _141
     IFJMP:<{	//  in_msg_body sender_address op query_id
       s2 s3 XCHG
       3 BLKDROP	//  sender_address
@@ -205,18 +211,18 @@ PROGRAM{
       OR	//  torrent_hash active balance provider client _162
       401 THROWIFNOT
       LTIME	//  torrent_hash active balance provider client _165
-      8 PUSHINT	//  torrent_hash active balance provider client _165 _166=8
-      0 PUSHINT	//  torrent_hash active balance provider client _165 _166=8 _167=0
-      24 PUSHINT	//  torrent_hash active balance provider client _165 _166=8 _167=0 _168=24
-      NEWC	//  torrent_hash active balance provider client _165 _166=8 _167=0 _168=24 _169
-      6 STU	//  torrent_hash active balance provider client _165 _166=8 _167=0 _171
-      s0 s4 XCHG2	//  torrent_hash active balance provider _167=0 _165 _166=8 _171 client
-      STSLICER	//  torrent_hash active balance provider _167=0 _165 _166=8 _172
-      s0 s5 XCHG2	//  torrent_hash active _166=8 provider _167=0 _165 _172 balance
-      STGRAMS	//  torrent_hash active _166=8 provider _167=0 _165 _173
-      s1 s2 XCHG	//  torrent_hash active _166=8 provider _165 _167=0 _173
-      107 STU	//  torrent_hash active _166=8 provider _165 _187
-      s1 s3 XCHG	//  torrent_hash active _165 provider _166=8 _187
+      3055775075 PUSHINT	//  torrent_hash active balance provider client _165 _166=3055775075
+      0 PUSHINT	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0
+      24 PUSHINT	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0 _168=24
+      NEWC	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0 _168=24 _169
+      6 STU	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0 _171
+      s0 s4 XCHG2	//  torrent_hash active balance provider _167=0 _165 _166=3055775075 _171 client
+      STSLICER	//  torrent_hash active balance provider _167=0 _165 _166=3055775075 _172
+      s0 s5 XCHG2	//  torrent_hash active _166=3055775075 provider _167=0 _165 _172 balance
+      STGRAMS	//  torrent_hash active _166=3055775075 provider _167=0 _165 _173
+      s1 s2 XCHG	//  torrent_hash active _166=3055775075 provider _165 _167=0 _173
+      107 STU	//  torrent_hash active _166=3055775075 provider _165 _187
+      s1 s3 XCHG	//  torrent_hash active _165 provider _166=3055775075 _187
       32 STU	//  torrent_hash active _165 provider _189
       s1 s2 XCHG	//  torrent_hash active provider _165 _189
       64 STU	//  torrent_hash active provider _191
@@ -235,18 +241,18 @@ PROGRAM{
       64 PUSHINT	//  torrent_hash provider client_msg _200=64
       SENDRAWMSG
       LTIME	//  torrent_hash provider _203
-      8 PUSHINT	//  torrent_hash provider _203 _204=8
-      0 PUSHINT	//  torrent_hash provider _203 _204=8 _205=0
-      24 PUSHINT	//  torrent_hash provider _203 _204=8 _205=0 _206=24
-      NEWC	//  torrent_hash provider _203 _204=8 _205=0 _206=24 _207
-      6 STU	//  torrent_hash provider _203 _204=8 _205=0 _209
-      s0 s4 XCHG2	//  torrent_hash _205=0 _203 _204=8 _209 provider
-      STSLICER	//  torrent_hash _205=0 _203 _204=8 _210
-      s3 PUSH	//  torrent_hash _205=0 _203 _204=8 _210 _211=0
-      STGRAMS	//  torrent_hash _205=0 _203 _204=8 _212
-      s1 s3 XCHG	//  torrent_hash _204=8 _203 _205=0 _212
-      107 STU	//  torrent_hash _204=8 _203 _226
-      s1 s2 XCHG	//  torrent_hash _203 _204=8 _226
+      3055775075 PUSHINT	//  torrent_hash provider _203 _204=3055775075
+      0 PUSHINT	//  torrent_hash provider _203 _204=3055775075 _205=0
+      24 PUSHINT	//  torrent_hash provider _203 _204=3055775075 _205=0 _206=24
+      NEWC	//  torrent_hash provider _203 _204=3055775075 _205=0 _206=24 _207
+      6 STU	//  torrent_hash provider _203 _204=3055775075 _205=0 _209
+      s0 s4 XCHG2	//  torrent_hash _205=0 _203 _204=3055775075 _209 provider
+      STSLICER	//  torrent_hash _205=0 _203 _204=3055775075 _210
+      s3 PUSH	//  torrent_hash _205=0 _203 _204=3055775075 _210 _211=0
+      STGRAMS	//  torrent_hash _205=0 _203 _204=3055775075 _212
+      s1 s3 XCHG	//  torrent_hash _204=3055775075 _203 _205=0 _212
+      107 STU	//  torrent_hash _204=3055775075 _203 _226
+      s1 s2 XCHG	//  torrent_hash _203 _204=3055775075 _226
       32 STU	//  torrent_hash _203 _228
       64 STU	//  torrent_hash _230
       256 STU	//  _232
@@ -254,8 +260,9 @@ PROGRAM{
       160 PUSHINT	//  provider_msg _236
       SENDRAWMSG
     }>	//  in_msg_body sender_address op query_id
-    OVER	//  in_msg_body sender_address op query_id op
-    10 EQINT	//  in_msg_body sender_address op query_id _239
+    OVER
+    1189949076 PUSHINT	//  in_msg_body sender_address op query_id op _238=1189949076
+    EQUAL	//  in_msg_body sender_address op query_id _239
     IF:<{	//  in_msg_body sender_address op query_id
       c4 PUSH	//  in_msg_body sender_address op query_id _241
       CTOS	//  in_msg_body sender_address op query_id ds
@@ -278,17 +285,17 @@ PROGRAM{
       }>ELSE<{
         DROP	//  in_msg_body sender_address op query_id provider
       }>
-      6 PUSHINT	//  in_msg_body sender_address op query_id provider _265=6
-      0 PUSHINT	//  in_msg_body sender_address op query_id provider _265=6 _266=0
-      24 PUSHINT	//  in_msg_body sender_address op query_id provider _265=6 _266=0 _267=24
-      NEWC	//  in_msg_body sender_address op query_id provider _265=6 _266=0 _267=24 _268
-      6 STU	//  in_msg_body sender_address op query_id provider _265=6 _266=0 _270
-      s0 s3 XCHG2	//  in_msg_body sender_address op query_id _266=0 _265=6 _270 provider
-      STSLICER	//  in_msg_body sender_address op query_id _266=0 _265=6 _271
-      20000000 PUSHINT	//  in_msg_body sender_address op query_id _266=0 _265=6 _271 _272=20000000
-      STGRAMS	//  in_msg_body sender_address op query_id _266=0 _265=6 _273
-      s1 s2 XCHG	//  in_msg_body sender_address op query_id _265=6 _266=0 _273
-      107 STU	//  in_msg_body sender_address op query_id _265=6 _287
+      2837163862 PUSHINT	//  in_msg_body sender_address op query_id provider _265=2837163862
+      0 PUSHINT	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0
+      24 PUSHINT	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0 _267=24
+      NEWC	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0 _267=24 _268
+      6 STU	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0 _270
+      s0 s3 XCHG2	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _270 provider
+      STSLICER	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _271
+      20000000 PUSHINT	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _271 _272=20000000
+      STGRAMS	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _273
+      s1 s2 XCHG	//  in_msg_body sender_address op query_id _265=2837163862 _266=0 _273
+      107 STU	//  in_msg_body sender_address op query_id _265=2837163862 _287
       32 STU	//  in_msg_body sender_address op query_id _289
       64 STU	//  in_msg_body sender_address op _291
       ENDC	//  in_msg_body sender_address op msg
@@ -297,7 +304,8 @@ PROGRAM{
     }>ELSE<{
       DROP	//  in_msg_body sender_address op
     }>
-    11 EQINT	//  in_msg_body sender_address _298
+    1100832077 PUSHINT	//  in_msg_body sender_address op _297=1100832077
+    EQUAL	//  in_msg_body sender_address _298
     IF:<{	//  in_msg_body sender_address
       SWAP	//  sender_address in_msg_body
       LDREF	//  sender_address _451 _450
@@ -377,7 +385,7 @@ PROGRAM{
       2DROP	// 
     }>
   }>
-  get_contract_data PROC:<{
+  get_storage_contract_data PROC:<{
     // 
     c4 PUSH	//  _1
     CTOS	//  ds
@@ -391,5 +399,23 @@ PROGRAM{
     32 LDU	//  _13 _16 _18 _20 _23 _26 _29 _31 ds
     32 LDU	//  active balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time rest
     get_client_data CALLDICT	//  active balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time client torrent_hash
+  }>
+  get_torrent_hash PROC:<{
+    // 
+    get_storage_contract_data CALLDICT	//  _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22
+    10 1 BLKDROP2	//  torrent_hash
+  }>
+  is_active PROC:<{
+    // 
+    c4 PUSH	//  _0
+    CTOS	//  _1
+    1 PLDI	//  _3
+  }>
+  get_next_proof_info PROC:<{
+    // 
+    get_storage_contract_data CALLDICT	//  _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22
+    2DROP
+    s2 POP
+    5 3 BLKDROP2	//  next_proof last_proof_time max_span
   }>
 }END>c

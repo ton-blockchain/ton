@@ -76,7 +76,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
 
     int query_id = in_msg_body~load_uint(64);
 
-    if(op == op::new_storage_contract) {
+    if(op == op::offer_storage_contract) {
         add_to_balance(msg_value - 2 * fee::receipt_value);
         var (client, torrent_hash) = get_client_data(get_data().begin_parse());
         var msg = begin_cell()
@@ -84,14 +84,14 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
                 .store_slice(client)
                 .store_coins(fee::receipt_value)
                 .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-                .store_uint(op::contract_registered, 32)
+                .store_uint(op::contract_deployed, 32)
                 .store_uint(query_id, 64)
                 .store_uint(torrent_hash, 256)
                 .end_cell();
         send_raw_message(msg, 0);
     }
 
-    if (op == op::accept_contract) {
+    if (op == op::accept_storage_contract) {
         var ds = get_data().begin_parse();
         (int active, int balance, slice provider, slice rest) =
                 (ds~load_int(1), ds~load_coins(), ds~load_msg_addr(), ds);
@@ -109,7 +109,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
                 .store_slice(client)
                 .store_coins(fee::receipt_value)
                 .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-                .store_uint(op::contract_accepted, 32)
+                .store_uint(op::storage_contract_confirmed, 32)
                 .store_uint(cur_lt(), 64)
                 .store_uint(torrent_hash, 256)
                 .end_cell();
@@ -127,7 +127,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
                 .store_slice(client)
                 .store_coins(balance)
                 .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-                .store_uint(op::storage_contract_destruction, 32)
+                .store_uint(op::storage_contract_terminated, 32)
                 .store_uint(cur_lt(), 64)
                 .store_uint(torrent_hash, 256)
                 .end_cell();
@@ -140,7 +140,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
                 .store_slice(provider)
                 .store_coins(0)
                 .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-                .store_uint(op::storage_contract_destruction, 32)
+                .store_uint(op::storage_contract_terminated, 32)
                 .store_uint(cur_lt(), 64)
                 .store_uint(torrent_hash, 256)
                 .end_cell();
@@ -160,7 +160,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
                 .store_slice(provider)
                 .store_coins(fee::receipt_value)
                 .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-                .store_uint(op::bounty, 32)
+                .store_uint(op::reward_withdrawal, 32)
                 .store_uint(query_id, 64)
                 .end_cell();
         send_raw_message(msg, 128 + 32);
@@ -219,7 +219,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
     }
 }
 
-_ get_contract_data() method_id {
+_ get_storage_contract_data() method_id {
     var ds = get_data().begin_parse();
     var (active,
             balance,
@@ -244,4 +244,23 @@ _ get_contract_data() method_id {
     return (active, balance, provider, merkle_hash, file_size,
             next_proof, rate_per_mb_day, max_span, last_proof_time,
             client, torrent_hash);
+}
+
+_ get_torrent_hash() method_id {
+    var (active, balance, provider, merkle_hash, file_size,
+            next_proof, rate_per_mb_day, max_span, last_proof_time,
+            client, torrent_hash) = get_storage_contract_data();
+    return torrent_hash;
+}
+
+_ is_active() method_id {
+    return get_data().begin_parse().preload_int(1);
+}
+
+;; next_proof, last_proof_time, max_span
+_ get_next_proof_info() method_id {
+    var (active, balance, provider, merkle_hash, file_size,
+            next_proof, rate_per_mb_day, max_span, last_proof_time,
+            client, torrent_hash) = get_storage_contract_data();
+    return (next_proof, last_proof_time, max_span);
 }

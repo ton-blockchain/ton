@@ -1,16 +1,15 @@
-const op::new_storage_contract = 1;
-const op::destroy_storage_contract = 3;
-const op::contract_registered = 4;
-const op::contract_accepted = 5;
-const op::bounty = 6;
-const op::close_contract = 7;
-const op::storage_contract_destruction = 8;
-const op::accept_contract = 9;
-const op::withdraw = 10;
-const op::proof_storage = 11;
+const op::offer_storage_contract = 0x107c49ef;
+const op::close_contract = 0x79f937ea;
+const op::contract_deployed = 0xbf7bd0c1;
+const op::storage_contract_confirmed = 0xd4caedcd;
+const op::reward_withdrawal = 0xa91baf56;
+const op::storage_contract_terminated = 0xb6236d63;
+const op::accept_storage_contract = 0x7a361688;
+const op::withdraw = 0x46ed2e94;
+const op::proof_storage = 0x419d5d4d;
 
-const op::update_pubkey = 101;
-const op::update_storage_params = 102;
+const op::update_pubkey = 0x53f34cd6;
+const op::update_storage_params = 0x54cbf19b;
 
 const error::not_enough_money = 1001;
 const error::unauthorized = 401;

@@ -304,7 +304,7 @@ void FabricContractWrapper::do_send_external_message_cont(td::uint32 seqno, td::
       b2.store_ones(1);
       b2.store_ref(vm::CellBuilder().append_cellslice(msg.body).finalize_novm());
     }
-    b.store_long(1, 8);               // mode
+    b.store_long(3, 8);               // mode
     b.store_ref(b2.finalize_novm());  // message
   }
   td::Ref<vm::Cell> to_sign = b.finalize_novm();
@@ -453,7 +453,7 @@ td::Ref<vm::Cell> create_new_contract_message_body(td::Ref<vm::Cell> info, td::B
   // new_storage_contract#00000001 query_id:uint64 info:(^ TorrentInfo) microchunk_hash:uint256
   //     expected_rate:Coins expected_max_span:uint32 = NewStorageContract;
   vm::CellBuilder b;
-  b.store_long(1, 32);  // const op::new_storage_contract = 1;
+  b.store_long(0x107c49ef, 32);  // const op::offer_storage_contract = 0x107c49ef;
   b.store_long(query_id, 64);
   b.store_ref(std::move(info));
   b.store_bytes(microchunk_hash.as_slice());
@@ -465,7 +465,7 @@ td::Ref<vm::Cell> create_new_contract_message_body(td::Ref<vm::Cell> info, td::B
 void get_storage_contract_data(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
                                td::Promise<StorageContractData> promise) {
   run_get_method(
-      address, client, "get_contract_data", {},
+      address, client, "get_storage_contract_data", {},
       promise.wrap([](std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> stack) -> td::Result<StorageContractData> {
         if (stack.size() < 11) {
           return td::Status::Error("Too few entries");

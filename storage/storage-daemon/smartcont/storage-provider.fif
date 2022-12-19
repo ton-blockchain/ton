@@ -93,19 +93,19 @@ PROGRAM{
     s1 s5 XCHG
     s1 s6 XCHG	//  query_id merkle_hash file_size rate_per_mb_day max_span client torrent_hash
     build_storage_contract_stateinit CALLDICT	//  query_id state_init
-    1 PUSHINT	//  query_id state_init _54=1
-    6 PUSHINT	//  query_id state_init _54=1 _57
-    24 PUSHINT	//  query_id state_init _54=1 _57 _58=24
-    NEWC	//  query_id state_init _54=1 _57 _58=24 _59
-    6 STU	//  query_id state_init _54=1 _57 _61
-    s3 PUSH	//  query_id state_init _54=1 _57 _61 state_init
-    calculate_address_by_stateinit CALLDICT	//  query_id state_init _54=1 _57 _61 _62
-    STSLICER	//  query_id state_init _54=1 _57 _63
-    0 PUSHINT	//  query_id state_init _54=1 _57 _63 _64=0
-    STGRAMS	//  query_id state_init _54=1 _57 _65
-    108 STU	//  query_id state_init _54=1 _81
-    s1 s2 XCHG	//  query_id _54=1 state_init _81
-    STREF	//  query_id _54=1 _82
+    276580847 PUSHINT	//  query_id state_init _54=276580847
+    6 PUSHINT	//  query_id state_init _54=276580847 _57
+    24 PUSHINT	//  query_id state_init _54=276580847 _57 _58=24
+    NEWC	//  query_id state_init _54=276580847 _57 _58=24 _59
+    6 STU	//  query_id state_init _54=276580847 _57 _61
+    s3 PUSH	//  query_id state_init _54=276580847 _57 _61 state_init
+    calculate_address_by_stateinit CALLDICT	//  query_id state_init _54=276580847 _57 _61 _62
+    STSLICER	//  query_id state_init _54=276580847 _57 _63
+    0 PUSHINT	//  query_id state_init _54=276580847 _57 _63 _64=0
+    STGRAMS	//  query_id state_init _54=276580847 _57 _65
+    108 STU	//  query_id state_init _54=276580847 _81
+    s1 s2 XCHG	//  query_id _54=276580847 state_init _81
+    STREF	//  query_id _54=276580847 _82
     32 STU	//  query_id _84
     64 STU	//  _86
     ENDC	//  msg
@@ -136,8 +136,9 @@ PROGRAM{
       4 BLKDROP	// 
     }>	//  msg_value sender_address op in_msg_body
     64 LDU	//  msg_value sender_address op query_id in_msg_body
-    s2 PUSH	//  msg_value sender_address op query_id in_msg_body op
-    1 EQINT	//  msg_value sender_address op query_id in_msg_body _27
+    s2 PUSH
+    276580847 PUSHINT	//  msg_value sender_address op query_id in_msg_body op _26=276580847
+    EQUAL	//  msg_value sender_address op query_id in_msg_body _27
     IFJMP:<{	//  msg_value sender_address op query_id in_msg_body
       s2 POP	//  msg_value sender_address in_msg_body query_id
       s0 s3 XCHG
@@ -165,13 +166,15 @@ PROGRAM{
     }>	//  msg_value sender_address op query_id in_msg_body
     NIP
     s3 POP	//  in_msg_body sender_address op
-    DUP	//  in_msg_body sender_address op op
-    8 EQINT	//  in_msg_body sender_address op _59
+    DUP
+    3055775075 PUSHINT	//  in_msg_body sender_address op op _58=3055775075
+    EQUAL	//  in_msg_body sender_address op _59
     IFJMP:<{	//  in_msg_body sender_address op
       3 BLKDROP	// 
     }>	//  in_msg_body sender_address op
-    DUP	//  in_msg_body sender_address op op
-    101 EQINT	//  in_msg_body sender_address op _61
+    DUP
+    1408453846 PUSHINT	//  in_msg_body sender_address op op _60=1408453846
+    EQUAL	//  in_msg_body sender_address op _61
     IF:<{	//  in_msg_body sender_address op
       MYADDR	//  in_msg_body sender_address op _62
       s2 PUSH	//  in_msg_body sender_address op _62 sender_address
@@ -197,7 +200,8 @@ PROGRAM{
       ENDC	//  in_msg_body sender_address op _88
       c4 POP
     }>	//  in_msg_body sender_address op
-    102 EQINT	//  in_msg_body sender_address _91
+    1422651803 PUSHINT	//  in_msg_body sender_address op _90=1422651803
+    EQUAL	//  in_msg_body sender_address _91
     IF:<{	//  in_msg_body sender_address
       MYADDR	//  in_msg_body sender_address _92
       SWAP	//  in_msg_body _92 sender_address

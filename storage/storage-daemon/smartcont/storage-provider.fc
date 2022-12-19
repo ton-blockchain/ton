@@ -67,7 +67,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
             .store_coins(0)
             .store_uint(4 + 2, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
             .store_ref(state_init)
-            .store_uint(op::new_storage_contract, 32)
+            .store_uint(op::offer_storage_contract, 32)
             .store_uint(query_id, 64)
             .end_cell();
     send_raw_message(msg, 64);
@@ -88,7 +88,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
     }
     int query_id = in_msg_body~load_uint(64);
 
-    if(op == op::new_storage_contract) {
+    if(op == op::offer_storage_contract) {
         throw_unless(error::not_enough_money, msg_value >= min_deploy_amount);
         ;; torrent_info piece_size:uint32 file_size:uint64 root_hash:(## 256) header_size:uint64 header_hash:(## 256)
         ;;     microchunk_hash:(Maybe (## 256)) description:Text = TorrentInfo;
@@ -108,7 +108,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
                 expected_rate, expected_max_span);
         return ();
     }
-    if(op == op::storage_contract_destruction) {
+    if(op == op::storage_contract_terminated) {
         return ();
     }
 
