@@ -20,13 +20,10 @@
 
 #include "td/utils/tl_storers.h"
 #include "td/utils/crypto.h"
-#include "td/utils/tl_parsers.h"
 #include "td/utils/Random.h"
 #include "td/utils/overloaded.h"
 
 #include "td/utils/format.h"
-
-#include "keys/encryptor.h"
 
 #include "auto/tl/ton_api.hpp"
 
@@ -123,7 +120,7 @@ void DhtQueryFindNodes::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
     VLOG(DHT_WARNING) << this << ": incorrect result on dht.findNodes query from " << dst << ": "
                       << Res.move_as_error();
   } else {
-    add_nodes(DhtNodesList{Res.move_as_ok()});
+    add_nodes(DhtNodesList{Res.move_as_ok(), our_network_id()});
   }
   finish_query();
 }
@@ -185,27 +182,29 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
 
   auto A = Res.move_as_ok();
   ton_api::downcast_call(
-      *A.get(), td::overloaded(
-                    [&](ton_api::dht_valueFound &v) {
-                      auto valueR = DhtValue::create(std::move(v.value_), true);
-                      if (valueR.is_error()) {
-                        VLOG(DHT_WARNING) << this << ": received incorrect dht answer on find value query from " << dst
-                                          << ": " << valueR.move_as_error();
-                        return;
-                      }
-                      auto value = valueR.move_as_ok();
-                      if (value.key_id() != key_) {
-                        VLOG(DHT_WARNING) << this << ": received value for bad key on find value query from " << dst;
-                        return;
-                      }
-                      if (!value.check_is_acceptable()) {
-                        send_get_nodes = true;
-                        return;
-                      }
-                      promise_.set_value(std::move(value));
-                      need_stop = true;
-                    },
-                    [&](ton_api::dht_valueNotFound &v) { add_nodes(DhtNodesList{std::move(v.nodes_)}); }));
+      *A, td::overloaded(
+              [&](ton_api::dht_valueFound &v) {
+                auto valueR = DhtValue::create(std::move(v.value_), true);
+                if (valueR.is_error()) {
+                  VLOG(DHT_WARNING) << this << ": received incorrect dht answer on find value query from " << dst
+                                    << ": " << valueR.move_as_error();
+                  return;
+                }
+                auto value = valueR.move_as_ok();
+                if (value.key_id() != key_) {
+                  VLOG(DHT_WARNING) << this << ": received value for bad key on find value query from " << dst;
+                  return;
+                }
+                if (!value.check_is_acceptable()) {
+                  send_get_nodes = true;
+                  return;
+                }
+                promise_.set_value(std::move(value));
+                need_stop = true;
+              },
+              [&](ton_api::dht_valueNotFound &v) {
+                add_nodes(DhtNodesList{std::move(v.nodes_), our_network_id()});
+              }));
   if (need_stop) {
     stop();
   } else if (send_get_nodes) {
@@ -229,7 +228,7 @@ void DhtQueryFindValue::on_result_nodes(td::Result<td::BufferSlice> R, adnl::Adn
     return;
   }
   auto r = Res.move_as_ok();
-  add_nodes(DhtNodesList{create_tl_object<ton_api::dht_nodes>(std::move(r->nodes_))});
+  add_nodes(DhtNodesList{create_tl_object<ton_api::dht_nodes>(std::move(r->nodes_)), our_network_id()});
   finish_query();
 }
 
@@ -238,12 +237,13 @@ void DhtQueryFindValue::finish(DhtNodesList list) {
 }
 
 DhtQueryStore::DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src,
-                             DhtNodesList list, td::uint32 k, td::uint32 a, DhtNode self, bool client_only,
-                             td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+                             DhtNodesList list, td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self,
+                             bool client_only, td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
                              td::Promise<td::Unit> promise)
     : print_id_(print_id)
     , k_(k)
     , a_(a)
+    , our_network_id_(our_network_id)
     , promise_(std::move(promise))
     , value_(std::move(key_value))
     , list_(std::move(list))
@@ -261,7 +261,8 @@ void DhtQueryStore::start_up() {
 
   auto key = value_.key_id();
   auto A = td::actor::create_actor<DhtQueryFindNodes>("FindNodesQuery", key, print_id_, src_, std::move(list_), k_, a_,
-                                                      self_.clone(), client_only_, node_, adnl_, std::move(P));
+                                                      our_network_id_, self_.clone(), client_only_, node_, adnl_,
+                                                      std::move(P));
   A.release();
 }
 
@@ -323,12 +324,13 @@ void DhtQueryStore::store_ready(td::Result<td::BufferSlice> R) {
 
 DhtQueryRegisterReverseConnection::DhtQueryRegisterReverseConnection(
     DhtKeyId key_id, adnl::AdnlNodeIdFull client, td::uint32 ttl, td::BufferSlice signature,
-    DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k, td::uint32 a, DhtNode self,
-    bool client_only, td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
-    td::Promise<td::Unit> promise)
+    DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k, td::uint32 a,
+    td::int32 our_network_id, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
+    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::Unit> promise)
     : print_id_(print_id)
     , k_(k)
     , a_(a)
+    , our_network_id_(our_network_id)
     , promise_(std::move(promise))
     , key_id_(key_id)
     , list_(std::move(list))
@@ -346,7 +348,8 @@ void DhtQueryRegisterReverseConnection::start_up() {
   });
 
   auto A = td::actor::create_actor<DhtQueryFindNodes>("FindNodesQuery", key_id_, print_id_, src_, std::move(list_), k_,
-                                                      a_, self_.clone(), client_only_, node_, adnl_, std::move(P));
+                                                      a_, our_network_id_, self_.clone(), client_only_, node_, adnl_,
+                                                      std::move(P));
   A.release();
 }
 
@@ -437,7 +440,7 @@ void DhtQueryRequestReversePing::on_result(td::Result<td::BufferSlice> R, adnl::
                                    stop();
                                  },
                                  [&](ton_api::dht_clientNotFound &v) {
-                                   add_nodes(DhtNodesList{std::move(v.nodes_)});
+                                   add_nodes(DhtNodesList{std::move(v.nodes_), our_network_id()});
                                    finish_query();
                                  }));
 }

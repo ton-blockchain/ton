@@ -51,7 +51,7 @@ class DhtBucket {
   }
   td::uint32 active_cnt();
   td::Status add_full_node(DhtKeyId id, DhtNode node, td::actor::ActorId<adnl::Adnl> adnl,
-                           adnl::AdnlNodeIdShort self_id);
+                           adnl::AdnlNodeIdShort self_id, td::int32 our_network_id);
   void check(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node,
              adnl::AdnlNodeIdShort src);
   void receive_ping(DhtKeyId id, DhtNode result, td::actor::ActorId<adnl::Adnl> adnl, adnl::AdnlNodeIdShort self_id);

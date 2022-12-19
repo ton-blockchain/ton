@@ -45,7 +45,7 @@ class DhtQuery : public td::actor::Actor {
 
  public:
   DhtQuery(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k,
-           td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
+           td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
            td::actor::ActorId<adnl::Adnl> adnl)
       : key_(key)
       , self_(std::move(self))
@@ -54,6 +54,7 @@ class DhtQuery : public td::actor::Actor {
       , src_(src)
       , k_(k)
       , a_(a)
+      , our_network_id_(our_network_id)
       , node_(node)
       , adnl_(adnl) {
     add_nodes(std::move(list));
@@ -77,6 +78,9 @@ class DhtQuery : public td::actor::Actor {
   td::uint32 get_k() const {
     return k_;
   }
+  td::int32 our_network_id() const {
+    return our_network_id_;
+  }
   void start_up() override {
     send_queries();
   }
@@ -91,6 +95,7 @@ class DhtQuery : public td::actor::Actor {
   std::set<DhtKeyId> pending_ids_;
   td::uint32 k_;
   td::uint32 a_;
+  td::int32 our_network_id_;
   td::actor::ActorId<DhtMember> node_;
   td::uint32 active_queries_ = 0;
 
@@ -104,9 +109,10 @@ class DhtQueryFindNodes : public DhtQuery {
 
  public:
   DhtQueryFindNodes(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
-                    td::uint32 k, td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
-                    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<DhtNodesList> promise)
-      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), client_only, node, adnl)
+                    td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only,
+                    td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+                    td::Promise<DhtNodesList> promise)
+      : DhtQuery(key, print_id, src, std::move(list), k, a, our_network_id, std::move(self), client_only, node, adnl)
       , promise_(std::move(promise)) {
   }
   void send_one_query(adnl::AdnlNodeIdShort id) override;
@@ -123,9 +129,10 @@ class DhtQueryFindValue : public DhtQuery {
 
  public:
   DhtQueryFindValue(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
-                    td::uint32 k, td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
-                    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<DhtValue> promise)
-      : DhtQuery(key, print_id, src, std::move(list), k, a, std::move(self), client_only, node, adnl)
+                    td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only,
+                    td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+                    td::Promise<DhtValue> promise)
+      : DhtQuery(key, print_id, src, std::move(list), k, a, our_network_id, std::move(self), client_only, node, adnl)
       , promise_(std::move(promise)) {
   }
   void send_one_query(adnl::AdnlNodeIdShort id) override;
@@ -143,6 +150,7 @@ class DhtQueryStore : public td::actor::Actor {
   DhtMember::PrintId print_id_;
   td::uint32 k_;
   td::uint32 a_;
+  td::int32 our_network_id_;
   td::Promise<td::Unit> promise_;
   td::actor::ActorId<DhtMember> node_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -157,7 +165,7 @@ class DhtQueryStore : public td::actor::Actor {
 
  public:
   DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
-                td::uint32 k, td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
+                td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
                 td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::Unit> promise);
   void send_stores(td::Result<DhtNodesList> res);
   void store_ready(td::Result<td::BufferSlice> res);
@@ -172,6 +180,7 @@ class DhtQueryRegisterReverseConnection : public td::actor::Actor {
   DhtMember::PrintId print_id_;
   td::uint32 k_;
   td::uint32 a_;
+  td::int32 our_network_id_;
   td::Promise<td::Unit> promise_;
   td::actor::ActorId<DhtMember> node_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -188,9 +197,9 @@ class DhtQueryRegisterReverseConnection : public td::actor::Actor {
  public:
   DhtQueryRegisterReverseConnection(DhtKeyId key_id, adnl::AdnlNodeIdFull client, td::uint32 ttl,
                                     td::BufferSlice signature, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src,
-                                    DhtNodesList list, td::uint32 k, td::uint32 a, DhtNode self, bool client_only,
-                                    td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
-                                    td::Promise<td::Unit> promise);
+                                    DhtNodesList list, td::uint32 k, td::uint32 a, td::int32 our_network_id,
+                                    DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
+                                    td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::Unit> promise);
   void send_queries(td::Result<DhtNodesList> R);
   void ready(td::Result<td::BufferSlice> R);
   void start_up() override;
@@ -207,10 +216,11 @@ class DhtQueryRequestReversePing : public DhtQuery {
  public:
   DhtQueryRequestReversePing(adnl::AdnlNodeIdShort client, adnl::AdnlNode target, td::BufferSlice signature,
                              DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list, td::uint32 k,
-                             td::uint32 a, DhtNode self, bool client_only, td::actor::ActorId<DhtMember> node,
-                             td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::Unit> promise)
+                             td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only,
+                             td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+                             td::Promise<td::Unit> promise)
       : DhtQuery(DhtMember::get_reverse_connection_key(client).compute_key_id(), print_id, src, std::move(list), k, a,
-                 std::move(self), client_only, node, adnl)
+                 our_network_id, std::move(self), client_only, node, adnl)
       , promise_(std::move(promise))
       , query_(create_serialize_tl_object<ton_api::dht_requestReversePing>(target.tl(), std::move(signature),
                                                                            client.bits256_value(), k)) {

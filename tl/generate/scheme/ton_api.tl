@@ -562,11 +562,12 @@ control.config.local priv:PrivateKey pub:int256 port:int = control.config.Local;
 config.local local_ids:(vector id.config.local) dht:(vector dht.config.Local) validators:(vector validator.config.Local) liteservers:(vector liteserver.config.Local) control:(vector control.config.local) = config.Local;
 
 dht.config.global static_nodes:dht.nodes k:int a:int = dht.config.Global;
+dht.config.global_v2 static_nodes:dht.nodes k:int a:int network_id:int = dht.config.Global;
 adnl.config.global static_nodes:adnl.nodes = adnl.config.Global;
 catchain.config.global tag:int256 nodes:(vector PublicKey) = catchain.config.Global;
 dummyworkchain0.config.global zero_state_hash:int256 = dummyworkchain0.config.Global;
 validator.config.global zero_state:tonNode.blockIdExt init_block:tonNode.blockIdExt hardforks:(vector tonNode.blockIdExt) = validator.config.Global;
-config.global adnl:adnl.config.global dht:dht.config.global validator:validator.config.global = config.Global;
+config.global adnl:adnl.config.global dht:dht.config.Global validator:validator.config.global = config.Global;
 
 liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
 liteclient.config.global liteservers:(vector liteserver.desc) validator:validator.config.global = liteclient.config.Global;

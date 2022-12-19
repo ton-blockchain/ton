@@ -47,7 +47,7 @@ class Dht : public td::actor::Actor {
                                                             td::actor::ActorId<keyring::Keyring> keyring,
                                                             td::actor::ActorId<adnl::Adnl> adnl);
   static td::Result<std::shared_ptr<DhtGlobalConfig>> create_global_config(
-      tl_object_ptr<ton_api::dht_config_global> conf);
+      tl_object_ptr<ton_api::dht_config_Global> conf);
 
   virtual adnl::AdnlNodeIdShort get_id() const = 0;
 
