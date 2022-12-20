@@ -91,10 +91,23 @@ int get_y(int x, int y) {
   throw_unless(505, (a == 11) & (b == 22) & (c == 33) & (d == 44) & (e == 55));
 }
 
+() test6() impure {
+  int a = 0;
+  int b = 0;
+  int c = 0;
+  try {
+    b = 3;
+  }  catch (x, y) {
+    b = 12;
+  }
+  throw_unless(506, (a == 0) & (b == 3) & (c == 0));
+}
+
 () main() {
   test1();
   test2();
   test3();
   test4();
   test5();
+  test6();
 }
