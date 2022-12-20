@@ -40,6 +40,7 @@ class DhtRemoteNode {
   DhtNode node_;
 
   td::uint32 max_missed_pings_;
+  td::int32 our_network_id_;
   td::uint32 missed_pings_ = 0;
   double last_ping_at_ = 0;
   double ready_from_ = 0;
@@ -47,12 +48,13 @@ class DhtRemoteNode {
   td::int32 version_;
 
  public:
-  DhtRemoteNode(DhtNode node, td::uint32 max_missed_pings)
-      : node_(std::move(node)), max_missed_pings_(max_missed_pings) {
+  DhtRemoteNode(DhtNode node, td::uint32 max_missed_pings, td::int32 our_network_id)
+      : node_(std::move(node)), max_missed_pings_(max_missed_pings), our_network_id_(our_network_id) {
     failed_from_ = td::Time::now_cached();
     id_ = node_.get_key();
   }
-  static td::Result<std::unique_ptr<DhtRemoteNode>> create(DhtNode node, td::uint32 max_missed_pings);
+  static td::Result<std::unique_ptr<DhtRemoteNode>> create(DhtNode node, td::uint32 max_missed_pings,
+                                                           td::int32 our_network_id);
   DhtNode get_node() const {
     return node_.clone();
   }

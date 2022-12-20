@@ -22,6 +22,8 @@
 #include "adnl/adnl-address-list.hpp"
 
 #include "dht-types.h"
+#include "auto/tl/ton_api.hpp"
+#include "td/utils/overloaded.h"
 
 namespace ton {
 
@@ -32,26 +34,26 @@ class DhtNode {
   adnl::AdnlNodeIdFull id_;
   adnl::AdnlAddressList addr_list_;
   td::int32 version_{0};
+  td::int32 network_id_{-1};
   td::SharedSlice signature_;
 
  public:
-  DhtNode() {
+  DhtNode() = default;
+  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::int32 network_id, td::BufferSlice signature)
+      : id_(id), addr_list_(addr_list), version_(version), network_id_(network_id), signature_(signature.as_slice()) {
   }
-  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::BufferSlice signature)
-      : id_(id), addr_list_(addr_list), version_(version), signature_(signature.as_slice()) {
+  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::int32 network_id, td::SharedSlice signature)
+      : id_(id), addr_list_(addr_list), version_(version), network_id_(network_id), signature_(std::move(signature)) {
   }
-  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::SharedSlice signature)
-      : id_(id), addr_list_(addr_list), version_(version), signature_(std::move(signature)) {
-  }
-  static td::Result<DhtNode> create(tl_object_ptr<ton_api::dht_node> obj) {
+  static td::Result<DhtNode> create(tl_object_ptr<ton_api::dht_node> obj, td::int32 our_network_id) {
     if (obj->version_ == 0) {
       return td::Status::Error(ErrorCode::protoviolation, "zero version");
     }
     DhtNode n;
-    TRY_STATUS(n.update(std::move(obj)));
+    TRY_STATUS(n.update(std::move(obj), our_network_id));
     return std::move(n);
   }
-  td::Status update(tl_object_ptr<ton_api::dht_node> obj);
+  td::Status update(tl_object_ptr<ton_api::dht_node> obj, td::int32 our_network_id);
   DhtKeyId get_key() const {
     CHECK(!id_.empty());
     return DhtKeyId{id_.compute_short_id()};
@@ -68,20 +70,30 @@ class DhtNode {
   }
 
   tl_object_ptr<ton_api::dht_node> tl() const {
-    return create_tl_object<ton_api::dht_node>(id_.tl(), addr_list_.tl(), version_, signature_.clone_as_buffer_slice());
+    td::BufferSlice signature_ext;
+    if (network_id_ == -1) {
+      signature_ext = signature_.clone_as_buffer_slice();
+    } else {
+      signature_ext = td::BufferSlice{4 + signature_.size()};
+      td::MutableSlice s = signature_ext.as_slice();
+      s.copy_from(td::Slice(reinterpret_cast<const td::uint8 *>(&network_id_), 4));
+      s.remove_prefix(4);
+      s.copy_from(signature_.as_slice());
+    }
+    return create_tl_object<ton_api::dht_node>(id_.tl(), addr_list_.tl(), version_, std::move(signature_ext));
   }
   DhtNode clone() const {
-    return DhtNode{id_, addr_list_, version_, signature_.clone()};
+    return DhtNode{id_, addr_list_, version_, network_id_, signature_.clone()};
   }
+  td::Status check_signature() const;
 };
 
 class DhtNodesList {
  public:
-  DhtNodesList() {
-  }
-  DhtNodesList(tl_object_ptr<ton_api::dht_nodes> R) {
+  DhtNodesList() = default;
+  DhtNodesList(tl_object_ptr<ton_api::dht_nodes> R, td::int32 our_network_id) {
     for (auto &n : R->nodes_) {
-      auto N = DhtNode::create(std::move(n));
+      auto N = DhtNode::create(std::move(n), our_network_id);
       if (N.is_ok()) {
         list_.emplace_back(N.move_as_ok());
       } else {

@@ -66,7 +66,7 @@ td::uint32 DhtBucket::active_cnt() {
 }
 
 td::Status DhtBucket::add_full_node(DhtKeyId id, DhtNode newnode, td::actor::ActorId<adnl::Adnl> adnl,
-                                    adnl::AdnlNodeIdShort self_id) {
+                                    adnl::AdnlNodeIdShort self_id, td::int32 our_network_id) {
   for (auto &node : active_nodes_) {
     if (node && node->get_key() == id) {
       return node->update_value(std::move(newnode), adnl, self_id);
@@ -78,7 +78,8 @@ td::Status DhtBucket::add_full_node(DhtKeyId id, DhtNode newnode, td::actor::Act
     }
   }
 
-  TRY_RESULT_PREFIX(N, DhtRemoteNode::create(std::move(newnode), max_missed_pings_), "failed to add new node: ");
+  TRY_RESULT_PREFIX(N, DhtRemoteNode::create(std::move(newnode), max_missed_pings_, our_network_id),
+                    "failed to add new node: ");
 
   for (auto &node : backup_nodes_) {
     if (node == nullptr) {
