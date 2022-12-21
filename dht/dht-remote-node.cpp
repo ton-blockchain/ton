@@ -20,12 +20,9 @@
 
 #include "td/utils/tl_storers.h"
 #include "td/utils/crypto.h"
-#include "td/utils/tl_parsers.h"
 #include "td/utils/Random.h"
 
 #include "td/utils/format.h"
-
-#include "keys/encryptor.h"
 
 #include "auto/tl/ton_api.hpp"
 
@@ -51,12 +48,7 @@ td::Status DhtRemoteNode::update_value(DhtNode node, td::actor::ActorId<adnl::Ad
   if (node.version() <= node_.version()) {
     return td::Status::OK();
   }
-
-  TRY_RESULT(enc, node.adnl_id().pubkey().create_encryptor());
-  auto tl = node.tl();
-  auto sig = std::move(tl->signature_);
-  TRY_STATUS_PREFIX(enc->check_signature(serialize_tl_object(tl, true).as_slice(), sig.as_slice()),
-                    "bad node signature: ");
+  TRY_STATUS(node.check_signature());
 
   node_ = std::move(node);
   td::actor::send_closure(adnl, &adnl::Adnl::add_peer, self_id, node_.adnl_id(), node_.addr_list());
@@ -75,13 +67,13 @@ void DhtRemoteNode::send_ping(bool client_only, td::actor::ActorId<adnl::Adnl> a
 
   td::actor::send_closure(adnl, &adnl::Adnl::add_peer, src, node_.adnl_id(), node_.addr_list());
 
-  auto P = td::PromiseCreator::lambda([key = id_, id = node_.adnl_id().compute_short_id(), client_only, node, src,
-                                       adnl](td::Result<DhtNode> R) mutable {
+  auto P = td::PromiseCreator::lambda([key = id_, id = node_.adnl_id().compute_short_id(), client_only, node, src, adnl,
+                                       our_network_id = our_network_id_](td::Result<DhtNode> R) mutable {
     if (R.is_error()) {
       LOG(ERROR) << "[dht]: failed to get self node";
       return;
     }
-    auto P = td::PromiseCreator::lambda([key, node, adnl](td::Result<td::BufferSlice> R) {
+    auto P = td::PromiseCreator::lambda([key, node, adnl, our_network_id](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
         VLOG(DHT_INFO) << "[dht]: received error for query to " << key << ": " << R.move_as_error();
         return;
@@ -89,7 +81,7 @@ void DhtRemoteNode::send_ping(bool client_only, td::actor::ActorId<adnl::Adnl> a
       auto F = fetch_tl_object<ton_api::dht_node>(R.move_as_ok(), true);
 
       if (F.is_ok()) {
-        auto N = DhtNode::create(F.move_as_ok());
+        auto N = DhtNode::create(F.move_as_ok(), our_network_id);
         if (N.is_ok()) {
           td::actor::send_closure(node, &DhtMember::receive_ping, key, N.move_as_ok());
         } else {
@@ -123,7 +115,8 @@ adnl::AdnlNodeIdFull DhtRemoteNode::get_full_id() const {
   return node_.adnl_id();
 }
 
-td::Result<std::unique_ptr<DhtRemoteNode>> DhtRemoteNode::create(DhtNode node, td::uint32 max_missed_pings) {
+td::Result<std::unique_ptr<DhtRemoteNode>> DhtRemoteNode::create(DhtNode node, td::uint32 max_missed_pings,
+                                                                 td::int32 our_network_id) {
   TRY_RESULT(enc, node.adnl_id().pubkey().create_encryptor());
   auto tl = node.tl();
   auto sig = std::move(tl->signature_);
@@ -131,7 +124,7 @@ td::Result<std::unique_ptr<DhtRemoteNode>> DhtRemoteNode::create(DhtNode node, t
   TRY_STATUS_PREFIX(enc->check_signature(serialize_tl_object(tl, true).as_slice(), sig.as_slice()),
                     "bad node signature: ");
 
-  return std::make_unique<DhtRemoteNode>(std::move(node), max_missed_pings);
+  return std::make_unique<DhtRemoteNode>(std::move(node), max_missed_pings, our_network_id);
 }
 
 }  // namespace dht
