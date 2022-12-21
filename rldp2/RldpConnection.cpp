@@ -324,7 +324,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
       }
       return {};
     }
-    if (in_part->receiver.on_received(part.seqno_, td::Timestamp::now())) {
+    if (in_part->receiver.on_received(part.seqno_ + 1, td::Timestamp::now())) {
       TRY_STATUS_PREFIX(in_part->decoder->add_symbol({static_cast<td::uint32>(part.seqno_), std::move(part.data_)}),
                         td::Status::Error(ErrorCode::protoviolation, "invalid symbol"));
       if (in_part->decoder->may_try_decode()) {
