@@ -144,6 +144,8 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
       promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is private"));
       return;
     }
+  } else {
+    on_ping_result(src, true);
   }
   auto R = fetch_tl_object<ton_api::Function>(data.clone(), true);
 
@@ -222,6 +224,8 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
       VLOG(OVERLAY_WARNING) << this << ": received query in private overlay from unknown source " << src;
       return;
     }
+  } else {
+    on_ping_result(src, true);
   }
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
