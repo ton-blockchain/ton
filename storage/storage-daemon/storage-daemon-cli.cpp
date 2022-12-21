@@ -255,7 +255,7 @@ class StorageDaemonCli : public td::actor::Actor {
     auto parse_hash = [](const std::string& s) -> td::Result<td::Bits256> {
       td::Bits256 hash;
       if (hash.from_hex(s) != 256) {
-        return td::Status::Error("Invalid hash");
+        return td::Status::Error("Invalid BagID");
       }
       return hash;
     };
@@ -264,12 +264,12 @@ class StorageDaemonCli : public td::actor::Actor {
         return parse_hash(s);
       }
       if (batch_mode_) {
-        return td::Status::Error("Torrent ids are not available in batch mode");
+        return td::Status::Error("Indices are not available in batch mode");
       }
       TRY_RESULT(id, td::to_integer_safe<td::uint32>(s));
       auto it = id_to_hash_.find(id);
       if (it == id_to_hash_.end()) {
-        return td::Status::Error(PSTRING() << "Unknown torrent id " << id);
+        return td::Status::Error(PSTRING() << "Unknown index " << id);
       }
       return it->second;
     };
@@ -409,7 +409,7 @@ class StorageDaemonCli : public td::actor::Actor {
       return execute_get(hash, json);
     } else if (tokens[0] == "get-meta") {
       if (tokens.size() != 3) {
-        return td::Status::Error("Expected torrent and file");
+        return td::Status::Error("Expected bag and file");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_get_meta(hash, tokens[2]);
@@ -437,20 +437,20 @@ class StorageDaemonCli : public td::actor::Actor {
       return execute_get_peers(hash, json);
     } else if (tokens[0] == "download-pause" || tokens[0] == "download-resume") {
       if (tokens.size() != 2) {
-        return td::Status::Error("Expected torrent");
+        return td::Status::Error("Expected bag");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_set_active_download(hash, tokens[0] == "download-resume");
     } else if (tokens[0] == "priority-all") {
       if (tokens.size() != 3) {
-        return td::Status::Error("Expected torrent and priority");
+        return td::Status::Error("Expected bag and priority");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[2]), "Invalid priority: ");
       return execute_set_priority_all(hash, priority);
     } else if (tokens[0] == "priority-idx") {
       if (tokens.size() != 4) {
-        return td::Status::Error("Expected torrent, idx and priority");
+        return td::Status::Error("Expected bag, idx and priority");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(idx, td::to_integer_safe<td::uint64>(tokens[2]), "Invalid idx: ");
@@ -458,7 +458,7 @@ class StorageDaemonCli : public td::actor::Actor {
       return execute_set_priority_idx(hash, idx, priority);
     } else if (tokens[0] == "priority-name") {
       if (tokens.size() != 4) {
-        return td::Status::Error("Expected torrent, name and priority");
+        return td::Status::Error("Expected bag, name and priority");
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       TRY_RESULT_PREFIX(priority, td::to_integer_safe<td::uint8>(tokens[3]), "Invalid priority: ");
@@ -731,47 +731,47 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_help() {
     td::TerminalIO::out() << "help\tPrint this help\n";
-    td::TerminalIO::out() << "create [-d description] [--json] <file/dir>\tCreate torrent from <file/dir>\n";
-    td::TerminalIO::out() << "\t-d - Description what will be stored in torrent info.\n";
+    td::TerminalIO::out() << "create [-d description] [--json] <file/dir>\tCreate bag of files from <file/dir>\n";
+    td::TerminalIO::out() << "\t-d - Description will be stored in torrent info.\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
     td::TerminalIO::out()
-        << "add-by-hash <hash> [-d root_dir] [--paused] [--json] [--partial file1 file2 ...]\tAdd torrent "
-           "with given <hash> (in hex)\n";
+        << "add-by-hash <bag-id> [-d root_dir] [--paused] [--json] [--partial file1 file2 ...]\tAdd bag "
+           "with given BagID (in hex)\n";
     td::TerminalIO::out() << "\t-d\tTarget directory, default is an internal directory of storage-daemon\n";
     td::TerminalIO::out() << "\t--paused\tDon't start download immediately\n";
     td::TerminalIO::out()
         << "\t--partial\tEverything after this flag is a list of filenames. Only these files will be downloaded.\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
     td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--json] [--partial file1 file2 ...]\tLoad "
-                             "torrent meta from file and add torreent\n";
+                             "meta from file and add bag\n";
     td::TerminalIO::out() << "\tFlags are the same as in add-by-hash\n";
-    td::TerminalIO::out() << "list [--hashes] [--json]\tPrint list of torrents\n";
-    td::TerminalIO::out() << "\t--hashes\tPrint full hashes of torrents\n";
+    td::TerminalIO::out() << "list [--hashes] [--json]\tPrint list of bags\n";
+    td::TerminalIO::out() << "\t--hashes\tPrint full BagID\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "get <torrent> [--json]\tPrint information about <torrent>\n";
+    td::TerminalIO::out() << "get <bag> [--json]\tPrint information about <bag>\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "\tHere and below torrents are identified by hash (in hex) or id (see torrent list)\n";
-    td::TerminalIO::out() << "get-meta <torrent> <file>\tSave torrent meta of <torrent> to <file>\n";
-    td::TerminalIO::out() << "get-peers <torrent> [--json]\tPrint a list of peers\n";
+    td::TerminalIO::out() << "\tHere and below bags are identified by BagID (in hex) or index (see bag list)\n";
+    td::TerminalIO::out() << "get-meta <bag> <file>\tSave bag meta of <bag> to <file>\n";
+    td::TerminalIO::out() << "get-peers <bag> [--json]\tPrint a list of peers\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "download-pause <torrent>\tPause download of <torrent>\n";
-    td::TerminalIO::out() << "download-resume <torrent>\tResume download of <torrent>\n";
-    td::TerminalIO::out() << "priority-all <torrent> <p>\tSet priority of all files in <torrent> to <p>\n";
+    td::TerminalIO::out() << "download-pause <bag>\tPause download of <bag>\n";
+    td::TerminalIO::out() << "download-resume <bag>\tResume download of <bag>\n";
+    td::TerminalIO::out() << "priority-all <bag> <p>\tSet priority of all files in <bag> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "priority-idx <torrent> <idx> <p>\tSet priority of file #<idx> in <torrent> to <p>\n";
+    td::TerminalIO::out() << "priority-idx <bag> <idx> <p>\tSet priority of file #<idx> in <bag> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "priority-name <torrent> <name> <p>\tSet priority of file <name> in <torrent> to <p>\n";
+    td::TerminalIO::out() << "priority-name <bag> <name> <p>\tSet priority of file <name> in <bag> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "remove <torrent> [--remove-files]\tRemove <torrent>\n";
+    td::TerminalIO::out() << "remove <bag> [--remove-files]\tRemove <bag>\n";
     td::TerminalIO::out() << "\t--remove-files - also remove all files\n";
-    td::TerminalIO::out() << "load-from <torrent> [--meta meta] [--files path]\tProvide meta and data for an existing "
-                             "incomplete torrent.\n";
+    td::TerminalIO::out() << "load-from <bag> [--meta meta] [--files path]\tProvide meta and data for an existing "
+                             "incomplete bag.\n";
     td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
-    td::TerminalIO::out() << "\t--files path\tdata for torrent files will be taken from here\n";
-    td::TerminalIO::out() << "new-contract-message <torrent> <file> [--query-id id] --provider <provider>\tCreate "
+    td::TerminalIO::out() << "\t--files path\tdata for files will be taken from here\n";
+    td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --provider <provider>\tCreate "
                              "\"new contract message\" for storage provider. Saves message body to <file>.\n";
     td::TerminalIO::out() << "\t<provider>\tAddress of storage provider account to take parameters from.\n";
-    td::TerminalIO::out() << "new-contract-message <torrent> <file> [--query-id id] --rate <rate> --max-span "
+    td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --rate <rate> --max-span "
                              "<max-span>\tSame thing, but parameters are not fetched automatically.\n";
     td::TerminalIO::out() << "exit\tExit\n";
     td::TerminalIO::out() << "quit\tExit\n";
@@ -783,7 +783,7 @@ class StorageDaemonCli : public td::actor::Actor {
         << "init-provider <smc-addr>\tInit storage provider using the existing provider smart contract\n";
     td::TerminalIO::out() << "remove-storage-provider\tRemove storage provider\n";
     td::TerminalIO::out()
-        << "\tSmart contracts in blockchain and torrents will remain intact, but they will not be managed anymore\n";
+        << "\tSmart contracts in blockchain and bags will remain intact, but they will not be managed anymore\n";
     td::TerminalIO::out() << "get-provider-params [address] [--json]\tPrint parameters of the smart contract\n";
     td::TerminalIO::out()
         << "\taddress\tAddress of a smart contract. Default is the provider managed by this daemon.\n";
@@ -793,8 +793,8 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\t--accept\tAccept new contracts: 0 (no) or 1 (yes)\n";
     td::TerminalIO::out() << "\t--rate\tPrice of storage, nanoTON per MB*day\n";
     td::TerminalIO::out() << "\t--max-span\n";
-    td::TerminalIO::out() << "\t--min-file-size\tMinimal total size of a torrent (bytes)\n";
-    td::TerminalIO::out() << "\t--max-file-size\tMaximal total size of a torrent (bytes)\n";
+    td::TerminalIO::out() << "\t--min-file-size\tMinimal total size of a bag of files (bytes)\n";
+    td::TerminalIO::out() << "\t--max-file-size\tMaximal total size of a bag of files (bytes)\n";
     td::TerminalIO::out()
         << "get-provider-info [--balances] [--contracts] [--json]\tPrint information about storage provider\n";
     td::TerminalIO::out() << "\t--contracts\tPrint list of storage contracts\n";
@@ -810,7 +810,7 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out()
         << "send-coins <address> <amount> [--message msg]\tSend <amount> nanoTON to <address> from the main contract\n";
     td::TerminalIO::out()
-        << "close-contract <address>\tClose storage contract <address> and delete torrent (if possible)\n";
+        << "close-contract <address>\tClose storage contract <address> and delete bag (if possible)\n";
     command_finished(td::Status::OK());
     return td::Status::OK();
   }
@@ -840,7 +840,7 @@ class StorageDaemonCli : public td::actor::Actor {
                    print_json(R.ok());
                    return;
                  }
-                 td::TerminalIO::out() << "Torrent created\n";
+                 td::TerminalIO::out() << "Bag created\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
@@ -872,7 +872,7 @@ class StorageDaemonCli : public td::actor::Actor {
                    print_json(R.ok());
                    return;
                  }
-                 td::TerminalIO::out() << "Torrent added\n";
+                 td::TerminalIO::out() << "Bag added\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
@@ -905,7 +905,7 @@ class StorageDaemonCli : public td::actor::Actor {
                    print_json(R.ok());
                    return;
                  }
-                 td::TerminalIO::out() << "Torrent added\n";
+                 td::TerminalIO::out() << "Bag added\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
@@ -958,10 +958,10 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (S.is_error()) {
                    td::actor::send_closure(
                        SelfId, &StorageDaemonCli::command_finished,
-                       S.move_as_error_prefix(PSTRING() << "Failed to write torrent meta (" << data.size() << " B): "));
+                       S.move_as_error_prefix(PSTRING() << "Failed to write meta (" << data.size() << " B): "));
                    return;
                  }
-                 td::TerminalIO::out() << "Saved torrent meta (" << data.size() << " B)\n";
+                 td::TerminalIO::out() << "Saved meta (" << data.size() << " B)\n";
                  td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
@@ -979,7 +979,7 @@ class StorageDaemonCli : public td::actor::Actor {
             return;
           }
           auto obj = R.move_as_ok();
-          td::TerminalIO::out() << "Torrent " << hash.to_hex() << "\n";
+          td::TerminalIO::out() << "BagID " << hash.to_hex() << "\n";
           td::TerminalIO::out() << "Download speed: " << td::format::as_size((td::uint64)obj->download_speed_)
                                 << "/s\n";
           td::TerminalIO::out() << "Upload speed: " << td::format::as_size((td::uint64)obj->upload_speed_) << "/s\n";
@@ -1103,7 +1103,7 @@ class StorageDaemonCli : public td::actor::Actor {
                    return;
                  }
                  auto torrent = R.move_as_ok();
-                 td::TerminalIO::out() << "Loaded data for torrent " << torrent->hash_.to_hex() << "\n";
+                 td::TerminalIO::out() << "Loaded data for bag " << torrent->hash_.to_hex() << "\n";
                  if (torrent->flags_ & 4) {  // fatal error
                    td::TerminalIO::out() << "FATAL ERROR: " << torrent->fatal_error_ << "\n";
                  }
@@ -1308,7 +1308,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  if (with_contracts) {
                    td::TerminalIO::out() << "Storage contracts: " << info->contracts_.size() << "\n";
                    std::vector<std::vector<std::string>> table;
-                   table.push_back({"Address", "Torrent hash", "Created at", "Size", "State"});
+                   table.push_back({"Address", "BagID", "Created at", "Size", "State"});
                    if (with_balances) {
                      table.back().push_back("Client$");
                      table.back().push_back("Contract$");
@@ -1568,8 +1568,8 @@ class StorageDaemonCli : public td::actor::Actor {
   void print_torrent_full(tl_object_ptr<ton_api::storage_daemon_torrentFull> ptr) {
     auto& obj = *ptr;
     add_id(obj.torrent_->hash_);
-    td::TerminalIO::out() << "Hash = " << obj.torrent_->hash_.to_hex() << "\n";
-    td::TerminalIO::out() << "ID = " << hash_to_id_[obj.torrent_->hash_] << "\n";
+    td::TerminalIO::out() << "BagID = " << obj.torrent_->hash_.to_hex() << "\n";
+    td::TerminalIO::out() << "Index = " << hash_to_id_[obj.torrent_->hash_] << "\n";
     if (obj.torrent_->flags_ & 4) {  // fatal error
       td::TerminalIO::out() << "FATAL ERROR: " << obj.torrent_->fatal_error_ << "\n";
     }
@@ -1637,9 +1637,9 @@ class StorageDaemonCli : public td::actor::Actor {
                   const tl_object_ptr<ton_api::storage_daemon_torrent>& b) {
                 return hash_to_id_[a->hash_] < hash_to_id_[b->hash_];
               });
-    td::TerminalIO::out() << obj.torrents_.size() << " torrents\n";
+    td::TerminalIO::out() << obj.torrents_.size() << " bags\n";
     std::vector<std::vector<std::string>> table;
-    table.push_back({"#####", "Hash", "Description", "Downloaded", "Total", "Speed"});
+    table.push_back({"#####", "BagID", "Description", "Downloaded", "Total", "Speed"});
     for (const auto& torrent : obj.torrents_) {
       std::vector<std::string> row;
       row.push_back(std::to_string(hash_to_id_[torrent->hash_]));

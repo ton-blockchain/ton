@@ -872,7 +872,7 @@ int main(int argc, char *argv[]) {
   bool enable_storage_provider = false;
 
   td::OptionParser p;
-  p.set_description("Server for seeding and downloading torrents\n");
+  p.set_description("Server for seeding and downloading bags of files (torrents)\n");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
