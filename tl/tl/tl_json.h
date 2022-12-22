@@ -53,7 +53,8 @@ struct JsonBytes {
 };
 
 inline void to_json(JsonValueScope &jv, const JsonBytes json_bytes) {
-  jv << JsonString(PSLICE() << base64_encode(json_bytes.bytes));
+  auto base64 = base64_encode(json_bytes.bytes);
+  jv << JsonString(base64);
 }
 template <class T>
 struct JsonVectorBytesImpl {

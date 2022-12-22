@@ -1,3 +1,12 @@
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://ton.org/download/ton_logo_dark_background.svg">
+    <img alt="TON logo" src="https://ton.org/download/ton_logo_light_background.svg">
+  </picture>
+  <hr/>
+</div>
+
+[![TON Overflow Group][ton-overflow-badge]][ton-overflow-url]
 [![Stack Overflow Group][stack-overflow-badge]][stack-overflow-url]
 [![Telegram Foundation Group][telegram-foundation-badge]][telegram-foundation-url]
 [![Telegram Community Group][telegram-community-badge]][telegram-community-url]
@@ -11,10 +20,10 @@
 [twitter-url]: https://twitter.com/ton_blockchain
 [stack-overflow-badge]: https://img.shields.io/badge/-Stack%20Overflow-FE7A16?style=flat&logo=stack-overflow&logoColor=white
 [stack-overflow-url]: https://stackoverflow.com/questions/tagged/ton
+[ton-overflow-badge]: https://img.shields.io/badge/-TON%20Overflow-FE7A16?style=flat&logo=stack-overflow&logoColor=white
+[ton-overflow-url]: https://answers.ton.org
 
 
-
-# TON
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 

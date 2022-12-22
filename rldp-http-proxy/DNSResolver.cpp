@@ -30,7 +30,8 @@
 static const double CACHE_TIMEOUT_HARD = 300.0;
 static const double CACHE_TIMEOUT_SOFT = 270.0;
 
-DNSResolver::DNSResolver(td::actor::ActorId<TonlibClient> tonlib_client) : tonlib_client_(std::move(tonlib_client)) {
+DNSResolver::DNSResolver(td::actor::ActorId<tonlib::TonlibClientWrapper> tonlib_client)
+    : tonlib_client_(std::move(tonlib_client)) {
 }
 
 void DNSResolver::start_up() {
@@ -39,14 +40,15 @@ void DNSResolver::start_up() {
 
 void DNSResolver::sync() {
   auto obj = tonlib_api::make_object<tonlib_api::sync>();
-  auto P = td::PromiseCreator::lambda([SelfId =
-                                           actor_id(this)](td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](
+                                          td::Result<tonlib_api::object_ptr<tonlib_api::ton_blockIdExt>> R) {
     if (R.is_error()) {
       LOG(WARNING) << "Sync error: " << R.move_as_error();
       ton::delay_action([SelfId]() { td::actor::send_closure(SelfId, &DNSResolver::sync); }, td::Timestamp::in(5.0));
     }
   });
-  td::actor::send_closure(tonlib_client_, &TonlibClient::send_request, std::move(obj), std::move(P));
+  td::actor::send_closure(tonlib_client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::sync>, std::move(obj),
+                          std::move(P));
 }
 
 void DNSResolver::resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdShort> promise) {
@@ -66,18 +68,13 @@ void DNSResolver::resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdSho
   td::Bits256 category = td::sha256_bits256(td::Slice("site", 4));
   auto obj = tonlib_api::make_object<tonlib_api::dns_resolve>(nullptr, host, category, 16);
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = std::move(promise), host = std::move(host)](
-                                          td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R) mutable {
+                                          td::Result<tonlib_api::object_ptr<tonlib_api::dns_resolved>> R) mutable {
     if (R.is_error()) {
       if (promise) {
         promise.set_result(R.move_as_error());
       }
     } else {
-      auto v = R.move_as_ok();
-      auto obj = dynamic_cast<tonlib_api::dns_resolved *>(v.get());
-      if (obj == nullptr) {
-        promise.set_result(td::Status::Error("invalid response from tonlib"));
-        return;
-      }
+      auto obj = R.move_as_ok();
       ton::adnl::AdnlNodeIdShort id;
       td::uint32 cnt = 0;
       for (auto &e : obj->entries_) {
@@ -106,7 +103,8 @@ void DNSResolver::resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdSho
       }
     }
   });
-  td::actor::send_closure(tonlib_client_, &TonlibClient::send_request, std::move(obj), std::move(P));
+  td::actor::send_closure(tonlib_client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::dns_resolve>,
+                          std::move(obj), std::move(P));
 }
 
 void DNSResolver::save_to_cache(std::string host, ton::adnl::AdnlNodeIdShort id) {

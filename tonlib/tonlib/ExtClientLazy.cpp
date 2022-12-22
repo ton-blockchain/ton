@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "ExtClientRaw.h"
+#include "ExtClientLazy.h"
 #include "TonlibError.h"
 #include "td/utils/Random.h"
 namespace tonlib {
 
-class ExtClientLazyImp : public ExtClientRaw {
+class ExtClientLazyImp : public ExtClientLazy {
  public:
   ExtClientLazyImp(std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers,
-                   td::unique_ptr<ExtClientRaw::Callback> callback)
+                   td::unique_ptr<ExtClientLazy::Callback> callback)
       : servers_(std::move(servers)), callback_(std::move(callback)) {
     CHECK(!servers_.empty());
   }
@@ -34,7 +34,15 @@ class ExtClientLazyImp : public ExtClientRaw {
     td::random_shuffle(td::as_mutable_span(servers_), rnd);
   }
 
-  void send_query(std::string name, td::BufferSlice data, ton::ShardIdFull shard, td::Timestamp timeout,
+  void check_ready(td::Promise<td::Unit> promise) override {
+    before_query();
+    if (client_.empty()) {
+      return promise.set_error(TonlibError::Cancelled());
+    }
+    send_closure(client_, &ton::adnl::AdnlExtClient::check_ready, std::move(promise));
+  }
+
+  void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
                   td::Promise<td::BufferSlice> promise) override {
     before_query();
     if (client_.empty()) {
@@ -101,7 +109,7 @@ class ExtClientLazyImp : public ExtClientRaw {
   bool cur_server_bad_force_ = false;
 
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> client_;
-  td::unique_ptr<ExtClientRaw::Callback> callback_;
+  td::unique_ptr<ExtClientLazy::Callback> callback_;
   static constexpr double MAX_NO_QUERIES_TIMEOUT = 100;
 
   bool is_closing_{false};
@@ -132,12 +140,12 @@ class ExtClientLazyImp : public ExtClientRaw {
   }
 };
 
-td::actor::ActorOwn<ExtClientRaw> ExtClientRaw::create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
-                                                       td::unique_ptr<Callback> callback) {
+td::actor::ActorOwn<ExtClientLazy> ExtClientLazy::create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
+                                                         td::unique_ptr<Callback> callback) {
   return create({std::make_pair(dst, dst_addr)}, std::move(callback));
 }
 
-td::actor::ActorOwn<ExtClientRaw> ExtClientRaw::create(
+td::actor::ActorOwn<ExtClientLazy> ExtClientLazy::create(
     std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers, td::unique_ptr<Callback> callback) {
   return td::actor::create_actor<ExtClientLazyImp>("ExtClientLazy", std::move(servers), std::move(callback));
 }

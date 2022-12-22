@@ -107,6 +107,7 @@ struct ComputePhaseConfig {
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
   bool with_vm_log{false};
+  td::uint16 max_vm_data_depth = 512;
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();
@@ -143,6 +144,7 @@ struct ActionPhaseConfig {
   int bounce_msg_body{0};  // usually 0 or 256 bits
   MsgPrices fwd_std;
   MsgPrices fwd_mc;  // from/to masterchain
+  SizeLimitsConfig size_limits;
   const WorkchainSet* workchains{nullptr};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
@@ -182,6 +184,7 @@ struct ActionPhase {
   bool code_changed{false};
   bool action_list_invalid{false};
   bool acc_delete_req{false};
+  bool state_size_too_big{false};
   enum { acst_unchanged = 0, acst_frozen = 2, acst_deleted = 3 };
   int acc_status_change{acst_unchanged};
   td::RefInt256 total_fwd_fees;     // all fees debited from the account
@@ -235,6 +238,7 @@ struct Account {
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
   Ref<vm::Cell> total_state;       // ^Account
+  Ref<vm::CellSlice> storage;      // AccountStorage
   Ref<vm::CellSlice> inner_state;  // StateInit
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
   Ref<vm::Cell> code, data, library, orig_library;
@@ -283,7 +287,6 @@ struct Account {
 };
 
 struct Transaction {
-  static constexpr unsigned max_msg_bits = (1 << 21), max_msg_cells = (1 << 13);
   enum {
     tr_none,
     tr_ord,
@@ -323,6 +326,7 @@ struct Transaction {
   ton::UnixTime last_paid;
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;
+  Ref<vm::CellSlice> new_storage;
   Ref<vm::CellSlice> new_inner_state;
   Ref<vm::Cell> new_code, new_data, new_library;
   Ref<vm::Cell> in_msg, in_msg_state;
@@ -348,6 +352,7 @@ struct Transaction {
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
+  bool check_state_size_limit(const ActionPhaseConfig& cfg);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state();
   bool serialize();
@@ -359,7 +364,7 @@ struct Transaction {
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
   bool update_block_storage_profile(vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
   bool would_fit(unsigned cls, const block::BlockLimitStatus& blk_lim_st) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);

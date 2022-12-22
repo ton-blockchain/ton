@@ -128,6 +128,14 @@ class ValidatorGroup : public td::actor::Actor {
   bool lite_mode_ = false;
   td::uint32 last_known_round_id_ = 0;
 
+  struct CachedCollatedBlock {
+    td::optional<BlockCandidate> result;
+    std::vector<td::Promise<BlockCandidate>> promises;
+  };
+  std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
+
+  void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
+
   typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
   td::uint32 approved_candidates_cache_round_ = 0;

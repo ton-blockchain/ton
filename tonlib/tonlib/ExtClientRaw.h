@@ -22,20 +22,18 @@
 #include "ton/ton-types.h"
 
 namespace tonlib {
-class ExtClientRaw : public td::actor::Actor {
+class ExtClientLazy : public ton::adnl::AdnlExtClient {
  public:
   class Callback {
    public:
     virtual ~Callback() = default;
   };
 
-  virtual void send_query(std::string name, td::BufferSlice data, ton::ShardIdFull shard, td::Timestamp timeout,
-                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void force_change_liteserver() = 0;
 
-  static td::actor::ActorOwn<ExtClientRaw> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
-                                                  td::unique_ptr<Callback> callback);
-  static td::actor::ActorOwn<ExtClientRaw> create(
+  static td::actor::ActorOwn<ExtClientLazy> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
+                                                   td::unique_ptr<Callback> callback);
+  static td::actor::ActorOwn<ExtClientLazy> create(
       std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers, td::unique_ptr<Callback> callback);
 };
 

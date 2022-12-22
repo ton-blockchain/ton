@@ -275,7 +275,12 @@ target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_S
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
 if (NOT WIN32)
-  target_link_libraries(ton_crypto PUBLIC dl z)
+  find_library(DL dl) 
+  if (DL)
+    target_link_libraries(ton_crypto PUBLIC dl z)
+  else()
+    target_link_libraries(ton_crypto PUBLIC z)
+  endif()
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 

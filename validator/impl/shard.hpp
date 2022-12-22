@@ -126,6 +126,10 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   ValidatorSessionConfig get_consensus_config() const override {
     return config_->get_consensus_config();
   }
+  block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const override {
+    auto R = config_->get_size_limits_config();
+    return R.is_error() ? block::SizeLimitsConfig::ExtMsgLimits() : R.ok_ref().ext_msg_limits;
+  }
   BlockIdExt last_key_block_id() const override;
   BlockIdExt next_key_block_id(BlockSeqno seqno) const override;
   BlockIdExt prev_key_block_id(BlockSeqno seqno) const override;

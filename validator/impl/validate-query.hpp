@@ -371,6 +371,14 @@ class ValidateQuery : public td::actor::Actor {
   bool check_mc_block_extra();
 
   Ref<vm::Cell> get_virt_state_root(td::Bits256 block_root_hash);
+
+  bool check_timeout() {
+    if (timeout && timeout.is_in_past()) {
+      abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
+      return false;
+    }
+    return true;
+  }
 };
 
 }  // namespace validator

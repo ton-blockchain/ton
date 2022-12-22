@@ -782,6 +782,77 @@ bool Op::generate_code_step(Stack& stack) {
         return false;
       }
     }
+    case _TryCatch: {
+      if (block0->is_empty() && block1->is_empty()) {
+        return true;
+      }
+      if (block0->noreturn() || block1->noreturn()) {
+        stack.o.retalt_ = true;
+      }
+      Stack catch_stack{stack.o};
+      std::vector<var_idx_t> catch_vars;
+      std::vector<bool> catch_last;
+      for (const VarDescr& var : block1->var_info.list) {
+        if (stack.find(var.idx) >= 0) {
+          catch_vars.push_back(var.idx);
+          catch_last.push_back(!block0->var_info[var.idx]);
+        }
+      }
+      const size_t block_size = 255;
+      for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
+        begin = end >= block_size ? end - block_size : 0;
+        for (size_t i = begin; i < end; ++i) {
+          catch_stack.push_new_var(catch_vars[i]);
+        }
+      }
+      catch_stack.push_new_var(left[0]);
+      catch_stack.push_new_var(left[1]);
+      stack.rearrange_top(catch_vars, catch_last);
+      stack.opt_show();
+      stack.o << "c4 PUSH";
+      stack.o << "c5 PUSH";
+      stack.o << "c7 PUSH";
+      stack.o << "<{";
+      stack.o.indent();
+      if (block1->noreturn()) {
+        catch_stack.mode |= Stack::_NeedRetAlt;
+      }
+      block1->generate_code_all(catch_stack);
+      catch_stack.drop_vars_except(next->var_info);
+      catch_stack.opt_show();
+      stack.o.undent();
+      stack.o << "}>CONT";
+      stack.o << "c7 SETCONT";
+      stack.o << "c5 SETCONT";
+      stack.o << "c4 SETCONT";
+      for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
+        begin = end >= block_size ? end - block_size : 0;
+        stack.o << std::to_string(end - begin) + " PUSHINT";
+        stack.o << "-1 PUSHINT";
+        stack.o << "SETCONTVARARGS";
+      }
+      stack.s.erase(stack.s.end() - catch_vars.size(), stack.s.end());
+      stack.modified();
+      stack.o << "<{";
+      stack.o.indent();
+      if (block0->noreturn()) {
+        stack.mode |= Stack::_NeedRetAlt;
+      }
+      block0->generate_code_all(stack);
+      if (block0->noreturn()) {
+        stack.s = std::move(catch_stack.s);
+      } else if (!block1->noreturn()) {
+        stack.merge_state(catch_stack);
+      }
+      stack.opt_show();
+      stack.o.undent();
+      stack.o << "}>CONT";
+      stack.o << "c1 PUSH";
+      stack.o << "COMPOSALT";
+      stack.o << "SWAP";
+      stack.o << "TRY";
+      return true;
+    }
     default:
       std::cerr << "fatal: unknown operation <??" << cl << ">\n";
       throw src::ParseError{where, "unknown operation in generate_code()"};

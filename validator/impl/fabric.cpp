@@ -111,13 +111,16 @@ td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_
   return td::Ref<BlockSignatureSetQ>{true, std::move(sig_set)};
 }
 
-td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data) {
-  TRY_RESULT(res, ExtMessageQ::create_ext_message(std::move(data)));
+td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data,
+                                                   block::SizeLimitsConfig::ExtMsgLimits limits) {
+  TRY_RESULT(res, ExtMessageQ::create_ext_message(std::move(data), limits));
   return std::move(res);
 }
 
-void run_check_external_message(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
-  ExtMessageQ::run_message(std::move(data), std::move(manager), std::move(promise));
+void run_check_external_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                                td::actor::ActorId<ValidatorManager> manager,
+                                td::Promise<td::Ref<ExtMessage>> promise) {
+  ExtMessageQ::run_message(std::move(data), limits, std::move(manager), std::move(promise));
 }
 
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {

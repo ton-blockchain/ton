@@ -1913,6 +1913,38 @@ std::vector<ton::ValidatorDescr> Config::compute_total_validator_set(int next) c
   return res.move_as_ok()->export_validator_set();
 }
 
+td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
+  SizeLimitsConfig limits;
+  td::Ref<vm::Cell> param = get_config_param(43);
+  if (param.is_null()) {
+    return limits;
+  }
+  auto unpack_v1 = [&](auto& rec) {
+    limits.max_msg_bits = rec.max_msg_bits;
+    limits.max_msg_cells = rec.max_msg_cells;
+    limits.max_library_cells = rec.max_library_cells;
+    limits.max_vm_data_depth = static_cast<td::uint16>(rec.max_vm_data_depth);
+    limits.ext_msg_limits.max_size = rec.max_ext_msg_size;
+    limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
+  };
+
+  auto unpack_v2 = [&](auto& rec) {
+    unpack_v1(rec);
+    limits.max_acc_state_bits = rec.max_acc_state_bits;
+    limits.max_acc_state_cells = rec.max_acc_state_cells;
+  };
+  gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
+  gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
+  if (tlb::unpack_cell(param, rec_v1)) {
+    unpack_v1(rec_v1);
+  } else if (tlb::unpack_cell(param, rec_v2)) {
+    unpack_v2(rec_v2);
+  } else {
+    return td::Status::Error("configuration parameter 43 is invalid");
+  }
+  return limits;
+}
+
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set absent");
@@ -1942,31 +1974,58 @@ bool WorkchainInfo::unpack(ton::WorkchainId wc, vm::CellSlice& cs) {
   if (wc == ton::workchainInvalid) {
     return false;
   }
-  block::gen::WorkchainDescr::Record info;
-  if (!tlb::unpack(cs, info)) {
-    return false;
-  }
-  enabled_since = info.enabled_since;
-  actual_min_split = info.actual_min_split;
-  min_split = info.min_split;
-  max_split = info.max_split;
-  basic = info.basic;
-  active = info.active;
-  accept_msgs = info.accept_msgs;
-  flags = info.flags;
-  zerostate_root_hash = info.zerostate_root_hash;
-  zerostate_file_hash = info.zerostate_file_hash;
-  version = info.version;
-  if (basic) {
-    min_addr_len = max_addr_len = addr_len_step = 256;
-  } else {
-    block::gen::WorkchainFormat::Record_wfmt_ext ext;
-    if (!tlb::type_unpack(cs, block::gen::WorkchainFormat{basic}, ext)) {
+  auto unpack_v1 = [this](auto& info) {
+    enabled_since = info.enabled_since;
+    actual_min_split = info.actual_min_split;
+    min_split = info.min_split;
+    max_split = info.max_split;
+    basic = info.basic;
+    active = info.active;
+    accept_msgs = info.accept_msgs;
+    flags = info.flags;
+    zerostate_root_hash = info.zerostate_root_hash;
+    zerostate_file_hash = info.zerostate_file_hash;
+    version = info.version;
+    if (basic) {
+      min_addr_len = max_addr_len = addr_len_step = 256;
+    } else {
+      block::gen::WorkchainFormat::Record_wfmt_ext ext;
+      if (!tlb::csr_type_unpack(info.format, block::gen::WorkchainFormat{basic}, ext)) {
+        return false;
+      }
+      min_addr_len = ext.min_addr_len;
+      max_addr_len = ext.max_addr_len;
+      addr_len_step = ext.addr_len_step;
+    }
+    return true;
+  };
+  auto unpack_v2 = [&, this](auto& info) {
+    if (!unpack_v1(info)) {
       return false;
     }
-    min_addr_len = ext.min_addr_len;
-    max_addr_len = ext.max_addr_len;
-    addr_len_step = ext.addr_len_step;
+    block::gen::WcSplitMergeTimings::Record rec;
+    if (!tlb::csr_unpack(info.split_merge_timings, rec)) {
+      return false;
+    }
+    split_merge_delay = rec.split_merge_delay;
+    split_merge_interval = rec.split_merge_interval;
+    min_split_merge_interval = rec.min_split_merge_interval;
+    max_split_merge_delay = rec.max_split_merge_delay;
+    return true;
+  };
+  block::gen::WorkchainDescr::Record_workchain info_v1;
+  block::gen::WorkchainDescr::Record_workchain_v2 info_v2;
+  vm::CellSlice cs0 = cs;
+  if (tlb::unpack(cs, info_v1)) {
+    if (!unpack_v1(info_v1)) {
+      return false;
+    }
+  } else if (tlb::unpack(cs = cs0, info_v2)) {
+    if (!unpack_v2(info_v2)) {
+      return false;
+    }
+  } else {
+    return false;
   }
   workchain = wc;
   LOG(DEBUG) << "unpacked info for workchain " << wc << ": basic=" << basic << ", active=" << active

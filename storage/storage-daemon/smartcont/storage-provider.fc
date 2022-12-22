@@ -1,0 +1,227 @@
+;; Storage contract fabric
+
+#include "constants.fc";
+
+const min_deploy_amount = 50000000;
+
+cell storage_contract_code() asm """ "storage-contract-code.boc" file>B B>boc PUSHREF """;
+
+slice calculate_address_by_stateinit(cell state_init) {
+    return begin_cell().store_uint(4, 3)
+            .store_int(0, 8)
+            .store_uint(cell_hash(state_init), 256)
+            .end_cell()
+            .begin_parse();
+}
+
+cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_per_mb_day,
+        int max_span, slice client, int torrent_hash) {
+    cell data = begin_cell()
+            .store_int(0, 1) ;; active
+            .store_coins(0) ;; client balance
+            .store_slice(my_address())
+            .store_uint(merkle_hash, 256)
+            .store_uint(file_size, 64)
+            .store_uint(0, 64) ;; next_proof
+            .store_coins(rate_per_mb_day)
+            .store_uint(max_span, 32)
+            .store_uint(now(), 32) ;; last_proof_time
+            .store_ref(begin_cell()
+                    .store_slice(client)
+                    .store_uint(torrent_hash, 256)
+                    .end_cell())
+            .end_cell();
+
+    cell state_init = begin_cell()
+            .store_uint(0, 2)
+            .store_maybe_ref(storage_contract_code())
+            .store_maybe_ref(data)
+            .store_uint(0, 1) .end_cell();
+    return state_init;
+}
+
+() deploy_storage_contract (slice client, int query_id, int file_size, int merkle_hash, int torrent_hash,
+        int expected_rate, int expected_max_span) impure {
+    var ds = get_data().begin_parse();
+    var (wallet_data,
+            accept_new_contracts?,
+            rate_per_mb_day,
+            max_span,
+            minimal_file_size,
+            maximal_file_size) = (ds~load_bits(32 + 32 + 256),
+            ds~load_int(1),
+            ds~load_coins(),
+            ds~load_uint(32),
+            ds~load_uint(64),
+            ds~load_uint(64));
+    throw_unless(error::no_new_contracts, accept_new_contracts?);
+    throw_unless(error::file_too_small, file_size >= minimal_file_size);
+    throw_unless(error::file_too_big, file_size <= maximal_file_size);
+    throw_unless(error::provider_params_changed, expected_rate == rate_per_mb_day);
+    throw_unless(error::provider_params_changed, expected_max_span == max_span);
+    cell state_init = build_storage_contract_stateinit(merkle_hash, file_size, rate_per_mb_day,
+            max_span, client, torrent_hash);
+    cell msg = begin_cell()
+            .store_uint(0x18, 6)
+            .store_slice(calculate_address_by_stateinit(state_init))
+            .store_coins(0)
+            .store_uint(4 + 2, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+            .store_ref(state_init)
+            .store_uint(op::offer_storage_contract, 32)
+            .store_uint(query_id, 64)
+            .end_cell();
+    send_raw_message(msg, 64);
+}
+
+() recv_internal(int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if ((flags & 1) | in_msg_body.slice_empty?()) { ;; ignore all bounced and empty messages
+        return ();
+    }
+    slice sender_address = cs~load_msg_addr();
+
+    int op = in_msg_body~load_uint(32);
+    if (op == 0) { ;; transfer with text message
+        return ();
+    }
+    int query_id = in_msg_body~load_uint(64);
+
+    if(op == op::offer_storage_contract) {
+        throw_unless(error::not_enough_money, msg_value >= min_deploy_amount);
+        ;; torrent_info piece_size:uint32 file_size:uint64 root_hash:(## 256) header_size:uint64 header_hash:(## 256)
+        ;;     microchunk_hash:(Maybe (## 256)) description:Text = TorrentInfo;
+        ;;
+        ;; new_storage_contract#00000001 query_id:uint64 info:(^ TorrentInfo) microchunk_hash:uint256
+        ;;                      expected_rate:Coins expected_max_span:uint32 = NewStorageContract;
+        cell torrent_info = in_msg_body~load_ref();
+        int torrent_hash = cell_hash(torrent_info);
+        slice info_cs = torrent_info.begin_parse();
+        info_cs~skip_bits(32);
+        int file_size = info_cs~load_uint(64);
+        int merkle_hash = in_msg_body~load_uint(256);
+
+        int expected_rate = in_msg_body~load_coins();
+        int expected_max_span = in_msg_body~load_uint(32);
+        deploy_storage_contract(sender_address, query_id, file_size, merkle_hash, torrent_hash,
+                expected_rate, expected_max_span);
+        return ();
+    }
+    if(op == op::storage_contract_terminated) {
+        return ();
+    }
+
+    if(op == op::update_pubkey) {
+        if(~ equal_slice_bits(my_address(), sender_address)) {
+            return ();
+        }
+        var ds = get_data().begin_parse();
+        var (seqno_subwallet,
+                _,
+                non_wallet_data) = (ds~load_bits(32 + 32),
+                ds~load_uint(256),
+                ds);
+        int new_pubkey = in_msg_body~load_uint(256);
+        set_data(begin_cell()
+                .store_slice(seqno_subwallet)
+                .store_uint(new_pubkey, 256)
+                .store_slice(non_wallet_data)
+                .end_cell());
+    }
+    if(op == op::update_storage_params) {
+        if(~ equal_slice_bits(my_address(), sender_address)) {
+            return ();
+        }
+        var ds = get_data().begin_parse();
+        var wallet_data = ds~load_bits(32 + 32 + 256);
+        var(accept_new_contracts?,
+                rate_per_mb_day,
+                max_span,
+                minimal_file_size,
+                maximal_file_size) = (in_msg_body~load_int(1),
+                in_msg_body~load_coins(),
+                in_msg_body~load_uint(32),
+                in_msg_body~load_uint(64),
+                in_msg_body~load_uint(64));
+        set_data(begin_cell()
+                .store_slice(wallet_data)
+                .store_int(accept_new_contracts?, 1)
+                .store_coins(rate_per_mb_day)
+                .store_uint(max_span, 32)
+                .store_uint(minimal_file_size, 64)
+                .store_uint(maximal_file_size, 64)
+                .end_cell());
+    }
+}
+
+() recv_external(slice in_msg) impure {
+    var signature = in_msg~load_bits(512);
+    var cs = in_msg;
+    var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));
+    throw_if(35, valid_until <= now());
+    var ds = get_data().begin_parse();
+    var (stored_seqno,
+            stored_subwallet,
+            public_key,
+            non_wallet_data) = (ds~load_uint(32),
+            ds~load_uint(32),
+            ds~load_uint(256),
+            ds);
+    throw_unless(33, msg_seqno == stored_seqno);
+    throw_unless(34, subwallet_id == stored_subwallet);
+    throw_unless(35, check_signature(slice_hash(in_msg), signature, public_key));
+    accept_message();
+    cs~touch();
+    while (cs.slice_refs()) {
+        var mode = cs~load_uint(8);
+        send_raw_message(cs~load_ref(), mode);
+    }
+    set_data(begin_cell()
+            .store_uint(stored_seqno + 1, 32)
+            .store_uint(stored_subwallet, 32)
+            .store_uint(public_key, 256)
+            .store_slice(non_wallet_data)
+            .end_cell());
+}
+
+;; Get methods
+
+int seqno() method_id {
+    return get_data().begin_parse().preload_uint(32);
+}
+
+int get_public_key() method_id {
+    var cs = get_data().begin_parse();
+    cs~load_uint(64);
+    return cs.preload_uint(256);
+}
+
+;; seqno, subwallet, key
+_ get_wallet_params() method_id {
+    var ds = get_data().begin_parse();
+    var (stored_seqno, stored_subwallet, public_key) = (ds~load_uint(32), ds~load_uint(32), ds~load_uint(256));
+    return (stored_seqno, stored_subwallet, public_key);
+}
+
+_ get_storage_params() method_id {
+    var ds = get_data().begin_parse();
+    var (wallet_data,
+            accept_new_contracts?,
+            rate_per_mb_day,
+            max_span,
+            minimal_file_size,
+            maximal_file_size) = (ds~load_bits(32 + 32 + 256),
+            ds~load_int(1),
+            ds~load_coins(),
+            ds~load_uint(32),
+            ds~load_uint(64),
+            ds~load_uint(64));
+    return (accept_new_contracts?, rate_per_mb_day, max_span, minimal_file_size, maximal_file_size);
+}
+
+slice get_storage_contract_address(int merkle_hash, int file_size, slice client, int torrent_hash) method_id {
+    var (_, rate_per_mb_day, max_span, _, _) = get_storage_params();
+    cell state_init = build_storage_contract_stateinit(merkle_hash, file_size, rate_per_mb_day, max_span, client, torrent_hash);
+    return calculate_address_by_stateinit(state_init);
+}

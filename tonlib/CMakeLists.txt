@@ -18,6 +18,7 @@ set(TONLIB_SOURCE
   tonlib/LastConfig.cpp
   tonlib/Logging.cpp
   tonlib/TonlibClient.cpp
+  tonlib/TonlibClientWrapper.cpp
   tonlib/utils.cpp
 
   tonlib/Client.h
@@ -34,6 +35,7 @@ set(TONLIB_SOURCE
   tonlib/Logging.h
   tonlib/TonlibCallback.h
   tonlib/TonlibClient.h
+  tonlib/TonlibClientWrapper.h
   tonlib/utils.h
 
   tonlib/keys/bip39.cpp
@@ -69,6 +71,7 @@ if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
   endif()
   message(STATUS "Found JNI: ${JNI_INCLUDE_DIRS} ${JNI_LIBRARIES}")
   target_include_directories(tonlib PUBLIC ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2})
+  target_include_directories(tl_tonlib_api PUBLIC ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2})
   target_link_libraries(tonlib PUBLIC ${JAVA_JVM_LIBRARY})
 endif()
 

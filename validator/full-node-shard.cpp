@@ -144,7 +144,14 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
 
   auto q = B.move_as_ok();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
-                          std::move(q->message_->data_), std::move(promise));
+                          std::move(q->message_->data_),
+                          [promise = std::move(promise)](td::Result<td::Ref<ExtMessage>> R) mutable {
+                            if (R.is_error()) {
+                              promise.set_error(R.move_as_error());
+                            } else {
+                              promise.set_result(td::Unit());
+                            }
+                          });
 }
 
 void FullNodeShardImpl::remove_neighbour(adnl::AdnlNodeIdShort id) {

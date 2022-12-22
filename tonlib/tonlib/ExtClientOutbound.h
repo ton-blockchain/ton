@@ -19,10 +19,10 @@
 #pragma once
 #include "td/actor/actor.h"
 
-#include "ExtClientRaw.h"
+#include "ExtClientLazy.h"
 
 namespace tonlib {
-class ExtClientOutbound : public ExtClientRaw {
+class ExtClientOutbound : public ExtClientLazy {
  public:
   class Callback {
    public:

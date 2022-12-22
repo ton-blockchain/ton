@@ -175,7 +175,7 @@ class TonlibCli : public td::actor::Actor {
 
   std::map<std::uint64_t, td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>> query_handlers_;
 
-  td::actor::ActorOwn<tonlib::ExtClientRaw> raw_client_;
+  td::actor::ActorOwn<tonlib::ExtClientLazy> raw_client_;
 
   bool is_closing_{false};
   td::uint32 ref_cnt_{1};

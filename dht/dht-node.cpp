@@ -23,31 +23,46 @@ namespace ton {
 
 namespace dht {
 
-td::Status DhtNode::update(tl_object_ptr<ton_api::dht_node> obj) {
+td::Status DhtNode::update(tl_object_ptr<ton_api::dht_node> obj, td::int32 our_network_id) {
   if (version_ && obj->version_ <= version_) {
     return td::Status::Error(ErrorCode::notready, "too old version");
   }
-  auto signature = std::move(obj->signature_);
-  auto B = serialize_tl_object(obj, true);
-
+  td::BufferSlice signature;
+  td::int32 network_id = -1;
+  if (obj->signature_.size() == 64) {
+    signature = std::move(obj->signature_);
+  } else if (obj->signature_.size() == 64 + 4) {
+    signature = td::BufferSlice{obj->signature_.as_slice().remove_prefix(4)};
+    network_id = *(td::uint32 *)obj->signature_.as_slice().remove_suffix(64).data();
+  } else {
+    return td::Status::Error(ErrorCode::notready, "invalid length of signature");
+  }
+  if (network_id != our_network_id && network_id != -1 && our_network_id != -1) {
+    // Remove (network_id != -1 && our_network_id != -1) after network update
+    return td::Status::Error(ErrorCode::notready, PSTRING() << "wrong network id (expected " << our_network_id
+                                                            << ", found " << network_id << ")");
+  }
   TRY_RESULT(pub, adnl::AdnlNodeIdFull::create(obj->id_));
   TRY_RESULT(addr_list, adnl::AdnlAddressList::create(std::move(obj->addr_list_)));
-
   if (!addr_list.public_only()) {
     return td::Status::Error(ErrorCode::notready, "dht node must have only public addresses");
   }
   if (!addr_list.size()) {
     return td::Status::Error(ErrorCode::notready, "dht node must have >0 addresses");
   }
+  DhtNode new_node{std::move(pub), std::move(addr_list), obj->version_, network_id, std::move(signature)};
+  TRY_STATUS(new_node.check_signature());
 
-  TRY_RESULT(E, pub.pubkey().create_encryptor());
-  TRY_STATUS(E->check_signature(B.as_slice(), signature.as_slice()));
+  *this = std::move(new_node);
+  return td::Status::OK();
+}
 
-  id_ = pub;
-  addr_list_ = addr_list;
-  version_ = obj->version_;
-  signature_ = td::SharedSlice(signature.as_slice());
-
+td::Status DhtNode::check_signature() const {
+  TRY_RESULT(enc, id_.pubkey().create_encryptor());
+  auto node2 = clone();
+  node2.signature_ = {};
+  TRY_STATUS_PREFIX(enc->check_signature(serialize_tl_object(node2.tl(), true).as_slice(), signature_.as_slice()),
+                    "bad node signature: ");
   return td::Status::OK();
 }
 

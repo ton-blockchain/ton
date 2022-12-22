@@ -37,6 +37,9 @@ class ExtClientOutboundImp : public ExtClientOutbound {
   void force_change_liteserver() override {
   }
 
+  void force_change_liteserver() override {
+  }
+
   void on_query_result(td::int64 id, td::Result<td::BufferSlice> r_data, td::Promise<td::Unit> promise) override {
     auto it = queries_.find(id);
     if (it == queries_.end()) {

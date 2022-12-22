@@ -66,36 +66,64 @@ td::uint32 DhtBucket::active_cnt() {
 }
 
 td::Status DhtBucket::add_full_node(DhtKeyId id, DhtNode newnode, td::actor::ActorId<adnl::Adnl> adnl,
-                                    adnl::AdnlNodeIdShort self_id) {
+                                    adnl::AdnlNodeIdShort self_id, td::int32 our_network_id, bool set_active) {
   for (auto &node : active_nodes_) {
     if (node && node->get_key() == id) {
-      return node->update_value(std::move(newnode), adnl, self_id);
+      if (set_active) {
+        return node->receive_ping(std::move(newnode), adnl, self_id);
+      } else {
+        return node->update_value(std::move(newnode), adnl, self_id);
+      }
     }
   }
-  for (auto &node : backup_nodes_) {
+  for (size_t i = 0; i < backup_nodes_.size(); ++i) {
+    auto &node = backup_nodes_[i];
     if (node && node->get_key() == id) {
-      return node->update_value(std::move(newnode), adnl, self_id);
+      if (set_active) {
+        TRY_STATUS(node->receive_ping(std::move(newnode), adnl, self_id));
+        if (node->is_ready()) {
+          promote_node(i);
+        }
+        return td::Status::OK();
+      } else {
+        return node->update_value(std::move(newnode), adnl, self_id);
+      }
     }
   }
 
-  TRY_RESULT_PREFIX(N, DhtRemoteNode::create(std::move(newnode), max_missed_pings_), "failed to add new node: ");
-
-  for (auto &node : backup_nodes_) {
-    if (node == nullptr) {
-      node = std::move(N);
-      return td::Status::OK();
+  TRY_RESULT_PREFIX(N, DhtRemoteNode::create(std::move(newnode), max_missed_pings_, our_network_id),
+                    "failed to add new node: ");
+  if (set_active) {
+    for (auto &node : active_nodes_) {
+      if (node == nullptr) {
+        node = std::move(N);
+        node->receive_ping();
+        return td::Status::OK();
+      }
     }
   }
 
-  for (auto &node : backup_nodes_) {
-    CHECK(node);
-    if (node->ready_from() == 0 && node->failed_from() + 60 < td::Time::now_cached()) {
-      node = std::move(N);
-      return td::Status::OK();
-    }
+  size_t idx = select_backup_node_to_drop();
+  if (idx < backup_nodes_.size()) {
+    backup_nodes_[idx] = std::move(N);
   }
-
   return td::Status::OK();
+}
+
+size_t DhtBucket::select_backup_node_to_drop() const {
+  size_t result = backup_nodes_.size();
+  for (size_t idx = 0; idx < backup_nodes_.size(); ++idx) {
+    const auto &node = backup_nodes_[idx];
+    if (node == nullptr) {
+      return idx;
+    }
+    if (node->ready_from() == 0 && node->failed_from() + 60 < td::Time::now_cached()) {
+      if (result == backup_nodes_.size() || node->failed_from() < backup_nodes_[result]->failed_from()) {
+        result = idx;
+      }
+    }
+  }
+  return result;
 }
 
 void DhtBucket::receive_ping(DhtKeyId id, DhtNode result, td::actor::ActorId<adnl::Adnl> adnl,
@@ -119,17 +147,9 @@ void DhtBucket::receive_ping(DhtKeyId id, DhtNode result, td::actor::ActorId<adn
 }
 
 void DhtBucket::demote_node(size_t idx) {
-  for (auto &node : backup_nodes_) {
-    if (node == nullptr) {
-      node = std::move(active_nodes_[idx]);
-      return;
-    }
-  }
-  for (auto &node : backup_nodes_) {
-    if (node->ready_from() == 0 && node->failed_from() + 60 < td::Time::now_cached()) {
-      node = std::move(active_nodes_[idx]);
-      return;
-    }
+  size_t new_idx = select_backup_node_to_drop();
+  if (new_idx < backup_nodes_.size()) {
+    backup_nodes_[new_idx] = std::move(active_nodes_[idx]);
   }
   active_nodes_[idx] = nullptr;
 }
@@ -150,7 +170,7 @@ void DhtBucket::check(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td:
   size_t have_space = 0;
   for (size_t i = 0; i < active_nodes_.size(); i++) {
     auto &node = active_nodes_[i];
-    if (node && td::Time::now_cached() - node->last_ping_at() > ping_timeout_) {
+    if (node && td::Time::now_cached() - node->last_ping_at() > node->ping_interval()) {
       node->send_ping(client_only, adnl, dht, src);
       if (node->ready_from() == 0) {
         demote_node(i);
@@ -162,7 +182,7 @@ void DhtBucket::check(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td:
   }
   for (size_t i = 0; i < backup_nodes_.size(); i++) {
     auto &node = backup_nodes_[i];
-    if (node && td::Time::now_cached() - node->last_ping_at() > ping_timeout_) {
+    if (node && td::Time::now_cached() - node->last_ping_at() > node->ping_interval()) {
       node->send_ping(client_only, adnl, dht, src);
     }
     if (node && have_space > 0 && node->is_ready()) {
@@ -199,6 +219,9 @@ DhtNodesList DhtBucket::export_nodes() const {
     if (node) {
       list.push_back(node->get_node());
     }
+  }
+  if (list.size() > k_) {
+    list.list().resize(k_);
   }
   return list;
 }
