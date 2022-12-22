@@ -1250,6 +1250,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     }
   }
 
+  if (cfg.action_fine_enabled) {
+    ap.total_action_fees += ap.action_fine;
+  }
   end_lt = ap.end_lt;
   if (ap.new_code.not_null()) {
     new_code = ap.new_code;
@@ -1261,9 +1264,6 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
 
   ap.result_arg = 0;
   ap.result_code = 0;
-  if (cfg.action_fine_enabled) {
-    ap.total_action_fees += ap.action_fine;
-  }
   CHECK(ap.remaining_balance.grams->sgn() >= 0);
   CHECK(ap.reserved_balance.grams->sgn() >= 0);
   ap.remaining_balance += ap.reserved_balance;
