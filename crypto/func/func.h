@@ -53,6 +53,8 @@ enum Keyword {
   _Do,
   _While,
   _Until,
+  _Try,
+  _Catch,
   _If,
   _Ifnot,
   _Then,
@@ -537,6 +539,7 @@ struct Op {
     _Until,
     _Repeat,
     _Again,
+    _TryCatch,
     _SliceConst
   };
   int cl;
@@ -1559,6 +1562,9 @@ struct Stack {
   int find_outside(var_idx_t var, int from, int to) const;
   void forget_const();
   void validate(int i) const {
+    if (i > 255) {
+      throw src::Fatal{"Too deep stack"};
+    }
     assert(i >= 0 && i < depth() && "invalid stack reference");
   }
   void modified() {
@@ -1593,6 +1599,7 @@ struct Stack {
   void apply_wrappers() {
     if (o.retalt_) {
       o.insert(0, "SAMEALTSAVE");
+      o.insert(0, "c2 SAVE");
       if (mode & _InlineFunc) {
         o.indent_all();
         o.insert(0, "CONT:<{");

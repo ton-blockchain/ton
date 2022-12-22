@@ -986,6 +986,38 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   }
 }
 
+AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
+  assert(res.empty() && args.size() == 2);
+  VarDescr &x = args[1];
+  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+    x.unused();
+    return exec_arg_op("THROWARG", x.int_const, 1, 0);
+  } else {
+    return exec_op("THROWARGANY", 2, 0);
+  }
+}
+
+AsmOp compile_cond_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool mode) {
+  assert(res.empty() && args.size() == 3);
+  VarDescr &x = args[1], &y = args[2];
+  std::string suff = (mode ? "IF" : "IFNOT");
+  bool skip_cond = false;
+  if (y.always_true() || y.always_false()) {
+    y.unused();
+    skip_cond = true;
+    if (y.always_true() != mode) {
+      x.unused();
+      return AsmOp::Nop();
+    }
+  }
+  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+    x.unused();
+    return skip_cond ? exec_arg_op("THROWARG", x.int_const, 1, 0) : exec_arg_op("THROWARG"s + suff, x.int_const, 2, 0);
+  } else {
+    return skip_cond ? exec_op("THROWARGANY", 2, 0) : exec_op("THROWARGANY"s + suff, 3, 0);
+  }
+}
+
 AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool val) {
   assert(res.size() == 1 && args.empty());
   VarDescr& r = res[0];
@@ -1111,6 +1143,8 @@ void define_builtins() {
   auto fetch_slice_op = TypeExpr::new_map(SliceInt, TypeExpr::new_tensor({Slice, Slice}));
   auto prefetch_slice_op = TypeExpr::new_map(SliceInt, Slice);
   //auto arith_null_op = TypeExpr::new_map(TypeExpr::new_unit(), Int);
+  auto throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int}), Unit));
+  auto cond_throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int, Int}), Unit));
   define_builtin_func("_+_", arith_bin_op, compile_add);
   define_builtin_func("_-_", arith_bin_op, compile_sub);
   define_builtin_func("-_", arith_un_op, compile_negate);
@@ -1170,6 +1204,9 @@ void define_builtins() {
   define_builtin_func("throw", impure_un_op, compile_throw, true);
   define_builtin_func("throw_if", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);
   define_builtin_func("throw_unless", impure_bin_op, std::bind(compile_cond_throw, _1, _2, false), true);
+  define_builtin_func("throw_arg", throw_arg_op, compile_throw_arg, true);
+  define_builtin_func("throw_arg_if", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, true), true);
+  define_builtin_func("throw_arg_unless", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, false), true);
   define_builtin_func("load_int", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
   define_builtin_func("load_uint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
   define_builtin_func("preload_int", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
