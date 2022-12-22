@@ -111,7 +111,7 @@ void DhtMemberImpl::start_up() {
         auto nodes = std::move(V.move_as_ok()->nodes_);
         auto s = nodes->nodes_.size();
         DhtNodesList list{std::move(nodes), network_id_};
-        CHECK(list.size() == s);
+        CHECK(list.size() <= s);  // Some nodes can be dropped due to a wrong network id
         auto &B = buckets_[bit];
         for (auto &node : list.list()) {
           auto key = node.get_key();
@@ -366,8 +366,12 @@ void DhtMemberImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice dat
       auto N = DhtNode::create(std::move(R.move_as_ok()->node_), network_id_);
       if (N.is_ok()) {
         auto node = N.move_as_ok();
-        auto key = node.get_key();
-        add_full_node(key, std::move(node));
+        if (node.adnl_id().compute_short_id() == src) {
+          auto key = node.get_key();
+          add_full_node_impl(key, std::move(node), true);
+        } else {
+          VLOG(DHT_WARNING) << this << ": dropping bad node: unexpected adnl id";
+        }
       } else {
         VLOG(DHT_WARNING) << this << ": dropping bad node " << N.move_as_error();
       }
@@ -394,7 +398,7 @@ void DhtMemberImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice dat
   ton_api::downcast_call(*Q, [&](auto &object) { this->process_query(src, object, std::move(promise)); });
 }
 
-void DhtMemberImpl::add_full_node(DhtKeyId key, DhtNode node) {
+void DhtMemberImpl::add_full_node_impl(DhtKeyId key, DhtNode node, bool set_active) {
   VLOG(DHT_EXTRA_DEBUG) << this << ": adding full node " << key;
 
   auto eid = key ^ key_;
@@ -406,7 +410,7 @@ void DhtMemberImpl::add_full_node(DhtKeyId key, DhtNode node) {
 #endif
   if (bit < 256) {
     CHECK(key.get_bit(bit) != key_.get_bit(bit));
-    buckets_[bit].add_full_node(key, std::move(node), adnl_, id_, network_id_);
+    buckets_[bit].add_full_node(key, std::move(node), adnl_, id_, network_id_, set_active);
   } else {
     CHECK(key == key_);
   }

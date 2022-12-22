@@ -155,7 +155,10 @@ class DhtMemberImpl : public DhtMember {
     }
   }
 
-  void add_full_node(DhtKeyId id, DhtNode node) override;
+  void add_full_node(DhtKeyId id, DhtNode node) override {
+    add_full_node_impl(id, std::move(node));
+  }
+  void add_full_node_impl(DhtKeyId id, DhtNode node, bool set_active = false);
 
   adnl::AdnlNodeIdShort get_id() const override {
     return id_;
