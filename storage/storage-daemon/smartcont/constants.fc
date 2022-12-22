@@ -1,0 +1,23 @@
+const op::offer_storage_contract = 0x107c49ef;
+const op::close_contract = 0x79f937ea;
+const op::contract_deployed = 0xbf7bd0c1;
+const op::storage_contract_confirmed = 0xd4caedcd;
+const op::reward_withdrawal = 0xa91baf56;
+const op::storage_contract_terminated = 0xb6236d63;
+const op::accept_storage_contract = 0x7a361688;
+const op::withdraw = 0x46ed2e94;
+const op::proof_storage = 0x419d5d4d;
+
+const op::update_pubkey = 0x53f34cd6;
+const op::update_storage_params = 0x54cbf19b;
+
+const error::not_enough_money = 1001;
+const error::unauthorized = 401;
+const error::wrong_proof = 1002;
+const error::contract_not_active = 1003;
+const error::file_too_small = 1004;
+const error::file_too_big = 1005;
+const error::no_new_contracts = 1006;
+const error::contract_already_active = 1007;
+const error::no_microchunk_hash = 1008;
+const error::provider_params_changed = 1009;

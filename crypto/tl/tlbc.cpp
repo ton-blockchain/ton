@@ -2423,7 +2423,7 @@ std::vector<const src::FileDescr*> source_fdescr;
 
 bool parse_source(std::istream* is, src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
-  src::Lexer lex{reader, true, "(){}:;? #$. ^~ #", "//", "/*", "*/"};
+  src::Lexer lex{reader, true, "(){}:;? #$. ^~ #", "//", "/*", "*/", ""};
   while (lex.tp() != src::_Eof) {
     parse_constructor_def(lex);
     // std::cerr << lex.cur().str << '\t' << lex.cur().name_str() << std::endl;

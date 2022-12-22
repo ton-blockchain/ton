@@ -28,14 +28,12 @@ class Rldp : public adnl::AdnlSenderInterface {
  public:
   virtual ~Rldp() = default;
 
-  static constexpr td::uint64 default_mtu() {
-    return adnl::Adnl::get_mtu();
-  }
-
   virtual void add_id(adnl::AdnlNodeIdShort local_id) = 0;
 
   virtual void send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
                                td::BufferSlice data) = 0;
+
+  virtual void set_default_mtu(td::uint64 mtu) = 0;
 
   static td::actor::ActorOwn<Rldp> create(td::actor::ActorId<adnl::Adnl> adnl);
 };

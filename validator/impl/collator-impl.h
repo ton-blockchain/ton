@@ -74,6 +74,7 @@ class Collator final : public td::actor::Actor {
   Ref<ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
+  td::Timestamp soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
   ton::BlockSeqno last_block_seqno{0};
   ton::BlockSeqno prev_mc_block_seqno{0};
@@ -209,7 +210,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<vm::Cell>> collated_roots_;
   std::unique_ptr<ton::BlockCandidate> block_candidate;
 
-  td::PerfWarningTimer perf_timer_{"collate", 0.1};
+  td::PerfWarningTimer perf_timer_;
   //
   block::Account* lookup_account(td::ConstBitPtr addr) const;
   std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,

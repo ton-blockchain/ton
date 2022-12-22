@@ -30,12 +30,6 @@ namespace jni {
 
 thread_local bool parse_error;
 
-static jclass BooleanClass;
-static jclass IntegerClass;
-static jclass LongClass;
-static jclass DoubleClass;
-static jclass StringClass;
-static jclass ObjectClass;
 jmethodID GetConstructorID;
 jmethodID BooleanGetValueMethodID;
 jmethodID IntegerGetValueMethodID;

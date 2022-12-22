@@ -7,7 +7,14 @@
   | Author: Oleksandr Murzin (tg: @skydev / em: alexhacker64@gmail.com)    |
   |         October 2019                                                   |
   \------------------------------------------------------------------------/
+  Updated to actual DNS standard version by starlightduck in 2022
 -}
+
+;;===========================================================================;;
+;; Custom ASM instructions                                                   ;;
+;;===========================================================================;;
+
+cell udict_get_ref_(cell dict, int key_len, int index) asm(index dict key_len) "DICTUGETOPTREF";
 
 ;;===========================================================================;;
 ;; Utility functions                                                         ;;
@@ -19,7 +26,7 @@
          [OptRef<1b+1r?>:Hashmap<UInt<160b>(Time|Hash128)->Slice(DomName)>:gc]
          [UInt<32b>:stdperiod] [Gram:PPReg] [Gram:PPCell] [Gram:PPBit]
          [UInt<32b>:lasthousekeeping] 
-  <CatTable> := HashmapE 16 ^DNSRecord
+  <CatTable> := HashmapE 256 (~~16~~) ^DNSRecord
   
   STORED DOMAIN NAME SLICE FORMAT: (#ZeroChars<7b>) (Domain name value)
   #Zeros allows to simultaneously store, for example, com\0 and com\0google\0
@@ -189,6 +196,7 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     store_data(ctl, domdata, gc, [stdper, ppr, ppc, ppb], nhk, lhk);
     return send_ok(0);
   }
+  var (addr, query_id, op) = query_info;
   if (op == 0x4344656c) {  ;; CDel = destroy smart contract
     ifnot (domdata.null?()) {
       ;; domain dictionary not empty, force gc
@@ -199,8 +207,11 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
       ;; domain dictionary still not empty, error
       return send_error(0xee74656d);
     }
-    var (addr, query_id, op) = query_info;
     return send_message(addr, 0xef6b6179, query_id, op, 0, 128 + 32);
+  }
+  if (op == 0x54616b65) { ;; Take = take grams from the contract
+    var amount = in_msg~load_grams();
+    return send_message(addr, 0xef6b6179, query_id, op, amount, 64);
   }
   return send_error(0xffffffff);
 }
@@ -289,7 +300,8 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
         if (exp >= n) {  ;; entry not expired
           cell cat_table = val~load_ref();
           val.end_parse();
-          var (cown, ok) = cat_table.idict_get_ref?(16, -2);
+          ;; update: category length now u256 instead of i16, owner index is now 0 instead of -2
+          var (cown, ok) = cat_table.udict_get_ref?(256, 0);
           if (ok) {
             owner_info = cown;
           }
@@ -318,14 +330,15 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     data = in_msg~load_ref();
     ;; basic integrity check of (client-provided) dictionary
     ifnot (data.dict_empty?()) { ;; 1000 gas!
-      var (oinfo, ok) = data.idict_get_ref?(16, -2);
+      ;; update: category length now u256 instead of i16, owner index is now 0 instead of -2
+      var (oinfo, ok) = data.udict_get_ref?(256, 0);
       if (ok) {
         var cs = oinfo.begin_parse();
         throw_unless(31, cs.slice_bits() >= 16 + 3 + 8 + 256);
         throw_unless(31, cs.preload_uint(19) == 0x9fd3 * 8 + 4);
       }
-      (_, _, int minok) = data.idict_get_min?(16);
-      (_, _, int maxok) = data.idict_get_max?(16);
+      (_, _, int minok) = data.udict_get_min?(256); ;; update: category length now u256 instead of i16
+      (_, _, int maxok) = data.udict_get_max?(256); ;; update: category length now u256 instead of i16
       throw_unless(31, minok & maxok);
     }
   } else {
@@ -410,7 +423,8 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
   (int bits, int refs) = domain.slice_bits_refs();
   throw_if(30, refs | (bits & 7)); ;; malformed input (~ 8n-bit)
   ifnot (bits) {
-    return (0, null(), 0, null());  ;; zero-length input
+    ;; return (0, null(), 0, null());  ;; zero-length input
+    throw(30); ;; update: throw exception for empty input
   }
 
   int domain_last_byte = domain.slice_last(8).preload_uint(8);
@@ -420,7 +434,14 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     bits += 8;
   }
   if (bits == 8) {
-    return (0, null(), 0, null()); ;; zero-length input, but with zero byte
+    return (0, null(), 8, null()); ;; zero-length input, but with zero byte
+    ;; update: return 8 as resolved, but with no data
+  }
+  int domain_first_byte = domain.preload_uint(8);
+  if (domain_first_byte == 0) {
+    ;; update: remove prefix \0
+    domain~load_uint(8);
+    bits -= 8;
   }
   var ds = get_data().begin_parse();
   (_, cell root) = (ds~load_ref(), ds~load_dict());
@@ -453,10 +474,11 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
 (int, cell) dnsresolve(slice domain, int category) method_id {
   (int exp, cell cat_table, int exact?, slice pfx) = dnsdictlookup(domain, now());
   ifnot (exp) {
-    return (0, null());
+    return (exact?, null()); ;; update: reuse exact? to return 8 for \0
   }
   ifnot (exact?) { ;; incomplete subdomain found, must return next resolver (-1)
-    category = -1;
+    category = "dns_next_resolver"H; ;; 0x19f02441ee588fdb26ee24b2568dd035c3c9206e11ab979be62e55558a1d17ff
+    ;; update: next resolver is now sha256("dns_next_resolver") instead of -1
   }
   
   int pfx_bits = pfx.slice_bits();
@@ -467,7 +489,7 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
   ifnot (category) {
     return (pfx_bits, cat_table); ;; return cell with entire dictionary for 0
   } else {
-    cell cat_found = cat_table.idict_get_ref(16, category);
+    cell cat_found = cat_table.udict_get_ref_(256, category); ;; update: category length now u256 instead of i16
     return (pfx_bits, cat_found);
   }
 }

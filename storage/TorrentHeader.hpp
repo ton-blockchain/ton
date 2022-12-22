@@ -53,7 +53,7 @@ void TorrentHeader::parse(ParserT &parser) {
   td::uint32 got_type;
   parse(got_type, parser);
   if (got_type != type) {
-    parser.set_error("Unknown fec type");
+    parser.set_error("Unknown type");
     return;
   }
   parse(files_count, parser);

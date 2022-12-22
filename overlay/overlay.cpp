@@ -37,10 +37,10 @@ td::actor::ActorOwn<Overlay> Overlay::create(td::actor::ActorId<keyring::Keyring
                                              td::actor::ActorId<OverlayManager> manager,
                                              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                                              OverlayIdFull overlay_id, std::unique_ptr<Overlays::Callback> callback,
-                                             OverlayPrivacyRules rules, td::string scope) {
+                                             OverlayPrivacyRules rules, td::string scope, bool announce_self) {
   auto R = td::actor::create_actor<OverlayImpl>("overlay", keyring, adnl, manager, dht_node, local_id,
                                                 std::move(overlay_id), true, std::vector<adnl::AdnlNodeIdShort>(),
-                                                std::move(callback), std::move(rules), scope);
+                                                std::move(callback), std::move(rules), scope, announce_self);
   return td::actor::ActorOwn<Overlay>(std::move(R));
 }
 
@@ -60,7 +60,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
                          td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
                          adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
                          std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-                         OverlayPrivacyRules rules, td::string scope)
+                         OverlayPrivacyRules rules, td::string scope, bool announce_self)
     : keyring_(keyring)
     , adnl_(adnl)
     , manager_(manager)
@@ -70,7 +70,8 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , callback_(std::move(callback))
     , public_(pub)
     , rules_(std::move(rules))
-    , scope_(scope) {
+    , scope_(scope)
+    , announce_self_(announce_self) {
   overlay_id_ = id_full_.compute_short_id();
 
   VLOG(OVERLAY_INFO) << this << ": creating " << (public_ ? "public" : "private");
@@ -144,6 +145,8 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
       promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is private"));
       return;
     }
+  } else {
+    on_ping_result(src, true);
   }
   auto R = fetch_tl_object<ton_api::Function>(data.clone(), true);
 
@@ -222,6 +225,8 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
       VLOG(OVERLAY_WARNING) << this << ": received query in private overlay from unknown source " << src;
       return;
     }
+  } else {
+    on_ping_result(src, true);
   }
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
@@ -322,6 +327,10 @@ void OverlayImpl::receive_dht_nodes(td::Result<dht::DhtValue> res, bool dummy) {
     }
   } else {
     VLOG(OVERLAY_NOTICE) << this << ": can not get value from DHT: " << res.move_as_error();
+  }
+
+  if (!announce_self_) {
+    return;
   }
 
   VLOG(OVERLAY_INFO) << this << ": adding self node to DHT overlay's nodes";

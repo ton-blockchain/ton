@@ -1,0 +1,26 @@
+slice test1() asm """
+  "Test" $>s
+  PUSHSLICE
+""";
+
+slice test2() asm """
+  "Hello"
+  " "
+  "World"
+  $+ $+ $>s
+  PUSHSLICE
+""";
+
+int sdeq (slice s1, slice s2) asm """SDEQ""";
+int sdeq (slice s1, slice s2) asm "SDEQ" "";
+int sdeq (slice s1, slice s2) asm "" """
+SDEQ
+""";
+
+() main() {
+  slice s = test1();
+  throw_unless(101, sdeq(s, "Test"));
+
+  slice s = test2();
+  throw_unless(102, sdeq(s, "Hello World"));
+}

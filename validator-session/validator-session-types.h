@@ -63,6 +63,33 @@ struct ValidatorSessionNode {
   ValidatorWeight weight;
 };
 
+struct ValidatorSessionStats {
+  enum { status_none = 0, status_received = 1, status_rejected = 2, status_approved = 3 };
+
+  struct Producer {
+    PublicKeyHash id = PublicKeyHash::zero();
+    int block_status = status_none;
+    td::uint64 block_timestamp = 0;
+  };
+  struct Round {
+    td::uint64 timestamp = 0;
+    std::vector<Producer> producers;
+  };
+
+  td::uint32 first_round;
+  std::vector<Round> rounds;
+
+  td::uint64 timestamp = 0;
+  PublicKeyHash self = PublicKeyHash::zero();
+  PublicKeyHash creator = PublicKeyHash::zero();
+  td::uint32 total_validators = 0;
+  ValidatorWeight total_weight = 0;
+  td::uint32 signatures = 0;
+  ValidatorWeight signatures_weight = 0;
+  td::uint32 approve_signatures = 0;
+  ValidatorWeight approve_signatures_weight = 0;
+};
+
 }  // namespace validatorsession
 
 }  // namespace ton

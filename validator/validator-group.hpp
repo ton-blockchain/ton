@@ -36,7 +36,8 @@ class ValidatorGroup : public td::actor::Actor {
   void validate_block_candidate(td::uint32 round_id, BlockCandidate block, td::Promise<td::uint32> promise);
   void accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
-                              std::vector<BlockSignature> approve_signatures, td::Promise<td::Unit> promise);
+                              std::vector<BlockSignature> approve_signatures,
+                              validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
   void skip_round(td::uint32 round);
   void retry_accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
                                 td::Ref<BlockSignatureSet> sigs, td::Ref<BlockSignatureSet> approve_sigs,
@@ -85,10 +86,11 @@ class ValidatorGroup : public td::actor::Actor {
     td::BufferSlice block;
     td::Ref<BlockSignatureSet> sigs;
     td::Ref<BlockSignatureSet> approve_sigs;
+    validatorsession::ValidatorSessionStats stats;
     td::Promise<td::Unit> promise;
   };
 
-  std::list<PostponedAccept> postoned_accept_;
+  std::list<PostponedAccept> postponed_accept_;
 
   ShardIdFull shard_;
   PublicKeyHash local_id_;
@@ -114,6 +116,14 @@ class ValidatorGroup : public td::actor::Actor {
   bool started_ = false;
   bool allow_unsafe_self_blocks_resync_;
   td::uint32 last_known_round_id_ = 0;
+
+  struct CachedCollatedBlock {
+    td::optional<BlockCandidate> result;
+    std::vector<td::Promise<BlockCandidate>> promises;
+  };
+  std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
+
+  void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 };
 
 }  // namespace validator

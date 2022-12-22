@@ -58,7 +58,6 @@
 
 #include "Bitset.h"
 #include "PeerState.h"
-#include "SharedState.h"
 #include "Torrent.h"
 #include "TorrentCreator.h"
 
@@ -778,7 +777,7 @@ TEST(Rldp, Main) {
 
   RldpBasicTest::run(Options::create(1, 100 * MegaByte, NetChannel::Options::perfect_net()));
 }
-
+/*
 TEST(MerkleTree, Manual) {
   td::Random::Xorshift128plus rnd(123);
   // create big random file
@@ -803,7 +802,7 @@ TEST(MerkleTree, Manual) {
   timer = {};
   LOG(INFO) << "Init merkle tree";
   size_t i = 0;
-  ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Chunk{i++, x}; }));
+  ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Piece{i++, x}; }));
   LOG(INFO) << timer;
 
   auto root_proof = tree.gen_proof(0, chunks_count - 1).move_as_ok();
@@ -830,15 +829,15 @@ TEST(MerkleTree, Manual) {
         other_new_tree.add_proof(tree.gen_proof(i, i + stride - 1).move_as_ok()).ensure();
         other_new_tree.gen_proof(i, i + stride - 1).ensure();
         other_new_tree.get_root(2);
-        std::vector<ton::MerkleTree::Chunk> chunks;
+        std::vector<ton::MerkleTree::Piece> chunks;
         for (size_t j = 0; j < stride && i + j < chunks_count; j++) {
           chunks.push_back({i + j, hashes.at(i + j)});
         }
-        new_tree.try_add_chunks(chunks).ensure();
+        new_tree.try_add_pieces(chunks).ensure();
       }
 
       if (stride == 1) {
-        std::vector<ton::MerkleTree::Chunk> chunks;
+        std::vector<ton::MerkleTree::Piece> chunks;
 
         for (size_t i = 0; i < chunks_count; i++) {
           if (rnd.fast(0, 1) == 1) {
@@ -848,7 +847,7 @@ TEST(MerkleTree, Manual) {
           }
         }
         td::Bitset bitmask;
-        other_new_tree.add_chunks(chunks, bitmask);
+        other_new_tree.add_pieces(chunks, bitmask);
         for (size_t i = 0; i < chunks_count; i++) {
           auto expected = chunks[i].hash == hashes[i];
           auto got = bitmask.get(i);
@@ -874,9 +873,9 @@ TEST(MerkleTree, Stress) {
       }
     }
     size_t i = 0;
-    ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Chunk{i++, x}; }));
+    ton::MerkleTree tree(td::transform(hashes, [&i](auto &x) { return ton::MerkleTree::Piece{i++, x}; }));
     for (int t2 = 0; t2 < 1000; t2++) {
-      std::vector<ton::MerkleTree::Chunk> chunks;
+      std::vector<ton::MerkleTree::Piece> chunks;
 
       int mask = rnd.fast(0, (1 << chunks_count) - 1);
       for (size_t i = 0; i < chunks_count; i++) {
@@ -889,8 +888,8 @@ TEST(MerkleTree, Stress) {
       td::Bitset bitmask_strict;
       td::Bitset bitmask;
       ton::MerkleTree new_tree(chunks_count, tree.get_root(rnd.fast(1, 5)));
-      tree.add_chunks(chunks, bitmask_strict);
-      new_tree.add_chunks(chunks, bitmask);
+      tree.add_pieces(chunks, bitmask_strict);
+      new_tree.add_pieces(chunks, bitmask);
       for (size_t i = 0; i < chunks_count; i++) {
         auto expected = chunks[i].hash == hashes[i];
         auto strict_got = bitmask_strict.get(i);
@@ -901,7 +900,7 @@ TEST(MerkleTree, Stress) {
       }
     }
   }
-};
+};*/
 
 struct TorrentMetas {
   td::optional<ton::Torrent> torrent;
@@ -985,6 +984,7 @@ TEST(Torrent, Meta) {
     torrent_file.header = {};
     torrent_file.root_proof = {};
     auto new_torrent = ton::Torrent::open(options, torrent_file).move_as_ok();
+    new_torrent.enable_write_to_files();
 
     std::vector<size_t> order;
     for (size_t i = 0; i < torrent.get_info().pieces_count(); i++) {
@@ -1039,6 +1039,7 @@ TEST(Torrent, OneFile) {
     ton::Torrent::Options options;
     options.root_dir = "second/";
     auto other_torrent = ton::Torrent::open(options, meta).move_as_ok();
+    other_torrent.enable_write_to_files();
     CHECK(!other_torrent.is_completed());
     other_torrent.add_piece(0, torrent.get_piece_data(0).move_as_ok(), torrent.get_piece_proof(0).move_as_ok())
         .ensure();
@@ -1190,17 +1191,12 @@ TEST(Torrent, Peer) {
     }
   };
 
-  class PeerCreator : public ton::NodeActor::Callback {
+  class PeerCreator : public ton::NodeActor::NodeCallback {
    public:
-    PeerCreator(td::actor::ActorId<PeerManager> peer_manager, ton::PeerId self_id, std::vector<ton::PeerId> peers,
-                std::shared_ptr<td::Destructor> stop_watcher, std::shared_ptr<td::Destructor> complete_watcher)
-        : peer_manager_(std::move(peer_manager))
-        , peers_(std::move(peers))
-        , self_id_(self_id)
-        , stop_watcher_(stop_watcher)
-        , complete_watcher_(complete_watcher) {
+    PeerCreator(td::actor::ActorId<PeerManager> peer_manager, ton::PeerId self_id, std::vector<ton::PeerId> peers)
+        : peer_manager_(std::move(peer_manager)), peers_(std::move(peers)), self_id_(self_id) {
     }
-    void get_peers(td::Promise<std::vector<ton::PeerId>> promise) override {
+    void get_peers(ton::PeerId src, td::Promise<std::vector<ton::PeerId>> promise) override {
       auto peers = peers_;
       promise.set_value(std::move(peers));
     }
@@ -1209,7 +1205,7 @@ TEST(Torrent, Peer) {
       send_closure(peer_manager_, &PeerManager::register_node, self_id_, self_);
     }
     td::actor::ActorOwn<ton::PeerActor> create_peer(ton::PeerId self_id, ton::PeerId peer_id,
-                                                    td::SharedState<ton::PeerState> state) override {
+                                                    std::shared_ptr<ton::PeerState> state) override {
       class PeerCallback : public ton::PeerActor::Callback {
        public:
         PeerCallback(ton::PeerId self_id, ton::PeerId peer_id, td::actor::ActorId<PeerManager> peer_manager)
@@ -1254,6 +1250,19 @@ TEST(Torrent, Peer) {
                                                      std::move(state));
     }
 
+   private:
+    td::actor::ActorId<PeerManager> peer_manager_;
+    std::vector<ton::PeerId> peers_;
+    ton::PeerId self_id_;
+    td::actor::ActorId<ton::NodeActor> self_;
+  };
+
+  class TorrentCallback : public ton::NodeActor::Callback {
+   public:
+    TorrentCallback(std::shared_ptr<td::Destructor> stop_watcher, std::shared_ptr<td::Destructor> complete_watcher)
+        : stop_watcher_(stop_watcher), complete_watcher_(complete_watcher) {
+    }
+
     void on_completed() override {
       complete_watcher_.reset();
     }
@@ -1265,12 +1274,8 @@ TEST(Torrent, Peer) {
     }
 
    private:
-    td::actor::ActorId<PeerManager> peer_manager_;
-    std::vector<ton::PeerId> peers_;
-    ton::PeerId self_id_;
     std::shared_ptr<td::Destructor> stop_watcher_;
     std::shared_ptr<td::Destructor> complete_watcher_;
-    td::actor::ActorId<ton::NodeActor> self_;
   };
 
   size_t peers_n = 20;
@@ -1314,12 +1319,11 @@ TEST(Torrent, Peer) {
       alarm_timestamp() = td::Timestamp::in(1);
     }
     void alarm() override {
-      send_closure(node_actor_, &ton::NodeActor::with_torrent, [](td::Result<ton::Torrent *> r_torrent) {
-        if (r_torrent.is_error()) {
+      send_closure(node_actor_, &ton::NodeActor::with_torrent, [](td::Result<ton::NodeActor::NodeState> r_state) {
+        if (r_state.is_error()) {
           return;
         }
-        auto torrent = r_torrent.move_as_ok();
-        print_debug(torrent);
+        print_debug(&r_state.ok().torrent);
       });
       alarm_timestamp() = td::Timestamp::in(4);
     }
@@ -1337,14 +1341,17 @@ TEST(Torrent, Peer) {
     auto peer_manager = td::actor::create_actor<PeerManager>("PeerManager");
     guard->push_back(td::actor::create_actor<ton::NodeActor>(
         "Node#1", 1, std::move(torrent),
-        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2), stop_watcher, complete_watcher)));
+        td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
+        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2)), nullptr));
     for (size_t i = 2; i <= peers_n; i++) {
       ton::Torrent::Options options;
       options.in_memory = true;
       auto other_torrent = ton::Torrent::open(options, ton::TorrentMeta(info)).move_as_ok();
       auto node_actor = td::actor::create_actor<ton::NodeActor>(
           PSLICE() << "Node#" << i, i, std::move(other_torrent),
-          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2), stop_watcher, complete_watcher));
+          td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
+          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2)),
+          nullptr);
 
       if (i == 3) {
         td::actor::create_actor<StatsActor>("StatsActor", node_actor.get()).release();

@@ -40,8 +40,6 @@ td::Result<TorrentMeta> TorrentMeta::deserialize(td::Slice data) {
     if (header_hash != res.info.header_hash) {
       return td::Status::Error("Header hash mismatch");
     }
-  } else {
-    LOG(ERROR) << "NO HEADER";
   }
   if (res.root_proof.not_null()) {
     auto root = vm::MerkleProof::virtualize(res.root_proof, 1);

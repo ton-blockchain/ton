@@ -229,7 +229,7 @@ class ValidateQuery : public td::actor::Actor {
 
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
 
-  td::PerfWarningTimer perf_timer_{"validateblock", 0.1};
+  td::PerfWarningTimer perf_timer_;
 
   static constexpr td::uint32 priority() {
     return 2;
@@ -369,6 +369,14 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
+
+  bool check_timeout() {
+    if (timeout && timeout.is_in_past()) {
+      abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
+      return false;
+    }
+    return true;
+  }
 };
 
 }  // namespace validator

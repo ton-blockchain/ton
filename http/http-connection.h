@@ -65,9 +65,7 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
   void send_request(std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload);
   void send_response(std::unique_ptr<HttpResponse> response, std::shared_ptr<HttpPayload> payload);
   void write_payload(std::shared_ptr<HttpPayload> payload);
-  void continue_payload_write();
-  td::Status receive_request();
-  td::Status receive_response();
+  bool continue_payload_write();
   td::Status read_payload(HttpRequest *request);
   td::Status read_payload(HttpResponse *response);
   td::Status read_payload(std::shared_ptr<HttpPayload> payload);

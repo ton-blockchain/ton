@@ -55,13 +55,12 @@ class Torrent::Creator {
   td::Result<Torrent> finalize();
 
  private:
-  td::Status init();
-
   Options options_;
   struct File {
     std::string name;
     td::BlobView data;
   };
   std::vector<File> files_;
+  std::string root_dir_;
 };
 }  // namespace ton

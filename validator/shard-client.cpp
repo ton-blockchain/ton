@@ -107,9 +107,6 @@ void ShardClient::start_up_init_mode() {
 
 void ShardClient::applied_all_shards() {
   LOG(DEBUG) << "shardclient: " << masterchain_block_handle_->id() << " finished";
-
-  masterchain_state_.clear();
-
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ShardClient::saved_to_db);
@@ -121,7 +118,8 @@ void ShardClient::applied_all_shards() {
 void ShardClient::saved_to_db() {
   CHECK(masterchain_block_handle_);
   td::actor::send_closure(manager_, &ValidatorManager::update_shard_client_block_handle, masterchain_block_handle_,
-                          [](td::Unit) {});
+                          std::move(masterchain_state_), [](td::Unit) {});
+  masterchain_state_.clear();
   if (promise_) {
     promise_.set_value(td::Unit());
   }

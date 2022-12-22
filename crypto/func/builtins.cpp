@@ -173,6 +173,83 @@ int emulate_mul(int a, int b) {
   return r;
 }
 
+int emulate_and(int a, int b) {
+  int both = a & b, any = a | b;
+  int r = VarDescr::_Int;
+  if (any & VarDescr::_Nan) {
+    return r | VarDescr::_Nan;
+  }
+  r |= VarDescr::_Finite;
+  if (any & VarDescr::_Zero) {
+    return VarDescr::ConstZero;
+  }
+  r |= both & (VarDescr::_Even | VarDescr::_Odd);
+  r |= both & (VarDescr::_Bit | VarDescr::_Bool);
+  if (both & VarDescr::_Odd) {
+    r |= VarDescr::_NonZero;
+  }
+  return r;
+}
+
+int emulate_or(int a, int b) {
+  if (b & VarDescr::_Zero) {
+    return a;
+  } else if (a & VarDescr::_Zero) {
+    return b;
+  }
+  int both = a & b, any = a | b;
+  int r = VarDescr::_Int;
+  if (any & VarDescr::_Nan) {
+    return r | VarDescr::_Nan;
+  }
+  r |= VarDescr::_Finite;
+  r |= any & VarDescr::_NonZero;
+  r |= any & VarDescr::_Odd;
+  r |= both & VarDescr::_Even;
+  return r;
+}
+
+int emulate_xor(int a, int b) {
+  if (b & VarDescr::_Zero) {
+    return a;
+  } else if (a & VarDescr::_Zero) {
+    return b;
+  }
+  int both = a & b, any = a | b;
+  int r = VarDescr::_Int;
+  if (any & VarDescr::_Nan) {
+    return r | VarDescr::_Nan;
+  }
+  r |= VarDescr::_Finite;
+  r |= both & VarDescr::_Even;
+  if (both & VarDescr::_Odd) {
+    r |= VarDescr::_Even;
+  }
+  return r;
+}
+
+int emulate_not(int a) {
+  if ((a & VarDescr::ConstZero) == VarDescr::ConstZero) {
+    return VarDescr::ConstTrue;
+  }
+  if ((a & VarDescr::ConstTrue) == VarDescr::ConstTrue) {
+    return VarDescr::ConstZero;
+  }
+  int a2 = a;
+  int f = VarDescr::_Even | VarDescr::_Odd;
+  if ((a2 & f) && (~a2 & f)) {
+    a2 ^= f;
+  }
+  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit | VarDescr::_Pos | VarDescr::_Neg);
+  if ((a & VarDescr::_Neg) && (a & VarDescr::_NonZero)) {
+    a2 |= VarDescr::_Pos;
+  }
+  if (a & VarDescr::_Pos) {
+    a2 |= VarDescr::_Neg;
+  }
+  return a2;
+}
+
 int emulate_lshift(int a, int b) {
   if (((a | b) & VarDescr::_Nan) || !(~b & (VarDescr::_Neg | VarDescr::_NonZero))) {
     return VarDescr::_Int | VarDescr::_Nan;
@@ -427,6 +504,57 @@ AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   return exec_op("NEGATE", 1);
 }
 
+AsmOp compile_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
+  assert(res.size() == 1 && args.size() == 2);
+  VarDescr &r = res[0], &x = args[0], &y = args[1];
+  if (x.is_int_const() && y.is_int_const()) {
+    r.set_const(x.int_const & y.int_const);
+    x.unused();
+    y.unused();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_and(x.val, y.val);
+  return exec_op("AND", 2);
+}
+
+AsmOp compile_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
+  assert(res.size() == 1 && args.size() == 2);
+  VarDescr &r = res[0], &x = args[0], &y = args[1];
+  if (x.is_int_const() && y.is_int_const()) {
+    r.set_const(x.int_const | y.int_const);
+    x.unused();
+    y.unused();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_or(x.val, y.val);
+  return exec_op("OR", 2);
+}
+
+AsmOp compile_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
+  assert(res.size() == 1 && args.size() == 2);
+  VarDescr &r = res[0], &x = args[0], &y = args[1];
+  if (x.is_int_const() && y.is_int_const()) {
+    r.set_const(x.int_const ^ y.int_const);
+    x.unused();
+    y.unused();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_xor(x.val, y.val);
+  return exec_op("XOR", 2);
+}
+
+AsmOp compile_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
+  assert(res.size() == 1 && args.size() == 1);
+  VarDescr &r = res[0], &x = args[0];
+  if (x.is_int_const()) {
+    r.set_const(~x.int_const);
+    x.unused();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_not(x.val);
+  return exec_op("NOT", 1);
+}
+
 AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y) {
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const * y.int_const);
@@ -442,6 +570,7 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y) {
       if (y.always_zero() && x.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(y.int_const);
+        x.unused();
         return push_const(r.int_const);
       }
       if (*y.int_const == 1 && x.always_finite()) {
@@ -468,6 +597,7 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y) {
       if (x.always_zero() && y.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(x.int_const);
+        y.unused();
         return push_const(r.int_const);
       }
       if (*x.int_const == 1 && y.always_finite()) {
@@ -856,6 +986,38 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   }
 }
 
+AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
+  assert(res.empty() && args.size() == 2);
+  VarDescr &x = args[1];
+  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+    x.unused();
+    return exec_arg_op("THROWARG", x.int_const, 1, 0);
+  } else {
+    return exec_op("THROWARGANY", 2, 0);
+  }
+}
+
+AsmOp compile_cond_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool mode) {
+  assert(res.empty() && args.size() == 3);
+  VarDescr &x = args[1], &y = args[2];
+  std::string suff = (mode ? "IF" : "IFNOT");
+  bool skip_cond = false;
+  if (y.always_true() || y.always_false()) {
+    y.unused();
+    skip_cond = true;
+    if (y.always_true() != mode) {
+      x.unused();
+      return AsmOp::Nop();
+    }
+  }
+  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+    x.unused();
+    return skip_cond ? exec_arg_op("THROWARG", x.int_const, 1, 0) : exec_arg_op("THROWARG"s + suff, x.int_const, 2, 0);
+  } else {
+    return skip_cond ? exec_op("THROWARGANY", 2, 0) : exec_op("THROWARGANY"s + suff, 3, 0);
+  }
+}
+
 AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool val) {
   assert(res.size() == 1 && args.empty());
   VarDescr& r = res[0];
@@ -981,6 +1143,8 @@ void define_builtins() {
   auto fetch_slice_op = TypeExpr::new_map(SliceInt, TypeExpr::new_tensor({Slice, Slice}));
   auto prefetch_slice_op = TypeExpr::new_map(SliceInt, Slice);
   //auto arith_null_op = TypeExpr::new_map(TypeExpr::new_unit(), Int);
+  auto throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int}), Unit));
+  auto cond_throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int, Int}), Unit));
   define_builtin_func("_+_", arith_bin_op, compile_add);
   define_builtin_func("_-_", arith_bin_op, compile_sub);
   define_builtin_func("-_", arith_un_op, compile_negate);
@@ -1000,10 +1164,10 @@ void define_builtins() {
   define_builtin_func("_>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, -1));
   define_builtin_func("_~>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, 0));
   define_builtin_func("_^>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, 1));
-  define_builtin_func("_&_", arith_bin_op, AsmOp::Custom("AND", 2));
-  define_builtin_func("_|_", arith_bin_op, AsmOp::Custom("OR", 2));
-  define_builtin_func("_^_", arith_bin_op, AsmOp::Custom("XOR", 2));
-  define_builtin_func("~_", arith_un_op, AsmOp::Custom("NOT", 1));
+  define_builtin_func("_&_", arith_bin_op, compile_and);
+  define_builtin_func("_|_", arith_bin_op, compile_or);
+  define_builtin_func("_^_", arith_bin_op, compile_xor);
+  define_builtin_func("~_", arith_un_op, compile_not);
   define_builtin_func("^_+=_", arith_bin_op, compile_add);
   define_builtin_func("^_-=_", arith_bin_op, compile_sub);
   define_builtin_func("^_*=_", arith_bin_op, compile_mul);
@@ -1017,9 +1181,9 @@ void define_builtins() {
   define_builtin_func("^_>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, -1));
   define_builtin_func("^_~>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, 0));
   define_builtin_func("^_^>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, 1));
-  define_builtin_func("^_&=_", arith_bin_op, AsmOp::Custom("AND", 2));
-  define_builtin_func("^_|=_", arith_bin_op, AsmOp::Custom("OR", 2));
-  define_builtin_func("^_^=_", arith_bin_op, AsmOp::Custom("XOR", 2));
+  define_builtin_func("^_&=_", arith_bin_op, compile_and);
+  define_builtin_func("^_|=_", arith_bin_op, compile_or);
+  define_builtin_func("^_^=_", arith_bin_op, compile_xor);
   define_builtin_func("muldiv", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, -1));
   define_builtin_func("muldivr", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, 0));
   define_builtin_func("muldivc", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, 1));
@@ -1040,6 +1204,9 @@ void define_builtins() {
   define_builtin_func("throw", impure_un_op, compile_throw, true);
   define_builtin_func("throw_if", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);
   define_builtin_func("throw_unless", impure_bin_op, std::bind(compile_cond_throw, _1, _2, false), true);
+  define_builtin_func("throw_arg", throw_arg_op, compile_throw_arg, true);
+  define_builtin_func("throw_arg_if", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, true), true);
+  define_builtin_func("throw_arg_unless", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, false), true);
   define_builtin_func("load_int", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
   define_builtin_func("load_uint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
   define_builtin_func("preload_int", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
@@ -1063,6 +1230,8 @@ void define_builtins() {
                       AsmOp::Nop());
   define_builtin_func("~dump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
                       AsmOp::Custom("s0 DUMP", 1, 1), true);
+  define_builtin_func("~strdump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
+                      AsmOp::Custom("STRDUMP", 1, 1), true);
   define_builtin_func("run_method0", TypeExpr::new_map(Int, Unit),
                       [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
   define_builtin_func("run_method1", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),

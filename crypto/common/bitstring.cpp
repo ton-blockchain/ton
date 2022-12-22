@@ -191,7 +191,7 @@ void bits_memcpy(unsigned char* to, int to_offs, const unsigned char* from, int 
       *to++ = (unsigned char)(acc >> b);
     }
     if (b > 0) {
-      *to = (unsigned char)((*to & (0xff >> b)) | ((int)acc << (8 - b)));
+      *to = (unsigned char)((*to & (0xff >> b)) | ((unsigned)acc << (8 - b)));
     }
   }
 }
@@ -301,7 +301,7 @@ std::size_t bits_memscan(const unsigned char* ptr, int offs, std::size_t bit_cou
     ptr++;
   }
   while (rem >= 8 && !td::is_aligned_pointer<8>(ptr)) {
-    v = ((*ptr++ ^ xor_val) << 24);
+    v = ((unsigned)(*ptr++ ^ xor_val) << 24);
     // std::cerr << "[B] rem=" << rem << " ptr=" << (const void*)(ptr - 1) << " v=" << std::hex << v << std::dec << std::endl;
     if (v) {
       return bit_count - rem + td::count_leading_zeroes_non_zero32(v);
@@ -319,7 +319,7 @@ std::size_t bits_memscan(const unsigned char* ptr, int offs, std::size_t bit_cou
     rem -= 64;
   }
   while (rem >= 8) {
-    v = ((*ptr++ ^ xor_val) << 24);
+    v = ((unsigned)(*ptr++ ^ xor_val) << 24);
     // std::cerr << "[D] rem=" << rem << " ptr=" << (const void*)(ptr - 1) << " v=" << std::hex << v << std::dec << std::endl;
     if (v) {
       return bit_count - rem + td::count_leading_zeroes_non_zero32(v);
@@ -327,7 +327,7 @@ std::size_t bits_memscan(const unsigned char* ptr, int offs, std::size_t bit_cou
     rem -= 8;
   }
   if (rem > 0) {
-    v = ((*ptr ^ xor_val) << 24);
+    v = ((unsigned)(*ptr ^ xor_val) << 24);
     // std::cerr << "[E] rem=" << rem << " ptr=" << (const void*)ptr << " v=" << std::hex << v << std::dec << std::endl;
     c = td::count_leading_zeroes32(v);
     return c < rem ? bit_count - rem + c : bit_count;
@@ -505,7 +505,7 @@ unsigned long long bits_load_long_top(ConstBitPtr from, unsigned top_bits) {
 }
 
 unsigned long long bits_load_ulong(ConstBitPtr from, unsigned bits) {
-  return bits_load_long_top(from, bits) >> (64 - bits);
+  return bits == 0 ? 0 : bits_load_long_top(from, bits) >> (64 - bits);
 }
 
 long long bits_load_long(ConstBitPtr from, unsigned bits) {

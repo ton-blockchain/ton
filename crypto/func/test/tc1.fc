@@ -1,0 +1,113 @@
+() test1() impure {
+  int i = 3;
+  repeat (3) {
+    try {
+      int j = i;
+      i *= 2;
+      throw_unless(500, j <= 10);
+    } catch (x, e) {
+      i -= 2;
+    }
+    i += i + 1;
+  }
+  throw_unless(501, i == 43);
+}
+
+int divide_by_ten(int num) {
+  try {
+    throw_unless(500, num < 10);
+  } catch (x, e) {
+    return divide_by_ten(num - 10) + 1;
+  }
+  return 0;
+}
+
+() test2() impure {
+  int n = divide_by_ten(37);
+  throw_unless(502, n == 3);
+}
+
+(int, int) swap_int(int a, int b) {
+  try {
+    a = a * b;
+    b = a / b;
+    a = a / b;
+    return (a, b);
+  } catch (x, e) {
+    throw_unless(500, b == 0);
+  }
+  return (0, a);
+}
+
+() test3() impure {
+  int a = 0;
+  int b = 57;
+  try {
+    (a, b) = swap_int(a, b);
+  } catch (x, e) {
+    throw_unless(500, a == 0);
+    a = b;
+    b = 0;
+  }
+  throw_unless(503, (a == 57) & (b == 0));
+}
+
+int get_x(int x, int y) {
+  try {
+  } catch (x, e) {
+    return -1;
+  }
+  return x;
+}
+
+int get_y(int x, int y) {
+  try {
+    return -1;
+  } catch (x, e) {
+  }
+  return y;
+}
+
+() test4() impure {
+  throw_unless(504, get_x(3, 4) == 3);
+  throw_unless(504, get_y(3, 4) == -1);
+}
+
+(int, int, int, int, int) foo(int a, int b, int c, int d, int e) {
+  try {
+    throw(11);
+  } catch (x, y) {
+    a += 1;
+    b += 2;
+    c += 3;
+    d += 4;
+    e += 5;
+  }
+  return (a, b, c, d, e);
+}
+
+() test5() impure {
+  var (a, b, c, d, e) = foo(10, 20, 30, 40, 50);
+  throw_unless(505, (a == 11) & (b == 22) & (c == 33) & (d == 44) & (e == 55));
+}
+
+() test6() impure {
+  int a = 0;
+  int b = 0;
+  int c = 0;
+  try {
+    b = 3;
+  }  catch (x, y) {
+    b = 12;
+  }
+  throw_unless(506, (a == 0) & (b == 3) & (c == 0));
+}
+
+() main() {
+  test1();
+  test2();
+  test3();
+  test4();
+  test5();
+  test6();
+}
