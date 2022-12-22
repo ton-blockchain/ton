@@ -25,13 +25,13 @@
 */
 #pragma once
 #include "td/actor/actor.h"
-#include "TonlibClient.h"
+#include "tonlib/tonlib/TonlibClientWrapper.h"
 #include "adnl/adnl.h"
 #include "td/actor/PromiseFuture.h"
 
 class DNSResolver : public td::actor::Actor {
  public:
-  explicit DNSResolver(td::actor::ActorId<TonlibClient> tonlib_client);
+  explicit DNSResolver(td::actor::ActorId<tonlib::TonlibClientWrapper> tonlib_client);
 
   void start_up() override;
   void resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdShort> promise);
@@ -40,7 +40,7 @@ class DNSResolver : public td::actor::Actor {
   void sync();
   void save_to_cache(std::string host, ton::adnl::AdnlNodeIdShort id);
 
-  td::actor::ActorId<TonlibClient> tonlib_client_;
+  td::actor::ActorId<tonlib::TonlibClientWrapper> tonlib_client_;
 
   struct CacheEntry {
     ton::adnl::AdnlNodeIdShort id_;

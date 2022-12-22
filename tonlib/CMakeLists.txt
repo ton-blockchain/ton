@@ -17,6 +17,7 @@ set(TONLIB_SOURCE
   tonlib/LastConfig.cpp
   tonlib/Logging.cpp
   tonlib/TonlibClient.cpp
+  tonlib/TonlibClientWrapper.cpp
   tonlib/utils.cpp
 
   tonlib/Client.h
@@ -32,6 +33,7 @@ set(TONLIB_SOURCE
   tonlib/Logging.h
   tonlib/TonlibCallback.h
   tonlib/TonlibClient.h
+  tonlib/TonlibClientWrapper.h
   tonlib/utils.h
 
   tonlib/keys/bip39.cpp

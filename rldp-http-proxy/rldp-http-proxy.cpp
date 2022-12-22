@@ -54,7 +54,7 @@
 #include "td/utils/BufferedFd.h"
 #include "common/delay.h"
 
-#include "TonlibClient.h"
+#include "tonlib/tonlib/TonlibClientWrapper.h"
 #include "DNSResolver.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -919,7 +919,7 @@ class RldpHttpProxy : public td::actor::Actor {
     auto tonlib_options = tonlib_api::make_object<tonlib_api::options>(
         tonlib_api::make_object<tonlib_api::config>(conf_dataR.move_as_ok().as_slice().str(), "", false, false),
         tonlib_api::make_object<tonlib_api::keyStoreTypeInMemory>());
-    tonlib_client_ = td::actor::create_actor<TonlibClient>("tonlibclient", std::move(tonlib_options));
+    tonlib_client_ = td::actor::create_actor<tonlib::TonlibClientWrapper>("tonlibclient", std::move(tonlib_options));
     dns_resolver_ = td::actor::create_actor<DNSResolver>("dnsresolver", tonlib_client_.get());
   }
 
@@ -1315,7 +1315,7 @@ class RldpHttpProxy : public td::actor::Actor {
   std::string db_root_ = ".";
   bool proxy_all_ = false;
 
-  td::actor::ActorOwn<TonlibClient> tonlib_client_;
+  td::actor::ActorOwn<tonlib::TonlibClientWrapper> tonlib_client_;
   td::actor::ActorOwn<DNSResolver> dns_resolver_;
 
   std::map<td::Bits256,

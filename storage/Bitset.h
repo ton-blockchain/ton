@@ -53,8 +53,23 @@ struct Bitset {
     }
     auto mask = 1 << bit_i;
     if ((bits_[i] & mask) == 0) {
-      bits_[i] |= mask;
+      bits_[i] |= (char)mask;
       count_++;
+      return true;
+    }
+    return false;
+  }
+
+  bool set_zero(size_t offset) {
+    auto i = offset / 8;
+    if (i >= bits_.size()) {
+      return false;
+    }
+    auto bit_i = offset % 8;
+    auto mask = 1 << bit_i;
+    if (bits_[i] & mask) {
+      bits_[i] &= (char)~mask;
+      count_--;
       return true;
     }
     return false;

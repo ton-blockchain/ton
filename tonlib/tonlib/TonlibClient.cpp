@@ -2533,7 +2533,7 @@ struct ToRawTransactions {
     auto body_hash = body_cell->get_hash().as_slice().str();
 
     td::Ref<vm::Cell> init_state_cell;
-    auto& init_state_cs = message.init.write(); 
+    auto& init_state_cs = message.init.write();
     if (init_state_cs.fetch_ulong(1) == 1) {
       if (init_state_cs.fetch_long(1) == 0) {
         init_state_cell = vm::CellBuilder().append_cellslice(init_state_cs).finalize();
@@ -2542,7 +2542,7 @@ struct ToRawTransactions {
       }
     }
 
-    auto get_data = [body = std::move(body), body_cell = std::move(body_cell), 
+    auto get_data = [body = std::move(body), body_cell = std::move(body_cell),
                      init_state_cell = std::move(init_state_cell), this](td::Slice salt) mutable {
       tonlib_api::object_ptr<tonlib_api::msg_Data> data;
       if (try_decode_messages_ && body->size() >= 32 && static_cast<td::uint32>(body->prefetch_long(32)) <= 1) {
@@ -2731,7 +2731,7 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessageReturnHash&
                                     td::Promise<object_ptr<tonlib_api::raw_extMessageInfo>>&& promise) {
   TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.body_), TonlibError::InvalidBagOfCells("body"));
   auto hash = body->get_hash().as_slice().str();
-  make_request(int_api::SendMessage{std::move(body)}, 
+  make_request(int_api::SendMessage{std::move(body)},
     promise.wrap([hash = std::move(hash)](auto res) {
       return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(hash));
     }));
@@ -2859,7 +2859,7 @@ td::Status TonlibClient::do_request(tonlib_api::raw_getTransactionsV2& request,
 
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
-      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, count, actor_shared(this, actor_id), 
+      "GetTransactionHistory", client_.get_client(), account_address, lt, hash, count, actor_shared(this, actor_id),
       promise.wrap([private_key = std::move(private_key), try_decode_messages = request.try_decode_messages_](auto&& x) mutable {
         return ToRawTransactions(std::move(private_key), try_decode_messages).to_raw_transactions(std::move(x));
       }));
@@ -3710,6 +3710,17 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_load& request,
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::smc_forget& request,
+                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+  auto it = smcs_.find(request.id_);
+  if (it == smcs_.end()) {
+    return TonlibError::InvalidSmcId();
+  }
+  smcs_.erase(it);
+  promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
+  return td::Status::OK();
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::smc_getCode& request,
                                     td::Promise<object_ptr<tonlib_api::tvm_cell>>&& promise) {
   auto it = smcs_.find(request.id_);
@@ -3890,7 +3901,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getLibraries& request,
     return td::Status::OK();
   }
 
-  client_.send_query(ton::lite_api::liteServer_getLibraries(std::move(not_cached_hashes)), 
+  client_.send_query(ton::lite_api::liteServer_getLibraries(std::move(not_cached_hashes)),
                      promise.wrap([self=this, result_entries = std::move(result_entries)]
                                   (td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries) mutable
     {
@@ -4632,7 +4643,7 @@ td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
   std::vector<int32_t> params = { param };
 
   client_.send_query(ton::lite_api::liteServer_getConfigParams(0, std::move(lite_block), std::move(params)),
-                     promise.wrap([block, param](auto r_config) { 
+                     promise.wrap([block, param](auto r_config) {
     auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
                                                   r_config->config_proof_.as_slice());
     if (state.is_error()) {
@@ -4716,7 +4727,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& reques
 
 auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid)
     -> tonlib_api_ptr<tonlib_api::blocks_shortTxId> {
-  return tonlib_api::make_object<tonlib_api::blocks_shortTxId>( 
+  return tonlib_api::make_object<tonlib_api::blocks_shortTxId>(
       txid.mode_, txid.account_.as_slice().str(), txid.lt_, txid.hash_.as_slice().str());
 }
 

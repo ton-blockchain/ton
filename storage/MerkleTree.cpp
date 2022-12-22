@@ -28,152 +28,51 @@
 #include "vm/excno.hpp"
 
 namespace ton {
-static td::Ref<vm::Cell> unpack_proof(td::Ref<vm::Cell> root) {
+static td::Result<td::Ref<vm::Cell>> unpack_proof(td::Ref<vm::Cell> root) {
   vm::CellSlice cs(vm::NoVm(), root);
-  CHECK(cs.special_type() == vm::Cell::SpecialType::MerkleProof);
+  if (cs.special_type() != vm::Cell::SpecialType::MerkleProof) {
+    return td::Status::Error("Not a merkle proof");
+  }
   return cs.fetch_ref();
 }
 
-td::uint32 MerkleTree::get_depth() const {
-  return log_n_;
-}
-td::Ref<vm::Cell> MerkleTree::get_root(size_t depth_limit) const {
-  if (depth_limit > log_n_ || root_proof_.is_null()) {
-    return root_proof_;
+MerkleTree::MerkleTree(size_t pieces_count, td::Bits256 root_hash)
+    : pieces_count_(pieces_count), root_hash_(root_hash) {
+  depth_ = 0;
+  n_ = 1;
+  while (n_ < pieces_count_) {
+    ++depth_;
+    n_ <<= 1;
   }
-
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
-  auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
-  do_gen_proof(std::move(usage_cell), unpack_proof(root_proof_), depth_limit);
-  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
-  CHECK(res.not_null());
-  return res;
 }
 
-void MerkleTree::do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) const {
-  if (depth_limit == 0) {
-    return;
+static td::Ref<vm::Cell> build_tree(td::Bits256 *hashes, size_t len) {
+  if (len == 1) {
+    return vm::CellBuilder().store_bytes(hashes[0].as_slice()).finalize();
   }
-  // check if it is possible to load node without breaking virtualization
-  vm::CellSlice cs_raw(vm::NoVm(), std::move(node_raw));
-  if (cs_raw.is_special()) {
-    return;
+  td::Ref<vm::Cell> l = build_tree(hashes, len / 2);
+  td::Ref<vm::Cell> r = build_tree(hashes + len / 2, len / 2);
+  return vm::CellBuilder().store_ref(l).store_ref(r).finalize();
+};
+
+MerkleTree::MerkleTree(std::vector<td::Bits256> hashes) : pieces_count_(hashes.size()) {
+  depth_ = 0;
+  n_ = 1;
+  while (n_ < pieces_count_) {
+    ++depth_;
+    n_ <<= 1;
+  }
+  hashes.resize(n_, td::Bits256::zero());
+  td::Ref<vm::Cell> root = build_tree(hashes.data(), n_);
+  root_hash_ = root->get_hash().bits();
+  root_proof_ = vm::CellBuilder::create_merkle_proof(std::move(root));
+}
+
+static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth) {
+  if (node->get_depth(0) != depth) {
+    return td::Status::Error("Depth mismatch");
   }
   vm::CellSlice cs(vm::NoVm(), std::move(node));
-  while (cs.have_refs()) {
-    do_gen_proof(cs.fetch_ref(), cs_raw.fetch_ref(), depth_limit - 1);
-  }
-}
-
-td::Bits256 MerkleTree::get_root_hash() const {
-  CHECK(root_hash_);
-  return root_hash_.value();
-}
-
-MerkleTree::MerkleTree(size_t chunks_count, td::Bits256 root_hash) {
-  init_begin(chunks_count);
-  root_hash_ = root_hash;
-  init_finish();
-}
-
-MerkleTree::MerkleTree(size_t chunks_count, td::Ref<vm::Cell> root_proof) {
-  init_begin(chunks_count);
-  root_hash_ = unpack_proof(root_proof)->get_hash(0).as_array();
-  root_proof_ = std::move(root_proof);
-  init_finish();
-}
-
-MerkleTree::MerkleTree(td::Span<Chunk> chunks) {
-  init_begin(chunks.size());
-
-  for (size_t i = 0; i < chunks.size(); i++) {
-    CHECK(chunks[i].index == i);
-    init_add_chunk(i, chunks[i].hash.as_slice());
-  }
-
-  init_finish();
-}
-
-void MerkleTree::init_begin(size_t chunks_count) {
-  log_n_ = 0;
-  while ((size_t(1) << log_n_) < chunks_count) {
-    log_n_++;
-  }
-  n_ = size_t(1) << log_n_;
-  total_blocks_ = chunks_count;
-  mark_.resize(n_ * 2);
-  proof_.resize(n_ * 2);
-
-  td::UInt256 null{};
-  auto cell = vm::CellBuilder().store_bytes(null.as_slice()).finalize();
-  for (auto i = chunks_count; i < n_; i++) {
-    proof_[i + n_] = cell;
-  }
-}
-
-void MerkleTree::init_add_chunk(size_t index, td::Slice hash) {
-  CHECK(index < total_blocks_);
-  CHECK(proof_[index + n_].is_null());
-  proof_[index + n_] = vm::CellBuilder().store_bytes(hash).finalize();
-}
-
-void MerkleTree::init_finish() {
-  for (size_t i = n_ - 1; i >= 1; i--) {
-    auto j = i * 2;
-    if (proof_[j].is_null()) {
-      continue;
-    }
-    if (i + 1 < n_ && proof_[i + 1].not_null() && proof_[j]->get_hash() == proof_[j + 2]->get_hash() &&
-        proof_[j + 1]->get_hash() == proof_[j + 3]->get_hash()) {
-      // minor optimization for same chunks
-      proof_[i] = proof_[i + 1];
-    } else {
-      proof_[i] = vm::CellBuilder().store_ref(proof_[j]).store_ref(proof_[j + 1]).finalize();
-    }
-  }
-  if (proof_[1].not_null()) {
-    init_proof();
-  }
-  CHECK(root_hash_);
-}
-
-void MerkleTree::remove_chunk(std::size_t index) {
-  CHECK(index < n_);
-  index += n_;
-  while (proof_[index].not_null()) {
-    proof_[index] = {};
-    index /= 2;
-  }
-}
-
-bool MerkleTree::has_chunk(std::size_t index) const {
-  CHECK(index < n_);
-  index += n_;
-  return proof_[index].not_null();
-}
-
-void MerkleTree::add_chunk(std::size_t index, td::Slice hash) {
-  CHECK(hash.size() == 32);
-  CHECK(index < n_);
-  index += n_;
-  auto cell = vm::CellBuilder().store_bytes(hash).finalize();
-  CHECK(proof_[index].is_null());
-  proof_[index] = std::move(cell);
-  mark_[index] = mark_id_;
-  for (index /= 2; index != 0; index /= 2) {
-    CHECK(proof_[index].is_null());
-    auto &left = proof_[index * 2];
-    auto &right = proof_[index * 2 + 1];
-    if (left.not_null() && right.not_null()) {
-      proof_[index] = vm::CellBuilder().store_ref(left).store_ref(right).finalize();
-      mark_[index] = mark_id_;
-    }
-  }
-}
-
-static td::Status do_validate(td::Ref<vm::Cell> ref, size_t depth) {
-  vm::CellSlice cs(vm::NoVm(), std::move(ref));
   if (cs.is_special()) {
     if (cs.special_type() != vm::Cell::SpecialType::PrunnedBranch) {
       return td::Status::Error("Unexpected special cell");
@@ -194,154 +93,65 @@ static td::Status do_validate(td::Ref<vm::Cell> ref, size_t depth) {
     if (cs.size_refs() != 2) {
       return td::Status::Error("Node in proof must have two refs");
     }
-    TRY_STATUS(do_validate(cs.fetch_ref(), depth - 1));
-    TRY_STATUS(do_validate(cs.fetch_ref(), depth - 1));
+    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1));
+    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1));
   }
   return td::Status::OK();
 }
 
-td::Status MerkleTree::validate_proof(td::Ref<vm::Cell> new_root) {
-  // 1. depth <= log_n
-  // 2. each non special node has two refs and nothing else
-  // 3. each list contains only hash
-  // 4. all special nodes are merkle proofs
-  vm::CellSlice cs(vm::NoVm(), new_root);
-  if (cs.special_type() != vm::Cell::SpecialType::MerkleProof) {
-    return td::Status::Error("Proof must be a mekle proof cell");
+td::Status MerkleTree::add_proof(td::Ref<vm::Cell> proof) {
+  if (proof.is_null()) {
+    return td::Status::OK();
   }
-  auto root = cs.fetch_ref();
-  if (root_hash_ && root->get_hash(0).as_slice() != root_hash_.value().as_slice()) {
-    return td::Status::Error("Proof has invalid root hash");
+  TRY_RESULT(proof_raw, unpack_proof(proof));
+  if (root_hash_ != proof_raw->get_hash(0).bits()) {
+    return td::Status::Error("Root hash mismatch");
   }
-  return do_validate(std::move(root), log_n_);
-}
-
-td::Status MerkleTree::add_proof(td::Ref<vm::Cell> new_root) {
-  CHECK(root_proof_.not_null() || root_hash_);
-  TRY_STATUS(validate_proof(new_root));
-  if (root_proof_.not_null()) {
-    auto combined = vm::MerkleProof::combine_fast(root_proof_, std::move(new_root));
+  TRY_STATUS(do_validate_proof(proof_raw, depth_));
+  if (root_proof_.is_null()) {
+    root_proof_ = std::move(proof);
+  } else {
+    auto combined = vm::MerkleProof::combine_fast(root_proof_, std::move(proof));
     if (combined.is_null()) {
       return td::Status::Error("Can't combine proofs");
     }
     root_proof_ = std::move(combined);
-  } else {
-    root_proof_ = std::move(new_root);
   }
   return td::Status::OK();
 }
 
-td::Status MerkleTree::validate_existing_chunk(const Chunk &chunk) {
-  vm::CellSlice cs(vm::NoVm(), proof_[chunk.index + n_]);
-  CHECK(cs.size() == chunk.hash.size());
-  if (cs.as_bitslice().compare(chunk.hash.cbits()) != 0) {
-    return td::Status::Error("Hash mismatch");
+td::Result<td::Bits256> MerkleTree::get_piece_hash(size_t idx) const {
+  if (idx >= n_) {
+    return td::Status::Error("Index is too big");
   }
-  return td::Status::OK();
-}
-
-td::Status MerkleTree::try_add_chunks(td::Span<Chunk> chunks) {
-  td::Bitset bitmask;
-  add_chunks(chunks, bitmask);
-  for (size_t i = 0; i < chunks.size(); i++) {
-    if (!bitmask.get(i)) {
-      return td::Status::Error(PSLICE() << "Invalid chunk #" << chunks[i].index);
-    }
-  }
-  return td::Status::OK();
-}
-
-void MerkleTree::add_chunks(td::Span<Chunk> chunks, td::Bitset &bitmask) {
   if (root_proof_.is_null()) {
-    return;
+    return td::Status::Error("Hash is not known");
   }
-
-  mark_id_++;
-  bitmask.reserve(chunks.size());
-  for (size_t i = 0; i < chunks.size(); i++) {
-    const auto &chunk = chunks[i];
-    if (has_chunk(chunk.index)) {
-      if (validate_existing_chunk(chunk).is_ok()) {
-        bitmask.set_one(i);
-      }
-      continue;
+  size_t l = 0, r = n_ - 1;
+  td::Ref<vm::Cell> node = unpack_proof(root_proof_).move_as_ok();
+  while (true) {
+    vm::CellSlice cs(vm::NoVm(), std::move(node));
+    if (cs.is_special()) {
+      return td::Status::Error("Hash is not known");
     }
-    add_chunk(chunk.index, chunk.hash.as_slice());
-  }
-
-  root_proof_ = vm::CellBuilder::create_merkle_proof(merge(unpack_proof(root_proof_), 1));
-
-  for (size_t i = 0; i < chunks.size(); i++) {
-    const auto &chunk = chunks[i];
-    if (has_chunk(chunk.index) && mark_[chunk.index + n_] == mark_id_) {
-      bitmask.set_one(i);
+    if (l == r) {
+      td::Bits256 hash;
+      CHECK(cs.fetch_bits_to(hash.bits(), 256));
+      return hash;
     }
-  }
-}
-
-td::Ref<vm::Cell> MerkleTree::merge(td::Ref<vm::Cell> root, size_t index) {
-  const auto &down = proof_[index];
-  if (down.not_null()) {
-    if (down->get_hash() != root->get_hash(0)) {
-      proof_[index] = {};
+    CHECK(cs.size_refs() == 2);
+    size_t mid = (l + r) / 2;
+    if (idx <= mid) {
+      node = cs.prefetch_ref(0);
+      r = mid;
     } else {
-      return down;
+      node = cs.prefetch_ref(1);
+      l = mid + 1;
     }
   }
-
-  if (mark_[index] != mark_id_ || index >= n_) {
-    return root;
-  }
-
-  vm::CellSlice cs(vm::NoVm(), root);
-  if (cs.is_special()) {
-    cleanup_add(index);
-    return root;
-  }
-
-  CHECK(cs.size_refs() == 2);
-  vm::CellBuilder cb;
-  cb.store_bits(cs.fetch_bits(cs.size()));
-  auto left = merge(cs.fetch_ref(), index * 2);
-  auto right = merge(cs.fetch_ref(), index * 2 + 1);
-  cb.store_ref(std::move(left)).store_ref(std::move(right));
-  return cb.finalize();
 }
 
-void MerkleTree::cleanup_add(size_t index) {
-  if (mark_[index] != mark_id_) {
-    return;
-  }
-  proof_[index] = {};
-  if (index >= n_) {
-    return;
-  }
-  cleanup_add(index * 2);
-  cleanup_add(index * 2 + 1);
-}
-
-void MerkleTree::init_proof() {
-  CHECK(proof_[1].not_null());
-  td::Bits256 new_root_hash = proof_[1]->get_hash(0).as_array();
-  CHECK(!root_hash_ || root_hash_.value() == new_root_hash);
-  root_hash_ = new_root_hash;
-  root_proof_ = vm::CellBuilder::create_merkle_proof(proof_[1]);
-}
-
-td::Result<td::Ref<vm::Cell>> MerkleTree::gen_proof(size_t l, size_t r) {
-  if (root_proof_.is_null()) {
-    return td::Status::Error("got no proofs yet");
-  }
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
-  auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
-  TRY_STATUS(TRY_VM(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r)));
-  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
-  CHECK(res.not_null());
-  return res;
-}
-
-td::Status MerkleTree::do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir, size_t l, size_t r) const {
+static td::Status do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir, size_t l, size_t r) {
   if (ir < l || il > r) {
     return td::Status::OK();
   }
@@ -358,4 +168,114 @@ td::Status MerkleTree::do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir
   TRY_STATUS(do_gen_proof(cs.fetch_ref(), ic + 1, ir, l, r));
   return td::Status::OK();
 }
+
+td::Result<td::Ref<vm::Cell>> MerkleTree::gen_proof(size_t l, size_t r) const {
+  if (root_proof_.is_null()) {
+    return td::Status::Error("Got no proofs yet");
+  }
+  auto usage_tree = std::make_shared<vm::CellUsageTree>();
+  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
+  auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
+  TRY_STATUS(TRY_VM(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r)));
+  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
+  CHECK(res.not_null());
+  return res;
+}
+
+static void do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) {
+  if (depth_limit == 0) {
+    return;
+  }
+  // check if it is possible to load node without breaking virtualization
+  vm::CellSlice cs_raw(vm::NoVm(), std::move(node_raw));
+  if (cs_raw.is_special()) {
+    return;
+  }
+  vm::CellSlice cs(vm::NoVm(), std::move(node));
+  while (cs.have_refs()) {
+    do_gen_proof(cs.fetch_ref(), cs_raw.fetch_ref(), depth_limit - 1);
+  }
+}
+
+td::Ref<vm::Cell> MerkleTree::get_root(size_t depth_limit) const {
+  if (depth_limit > depth_ || root_proof_.is_null()) {
+    return root_proof_;
+  }
+  auto usage_tree = std::make_shared<vm::CellUsageTree>();
+  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
+  auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
+  do_gen_proof(std::move(usage_cell), unpack_proof(root_proof_).move_as_ok(), depth_limit);
+  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
+  CHECK(res.not_null());
+  return res;
+}
+
+static td::Ref<vm::Cell> build_from_hashes(std::pair<size_t, td::Bits256> *p, std::pair<size_t, td::Bits256> *pend,
+                                           size_t len) {
+  if (len == 1) {
+    return vm::CellBuilder().store_bytes((p < pend ? p->second : td::Bits256::zero()).as_slice()).finalize();
+  }
+  td::Ref<vm::Cell> l = build_from_hashes(p, pend, len / 2);
+  td::Ref<vm::Cell> r = build_from_hashes(p + len / 2, pend, len / 2);
+  return vm::CellBuilder().store_ref(l).store_ref(r).finalize();
+}
+
+td::Ref<vm::Cell> MerkleTree::do_add_pieces(td::Ref<vm::Cell> node, std::vector<size_t> &ok_pieces, size_t il,
+                                            size_t ir, std::pair<size_t, td::Bits256> *pl,
+                                            std::pair<size_t, td::Bits256> *pr) {
+  if (pl == pr || il >= pieces_count_) {
+    return node;
+  }
+  vm::CellSlice cs;
+  if (node.is_null() || (cs = vm::CellSlice(vm::NoVm(), node)).is_special() || il + 1 == ir) {
+    if ((size_t)(pr - pl) != std::min(ir, pieces_count_) - il) {
+      return node;
+    }
+    td::Ref<vm::Cell> new_node = build_from_hashes(pl, pr, ir - il);
+    td::Bits256 new_hash = new_node->get_hash().bits();
+    if (new_hash != (node.is_null() ? root_hash_ : node->get_hash(0).bits())) {
+      return node;
+    }
+    for (auto p = pl; p != pr; ++p) {
+      ok_pieces.push_back(p->first);
+    }
+    if (node.is_null() || cs.is_special()) {
+      node = std::move(new_node);
+    }
+    return node;
+  }
+  size_t imid = (il + ir) / 2;
+  auto pmid = pl;
+  while (pmid != pr && pmid->first < imid) {
+    ++pmid;
+  }
+  td::Ref<vm::Cell> l = do_add_pieces(cs.prefetch_ref(0), ok_pieces, il, imid, pl, pmid);
+  td::Ref<vm::Cell> r = do_add_pieces(cs.prefetch_ref(1), ok_pieces, imid, ir, pmid, pr);
+  if (l != cs.prefetch_ref(0) || r != cs.prefetch_ref(1)) {
+    node = vm::CellBuilder().store_ref(l).store_ref(r).finalize();
+  }
+  return node;
+}
+
+std::vector<size_t> MerkleTree::add_pieces(std::vector<std::pair<size_t, td::Bits256>> pieces) {
+  if (pieces.empty()) {
+    return {};
+  }
+  std::sort(pieces.begin(), pieces.end());
+  for (size_t i = 0; i + 1 < pieces.size(); ++i) {
+    CHECK(pieces[i].first != pieces[i + 1].first);
+  }
+  CHECK(pieces.back().first < pieces_count_);
+  std::vector<size_t> ok_pieces;
+  td::Ref<vm::Cell> root;
+  if (!root_proof_.is_null()) {
+    root = unpack_proof(root_proof_).move_as_ok();
+  }
+  root = do_add_pieces(root, ok_pieces, 0, n_, pieces.data(), pieces.data() + pieces.size());
+  if (!root.is_null()) {
+    root_proof_ = vm::CellBuilder::create_merkle_proof(std::move(root));
+  }
+  return ok_pieces;
+}
+
 }  // namespace ton

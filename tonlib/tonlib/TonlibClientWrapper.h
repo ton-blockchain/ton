@@ -28,14 +28,26 @@
 #include "auto/tl/tonlib_api.hpp"
 #include "tonlib/tonlib/TonlibClient.h"
 
-class TonlibClient : public td::actor::Actor {
+namespace tonlib {
+
+class TonlibClientWrapper : public td::actor::Actor {
  public:
-  explicit TonlibClient(ton::tl_object_ptr<tonlib_api::options> options);
+  explicit TonlibClientWrapper(ton::tl_object_ptr<tonlib_api::options> options);
 
   void start_up() override;
 
-  void send_request(tonlib_api::object_ptr<tonlib_api::Function> obj,
-                    td::Promise<tonlib_api::object_ptr<tonlib_api::Object>> promise);
+  template <typename F>
+  void send_request(tonlib_api::object_ptr<F> obj, td::Promise<typename F::ReturnType> promise) {
+    auto id = next_request_id_++;
+    auto P = promise.wrap([](tonlib_api::object_ptr<tonlib_api::Object> x) -> td::Result<typename F::ReturnType> {
+      if (x->get_id() != F::ReturnType::element_type::ID) {
+        return td::Status::Error("Invalid response from tonlib");
+      }
+      return ton::move_tl_object_as<typename F::ReturnType::element_type>(std::move(x));
+    });
+    CHECK(requests_.emplace(id, std::move(P)).second);
+    td::actor::send_closure(tonlib_client_, &tonlib::TonlibClient::request, id, std::move(obj));
+  }
 
  private:
   void receive_request_result(td::uint64 id, td::Result<tonlib_api::object_ptr<tonlib_api::Object>> R);
@@ -45,3 +57,5 @@ class TonlibClient : public td::actor::Actor {
   std::map<td::uint64, td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>> requests_;
   td::uint64 next_request_id_{1};
 };
+
+}  // namespace tonlib

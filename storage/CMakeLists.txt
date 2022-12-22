@@ -17,6 +17,7 @@ set(STORAGE_SOURCE
   TorrentInfo.cpp
   TorrentMeta.cpp
 
+  db.h
   Bitset.h
   LoadSpeed.h
   MerkleTree.h
@@ -24,32 +25,33 @@ set(STORAGE_SOURCE
   PartsHelper.h
   PeerActor.h
   PeerState.h
-  SharedState.h
   Torrent.h
   TorrentCreator.h
   TorrentHeader.h
   TorrentInfo.h
   TorrentMeta.h
-)
-
+  PeerManager.h
+  MicrochunkTree.h MicrochunkTree.cpp)
 set(STORAGE_CLI_SOURCE
   storage-cli.cpp
 )
 
 add_library(storage ${STORAGE_SOURCE})
 target_link_libraries(storage tdutils tdactor tddb ton_crypto tl_api ${JEMALLOC_LIBRARIES})
-target_include_directories(storage PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
+target_include_directories(storage PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 )
 
 add_executable(storage-cli ${STORAGE_CLI_SOURCE})
 target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dht
-  rldp rldp2 catchain validatorsession full-node validator ton_validator validator
-  fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
+  rldp rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
 
 set(STORAGE_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/storage.cpp
   PARENT_SCOPE
 )
+
+add_subdirectory(storage-daemon)
+
 # Do not install it yet
 #install(TARGETS storage-cli RUNTIME DESTINATION bin)

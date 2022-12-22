@@ -124,7 +124,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }");
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }", bool announce_self = true);
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -366,6 +366,7 @@ class OverlayImpl : public Overlay {
   bool semi_public_ = false;
   OverlayPrivacyRules rules_;
   td::string scope_;
+  bool announce_self_ = true;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {
