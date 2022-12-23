@@ -298,6 +298,7 @@ class StorageDaemonCli : public td::actor::Actor {
     } else if (tokens[0] == "create") {
       std::string path;
       bool found_path = false;
+      bool upload = true;
       std::string description;
       bool json = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
@@ -308,6 +309,10 @@ class StorageDaemonCli : public td::actor::Actor {
               return td::Status::Error("Unexpected EOLN");
             }
             description = tokens[i];
+            continue;
+          }
+          if (tokens[i] == "--no-upload") {
+            upload = false;
             continue;
           }
           if (tokens[i] == "--json") {
@@ -325,11 +330,12 @@ class StorageDaemonCli : public td::actor::Actor {
       if (!found_path) {
         return td::Status::Error("Unexpected EOLN");
       }
-      return execute_create(std::move(path), std::move(description), json);
+      return execute_create(std::move(path), std::move(description), upload, json);
     } else if (tokens[0] == "add-by-hash" || tokens[0] == "add-by-meta") {
       td::optional<std::string> param;
       std::string root_dir;
       bool paused = false;
+      bool upload = true;
       bool json = false;
       td::optional<std::vector<std::string>> partial;
       for (size_t i = 1; i < tokens.size(); ++i) {
@@ -344,6 +350,10 @@ class StorageDaemonCli : public td::actor::Actor {
           }
           if (tokens[i] == "--paused") {
             paused = true;
+            continue;
+          }
+          if (tokens[i] == "--no-upload") {
+            upload = false;
             continue;
           }
           if (tokens[i] == "--json") {
@@ -366,9 +376,9 @@ class StorageDaemonCli : public td::actor::Actor {
       }
       if (tokens[0] == "add-by-hash") {
         TRY_RESULT(hash, parse_hash(param.value()));
-        return execute_add_by_hash(hash, std::move(root_dir), paused, std::move(partial), json);
+        return execute_add_by_hash(hash, std::move(root_dir), paused, upload, std::move(partial), json);
       } else {
-        return execute_add_by_meta(param.value(), std::move(root_dir), paused, std::move(partial), json);
+        return execute_add_by_meta(param.value(), std::move(root_dir), paused, upload, std::move(partial), json);
       }
     } else if (tokens[0] == "list") {
       bool with_hashes = false;
@@ -441,6 +451,12 @@ class StorageDaemonCli : public td::actor::Actor {
       }
       TRY_RESULT(hash, parse_torrent(tokens[1]));
       return execute_set_active_download(hash, tokens[0] == "download-resume");
+    } else if (tokens[0] == "upload-pause" || tokens[0] == "upload-resume") {
+      if (tokens.size() != 2) {
+        return td::Status::Error("Expected bag");
+      }
+      TRY_RESULT(hash, parse_torrent(tokens[1]));
+      return execute_set_active_upload(hash, tokens[0] == "upload-resume");
     } else if (tokens[0] == "priority-all") {
       if (tokens.size() != 3) {
         return td::Status::Error("Expected bag and priority");
@@ -731,19 +747,21 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_help() {
     td::TerminalIO::out() << "help\tPrint this help\n";
-    td::TerminalIO::out() << "create [-d description] [--json] <file/dir>\tCreate bag of files from <file/dir>\n";
-    td::TerminalIO::out() << "\t-d - Description will be stored in torrent info.\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
     td::TerminalIO::out()
-        << "add-by-hash <bag-id> [-d root_dir] [--paused] [--json] [--partial file1 file2 ...]\tAdd bag "
-           "with given BagID (in hex)\n";
+        << "create [-d description] [--no-upload] [--json] <file/dir>\tCreate bag of files from <file/dir>\n";
+    td::TerminalIO::out() << "\t-d\tDescription will be stored in torrent info\n";
+    td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
+    td::TerminalIO::out() << "\t--json\tOutput in json\n";
+    td::TerminalIO::out() << "add-by-hash <bag-id> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
+                             "file2 ...]\tAdd bag with given BagID (in hex)\n";
     td::TerminalIO::out() << "\t-d\tTarget directory, default is an internal directory of storage-daemon\n";
     td::TerminalIO::out() << "\t--paused\tDon't start download immediately\n";
+    td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
     td::TerminalIO::out()
         << "\t--partial\tEverything after this flag is a list of filenames. Only these files will be downloaded.\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--json] [--partial file1 file2 ...]\tLoad "
-                             "meta from file and add bag\n";
+    td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
+                             "file2 ...]\tLoad meta from file and add bag\n";
     td::TerminalIO::out() << "\tFlags are the same as in add-by-hash\n";
     td::TerminalIO::out() << "list [--hashes] [--json]\tPrint list of bags\n";
     td::TerminalIO::out() << "\t--hashes\tPrint full BagID\n";
@@ -828,9 +846,9 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_create(std::string path, std::string description, bool json) {
+  td::Status execute_create(std::string path, std::string description, bool upload, bool json) {
     TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
-    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description);
+    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, upload);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -847,7 +865,7 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_add_by_hash(td::Bits256 hash, std::string root_dir, bool paused,
+  td::Status execute_add_by_hash(td::Bits256 hash, std::string root_dir, bool paused, bool upload,
                                  td::optional<std::vector<std::string>> partial, bool json) {
     if (!root_dir.empty()) {
       TRY_STATUS_PREFIX(td::mkpath(root_dir), "Failed to create directory: ");
@@ -861,8 +879,8 @@ class StorageDaemonCli : public td::actor::Actor {
         priorities.push_back(create_tl_object<ton_api::storage_priorityAction_name>(std::move(f), 1));
       }
     }
-    auto query =
-        create_tl_object<ton_api::storage_daemon_addByHash>(hash, std::move(root_dir), !paused, std::move(priorities));
+    auto query = create_tl_object<ton_api::storage_daemon_addByHash>(hash, std::move(root_dir), !paused, upload,
+                                                                     std::move(priorities));
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -879,7 +897,7 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_add_by_meta(std::string meta_file, std::string root_dir, bool paused,
+  td::Status execute_add_by_meta(std::string meta_file, std::string root_dir, bool paused, bool upload,
                                  td::optional<std::vector<std::string>> partial, bool json) {
     TRY_RESULT_PREFIX(meta, td::read_file(meta_file), "Failed to read meta: ");
     if (!root_dir.empty()) {
@@ -895,7 +913,7 @@ class StorageDaemonCli : public td::actor::Actor {
       }
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByMeta>(std::move(meta), std::move(root_dir), !paused,
-                                                                     std::move(priorities));
+                                                                     upload, std::move(priorities));
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -1009,6 +1027,19 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_set_active_download(td::Bits256 hash, bool active) {
     auto query = create_tl_object<ton_api::storage_daemon_setActiveDownload>(hash, active);
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Success\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_set_active_upload(td::Bits256 hash, bool active) {
+    auto query = create_tl_object<ton_api::storage_daemon_setActiveUpload>(hash, active);
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
                  if (R.is_error()) {
@@ -1601,7 +1632,12 @@ class StorageDaemonCli : public td::actor::Actor {
     } else {
       td::TerminalIO::out() << "Download paused\n";
     }
-    td::TerminalIO::out() << "Upload speed: " << td::format::as_size((td::uint64)obj.torrent_->upload_speed_) << "/s\n";
+    if (obj.torrent_->active_upload_) {
+      td::TerminalIO::out() << "Upload speed: " << td::format::as_size((td::uint64)obj.torrent_->upload_speed_)
+                            << "/s\n";
+    } else {
+      td::TerminalIO::out() << "Upload paused\n";
+    }
     td::TerminalIO::out() << "Root dir: " << obj.torrent_->root_dir_ << "\n";
     if (obj.torrent_->flags_ & 2) {  // header ready
       td::TerminalIO::out() << obj.files_.size() << " files:\n";
@@ -1639,7 +1675,7 @@ class StorageDaemonCli : public td::actor::Actor {
               });
     td::TerminalIO::out() << obj.torrents_.size() << " bags\n";
     std::vector<std::vector<std::string>> table;
-    table.push_back({"#####", "BagID", "Description", "Downloaded", "Total", "Speed"});
+    table.push_back({"#####", "BagID", "Description", "Downloaded", "Total", "Download", "Upload"});
     for (const auto& torrent : obj.torrents_) {
       std::vector<std::string> row;
       row.push_back(std::to_string(hash_to_id_[torrent->hash_]));
@@ -1683,6 +1719,7 @@ class StorageDaemonCli : public td::actor::Actor {
       row.push_back(downloaded_size.append("/").append(included_size));
       row.push_back(total_size);
       row.push_back(status);
+      row.push_back(torrent->active_upload_ ? size_to_str((td::uint64)torrent->upload_speed_) + "/s" : "Paused");
       table.push_back(std::move(row));
     }
     print_table(table, {2});

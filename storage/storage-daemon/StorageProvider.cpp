@@ -155,7 +155,7 @@ void StorageProvider::start_up() {
         init_new_storage_contract(address, contract);
         break;
       case StorageContract::st_downloaded:
-        check_contract_active(address);
+        after_contract_downloaded(address);
         break;
       case StorageContract::st_active:
         contract.check_next_proof_at = td::Timestamp::now();
@@ -382,7 +382,7 @@ void StorageProvider::db_update_microchunk_tree(const ContractAddress& address) 
 void StorageProvider::init_new_storage_contract(ContractAddress address, StorageContract& contract) {
   CHECK(contract.state == StorageContract::st_downloading);
   td::actor::send_closure(storage_manager_, &StorageManager::add_torrent_by_hash, contract.torrent_hash, "", false,
-                          [](td::Result<td::Unit> R) {
+                          false, [](td::Result<td::Unit> R) {
                             // Ignore errors: error can mean that the torrent already exists, other errors will be caught later
                             if (R.is_error()) {
                               LOG(DEBUG) << "Add torrent: " << R.move_as_error();
@@ -449,11 +449,25 @@ void StorageProvider::downloaded_torrent(ContractAddress address, MicrochunkTree
   contract.microchunk_tree = std::make_shared<MicrochunkTree>(std::move(microchunk_tree));
   db_update_microchunk_tree(address);
   db_update_storage_contract(address, false);
-  check_contract_active(address);
+  after_contract_downloaded(address);
 }
 
-void StorageProvider::check_contract_active(ContractAddress address, td::Timestamp retry_until,
-                                            td::Timestamp retry_false_until) {
+void StorageProvider::after_contract_downloaded(ContractAddress address, td::Timestamp retry_until,
+                                                td::Timestamp retry_false_until) {
+  auto it = contracts_.find(address);
+  if (it == contracts_.end()) {
+    LOG(WARNING) << "Contract " << address.to_string() << " does not exist anymore";
+    return;
+  }
+  auto& contract = it->second;
+  td::actor::send_closure(storage_manager_, &StorageManager::set_active_upload, contract.torrent_hash, true,
+                          [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
+                            if (R.is_error()) {
+                              LOG(ERROR) << "Set active upload: " << R.move_as_error();
+                              return;
+                            }
+                            LOG(DEBUG) << "Set active upload: OK";
+                          });
   get_storage_contract_data(address, tonlib_client_,
                             [=, SelfId = actor_id(this)](td::Result<StorageContractData> R) mutable {
                               if (R.is_error()) {
@@ -461,7 +475,7 @@ void StorageProvider::check_contract_active(ContractAddress address, td::Timesta
                                 if (retry_until && retry_until.is_in_past()) {
                                   delay_action(
                                       [=]() {
-                                        td::actor::send_closure(SelfId, &StorageProvider::check_contract_active,
+                                        td::actor::send_closure(SelfId, &StorageProvider::after_contract_downloaded,
                                                                 address, retry_until, retry_false_until);
                                       },
                                       td::Timestamp::in(5.0));
@@ -473,8 +487,8 @@ void StorageProvider::check_contract_active(ContractAddress address, td::Timesta
                               } else if (retry_false_until && retry_false_until.is_in_past()) {
                                 delay_action(
                                     [=]() {
-                                      td::actor::send_closure(SelfId, &StorageProvider::check_contract_active, address,
-                                                              retry_until, retry_false_until);
+                                      td::actor::send_closure(SelfId, &StorageProvider::after_contract_downloaded,
+                                                              address, retry_until, retry_false_until);
                                     },
                                     td::Timestamp::in(5.0));
                               } else {
@@ -497,7 +511,7 @@ void StorageProvider::activate_contract_cont(ContractAddress address) {
                        td::Timestamp::in(10.0));
           return;
         }
-        td::actor::send_closure(SelfId, &StorageProvider::check_contract_active, address, td::Timestamp::in(60.0),
+        td::actor::send_closure(SelfId, &StorageProvider::after_contract_downloaded, address, td::Timestamp::in(60.0),
                                 td::Timestamp::in(40.0));
       });
 }
