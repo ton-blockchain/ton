@@ -878,6 +878,8 @@ cap_method_pubkey#71f4 = SmcCapability;
 cap_is_wallet#2177 = SmcCapability;
 cap_name#ff name:Text = SmcCapability;
 
+dns_storage_address#7473 bag_id:bits256 = DNSRecord;
+
 //
 // PAYMENT CHANNELS
 //

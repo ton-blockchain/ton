@@ -1749,6 +1749,13 @@ bool TestNode::show_dns_record(std::ostream& os, td::Bits256 cat, Ref<vm::CellSl
       }
       break;
     }
+    case block::gen::DNSRecord::dns_storage_address: {
+      block::gen::DNSRecord::Record_dns_storage_address rec;
+      if (tlb::unpack_exact(cs, rec)) {
+        os << "\tstorage address " << rec.bag_id.to_hex();
+      }
+      break;
+    }
     case block::gen::DNSRecord::dns_next_resolver: {
       block::gen::DNSRecord::Record_dns_next_resolver rec;
       if (tlb::unpack_exact(cs, rec) && block::tlb::t_MsgAddressInt.extract_std_address(rec.resolver, wc, addr)) {

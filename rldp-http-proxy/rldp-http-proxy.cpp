@@ -438,14 +438,15 @@ class TcpToRldpRequestSender : public td::actor::Actor {
       , dns_resolver_(dns_resolver) {
   }
   void start_up() override {
-    resolve();
+    td::Random::secure_bytes(id_.as_slice());
+    request_tl_ = request_->store_tl(id_);
+    resolve(host_);
   }
 
-  void resolve();
+  void resolve(std::string host);
 
   void resolved(ton::adnl::AdnlNodeIdShort id) {
     dst_ = id;
-    td::Random::secure_bytes(id_.as_slice());
 
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
@@ -459,7 +460,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
                                                    proxy_, is_tunnel())
         .release();
 
-    auto f = ton::serialize_tl_object(request_->store_tl(id_), true);
+    auto f = ton::serialize_tl_object(request_tl_, true);
     td::actor::send_closure(rldp_, &ton::rldp::Rldp::send_query_ex, local_id_, dst_, "http request over rldp",
                             std::move(P), td::Timestamp::in(30.0), std::move(f), 16 << 10);
   }
@@ -538,6 +539,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
 
   std::unique_ptr<ton::http::HttpRequest> request_;
   std::shared_ptr<ton::http::HttpPayload> request_payload_;
+  ton::tl_object_ptr<ton::ton_api::http_request> request_tl_;
 
   td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>, std::shared_ptr<ton::http::HttpPayload>>> promise_;
 
@@ -546,6 +548,9 @@ class TcpToRldpRequestSender : public td::actor::Actor {
   td::actor::ActorId<ton::rldp::Rldp> rldp_;
   td::actor::ActorId<RldpHttpProxy> proxy_;
   td::actor::ActorId<DNSResolver> dns_resolver_;
+
+  bool dns_resolve_sent_ = false;
+  bool using_storage_gateway_ = false;
 
   std::unique_ptr<ton::http::HttpResponse> response_;
   std::shared_ptr<ton::http::HttpPayload> response_payload_;
@@ -983,15 +988,9 @@ class RldpHttpProxy : public td::actor::Actor {
       }
     }
     {
-      if (is_client_) {
-        auto D = ton::dht::Dht::create_client(dht_id_, "", dht_config_, keyring_.get(), adnl_.get());
-        D.ensure();
-        dht_ = D.move_as_ok();
-      } else {
-        auto D = ton::dht::Dht::create(dht_id_, db_root_, dht_config_, keyring_.get(), adnl_.get());
-        D.ensure();
-        dht_ = D.move_as_ok();
-      }
+      auto D = ton::dht::Dht::create_client(dht_id_, "", dht_config_, keyring_.get(), adnl_.get());
+      D.ensure();
+      dht_ = D.move_as_ok();
       td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_dht_node, dht_.get());
     }
     if (port_) {
@@ -1104,8 +1103,13 @@ class RldpHttpProxy : public td::actor::Actor {
       }
     }
     std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return std::tolower(c); });
-    if (!proxy_all_ &&
-        (host.size() < 5 || (host.substr(host.size() - 4) != ".ton" && host.substr(host.size() - 5) != ".adnl"))) {
+    bool allow = proxy_all_;
+    for (const char* suffix : {".adnl", ".ton", ".bag"}) {
+      if (td::ends_with(host, td::Slice(suffix))) {
+        allow = true;
+      }
+    }
+    if (!allow) {
       promise.set_error(td::Status::Error(ton::ErrorCode::error, "bad server name"));
       return;
     }
@@ -1323,9 +1327,36 @@ class RldpHttpProxy : public td::actor::Actor {
       payload_senders_;
 };
 
-void TcpToRldpRequestSender::resolve() {
-  auto S = td::Slice(host_);
-  if (S.size() >= 5 && S.substr(S.size() - 5) == ".adnl") {
+void TcpToRldpRequestSender::resolve(std::string host) {
+  auto S = td::Slice(host);
+  if (td::ends_with(S, ".bag")) {
+    if (using_storage_gateway_) {
+      abort_query(td::Status::Error(PSTRING() << "invalid storage gateway address: " << host));
+      return;
+    }
+    td::Slice bag_id = S.substr(0, S.size() - 4);
+    td::Slice url = request_tl_->url_;
+    if (td::begins_with(url, "http://")) {
+      url.remove_prefix(7);
+    }
+    size_t pos = url.find('/');
+    if (pos == td::Slice::npos) {
+      url = "/";
+    } else {
+      url = url.substr(pos);
+    }
+    request_tl_->url_ = (PSTRING() << "/itfs/" << bag_id << url);
+    host = "storage-gateway.ton";
+    for (auto& header : request_tl_->headers_) {
+      if (td::to_lower(header->name_) == "host") {
+        header->value_ = host;
+        break;
+      }
+    }
+    using_storage_gateway_ = true;
+    dns_resolve_sent_ = false;
+  }
+  if (td::ends_with(S, ".adnl")) {
     S.truncate(S.size() - 5);
     auto R = ton::adnl::AdnlNodeIdShort::parse(S);
     if (R.is_error()) {
@@ -1335,15 +1366,20 @@ void TcpToRldpRequestSender::resolve() {
     resolved(R.move_as_ok());
     return;
   }
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ton::adnl::AdnlNodeIdShort> R) {
-    if (R.is_error()) {
-      td::actor::send_closure(SelfId, &TcpToRldpRequestSender::abort_query,
-                              R.move_as_error_prefix("failed to resolve: "));
-    } else {
-      td::actor::send_closure(SelfId, &TcpToRldpRequestSender::resolved, R.move_as_ok());
-    }
-  });
-  td::actor::send_closure(dns_resolver_, &DNSResolver::resolve, host_, std::move(P));
+  if (dns_resolve_sent_) {
+    abort_query(td::Status::Error(PSTRING() << "unexpected dns result: " << host));
+    return;
+  }
+  dns_resolve_sent_ = true;
+  td::actor::send_closure(dns_resolver_, &DNSResolver::resolve, host,
+                          [SelfId = actor_id(this)](td::Result<std::string> R) {
+                            if (R.is_error()) {
+                              td::actor::send_closure(SelfId, &TcpToRldpRequestSender::abort_query,
+                                                      R.move_as_error_prefix("failed to resolve: "));
+                            } else {
+                              td::actor::send_closure(SelfId, &TcpToRldpRequestSender::resolve, R.move_as_ok());
+                            }
+                          });
 }
 
 void HttpRldpPayloadSender::start_up() {
