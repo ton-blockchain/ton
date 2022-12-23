@@ -109,7 +109,7 @@ class StorageProvider : public td::actor::Actor {
   void on_new_storage_contract_cont(ContractAddress address, StorageContractData data, td::Promise<td::Unit> promise);
   void init_new_storage_contract(ContractAddress address, StorageContract& contract);
   void downloaded_torrent(ContractAddress address, MicrochunkTree microchunk_tree);
-  void check_contract_active(ContractAddress address, td::Timestamp retry_until = td::Timestamp::in(30.0),
+  void after_contract_downloaded(ContractAddress address, td::Timestamp retry_until = td::Timestamp::in(30.0),
                              td::Timestamp retry_false_until = td::Timestamp::never());
   void activate_contract_cont(ContractAddress address);
   void activated_storage_contract(ContractAddress address);

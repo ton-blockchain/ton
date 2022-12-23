@@ -39,11 +39,12 @@ class StorageManager : public td::actor::Actor {
 
   void start_up() override;
 
-  void add_torrent(Torrent torrent, bool start_download, td::Promise<td::Unit> promise);
-  void add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, td::Promise<td::Unit> promise);
-  void add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, td::Promise<td::Unit> promise);
+  void add_torrent(Torrent torrent, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
+  void add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
+  void add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
 
   void set_active_download(td::Bits256 hash, bool active, td::Promise<td::Unit> promise);
+  void set_active_upload(td::Bits256 hash, bool active, td::Promise<td::Unit> promise);
 
   void with_torrent(td::Bits256 hash, td::Promise<NodeActor::NodeState> promise);
   void get_all_torrents(td::Promise<std::vector<td::Bits256>> promise);
@@ -85,7 +86,7 @@ class StorageManager : public td::actor::Actor {
 
   std::map<td::Bits256, TorrentEntry> torrents_;
 
-  td::Status add_torrent_impl(Torrent torrent, bool start_download);
+  td::Status add_torrent_impl(Torrent torrent, bool start_download, bool allow_upload);
 
   td::Result<TorrentEntry*> get_torrent(td::Bits256 hash) {
     auto it = torrents_.find(hash);

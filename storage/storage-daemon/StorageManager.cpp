@@ -126,13 +126,14 @@ td::unique_ptr<NodeActor::Callback> StorageManager::create_callback(
   return td::make_unique<Callback>(actor_id(this), hash, std::move(closing_state));
 }
 
-void StorageManager::add_torrent(Torrent torrent, bool start_download, td::Promise<td::Unit> promise) {
-  TRY_STATUS_PROMISE(promise, add_torrent_impl(std::move(torrent), start_download));
+void StorageManager::add_torrent(Torrent torrent, bool start_download, bool allow_upload,
+                                 td::Promise<td::Unit> promise) {
+  TRY_STATUS_PROMISE(promise, add_torrent_impl(std::move(torrent), start_download, allow_upload));
   db_store_torrent_list();
   promise.set_result(td::Unit());
 }
 
-td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download) {
+td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download, bool allow_upload) {
   td::Bits256 hash = torrent.get_hash();
   if (torrents_.count(hash)) {
     return td::Status::Error("Cannot add torrent: duplicate hash");
@@ -145,30 +146,36 @@ td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download
   LOG(INFO) << "Added torrent " << hash.to_hex() << " , root_dir = " << torrent.get_root_dir();
   entry.actor =
       td::actor::create_actor<NodeActor>("Node", 1, std::move(torrent), create_callback(hash, entry.closing_state),
-                                         std::move(context), db_, start_download);
+                                         std::move(context), db_, start_download, allow_upload);
   return td::Status::OK();
 }
 
-void StorageManager::add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download,
+void StorageManager::add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, bool allow_upload,
                                          td::Promise<td::Unit> promise) {
   td::Bits256 hash(meta.info.get_hash());
   Torrent::Options options;
   options.root_dir = root_dir.empty() ? db_root_ + "/torrent-files/" + hash.to_hex() : root_dir;
   TRY_RESULT_PROMISE(promise, torrent, Torrent::open(std::move(options), std::move(meta)));
-  add_torrent(std::move(torrent), start_download, std::move(promise));
+  add_torrent(std::move(torrent), start_download, allow_upload, std::move(promise));
 }
 
-void StorageManager::add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download,
+void StorageManager::add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, bool allow_upload,
                                          td::Promise<td::Unit> promise) {
   Torrent::Options options;
   options.root_dir = root_dir.empty() ? db_root_ + "/torrent-files/" + hash.to_hex() : root_dir;
   TRY_RESULT_PROMISE(promise, torrent, Torrent::open(std::move(options), hash));
-  add_torrent(std::move(torrent), start_download, std::move(promise));
+  add_torrent(std::move(torrent), start_download, allow_upload, std::move(promise));
 }
 
 void StorageManager::set_active_download(td::Bits256 hash, bool active, td::Promise<td::Unit> promise) {
   TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
   td::actor::send_closure(entry->actor, &NodeActor::set_should_download, active);
+  promise.set_result(td::Unit());
+}
+
+void StorageManager::set_active_upload(td::Bits256 hash, bool active, td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
+  td::actor::send_closure(entry->actor, &NodeActor::set_should_upload, active);
   promise.set_result(td::Unit());
 }
 
