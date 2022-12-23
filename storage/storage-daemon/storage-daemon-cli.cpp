@@ -774,6 +774,8 @@ class StorageDaemonCli : public td::actor::Actor {
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
     td::TerminalIO::out() << "download-pause <bag>\tPause download of <bag>\n";
     td::TerminalIO::out() << "download-resume <bag>\tResume download of <bag>\n";
+    td::TerminalIO::out() << "upload-pause <bag>\tPause upload of <bag>\n";
+    td::TerminalIO::out() << "upload-resume <bag>\tResume upload of <bag>\n";
     td::TerminalIO::out() << "priority-all <bag> <p>\tSet priority of all files in <bag> to <p>\n";
     td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
     td::TerminalIO::out() << "priority-idx <bag> <idx> <p>\tSet priority of file #<idx> in <bag> to <p>\n";
