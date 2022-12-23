@@ -22,7 +22,7 @@
 #include "td/utils/format.h"
 
 namespace ton {
-void LoadSpeed::add(std::size_t size, td::Timestamp now) {
+void LoadSpeed::add(td::uint64 size, td::Timestamp now) {
   total_size_ += size;
   events_.push(Event{size, now});
   update(now);
