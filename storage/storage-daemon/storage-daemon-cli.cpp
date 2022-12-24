@@ -858,6 +858,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  td::TerminalIO::out() << "Bag created\n";
@@ -890,6 +891,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  td::TerminalIO::out() << "Bag added\n";
@@ -923,6 +925,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  td::TerminalIO::out() << "Bag added\n";
@@ -941,6 +944,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_list, R.move_as_ok(), with_hashes);
@@ -958,6 +962,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  td::actor::send_closure(SelfId, &StorageDaemonCli::print_torrent_full, R.move_as_ok());
@@ -996,6 +1001,7 @@ class StorageDaemonCli : public td::actor::Actor {
           }
           if (json) {
             print_json(R.ok());
+            td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
             return;
           }
           auto obj = R.move_as_ok();
@@ -1262,6 +1268,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  auto params = R.move_as_ok();
@@ -1327,6 +1334,7 @@ class StorageDaemonCli : public td::actor::Actor {
                  }
                  if (json) {
                    print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                    return;
                  }
                  auto info = R.move_as_ok();

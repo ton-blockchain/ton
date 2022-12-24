@@ -100,6 +100,9 @@ td::Status TorrentHeader::validate(td::uint64 total_size, td::uint64 header_size
   if (serialization_size() != header_size) {
     return td::Status::Error("Invalid size");
   }
+  if (files_count == 0) {
+    return td::Status::Error("No files");
+  }
   for (size_t i = 0; i + 1 < files_count; ++i) {
     if (name_index[i] > name_index[i + 1]) {
       return td::Status::Error("Invalid name offset");
