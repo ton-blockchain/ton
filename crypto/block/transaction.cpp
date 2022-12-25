@@ -1067,7 +1067,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (cfg.vm_log_verbosity > 1) {
       vm_log.log_mask |= vm::VmLog::ExecLocation;
       if (cfg.vm_log_verbosity > 2) {
-        vm_log.log_mask |= vm::VmLog::DumpStack;
+        vm_log.log_mask |= vm::VmLog::DumpStack | vm::VmLog::GasRemaining;
       }
     }
   }

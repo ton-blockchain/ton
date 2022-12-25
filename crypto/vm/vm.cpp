@@ -471,6 +471,7 @@ int VmState::run() {
       try {
         try {
           res = step();
+          VM_LOG_MASK(this, vm::VmLog::GasRemaining) << "gas remaining: " << gas.gas_remaining;
           gas.check();
         } catch (vm::CellBuilder::CellWriteError) {
           throw VmError{Excno::cell_ov};
