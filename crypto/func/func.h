@@ -925,7 +925,7 @@ struct Expr {
   }
   int define_new_vars(CodeBlob& code);
   int predefine_vars();
-  std::vector<var_idx_t> pre_compile(CodeBlob& code, bool lval = false) const;
+  std::vector<var_idx_t> pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs = nullptr) const;
   static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here);
   var_idx_t new_tmp(CodeBlob& code) const;
   std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
