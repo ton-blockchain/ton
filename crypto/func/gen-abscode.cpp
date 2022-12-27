@@ -256,6 +256,9 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
   auto left = lhs->pre_compile(code, &globs);
   code.emplace_back(here, Op::_Let, std::move(left), right);
   add_set_globs(code, globs, here);
+  for (var_idx_t v : left) {
+    code.check_modify_forbidden(v, here);
+  }
   return right;
 }
 
@@ -269,7 +272,13 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       std::vector<var_idx_t> res;
       for (const auto& x : args) {
         auto add = x->pre_compile(code, lval_globs);
+        for (var_idx_t v : add) {
+          code.mark_modify_forbidden(v);
+        }
         res.insert(res.end(), add.cbegin(), add.cend());
+      }
+      for (var_idx_t v : res) {
+        code.unmark_modify_forbidden(v);
       }
       return res;
     }
@@ -282,6 +291,9 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
         std::vector<std::vector<var_idx_t>> add_list(args.size());
         for (int i : func->arg_order) {
           add_list[i] = args[i]->pre_compile(code);
+          for (var_idx_t v : add_list[i]) {
+            code.mark_modify_forbidden(v);
+          }
         }
         for (const auto& add : add_list) {
           res.insert(res.end(), add.cbegin(), add.cend());
@@ -289,8 +301,14 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       } else {
         for (const auto& x : args) {
           auto add = x->pre_compile(code);
+          for (var_idx_t v : add) {
+            code.mark_modify_forbidden(v);
+          }
           res.insert(res.end(), add.cbegin(), add.cend());
         }
+      }
+      for (var_idx_t v : res) {
+        code.unmark_modify_forbidden(v);
       }
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
@@ -352,6 +370,9 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       }
       auto left = args[0]->pre_compile(code, lval_globs);
       left.push_back(rvect[0]);
+      for (var_idx_t v : left) {
+        code.check_modify_forbidden(v, here);
+      }
       code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
       add_set_globs(code, local_globs, here);
       return rvect;

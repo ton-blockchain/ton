@@ -306,10 +306,16 @@ struct TmpVar {
   sym_idx_t name;
   int coord;
   std::unique_ptr<SrcLocation> where;
+  size_t modify_forbidden = 0;
   TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
   void set_location(const SrcLocation& loc);
+  std::string to_string() const {
+    std::ostringstream s;
+    show(s, 2);
+    return s.str();
+  }
 };
 
 struct VarDescr {
@@ -722,6 +728,22 @@ struct CodeBlob {
   void mark_noreturn();
   void generate_code(AsmOpList& out_list, int mode = 0);
   void generate_code(std::ostream& os, int mode = 0, int indent = 0);
+
+  void mark_modify_forbidden(var_idx_t idx) {
+    ++vars.at(idx).modify_forbidden;
+  }
+
+  void unmark_modify_forbidden(var_idx_t idx) {
+    assert(vars.at(idx).modify_forbidden > 0);
+    --vars.at(idx).modify_forbidden;
+  }
+
+  void check_modify_forbidden(var_idx_t idx, const SrcLocation& here) const {
+    if (vars.at(idx).modify_forbidden) {
+      throw src::ParseError{here, PSTRING() << "Modifying local variable " << vars[idx].to_string()
+                                            << " after using it in the same expression"};
+    }
+  }
 };
 
 /*
