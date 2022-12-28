@@ -30,6 +30,8 @@ jobs:
           docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/validator-engine-console/validator-engine-console build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/storage/storage-daemon/storage-daemon build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/storage/storage-daemon/storage-daemon-cli build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/crypto/fift build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/crypto/func build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/crypto/create-state build-${{matrix.ver}}-${{matrix.arch}}/

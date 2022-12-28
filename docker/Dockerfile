@@ -12,7 +12,7 @@ WORKDIR /ton
 RUN mkdir build && \
 	cd build && \
 	cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. && \
-	ninja tonlibjson fift func validator-engine validator-engine-console generate-random-id dht-server lite-client
+	ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console generate-random-id dht-server lite-client
 
 FROM ubuntu:20.04
 RUN apt-get update && \
