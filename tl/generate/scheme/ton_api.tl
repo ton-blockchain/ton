@@ -829,7 +829,7 @@ storage.daemon.providerAddress address:string = storage.daemon.ProviderAddress;
 
 ---functions---
 storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
-storage.daemon.createTorrent path:string description:string allow_upload:Bool = storage.daemon.TorrentFull;
+storage.daemon.createTorrent path:string description:string allow_upload:Bool copy_inside:Bool = storage.daemon.TorrentFull;
 storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
 storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
 storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Success;

@@ -299,6 +299,7 @@ class StorageDaemonCli : public td::actor::Actor {
       std::string path;
       bool found_path = false;
       bool upload = true;
+      bool copy = false;
       std::string description;
       bool json = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
@@ -313,6 +314,10 @@ class StorageDaemonCli : public td::actor::Actor {
           }
           if (tokens[i] == "--no-upload") {
             upload = false;
+            continue;
+          }
+          if (tokens[i] == "--copy") {
+            copy = true;
             continue;
           }
           if (tokens[i] == "--json") {
@@ -330,7 +335,7 @@ class StorageDaemonCli : public td::actor::Actor {
       if (!found_path) {
         return td::Status::Error("Unexpected EOLN");
       }
-      return execute_create(std::move(path), std::move(description), upload, json);
+      return execute_create(std::move(path), std::move(description), upload, copy, json);
     } else if (tokens[0] == "add-by-hash" || tokens[0] == "add-by-meta") {
       td::optional<std::string> param;
       std::string root_dir;
@@ -748,9 +753,10 @@ class StorageDaemonCli : public td::actor::Actor {
   td::Status execute_help() {
     td::TerminalIO::out() << "help\tPrint this help\n";
     td::TerminalIO::out()
-        << "create [-d description] [--no-upload] [--json] <file/dir>\tCreate bag of files from <file/dir>\n";
+        << "create [-d description] [--no-upload] [--copy] [--json] <file/dir>\tCreate bag of files from <file/dir>\n";
     td::TerminalIO::out() << "\t-d\tDescription will be stored in torrent info\n";
     td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
+    td::TerminalIO::out() << "\t--copy\tFiles will be copied to an internal directory of storage-daemon\n";
     td::TerminalIO::out() << "\t--json\tOutput in json\n";
     td::TerminalIO::out() << "add-by-hash <bag-id> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
                              "file2 ...]\tAdd bag with given BagID (in hex)\n";
@@ -848,9 +854,9 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  td::Status execute_create(std::string path, std::string description, bool upload, bool json) {
+  td::Status execute_create(std::string path, std::string description, bool upload, bool copy, bool json) {
     TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
-    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, upload);
+    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, upload, copy);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -1662,7 +1668,7 @@ class StorageDaemonCli : public td::actor::Actor {
         }
         snprintf(str, sizeof(str), "%6u: (%s) %7s/%-7s %s  ", i, priority,
                  f->priority_ == 0 ? "---" : size_to_str(f->downloaded_size_).c_str(), size_to_str(f->size_).c_str(),
-                 (f->downloaded_size_ == f->size_ ? "+" : " "));
+                 ((f->downloaded_size_ == f->size_ && f->priority_ > 0) ? "+" : " "));
         td::TerminalIO::out() << str << f->name_ << "\n";
         ++i;
       }
