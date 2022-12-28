@@ -22,10 +22,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
+      - name: Show branch
+        run: |
+          echo branch ${GITHUB_REF##*/}
+
+      - name: Set output
+        id: vars
+        run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
+
+      - name: Check output
+        run: echo branch ${{ steps.vars.outputs.short_ref }}
+
       - name: Build with docker buildx
         run: |
           mkdir build-${{matrix.ver}}-${{matrix.arch}}
           
+          echo docker buildx build --build-arg branch=${GITHUB_REF##*/} --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
           docker buildx build --build-arg branch=${GITHUB_REF##*/} --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
           container_id=$(docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}})         
           docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
