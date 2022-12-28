@@ -6,7 +6,8 @@ RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gpe
 
 WORKDIR /
 
-RUN git clone --recurse-submodules https://github.com/ton-blockchain/ton.git
+ARG BRANCH
+RUN git clone --recurse-submodules https://github.com/ton-blockchain/ton.git && cd ton && git checkout $BRANCH
 
 WORKDIR /ton
 RUN mkdir /ton/build
@@ -15,4 +16,4 @@ ENV CC clang
 ENV CXX clang++
 ENV CCACHE_DISABLE 1
 RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_ARCH= ..
-RUN ninja tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id dht-server lite-client
+RUN ninja storage-daemon storage-daemon-cli tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id dht-server lite-client
