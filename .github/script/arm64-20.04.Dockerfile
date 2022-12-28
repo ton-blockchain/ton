@@ -6,7 +6,9 @@ RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gpe
 
 WORKDIR /
 
-RUN git clone --recurse-submodules https://github.com/ton-blockchain/ton.git && cd ton && git checkout $branch
+ARG BRANCH
+ARG BRANCH_PARAM=$BRANCH
+RUN git clone --recurse-submodules https://github.com/ton-blockchain/ton.git && cd ton && git checkout $BRANCH_PARAM
 
 WORKDIR /ton
 RUN mkdir /ton/build
