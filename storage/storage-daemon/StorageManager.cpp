@@ -136,7 +136,7 @@ void StorageManager::add_torrent(Torrent torrent, bool start_download, bool allo
 td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download, bool allow_upload) {
   td::Bits256 hash = torrent.get_hash();
   if (torrents_.count(hash)) {
-    return td::Status::Error("Cannot add torrent: duplicate hash");
+    return td::Status::Error(PSTRING() << "Cannot add torrent: duplicate hash " << hash.to_hex());
   }
   TorrentEntry& entry = torrents_[hash];
   entry.hash = hash;

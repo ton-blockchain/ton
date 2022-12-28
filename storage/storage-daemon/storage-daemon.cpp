@@ -69,6 +69,7 @@ class StorageDaemon : public td::actor::Actor {
   void start_up() override {
     CHECK(db_root_ != "");
     td::mkdir(db_root_).ensure();
+    db_root_ = td::realpath(db_root_).move_as_ok();
     keyring_ = keyring::Keyring::create(db_root_ + "/keyring");
     {
       auto S = load_global_config();
@@ -285,20 +286,36 @@ class StorageDaemon : public td::actor::Actor {
   void run_control_query(ton_api::storage_daemon_createTorrent &query, td::Promise<td::BufferSlice> promise) {
     // Run in a separate thread
     delay_action(
-        [promise = std::move(promise), manager = manager_.get(), query = std::move(query)]() mutable {
+        [promise = std::move(promise), manager = manager_.get(), db_root = db_root_,
+         query = std::move(query)]() mutable {
           Torrent::Creator::Options options;
           options.piece_size = 128 * 1024;
           options.description = std::move(query.description_);
           TRY_RESULT_PROMISE(promise, torrent, Torrent::Creator::create_from_path(std::move(options), query.path_));
           td::Bits256 hash = torrent.get_hash();
+          td::Promise<td::Unit> P = [manager, hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+            TRY_RESULT_PROMISE(promise, unit, std::move(R));
+            get_torrent_info_full_serialized(manager, hash, std::move(promise));
+          };
+          if (query.copy_inside_) {
+            P = [P = std::move(P), manager, hash, db_root](td::Result<td::Unit> R) mutable {
+              TRY_RESULT_PROMISE(P, unit, std::move(R));
+              td::actor::send_closure(manager, &StorageManager::with_torrent, hash,
+                                      P.wrap([=](NodeActor::NodeState state) -> td::Status {
+                                        std::string dir = db_root + "/torrent/torrent-files/" + hash.to_hex();
+                                        LOG(INFO) << "Copying torrent to " << dir;
+                                        auto S = state.torrent.copy_to(dir);
+                                        if (S.is_error()) {
+                                          LOG(WARNING) << "Copying torrent to " << dir << ": " << S;
+                                          td::actor::send_closure(manager, &StorageManager::remove_torrent, hash, false,
+                                                                  [](td::Result<td::Unit>) {});
+                                        }
+                                        return S;
+                                      }));
+            };
+          }
           td::actor::send_closure(manager, &StorageManager::add_torrent, std::move(torrent), false, query.allow_upload_,
-                                  [manager, hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-                                    if (R.is_error()) {
-                                      promise.set_error(R.move_as_error());
-                                    } else {
-                                      get_torrent_info_full_serialized(manager, hash, std::move(promise));
-                                    }
-                                  });
+                                  std::move(P));
         },
         td::Timestamp::now());
   }
@@ -810,6 +827,7 @@ class StorageDaemon : public td::actor::Actor {
                                 auto obj = create_tl_object<ton_api::storage_daemon_torrentFull>();
                                 fill_torrent_info_full(state.torrent, *obj);
                                 obj->torrent_->active_download_ = state.active_download;
+                                obj->torrent_->active_upload_ = state.active_upload;
                                 obj->torrent_->download_speed_ = state.download_speed;
                                 obj->torrent_->upload_speed_ = state.upload_speed;
                                 for (size_t i = 0; i < obj->files_.size(); ++i) {
