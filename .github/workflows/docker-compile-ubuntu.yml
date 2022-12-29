@@ -33,19 +33,9 @@ jobs:
       - name: Check output
         run: echo branch ${{ steps.vars.outputs.short_ref }}
 
-      - name: Install GSL 2.7.1
+      - name: Remove GSL
         run: |
-          wget https://ftp.gnu.org/gnu/gsl/gsl-2.7.1.tar.gz
-          tar -xf gsl-2.7.1.tar.gz
-          cd gsl-2.7.1/
-          ./configure
-          make
-          sudo make install
-
-      - name: Show GSL version
-        run: |
-          gsl-config --libs
-          gsl-config --version
+          sudo apt-get purge --auto-remove libgsl*
 
       - name: Build with docker buildx
         run: |
