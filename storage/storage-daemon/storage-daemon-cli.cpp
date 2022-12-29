@@ -39,7 +39,7 @@
 #include "common/refint.h"
 #include "crypto/block/block.h"
 
-using namespace ton;
+namespace ton {
 
 bool is_whitespace(char c) {
   return strchr(" \t\n\r", c) != nullptr;
@@ -1742,12 +1742,14 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 };
 
+}  // namespace ton
+
 int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler();
   td::IPAddress ip_addr;
-  PrivateKey client_private_key;
-  PublicKey server_public_key;
+  ton::PrivateKey client_private_key;
+  ton::PublicKey server_public_key;
   std::vector<std::string> commands;
   td::OptionParser p;
   p.set_description("command-line interface for storage-daemon");
@@ -1772,12 +1774,12 @@ int main(int argc, char* argv[]) {
   p.add_option('c', "cmd", "execute command", [&](td::Slice arg) { commands.push_back(arg.str()); });
   p.add_checked_option('k', "key", "private key", [&](td::Slice arg) {
     TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
-    TRY_RESULT_ASSIGN(client_private_key, PrivateKey::import(data));
+    TRY_RESULT_ASSIGN(client_private_key, ton::PrivateKey::import(data));
     return td::Status::OK();
   });
   p.add_checked_option('p', "pub", "server public key", [&](td::Slice arg) {
     TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
-    TRY_RESULT_ASSIGN(server_public_key, PublicKey::import(data));
+    TRY_RESULT_ASSIGN(server_public_key, ton::PublicKey::import(data));
     return td::Status::OK();
   });
 
@@ -1791,8 +1793,8 @@ int main(int argc, char* argv[]) {
 
   td::actor::Scheduler scheduler({0});
   scheduler.run_in_context([&] {
-    td::actor::create_actor<StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key,
-                                              std::move(commands))
+    td::actor::create_actor<ton::StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key,
+                                                   std::move(commands))
         .release();
   });
   scheduler.run();

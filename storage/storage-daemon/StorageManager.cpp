@@ -21,6 +21,8 @@
 #include "td/db/RocksDb.h"
 #include "td/actor/MultiPromise.h"
 
+namespace ton {
+
 static overlay::OverlayIdFull get_overlay_id(td::Bits256 hash) {
   td::BufferSlice hash_str(hash.as_slice());
   return overlay::OverlayIdFull(std::move(hash_str));
@@ -273,3 +275,5 @@ void StorageManager::get_peers_info(td::Bits256 hash,
   TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
   td::actor::send_closure(entry->actor, &NodeActor::get_peers_info, std::move(promise));
 }
+
+}  // namespace ton
