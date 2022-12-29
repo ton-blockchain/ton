@@ -8,10 +8,6 @@ if (NOT GSL_FOUND)
   find_package(GSL)
 endif()
 
-if (NOT BLAS_FOUND)
-  find_package(BLAS)
-endif()
-
 set(RLDP_SOURCE
   Ack.cpp
   Bbr.cpp
@@ -54,7 +50,7 @@ target_include_directories(rldp PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-if (GSL_FOUND AND BLAS_FOUND)
+if (GSL_FOUND)
   target_link_libraries(rldp2 PRIVATE gsl)
   target_compile_definitions(rldp2 PRIVATE -DTON_HAVE_GSL=1)
 endif()
