@@ -7,6 +7,9 @@ endif()
 if (NOT GSL_FOUND)
   find_package(GSL)
 endif()
+if (NOT BLAS_FOUND)
+  find_package(BLAS)
+endif()
 
 set(RLDP_SOURCE
   Ack.cpp
@@ -50,8 +53,8 @@ target_include_directories(rldp PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-if (GSL_FOUND)
-  target_link_libraries(rldp2 PRIVATE gsl)
+if (GSL_FOUND AND BLAS_FOUND)
+  target_link_libraries(rldp2 PRIVATE gsl blas)
   target_compile_definitions(rldp2 PRIVATE -DTON_HAVE_GSL=1)
 endif()
 target_link_libraries(rldp2 PUBLIC tdutils tdactor fec adnl tl_api)
