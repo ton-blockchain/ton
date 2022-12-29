@@ -42,8 +42,7 @@ jobs:
         run: |
           mkdir build-${{matrix.ver}}-${{matrix.arch}}
           
-          echo docker buildx build --build-arg BRANCH=${{ steps.vars.outputs.short_ref }} --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
-          docker buildx build --build-arg branch=${GITHUB_REF##*/} --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
+          docker buildx build --build-arg BRANCH=${{ steps.vars.outputs.short_ref }} --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
           container_id=$(docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}})         
           docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/
