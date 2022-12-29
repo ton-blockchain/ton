@@ -34,6 +34,7 @@ jobs:
         run: echo branch ${{ steps.vars.outputs.short_ref }}
 
       - name: Remove GSL
+        if: matrix.ver == '18.04'
         run: |
           sudo apt-get purge --auto-remove libgsl*
 

@@ -22,10 +22,9 @@ jobs:
         sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
 
     - name: Remove GSL
+      if: matrix.os == 'ubuntu-18.04'
       run: |
-        if: matrix.os == 'ubuntu-18.04'
-          sudo apt-get purge --auto-remove libgsl*
-        fi
+        sudo apt-get purge --auto-remove libgsl*
 
     - name: Configure & Build
       run: |
