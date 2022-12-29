@@ -92,6 +92,7 @@ class NodeActor : public td::actor::Actor {
   void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
 
   void load_from(td::optional<TorrentMeta> meta, std::string files_path, td::Promise<td::Unit> promise);
+  void copy_to_new_root_dir(std::string new_root_dir, td::Promise<td::Unit> promise);
 
   void wait_for_completion(td::Promise<td::Unit> promise);
   void get_peers_info(td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise);

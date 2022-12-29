@@ -39,7 +39,8 @@ class StorageManager : public td::actor::Actor {
 
   void start_up() override;
 
-  void add_torrent(Torrent torrent, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
+  void add_torrent(Torrent torrent, bool start_download, bool allow_upload, bool copy_inside,
+                   td::Promise<td::Unit> promise);
   void add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, bool allow_upload,
                            td::Promise<td::Unit> promise);
   void add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, bool allow_upload,

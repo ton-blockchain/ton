@@ -293,35 +293,15 @@ class StorageDaemon : public td::actor::Actor {
           options.description = std::move(query.description_);
           TRY_RESULT_PROMISE(promise, torrent, Torrent::Creator::create_from_path(std::move(options), query.path_));
           td::Bits256 hash = torrent.get_hash();
-          td::Promise<td::Unit> P = [manager, hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-            if (R.is_error()) {
-              promise.set_error(R.move_as_error());
-              return;
-            }
-            get_torrent_info_full_serialized(manager, hash, std::move(promise));
-          };
-          if (query.copy_inside_) {
-            P = [P = std::move(P), manager, hash, db_root](td::Result<td::Unit> R) mutable {
-              if (R.is_error()) {
-                P.set_error(R.move_as_error());
-                return;
-              }
-              td::actor::send_closure(manager, &StorageManager::with_torrent, hash,
-                                      P.wrap([=](NodeActor::NodeState state) -> td::Status {
-                                        std::string dir = db_root + "/torrent/torrent-files/" + hash.to_hex();
-                                        LOG(INFO) << "Copying torrent to " << dir;
-                                        auto S = state.torrent.copy_to(dir);
-                                        if (S.is_error()) {
-                                          LOG(WARNING) << "Copying torrent to " << dir << ": " << S;
-                                          td::actor::send_closure(manager, &StorageManager::remove_torrent, hash, false,
-                                                                  [](td::Result<td::Unit>) {});
-                                        }
-                                        return S;
-                                      }));
-            };
-          }
           td::actor::send_closure(manager, &StorageManager::add_torrent, std::move(torrent), false, query.allow_upload_,
-                                  std::move(P));
+                                  query.copy_inside_,
+                                  [manager, hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+                                    if (R.is_error()) {
+                                      promise.set_error(R.move_as_error());
+                                      return;
+                                    }
+                                    get_torrent_info_full_serialized(manager, hash, std::move(promise));
+                                  });
         },
         td::Timestamp::now());
   }
