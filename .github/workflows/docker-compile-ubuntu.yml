@@ -40,7 +40,7 @@ jobs:
           cd gsl-2.7.1/
           ./configure
           make
-          make install
+          sudo make install
 
       - name: Show GSL version
         run: |
