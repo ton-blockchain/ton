@@ -2904,6 +2904,9 @@ td::Result<ton::ManualDns::EntryData> to_dns_entry_data(tonlib_api::dns_EntryDat
             TRY_RESULT(address, get_adnl_address(adnl_address.adnl_address_->adnl_address_));
             return ton::ManualDns::EntryData::adnl_address(std::move(address));
           },
+          [&](tonlib_api::dns_entryDataStorageAddress& storage_address) -> R {
+            return ton::ManualDns::EntryData::storage_address(storage_address.bag_id_);
+          },
           [&](tonlib_api::dns_entryDataText& text) -> R { return ton::ManualDns::EntryData::text(text.text_); }));
 }
 
@@ -4093,6 +4096,9 @@ td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
       [&](const ton::ManualDns::EntryDataSmcAddress& smc_address) {
         res = tonlib_api::make_object<tonlib_api::dns_entryDataSmcAddress>(
             tonlib_api::make_object<tonlib_api::accountAddress>(smc_address.smc_address.rserialize(true)));
+      },
+      [&](const ton::ManualDns::EntryDataStorageAddress& storage_address) {
+        res = tonlib_api::make_object<tonlib_api::dns_entryDataStorageAddress>(storage_address.bag_id);
       }));
   return res;
 }

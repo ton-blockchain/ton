@@ -34,16 +34,16 @@ class DNSResolver : public td::actor::Actor {
   explicit DNSResolver(td::actor::ActorId<tonlib::TonlibClientWrapper> tonlib_client);
 
   void start_up() override;
-  void resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdShort> promise);
+  void resolve(std::string host, td::Promise<std::string> promise);
 
  private:
   void sync();
-  void save_to_cache(std::string host, ton::adnl::AdnlNodeIdShort id);
+  void save_to_cache(std::string host, std::string address);
 
   td::actor::ActorId<tonlib::TonlibClientWrapper> tonlib_client_;
 
   struct CacheEntry {
-    ton::adnl::AdnlNodeIdShort id_;
+    std::string address_;
     double created_at_;
   };
   std::map<std::string, CacheEntry> cache_;
