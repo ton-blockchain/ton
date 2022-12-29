@@ -254,11 +254,11 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
   auto right = rhs->pre_compile(code);
   std::vector<std::pair<SymDef*, var_idx_t>> globs;
   auto left = lhs->pre_compile(code, &globs);
-  code.emplace_back(here, Op::_Let, std::move(left), right);
-  add_set_globs(code, globs, here);
   for (var_idx_t v : left) {
     code.check_modify_forbidden(v, here);
   }
+  code.emplace_back(here, Op::_Let, std::move(left), right);
+  add_set_globs(code, globs, here);
   return right;
 }
 
