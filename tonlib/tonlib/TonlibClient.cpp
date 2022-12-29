@@ -1712,12 +1712,19 @@ class RunEmulator : public td::actor::Actor {
           return td::Status::Error("block header has incorrect root hash");
         }
 
-        std::vector<ton::BlockIdExt> prev_block_id;
+        std::vector<ton::BlockIdExt> prev_blocks;
         ton::BlockIdExt mc_block_id;
         bool after_split;
-        td::Status status = block::unpack_block_prev_blk_ext(virt_root, block_id, prev_block_id, mc_block_id, after_split);
+        td::Status status = block::unpack_block_prev_blk_ext(virt_root, block_id, prev_blocks, mc_block_id, after_split);
         if (status.is_error()) {
           return status.move_as_error();
+        }
+
+        ton::BlockIdExt prev_block;
+        if (prev_blocks.size() == 1 || ton::is_left_child(block_id.id.shard)) {
+          prev_block = std::move(prev_blocks[0]);
+        } else {
+          prev_block = std::move(prev_blocks[1]);
         }
 
         block::gen::Block::Record block;
@@ -1726,7 +1733,7 @@ class RunEmulator : public td::actor::Actor {
           return td::Status::Error("cannot unpack block header");
         }
 
-        return FullBlockId{std::move(block_id), std::move(mc_block_id), std::move(prev_block_id.back()), std::move(extra.rand_seed)};
+        return FullBlockId{std::move(block_id), std::move(mc_block_id), std::move(prev_block), std::move(extra.rand_seed)};
       } catch (vm::VmError& err) {
         return err.as_status("error processing header");
       } catch (vm::VmVirtError& err) {
