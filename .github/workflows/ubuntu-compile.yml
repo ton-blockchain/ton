@@ -23,7 +23,9 @@ jobs:
 
     - name: Remove GSL
       run: |
-        sudo apt-get purge --auto-remove libgsl*
+        if: matrix.os == 'ubuntu-18.04'
+          sudo apt-get purge --auto-remove libgsl*
+        fi
 
     - name: Configure & Build
       run: |
