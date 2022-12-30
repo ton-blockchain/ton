@@ -520,6 +520,14 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       } while (changes <= edit);
       return set_var_info(std::move(new_var_info));
     }
+    case _TryCatch: {
+      code.compute_used_code_vars(block0, next_var_info, edit);
+      code.compute_used_code_vars(block1, next_var_info, edit);
+      VarDescrList merge_info = block0->var_info + block1->var_info + next_var_info;
+      merge_info -= left;
+      merge_info.clear_last();
+      return set_var_info(std::move(merge_info));
+    }
     default:
       std::cerr << "fatal: unknown operation <??" << cl << "> in compute_used_vars()\n";
       throw src::ParseError{where, "unknown operation"};
@@ -643,6 +651,10 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
         return false;
       }
       reach = true;
+      break;
+    }
+    case Op::_TryCatch: {
+      reach = prune_unreachable(op.block0) | prune_unreachable(op.block1);
       break;
     }
     default:
@@ -798,6 +810,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     }
     case _While: {
+      auto values0 = values;
       values = block0->fwd_analyze(values);
       if (values[left[0]] && values[left[0]]->always_false()) {
         // block1 never executed
@@ -805,7 +818,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
         break;
       }
       while (true) {
-        VarDescrList next_values = values | block0->fwd_analyze(block1->fwd_analyze(values));
+        VarDescrList next_values = values | block0->fwd_analyze(values0 | block1->fwd_analyze(values));
         if (same_values(next_values, values)) {
           break;
         }
@@ -823,6 +836,12 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
         values = std::move(next_values);
       }
       values = block0->fwd_analyze(values);
+      break;
+    }
+    case _TryCatch: {
+      VarDescrList val1 = block0->fwd_analyze(values);
+      VarDescrList val2 = block1->fwd_analyze(std::move(values));
+      values = val1 | val2;
       break;
     }
     default:
@@ -866,6 +885,7 @@ bool Op::mark_noreturn() {
     case _Return:
       return set_noreturn(true);
     case _If:
+    case _TryCatch:
       return set_noreturn((block0->mark_noreturn() & (block1 && block1->mark_noreturn())) | next->mark_noreturn());
     case _Again:
       block0->mark_noreturn();

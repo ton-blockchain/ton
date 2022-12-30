@@ -209,6 +209,10 @@ td::Status DhtValue::check() const {
   return key_.update_rule()->check_value(*this);
 }
 
+bool DhtValue::check_is_acceptable() const {
+  return key_.update_rule()->check_is_acceptable(*this);
+}
+
 DhtKeyId DhtValue::key_id() const {
   return key_.key().compute_key_id();
 }
@@ -358,6 +362,21 @@ td::Status DhtUpdateRuleOverlayNodes::update_value(DhtValue &value, DhtValue &&n
   value.check().ensure();
 
   return td::Status::OK();
+}
+
+bool DhtUpdateRuleOverlayNodes::check_is_acceptable(const ton::dht::DhtValue &value) {
+  auto F = fetch_tl_object<ton_api::overlay_nodes>(value.value().clone_as_buffer_slice(), true);
+  if (F.is_error()) {
+    return false;
+  }
+  auto L = F.move_as_ok();
+  auto now = td::Clocks::system();
+  for (auto &node : L->nodes_) {
+    if (node->version_ + 600 > now) {
+      return true;
+    }
+  }
+  return false;
 }
 
 tl_object_ptr<ton_api::dht_UpdateRule> DhtUpdateRuleOverlayNodes::tl() const {

@@ -1,0 +1,340 @@
+"Asm.fif" include
+// automatically generated from `../../../crypto/smartcont/stdlib.fc` `storage-provider.fc` incl:`constants.fc` 
+PROGRAM{
+  DECLPROC calculate_address_by_stateinit
+  DECLPROC build_storage_contract_stateinit
+  DECLPROC deploy_storage_contract
+  DECLPROC recv_internal
+  DECLPROC recv_external
+  85143 DECLMETHOD seqno
+  78748 DECLMETHOD get_public_key
+  130271 DECLMETHOD get_wallet_params
+  104346 DECLMETHOD get_storage_params
+  119729 DECLMETHOD get_storage_contract_address
+  calculate_address_by_stateinit PROC:<{
+    //  state_init
+    HASHCU	//  _1
+    0 PUSHINT	//  _1 _2=0
+    4 PUSHINT	//  _1 _2=0 _3=4
+    NEWC	//  _1 _2=0 _3=4 _4
+    3 STU	//  _1 _2=0 _6
+    8 STI	//  _1 _8
+    256 STU	//  _10
+    ENDC	//  _11
+    CTOS	//  _12
+  }>
+  build_storage_contract_stateinit PROC:<{
+    //  merkle_hash file_size rate_per_mb_day max_span client torrent_hash
+    NEWC
+    ROT	//  merkle_hash file_size rate_per_mb_day max_span torrent_hash _7 client
+    STSLICER	//  merkle_hash file_size rate_per_mb_day max_span torrent_hash _8
+    256 STU	//  merkle_hash file_size rate_per_mb_day max_span _10
+    ENDC	//  merkle_hash file_size rate_per_mb_day max_span _11
+    NOW	//  merkle_hash file_size rate_per_mb_day max_span _11 _12
+    0 PUSHINT	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0
+    DUP	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _14=0
+    NEWC	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _14=0 _15
+    1 STI	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _17
+    OVER	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _17 _18=0
+    STGRAMS	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _19
+    MYADDR	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _19 _20
+    STSLICER	//  merkle_hash file_size rate_per_mb_day max_span _11 _12 _13=0 _21
+    s1 s7 XCHG	//  _13=0 file_size rate_per_mb_day max_span _11 _12 merkle_hash _21
+    256 STU	//  _13=0 file_size rate_per_mb_day max_span _11 _12 _23
+    s1 s5 XCHG	//  _13=0 _12 rate_per_mb_day max_span _11 file_size _23
+    64 STU	//  _13=0 _12 rate_per_mb_day max_span _11 _25
+    s1 s5 XCHG	//  _11 _12 rate_per_mb_day max_span _13=0 _25
+    64 STU	//  _11 _12 rate_per_mb_day max_span _27
+    ROT	//  _11 _12 max_span _27 rate_per_mb_day
+    STGRAMS	//  _11 _12 max_span _28
+    32 STU	//  _11 _12 _30
+    32 STU	//  _11 _32
+    STREF	//  _33
+    ENDC	//  data
+    0 PUSHINT	//  data _36=0
+     "storage-contract-code.boc" file>B B>boc PUSHREF 	//  data _36=0 _37
+    OVER	//  data _36=0 _37 _38=0
+    NEWC	//  data _36=0 _37 _38=0 _39
+    2 STU	//  data _36=0 _37 _41
+    STOPTREF	//  data _36=0 _42
+    s1 s2 XCHG	//  _36=0 data _42
+    STOPTREF	//  _36=0 _43
+    1 STU	//  _45
+    ENDC	//  state_init
+  }>
+  deploy_storage_contract PROC:<{
+    //  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span
+    c4 PUSH	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _8
+    CTOS	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span ds
+    320 PUSHINT	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span ds _21
+    LDSLICEX	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _91 _90
+    NIP	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span ds
+    1 LDI	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _23 ds
+    LDGRAMS	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _23 _26 ds
+    32 LDU	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _23 _26 _28 ds
+    64 LDU	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _23 _26 _28 _31 ds
+    64 LDU	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span _23 _26 _28 _31 _101 _100
+    DROP	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span accept_new_contracts? rate_per_mb_day max_span minimal_file_size maximal_file_size
+    s0 s4 XCHG	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span maximal_file_size rate_per_mb_day max_span minimal_file_size accept_new_contracts?
+    1006 THROWIFNOT
+    s8 s(-1) PUXC	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span maximal_file_size rate_per_mb_day max_span file_size minimal_file_size
+    GEQ	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span maximal_file_size rate_per_mb_day max_span _40
+    1004 THROWIFNOT
+    s7 s2 PUXC	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span max_span rate_per_mb_day file_size maximal_file_size
+    LEQ	//  client query_id file_size merkle_hash torrent_hash expected_rate expected_max_span max_span rate_per_mb_day _43
+    1005 THROWIFNOT
+    s3 s3 XCPU	//  client query_id file_size merkle_hash torrent_hash rate_per_mb_day expected_max_span max_span expected_rate rate_per_mb_day
+    EQUAL	//  client query_id file_size merkle_hash torrent_hash rate_per_mb_day expected_max_span max_span _46
+    1009 THROWIFNOT
+    TUCK	//  client query_id file_size merkle_hash torrent_hash rate_per_mb_day max_span expected_max_span max_span
+    EQUAL	//  client query_id file_size merkle_hash torrent_hash rate_per_mb_day max_span _49
+    1009 THROWIFNOT
+    2SWAP
+    s1 s5 XCHG
+    s1 s6 XCHG	//  query_id merkle_hash file_size rate_per_mb_day max_span client torrent_hash
+    build_storage_contract_stateinit CALLDICT	//  query_id state_init
+    276580847 PUSHINT	//  query_id state_init _54=276580847
+    6 PUSHINT	//  query_id state_init _54=276580847 _57
+    24 PUSHINT	//  query_id state_init _54=276580847 _57 _58=24
+    NEWC	//  query_id state_init _54=276580847 _57 _58=24 _59
+    6 STU	//  query_id state_init _54=276580847 _57 _61
+    s3 PUSH	//  query_id state_init _54=276580847 _57 _61 state_init
+    calculate_address_by_stateinit CALLDICT	//  query_id state_init _54=276580847 _57 _61 _62
+    STSLICER	//  query_id state_init _54=276580847 _57 _63
+    0 PUSHINT	//  query_id state_init _54=276580847 _57 _63 _64=0
+    STGRAMS	//  query_id state_init _54=276580847 _57 _65
+    108 STU	//  query_id state_init _54=276580847 _81
+    s1 s2 XCHG	//  query_id _54=276580847 state_init _81
+    STREF	//  query_id _54=276580847 _82
+    32 STU	//  query_id _84
+    64 STU	//  _86
+    ENDC	//  msg
+    64 PUSHINT	//  msg _88=64
+    SENDRAWMSG
+  }>
+  recv_internal PROC:<{
+    SAMEALTSAVE	//  msg_value in_msg_full in_msg_body
+    SWAP	//  msg_value in_msg_body in_msg_full
+    CTOS	//  msg_value in_msg_body cs
+    4 LDU	//  msg_value in_msg_body flags cs
+    SWAP
+    1 PUSHINT	//  msg_value in_msg_body cs flags _9=1
+    AND	//  msg_value in_msg_body cs _10
+    s2 PUSH	//  msg_value in_msg_body cs _10 in_msg_body
+    SEMPTY	//  msg_value in_msg_body cs _10 _11
+    OR	//  msg_value in_msg_body cs _12
+    IFJMP:<{	//  msg_value in_msg_body cs
+      3 BLKDROP	// 
+    }>	//  msg_value in_msg_body cs
+    LDMSGADDR	//  msg_value in_msg_body _141 _140
+    DROP	//  msg_value in_msg_body sender_address
+    SWAP	//  msg_value sender_address in_msg_body
+    32 LDU	//  msg_value sender_address op in_msg_body
+    OVER	//  msg_value sender_address op in_msg_body op
+    0 EQINT	//  msg_value sender_address op in_msg_body _21
+    IFJMP:<{	//  msg_value sender_address op in_msg_body
+      4 BLKDROP	// 
+    }>	//  msg_value sender_address op in_msg_body
+    64 LDU	//  msg_value sender_address op query_id in_msg_body
+    s2 PUSH
+    276580847 PUSHINT	//  msg_value sender_address op query_id in_msg_body op _26=276580847
+    EQUAL	//  msg_value sender_address op query_id in_msg_body _27
+    IFJMP:<{	//  msg_value sender_address op query_id in_msg_body
+      s2 POP	//  msg_value sender_address in_msg_body query_id
+      s0 s3 XCHG
+      50000000 PUSHINT	//  query_id sender_address in_msg_body msg_value _29=50000000
+      GEQ	//  query_id sender_address in_msg_body _30
+      1001 THROWIFNOT
+      LDREF	//  query_id sender_address torrent_info in_msg_body
+      OVER	//  query_id sender_address torrent_info in_msg_body torrent_info
+      HASHCU	//  query_id sender_address torrent_info in_msg_body torrent_hash
+      s0 s2 XCHG	//  query_id sender_address torrent_hash in_msg_body torrent_info
+      CTOS	//  query_id sender_address torrent_hash in_msg_body info_cs
+      32 PUSHINT	//  query_id sender_address torrent_hash in_msg_body info_cs _40=32
+      SDSKIPFIRST	//  query_id sender_address torrent_hash in_msg_body info_cs
+      64 LDU	//  query_id sender_address torrent_hash in_msg_body _149 _148
+      DROP	//  query_id sender_address torrent_hash in_msg_body file_size
+      SWAP	//  query_id sender_address torrent_hash file_size in_msg_body
+      256 LDU	//  query_id sender_address torrent_hash file_size merkle_hash in_msg_body
+      LDGRAMS	//  query_id sender_address torrent_hash file_size merkle_hash expected_rate in_msg_body
+      32 LDU	//  query_id sender_address torrent_hash file_size merkle_hash expected_rate _155 _154
+      DROP	//  query_id sender_address torrent_hash file_size merkle_hash expected_rate expected_max_span
+      s5 s6 XCHG
+      s3 s4 XCHG
+      s2 s3 XCHG	//  sender_address query_id file_size merkle_hash torrent_hash expected_rate expected_max_span
+      deploy_storage_contract CALLDICT
+    }>	//  msg_value sender_address op query_id in_msg_body
+    NIP
+    s3 POP	//  in_msg_body sender_address op
+    DUP
+    3055775075 PUSHINT	//  in_msg_body sender_address op op _58=3055775075
+    EQUAL	//  in_msg_body sender_address op _59
+    IFJMP:<{	//  in_msg_body sender_address op
+      3 BLKDROP	// 
+    }>	//  in_msg_body sender_address op
+    DUP
+    1408453846 PUSHINT	//  in_msg_body sender_address op op _60=1408453846
+    EQUAL	//  in_msg_body sender_address op _61
+    IF:<{	//  in_msg_body sender_address op
+      MYADDR	//  in_msg_body sender_address op _62
+      s2 PUSH	//  in_msg_body sender_address op _62 sender_address
+      SDEQ	//  in_msg_body sender_address op _63
+      NOT	//  in_msg_body sender_address op _64
+      IFJMP:<{	//  in_msg_body sender_address op
+        3 BLKDROP	// 
+        RETALT
+      }>	//  in_msg_body sender_address op
+      c4 PUSH	//  in_msg_body sender_address op _66
+      CTOS	//  in_msg_body sender_address op ds
+      64 LDSLICE	//  in_msg_body sender_address op _71 ds
+      256 LDU	//  in_msg_body sender_address op _71 _159 _158
+      NIP	//  in_msg_body sender_address op seqno_subwallet non_wallet_data
+      s0 s4 XCHG	//  non_wallet_data sender_address op seqno_subwallet in_msg_body
+      256 LDU	//  non_wallet_data sender_address op seqno_subwallet new_pubkey in_msg_body
+      NEWC	//  non_wallet_data sender_address op seqno_subwallet new_pubkey in_msg_body _83
+      s0 s3 XCHG2	//  non_wallet_data sender_address op in_msg_body new_pubkey _83 seqno_subwallet
+      STSLICER	//  non_wallet_data sender_address op in_msg_body new_pubkey _84
+      256 STU	//  non_wallet_data sender_address op in_msg_body _86
+      s0 s4 XCHG2	//  in_msg_body sender_address op _86 non_wallet_data
+      STSLICER	//  in_msg_body sender_address op _87
+      ENDC	//  in_msg_body sender_address op _88
+      c4 POP
+    }>	//  in_msg_body sender_address op
+    1422651803 PUSHINT	//  in_msg_body sender_address op _90=1422651803
+    EQUAL	//  in_msg_body sender_address _91
+    IF:<{	//  in_msg_body sender_address
+      MYADDR	//  in_msg_body sender_address _92
+      SWAP	//  in_msg_body _92 sender_address
+      SDEQ	//  in_msg_body _93
+      NOT	//  in_msg_body _94
+      IFJMP:<{	//  in_msg_body
+        DROP	// 
+        RETALT
+      }>	//  in_msg_body
+      c4 PUSH	//  in_msg_body _96
+      CTOS	//  in_msg_body ds
+      320 PUSHINT	//  in_msg_body ds _104
+      LDSLICEX	//  in_msg_body _163 _162
+      DROP	//  in_msg_body wallet_data
+      SWAP	//  wallet_data in_msg_body
+      1 LDI	//  wallet_data _111 in_msg_body
+      LDGRAMS	//  wallet_data _111 _114 in_msg_body
+      32 LDU	//  wallet_data _111 _114 _116 in_msg_body
+      64 LDU	//  wallet_data _111 _114 _116 _119 in_msg_body
+      64 LDU	//  wallet_data _111 _114 _116 _119 _173 _172
+      DROP	//  wallet_data accept_new_contracts? rate_per_mb_day max_span minimal_file_size maximal_file_size
+      NEWC	//  wallet_data accept_new_contracts? rate_per_mb_day max_span minimal_file_size maximal_file_size _125
+      s0 s6 XCHG2	//  maximal_file_size accept_new_contracts? rate_per_mb_day max_span minimal_file_size _125 wallet_data
+      STSLICER	//  maximal_file_size accept_new_contracts? rate_per_mb_day max_span minimal_file_size _126
+      s1 s4 XCHG	//  maximal_file_size minimal_file_size rate_per_mb_day max_span accept_new_contracts? _126
+      1 STI	//  maximal_file_size minimal_file_size rate_per_mb_day max_span _128
+      ROT	//  maximal_file_size minimal_file_size max_span _128 rate_per_mb_day
+      STGRAMS	//  maximal_file_size minimal_file_size max_span _129
+      32 STU	//  maximal_file_size minimal_file_size _131
+      64 STU	//  maximal_file_size _133
+      64 STU	//  _135
+      ENDC	//  _136
+      c4 POP
+    }>ELSE<{
+      2DROP	// 
+    }>
+  }>
+  recv_external PROC:<{
+    //  in_msg
+    9 PUSHPOW2	//  in_msg _3=512
+    LDSLICEX	//  signature in_msg
+    DUP	//  signature in_msg cs
+    32 LDU	//  signature in_msg _9 cs
+    32 LDU	//  signature in_msg _9 _12 cs
+    32 LDU	//  signature in_msg subwallet_id valid_until msg_seqno cs
+    s0 s2 XCHG
+    NOW	//  signature in_msg subwallet_id cs msg_seqno valid_until _19
+    LEQ	//  signature in_msg subwallet_id cs msg_seqno _20
+    35 THROWIF
+    c4 PUSH	//  signature in_msg subwallet_id cs msg_seqno _23
+    CTOS	//  signature in_msg subwallet_id cs msg_seqno ds
+    32 LDU	//  signature in_msg subwallet_id cs msg_seqno _29 ds
+    32 LDU	//  signature in_msg subwallet_id cs msg_seqno _29 _32 ds
+    256 LDU	//  signature in_msg subwallet_id cs msg_seqno stored_seqno stored_subwallet public_key non_wallet_data
+    s4 s3 XCPU	//  signature in_msg subwallet_id cs non_wallet_data stored_seqno stored_subwallet public_key msg_seqno stored_seqno
+    EQUAL	//  signature in_msg subwallet_id cs non_wallet_data stored_seqno stored_subwallet public_key _39
+    33 THROWIFNOT
+    s5 s1 XCPU	//  signature in_msg public_key cs non_wallet_data stored_seqno stored_subwallet subwallet_id stored_subwallet
+    EQUAL	//  signature in_msg public_key cs non_wallet_data stored_seqno stored_subwallet _42
+    34 THROWIFNOT
+    s0 s5 XCHG	//  signature stored_subwallet public_key cs non_wallet_data stored_seqno in_msg
+    HASHSU	//  signature stored_subwallet public_key cs non_wallet_data stored_seqno _45
+    s0 s6 s4 XC2PU	//  stored_seqno stored_subwallet public_key cs non_wallet_data _45 signature public_key
+    CHKSIGNU	//  stored_seqno stored_subwallet public_key cs non_wallet_data _46
+    35 THROWIFNOT
+    ACCEPT
+    SWAP	//  stored_seqno stored_subwallet public_key non_wallet_data cs
+    WHILE:<{
+      DUP	//  stored_seqno stored_subwallet public_key non_wallet_data cs cs
+      SREFS	//  stored_seqno stored_subwallet public_key non_wallet_data cs _51
+    }>DO<{	//  stored_seqno stored_subwallet public_key non_wallet_data cs
+      8 LDU	//  stored_seqno stored_subwallet public_key non_wallet_data mode cs
+      LDREF	//  stored_seqno stored_subwallet public_key non_wallet_data mode _56 cs
+      s0 s2 XCHG	//  stored_seqno stored_subwallet public_key non_wallet_data cs _56 mode
+      SENDRAWMSG
+    }>	//  stored_seqno stored_subwallet public_key non_wallet_data cs
+    DROP	//  stored_seqno stored_subwallet public_key non_wallet_data
+    s0 s3 XCHG	//  non_wallet_data stored_subwallet public_key stored_seqno
+    INC	//  non_wallet_data stored_subwallet public_key _60
+    NEWC	//  non_wallet_data stored_subwallet public_key _60 _61
+    32 STU	//  non_wallet_data stored_subwallet public_key _63
+    s1 s2 XCHG	//  non_wallet_data public_key stored_subwallet _63
+    32 STU	//  non_wallet_data public_key _65
+    256 STU	//  non_wallet_data _67
+    SWAP	//  _67 non_wallet_data
+    STSLICER	//  _68
+    ENDC	//  _69
+    c4 POP
+  }>
+  seqno PROC:<{
+    // 
+    c4 PUSH	//  _0
+    CTOS	//  _1
+    32 PLDU	//  _3
+  }>
+  get_public_key PROC:<{
+    // 
+    c4 PUSH	//  _1
+    CTOS	//  cs
+    64 LDU	//  _9 _8
+    NIP	//  cs
+    256 PLDU	//  _7
+  }>
+  get_wallet_params PROC:<{
+    // 
+    c4 PUSH	//  _1
+    CTOS	//  ds
+    32 LDU	//  _6 ds
+    32 LDU	//  _6 _9 ds
+    256 LDU	//  _6 _9 _20 _19
+    DROP	//  stored_seqno stored_subwallet public_key
+  }>
+  get_storage_params PROC:<{
+    // 
+    c4 PUSH	//  _1
+    CTOS	//  ds
+    320 PUSHINT	//  ds _14
+    LDSLICEX	//  _31 _30
+    NIP	//  ds
+    1 LDI	//  _16 ds
+    LDGRAMS	//  _16 _19 ds
+    32 LDU	//  _16 _19 _21 ds
+    64 LDU	//  _16 _19 _21 _24 ds
+    64 LDU	//  _16 _19 _21 _24 _41 _40
+    DROP	//  accept_new_contracts? rate_per_mb_day max_span minimal_file_size maximal_file_size
+  }>
+  get_storage_contract_address PROC:<{
+    //  merkle_hash file_size client torrent_hash
+    get_storage_params CALLDICT	//  merkle_hash file_size client torrent_hash _13 _14 _15 _16 _17
+    2DROP
+    s2 POP	//  merkle_hash file_size client torrent_hash max_span rate_per_mb_day
+    s1 s3 s3 XCHG3	//  merkle_hash file_size rate_per_mb_day max_span client torrent_hash
+    build_storage_contract_stateinit CALLDICT	//  state_init
+    calculate_address_by_stateinit CALLDICT	//  _12
+  }>
+}END>c

@@ -73,6 +73,7 @@ class Collator final : public td::actor::Actor {
   Ref<ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
+  td::Timestamp soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
   ton::BlockSeqno last_block_seqno{0};
   ton::BlockSeqno prev_mc_block_seqno{0};

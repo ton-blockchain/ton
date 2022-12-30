@@ -1,0 +1,421 @@
+"Asm.fif" include
+// automatically generated from `../../../crypto/smartcont/stdlib.fc` `storage-contract.fc` incl:`constants.fc` 
+PROGRAM{
+  DECLPROC check_proof
+  DECLPROC add_to_balance
+  DECLPROC get_client_data
+  DECLPROC recv_internal
+  86593 DECLMETHOD get_storage_contract_data
+  71463 DECLMETHOD get_torrent_hash
+  122058 DECLMETHOD is_active
+  81490 DECLMETHOD get_next_proof_info
+  check_proof PROC:<{
+    //  merkle_hash byte_to_proof file_size file_dict_proof
+    x{D739} s,	//  merkle_hash byte_to_proof file_size cs special
+    NOT	//  merkle_hash byte_to_proof file_size cs _7
+    IFJMP:<{	//  merkle_hash byte_to_proof file_size cs
+      4 BLKDROP	// 
+      FALSE	//  _8
+    }>	//  merkle_hash byte_to_proof file_size cs
+    8 LDU	//  merkle_hash byte_to_proof file_size _9 cs
+    SWAP	//  merkle_hash byte_to_proof file_size cs _9
+    3 NEQINT	//  merkle_hash byte_to_proof file_size cs _13
+    IFJMP:<{	//  merkle_hash byte_to_proof file_size cs
+      4 BLKDROP	// 
+      FALSE	//  _14
+    }>	//  merkle_hash byte_to_proof file_size cs
+    256 LDU	//  merkle_hash byte_to_proof file_size _15 cs
+    s0 s4 XCHG	//  cs byte_to_proof file_size _15 merkle_hash
+    NEQ	//  cs byte_to_proof file_size _18
+    IFJMP:<{	//  cs byte_to_proof file_size
+      3 BLKDROP	// 
+      FALSE	//  _19
+    }>	//  cs byte_to_proof file_size
+    s0 s2 XCHG	//  file_size byte_to_proof cs
+    LDREF	//  file_size byte_to_proof _44 _43
+    DROP	//  file_size byte_to_proof file_dict
+    0 PUSHINT	//  file_size byte_to_proof file_dict key_len=0
+    WHILE:<{
+      64 PUSHINT	//  file_size byte_to_proof file_dict key_len _25=64
+      OVER	//  file_size byte_to_proof file_dict key_len _25=64 key_len
+      LSHIFT	//  file_size byte_to_proof file_dict key_len _26
+      s4 PUSH	//  file_size byte_to_proof file_dict key_len _26 file_size
+      LESS	//  file_size byte_to_proof file_dict key_len _27
+    }>DO<{	//  file_size byte_to_proof file_dict key_len
+      INC	//  file_size byte_to_proof file_dict key_len
+    }>	//  file_size byte_to_proof file_dict key_len
+    s3 POP	//  key_len byte_to_proof file_dict
+    SWAP	//  key_len file_dict byte_to_proof
+    6 RSHIFT#	//  key_len file_dict _33
+    s0 s2 XCHG	//  _33 file_dict key_len
+    DICTUGET
+    NULLSWAPIFNOT	//  _45 _46
+    NIP	//  found?
+    IFJMP:<{	// 
+      TRUE	//  _35
+    }>	// 
+    FALSE	//  _36
+  }>
+  add_to_balance PROCREF:<{
+    //  amount
+    c4 PUSH	//  amount _2
+    CTOS	//  amount ds
+    1 LDI	//  amount _7 ds
+    LDGRAMS	//  amount active balance residue
+    s0 s3 XCHG	//  residue active balance amount
+    ADD	//  residue active balance
+    SWAP
+    NEWC	//  residue balance active _13
+    1 STI	//  residue balance _15
+    SWAP	//  residue _15 balance
+    STGRAMS	//  residue _16
+    SWAP	//  _16 residue
+    STSLICER	//  _17
+    ENDC	//  _18
+    c4 POP
+  }>
+  get_client_data PROC:<{
+    //  ds
+    PLDREF	//  _1
+    CTOS	//  ds
+    LDMSGADDR	//  _3 ds
+    256 LDU	//  _3 _11 _10
+    DROP	//  _3 _5
+  }>
+  recv_internal PROC:<{
+    //  msg_value in_msg_full in_msg_body
+    SWAP	//  msg_value in_msg_body in_msg_full
+    CTOS	//  msg_value in_msg_body cs
+    4 LDU	//  msg_value in_msg_body flags cs
+    SWAP
+    1 PUSHINT	//  msg_value in_msg_body cs flags _9=1
+    AND	//  msg_value in_msg_body cs _10
+    IFJMP:<{	//  msg_value in_msg_body cs
+      3 BLKDROP	// 
+    }>	//  msg_value in_msg_body cs
+    LDMSGADDR	//  msg_value in_msg_body _421 _420
+    DROP	//  msg_value in_msg_body sender_address
+    OVER	//  msg_value in_msg_body sender_address in_msg_body
+    SEMPTY	//  msg_value in_msg_body sender_address _14
+    IFJMP:<{	//  msg_value in_msg_body sender_address
+      2DROP	//  msg_value
+      add_to_balance INLINECALLDICT
+    }>	//  msg_value in_msg_body sender_address
+    SWAP	//  msg_value sender_address in_msg_body
+    32 LDU	//  msg_value sender_address op in_msg_body
+    OVER	//  msg_value sender_address op in_msg_body op
+    0 EQINT	//  msg_value sender_address op in_msg_body _21
+    IFJMP:<{	//  msg_value sender_address op in_msg_body
+      3 BLKDROP	//  msg_value
+      add_to_balance INLINECALLDICT
+    }>	//  msg_value sender_address op in_msg_body
+    64 LDU	//  msg_value sender_address op query_id in_msg_body
+    s2 PUSH
+    276580847 PUSHINT	//  msg_value sender_address op query_id in_msg_body op _27=276580847
+    EQUAL	//  msg_value sender_address op query_id in_msg_body _28
+    IF:<{	//  msg_value sender_address op query_id in_msg_body
+      s0 s4 XCHG
+      40000000 PUSHINT	//  in_msg_body sender_address op query_id msg_value _31
+      SUB	//  in_msg_body sender_address op query_id _32
+      add_to_balance INLINECALLDICT
+      c4 PUSH	//  in_msg_body sender_address op query_id _36
+      CTOS	//  in_msg_body sender_address op query_id _37
+      get_client_data CALLDICT	//  in_msg_body sender_address op query_id client torrent_hash
+      3212562625 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625
+      0 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0
+      24 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0 _42=24
+      NEWC	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0 _42=24 _43
+      6 STU	//  in_msg_body sender_address op query_id client torrent_hash _40=3212562625 _41=0 _45
+      s0 s4 XCHG2	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _45 client
+      STSLICER	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _46
+      20000000 PUSHINT	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _46 _47=20000000
+      STGRAMS	//  in_msg_body sender_address op query_id _41=0 torrent_hash _40=3212562625 _48
+      s1 s3 XCHG	//  in_msg_body sender_address op query_id _40=3212562625 torrent_hash _41=0 _48
+      107 STU	//  in_msg_body sender_address op query_id _40=3212562625 torrent_hash _62
+      s1 s2 XCHG	//  in_msg_body sender_address op query_id torrent_hash _40=3212562625 _62
+      32 STU	//  in_msg_body sender_address op query_id torrent_hash _64
+      s2 s(-1) PUXC	//  in_msg_body sender_address op query_id torrent_hash query_id _64
+      64 STU	//  in_msg_body sender_address op query_id torrent_hash _66
+      256 STU	//  in_msg_body sender_address op query_id _68
+      ENDC	//  in_msg_body sender_address op query_id msg
+      0 PUSHINT	//  in_msg_body sender_address op query_id msg _70=0
+      SENDRAWMSG
+    }>ELSE<{
+      s4 POP	//  in_msg_body sender_address op query_id
+    }>
+    OVER
+    2050365064 PUSHINT	//  in_msg_body sender_address op query_id op _72=2050365064
+    EQUAL	//  in_msg_body sender_address op query_id _73
+    IF:<{	//  in_msg_body sender_address op query_id
+      c4 PUSH	//  in_msg_body sender_address op query_id _75
+      CTOS	//  in_msg_body sender_address op query_id ds
+      1 LDI	//  in_msg_body sender_address op query_id _81 ds
+      LDGRAMS	//  in_msg_body sender_address op query_id _81 _84 ds
+      LDMSGADDR	//  in_msg_body sender_address op query_id active balance provider rest
+      s0 s3 XCHG	//  in_msg_body sender_address op query_id rest balance provider active
+      NOT	//  in_msg_body sender_address op query_id rest balance provider _89
+      1007 THROWIFNOT
+      s5 s0 PUSH2	//  in_msg_body sender_address op query_id rest balance provider sender_address provider
+      SDEQ	//  in_msg_body sender_address op query_id rest balance provider _92
+      401 THROWIFNOT
+      TRUE	//  in_msg_body sender_address op query_id rest balance provider _94
+      NEWC	//  in_msg_body sender_address op query_id rest balance provider _94 _95
+      1 STI	//  in_msg_body sender_address op query_id rest balance provider _97
+      ROT	//  in_msg_body sender_address op query_id rest provider _97 balance
+      STGRAMS	//  in_msg_body sender_address op query_id rest provider _98
+      SWAP	//  in_msg_body sender_address op query_id rest _98 provider
+      STSLICER	//  in_msg_body sender_address op query_id rest _99
+      OVER	//  in_msg_body sender_address op query_id rest _99 rest
+      STSLICER	//  in_msg_body sender_address op query_id rest _100
+      ENDC	//  in_msg_body sender_address op query_id rest _101
+      c4 POP
+      get_client_data CALLDICT	//  in_msg_body sender_address op query_id client torrent_hash
+      LTIME	//  in_msg_body sender_address op query_id client torrent_hash _107
+      3570068941 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941
+      0 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0
+      24 PUSHINT	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0 _110=24
+      NEWC	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0 _110=24 _111
+      6 STU	//  in_msg_body sender_address op query_id client torrent_hash _107 _108=3570068941 _109=0 _113
+      s0 s5 XCHG2	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _113 client
+      STSLICER	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _114
+      20000000 PUSHINT	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _114 _115=20000000
+      STGRAMS	//  in_msg_body sender_address op query_id _109=0 torrent_hash _107 _108=3570068941 _116
+      s1 s4 XCHG	//  in_msg_body sender_address op query_id _108=3570068941 torrent_hash _107 _109=0 _116
+      107 STU	//  in_msg_body sender_address op query_id _108=3570068941 torrent_hash _107 _130
+      s1 s3 XCHG	//  in_msg_body sender_address op query_id _107 torrent_hash _108=3570068941 _130
+      32 STU	//  in_msg_body sender_address op query_id _107 torrent_hash _132
+      s1 s2 XCHG	//  in_msg_body sender_address op query_id torrent_hash _107 _132
+      64 STU	//  in_msg_body sender_address op query_id torrent_hash _134
+      256 STU	//  in_msg_body sender_address op query_id _136
+      ENDC	//  in_msg_body sender_address op query_id msg
+      0 PUSHINT	//  in_msg_body sender_address op query_id msg _138=0
+      SENDRAWMSG
+    }>	//  in_msg_body sender_address op query_id
+    OVER
+    2046375914 PUSHINT	//  in_msg_body sender_address op query_id op _140=2046375914
+    EQUAL	//  in_msg_body sender_address op query_id _141
+    IFJMP:<{	//  in_msg_body sender_address op query_id
+      s2 s3 XCHG
+      3 BLKDROP	//  sender_address
+      c4 PUSH	//  sender_address _143
+      CTOS	//  sender_address ds
+      1 LDI	//  sender_address _149 ds
+      LDGRAMS	//  sender_address _149 _152 ds
+      LDMSGADDR	//  sender_address active balance provider rest
+      get_client_data CALLDICT	//  sender_address active balance provider client torrent_hash
+      s5 s2 PUSH2	//  sender_address active balance provider client torrent_hash sender_address provider
+      SDEQ	//  sender_address active balance provider client torrent_hash _160
+      s6 s2 XCPU	//  _160 active balance provider client torrent_hash sender_address client
+      SDEQ	//  _160 active balance provider client torrent_hash _161
+      s1 s6 XCHG	//  torrent_hash active balance provider client _160 _161
+      OR	//  torrent_hash active balance provider client _162
+      401 THROWIFNOT
+      LTIME	//  torrent_hash active balance provider client _165
+      3055775075 PUSHINT	//  torrent_hash active balance provider client _165 _166=3055775075
+      0 PUSHINT	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0
+      24 PUSHINT	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0 _168=24
+      NEWC	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0 _168=24 _169
+      6 STU	//  torrent_hash active balance provider client _165 _166=3055775075 _167=0 _171
+      s0 s4 XCHG2	//  torrent_hash active balance provider _167=0 _165 _166=3055775075 _171 client
+      STSLICER	//  torrent_hash active balance provider _167=0 _165 _166=3055775075 _172
+      s0 s5 XCHG2	//  torrent_hash active _166=3055775075 provider _167=0 _165 _172 balance
+      STGRAMS	//  torrent_hash active _166=3055775075 provider _167=0 _165 _173
+      s1 s2 XCHG	//  torrent_hash active _166=3055775075 provider _165 _167=0 _173
+      107 STU	//  torrent_hash active _166=3055775075 provider _165 _187
+      s1 s3 XCHG	//  torrent_hash active _165 provider _166=3055775075 _187
+      32 STU	//  torrent_hash active _165 provider _189
+      s1 s2 XCHG	//  torrent_hash active provider _165 _189
+      64 STU	//  torrent_hash active provider _191
+      s3 s(-1) PUXC	//  torrent_hash active provider torrent_hash _191
+      256 STU	//  torrent_hash active provider _193
+      ENDC	//  torrent_hash active provider client_msg
+      s0 s2 XCHG	//  torrent_hash client_msg provider active
+      NOT	//  torrent_hash client_msg provider _195
+      IFJMP:<{	//  torrent_hash client_msg provider
+        DROP
+        NIP	//  client_msg
+        160 PUSHINT	//  client_msg _198
+        SENDRAWMSG
+      }>	//  torrent_hash client_msg provider
+      SWAP
+      64 PUSHINT	//  torrent_hash provider client_msg _200=64
+      SENDRAWMSG
+      LTIME	//  torrent_hash provider _203
+      3055775075 PUSHINT	//  torrent_hash provider _203 _204=3055775075
+      0 PUSHINT	//  torrent_hash provider _203 _204=3055775075 _205=0
+      24 PUSHINT	//  torrent_hash provider _203 _204=3055775075 _205=0 _206=24
+      NEWC	//  torrent_hash provider _203 _204=3055775075 _205=0 _206=24 _207
+      6 STU	//  torrent_hash provider _203 _204=3055775075 _205=0 _209
+      s0 s4 XCHG2	//  torrent_hash _205=0 _203 _204=3055775075 _209 provider
+      STSLICER	//  torrent_hash _205=0 _203 _204=3055775075 _210
+      s3 PUSH	//  torrent_hash _205=0 _203 _204=3055775075 _210 _211=0
+      STGRAMS	//  torrent_hash _205=0 _203 _204=3055775075 _212
+      s1 s3 XCHG	//  torrent_hash _204=3055775075 _203 _205=0 _212
+      107 STU	//  torrent_hash _204=3055775075 _203 _226
+      s1 s2 XCHG	//  torrent_hash _203 _204=3055775075 _226
+      32 STU	//  torrent_hash _203 _228
+      64 STU	//  torrent_hash _230
+      256 STU	//  _232
+      ENDC	//  provider_msg
+      160 PUSHINT	//  provider_msg _236
+      SENDRAWMSG
+    }>	//  in_msg_body sender_address op query_id
+    OVER
+    1189949076 PUSHINT	//  in_msg_body sender_address op query_id op _238=1189949076
+    EQUAL	//  in_msg_body sender_address op query_id _239
+    IF:<{	//  in_msg_body sender_address op query_id
+      c4 PUSH	//  in_msg_body sender_address op query_id _241
+      CTOS	//  in_msg_body sender_address op query_id ds
+      1 LDI	//  in_msg_body sender_address op query_id _246 ds
+      LDGRAMS	//  in_msg_body sender_address op query_id _246 _249 ds
+      LDMSGADDR	//  in_msg_body sender_address op query_id _246 _249 _449 _448
+      DROP	//  in_msg_body sender_address op query_id active balance provider
+      s0 s2 XCHG	//  in_msg_body sender_address op query_id provider balance active
+      1003 THROWIFNOT
+      s4 s1 PUSH2	//  in_msg_body sender_address op query_id provider balance sender_address provider
+      SDEQ	//  in_msg_body sender_address op query_id provider balance _256
+      401 THROWIFNOT
+      DUP	//  in_msg_body sender_address op query_id provider balance balance
+      0 GTINT	//  in_msg_body sender_address op query_id provider balance _259
+      IF:<{	//  in_msg_body sender_address op query_id provider balance
+        10000000 PUSHINT	//  in_msg_body sender_address op query_id provider balance _260=10000000
+        ADD	//  in_msg_body sender_address op query_id provider _261
+        2 PUSHINT	//  in_msg_body sender_address op query_id provider _261 _262=2
+        RAWRESERVE
+      }>ELSE<{
+        DROP	//  in_msg_body sender_address op query_id provider
+      }>
+      2837163862 PUSHINT	//  in_msg_body sender_address op query_id provider _265=2837163862
+      0 PUSHINT	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0
+      24 PUSHINT	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0 _267=24
+      NEWC	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0 _267=24 _268
+      6 STU	//  in_msg_body sender_address op query_id provider _265=2837163862 _266=0 _270
+      s0 s3 XCHG2	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _270 provider
+      STSLICER	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _271
+      20000000 PUSHINT	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _271 _272=20000000
+      STGRAMS	//  in_msg_body sender_address op query_id _266=0 _265=2837163862 _273
+      s1 s2 XCHG	//  in_msg_body sender_address op query_id _265=2837163862 _266=0 _273
+      107 STU	//  in_msg_body sender_address op query_id _265=2837163862 _287
+      32 STU	//  in_msg_body sender_address op query_id _289
+      64 STU	//  in_msg_body sender_address op _291
+      ENDC	//  in_msg_body sender_address op msg
+      160 PUSHINT	//  in_msg_body sender_address op msg _295
+      SENDRAWMSG
+    }>ELSE<{
+      DROP	//  in_msg_body sender_address op
+    }>
+    1100832077 PUSHINT	//  in_msg_body sender_address op _297=1100832077
+    EQUAL	//  in_msg_body sender_address _298
+    IF:<{	//  in_msg_body sender_address
+      SWAP	//  sender_address in_msg_body
+      LDREF	//  sender_address _451 _450
+      DROP	//  sender_address file_dict_proof
+      c4 PUSH	//  sender_address file_dict_proof _303
+      CTOS	//  sender_address file_dict_proof ds
+      1 LDI	//  sender_address file_dict_proof _315 ds
+      LDGRAMS	//  sender_address file_dict_proof _315 _318 ds
+      LDMSGADDR	//  sender_address file_dict_proof _315 _318 _320 ds
+      256 LDU	//  sender_address file_dict_proof _315 _318 _320 _322 ds
+      64 LDU	//  sender_address file_dict_proof _315 _318 _320 _322 _325 ds
+      64 LDU	//  sender_address file_dict_proof _315 _318 _320 _322 _325 _328 ds
+      LDGRAMS	//  sender_address file_dict_proof _315 _318 _320 _322 _325 _328 _331 ds
+      32 LDU	//  sender_address file_dict_proof _315 _318 _320 _322 _325 _328 _331 _333 ds
+      32 LDU	//  sender_address file_dict_proof _315 _318 _320 _322 _325 _328 _331 _333 _336 ds
+      LDREF	//  sender_address file_dict_proof _315 _318 _320 _322 _325 _328 _331 _333 _336 _471 _470
+      DROP	//  sender_address file_dict_proof active balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time client_data
+      s0 s9 XCHG	//  sender_address file_dict_proof client_data balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time active
+      1003 THROWIFNOT
+      s10 s6 PUSH2	//  sender_address file_dict_proof client_data balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time sender_address provider
+      SDEQ	//  sender_address file_dict_proof client_data balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time _344
+      401 THROWIFNOT
+      s5 s3 s(-1) PUXC2
+      s5 s10 PUXC	//  sender_address max_span client_data balance provider merkle_hash file_size last_proof_time rate_per_mb_day merkle_hash next_proof file_size file_dict_proof
+      check_proof CALLDICT	//  sender_address max_span client_data balance provider merkle_hash file_size last_proof_time rate_per_mb_day _347
+      1002 THROWIFNOT
+      s2 PUSH	//  sender_address max_span client_data balance provider merkle_hash file_size last_proof_time rate_per_mb_day file_size
+      RAND	//  sender_address max_span client_data balance provider merkle_hash file_size last_proof_time rate_per_mb_day next_proof
+      NOW	//  sender_address max_span client_data balance provider merkle_hash file_size last_proof_time rate_per_mb_day next_proof _351
+      s0 s3 XCHG2	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day _351 last_proof_time
+      SUB	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day _352
+      s8 PUSH	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day _352 max_span
+      MIN	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day actual_span
+      s3 s1 PUSH2	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day actual_span file_size rate_per_mb_day
+      MUL	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day actual_span _355
+      SWAP
+      90596966400 PUSHINTX	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day _355 actual_span _364
+      MULDIV	//  sender_address max_span client_data balance provider merkle_hash file_size next_proof rate_per_mb_day bounty
+      s0 s6 XCHG
+      0 PUSHINT
+      s0 s7 XCHG	//  sender_address max_span client_data _366=0 provider merkle_hash file_size next_proof rate_per_mb_day balance bounty
+      SUB	//  sender_address max_span client_data _366=0 provider merkle_hash file_size next_proof rate_per_mb_day _367
+      s1 s6 XCHG	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof _366=0 _367
+      MAX	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof balance
+      NOW	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof balance last_proof_time
+      TRUE	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof balance last_proof_time _370
+      NEWC	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof balance last_proof_time _370 _371
+      1 STI	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof balance last_proof_time _373
+      ROT	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof last_proof_time _373 balance
+      STGRAMS	//  sender_address max_span client_data rate_per_mb_day provider merkle_hash file_size next_proof last_proof_time _374
+      s0 s5 XCHG2	//  sender_address max_span client_data rate_per_mb_day last_proof_time merkle_hash file_size next_proof _374 provider
+      STSLICER	//  sender_address max_span client_data rate_per_mb_day last_proof_time merkle_hash file_size next_proof _375
+      s1 s3 XCHG	//  sender_address max_span client_data rate_per_mb_day last_proof_time next_proof file_size merkle_hash _375
+      256 STU	//  sender_address max_span client_data rate_per_mb_day last_proof_time next_proof file_size _377
+      64 STU	//  sender_address max_span client_data rate_per_mb_day last_proof_time next_proof _379
+      64 STU	//  sender_address max_span client_data rate_per_mb_day last_proof_time _381
+      ROT	//  sender_address max_span client_data last_proof_time _381 rate_per_mb_day
+      STGRAMS	//  sender_address max_span client_data last_proof_time _382
+      s1 s3 XCHG	//  sender_address last_proof_time client_data max_span _382
+      32 STU	//  sender_address last_proof_time client_data _384
+      s1 s2 XCHG	//  sender_address client_data last_proof_time _384
+      32 STU	//  sender_address client_data _386
+      STREF	//  sender_address _387
+      ENDC	//  sender_address _388
+      c4 POP
+      0 PUSHINT	//  sender_address _391=0
+      24 PUSHINT	//  sender_address _391=0 _392=24
+      NEWC	//  sender_address _391=0 _392=24 _393
+      6 STU	//  sender_address _391=0 _395
+      ROT	//  _391=0 _395 sender_address
+      STSLICER	//  _391=0 _396
+      111 STU	//  _412
+      ENDC	//  msg
+      66 PUSHINT	//  msg _416
+      SENDRAWMSG
+    }>ELSE<{
+      2DROP	// 
+    }>
+  }>
+  get_storage_contract_data PROC:<{
+    // 
+    c4 PUSH	//  _1
+    CTOS	//  ds
+    1 LDI	//  _13 ds
+    LDGRAMS	//  _13 _16 ds
+    LDMSGADDR	//  _13 _16 _18 ds
+    256 LDU	//  _13 _16 _18 _20 ds
+    64 LDU	//  _13 _16 _18 _20 _23 ds
+    64 LDU	//  _13 _16 _18 _20 _23 _26 ds
+    LDGRAMS	//  _13 _16 _18 _20 _23 _26 _29 ds
+    32 LDU	//  _13 _16 _18 _20 _23 _26 _29 _31 ds
+    32 LDU	//  active balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time rest
+    get_client_data CALLDICT	//  active balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time client torrent_hash
+  }>
+  get_torrent_hash PROC:<{
+    // 
+    get_storage_contract_data CALLDICT	//  _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22
+    10 1 BLKDROP2	//  torrent_hash
+  }>
+  is_active PROC:<{
+    // 
+    c4 PUSH	//  _0
+    CTOS	//  _1
+    1 PLDI	//  _3
+  }>
+  get_next_proof_info PROC:<{
+    // 
+    get_storage_contract_data CALLDICT	//  _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22
+    2DROP
+    s2 POP
+    5 3 BLKDROP2	//  next_proof last_proof_time max_span
+  }>
+}END>c

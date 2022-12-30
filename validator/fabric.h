@@ -40,13 +40,15 @@ td::Result<BlockHandle> create_block_handle(td::BufferSlice data);
 td::Result<BlockHandle> create_block_handle(td::Slice data);
 td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
 BlockHandle create_empty_block_handle(BlockIdExt id);
-td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data);
+td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data,
+                                                   block::SizeLimitsConfig::ExtMsgLimits limits);
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);
 td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_block_descriptions(td::BufferSlice data);
 
 td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_set);
 
-void run_check_external_message(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
+void run_check_external_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                                td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Ref<ExtMessage>> promise);
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,

@@ -121,7 +121,7 @@ void AdnlLocalId::update_address_list(AdnlAddressList addr_list) {
 }
 
 void AdnlLocalId::publish_address_list() {
-  if (dht_node_.empty() || addr_list_.empty() || addr_list_.size() == 0) {
+  if (dht_node_.empty() || addr_list_.empty() || (addr_list_.size() == 0 && !addr_list_.has_reverse())) {
     VLOG(ADNL_NOTICE) << this << ": skipping public addr list, because localid (or dht node) not fully initialized";
     return;
   }
@@ -175,6 +175,17 @@ void AdnlLocalId::publish_address_list() {
 
   td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, short_id_.pubkey_hash(), std::move(B),
                           std::move(P));
+
+  if (addr_list_.has_reverse()) {
+    td::actor::send_closure(
+        dht_node_, &dht::Dht::register_reverse_connection, id_, [print_id = print_id()](td::Result<td::Unit> R) {
+          if (R.is_error()) {
+            VLOG(ADNL_NOTICE) << print_id << ": failed to register reverse connection in DHT: " << R.move_as_error();
+          } else {
+            VLOG(ADNL_INFO) << print_id << ": registered reverse connection";
+          }
+        });
+  }
 }
 
 AdnlLocalId::AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode,

@@ -1,0 +1,56 @@
+name: Tonlib Android JNI
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Install libraries
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
+
+    - name: Configure & Build
+      run: |        
+        wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+        unzip android-ndk-r25b-linux.zip
+        export JAVA_AWT_LIBRARY=NotNeeded
+        export JAVA_JVM_LIBRARY=NotNeeded
+        export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
+        export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
+        
+        export ANDROID_NDK_ROOT=$(pwd)/android-ndk-r25b
+        export OPENSSL_DIR=$(pwd)/example/android/third_party/crypto
+        
+        rm -rf example/android/src/drinkless/org/ton/TonApi.java
+        cd example/android/
+        cmake -GNinja -DTON_ONLY_TONLIB=ON . 
+        ninja prepare_cross_compiling
+        rm CMakeCache.txt
+        ./build-all.sh
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/x86/libnative-lib.so
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/x86_64/libnative-lib.so
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/armeabi-v7a/libnative-lib.so
+        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/arm64-v8a/libnative-lib.so
+        find . -name "*.debug" -type f -delete
+
+    - name: Find & copy binaries
+      run: |
+        mkdir -p artifacts/tonlib-android-jni        
+        cp example/android/src/drinkless/org/ton/TonApi.java artifacts/tonlib-android-jni/
+        cp -R example/android/libs/* artifacts/tonlib-android-jni/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: Tonlib JNI libraries for Android
+        path: artifacts

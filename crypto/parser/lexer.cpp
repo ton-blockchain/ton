@@ -125,8 +125,9 @@ int Lexem::set(std::string _str, const SrcLocation& _loc, int _tp, int _val) {
 }
 
 Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars, std::string eol_cmts, std::string open_cmts,
-             std::string close_cmts, std::string quote_chars)
-    : src(_src), eof(false), lexem("", src.here(), Lexem::Undefined), peek_lexem("", {}, Lexem::Undefined) {
+             std::string close_cmts, std::string quote_chars, std::string multiline_quote)
+    : src(_src), eof(false), lexem("", src.here(), Lexem::Undefined), peek_lexem("", {}, Lexem::Undefined),
+      multiline_quote(std::move(multiline_quote)) {
   std::memset(char_class, 0, sizeof(char_class));
   unsigned char activity = cc::active;
   for (char c : active_chars) {
@@ -169,6 +170,19 @@ void Lexer::set_spec(std::array<int, 3>& arr, std::string setup) {
       }
     }
   }
+}
+
+bool Lexer::is_multiline_quote(const char* begin, const char* end) {
+  if (multiline_quote.empty()) {
+    return false;
+  }
+  for (const char& c : multiline_quote) {
+    if (begin == end || *begin != c) {
+      return false;
+    }
+    ++begin;
+  }
+  return true;
 }
 
 void Lexer::expect(int exp_tp, const char* msg) {
@@ -233,6 +247,37 @@ const Lexem& Lexer::next() {
       }
     }
     return lexem.clear(src.here(), Lexem::Eof);
+  }
+  if (is_multiline_quote(src.get_ptr(), src.get_end_ptr())) {
+    src.advance(multiline_quote.size());
+    const char* begin = src.get_ptr();
+    const char* end = nullptr;
+    SrcLocation here = src.here();
+    std::string body;
+    while (!src.is_eof()) {
+      if (src.is_eoln()) {
+        body.push_back('\n');
+        src.load_line();
+        continue;
+      }
+      if (is_multiline_quote(src.get_ptr(), src.get_end_ptr())) {
+        end = src.get_ptr();
+        src.advance(multiline_quote.size());
+        break;
+      }
+      body.push_back(src.cur_char());
+      src.advance(1);
+    }
+    if (!end) {
+      src.error("string extends past end of file");
+    }
+    lexem.set(body, here, Lexem::String);
+    int c = src.cur_char();
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+      lexem.val = c;
+      src.advance(1);
+    }
+    return lexem;
   }
   int c = src.cur_char();
   const char* end = src.get_ptr();

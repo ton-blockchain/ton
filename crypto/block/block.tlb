@@ -113,7 +113,10 @@ var_uint$_ {n:#} len:(#< n) value:(uint (len * 8))
          = VarUInteger n;
 var_int$_ {n:#} len:(#< n) value:(int (len * 8)) 
         = VarInteger n;
-nanograms$_ amount:(VarUInteger 16) = Grams;  
+nanograms$_ amount:(VarUInteger 16) = Grams;
+
+_ grams:Grams = Coins;
+
 //
 extra_currencies$_ dict:(HashmapE 32 (VarUInteger 32)) 
                  = ExtraCurrencyCollection;
@@ -611,13 +614,27 @@ wfmt_ext#0 min_addr_len:(## 12) max_addr_len:(## 12) addr_len_step:(## 12)
   workchain_type_id:(## 32) { workchain_type_id >= 1 }
   = WorkchainFormat 0;
 
-workchain#a6 enabled_since:uint32 actual_min_split:(## 8) 
-  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
+wc_split_merge_timings#0
+  split_merge_delay:uint32 split_merge_interval:uint32
+  min_split_merge_interval:uint32 max_split_merge_delay:uint32
+  = WcSplitMergeTimings;
+
 //workchain#a5 enabled_since:uint32 min_split:(## 8) max_split:(## 8)
 //  { min_split <= max_split } { max_split <= 60 }
+
+workchain#a6 enabled_since:uint32 actual_min_split:(## 8) 
+  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
   basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
   zerostate_root_hash:bits256 zerostate_file_hash:bits256
   version:uint32 format:(WorkchainFormat basic)
+  = WorkchainDescr;
+
+workchain_v2#a7 enabled_since:uint32 actual_min_split:(## 8)
+  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
+  basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
+  zerostate_root_hash:bits256 zerostate_file_hash:bits256
+  version:uint32 format:(WorkchainFormat basic)
+  split_merge_timings:WcSplitMergeTimings
   = WorkchainDescr;
 
 _ workchains:(HashmapE 32 WorkchainDescr) = ConfigParam 12;
@@ -734,10 +751,31 @@ misbehaviour_punishment_config_v1#01
    = MisbehaviourPunishmentConfig;
 _ MisbehaviourPunishmentConfig = ConfigParam 40;
 
+size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
+  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
+size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
+  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32 = SizeLimitsConfig;
+_ SizeLimitsConfig = ConfigParam 43;
+
 oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;
 _ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
 _ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
 _ OracleBridgeParams = ConfigParam 73; // Polygon bridge
+
+// Note that chains in which bridge, minter and jetton-wallet operate are fixated
+jetton_bridge_prices#_ bridge_burn_fee:Coins bridge_mint_fee:Coins 
+                       wallet_min_tons_for_storage:Coins
+                       wallet_gas_consumption:Coins
+                       minter_min_tons_for_storage:Coins
+                       discover_gas_consumption:Coins = JettonBridgePrices;
+
+jetton_bridge_params_v0#00 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 burn_bridge_fee:Coins = JettonBridgeParams;
+jetton_bridge_params_v1#01 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 prices:^JettonBridgePrices external_chain_address:bits256 = JettonBridgeParams;
+
+_ JettonBridgeParams = ConfigParam 79; // ETH->TON token bridge
+_ JettonBridgeParams = ConfigParam 80; // BNB->TON token bridge
+_ JettonBridgeParams = ConfigParam 81; // Polygon->TON token bridge
+
 
 //
 //  PROOFS
@@ -840,6 +878,8 @@ cap_method_pubkey#71f4 = SmcCapability;
 cap_is_wallet#2177 = SmcCapability;
 cap_name#ff name:Text = SmcCapability;
 
+dns_storage_address#7473 bag_id:bits256 = DNSRecord;
+
 //
 // PAYMENT CHANNELS
 //
@@ -865,4 +905,3 @@ chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
 
 
 chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
-

@@ -66,9 +66,19 @@ class DnsInterface {
     // TODO: capability
   };
 
+  struct EntryDataStorageAddress {
+    ton::Bits256 bag_id;
+    // TODO: proto
+    bool operator==(const EntryDataStorageAddress& other) const {
+      return bag_id == other.bag_id;
+    }
+  };
+
   struct EntryData {
-    enum Type { Empty, Text, NextResolver, AdnlAddress, SmcAddress } type{Empty};
-    td::Variant<EntryDataText, EntryDataNextResolver, EntryDataAdnlAddress, EntryDataSmcAddress> data;
+    enum Type { Empty, Text, NextResolver, AdnlAddress, SmcAddress, StorageAddress } type{Empty};
+    td::Variant<EntryDataText, EntryDataNextResolver, EntryDataAdnlAddress, EntryDataSmcAddress,
+                EntryDataStorageAddress>
+        data;
 
     static EntryData text(std::string text) {
       return {Text, EntryDataText{text}};
@@ -81,6 +91,9 @@ class DnsInterface {
     }
     static EntryData smc_address(block::StdAddress smc_address) {
       return {SmcAddress, EntryDataSmcAddress{smc_address}};
+    }
+    static EntryData storage_address(ton::Bits256 bag_id) {
+      return {StorageAddress, EntryDataStorageAddress{bag_id}};
     }
 
     bool operator==(const EntryData& other) const {

@@ -1,6 +1,6 @@
-name: C/C++ CI Ubuntu 18.04 Compile
+name: Ubuntu 18.04 Compile
 
-on: [push,workflow_dispatch]
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
@@ -9,7 +9,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:      
         submodules: 'recursive'
 
@@ -32,9 +32,11 @@ jobs:
       run: |
         mkdir artifacts
         cp build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy artifacts
+        cp -R crypto/smartcont artifacts/
+        cp -R crypto/fift/lib artifacts/
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-binaries
+        name: ton-ubuntu-binaries
         path: artifacts

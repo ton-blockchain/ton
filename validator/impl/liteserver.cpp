@@ -153,6 +153,10 @@ void LiteQuery::start_up() {
             this->perform_getAccountState(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
                                           q.account_->id_, 0);
           },
+          [&](lite_api::liteServer_getAccountStatePrunned& q) {
+            this->perform_getAccountState(ton::create_block_id(q.id_), static_cast<WorkchainId>(q.account_->workchain_),
+                                          q.account_->id_, 0x40000000);
+          },
           [&](lite_api::liteServer_getOneTransaction& q) {
             this->perform_getOneTransaction(ton::create_block_id(q.id_),
                                             static_cast<WorkchainId>(q.account_->workchain_), q.account_->id_,
@@ -228,7 +232,7 @@ void LiteQuery::perform_getMasterchainInfo(int mode) {
     return;
   }
   td::actor::send_closure_later(
-      manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+      manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
       [Self = actor_id(this), return_state = bool(acc_state_promise_), mode](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
@@ -420,7 +424,7 @@ void LiteQuery::perform_getState(BlockIdExt blkid) {
     fatal_error("invalid BlockIdExt");
     return;
   }
-  if (blkid.is_masterchain() && blkid.id.seqno > 1000) {
+  if (blkid.id.seqno > 1000) {
     fatal_error("cannot request total state: possibly too large");
     return;
   }
@@ -482,20 +486,13 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   auto copy = data.clone();
   td::actor::send_closure_later(
       manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Unit> res) mutable {
+      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Ref<ExtMessage>> res) mutable {
         if(res.is_error()) {
            td::actor::send_closure(Self, &LiteQuery::abort_query,
                                    res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
-          auto crm = ton::validator::create_ext_message(std::move(data));
-          if (crm.is_error()) {
-             //UNREACHABLE, checks in check_external_message,
-             td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                     crm.move_as_error());
-             return;
-          }
           LOG(INFO) << "sending an external message to validator manager";
-          td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, crm.move_as_ok());
+          td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
           auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
           td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b));
         }
@@ -779,9 +776,9 @@ void LiteQuery::perform_getAccountState(BlockIdExt blkid, WorkchainId workchain,
     set_continuation([&]() -> void { continue_getAccountState(); });
     request_mc_block_data_state(blkid);
   } else {
-    LOG(INFO) << "sending a get_top_masterchain_state_block query to manager";
+    LOG(INFO) << "sending a get_last_liteserver_state_block query to manager";
     td::actor::send_closure_later(
-        manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+        manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
         [Self = actor_id(this)](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) -> void {
           if (res.is_error()) {
             td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
@@ -858,7 +855,7 @@ void LiteQuery::perform_getLibraries(std::vector<td::Bits256> library_list) {
   sort( library_list.begin(), library_list.end() );
   library_list.erase( unique( library_list.begin(), library_list.end() ), library_list.end() );
   td::actor::send_closure_later(
-      manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+      manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
       [Self = actor_id(this), library_list](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) -> void {
         if (res.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
@@ -1213,6 +1210,19 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   }
   td::BufferSlice data;
   if (acc_root.not_null()) {
+    if (mode_ & 0x40000000) {
+      vm::MerkleProofBuilder mpb{acc_root};
+      // account_none$0 = Account;
+      // account$1 addr:MsgAddressInt storage_stat:StorageInfo storage:AccountStorage = Account;
+      // account_storage$_ last_trans_lt:uint64 balance:CurrencyCollection state:AccountState = AccountStorage;
+      // account_active$1 _:StateInit = AccountState;
+      auto S = mpb.root()->load_cell();
+      if (S.is_error()) {
+        fatal_error(S.move_as_error_prefix("Failed to load account: "));
+        return;
+      }
+      acc_root = mpb.extract_proof();
+    }
     auto res = vm::std_boc_serialize(std::move(acc_root));
     if (res.is_error()) {
       fatal_error(res.move_as_error());
@@ -1532,7 +1542,7 @@ void LiteQuery::perform_getShardInfo(BlockIdExt blkid, ShardIdFull shard, bool e
 }
 
 void LiteQuery::load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>> promise) {
-  td::actor::send_closure_later(manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+  td::actor::send_closure_later(manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
                                 [Self = actor_id(this), blkid, promise = std::move(promise)](
                                     td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
                                   td::actor::send_closure_later(Self, &LiteQuery::continue_loadPrevKeyBlock, blkid,
@@ -1955,7 +1965,7 @@ void LiteQuery::perform_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, 
                                     });
     } else {
       td::actor::send_closure_later(
-          manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+          manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
           [Self = actor_id(this), from, to, mode](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
             if (res.is_error()) {
               td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
@@ -1968,7 +1978,7 @@ void LiteQuery::perform_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, 
     }
   } else if (mode & 2) {
     td::actor::send_closure_later(
-        manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+        manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
         [Self = actor_id(this), from, mode](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
           if (res.is_error()) {
             td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());

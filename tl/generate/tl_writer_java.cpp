@@ -33,7 +33,7 @@ int TD_TL_writer_java::get_max_arity() const {
 }
 
 bool TD_TL_writer_java::is_built_in_simple_type(const std::string &name) const {
-  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Double" ||
+  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" || name == "Double" ||
          name == "String" || name == "Bytes" || name == "SecureString" || name == "SecureBytes" || name == "Object" ||
          name == "Function";
 }
@@ -93,8 +93,11 @@ std::string TD_TL_writer_java::gen_base_function_class_name() const {
 }
 
 std::string TD_TL_writer_java::gen_class_name(std::string name) const {
-  if (name == "Object" || name == "#") {
+  if (name == "Object") {
     assert(false);
+  }
+  if (name == "#") {
+    return "int";
   }
   bool next_to_upper = true;
   std::string result;
@@ -149,7 +152,7 @@ std::string TD_TL_writer_java::gen_type_name(const tl::tl_tree_type *tree_type) 
   const std::string &name = t->name;
 
   if (name == "#") {
-    assert(false);
+    return "int";
   }
   if (name == "Bool") {
     return "boolean";
@@ -166,7 +169,7 @@ std::string TD_TL_writer_java::gen_type_name(const tl::tl_tree_type *tree_type) 
   if (name == "String" || name == "SecureString") {
     return "String";
   }
-  if (name == "Bytes" || name == "SecureBytes") {
+  if (name == "Bytes" || name == "SecureBytes" || name == "Int128" || name == "Int256") {
     return "byte[]";
   }
   if (name == "Object") {
@@ -269,9 +272,6 @@ std::string TD_TL_writer_java::gen_vars(const tl::tl_combinator *t, const tl::tl
     assert(t->args[i].type->get_type() != tl::NODE_TYPE_VAR_TYPE);
   }
 
-  for (std::size_t i = 0; i < vars.size(); i++) {
-    assert(vars[i].is_type);
-  }
   return "";
 }
 
@@ -286,12 +286,19 @@ std::string TD_TL_writer_java::gen_function_vars(const tl::tl_combinator *t,
   }
 
   for (std::size_t i = 0; i < t->args.size(); i++) {
-    assert(t->args[i].type->get_type() != tl::NODE_TYPE_VAR_TYPE);
+    const tl::arg &a = t->args[i];
+
+    int arg_type = a.type->get_type();
+    if (arg_type == tl::NODE_TYPE_VAR_TYPE) {
+      const tl::tl_tree_var_type *var_type = static_cast<const tl::tl_tree_var_type *>(a.type);
+      assert(a.flags & tl::FLAG_EXCL);
+      assert(var_type->var_num >= 0);
+      assert(!vars[var_type->var_num].is_type);
+      vars[var_type->var_num].is_type = true;
+      vars[var_type->var_num].function_arg_num = static_cast<int>(i);
+    }
   }
 
-  for (std::size_t i = 0; i < vars.size(); i++) {
-    assert(vars[i].is_type);
-  }
   return "";
 }
 
@@ -309,19 +316,41 @@ std::string TD_TL_writer_java::gen_field_fetch(int field_num, const tl::arg &a, 
                                                bool flat, int parser_type) const {
   assert(parser_type >= 0);
 
-  assert(a.exist_var_num == -1);
-  assert(a.type->get_type() != tl::NODE_TYPE_VAR_TYPE);
+  if (a.type->get_type() == tl::NODE_TYPE_VAR_TYPE) {
+    assert(parser_type == 1);
+
+    const tl::tl_tree_var_type *t = static_cast<const tl::tl_tree_var_type *>(a.type);
+    assert(a.flags == tl::FLAG_EXCL);
+
+    assert(a.var_num == -1);
+    assert(a.exist_var_num == -1);
+
+    assert(t->var_num >= 0);
+    assert(vars[t->var_num].is_type);
+    assert(!vars[t->var_num].is_stored);
+    vars[t->var_num].is_stored = true;
+
+    return "";
+  }
 
   assert(!(a.flags & tl::FLAG_EXCL));
   assert(!(a.flags & tl::FLAG_OPT_VAR));
+
+  if (a.exist_var_num != -1) {
+    assert(0 <= a.exist_var_num && a.exist_var_num < static_cast<int>(vars.size()));
+  }
 
   if (flat) {
     //    TODO
     //    return gen_field_fetch(const tl::arg &a, std::vector<tl::var_description> &vars, int num, bool flat);
   }
 
-  assert(a.var_num == -1);
   assert(a.type->get_type() == tl::NODE_TYPE_TYPE);
+  if (a.var_num >= 0) {
+    assert(static_cast<const tl::tl_tree_type *>(a.type)->type->id == tl::ID_VAR_NUM);
+    assert(0 <= a.var_num && a.var_num < static_cast<int>(vars.size()));
+  }
+
   return "";
 }
 

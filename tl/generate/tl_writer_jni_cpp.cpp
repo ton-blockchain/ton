@@ -25,7 +25,7 @@ namespace td {
 
 bool TD_TL_writer_jni_cpp::is_built_in_simple_type(const std::string &name) const {
   assert(name != "function");
-  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Double" ||
+  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" || name == "Double" ||
          name == "String" || name == "Bytes" || name == "SecureString" || name == "SecureBytes" || name == "Function" ||
          name == "Object";
 }
@@ -126,6 +126,8 @@ std::string TD_TL_writer_jni_cpp::gen_vector_fetch(std::string field_name, const
   } else if (vector_type == bytes_type) {
     std::fprintf(stderr, "Vector of Bytes is not supported\n");
     assert(false);
+  } else if (vector_type == "td::Bits128" || vector_type == "td::Bits256") {
+    template_type = vector_type;
   } else {
     assert(vector_type.compare(0, 10, "object_ptr") == 0);
     template_type = gen_main_class_name(t->type);
@@ -152,17 +154,11 @@ std::string TD_TL_writer_jni_cpp::gen_type_fetch(const std::string &field_name, 
     assert(is_type_bare(t));
   }
 
-  std::string res_begin;
-  if (!field_name.empty()) {
-    res_begin = field_name + " = ";
-  }
-
   std::string res;
-  assert(name != "#");
   if (field_name.empty()) {
     if (name == "Bool") {
       return "env->CallObjectMethod(p, td::jni::BooleanGetValueMethodID)";
-    } else if (name == "Int32") {
+    } else if (name == "Int32" || name == "#") {
       return "env->CallObjectMethod(p, td::jni::IntegerGetValueMethodID)";
     } else if (name == "Int53" || name == "Int64") {
       return "env->CallObjectMethod(p, td::jni::LongGetValueMethodID)";
@@ -176,12 +172,16 @@ std::string TD_TL_writer_jni_cpp::gen_type_fetch(const std::string &field_name, 
       return "td::jni::from_jstring_secure(env, (jstring)p)";
     } else if (name == "SecureBytes") {
       return "td::jni::from_bytes_secure(env, (jbyteArray)p)";
+    } else if (name == "Int128") {
+      return "td::jni::from_bits<128>(env, (jbyteArray)p)";
+    } else if (name == "Int256") {
+      return "td::jni::from_bits<256>(env, (jbyteArray)p)";
     }
   }
 
   if (name == "Bool") {
     res = "(env->GetBooleanField(p, " + field_name + "fieldID) != 0)";
-  } else if (name == "Int32") {
+  } else if (name == "Int32" || name == "#") {
     res = "env->GetIntField(p, " + field_name + "fieldID)";
   } else if (name == "Int53" || name == "Int64") {
     res = "env->GetLongField(p, " + field_name + "fieldID)";
@@ -195,6 +195,10 @@ std::string TD_TL_writer_jni_cpp::gen_type_fetch(const std::string &field_name, 
     res = "td::jni::fetch_string_secure(env, p, " + field_name + "fieldID)";
   } else if (name == "SecureBytes") {
     res = "td::jni::from_bytes_secure(env, (jbyteArray)td::jni::fetch_object(env, p, " + field_name + "fieldID))";
+  } else if (name == "Int128") {
+    res = "td::jni::from_bits<128>(env, (jbyteArray)td::jni::fetch_object(env, p, " + field_name + "fieldID))";
+  } else if (name == "Int256") {
+    res = "td::jni::from_bits<256>(env, (jbyteArray)td::jni::fetch_object(env, p, " + field_name + "fieldID))";
   } else if (name == "Vector") {
     const tl::tl_tree_type *child = static_cast<const tl::tl_tree_type *>(tree_type->children[0]);
     res = gen_vector_fetch(field_name, child, vars, parser_type);
@@ -206,7 +210,7 @@ std::string TD_TL_writer_jni_cpp::gen_type_fetch(const std::string &field_name, 
     res = "td::jni::fetch_tl_object<" + gen_main_class_name(tree_type->type) + ">(env, td::jni::fetch_object(env, p, " +
           field_name + "fieldID));";
   }
-  return res_begin + res;
+  return res;
 }
 
 std::string TD_TL_writer_jni_cpp::gen_field_fetch(int field_num, const tl::arg &a,
@@ -215,7 +219,6 @@ std::string TD_TL_writer_jni_cpp::gen_field_fetch(int field_num, const tl::arg &
   assert(parser_type >= 0);
   std::string field_name = (parser_type == 0 ? (field_num == 0 ? ": " : ", ") : "res->") + gen_field_name(a.name);
 
-  assert(a.exist_var_num == -1);
   if (a.type->get_type() == tl::NODE_TYPE_VAR_TYPE) {
     assert(parser_type == 1);
 
@@ -223,6 +226,7 @@ std::string TD_TL_writer_jni_cpp::gen_field_fetch(int field_num, const tl::arg &
     assert(a.flags == tl::FLAG_EXCL);
 
     assert(a.var_num == -1);
+    assert(a.exist_var_num == -1);
 
     assert(t->var_num >= 0);
     assert(vars[t->var_num].is_type);
@@ -236,18 +240,52 @@ std::string TD_TL_writer_jni_cpp::gen_field_fetch(int field_num, const tl::arg &
   assert(!(a.flags & tl::FLAG_EXCL));
   assert(!(a.flags & tl::FLAG_OPT_VAR));
 
+  std::string res = "  ";
+  if (a.exist_var_num != -1) {
+    assert(0 <= a.exist_var_num && a.exist_var_num < static_cast<int>(vars.size()));
+    assert(vars[a.exist_var_num].is_stored);
+
+    res += "if (" + gen_var_name(vars[a.exist_var_num]) + " & " + int_to_string(1 << a.exist_var_bit) + ") { ";
+  }
+
   if (flat) {
     //    TODO
     //    return gen_field_fetch(const tl::arg &a, std::vector<tl::var_description> &vars, int num, bool flat);
   }
 
-  assert(a.var_num == -1);
+  bool store_to_var_num = false;
+  if (a.var_num >= 0) {
+    assert(a.type->get_type() == tl::NODE_TYPE_TYPE);
+    assert(static_cast<const tl::tl_tree_type *>(a.type)->type->id == tl::ID_VAR_NUM);
+    assert(0 <= a.var_num && a.var_num < static_cast<int>(vars.size()));
+    if (!vars[a.var_num].is_stored) {
+      res += "if ((" + gen_var_name(vars[a.var_num]) + " = ";
+      store_to_var_num = true;
+    } else {
+      assert(false);
+    }
+    vars[a.var_num].is_stored = true;
+  }
+
+  res += field_name + (parser_type == 0 ? "(" : " = ");
 
   assert(a.type->get_type() == tl::NODE_TYPE_TYPE);
   const tl::tl_tree_type *tree_type = static_cast<tl::tl_tree_type *>(a.type);
+  res += gen_type_fetch(field_name, tree_type, vars, parser_type);
+  if (store_to_var_num) {
+    res += ") < 0) { return nullptr; }";
+  } else {
+    res += (parser_type == 0 ? ")" : ";");
+  }
 
-  assert(parser_type != 0);
-  return "  " + gen_type_fetch(field_name, tree_type, vars, parser_type) + ";\n";
+  if (a.exist_var_num >= 0) {
+    res += " }";
+    if (store_to_var_num) {
+      res += " else { " + gen_var_name(vars[a.var_num]) + " = 0; }";
+    }
+  }
+  res += "\n";
+  return res;
 }
 
 std::string TD_TL_writer_jni_cpp::get_pretty_field_name(std::string field_name) const {
@@ -274,7 +312,7 @@ std::string TD_TL_writer_jni_cpp::gen_vector_store(const std::string &field_name
     assert(false);  // TODO
   }
   if (vector_type == "std::int32_t" || vector_type == "std::int64_t" || vector_type == "double" ||
-      vector_type == string_type || vector_type == secure_string_type ||
+      vector_type == string_type || vector_type == secure_string_type || vector_type == "td::Bits128" || vector_type == "td::Bits256" ||
       vector_type.compare(0, 11, "std::vector") == 0 || vector_type.compare(0, 10, "object_ptr") == 0) {
     return "{ "
            "auto arr_tmp_ = td::jni::store_vector(env, " +
@@ -317,8 +355,8 @@ std::string TD_TL_writer_jni_cpp::gen_type_store(const std::string &field_name, 
   }
 
   std::string res;
-  if (name == "Int32" || name == "Int53" || name == "Int64" || name == "Double" || name == "Bool" || name == "String" ||
-      name == "SecureString") {
+  if (name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" || name == "Double" || name == "Bool" || name == "String" ||
+      name == "SecureString" || name == "#") {
     if (storer_type == 1) {
       res = "s.store_field(\"" + get_pretty_field_name(field_name) + "\", " + field_name + ");";
     } else if (name == "Bool") {
@@ -337,6 +375,16 @@ std::string TD_TL_writer_jni_cpp::gen_type_store(const std::string &field_name, 
       res = "{ jstring nextString = td::jni::to_jstring_secure(env, " + field_name +
             "); if (nextString) { env->SetObjectField(s, " + field_name +
             "fieldID, nextString); env->DeleteLocalRef(nextString); } }";
+    } else if (name == "Int128") {
+      res = "{ jbyteArray nextBytes = td::jni::to_bits<128>(env, " + field_name +
+            "); if (nextBytes) { env->SetObjectField(s, " + field_name +
+            "fieldID, nextBytes); env->DeleteLocalRef(nextBytes); } }";
+    } else if (name == "Int256") {
+      res = "{ jbyteArray nextBytes = td::jni::to_bits<256>(env, " + field_name +
+            "); if (nextBytes) { env->SetObjectField(s, " + field_name +
+            "fieldID, nextBytes); env->DeleteLocalRef(nextBytes); } }";
+    } else if (name == "#") {
+      res = "env->SetIntField(s, " + TD_TL_writer_cpp::get_pretty_field_name(field_name) + "_fieldID, " + field_name + ");";
     } else {
       assert(false);
     }
@@ -378,12 +426,12 @@ std::string TD_TL_writer_jni_cpp::gen_field_store(const tl::arg &a, std::vector<
   std::string field_name = gen_field_name(a.name);
   std::string shift = storer_type == 1 ? "    " : "  ";
 
-  assert(a.exist_var_num == -1);
   if (a.type->get_type() == tl::NODE_TYPE_VAR_TYPE) {
     const tl::tl_tree_var_type *t = static_cast<const tl::tl_tree_var_type *>(a.type);
     assert(a.flags == tl::FLAG_EXCL);
 
     assert(a.var_num == -1);
+    assert(a.exist_var_num == -1);
 
     assert(t->var_num >= 0);
     assert(!vars[t->var_num].is_stored);
@@ -397,15 +445,39 @@ std::string TD_TL_writer_jni_cpp::gen_field_store(const tl::arg &a, std::vector<
   assert(!(a.flags & tl::FLAG_EXCL));
   assert(!(a.flags & tl::FLAG_OPT_VAR));
 
+  if (a.exist_var_num >= 0) {
+    assert(a.exist_var_num < static_cast<int>(vars.size()));
+    assert(vars[a.exist_var_num].is_stored);
+
+    shift += "if (" + gen_var_name(vars[a.exist_var_num]) + " & " + int_to_string(1 << a.exist_var_bit) + ") { ";
+  }
+
   if (flat) {
     //    TODO
     //    return gen_field_store(const tl::arg &a, std::vector<tl::var_description> &vars, bool flat, int storer_type);
   }
 
-  assert(a.var_num == -1);
+  if (a.var_num >= 0) {
+    assert(a.type->get_type() == tl::NODE_TYPE_TYPE);
+    assert(static_cast<const tl::tl_tree_type *>(a.type)->type->id == tl::ID_VAR_NUM);
+    assert(a.var_num < static_cast<int>(vars.size()));
+    if (!vars[a.var_num].is_stored) {
+      field_name = "(" + gen_var_name(vars[a.var_num]) + " = " + field_name + ")";
+      vars[a.var_num].is_stored = true;
+    } else {
+      assert(false);  // need to check value of stored var
+      field_name = gen_var_name(vars[a.var_num]);
+    }
+  }
+
   assert(a.type->get_type() == tl::NODE_TYPE_TYPE);
   const tl::tl_tree_type *tree_type = static_cast<tl::tl_tree_type *>(a.type);
-  return shift + gen_type_store(field_name, tree_type, vars, storer_type) + "\n";
+  shift += gen_type_store(field_name, tree_type, vars, storer_type);
+  if (a.exist_var_num >= 0) {
+    shift += " }";
+  }
+  shift += "\n";
+  return shift;
 }
 
 std::string TD_TL_writer_jni_cpp::gen_get_id(const std::string &class_name, std::int32_t id, bool is_proxy) const {
@@ -568,11 +640,10 @@ std::string TD_TL_writer_jni_cpp::gen_type_signature(const tl::tl_tree_type *tre
   const tl::tl_type *t = tree_type->type;
   const std::string &name = t->name;
 
-  assert(name != "#");
   assert(name != gen_base_tl_class_name());
   if (name == "Bool") {
     return "Z";
-  } else if (name == "Int32") {
+  } else if (name == "Int32" || name == "#") {
     return "I";
   } else if (name == "Int53" || name == "Int64") {
     return "J";
@@ -580,7 +651,7 @@ std::string TD_TL_writer_jni_cpp::gen_type_signature(const tl::tl_tree_type *tre
     return "D";
   } else if (name == "String" || name == "SecureString") {
     return "Ljava/lang/String;";
-  } else if (name == "Bytes" || name == "SecureBytes") {
+  } else if (name == "Bytes" || name == "SecureBytes" || name == "Int128" || name == "Int256") {
     return "[B";
   } else if (name == "Vector") {
     const tl::tl_tree_type *child = static_cast<const tl::tl_tree_type *>(tree_type->children[0]);

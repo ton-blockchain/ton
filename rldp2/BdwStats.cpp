@@ -18,6 +18,7 @@
 */
 
 #include "BdwStats.h"
+#include "rldp.hpp"
 
 namespace ton {
 namespace rldp2 {
@@ -39,7 +40,7 @@ void BdwStats::on_packet_ack(const PacketInfo &info, td::Timestamp sent_at, td::
   auto ack_passed = now.at() - info.delivered_now.at();
   auto passed = td::max(sent_passed, ack_passed);
   if (passed < 0.01) {
-    LOG(ERROR) << "Invalid passed " << passed;
+    VLOG(RLDP_INFO) << "Invalid passed " << passed;
   }
   auto delivered = delivered_count - info.delivered_count;
   on_rate_sample((double)delivered / passed, now, info.is_paused);

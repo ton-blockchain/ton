@@ -1102,6 +1102,36 @@ blk_fl::val parse_do_stmt(Lexer& lex, CodeBlob& code) {
   return res & ~blk_fl::empty;
 }
 
+blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
+  lex.expect(_Try);
+  Op& try_catch_op = code.emplace_back(lex.cur().loc, Op::_TryCatch);
+  code.push_set_cur(try_catch_op.block0);
+  blk_fl::val res0 = parse_block_stmt(lex, code);
+  code.close_pop_cur(lex.cur().loc);
+  lex.expect(_Catch);
+  code.push_set_cur(try_catch_op.block1);
+  sym::open_scope(lex);
+  Expr* expr = parse_expr(lex, code, true);
+  expr->chk_lvalue(lex.cur());
+  TypeExpr* tvm_error_type = TypeExpr::new_tensor(TypeExpr::new_var(), TypeExpr::new_atomic(_Int));
+  try {
+    unify(expr->e_type, tvm_error_type);
+  } catch (UnifyError& ue) {
+    std::ostringstream os;
+    os << "`catch` arguments have incorrect type " << expr->e_type << ": " << ue;
+    lex.cur().error(os.str());
+  }
+  expr->predefine_vars();
+  expr->define_new_vars(code);
+  try_catch_op.left = expr->pre_compile(code);
+  assert(try_catch_op.left.size() == 2);
+  blk_fl::val res1 = parse_block_stmt(lex, code);
+  sym::close_scope(lex);
+  code.close_pop_cur(lex.cur().loc);
+  blk_fl::combine_parallel(res0, res1);
+  return res0;
+}
+
 blk_fl::val parse_if_stmt(Lexer& lex, CodeBlob& code, int first_lex = _If) {
   SrcLocation loc{lex.cur().loc};
   lex.expect(first_lex);
@@ -1165,6 +1195,8 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
       return parse_do_stmt(lex, code);
     case _While:
       return parse_while_stmt(lex, code);
+    case _Try:
+      return parse_try_catch_stmt(lex, code);
     default: {
       auto expr = parse_expr(lex, code);
       expr->chk_rvalue(lex.cur());
@@ -1270,19 +1302,48 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
     lex.expect(')');
   }
   while (lex.tp() == _String) {
-    asm_ops.push_back(AsmOp::Parse(lex.cur().str, cnt, width));
-    lex.next();
-    if (asm_ops.back().is_custom()) {
-      cnt = width;
+    std::string ops = lex.cur().str; // <op>\n<op>\n...
+    std::string op;
+    for (const char& c : ops) {
+      if (c == '\n') {
+        if (!op.empty()) {
+          asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+          if (asm_ops.back().is_custom()) {
+            cnt = width;
+          }
+          op.clear();
+        }
+      } else {
+        op.push_back(c);
+      }
     }
+    if (!op.empty()) {
+      asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+      if (asm_ops.back().is_custom()) {
+        cnt = width;
+      }
+    }
+    lex.next();
   }
   if (asm_ops.empty()) {
     throw src::ParseError{lex.cur().loc, "string with assembler instruction expected"};
   }
   lex.expect(';');
+  std::string crc_s;
+  for (const AsmOp& asm_op : asm_ops) {
+    crc_s += asm_op.op;
+  }
+  crc_s.push_back(impure);
+  for (const int& x : arg_order) {
+    crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
+  }
+  for (const int& x : ret_order) {
+    crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
+  }
   auto res = new SymValAsmFunc{func_type, asm_ops, impure};
   res->arg_order = std::move(arg_order);
   res->ret_order = std::move(ret_order);
+  res->crc = td::crc64(crc_s);
   return res;
 }
 
@@ -1448,16 +1509,22 @@ void parse_func_def(Lexer& lex) {
     // code->print(std::cerr);  // !!!DEBUG!!!
     func_sym_code->code = code;
   } else {
+    Lexem asm_lexem = lex.cur();
+    SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
     if (func_sym_val) {
       if (dynamic_cast<SymValCodeFunc*>(func_sym_val)) {
-        lex.cur().error("function `"s + func_name.str + "` was already declared as an ordinary function");
+        asm_lexem.error("function `"s + func_name.str + "` was already declared as an ordinary function");
       }
-      if (dynamic_cast<SymValAsmFunc*>(func_sym_val)) {
-        lex.cur().error("redefinition of built-in assembler function `"s + func_name.str + "`");
+      SymValAsmFunc* asm_func_old = dynamic_cast<SymValAsmFunc*>(func_sym_val);
+      if (asm_func_old) {
+        if (asm_func->crc != asm_func_old->crc) {
+          asm_lexem.error("redefinition of built-in assembler function `"s + func_name.str + "`");
+        }
+      } else {
+        asm_lexem.error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
       }
-      lex.cur().error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
     }
-    func_sym->value = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
+    func_sym->value = asm_func;
   }
   if (method_id.not_null()) {
     auto val = dynamic_cast<SymVal*>(func_sym->value);

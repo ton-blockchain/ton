@@ -376,6 +376,21 @@ struct MsgPrices {
   td::RefInt256 get_next_part(td::RefInt256 total) const;
 };
 
+struct SizeLimitsConfig {
+  // Default values are used when not present in global config
+  struct ExtMsgLimits {
+    td::uint32 max_size = 65535;
+    td::uint16 max_depth = 512;
+  };
+  td::uint32 max_msg_bits = 1 << 21;
+  td::uint32 max_msg_cells = 1 << 13;
+  td::uint32 max_library_cells = 1000;
+  td::uint16 max_vm_data_depth = 512;
+  ExtMsgLimits ext_msg_limits;
+  td::uint32 max_acc_state_cells = 1 << 16;
+  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+};
+
 struct CatchainValidatorsConfig {
   td::uint32 mc_cc_lifetime, shard_cc_lifetime, shard_val_lifetime, shard_val_num;
   bool shuffle_mc_val;
@@ -402,6 +417,13 @@ struct WorkchainInfo : public td::CntObject {
   ton::RootHash zerostate_root_hash;
   ton::FileHash zerostate_file_hash;
   int min_addr_len, max_addr_len, addr_len_step;
+
+  // Default values are used when split_merge_timings is not set in config
+  unsigned split_merge_delay = 100;       // prepare (delay) split/merge for 100 seconds
+  unsigned split_merge_interval = 100;    // split/merge is enabled during 60 second interval
+  unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
+  unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
+
   bool is_valid() const {
     return workchain != ton::workchainInvalid;
   }
@@ -593,6 +615,7 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
+  td::Result<SizeLimitsConfig> get_size_limits_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,

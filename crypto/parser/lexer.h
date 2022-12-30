@@ -71,6 +71,7 @@ class Lexer {
   Lexem lexem, peek_lexem;
   unsigned char char_class[128];
   std::array<int, 3> eol_cmt, cmt_op, cmt_cl;
+  std::string multiline_quote;
   enum cc { left_active = 2, right_active = 1, active = 3, allow_repeat = 4, quote_char = 8 };
 
  public:
@@ -78,7 +79,8 @@ class Lexer {
     return eof;
   }
   Lexer(SourceReader& _src, bool init = false, std::string active_chars = ";,() ~.", std::string eol_cmts = ";;",
-        std::string open_cmts = "{-", std::string close_cmts = "-}", std::string quote_chars = "\"");
+        std::string open_cmts = "{-", std::string close_cmts = "-}", std::string quote_chars = "\"",
+        std::string multiline_quote = "\"\"\"");
   const Lexem& next();
   const Lexem& cur() const {
     return lexem;
@@ -109,6 +111,7 @@ class Lexer {
 
  private:
   void set_spec(std::array<int, 3>& arr, std::string setup);
+  bool is_multiline_quote(const char* begin, const char* end);
 };
 
 }  // namespace src
