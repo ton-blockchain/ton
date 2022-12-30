@@ -302,8 +302,9 @@ class StorageDaemonCli : public td::actor::Actor {
       bool copy = false;
       std::string description;
       bool json = false;
+      bool no_more_flags = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
+        if (!tokens[i].empty() && tokens[i][0] == '-' && !no_more_flags) {
           if (tokens[i] == "-d") {
             ++i;
             if (i == tokens.size()) {
@@ -322,6 +323,10 @@ class StorageDaemonCli : public td::actor::Actor {
           }
           if (tokens[i] == "--json") {
             json = true;
+            continue;
+          }
+          if (tokens[i] == "--") {
+            no_more_flags = true;
             continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
@@ -343,8 +348,9 @@ class StorageDaemonCli : public td::actor::Actor {
       bool upload = true;
       bool json = false;
       td::optional<std::vector<std::string>> partial;
+      bool no_more_flags = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
+        if (!tokens[i].empty() && tokens[i][0] == '-' && !no_more_flags) {
           if (tokens[i] == "-d") {
             ++i;
             if (i == tokens.size()) {
@@ -368,6 +374,10 @@ class StorageDaemonCli : public td::actor::Actor {
           if (tokens[i] == "--partial") {
             partial = std::vector<std::string>(tokens.begin() + i + 1, tokens.end());
             break;
+          }
+          if (tokens[i] == "--") {
+            no_more_flags = true;
+            continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
         }
@@ -542,8 +552,9 @@ class StorageDaemonCli : public td::actor::Actor {
       td::optional<std::string> provider_address;
       td::optional<std::string> rate;
       td::optional<td::uint32> max_span;
+      bool no_more_flags = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
+        if (!tokens[i].empty() && tokens[i][0] == '-' && !no_more_flags) {
           if (tokens[i] == "--query-id") {
             ++i;
             TRY_RESULT_PREFIX_ASSIGN(query_id, td::to_integer_safe<td::uint64>(tokens[i]), "Invalid query id: ");
@@ -562,6 +573,10 @@ class StorageDaemonCli : public td::actor::Actor {
           if (tokens[i] == "--max-span") {
             ++i;
             TRY_RESULT_PREFIX_ASSIGN(max_span, td::to_integer_safe<td::uint8>(tokens[i]), "Invalid max span: ");
+            continue;
+          }
+          if (tokens[i] == "--") {
+            no_more_flags = true;
             continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
