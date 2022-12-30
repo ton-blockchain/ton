@@ -395,4 +395,17 @@ struct Transaction {
 };
 }  // namespace transaction
 
+struct FetchConfigParams {
+static td::Status fetch_config_params(const block::Config& config,
+                                      Ref<vm::Cell>* old_mparams,
+                                      std::vector<block::StoragePrices>* storage_prices,
+                                      StoragePhaseConfig* storage_phase_cfg,
+                                      td::BitArray<256>* rand_seed,
+                                      ComputePhaseConfig* compute_phase_cfg,
+                                      ActionPhaseConfig* action_phase_cfg,
+                                      td::RefInt256* masterchain_create_fee,
+                                      td::RefInt256* basechain_create_fee,
+                                      ton::WorkchainId wc);
+};
+
 }  // namespace block

@@ -104,18 +104,6 @@ class Collator final : public td::actor::Actor {
     return 2;
   }
 
-  static td::Result<std::unique_ptr<block::ConfigInfo>>
-                     impl_fetch_config_params(std::unique_ptr<block::ConfigInfo> config,
-                                              Ref<vm::Cell>* old_mparams,
-                                              std::vector<block::StoragePrices>* storage_prices,
-                                              block::StoragePhaseConfig* storage_phase_cfg,
-                                              td::BitArray<256>* rand_seed,
-                                              block::ComputePhaseConfig* compute_phase_cfg,
-                                              block::ActionPhaseConfig* action_phase_cfg,
-                                              td::RefInt256* masterchain_create_fee,
-                                              td::RefInt256* basechain_create_fee,
-                                              WorkchainId wc);
-
   static td::Result<std::unique_ptr<block::transaction::Transaction>>
                         impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
                                                          block::Account* acc,
