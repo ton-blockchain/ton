@@ -11,10 +11,6 @@ if (NOT BLAS_FOUND)
   find_package(BLAS)
 endif()
 
-if (NOT BLAS_FOUND)
-  find_package(BLAS)
-endif()
-
 set(RLDP_SOURCE
   Ack.cpp
   Bbr.cpp
