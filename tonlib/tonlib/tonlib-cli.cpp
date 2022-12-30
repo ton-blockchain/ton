@@ -307,7 +307,7 @@ class TonlibCli : public td::actor::Actor {
     td::TerminalIO::out() << "dns cmdfile <key_id> <file>\n";
     td::TerminalIO::out() << "\t<dns_cmd> = set <name> <category> <data> | delete.name <name> | delete.all\n";
     td::TerminalIO::out() << "\t<data> = DELETED | EMPTY | TEXT:<text> | NEXT:<smc-address> | SMC:<smc-address> | "
-                             "ADNL:<adnl-address>\n";
+                             "ADNL:<adnl-address> | STORAGE:<bag-id>\n";
   }
 
   void pchan_help() {

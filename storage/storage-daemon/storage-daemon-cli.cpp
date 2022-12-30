@@ -39,7 +39,7 @@
 #include "common/refint.h"
 #include "crypto/block/block.h"
 
-using namespace ton;
+namespace ton {
 
 bool is_whitespace(char c) {
   return strchr(" \t\n\r", c) != nullptr;
@@ -302,8 +302,9 @@ class StorageDaemonCli : public td::actor::Actor {
       bool copy = false;
       std::string description;
       bool json = false;
+      bool no_more_flags = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
+        if (!tokens[i].empty() && tokens[i][0] == '-' && !no_more_flags) {
           if (tokens[i] == "-d") {
             ++i;
             if (i == tokens.size()) {
@@ -322,6 +323,10 @@ class StorageDaemonCli : public td::actor::Actor {
           }
           if (tokens[i] == "--json") {
             json = true;
+            continue;
+          }
+          if (tokens[i] == "--") {
+            no_more_flags = true;
             continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
@@ -343,8 +348,9 @@ class StorageDaemonCli : public td::actor::Actor {
       bool upload = true;
       bool json = false;
       td::optional<std::vector<std::string>> partial;
+      bool no_more_flags = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
+        if (!tokens[i].empty() && tokens[i][0] == '-' && !no_more_flags) {
           if (tokens[i] == "-d") {
             ++i;
             if (i == tokens.size()) {
@@ -368,6 +374,10 @@ class StorageDaemonCli : public td::actor::Actor {
           if (tokens[i] == "--partial") {
             partial = std::vector<std::string>(tokens.begin() + i + 1, tokens.end());
             break;
+          }
+          if (tokens[i] == "--") {
+            no_more_flags = true;
+            continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
         }
@@ -542,8 +552,9 @@ class StorageDaemonCli : public td::actor::Actor {
       td::optional<std::string> provider_address;
       td::optional<std::string> rate;
       td::optional<td::uint32> max_span;
+      bool no_more_flags = false;
       for (size_t i = 1; i < tokens.size(); ++i) {
-        if (!tokens[i].empty() && tokens[i][0] == '-') {
+        if (!tokens[i].empty() && tokens[i][0] == '-' && !no_more_flags) {
           if (tokens[i] == "--query-id") {
             ++i;
             TRY_RESULT_PREFIX_ASSIGN(query_id, td::to_integer_safe<td::uint64>(tokens[i]), "Invalid query id: ");
@@ -562,6 +573,10 @@ class StorageDaemonCli : public td::actor::Actor {
           if (tokens[i] == "--max-span") {
             ++i;
             TRY_RESULT_PREFIX_ASSIGN(max_span, td::to_integer_safe<td::uint8>(tokens[i]), "Invalid max span: ");
+            continue;
+          }
+          if (tokens[i] == "--") {
+            no_more_flags = true;
             continue;
           }
           return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
@@ -1742,12 +1757,14 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 };
 
+}  // namespace ton
+
 int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler();
   td::IPAddress ip_addr;
-  PrivateKey client_private_key;
-  PublicKey server_public_key;
+  ton::PrivateKey client_private_key;
+  ton::PublicKey server_public_key;
   std::vector<std::string> commands;
   td::OptionParser p;
   p.set_description("command-line interface for storage-daemon");
@@ -1772,12 +1789,12 @@ int main(int argc, char* argv[]) {
   p.add_option('c', "cmd", "execute command", [&](td::Slice arg) { commands.push_back(arg.str()); });
   p.add_checked_option('k', "key", "private key", [&](td::Slice arg) {
     TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
-    TRY_RESULT_ASSIGN(client_private_key, PrivateKey::import(data));
+    TRY_RESULT_ASSIGN(client_private_key, ton::PrivateKey::import(data));
     return td::Status::OK();
   });
   p.add_checked_option('p', "pub", "server public key", [&](td::Slice arg) {
     TRY_RESULT_PREFIX(data, td::read_file(arg.str()), "failed to read: ");
-    TRY_RESULT_ASSIGN(server_public_key, PublicKey::import(data));
+    TRY_RESULT_ASSIGN(server_public_key, ton::PublicKey::import(data));
     return td::Status::OK();
   });
 
@@ -1791,8 +1808,8 @@ int main(int argc, char* argv[]) {
 
   td::actor::Scheduler scheduler({0});
   scheduler.run_in_context([&] {
-    td::actor::create_actor<StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key,
-                                              std::move(commands))
+    td::actor::create_actor<ton::StorageDaemonCli>("console", ip_addr, client_private_key, server_public_key,
+                                                   std::move(commands))
         .release();
   });
   scheduler.run();

@@ -137,13 +137,20 @@ class CodeRepeat(Code):
             self.c.write(f, indent + 1)
             print("  " * (indent + 1) + "%s += 1;" % var, file=f)
             print("  " * indent + "}", file=f)
-        else:
+        elif self.loop_type == 2:
             var = gen_var_name()
             print("  " * indent + "int %s = 0;" % var, file=f)
             print("  " * indent + "do {", file=f)
             self.c.write(f, indent + 1)
             print("  " * (indent + 1) + "%s += 1;" % var, file=f)
             print("  " * indent + "} until (%s >= %d);" % (var, self.n), file=f)
+        else:
+            var = gen_var_name()
+            print("  " * indent + "int %s = %d;" % (var, self.n - 1), file=f)
+            print("  " * indent + "while (%s >= 0) {" % var, file=f)
+            self.c.write(f, indent + 1)
+            print("  " * (indent + 1) + "%s -= 1;" % var, file=f)
+            print("  " * indent + "}", file=f)
 
 class CodeThrow(Code):
     def __init__(self):
@@ -199,7 +206,7 @@ def gen_code(xl, xr, with_return, loop_depth=0, try_catch_depth=0, can_throw=Fal
     for _ in range(random.randint(0, 2)):
         if random.randint(0, 3) == 0 and loop_depth < 3:
             c = gen_code(xl, xr, False, loop_depth + 1, try_catch_depth, can_throw)
-            code.append(CodeRepeat(random.randint(0, 3), c, random.randint(0, 2)))
+            code.append(CodeRepeat(random.randint(0, 3), c, random.randint(0, 3)))
         elif xr - xl > 1:
             xmid = random.randrange(xl + 1, xr)
             ret = random.choice((0, 0, 0, 0, 0, 1, 2))

@@ -20,6 +20,8 @@
 #include "keys/encryptor.h"
 #include "smartcont/provider-code.h"
 
+namespace ton {
+
 static void smc_forget(td::actor::ActorId<tonlib::TonlibClientWrapper> client, td::int64 id) {
   auto query = create_tl_object<tonlib_api::smc_forget>(id);
   td::actor::send_closure(client, &tonlib::TonlibClientWrapper::send_request<tonlib_api::smc_forget>, std::move(query),
@@ -226,7 +228,7 @@ void FabricContractWrapper::loaded_last_transactions(
 void FabricContractWrapper::run_get_method(
     std::string method, std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>> args,
     td::Promise<std::vector<tl_object_ptr<tonlib_api::tvm_StackEntry>>> promise) {
-  ::run_get_method(address_, client_, std::move(method), std::move(args), std::move(promise));
+  ton::run_get_method(address_, client_, std::move(method), std::move(args), std::move(promise));
 }
 
 void FabricContractWrapper::send_internal_message(ContractAddress dest, td::RefInt256 coins, vm::CellSlice body,
@@ -485,3 +487,5 @@ void get_storage_contract_data(ContractAddress address, td::actor::ActorId<tonli
                                    rate_per_mb_day, max_span, last_proof_time, torrent_hash};
       }));
 }
+
+}  // namespace ton
