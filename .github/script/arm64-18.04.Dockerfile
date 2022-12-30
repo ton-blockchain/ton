@@ -15,5 +15,5 @@ WORKDIR /ton/build
 ENV CC clang
 ENV CXX clang++
 ENV CCACHE_DISABLE 1
-RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_ARCH= ..
+RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DCMAKE_CXX_FLAGS="-mavx2" ..
 RUN ninja storage-daemon storage-daemon-cli tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id dht-server lite-client
