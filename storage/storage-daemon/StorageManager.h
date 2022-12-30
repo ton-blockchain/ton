@@ -23,7 +23,7 @@
 #include "storage/PeerManager.h"
 #include "storage/db.h"
 
-using namespace ton;
+namespace ton {
 
 class StorageManager : public td::actor::Actor {
  public:
@@ -39,9 +39,12 @@ class StorageManager : public td::actor::Actor {
 
   void start_up() override;
 
-  void add_torrent(Torrent torrent, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
-  void add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
-  void add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, bool allow_upload, td::Promise<td::Unit> promise);
+  void add_torrent(Torrent torrent, bool start_download, bool allow_upload, bool copy_inside,
+                   td::Promise<td::Unit> promise);
+  void add_torrent_by_meta(TorrentMeta meta, std::string root_dir, bool start_download, bool allow_upload,
+                           td::Promise<td::Unit> promise);
+  void add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, bool allow_upload,
+                           td::Promise<td::Unit> promise);
 
   void set_active_download(td::Bits256 hash, bool active, td::Promise<td::Unit> promise);
   void set_active_upload(td::Bits256 hash, bool active, td::Promise<td::Unit> promise);
@@ -106,3 +109,5 @@ class StorageManager : public td::actor::Actor {
 
   void on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentEntry::ClosingState> closing_state);
 };
+
+}  // namespace ton

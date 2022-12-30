@@ -454,6 +454,12 @@ void NodeActor::load_from(td::optional<TorrentMeta> meta, std::string files_path
   loop();
 }
 
+void NodeActor::copy_to_new_root_dir(std::string new_root_dir, td::Promise<td::Unit> promise) {
+  TRY_STATUS_PROMISE(promise, torrent_.copy_to(new_root_dir));
+  db_store_torrent();
+  promise.set_result(td::Unit());
+}
+
 void NodeActor::tear_down() {
   for (auto &promise : wait_for_completion_) {
     promise.set_error(td::Status::Error("Torrent closed"));

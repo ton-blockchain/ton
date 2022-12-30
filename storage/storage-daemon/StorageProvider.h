@@ -24,7 +24,7 @@
 #include "smc-util.h"
 #include "storage/MicrochunkTree.h"
 
-using namespace ton;
+namespace ton {
 
 struct ProviderParams {
   bool accept_new_contracts = false;
@@ -110,7 +110,7 @@ class StorageProvider : public td::actor::Actor {
   void init_new_storage_contract(ContractAddress address, StorageContract& contract);
   void downloaded_torrent(ContractAddress address, MicrochunkTree microchunk_tree);
   void after_contract_downloaded(ContractAddress address, td::Timestamp retry_until = td::Timestamp::in(30.0),
-                             td::Timestamp retry_false_until = td::Timestamp::never());
+                                 td::Timestamp retry_false_until = td::Timestamp::never());
   void activate_contract_cont(ContractAddress address);
   void activated_storage_contract(ContractAddress address);
   void do_close_storage_contract(ContractAddress address);
@@ -125,3 +125,5 @@ class StorageProvider : public td::actor::Actor {
   void got_next_proof(ContractAddress address, td::Result<td::Ref<vm::Cell>> R);
   void sent_next_proof(ContractAddress address);
 };
+
+}  // namespace ton

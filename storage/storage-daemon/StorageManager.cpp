@@ -21,6 +21,8 @@
 #include "td/db/RocksDb.h"
 #include "td/actor/MultiPromise.h"
 
+namespace ton {
+
 static overlay::OverlayIdFull get_overlay_id(td::Bits256 hash) {
   td::BufferSlice hash_str(hash.as_slice());
   return overlay::OverlayIdFull(std::move(hash_str));
@@ -126,11 +128,27 @@ td::unique_ptr<NodeActor::Callback> StorageManager::create_callback(
   return td::make_unique<Callback>(actor_id(this), hash, std::move(closing_state));
 }
 
-void StorageManager::add_torrent(Torrent torrent, bool start_download, bool allow_upload,
+void StorageManager::add_torrent(Torrent torrent, bool start_download, bool allow_upload, bool copy_inside,
                                  td::Promise<td::Unit> promise) {
+  td::Bits256 hash = torrent.get_hash();
   TRY_STATUS_PROMISE(promise, add_torrent_impl(std::move(torrent), start_download, allow_upload));
   db_store_torrent_list();
-  promise.set_result(td::Unit());
+  if (!copy_inside) {
+    promise.set_result(td::Unit());
+    return;
+  }
+  TorrentEntry& entry = torrents_[hash];
+  std::string new_dir = db_root_ + "/torrent-files/" + hash.to_hex();
+  LOG(INFO) << "Copy torrent to " << new_dir;
+  td::actor::send_closure(
+      entry.actor, &NodeActor::copy_to_new_root_dir, std::move(new_dir),
+      [SelfId = actor_id(this), hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          LOG(WARNING) << "Copy torrent: " << R.error();
+          td::actor::send_closure(SelfId, &StorageManager::remove_torrent, hash, false, [](td::Result<td::Unit> R) {});
+        }
+        promise.set_result(std::move(R));
+      });
 }
 
 td::Status StorageManager::add_torrent_impl(Torrent torrent, bool start_download, bool allow_upload) {
@@ -156,7 +174,7 @@ void StorageManager::add_torrent_by_meta(TorrentMeta meta, std::string root_dir,
   Torrent::Options options;
   options.root_dir = root_dir.empty() ? db_root_ + "/torrent-files/" + hash.to_hex() : root_dir;
   TRY_RESULT_PROMISE(promise, torrent, Torrent::open(std::move(options), std::move(meta)));
-  add_torrent(std::move(torrent), start_download, allow_upload, std::move(promise));
+  add_torrent(std::move(torrent), start_download, allow_upload, false, std::move(promise));
 }
 
 void StorageManager::add_torrent_by_hash(td::Bits256 hash, std::string root_dir, bool start_download, bool allow_upload,
@@ -164,7 +182,7 @@ void StorageManager::add_torrent_by_hash(td::Bits256 hash, std::string root_dir,
   Torrent::Options options;
   options.root_dir = root_dir.empty() ? db_root_ + "/torrent-files/" + hash.to_hex() : root_dir;
   TRY_RESULT_PROMISE(promise, torrent, Torrent::open(std::move(options), hash));
-  add_torrent(std::move(torrent), start_download, allow_upload, std::move(promise));
+  add_torrent(std::move(torrent), start_download, allow_upload, false, std::move(promise));
 }
 
 void StorageManager::set_active_download(td::Bits256 hash, bool active, td::Promise<td::Unit> promise) {
@@ -273,3 +291,5 @@ void StorageManager::get_peers_info(td::Bits256 hash,
   TRY_RESULT_PROMISE(promise, entry, get_torrent(hash));
   td::actor::send_closure(entry->actor, &NodeActor::get_peers_info, std::move(promise));
 }
+
+}  // namespace ton
