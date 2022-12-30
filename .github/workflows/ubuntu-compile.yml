@@ -25,7 +25,7 @@ jobs:
       run: |
         cat /proc/cpuinfo
 
-    - name: Configure & BuildФ
+    - name: Configure & Build
       run: |
         export CC=$(which clang)
         export CXX=$(which clang++)
