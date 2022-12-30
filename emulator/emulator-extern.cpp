@@ -5,7 +5,7 @@
 #include "td/utils/logging.h"
 #include "transaction-emulator.h"
 
-void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc) {
+void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc, bool ignore_chksig) {
   auto config_params_decoded = td::base64_decode(td::Slice(config_params_boc));
   if (config_params_decoded.is_error()) {
     LOG(ERROR) << "Can't decode base64 config params boc: " << config_params_decoded.move_as_error();
@@ -38,7 +38,7 @@ void *transaction_emulator_create(const char *config_params_boc, const char *sha
     shardchain_libs = vm::Dictionary(shardchain_libs_cell.move_as_ok(), 256);
   }
 
-  return new emulator::TransactionEmulator(std::move(global_config), std::move(shardchain_libs));
+  return new emulator::TransactionEmulator(std::move(global_config), std::move(shardchain_libs), ignore_chksig);
 }
 
 const char *success_response(std::string&& transaction, std::string&& new_shard_account) {

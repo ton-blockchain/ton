@@ -10,9 +10,10 @@ extern "C" {
  * @brief Creates TransactionEmulator object
  * @param config_params_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
  * @param shardchain_libs_boc Base64 encoded BoC serialized shardchain libraries dictionary (HashmapE 256 ^Cell). Can be NULL if no shardchain libraries needed.
+ * @param ignore_chksig set_chksig_always_succeed parameter for vm
  * @return Pointer to TransactionEmulator or nullptr in case of error
  */
-EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc);
+EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, const char *shardchain_libs_boc, bool ignore_chksig = true);
 
 /**
  * @brief Emulate transaction

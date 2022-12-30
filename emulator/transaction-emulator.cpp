@@ -27,6 +27,7 @@ td::Result<TransactionEmulator::EmulationResult> TransactionEmulator::emulate_tr
     if(fetch_res.is_error()) {
         return fetch_res.move_as_error_prefix("cannot fetch config params ");
     }
+    compute_phase_cfg.ignore_chksig = ignore_chksig_;
 
     vm::init_op_cp0();
 

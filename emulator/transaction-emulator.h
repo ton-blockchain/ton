@@ -11,10 +11,11 @@ namespace emulator {
 class TransactionEmulator {
   block::Config config_;
   vm::Dictionary libraries_;
+  bool ignore_chksig_;
 
 public:
-  TransactionEmulator(block::Config&& config, vm::Dictionary&& libraries) : 
-    config_(std::move(config)), libraries_(std::move(libraries)) {
+  TransactionEmulator(block::Config&& config, vm::Dictionary&& libraries, bool ignore_chksig) :
+    config_(std::move(config)), libraries_(std::move(libraries)), ignore_chksig_(ignore_chksig) {
   }
 
   struct EmulationResult {
