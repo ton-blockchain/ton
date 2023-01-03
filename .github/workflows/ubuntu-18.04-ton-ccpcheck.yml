@@ -1,8 +1,6 @@
 name: TON ccpcheck
 
-on:
-  workflow_dispatch:
-  push:
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
