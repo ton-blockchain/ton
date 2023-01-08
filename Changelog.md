@@ -39,7 +39,7 @@ Besides the work of the core team, this update is based on the efforts of @aweso
 
 Besides the work of the core team, this update is based on the efforts of @tvorogme (debug improvements), @AlexeyFSL (WASM builds)  and third-party security auditors.
 
-## 01.2023 Update
+## 12.2022 Update
 Node update:
 1. Improvements of ton-proxy: fixed few bugs, improved stability
 2. Improved collator/validator checks, added optimization of storage stat calculation, generation and validation of new blocks is made safer
