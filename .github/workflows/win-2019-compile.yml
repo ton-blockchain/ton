@@ -1,0 +1,88 @@
+name: Windows Server 2019 x64 Compile
+
+on: [push,workflow_dispatch,workflow_call]
+
+defaults:
+  run:
+    shell: cmd
+
+jobs:
+  build:
+
+    runs-on: windows-2019
+
+    steps:
+      - name: Get Current OS version
+        run: |
+          systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
+
+      - name: Check out current repository
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: Check out zlib repository
+        uses: actions/checkout@v3
+        with:
+          repository: desktop-app/zlib
+          path: zlib
+
+      - name: Setup msbuild.exe
+        uses: microsoft/setup-msbuild@v1.0.2
+
+      - name: Compile zlib Win64
+        run: |
+          cd zlib\contrib\vstudio\vc14
+          msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
+
+      - name: Install pre-compiled OpenSSL Win64
+        run: |
+          curl  -Lo openssl-1.1.1o.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/openssl-1.1.1o.zip
+          jar xf openssl-1.1.1o.zip
+
+      - name: Install pre-compiled libmicrohttpd Win64
+        run: |
+          curl  -Lo libmicrohttpd-latest-w32-bin.zip https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-latest-w32-bin.zip
+          unzip libmicrohttpd-latest-w32-bin.zip
+
+      - name: Install pre-compiled Readline Win64
+        run: |
+          curl  -Lo readline-5.0-1-lib.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/readline-5.0-1-lib.zip
+          unzip readline-5.0-1-lib.zip
+
+      - name: Compile
+        run: |
+          set root=%cd%
+          echo %root%
+          mkdir build
+          cd build
+          cmake -DREADLINE_INCLUDE_DIR=%root%\readline-5.0-1-lib\include\readline -DREADLINE_LIBRARY=%root%\readline-5.0-1-lib\lib\readline.lib -DZLIB_FOUND=1 -DMHD_FOUND=1 -DMHD_LIBRARY=%root%\libmicrohttpd-0.9.75-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.75-w32-bin\x86_64\VS2019\Release-static -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1/x64/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1/x64/lib/libcrypto.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /W0" ..
+          cmake --build . --target storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork --config Release
+
+      - name: Show executables
+        run: |
+          cd build
+          del Release\test-*
+          dir *.exe /a-D /S /B
+          dir *.dll /a-D /S /B
+
+      - name: Check if validator-engine.exe exists
+        run: |
+          set root=%cd%
+          copy %root%\build\validator-engine\Release\validator-engine.exe test
+
+      - name: Find & copy binaries
+        run: |
+          mkdir artifacts
+          mkdir artifacts\smartcont
+          mkdir artifacts\lib
+
+          for %%I in (build\storage\storage-daemon\Release\storage-daemon.exe build\storage\storage-daemon\Release\storage-daemon-cli.exe build\crypto\Release\fift.exe build\crypto\Release\tlbc.exe build\crypto\Release\func.exe build\crypto\Release\create-state.exe build\validator-engine-console\Release\validator-engine-console.exe build\tonlib\Release\tonlib-cli.exe build\tonlib\Release\tonlibjson.dll build\http\Release\http-proxy.exe build\rldp-http-proxy\Release\rldp-http-proxy.exe build\dht-server\Release\dht-server.exe build\lite-client\Release\lite-client.exe build\validator-engine\Release\validator-engine.exe build\utils\Release\generate-random-id.exe build\utils\Release\json2tlo.exe build\adnl\Release\adnl-proxy.exe) do copy %%I artifacts\
+          xcopy /e /k /h /i crypto\smartcont artifacts\smartcont
+          xcopy /e /k /h /i crypto\fift\lib artifacts\lib          
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-win-binaries
+          path: artifacts

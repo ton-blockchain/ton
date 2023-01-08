@@ -40,19 +40,18 @@ class DhtRemoteNode {
   DhtNode node_;
 
   td::uint32 max_missed_pings_;
+  td::int32 our_network_id_;
   td::uint32 missed_pings_ = 0;
   double last_ping_at_ = 0;
   double ready_from_ = 0;
   double failed_from_ = 0;
+  double ping_interval_;
   td::int32 version_;
 
  public:
-  DhtRemoteNode(DhtNode node, td::uint32 max_missed_pings)
-      : node_(std::move(node)), max_missed_pings_(max_missed_pings) {
-    failed_from_ = td::Time::now_cached();
-    id_ = node_.get_key();
-  }
-  static td::Result<std::unique_ptr<DhtRemoteNode>> create(DhtNode node, td::uint32 max_missed_pings);
+  DhtRemoteNode(DhtNode node, td::uint32 max_missed_pings, td::int32 our_network_id);
+  static td::Result<std::unique_ptr<DhtRemoteNode>> create(DhtNode node, td::uint32 max_missed_pings,
+                                                           td::int32 our_network_id);
   DhtNode get_node() const {
     return node_.clone();
   }
@@ -76,9 +75,13 @@ class DhtRemoteNode {
   double last_ping_at() const {
     return last_ping_at_;
   }
+  double ping_interval() const {
+    return ping_interval_;
+  }
   void send_ping(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node,
                  adnl::AdnlNodeIdShort src);
   td::Status receive_ping(DhtNode node, td::actor::ActorId<adnl::Adnl> adnl, adnl::AdnlNodeIdShort self_id);
+  void receive_ping();
   td::Status update_value(DhtNode node, td::actor::ActorId<adnl::Adnl> adnl, adnl::AdnlNodeIdShort self_id);
 };
 

@@ -22,14 +22,14 @@
 #include "td/utils/format.h"
 
 namespace ton {
-void LoadSpeed::add(std::size_t size, td::Timestamp now) {
+void LoadSpeed::add(td::uint64 size, td::Timestamp now) {
   total_size_ += size;
   events_.push(Event{size, now});
   update(now);
 }
 double LoadSpeed::speed(td::Timestamp now) const {
   update(now);
-  return total_size_ / duration();
+  return (double)total_size_ / duration(now);
 }
 
 td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed) {
@@ -37,15 +37,15 @@ td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed) {
 }
 
 void LoadSpeed::update(td::Timestamp now) const {
-  while (duration() > 60) {
+  while (duration(now) > 30) {
     total_size_ -= events_.front().size;
     events_.pop();
   }
 }
-double LoadSpeed::duration() const {
+double LoadSpeed::duration(td::Timestamp now) const {
   double res = 5;
-  if (events_.size() > 1) {
-    res = std::max(res, events_.back().at.at() - events_.front().at.at());
+  if (!events_.empty()) {
+    res = std::max(res, now.at() - events_.front().at.at());
   }
   return res;
 }

@@ -1102,6 +1102,36 @@ blk_fl::val parse_do_stmt(Lexer& lex, CodeBlob& code) {
   return res & ~blk_fl::empty;
 }
 
+blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
+  lex.expect(_Try);
+  Op& try_catch_op = code.emplace_back(lex.cur().loc, Op::_TryCatch);
+  code.push_set_cur(try_catch_op.block0);
+  blk_fl::val res0 = parse_block_stmt(lex, code);
+  code.close_pop_cur(lex.cur().loc);
+  lex.expect(_Catch);
+  code.push_set_cur(try_catch_op.block1);
+  sym::open_scope(lex);
+  Expr* expr = parse_expr(lex, code, true);
+  expr->chk_lvalue(lex.cur());
+  TypeExpr* tvm_error_type = TypeExpr::new_tensor(TypeExpr::new_var(), TypeExpr::new_atomic(_Int));
+  try {
+    unify(expr->e_type, tvm_error_type);
+  } catch (UnifyError& ue) {
+    std::ostringstream os;
+    os << "`catch` arguments have incorrect type " << expr->e_type << ": " << ue;
+    lex.cur().error(os.str());
+  }
+  expr->predefine_vars();
+  expr->define_new_vars(code);
+  try_catch_op.left = expr->pre_compile(code);
+  assert(try_catch_op.left.size() == 2);
+  blk_fl::val res1 = parse_block_stmt(lex, code);
+  sym::close_scope(lex);
+  code.close_pop_cur(lex.cur().loc);
+  blk_fl::combine_parallel(res0, res1);
+  return res0;
+}
+
 blk_fl::val parse_if_stmt(Lexer& lex, CodeBlob& code, int first_lex = _If) {
   SrcLocation loc{lex.cur().loc};
   lex.expect(first_lex);
@@ -1165,6 +1195,8 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
       return parse_do_stmt(lex, code);
     case _While:
       return parse_while_stmt(lex, code);
+    case _Try:
+      return parse_try_catch_stmt(lex, code);
     default: {
       auto expr = parse_expr(lex, code);
       expr->chk_rvalue(lex.cur());

@@ -79,7 +79,17 @@ class OverlayPeer {
   td::int32 get_version() const {
     return node_.version();
   }
-  
+  void on_ping_result(bool success) {
+    if (success) {
+      missed_pings_ = 0;
+    } else {
+      ++missed_pings_;
+    }
+  }
+  bool is_alive() const {
+    return missed_pings_ < 3;
+  }
+
   td::uint32 throughput_out_bytes = 0;
   td::uint32 throughput_in_bytes = 0;
   
@@ -105,6 +115,7 @@ class OverlayPeer {
   adnl::AdnlNodeIdShort id_;
 
   bool is_neighbour_ = false;
+  size_t missed_pings_ = 0;
 };
 
 class OverlayImpl : public Overlay {
@@ -113,7 +124,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }");
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }", bool announce_self = true);
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -138,7 +149,8 @@ class OverlayImpl : public Overlay {
     alarm_timestamp() = td::Timestamp::in(1);
   }
 
-  void receive_random_peers(adnl::AdnlNodeIdShort src, td::BufferSlice data);
+  void on_ping_result(adnl::AdnlNodeIdShort peer, bool success);
+  void receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R);
   void send_random_peers(adnl::AdnlNodeIdShort dst, td::Promise<td::BufferSlice> promise);
   void send_random_peers_cont(adnl::AdnlNodeIdShort dst, OverlayNode node, td::Promise<td::BufferSlice> promise);
   void get_overlay_random_peers(td::uint32 max_peers, td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
@@ -281,7 +293,7 @@ class OverlayImpl : public Overlay {
   void add_peers(std::vector<OverlayNode> nodes);
   void del_some_peers();
   void del_peer(adnl::AdnlNodeIdShort id);
-  OverlayPeer *get_random_peer();
+  OverlayPeer *get_random_peer(bool only_alive = false);
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -296,6 +308,8 @@ class OverlayImpl : public Overlay {
   td::Timestamp update_db_at_;
   td::Timestamp update_throughput_at_;
   td::Timestamp last_throughput_update_;
+  std::set<adnl::AdnlNodeIdShort> bad_peers_;
+  adnl::AdnlNodeIdShort next_bad_peer_ = adnl::AdnlNodeIdShort::zero();
 
   std::unique_ptr<Overlays::Callback> callback_;
 
@@ -352,6 +366,7 @@ class OverlayImpl : public Overlay {
   bool semi_public_ = false;
   OverlayPrivacyRules rules_;
   td::string scope_;
+  bool announce_self_ = true;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {

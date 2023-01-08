@@ -113,6 +113,7 @@ void AdnlPeerPairImpl::discover() {
 }
 
 void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
+  request_reverse_ping_after_ = td::Timestamp::in(15.0);
   auto d = Adnl::adnl_start_time();
   if (packet.dst_reinit_date() > d) {
     VLOG(ADNL_WARNING) << this << ": dropping IN message: too new our reinit date " << packet.dst_reinit_date();
@@ -653,10 +654,15 @@ td::Result<std::pair<td::actor::ActorId<AdnlNetworkConnection>, bool>> AdnlPeerP
   }
 
   if (conns_.size() == 0 && priority_conns_.size() == 0) {
-    return td::Status::Error(ErrorCode::notready, PSTRING()
-                                                      << "empty network information: version=" << addr_list_.version()
-                                                      << " reinit_date=" << addr_list_.reinit_date()
-                                                      << " real_reinit_date=" << reinit_date_);
+    if (has_reverse_addr_) {
+      request_reverse_ping();
+      return td::Status::Error(ErrorCode::notready, "waiting for reverse ping");
+    } else {
+      return td::Status::Error(ErrorCode::notready, PSTRING()
+                                                        << "empty network information: version=" << addr_list_.version()
+                                                        << " reinit_date=" << addr_list_.reinit_date()
+                                                        << " real_reinit_date=" << reinit_date_);
+    }
   }
 
   for (auto &conn : priority_conns_) {
@@ -704,11 +710,18 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
   VLOG(ADNL_INFO) << this << ": updating addr list to version " << addr_list.version() << " size=" << addr_list.size();
 
   const auto addrs = addr_list.addrs();
+  has_reverse_addr_ = addr_list.has_reverse();
+  if (has_reverse_addr_ && addrs.empty()) {
+    return;
+  }
   std::vector<Conn> conns;
   auto &old_conns = priority ? priority_conns_ : conns_;
 
   size_t idx = 0;
   for (const auto &addr : addrs) {
+    if (addr->is_reverse()) {
+      continue;
+    }
     if ((mode_ & static_cast<td::uint32>(AdnlLocalIdMode::direct_only)) && !addr->is_public()) {
       continue;
     }
@@ -730,7 +743,7 @@ void AdnlPeerPairImpl::get_conn_ip_str(td::Promise<td::string> promise) {
     promise.set_value("undefined");
     return;
   }
-  
+
   for (auto &conn : priority_conns_) {
     if (conn.ready()) {
       td::actor::send_closure(conn.conn, &AdnlNetworkConnection::get_ip_str, std::move(promise));
@@ -743,7 +756,7 @@ void AdnlPeerPairImpl::get_conn_ip_str(td::Promise<td::string> promise) {
       return;
     }
   }
-  
+
   promise.set_value("undefined");
 }
 
@@ -811,7 +824,7 @@ void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::
     }
   }
 
-  td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet_checked, std::move(packet));
+  td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet, std::move(packet));
 }
 
 void AdnlPeerImpl::send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
@@ -868,7 +881,7 @@ void AdnlPeerImpl::get_conn_ip_str(AdnlNodeIdShort l_id, td::Promise<td::string>
   if (it == peer_pairs_.end()) {
     promise.set_value("undefined");
     return;
-  } 
+  }
 
   td::actor::send_closure(it->second, &AdnlPeerPair::get_conn_ip_str, std::move(promise));
 }
@@ -942,6 +955,36 @@ void AdnlPeerPairImpl::update_peer_id(AdnlNodeIdFull id) {
     }
   }
   CHECK(!peer_id_.empty());
+}
+
+void AdnlPeerPairImpl::request_reverse_ping() {
+  if (request_reverse_ping_active_ || !request_reverse_ping_after_.is_in_past()) {
+    return;
+  }
+  VLOG(ADNL_INFO) << this << ": requesting reverse ping";
+  request_reverse_ping_after_ = td::Timestamp::in(15.0);
+  request_reverse_ping_active_ = true;
+  td::actor::send_closure(
+      local_actor_, &AdnlLocalId::get_self_node,
+      [SelfId = actor_id(this), peer = peer_id_short_, dht = dht_node_](td::Result<AdnlNode> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &AdnlPeerPairImpl::request_reverse_ping_result, R.move_as_error());
+          return;
+        }
+        td::actor::send_closure(
+            dht, &dht::Dht::request_reverse_ping, R.move_as_ok(), peer, [SelfId](td::Result<td::Unit> R) {
+              td::actor::send_closure(SelfId, &AdnlPeerPairImpl::request_reverse_ping_result, std::move(R));
+            });
+      });
+}
+
+void AdnlPeerPairImpl::request_reverse_ping_result(td::Result<td::Unit> R) {
+  request_reverse_ping_active_ = false;
+  if (R.is_ok()) {
+    VLOG(ADNL_INFO) << this << ": reverse ping requested";
+  } else {
+    VLOG(ADNL_INFO) << this << ": failed to request reverse ping: " << R.move_as_error();
+  }
 }
 
 }  // namespace adnl

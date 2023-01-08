@@ -68,6 +68,7 @@ adnl.address.udp6 ip:int128 port:int = adnl.Address;
 //adnl.address.tcp6 ip:int128 port:int = adnl.Address;
 
 adnl.address.tunnel to:int256 pubkey:PublicKey = adnl.Address; 
+adnl.address.reverse = adnl.Address;
 
 adnl.addressList addrs:(vector adnl.Address) version:int reinit_date:int priority:int expire_at:int = adnl.AddressList;
 
@@ -183,8 +184,12 @@ dht.pong random_id:long = dht.Pong;
 dht.valueNotFound nodes:dht.nodes = dht.ValueResult;
 dht.valueFound value:dht.Value = dht.ValueResult;
 
+dht.clientNotFound nodes:dht.nodes = dht.ReversePingResult;
+dht.reversePingOk = dht.ReversePingResult;
+
 dht.stored = dht.Stored;
 dht.message node:dht.node = dht.Message;
+dht.requestReversePingCont target:adnl.Node signature:bytes client:int256 = dht.RequestReversePingCont;
 
 dht.db.bucket nodes:dht.nodes = dht.db.Bucket;
 dht.db.key.bucket id:int = dht.db.Key;
@@ -196,6 +201,8 @@ dht.store value:dht.value = dht.Stored;
 dht.findNode key:int256 k:int = dht.Nodes; 
 dht.findValue key:int256 k:int = dht.ValueResult; 
 dht.getSignedAddressList = dht.Node;
+dht.registerReverseConnection node:PublicKey ttl:int signature:bytes = dht.Stored;
+dht.requestReversePing target:adnl.Node signature:bytes client:int256 k:int = dht.ReversePingResult;
 
 dht.query node:dht.node = True;
 
@@ -555,11 +562,12 @@ control.config.local priv:PrivateKey pub:int256 port:int = control.config.Local;
 config.local local_ids:(vector id.config.local) dht:(vector dht.config.Local) validators:(vector validator.config.Local) liteservers:(vector liteserver.config.Local) control:(vector control.config.local) = config.Local;
 
 dht.config.global static_nodes:dht.nodes k:int a:int = dht.config.Global;
+dht.config.global_v2 static_nodes:dht.nodes k:int a:int network_id:int = dht.config.Global;
 adnl.config.global static_nodes:adnl.nodes = adnl.config.Global;
 catchain.config.global tag:int256 nodes:(vector PublicKey) = catchain.config.Global;
 dummyworkchain0.config.global zero_state_hash:int256 = dummyworkchain0.config.Global;
 validator.config.global zero_state:tonNode.blockIdExt init_block:tonNode.blockIdExt hardforks:(vector tonNode.blockIdExt) = validator.config.Global;
-config.global adnl:adnl.config.global dht:dht.config.global validator:validator.config.global = config.Global;
+config.global adnl:adnl.config.global dht:dht.config.Global validator:validator.config.global = config.Global;
 
 liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
 liteclient.config.global liteservers:(vector liteserver.desc) validator:validator.config.global = liteclient.config.Global;
@@ -693,8 +701,9 @@ storage.ok = Ok;
 
 storage.state will_upload:Bool want_download:Bool = storage.State;
 storage.piece proof:bytes data:bytes = storage.Piece;
+storage.torrentInfo data:bytes = storage.TorrentInfo;
 
-storage.updateInit have_pieces:bytes state:storage.State = storage.Update;
+storage.updateInit have_pieces:bytes have_pieces_offset:int state:storage.State = storage.Update;
 storage.updateHavePieces piece_id:(vector int) = storage.Update;
 storage.updateState state:storage.State = storage.Update;
 
@@ -703,9 +712,8 @@ storage.updateState state:storage.State = storage.Update;
 storage.ping session_id:long = storage.Pong;
 storage.addUpdate session_id:long seqno:int update:storage.Update = Ok;
 
+storage.getTorrentInfo = storage.TorrentInfo;
 storage.getPiece piece_id:int = storage.Piece;
-
-storage.queryPrefix id:int256 = Object;
 
 ---types---
 
@@ -737,3 +745,117 @@ validatorSession.statsRound timestamp:long producers:(vector validatorSession.st
 validatorSession.stats id:tonNode.blockId timestamp:long self:int256 creator:int256 total_validators:int total_weight:long
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
+
+---functions---
+
+---types---
+
+storage.db.key.torrentList = storage.db.key.TorrentList;
+storage.db.key.torrent hash:int256 = storage.db.key.TorrentShort;
+storage.db.key.torrentMeta hash:int256 = storage.db.key.TorrentMeta;
+storage.db.key.priorities hash:int256 = storage.db.key.Priorities;
+storage.db.key.piecesInDb hash:int256 = storage.db.key.PiecesInDb;
+storage.db.key.pieceInDb hash:int256 idx:long = storage.db.key.PieceInDb;
+
+storage.db.torrentList torrents:(vector int256) = storage.db.TorrentList;
+storage.db.torrent root_dir:string active_download:Bool active_upload:Bool = storage.db.TorrentShort;
+storage.db.priorities actions:(vector storage.PriorityAction) = storage.db.Priorities;
+storage.db.piecesInDb pieces:(vector long) = storage.db.PiecesInDb;
+
+storage.priorityAction.all priority:int = storage.PriorityAction;
+storage.priorityAction.idx idx:long priority:int = storage.PriorityAction;
+storage.priorityAction.name name:string priority:int = storage.PriorityAction;
+
+storage.daemon.config server_key:PublicKey cli_key_hash:int256 provider_address:string adnl_id:PublicKey dht_id:PublicKey = storage.daemon.provider.Config;
+
+storage.daemon.provider.params accept_new_contracts:Bool rate_per_mb_day:string max_span:int
+    minimal_file_size:long maximal_file_size:long = storage.daemon.provider.Params;
+
+storage.provider.db.key.state = storage.provider.db.key.State;
+storage.provider.db.key.contractList = storage.provider.db.key.ContractList;
+storage.provider.db.key.storageContract wc:int addr:int256 = storage.provider.db.key.StorageContract;
+storage.provider.db.key.microchunkTree wc:int addr:int256 = storage.provider.db.key.MicrochunkTree;
+storage.provider.db.key.providerConfig = storage.provider.db.key.ProviderConfig;
+
+storage.provider.db.state last_processed_lt:long = storage.provider.db.State;
+storage.provider.db.contractAddress wc:int addr:int256 = storage.db.ContractAddress;
+storage.provider.db.contractList contracts:(vector storage.provider.db.contractAddress) = storage.db.ContractList;
+storage.provider.db.storageContract torrent_hash:int256 microchunk_hash:int256 created_time:int state:int file_size:long
+    rate:string max_span:int = storage.provider.db.StorageContract;
+storage.provider.db.microchunkTree data:bytes = storage.provider.db.MicrochunkTree;
+
+storage.daemon.queryError message:string = storage.daemon.QueryError;
+storage.daemon.success = storage.daemon.Success;
+storage.daemon.torrent
+    hash:int256 flags:#
+    // 0 - info ready
+    // 1 - header ready
+    // 2 - fatal error
+    total_size:flags.0?long description:flags.0?string
+    files_count:flags.1?long included_size:flags.1?long dir_name:flags.1?string
+    downloaded_size:long
+    root_dir:string active_download:Bool active_upload:Bool completed:Bool
+    download_speed:double upload_speed:double
+    fatal_error:flags.2?string
+    = storage.daemon.Torrent;
+storage.daemon.fileInfo
+    name:string size:long
+    priority:int
+    downloaded_size:long
+    = storage.daemon.FileInfo;
+storage.daemon.torrentFull torrent:storage.daemon.torrent files:(vector storage.daemon.fileInfo) = storage.daemon.TorrentFull;
+storage.daemon.torrentList torrents:(vector storage.daemon.torrent) = storage.daemon.TorrentList;
+storage.daemon.torrentMeta meta:bytes = storage.daemon.TorrentMeta;
+
+storage.daemon.newContractParams rate:string max_span:int = storage.daemon.NewContractParams;
+storage.daemon.newContractParamsAuto provider_address:string = storage.daemon.NewContractParams;
+storage.daemon.newContractMessage body:bytes rate:string max_span:int = storage.daemon.NewContractMessage;
+
+storage.daemon.peer adnl_id:int256 ip_str:string download_speed:double upload_speed:double ready_parts:long = storage.daemon.Peer;
+storage.daemon.peerList peers:(vector storage.daemon.peer) download_speed:double upload_speed:double total_parts:long = storage.daemon.PeerList;
+
+storage.daemon.prioritySet = storage.daemon.SetPriorityStatus;
+storage.daemon.priorityPending = storage.daemon.SetPriorityStatus;
+
+storage.daemon.keyHash key_hash:int256 = storage.daemon.KeyHash;
+
+storage.daemon.providerConfig max_contracts:int max_total_size:long = storage.daemon.ProviderConfig;
+storage.daemon.contractInfo address:string state:int torrent:int256 created_time:int file_size:long downloaded_size:long
+    rate:string max_span:int client_balance:string contract_balance:string = storage.daemon.ContractInfo;
+storage.daemon.providerInfo address:string balance:string config:storage.daemon.providerConfig
+    contracts_count:int contracts_total_size:long
+    contracts:(vector storage.daemon.contractInfo) = storage.daemon.ProviderInfo;
+storage.daemon.providerAddress address:string = storage.daemon.ProviderAddress;
+
+---functions---
+storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
+storage.daemon.createTorrent path:string description:string allow_upload:Bool copy_inside:Bool = storage.daemon.TorrentFull;
+storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
+storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
+storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Success;
+storage.daemon.setActiveUpload hash:int256 active:Bool = storage.daemon.Success;
+
+storage.daemon.getTorrents = storage.daemon.TorrentList;
+storage.daemon.getTorrentFull hash:int256 = storage.daemon.TorrentFull;
+storage.daemon.getTorrentMeta hash:int256 = storage.daemon.TorrentMeta;
+storage.daemon.getNewContractMessage hash:int256 query_id:long params:storage.daemon.NewContractParams = storage.daemon.NewContractMessage;
+storage.daemon.getTorrentPeers hash:int256 = storage.daemon.PeerList;
+
+storage.daemon.setFilePriorityAll hash:int256 priority:int = storage.daemon.SetPriorityStatus;
+storage.daemon.setFilePriorityByIdx hash:int256 idx:long priority:int = storage.daemon.SetPriorityStatus;
+storage.daemon.setFilePriorityByName hash:int256 name:string priority:int = storage.daemon.SetPriorityStatus;
+
+storage.daemon.removeTorrent hash:int256 remove_files:Bool = storage.daemon.Success;
+storage.daemon.loadFrom hash:int256 meta:bytes path:string = storage.daemon.Torrent;
+
+storage.daemon.importPrivateKey key:PrivateKey = storage.daemon.KeyHash;
+storage.daemon.initProvider account_address:string = storage.daemon.Success;
+storage.daemon.deployProvider = storage.daemon.ProviderAddress;
+storage.daemon.getProviderParams address:string = storage.daemon.provider.Params;
+storage.daemon.setProviderParams params:storage.daemon.provider.params = storage.daemon.Success;
+storage.daemon.getProviderInfo with_balances:Bool with_contracts:Bool = storage.daemon.ProviderInfo;
+storage.daemon.setProviderConfig config:storage.daemon.providerConfig = storage.daemon.Success;
+storage.daemon.withdraw contract:string = storage.daemon.Success;
+storage.daemon.sendCoins address:string amount:string message:string = storage.daemon.Success;
+storage.daemon.closeStorageContract address:string = storage.daemon.Success;
+storage.daemon.removeStorageProvider = storage.daemon.Success;

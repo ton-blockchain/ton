@@ -1,0 +1,57 @@
+name: Docker Ubuntu Compile arm64
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        arch: [arm64]
+        ver: [22.04, 18.04, 20.04 ]
+
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Set output
+        id: vars
+        run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
+
+      - name: Check output
+        run: echo branch ${{ steps.vars.outputs.short_ref }}
+
+      - name: Build with docker buildx
+        run: |
+          mkdir build-${{matrix.ver}}-${{matrix.arch}}
+          
+          docker buildx build --build-arg BRANCH=${{ steps.vars.outputs.short_ref }} --platform=linux/${{matrix.arch}} --progress=plain --load . -t build-${{matrix.ver}}-${{matrix.arch}} -f .github/script/${{matrix.arch}}-${{matrix.ver}}.Dockerfile
+          container_id=$(docker create --platform=linux/${{matrix.arch}} build-${{matrix.ver}}-${{matrix.arch}})         
+          docker cp $container_id:/ton/build/dht-server/dht-server build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/validator-engine/validator-engine build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/validator-engine-console/validator-engine-console build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/storage/storage-daemon/storage-daemon build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/storage/storage-daemon/storage-daemon-cli build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/crypto/fift build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/crypto/func build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/crypto/create-state build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/blockchain-explorer/blockchain-explorer build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/lite-client/lite-client build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/build/utils/generate-random-id build-${{matrix.ver}}-${{matrix.arch}}/      
+          docker cp -a $container_id:/ton/build/tonlib/libtonlibjson.so.0.5 build-${{matrix.ver}}-${{matrix.arch}}/tonlibjson.so
+          docker cp -a $container_id:/ton/crypto/smartcont build-${{matrix.ver}}-${{matrix.arch}}/
+          docker cp -a $container_id:/ton/crypto/fift/lib build-${{matrix.ver}}-${{matrix.arch}}/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v1
+        with:
+          name: ton-ubuntu-${{matrix.ver}}-${{matrix.arch}}
+          path: build-${{matrix.ver}}-${{matrix.arch}}

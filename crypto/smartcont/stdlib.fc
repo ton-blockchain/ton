@@ -611,7 +611,7 @@ int rand(int range) impure asm "RAND";
 ;;; Returns the current random seed as an unsigned 256-bit Integer.
 int get_seed() impure asm "RANDSEED";
 ;;; Sets the random seed to unsigned 256-bit seed.
-int set_seed() impure asm "SETRAND";
+() set_seed(int) impure asm "SETRAND";
 ;;; Mixes unsigned 256-bit integer x into the random seed r by setting the random seed to sha256 of the concatenation of two 32-byte strings: the first with the big-endian representation of the old seed r, and the second with the big-endian representation of x.
 () randomize(int x) impure asm "ADDRAND";
 ;;; Equivalent to randomize(cur_lt());.

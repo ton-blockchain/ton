@@ -1,0 +1,61 @@
+name: MacOS 11.7 Big Sur x86-64 Compile
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+
+    runs-on: macos-11
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+      - name: Compile OpenSSL
+        run: |
+          git clone https://github.com/openssl/openssl openssl_1_1_1
+          cd openssl_1_1_1
+          git checkout OpenSSL_1_1_1-stable
+          ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=11.7
+          make build_libs -j4
+
+      - name: Build all
+        run: |
+          export NONINTERACTIVE=1
+          brew install ninja
+          rootPath=`pwd`
+          mkdir build
+          cd build
+          cmake -GNinja -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=11.7 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
+          ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc
+
+      - name: Find & copy binaries
+        run: |
+          mkdir artifacts
+          cp build/storage/storage-daemon/storage-daemon artifacts/
+          cp build/storage/storage-daemon/storage-daemon-cli artifacts/
+          cp build/crypto/fift artifacts/
+          cp build/crypto/func artifacts/
+          cp build/crypto/create-state artifacts/
+          cp build/crypto/tlbc artifacts/
+          cp build/validator-engine-console/validator-engine-console artifacts/ 
+          cp build/tonlib/tonlib-cli artifacts/
+          cp build/tonlib/libtonlibjson.0.5.dylib artifacts/ 
+          cp build/http/http-proxy artifacts/
+          cp build/rldp-http-proxy/rldp-http-proxy artifacts/
+          cp build/dht-server/dht-server artifacts/
+          cp build/lite-client/lite-client artifacts/
+          cp build/validator-engine/validator-engine artifacts/
+          cp build/utils/generate-random-id artifacts/
+          cp build/utils/json2tlo artifacts/
+          cp build/adnl/adnl-proxy artifacts/
+          rsync -r crypto/smartcont artifacts/
+          rsync -r crypto/fift/lib artifacts/
+          ls -laRt artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-macos-11.7
+          path: artifacts

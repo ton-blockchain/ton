@@ -18,6 +18,7 @@
 */
 
 #include "RldpConnection.h"
+#include "rldp.hpp"
 
 #include "td/utils/overloaded.h"
 #include "td/utils/Random.h"
@@ -83,7 +84,7 @@ td::Timestamp RldpConnection::loop_limits(td::Timestamp now) {
         outbound_transfers_.erase(it);
         to_on_sent_.emplace_back(limit->transfer_id, std::move(error));
       } else {
-        LOG(ERROR) << "Timeout on unknown transfer " << limit->transfer_id.to_hex();
+        VLOG(RLDP_WARNING) << "Timeout on unknown transfer " << limit->transfer_id.to_hex();
       }
     }
     limits_set_.erase(*limit);
@@ -113,7 +114,7 @@ void RldpConnection::send(TransferId transfer_id, td::BufferSlice data, td::Time
     td::Random::secure_bytes(transfer_id.as_slice());
   } else {
     if (outbound_transfers_.find(transfer_id) != outbound_transfers_.end()) {
-      LOG(WARNING) << "Skip resend of " << transfer_id.to_hex();
+      VLOG(RLDP_WARNING) << "Skip resend of " << transfer_id.to_hex();
       return;
     }
   }
@@ -142,17 +143,6 @@ void RldpConnection::loop_bbr(td::Timestamp now) {
   //<< td::format::as_size((td::int64)bdw_stats_.windowed_max_bdw * 768) << " " << rtt_stats_.rtt_round;
   double speed = bbr_.get_rate();
   td::uint32 congestion_window = bbr_.get_window_size();
-
-  static td::Timestamp next;
-  //FIXME: remove this UNSAFE debug output
-  if (next.is_in_past(now)) {
-    next = td::Timestamp::in(1, now);
-    if (td::actor::core::ActorExecuteContext::get()->actor().get_actor_info_ptr()->get_name() == "Alice") {
-      LOG(ERROR) << "speed=" << td::format::as_size((td::int64)speed * 768) << " "
-                 << "cgw=" << td::format::as_size((td::int64)congestion_window * 768) << " "
-                 << "loss=" << loss_stats_.loss * 100 << "%";
-    }
-  }
 
   pacer_.set_speed(speed);
   congestion_window_ = congestion_window;
@@ -301,7 +291,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     max_size = limit_it->max_size;
   }
   if (total_size > max_size) {
-    LOG(INFO) << "Drop too big rldp query " << part.total_size_ << " > " << max_size;
+    VLOG(RLDP_INFO) << "Drop too big rldp query " << part.total_size_ << " > " << max_size;
     return;
   }
 
@@ -324,7 +314,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
       }
       return {};
     }
-    if (in_part->receiver.on_received(part.seqno_, td::Timestamp::now())) {
+    if (in_part->receiver.on_received(part.seqno_ + 1, td::Timestamp::now())) {
       TRY_STATUS_PREFIX(in_part->decoder->add_symbol({static_cast<td::uint32>(part.seqno_), std::move(part.data_)}),
                         td::Status::Error(ErrorCode::protoviolation, "invalid symbol"));
       if (in_part->decoder->may_try_decode()) {

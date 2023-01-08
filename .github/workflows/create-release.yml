@@ -1,0 +1,167 @@
+name: Create release
+
+on: [workflow_dispatch]
+
+permissions: write-all
+
+jobs:
+  create-release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Show all artifacts
+        run: |
+          mkdir artifacts
+          ls -lart artifacts
+
+      - name: Download Ubuntu x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ubuntu-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download Ubuntu arm64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: docker-compile-ubuntu.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download MacOS 11.7 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: macos-11.7-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download MacOS 12.6 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: macos-12.6-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: win-2019-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Show all artifacts
+        run: |
+          tree artifacts
+
+# create release
+
+      - name: Read Changelog.md and use it as a body of new release
+        id: read_release
+        shell: bash
+        run: |
+          r=$(cat Changelog.md)
+          r="${r//'%'/'%25'}"
+          r="${r//$'\n'/'%0A'}"
+          r="${r//$'\r'/'%0D'}"
+          echo "::set-output name=CHANGELOG_BODY::$r"
+
+      - name: Get current date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y.%m')"
+
+      - name: Get registration token
+        id: getRegToken
+        run: |
+          curl -X POST -H \"Accept: application/vnd.github+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/neodix42/HardTestDevelopment/actions/runners/registration-token
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.date.outputs.date }}
+          release_name: v${{ steps.date.outputs.date }}
+          body: |
+            ${{ steps.read_release.outputs.CHANGELOG_BODY }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Windows 2019 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries.zip
+          asset_name: ton-windows-2019-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload MacOS 11.7 x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-macos-11.7.zip
+          asset_name: ton-macos-11.7-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload MacOS 12.6 x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-macos-12.6.zip
+          asset_name: ton-macos-12.6-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 18.04 x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-binaries-ubuntu-18.04.zip
+          asset_name: ton-ubuntu-18.04-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 20.04 x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-binaries-ubuntu-20.04.zip
+          asset_name: ton-ubuntu-20.04-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 22.04 x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-binaries-ubuntu-22.04.zip
+          asset_name: ton-ubuntu-22.04-x86-64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 18.04 arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-18.04-arm64.zip
+          asset_name: ton-ubuntu-18.04-arm64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 20.04 arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-20.04-arm64.zip
+          asset_name: ton-ubuntu-20.04-arm64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Ubuntu 22.04 arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-ubuntu-22.04-arm64.zip
+          asset_name: ton-ubuntu-22.04-arm64.zip
+          tag: v${{ steps.date.outputs.date }}

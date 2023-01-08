@@ -116,6 +116,14 @@ class ValidatorGroup : public td::actor::Actor {
   bool started_ = false;
   bool allow_unsafe_self_blocks_resync_;
   td::uint32 last_known_round_id_ = 0;
+
+  struct CachedCollatedBlock {
+    td::optional<BlockCandidate> result;
+    std::vector<td::Promise<BlockCandidate>> promises;
+  };
+  std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
+
+  void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 };
 
 }  // namespace validator

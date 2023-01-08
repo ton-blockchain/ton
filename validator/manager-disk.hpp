@@ -124,7 +124,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
-  void check_external_message(td::BufferSlice data, td::Promise<td::Unit> promise) override {
+  void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override {
     UNREACHABLE();
   }
   void new_ihr_message(td::BufferSlice data) override;
@@ -224,6 +224,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) override;
   void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override;
   void get_top_masterchain_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
+  void get_last_liteserver_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
 
   void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override;
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
@@ -351,7 +352,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void update_last_known_key_block(BlockHandle handle, bool send_request) override {
   }
-  void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override {
+  void update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
+                                        td::Promise<td::Unit> promise) override {
   }
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override {

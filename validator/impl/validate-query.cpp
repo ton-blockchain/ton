@@ -66,8 +66,8 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
-      }) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
+    }) {
   proc_hash_.zero();
 }
 
@@ -734,6 +734,8 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error(limits.move_as_error());
     }
     block_limits_ = limits.move_as_ok();
+    block_limits_->start_lt = start_lt_;
+    block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
     if (!fetch_config_params()) {
       return false;
     }
@@ -762,6 +764,14 @@ bool ValidateQuery::fetch_config_params() {
     // recover (not generate) rand seed from block header
     CHECK(!rand_seed_.is_zero());
   }
+  block::SizeLimitsConfig size_limits;
+  {
+    auto res = config_->get_size_limits_config();
+    if (res.is_error()) {
+      return fatal_error(res.move_as_error());
+    }
+    size_limits = res.move_as_ok();
+  }
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config_->get_config_param(is_masterchain() ? 20 : 21);
@@ -774,6 +784,7 @@ bool ValidateQuery::fetch_config_params() {
     }
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
+    compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg_.global_config = config_->get_root_cell();
   }
   {
@@ -795,6 +806,7 @@ bool ValidateQuery::fetch_config_params() {
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
     action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg_.size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -992,6 +1004,16 @@ bool ValidateQuery::check_this_shard_mc_info() {
 
 bool ValidateQuery::compute_prev_state() {
   CHECK(prev_states.size() == 1u + after_merge_);
+  // Extend validator timeout if previous block is too old
+  UnixTime prev_ts = prev_states[0]->get_unix_time();
+  if (after_merge_) {
+    prev_ts = std::max(prev_ts, prev_states[1]->get_unix_time());
+  }
+  td::Timestamp new_timeout = td::Timestamp::in(std::min(60.0, (td::Clocks::system() - (double)prev_ts) / 2));
+  if (timeout < new_timeout) {
+    alarm_timestamp() = timeout = new_timeout;
+  }
+
   prev_state_root_ = prev_states[0]->root_cell();
   CHECK(prev_state_root_.not_null());
   if (after_merge_) {
@@ -1608,8 +1630,8 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                     (sibling->want_merge_ || depth > wc_info->max_split);
   if (!fsm_inherited && !info.is_fsm_none()) {
     if (info.fsm_utime() < now_ || info.fsm_utime_end() <= info.fsm_utime() ||
-        info.fsm_utime_end() < info.fsm_utime() + ton::min_split_merge_interval ||
-        info.fsm_utime_end() > now_ + ton::max_split_merge_delay) {
+        info.fsm_utime_end() < info.fsm_utime() + wc_info->min_split_merge_interval ||
+        info.fsm_utime_end() > now_ + wc_info->max_split_merge_delay) {
       return reject_query(PSTRING() << "incorrect future split/merge interval " << info.fsm_utime() << " .. "
                                     << info.fsm_utime_end() << " set for shard " << shard.to_str()
                                     << " in new shard configuration (it is " << now_ << " now)");
@@ -4101,6 +4123,9 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
 
 bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
                                           bool is_first, bool is_last) {
+  if (!check_timeout()) {
+    return false;
+  }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
   const StdSmcAddress& addr = account.addr;
   block::gen::Transaction::Record trans;
@@ -4306,7 +4331,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
   }
   if (is_first && is_masterchain() && account.is_special && account.tick &&
-      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) && account.orig_status == block::Account::acc_active) {
+      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) &&
+      account.orig_status == block::Account::acc_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                   << " is the first transaction for this special tick account in this block, but the "
                                      "transaction is not a tick transaction");
@@ -4335,6 +4361,13 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   int trans_type = block::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
+      if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
+        return reject_query(PSTRING() << "cannod add ordinary transaction because hard block limits are exceeded: "
+                                      << "gas_used=" << block_limit_status_->gas_used
+                                      << "(limit=" << block_limits_->gas.hard() << "), "
+                                      << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
+                                      << "(limit=" << block_limits_->lt_delta.hard() << ")");
+      }
       trans_type = block::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
@@ -4472,7 +4505,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (trs->bounce_enabled && !trs->compute_phase->success && !trs->prepare_bounce_phase(action_phase_cfg_)) {
+  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_size_too_big) &&
+      !trs->prepare_bounce_phase(action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
@@ -4480,7 +4514,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (block_limit_status_ && !trs->update_limits(*block_limit_status_)) {
+  if (!trs->update_limits(*block_limit_status_, false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
   }
@@ -4955,7 +4989,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return reject_query("no important parameters have been changed, but the block is marked as a key block");
   }
   vm::Dictionary dict1{ocfg_root, 32};
-  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long) 0});
+  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long)0});
   if (param0.is_null()) {
     if (cfg_acc_changed) {
       return reject_query("new state of old configuration smart contract "s + old_cfg_addr.to_hex() +

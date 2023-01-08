@@ -23,8 +23,6 @@
 #include "dht/dht.h"
 #include "keys/encryptor.h"
 #include "overlay/overlay.h"
-#include "rldp/rldp.h"
-#include "rldp2/rldp.h"
 
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/port/signals.h"
@@ -37,13 +35,12 @@
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
 
-#include "td/actor/actor.h"
 #include "td/actor/MultiPromise.h"
 #include "terminal/terminal.h"
 
 #include "Torrent.h"
 #include "TorrentCreator.h"
-#include "NodeActor.h"
+#include "PeerManager.h"
 
 #include "auto/tl/ton_api_json.h"
 
@@ -52,8 +49,6 @@
 #include <map>
 #include <set>
 #include "git.h"
-
-namespace ton_rldp = ton::rldp2;
 
 struct StorageCliOptions {
   std::string config;
@@ -66,199 +61,6 @@ struct StorageCliOptions {
 };
 
 using AdnlCategory = td::int32;
-
-class PeerManager : public td::actor::Actor {
- public:
-  PeerManager(ton::adnl::AdnlNodeIdShort adnl_id, ton::overlay::OverlayIdFull overlay_id,
-              td::actor::ActorId<ton::overlay::Overlays> overlays, td::actor::ActorId<ton::adnl::Adnl> adnl,
-              td::actor::ActorId<ton_rldp::Rldp> rldp)
-      : adnl_id_(std::move(adnl_id))
-      , overlay_id_(std::move(overlay_id))
-      , overlays_(std::move(overlays))
-      , adnl_(std::move(adnl))
-      , rldp_(std::move(rldp)) {
-    CHECK(register_adnl_id(adnl_id_) == 1);
-  }
-  void start_up() override {
-    // TODO: forbid broadcasts?
-    auto rules = ton::overlay::OverlayPrivacyRules{ton::overlay::Overlays::max_fec_broadcast_size()};
-    class Callback : public ton::overlay::Overlays::Callback {
-     public:
-      void receive_message(ton::adnl::AdnlNodeIdShort src, ton::overlay::OverlayIdShort overlay_id,
-                           td::BufferSlice data) override {
-      }
-      void receive_query(ton::adnl::AdnlNodeIdShort src, ton::overlay::OverlayIdShort overlay_id, td::BufferSlice data,
-                         td::Promise<td::BufferSlice> promise) override {
-      }
-      void receive_broadcast(ton::PublicKeyHash src, ton::overlay::OverlayIdShort overlay_id,
-                             td::BufferSlice data) override {
-      }
-    };
-    send_closure(overlays_, &ton::overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_.clone(),
-                 std::make_unique<Callback>(), rules, "{ \"type\": \"storage\" }");
-  }
-  void tear_down() override {
-    send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_.compute_short_id());
-  }
-  void send_query(ton::PeerId src, ton::PeerId dst, td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
-    TRY_RESULT_PROMISE(promise, src_id, peer_to_andl(src));
-    TRY_RESULT_PROMISE(promise, dst_id, peer_to_andl(dst));
-    query = ton::create_serialize_tl_object_suffix<ton::ton_api::storage_queryPrefix>(
-        std::move(query), overlay_id_.compute_short_id().bits256_value());
-    send_closure(rldp_, &ton_rldp::Rldp::send_query_ex, src_id, dst_id, "", std::move(promise), td::Timestamp::in(10),
-                 std::move(query), 1 << 25);
-  }
-
-  void execute_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
-                     td::Promise<td::BufferSlice> promise) {
-    data = data.from_slice(data.as_slice().substr(4 + 32));
-    auto src_id = register_adnl_id(src);
-    auto dst_id = register_adnl_id(dst);
-    auto it = peers_.find(std::make_pair(dst_id, src_id));
-    if (it == peers_.end()) {
-      auto node_it = nodes_.find(dst_id);
-      if (node_it == nodes_.end()) {
-        LOG(ERROR) << "Unknown query destination";
-        promise.set_error(td::Status::Error("Unknown query destination"));
-        return;
-      }
-      if (!node_it->second.is_alive()) {
-        LOG(ERROR) << "Expired query destination";
-        promise.set_error(td::Status::Error("Unknown query destination"));
-        return;
-      }
-      send_closure(node_it->second, &ton::NodeActor::start_peer, src_id,
-                   [promise = std::move(promise),
-                    data = std::move(data)](td::Result<td::actor::ActorId<ton::PeerActor>> r_peer) mutable {
-                     TRY_RESULT_PROMISE(promise, peer, std::move(r_peer));
-                     send_closure(peer, &ton::PeerActor::execute_query, std::move(data), std::move(promise));
-                   });
-      return;
-    }
-    send_closure(it->second, &ton::PeerActor::execute_query, std::move(data), std::move(promise));
-  }
-
-  void register_peer(ton::PeerId src, ton::PeerId dst, td::actor::ActorId<ton::PeerActor> peer) {
-    peers_[std::make_pair(src, dst)] = std::move(peer);
-    register_src(src, [](td::Result<td::Unit> res) { res.ensure(); });
-  }
-
-  void register_node(ton::PeerId src, td::actor::ActorId<ton::NodeActor> node) {
-    nodes_[src] = std::move(node);
-    register_src(src, [](td::Result<td::Unit> res) { res.ensure(); });
-  }
-
-  void unregister_node(ton::PeerId src, td::actor::ActorId<ton::NodeActor> node) {
-    auto it = nodes_.find(src);
-    CHECK(it != nodes_.end());
-    if (it->second == node) {
-      nodes_.erase(it);
-    }
-    unregister_src(src, [](td::Result<td::Unit> res) { res.ensure(); });
-  }
-
-  void unregister_peer(ton::PeerId src, ton::PeerId dst, td::actor::ActorId<ton::PeerActor> peer) {
-    auto it = peers_.find(std::make_pair(src, dst));
-    CHECK(it != peers_.end());
-    if (it->second == peer) {
-      peers_.erase(it);
-    }
-    unregister_src(src, [](td::Result<td::Unit> res) { res.ensure(); });
-  }
-
-  void unregister_src(ton::PeerId src, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE(promise, src_id, peer_to_andl(src));
-    if (--subscribed_peers_[src] == 0) {
-      LOG(ERROR) << "Unsubscribe " << src_id;
-      subscribed_peers_.erase(src);
-      send_closure(adnl_, &ton::adnl::Adnl::unsubscribe, src_id,
-                   ton::create_serialize_tl_object<ton::ton_api::storage_queryPrefix>(
-                       overlay_id_.compute_short_id().bits256_value())
-                       .as_slice()
-                       .str());
-    }
-    promise.set_value({});
-  }
-  void register_src(ton::PeerId src, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE(promise, src_id, peer_to_andl(src));
-    class Callback : public ton::adnl::Adnl::Callback {
-     public:
-      Callback(td::actor::ActorId<PeerManager> peer_manager) : peer_manager_(std::move(peer_manager)) {
-      }
-      void receive_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
-                           td::BufferSlice data) override {
-      }
-      void receive_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
-                         td::Promise<td::BufferSlice> promise) override {
-        send_closure(peer_manager_, &PeerManager::execute_query, std::move(src), std::move(dst), std::move(data),
-                     std::move(promise));
-      }
-
-     private:
-      td::actor::ActorId<PeerManager> peer_manager_;
-    };
-
-    if (subscribed_peers_[src]++ == 0) {
-      LOG(ERROR) << "Subscribe " << src_id;
-      send_closure(adnl_, &ton::adnl::Adnl::subscribe, src_id,
-                   ton::create_serialize_tl_object<ton::ton_api::storage_queryPrefix>(
-                       overlay_id_.compute_short_id().bits256_value())
-                       .as_slice()
-                       .str(),
-                   std::make_unique<Callback>(actor_id(this)));
-    }
-    promise.set_value({});
-  }
-
-  td::Result<ton::adnl::AdnlNodeIdShort> peer_to_andl(ton::PeerId id) {
-    if (id <= 0 || id > adnl_ids_.size()) {
-      return td::Status::Error(PSLICE() << "Invalid peer id " << id);
-    }
-    return adnl_ids_[id - 1];
-  }
-
-  ton::PeerId register_adnl_id(ton::adnl::AdnlNodeIdShort id) {
-    auto it = adnl_to_peer_id_.emplace(id, next_peer_id_);
-    if (it.second) {
-      LOG(ERROR) << "Register AndlId " << id << " -> " << it.first->second;
-      adnl_ids_.push_back(id);
-      next_peer_id_++;
-    }
-    return it.first->second;
-  }
-
-  void get_peers(td::Promise<std::vector<ton::PeerId>> promise) {
-    send_closure(overlays_, &ton::overlay::Overlays::get_overlay_random_peers, adnl_id_, overlay_id_.compute_short_id(),
-                 30, promise.send_closure(actor_id(this), &PeerManager::got_overlay_random_peers));
-  }
-
- private:
-  ton::adnl::AdnlNodeIdShort adnl_id_;
-  ton::overlay::OverlayIdFull overlay_id_;
-  td::actor::ActorId<ton::overlay::Overlays> overlays_;
-  td::actor::ActorId<ton::adnl::Adnl> adnl_;
-  td::actor::ActorId<ton_rldp::Rldp> rldp_;
-
-  std::map<std::pair<ton::PeerId, ton::PeerId>, td::actor::ActorId<ton::PeerActor>> peers_;
-  std::map<ton::PeerId, td::actor::ActorId<ton::NodeActor>> nodes_;
-  ton::PeerId next_peer_id_{1};
-  std::map<ton::adnl::AdnlNodeIdShort, ton::PeerId> adnl_to_peer_id_;
-  std::vector<ton::adnl::AdnlNodeIdShort> adnl_ids_;
-
-  std::map<ton::PeerId, td::uint32> subscribed_peers_;
-
-  void got_overlay_random_peers(td::Result<std::vector<ton::adnl::AdnlNodeIdShort>> r_peers,
-                                td::Promise<std::vector<ton::PeerId>> promise) {
-    TRY_RESULT_PROMISE(promise, peers, std::move(r_peers));
-
-    std::vector<ton::PeerId> res;
-    for (auto peer : peers) {
-      res.push_back(register_adnl_id(peer));
-    }
-
-    promise.set_value(std::move(res));
-  }
-};
 
 class StorageCli : public td::actor::Actor {
  public:
@@ -338,7 +140,8 @@ class StorageCli : public td::actor::Actor {
 
     td::mkdir(options_.db_root).ignore();
     keyring_ = ton::keyring::Keyring::create(options_.db_root + "/keyring");
-    adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(td::narrow_cast<td::int16>(options_.addr.get_port()));
+    adnl_network_manager_ =
+        ton::adnl::AdnlNetworkManager::create(td::narrow_cast<td::uint16>(options_.addr.get_port()));
     adnl_ = ton::adnl::Adnl::create(options_.db_root, keyring_.get());
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
     rldp_ = ton_rldp::Rldp::create(adnl_.get());
@@ -430,6 +233,7 @@ class StorageCli : public td::actor::Actor {
       td::TerminalIO::out() << "create <dir/file>\tCreate torrent from a directory\n";
       td::TerminalIO::out() << "info <id>\tPrint info about loaded torrent\n";
       td::TerminalIO::out() << "load <file>\tLoad torrent file in memory\n";
+      td::TerminalIO::out() << "addhash <hash>\tAdd torrent by hash (in hex)\n";
       td::TerminalIO::out() << "save <id> <file>\tSave torrent file\n";
       td::TerminalIO::out() << "start <id>\tStart torrent downloading/uploading\n";
       td::TerminalIO::out() << "seed <id>\tStart torrent uploading\n";
@@ -451,6 +255,8 @@ class StorageCli : public td::actor::Actor {
       torrent_info(parser.read_all(), std::move(cmd_promise));
     } else if (cmd == "load") {
       cmd_promise.set_result(torrent_load(parser.read_all()).move_map([](auto &&x) { return td::Unit(); }));
+    } else if (cmd == "addhash") {
+      cmd_promise.set_result(torrent_add_by_hash(parser.read_all()).move_map([](auto &&x) { return td::Unit(); }));
     } else if (cmd == "save") {
       auto id = parser.read_word();
       parser.skip_whitespaces();
@@ -544,7 +350,7 @@ class StorageCli : public td::actor::Actor {
     ton::Torrent::Creator::Options options;
     options.piece_size = 128 * 1024;
     TRY_RESULT_PROMISE(promise, torrent, ton::Torrent::Creator::create_from_path(options, path));
-    auto hash = torrent.get_info().header_hash;
+    auto hash = torrent.get_hash();
     for (auto &it : infos_) {
       if (it.second.hash == hash) {
         promise.set_error(td::Status::Error(PSLICE() << "Torrent already loaded (#" << it.first << ")"));
@@ -552,6 +358,7 @@ class StorageCli : public td::actor::Actor {
       }
     }
     td::TerminalIO::out() << "Torrent #" << torrent_id_ << " created\n";
+    td::TerminalIO::out() << "Torrent hash: " << torrent.get_hash().to_hex() << "\n";
     infos_.emplace(torrent_id_, Info{torrent_id_, hash, std::move(torrent), td::actor::ActorOwn<PeerManager>(),
                                      td::actor::ActorOwn<ton::NodeActor>()});
     torrent_id_++;
@@ -600,12 +407,12 @@ class StorageCli : public td::actor::Actor {
     }
   }
 
-  td::actor::ActorOwn<PeerManager> create_peer_manager(vm::Cell::Hash hash) {
+  td::actor::ActorOwn<PeerManager> create_peer_manager(td::Bits256 hash) {
     // create overlay network
     td::BufferSlice hash_str(hash.as_slice());
     ton::overlay::OverlayIdFull overlay_id(std::move(hash_str));
     auto adnl_id = ton::adnl::AdnlNodeIdShort{public_key_.compute_short_id()};
-    return td::actor::create_actor<PeerManager>("PeerManager", adnl_id, std::move(overlay_id), overlays_.get(),
+    return td::actor::create_actor<PeerManager>("PeerManager", adnl_id, std::move(overlay_id), false, overlays_.get(),
                                                 adnl_.get(), rldp_.get());
   }
 
@@ -616,67 +423,16 @@ class StorageCli : public td::actor::Actor {
       return;
     }
     if (ptr->peer_manager.empty()) {
-      ptr->peer_manager = create_peer_manager(ptr->torrent.value().get_info().get_hash());
+      ptr->peer_manager = create_peer_manager(ptr->torrent.value().get_hash());
     }
     ton::PeerId self_id = 1;
 
-    class Context : public ton::NodeActor::Callback {
+    class Callback : public ton::NodeActor::Callback {
      public:
-      Context(td::actor::ActorId<PeerManager> peer_manager, td::actor::ActorId<StorageCli> storage_cli,
-              ton::PeerId self_id, td::uint32 torrent_id, td::Promise<td::Unit> on_completed)
-          : peer_manager_(peer_manager)
-          , storage_cli_(std::move(storage_cli))
-          , self_id_(self_id)
+      Callback(td::actor::ActorId<StorageCli> storage_cli, td::uint32 torrent_id, td::Promise<td::Unit> on_completed)
+          : storage_cli_(std::move(storage_cli))
           , torrent_id_(std::move(torrent_id))
           , on_completed_(std::move(on_completed)) {
-      }
-      void get_peers(td::Promise<std::vector<ton::PeerId>> promise) override {
-        send_closure(peer_manager_, &PeerManager::get_peers, std::move(promise));
-      }
-      void register_self(td::actor::ActorId<ton::NodeActor> self) override {
-        CHECK(self_.empty());
-        self_ = self;
-        send_closure(peer_manager_, &PeerManager::register_node, self_id_, self_);
-      }
-      ~Context() {
-        if (!self_.empty()) {
-          send_closure(peer_manager_, &PeerManager::unregister_node, self_id_, self_);
-        }
-      }
-      td::actor::ActorOwn<ton::PeerActor> create_peer(ton::PeerId self_id, ton::PeerId peer_id,
-                                                      td::SharedState<ton::PeerState> state) override {
-        CHECK(self_id == self_id_);
-        class PeerCallback : public ton::PeerActor::Callback {
-         public:
-          PeerCallback(ton::PeerId self_id, ton::PeerId peer_id, td::actor::ActorId<PeerManager> peer_manager)
-              : self_id_(self_id), peer_id_(peer_id), peer_manager_(std::move(peer_manager)) {
-          }
-          void register_self(td::actor::ActorId<ton::PeerActor> self) override {
-            CHECK(self_.empty());
-            self_ = std::move(self);
-            send_closure(peer_manager_, &PeerManager::register_peer, self_id_, peer_id_, self_);
-          }
-          void send_query(td::uint64 query_id, td::BufferSlice query) override {
-            send_closure(peer_manager_, &PeerManager::send_query, self_id_, peer_id_, std::move(query),
-                         promise_send_closure(self_, &ton::PeerActor::on_query_result, query_id));
-          }
-
-          ~PeerCallback() {
-            if (!self_.empty()) {
-              send_closure(peer_manager_, &PeerManager::unregister_peer, self_id_, peer_id_, self_);
-            }
-          }
-
-         private:
-          td::actor::ActorId<ton::PeerActor> self_;
-          ton::PeerId self_id_;
-          ton::PeerId peer_id_;
-          td::actor::ActorId<PeerManager> peer_manager_;
-        };
-
-        return td::actor::create_actor<ton::PeerActor>(PSLICE() << "ton::PeerActor " << self_id << "->" << peer_id,
-                                                       td::make_unique<PeerCallback>(self_id, peer_id, peer_manager_),
-                                                       std::move(state));
       }
 
       void on_completed() override {
@@ -691,23 +447,20 @@ class StorageCli : public td::actor::Actor {
       }
 
      private:
-      td::actor::ActorId<PeerManager> peer_manager_;
       td::actor::ActorId<StorageCli> storage_cli_;
-      ton::PeerId self_id_;
       td::uint32 torrent_id_;
-      std::vector<ton::PeerId> peers_;
       td::Promise<td::Unit> on_completed_;
-      td::actor::ActorId<ton::NodeActor> self_;
     };
 
     td::Promise<td::Unit> on_completed;
     if (wait_download) {
       on_completed = std::move(promise);
     }
-    auto context =
-        td::make_unique<Context>(ptr->peer_manager.get(), actor_id(this), self_id, ptr->id, std::move(on_completed));
-    ptr->node = td::actor::create_actor<ton::NodeActor>(PSLICE() << "Node#" << self_id, self_id, ptr->torrent.unwrap(),
-                                                        std::move(context), should_download);
+    auto callback = td::make_unique<Callback>(actor_id(this), ptr->id, std::move(on_completed));
+    auto context = PeerManager::create_callback(ptr->peer_manager.get());
+    ptr->node =
+        td::actor::create_actor<ton::NodeActor>(PSLICE() << "Node#" << self_id, self_id, ptr->torrent.unwrap(),
+                                                std::move(callback), std::move(context), nullptr, should_download);
     td::TerminalIO::out() << "Torrent #" << ptr->id << " started\n";
     promise.release().release();
     if (promise) {
@@ -748,8 +501,11 @@ class StorageCli : public td::actor::Actor {
       return;
     }
     auto file_id_str = parser.read_word();
-    size_t file_id = std::numeric_limits<size_t>::max();
-    if (file_id_str != "*") {
+    size_t file_id = 0;
+    bool all = false;
+    if (file_id_str == "*") {
+      all = true;
+    } else {
       TRY_RESULT_PROMISE_ASSIGN(promise, file_id, td::to_integer_safe<std::size_t>(file_id_str));
     }
     TRY_RESULT_PROMISE(promise, priority, td::to_integer_safe<td::uint8>(parser.read_word()));
@@ -757,7 +513,13 @@ class StorageCli : public td::actor::Actor {
       promise.set_error(td::Status::Error("Priority = 255 is reserved"));
       return;
     }
-    send_closure(ptr->node, &ton::NodeActor::set_file_priority, file_id, priority);
+    if (all) {
+      send_closure(ptr->node, &ton::NodeActor::set_all_files_priority, priority,
+                   promise.wrap([](bool) { return td::Unit(); }));
+    } else {
+      send_closure(ptr->node, &ton::NodeActor::set_file_priority_by_idx, file_id, priority,
+                   promise.wrap([](bool) { return td::Unit(); }));
+    }
     promise.set_value(td::Unit());
   }
 
@@ -779,13 +541,40 @@ class StorageCli : public td::actor::Actor {
 
     TRY_RESULT(torrent, ton::Torrent::open(options, data));
 
-    auto hash = torrent.get_info().header_hash;
+    auto hash = torrent.get_hash();
     for (auto &it : infos_) {
       if (it.second.hash == hash) {
         return td::Status::Error(PSLICE() << "Torrent already loaded (#" << it.first << ")");
       }
     }
     td::TerminalIO::out() << "Torrent #" << torrent_id_ << " created\n";
+    td::TerminalIO::out() << "Torrent hash: " << torrent.get_hash().to_hex() << "\n";
+    auto res =
+        infos_.emplace(torrent_id_, Info{torrent_id_, hash, std::move(torrent), td::actor::ActorOwn<PeerManager>(),
+                                         td::actor::ActorOwn<ton::NodeActor>()});
+    torrent_id_++;
+    return &res.first->second;
+  }
+
+  td::Result<Info *> torrent_add_by_hash(td::Slice hash_hex) {
+    td::Bits256 hash;
+    if (hash.from_hex(hash_hex) != 256) {
+      return td::Status::Error("Failed to parse torrent hash");
+    }
+    ton::Torrent::Options options;
+    options.in_memory = false;
+    options.root_dir = ".";
+    options.validate = false;
+
+    TRY_RESULT(torrent, ton::Torrent::open(options, hash));
+
+    for (auto &it : infos_) {
+      if (it.second.hash == hash) {
+        return td::Status::Error(PSLICE() << "Torrent already loaded (#" << it.first << ")");
+      }
+    }
+    td::TerminalIO::out() << "Torrent #" << torrent_id_ << " created\n";
+    td::TerminalIO::out() << "Torrent hash: " << torrent.get_hash().to_hex() << "\n";
     auto res =
         infos_.emplace(torrent_id_, Info{torrent_id_, hash, std::move(torrent), td::actor::ActorOwn<PeerManager>(),
                                          td::actor::ActorOwn<ton::NodeActor>()});
@@ -839,7 +628,8 @@ int main(int argc, char *argv[]) {
     return (verbosity >= 0 && verbosity <= 20) ? td::Status::OK() : td::Status::Error("verbosity must be 0..20");
   });
   p.add_option('V', "version", "shows storage-cli build information", [&]() {
-    std::cout << "storage-cli build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "storage-cli build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('C', "config", "set ton config", [&](td::Slice arg) { options.config = arg.str(); });
@@ -859,7 +649,7 @@ int main(int argc, char *argv[]) {
     std::_Exit(2);
   }
 
-  td::actor::Scheduler scheduler({0});
+  td::actor::Scheduler scheduler({3});
   scheduler.run_in_context([&] { td::actor::create_actor<StorageCli>("console", options).release(); });
   scheduler.run();
   return 0;

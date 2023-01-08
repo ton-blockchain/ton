@@ -25,6 +25,7 @@
 #include "td/db/utils/BlobView.h"
 
 #include <map>
+#include <set>
 
 namespace ton {
 class Torrent {
@@ -40,6 +41,7 @@ class Torrent {
   };
 
   // creation
+  static td::Result<Torrent> open(Options options, td::Bits256 hash);
   static td::Result<Torrent> open(Options options, TorrentMeta meta);
   static td::Result<Torrent> open(Options options, td::Slice meta_str);
   void validate();
@@ -54,7 +56,8 @@ class Torrent {
 
   // add piece (with an optional proof)
   td::Status add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Cell> proof);
-  //TODO: add multiple chunks? Merkle tree supports much more general interface
+  //TODO: add multiple pieces? Merkle tree supports much more general interface
+  td::Status add_proof(td::Ref<vm::Cell> proof);
 
   bool is_completed() const;
 
@@ -91,19 +94,76 @@ class Torrent {
   td::CSlice get_file_name(size_t i) const;
   td::uint64 get_file_size(size_t i) const;
   td::uint64 get_file_ready_size(size_t i) const;
+  std::string get_file_path(size_t i) const;
 
   struct PartsRange {
     td::uint64 begin{0};
     td::uint64 end{0};
+    bool contains(td::uint64 i) const {
+      return begin <= i && i < end;
+    }
   };
   PartsRange get_file_parts_range(size_t i);
-  PartsRange get_header_parts_range();
+  PartsRange get_header_parts_range() const;
 
   size_t get_ready_parts_count() const;
 
   std::vector<size_t> chunks_by_piece(td::uint64 piece_id);
 
+  bool inited_info() const {
+    return inited_info_;
+  }
+  bool inited_header() const {
+    return (bool)header_;
+  }
+  td::Bits256 get_hash() const {
+    return hash_;
+  }
+  std::string get_root_dir() const {
+    return root_dir_ ? root_dir_.value() : "";
+  }
+  td::Status init_info(Info info);
+  td::Status set_header(TorrentHeader header);
+
+  void enable_write_to_files();
+  void set_file_excluded(size_t i, bool excluded);
+  bool file_is_excluded(size_t i) const {
+    return chunks_.at(i).excluded;
+  }
+  td::uint64 get_included_size() const {
+    return header_ ? included_size_ : info_.file_size;
+  }
+  td::uint64 get_included_ready_size() const {
+    return included_ready_size_;
+  }
+
+  bool is_piece_in_memory(td::uint64 i) const {
+    return in_memory_pieces_.count(i);
+  }
+  std::set<td::uint64> get_pieces_in_memory() const {
+    std::set<td::uint64> pieces;
+    for (const auto &p : in_memory_pieces_) {
+      pieces.insert(p.first);
+    }
+    return pieces;
+  }
+
+  const td::Status &get_fatal_error() const {
+    return fatal_error_;
+  }
+
+  const TorrentHeader &get_header() const {
+    CHECK(inited_header())
+    return header_.value();
+  }
+
+  void load_from_files(std::string files_path);
+
+  td::Status copy_to(const std::string& new_root_dir);
+
  private:
+  td::Bits256 hash_;
+  bool inited_info_ = false;
   Info info_;
   td::optional<std::string> root_dir_;
 
@@ -113,6 +173,12 @@ class Torrent {
   size_t not_ready_pending_piece_count_{0};
   size_t header_pieces_count_{0};
   std::map<td::uint64, td::string> pending_pieces_;
+  bool enabled_wirte_to_files_ = false;
+  struct InMemoryPiece {
+    std::string data;
+    std::set<size_t> pending_chunks;
+  };
+  std::map<td::uint64, InMemoryPiece> in_memory_pieces_;  // Pieces that overlap excluded files
 
   ton::MerkleTree merkle_tree_;
 
@@ -120,12 +186,15 @@ class Torrent {
   size_t not_ready_piece_count_{0};
   size_t ready_parts_count_{0};
 
+  td::Status fatal_error_ = td::Status::OK();
+
   struct ChunkState {
     std::string name;
     td::uint64 offset{0};
     td::uint64 size{0};
     td::uint64 ready_size{0};
     td::BlobView data;
+    bool excluded{false};
 
     struct Cache {
       td::uint64 offset{0};
@@ -137,10 +206,11 @@ class Torrent {
       return ready_size == size;
     }
 
-    TD_WARN_UNUSED_RESULT td::Status add_piece(td::Slice piece, td::uint64 offset) {
+    TD_WARN_UNUSED_RESULT td::Status write_piece(td::Slice piece, td::uint64 offset) {
       TRY_RESULT(written, data.write(piece, offset));
-      CHECK(written == piece.size());
-      ready_size += written;
+      if (written != piece.size()) {
+        return td::Status::Error("Written less than expected");
+      }
       return td::Status::OK();
     }
     bool has_piece(td::uint64 offset, td::uint64 size) {
@@ -149,21 +219,24 @@ class Torrent {
     TD_WARN_UNUSED_RESULT td::Status get_piece(td::MutableSlice dest, td::uint64 offset, Cache *cache = nullptr);
   };
   std::vector<ChunkState> chunks_;
+  td::uint64 included_size_{0};
+  td::uint64 included_ready_size_{0};
 
-  explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk);
-  explicit Torrent(TorrentMeta meta);
+  explicit Torrent(td::Bits256 hash);
+  explicit Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree tree, std::vector<ChunkState> chunk,
+                   std::string root_dir);
   void set_root_dir(std::string root_dir) {
     root_dir_ = std::move(root_dir);
   }
 
-  std::string get_chunk_path(td::Slice name);
+  std::string get_chunk_path(td::Slice name) const;
   td::Status init_chunk_data(ChunkState &chunk);
   template <class F>
   td::Status iterate_piece(Info::PieceInfo piece, F &&f);
+  void add_pending_pieces();
 
-  td::Status add_header_piece(td::uint64 piece_i, td::Slice data);
+  td::Status add_pending_piece(td::uint64 piece_i, td::Slice data);
   td::Status add_validated_piece(td::uint64 piece_i, td::Slice data);
-  void set_header(const TorrentHeader &header);
 };
 
 }  // namespace ton

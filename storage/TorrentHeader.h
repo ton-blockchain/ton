@@ -21,6 +21,7 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/buffer.h"
+#include "td/utils/Status.h"
 
 namespace ton {
 // fec_info_none#c82a1964 = FecInfo;
@@ -37,6 +38,13 @@ namespace ton {
 //   names:(file_names_size * [uint8])
 //   data:(tot_data_size * [uint8])
 //     = TorrentHeader;
+//
+// Filename rules:
+// 1) Name can't be empty
+// 2) Names in a torrent should be unique
+// 3) Name can't start or end with '/' or contain two consequitive '/'
+// 4) Components of name can't be equal to "." or ".."
+// 5) If there's a name aaa/bbb/ccc, no other name can start with aaa/bbb/ccc/
 
 struct TorrentHeader {
   td::uint32 files_count{0};
@@ -64,5 +72,7 @@ struct TorrentHeader {
   void store(StorerT &storer) const;
   template <class ParserT>
   void parse(ParserT &parser);
+
+  td::Status validate(td::uint64 total_size, td::uint64 header_size) const;
 };
 }  // namespace ton

@@ -1,0 +1,84 @@
+forall X -> int cast_to_int(X x) asm "NOP";
+forall X -> builder cast_to_builder(X x) asm "NOP";
+
+_ test1_body() {
+  int a = 3;
+  builder b = begin_cell();
+  int c = 1;
+  try {
+    c = 3;
+    throw_arg(b, 100);
+  } catch (x, y) {
+    return (a + c + y, cast_to_builder(x));
+  }
+  return (0, null());
+}
+
+() test1() impure {
+  var (x, y) = test1_body();
+  throw_unless(101, x == 104);
+  throw_unless(102, y.builder_refs() == y.builder_bits());
+}
+
+_ test2_body(int a, int b, int c) {
+  try {
+    try {
+      try {
+        try {
+          throw_arg_if(1, 201, a + b + c == 3);
+          throw_arg_if(2, 201, a == 3);
+          throw_arg_unless(1, 202, b == 4);
+          return 1;
+        } catch (y, x) {
+          int y = y.cast_to_int();
+          throw_arg_unless(y, x, x == 202);
+          throw_arg(y + 1, 200);
+        }
+      } catch (y, x) {
+        int y = y.cast_to_int();
+        throw_arg_if(y, x, x == 200);
+        throw_arg_if(y + 2, x, y < 2);
+        throw_arg_if(y + 3, 203, a + b + c == 4);
+        throw_arg_unless(y + 4, 204, b == 4);
+        return 3;
+      }
+    } catch (y, x) {
+      int y = y.cast_to_int();
+      try {
+        throw_arg_if(y, x, x == 200);
+        throw_arg_if(y + 1, 200, x == 201);
+        throw_arg_if(x - 203, 200, x == 202);
+        throw_arg_if(y, 200, x == 203);
+        throw_arg_if(a + 4, 205, a + b + c == 5);
+        throw_arg(7, 200);
+      } catch (v, u) {
+        int v = v.cast_to_int();
+        throw_arg_unless(v, u, u == 205);
+        if (c == 0) {
+          return b + 4;
+        }
+        throw_arg(v + 1, 200);
+      }
+    }
+  } catch (y, x) {
+    throw_unless(x, x == 200);
+    return y.cast_to_int();
+  }
+  return null();
+}
+
+() test2() impure {
+  throw_unless(201, test2_body(0, 4, 0) == 1);
+  throw_unless(202, test2_body(0, 5, 0) == 2);
+  throw_unless(203, test2_body(3, 4, 0) == 3);
+  throw_unless(204, test2_body(3, 0, 0) == 4);
+  throw_unless(205, test2_body(3, 1, 0) == 5);
+  throw_unless(206, test2_body(3, 2, 0) == 6);
+  throw_unless(207, test2_body(3, 1, 2) == 7);
+  throw_unless(208, test2_body(3, 1, 1) == 8);
+}
+
+() main() {
+  test1();
+  test2();
+}

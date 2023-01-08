@@ -116,9 +116,9 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     }
     auto ite = max_size_.find(part.transfer_id_);
     if (ite == max_size_.end()) {
-      if (static_cast<td::uint64>(part.total_size_) > default_mtu()) {
+      if (static_cast<td::uint64>(part.total_size_) > default_mtu_) {
         VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_
-                          << " default_mtu=" << default_mtu();
+                          << " default_mtu=" << default_mtu_;
         return;
       }
     } else {
@@ -134,11 +134,11 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     }
     auto P = td::PromiseCreator::lambda(
         [SelfId = actor_id(this), source, local_id, transfer_id = part.transfer_id_](td::Result<td::BufferSlice> R) {
+          td::actor::send_closure(SelfId, &RldpIn::in_transfer_completed, transfer_id, R.is_ok());
           if (R.is_error()) {
             VLOG(RLDP_INFO) << "failed to receive: " << R.move_as_error();
             return;
           }
-          td::actor::send_closure(SelfId, &RldpIn::in_transfer_completed, transfer_id);
           td::actor::send_closure(SelfId, &RldpIn::receive_message, source, local_id, transfer_id, R.move_as_ok());
         });
 
@@ -228,8 +228,9 @@ void RldpIn::transfer_completed(TransferId transfer_id) {
   VLOG(RLDP_DEBUG) << "rldp: completed transfer " << transfer_id << "; " << senders_.size() << " out transfer pending ";
 }
 
-void RldpIn::in_transfer_completed(TransferId transfer_id) {
-  if (lru_set_.count(transfer_id) == 1) {
+void RldpIn::in_transfer_completed(TransferId transfer_id, bool success) {
+  receivers_.erase(transfer_id);
+  if (!success || lru_set_.count(transfer_id) == 1) {
     return;
   }
   while (lru_size_ >= lru_size()) {

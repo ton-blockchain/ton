@@ -174,7 +174,7 @@ class TonlibCli : public td::actor::Actor {
 
   std::map<std::uint64_t, td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>> query_handlers_;
 
-  td::actor::ActorOwn<ton::adnl::AdnlExtClient> raw_client_;
+  td::actor::ActorOwn<tonlib::ExtClientLazy> raw_client_;
 
   bool is_closing_{false};
   td::uint32 ref_cnt_{1};
@@ -307,7 +307,7 @@ class TonlibCli : public td::actor::Actor {
     td::TerminalIO::out() << "dns cmdfile <key_id> <file>\n";
     td::TerminalIO::out() << "\t<dns_cmd> = set <name> <category> <data> | delete.name <name> | delete.all\n";
     td::TerminalIO::out() << "\t<data> = DELETED | EMPTY | TEXT:<text> | NEXT:<smc-address> | SMC:<smc-address> | "
-                             "ADNL:<adnl-address>\n";
+                             "ADNL:<adnl-address> | STORAGE:<bag-id>\n";
   }
 
   void pchan_help() {

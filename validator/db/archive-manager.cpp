@@ -441,7 +441,10 @@ void ArchiveManager::get_block_by_unix_time(AccountIdPrefixFull account_id, Unix
                                             td::Promise<ConstBlockHandle> promise) {
   auto f = get_file_desc_by_unix_time(account_id, ts, false);
   if (f) {
-    auto n = get_next_file_desc(f);
+    auto n = f;
+    do {
+      n = get_next_file_desc(n);
+    } while (n != nullptr && !n->has_account_prefix(account_id));
     td::actor::ActorId<ArchiveSlice> aid;
     if (n) {
       aid = n->file_actor_id();
@@ -464,7 +467,10 @@ void ArchiveManager::get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime
                                      td::Promise<ConstBlockHandle> promise) {
   auto f = get_file_desc_by_lt(account_id, lt, false);
   if (f) {
-    auto n = get_next_file_desc(f);
+    auto n = f;
+    do {
+      n = get_next_file_desc(n);
+    } while (n != nullptr && !n->has_account_prefix(account_id));
     td::actor::ActorId<ArchiveSlice> aid;
     if (n) {
       aid = n->file_actor_id();
@@ -1230,6 +1236,16 @@ void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle han
       }
     }
   }
+}
+
+bool ArchiveManager::FileDescription::has_account_prefix(AccountIdPrefixFull account_id) const {
+  for (int i = 0; i < 60; i++) {
+    auto shard = shard_prefix(account_id, i);
+    if (first_blocks.count(shard)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace validator

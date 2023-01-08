@@ -221,6 +221,13 @@ var_idx_t Expr::new_tmp(CodeBlob& code) const {
   return code.create_tmp_var(e_type, &here);
 }
 
+void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
+  for (const auto& p : globs) {
+    auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
+    op.flags |= Op::_Impure;
+  }
+}
+
 std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
   while (lhs->is_type_apply()) {
     lhs = lhs->args.at(0);
@@ -245,19 +252,18 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
     return tmp;
   }
   auto right = rhs->pre_compile(code);
-  if (lhs->cls == Expr::_GlobVar) {
-    assert(lhs->sym);
-    auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, right, lhs->sym);
-    op.flags |= Op::_Impure;
-  } else {
-    auto left = lhs->pre_compile(code, true);
-    code.emplace_back(here, Op::_Let, std::move(left), right);
+  std::vector<std::pair<SymDef*, var_idx_t>> globs;
+  auto left = lhs->pre_compile(code, &globs);
+  for (var_idx_t v : left) {
+    code.check_modify_forbidden(v, here);
   }
+  code.emplace_back(here, Op::_Let, std::move(left), right);
+  add_set_globs(code, globs, here);
   return right;
 }
 
-std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
-  if (lval && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _TypeApply)) {
+std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs) const {
+  if (lval_globs && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _TypeApply || cls == _GlobVar)) {
     std::cerr << "lvalue expression constructor is " << cls << std::endl;
     throw src::Fatal{"cannot compile lvalue expression with unknown constructor"};
   }
@@ -265,8 +271,14 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
     case _Tensor: {
       std::vector<var_idx_t> res;
       for (const auto& x : args) {
-        auto add = x->pre_compile(code, lval);
+        auto add = x->pre_compile(code, lval_globs);
+        for (var_idx_t v : add) {
+          code.mark_modify_forbidden(v);
+        }
         res.insert(res.end(), add.cbegin(), add.cend());
+      }
+      for (var_idx_t v : res) {
+        code.unmark_modify_forbidden(v);
       }
       return res;
     }
@@ -279,6 +291,9 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
         std::vector<std::vector<var_idx_t>> add_list(args.size());
         for (int i : func->arg_order) {
           add_list[i] = args[i]->pre_compile(code);
+          for (var_idx_t v : add_list[i]) {
+            code.mark_modify_forbidden(v);
+          }
         }
         for (const auto& add : add_list) {
           res.insert(res.end(), add.cbegin(), add.cend());
@@ -286,8 +301,14 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
       } else {
         for (const auto& x : args) {
           auto add = x->pre_compile(code);
+          for (var_idx_t v : add) {
+            code.mark_modify_forbidden(v);
+          }
           res.insert(res.end(), add.cbegin(), add.cend());
         }
+      }
+      for (var_idx_t v : res) {
+        code.unmark_modify_forbidden(v);
       }
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
@@ -297,7 +318,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
       return rvect;
     }
     case _TypeApply:
-      return args[0]->pre_compile(code, lval);
+      return args[0]->pre_compile(code, lval_globs);
     case _Var:
     case _Hole:
       return {val};
@@ -329,8 +350,13 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
     case _Glob:
     case _GlobVar: {
       auto rvect = new_tmp_vect(code);
-      code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);
-      return rvect;
+      if (lval_globs) {
+        lval_globs->push_back({ sym, rvect[0] });
+        return rvect;
+      } else {
+        code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);
+        return rvect;
+      }
     }
     case _Letop: {
       return pre_compile_let(code, args.at(0), args.at(1), here);
@@ -338,9 +364,17 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
     case _LetFirst: {
       auto rvect = new_tmp_vect(code);
       auto right = args[1]->pre_compile(code);
-      auto left = args[0]->pre_compile(code, true);
+      std::vector<std::pair<SymDef*, var_idx_t>> local_globs;
+      if (!lval_globs) {
+        lval_globs = &local_globs;
+      }
+      auto left = args[0]->pre_compile(code, lval_globs);
       left.push_back(rvect[0]);
+      for (var_idx_t v : left) {
+        code.check_modify_forbidden(v, here);
+      }
       code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
+      add_set_globs(code, local_globs, here);
       return rvect;
     }
     case _MkTuple: {

@@ -25,17 +25,69 @@
 #include "td/actor/actor.h"
 
 #include <map>
-
-#include "LoadSpeed.h"
+#include <atomic>
 
 namespace ton {
 using PeerId = td::uint64;
 using PartId = td::uint32;
 
+// Concurrent buffer for messages with one writer and one reader
+// Reader reads all existing messages at once
+// TODO: Use some better algorithm here, or maybe a concurrent queue
+template <typename T>
+class MessageBuffer {
+ public:
+  MessageBuffer() = default;
+  MessageBuffer(const MessageBuffer<T>&) = delete;
+  MessageBuffer& operator=(const MessageBuffer<T>&) = delete;
+  ~MessageBuffer() {
+    delete ptr_.load();
+  }
+
+  void add_element(T x) {
+    std::vector<T>* vec = ptr_.exchange(nullptr);
+    if (vec == nullptr) {
+      vec = new std::vector<T>();
+    }
+    vec->push_back(std::move(x));
+    CHECK(ptr_.exchange(vec) == nullptr);
+  }
+
+  void add_elements(std::vector<T> elements) {
+    if (elements.empty()) {
+      return;
+    }
+    std::vector<T>* vec = ptr_.exchange(nullptr);
+    if (vec == nullptr) {
+      vec = new std::vector<T>(std::move(elements));
+    } else {
+      for (auto& x : elements) {
+        vec->push_back(std::move(x));
+      }
+    }
+    CHECK(ptr_.exchange(vec) == nullptr);
+  }
+
+  std::vector<T> read() {
+    std::vector<T>* vec = ptr_.exchange(nullptr);
+    std::vector<T> result;
+    if (vec != nullptr) {
+      result = std::move(*vec);
+      delete vec;
+    }
+    return result;
+  }
+ private:
+  std::atomic<std::vector<T>*> ptr_{nullptr};
+};
+
 struct PeerState {
+  explicit PeerState(td::actor::ActorId<> node) : node(std::move(node)) {
+  }
+
   struct State {
-    bool will_upload{false};
-    bool want_download{false};
+    bool will_upload;
+    bool want_download;
     auto key() const {
       return std::tie(will_upload, want_download);
     }
@@ -43,30 +95,38 @@ struct PeerState {
       return key() == other.key();
     }
   };
-  State node_state_;
-  td::optional<State> peer_state_;
-  bool peer_online_{false};
+  // Thread-safe fields
+  std::atomic<State> node_state_{State{false, false}};
+  std::atomic_bool peer_state_ready_{false};
+  std::atomic<State> peer_state_{State{false, false}};
+  std::atomic_bool peer_online_{false};
 
   struct Part {
     td::BufferSlice proof;
     td::BufferSlice data;
   };
-  std::map<PartId, td::optional<td::Result<Part>>> node_queries_;
-  std::map<PartId, td::optional<td::Result<Part>>> peer_queries_;
+
+  std::set<PartId> node_queries_active_; // Node only
+  MessageBuffer<PartId> node_queries_; // Node -> Peer
+  MessageBuffer<std::pair<PartId, td::Result<Part>>> node_queries_results_; // Peer -> Node
+
+  std::set<PartId> peer_queries_active_; // Peer only
+  MessageBuffer<PartId> peer_queries_; // Peer -> Node
+  MessageBuffer<std::pair<PartId, td::Result<Part>>> peer_queries_results_; // Node -> Peer
 
   // Peer -> Node
-  // update are added to this vector, so reader will be able to process all changes
-  std::vector<PartId> peer_ready_parts_;
+  MessageBuffer<PartId> peer_ready_parts_;
+  // Node -> Peer
+  MessageBuffer<PartId> node_ready_parts_;
 
   // Node -> Peer
-  // writer writes all new parts to this vector. This state will be eventually synchornized with a peer
-  std::vector<PartId> node_ready_parts_;
+  std::atomic_bool torrent_info_ready_{false};
+  std::shared_ptr<td::BufferSlice> torrent_info_str_;
+  std::function<void(td::BufferSlice)> torrent_info_response_callback_;
 
-  td::actor::ActorId<> node;
+  const td::actor::ActorId<> node;
+  std::atomic_bool peer_ready_{false};
   td::actor::ActorId<> peer;
-
-  LoadSpeed upload;
-  LoadSpeed download;
 
   void notify_node();
   void notify_peer();

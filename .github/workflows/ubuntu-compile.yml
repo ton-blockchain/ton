@@ -1,6 +1,6 @@
-name: Ubuntu Compile
+name: Ubuntu Compile x86-64
 
-on: [push,workflow_dispatch]
+on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
@@ -12,7 +12,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:      
         submodules: 'recursive'
 
@@ -20,6 +20,11 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
+
+    - name: Show CPU flags
+      run: |
+        cat /proc/cpuinfo
+
     - name: Configure & Build
       run: |
         export CC=$(which clang)
@@ -27,12 +32,15 @@ jobs:
         export CCACHE_DISABLE=1
         mkdir build-${{ matrix.os }}
         cd build-${{ matrix.os }}
-        cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
-        ninja fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
-    - name: find & copy binaries
+        cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DCMAKE_CXX_FLAGS="-mavx2" ..
+        ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork
+
+    - name: Find & copy binaries
       run: |
         mkdir artifacts-${{ matrix.os }}
-        cp build-${{ matrix.os }}/crypto/fift build-${{ matrix.os }}/crypto/tlbc build-${{ matrix.os }}/crypto/func build-${{ matrix.os }}/crypto/create-state build-${{ matrix.os }}/validator-engine-console/validator-engine-console build-${{ matrix.os }}/tonlib/tonlib-cli build-${{ matrix.os }}/tonlib/libtonlibjson.so.0.5 build-${{ matrix.os }}/http/http-proxy build-${{ matrix.os }}/rldp-http-proxy/rldp-http-proxy build-${{ matrix.os }}/dht-server/dht-server build-${{ matrix.os }}/lite-client/lite-client build-${{ matrix.os }}/validator-engine/validator-engine build-${{ matrix.os }}/utils/generate-random-id build-${{ matrix.os }}/utils/json2tlo build-${{ matrix.os }}/adnl/adnl-proxy artifacts-${{ matrix.os }}
+        cp build-${{ matrix.os }}/storage/storage-daemon/storage-daemon build-${{ matrix.os }}/storage/storage-daemon/storage-daemon-cli build-${{ matrix.os }}/crypto/fift build-${{ matrix.os }}/crypto/tlbc build-${{ matrix.os }}/crypto/func build-${{ matrix.os }}/crypto/create-state build-${{ matrix.os }}/validator-engine-console/validator-engine-console build-${{ matrix.os }}/tonlib/tonlib-cli build-${{ matrix.os }}/tonlib/libtonlibjson.so.0.5 build-${{ matrix.os }}/http/http-proxy build-${{ matrix.os }}/rldp-http-proxy/rldp-http-proxy build-${{ matrix.os }}/dht-server/dht-server build-${{ matrix.os }}/lite-client/lite-client build-${{ matrix.os }}/validator-engine/validator-engine build-${{ matrix.os }}/utils/generate-random-id build-${{ matrix.os }}/utils/json2tlo build-${{ matrix.os }}/adnl/adnl-proxy artifacts-${{ matrix.os }}
+        cp -R crypto/smartcont artifacts-${{ matrix.os }}
+        cp -R crypto/fift/lib artifacts-${{ matrix.os }}
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:

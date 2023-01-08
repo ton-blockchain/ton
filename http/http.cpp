@@ -279,25 +279,20 @@ td::Status HttpPayload::parse(td::ChainBufferReader &input) {
       } break;
       case ParseState::reading_chunk_data: {
         if (cur_chunk_size_ == 0) {
-          switch (type_) {
-            case PayloadType::pt_empty:
-              UNREACHABLE();
-            case PayloadType::pt_eof:
-            case PayloadType::pt_tunnel:
-              cur_chunk_size_ = 1LL << 60;
-              break;
-            case PayloadType::pt_chunked:
-              state_ = ParseState::reading_crlf;
-              break;
-            case PayloadType::pt_content_length: {
-              LOG(INFO) << "payload parse success";
-              const std::lock_guard<std::mutex> lock{mutex_};
-              state_ = ParseState::completed;
-              run_callbacks();
-              return td::Status::OK();
-            } break;
+          if (type_ == PayloadType::pt_eof || type_ == PayloadType::pt_tunnel) {
+            cur_chunk_size_ = 1LL << 60;
+          } else if (type_ == PayloadType::pt_chunked) {
+            state_ = ParseState::reading_crlf;
+            break;
+          } else if (type_ == PayloadType::pt_content_length) {
+            LOG(INFO) << "payload parse success";
+            const std::lock_guard<std::mutex> lock{mutex_};
+            state_ = ParseState::completed;
+            run_callbacks();
+            return td::Status::OK();
+          } else {
+            UNREACHABLE();
           }
-          break;
         }
         if (input.size() == 0) {
           return td::Status::OK();
@@ -502,7 +497,7 @@ bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
       char buf[64];
       ::sprintf(buf, "%lx\r\n", s.size());
       auto slice = td::Slice(buf, strlen(buf));
-      wrote |= !slice.empty();
+      wrote = true;
       output.append(slice);
     }
 
@@ -514,7 +509,8 @@ bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
       wrote = true;
     }
   }
-  if (chunks_.size() != 0 || !parse_completed()) {
+  auto cur_state = state_.load(std::memory_order_consume);
+  if (chunks_.size() != 0 || (cur_state != ParseState::reading_trailer && cur_state != ParseState::completed)) {
     return wrote;
   }
   if (!written_zero_chunk_) {
@@ -531,7 +527,7 @@ bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
   }
 
   while (max_size > 0) {
-    auto cur_state = state_.load(std::memory_order_consume);
+    cur_state = state_.load(std::memory_order_consume);
     HttpHeader h = get_header();
     if (h.empty()) {
       if (cur_state != ParseState::completed) {
@@ -587,7 +583,8 @@ tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) 
     max_size -= s.size();
   }
   obj->data_.truncate(obj->data_.size() - S.size());
-  if (chunks_.size() != 0) {
+  auto cur_state = state_.load(std::memory_order_consume);
+  if (chunks_.size() != 0 || (cur_state != ParseState::reading_trailer && cur_state != ParseState::completed)) {
     return obj;
   }
   if (!written_zero_chunk_) {
@@ -597,7 +594,7 @@ tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) 
   LOG(INFO) << "data completed";
 
   while (max_size > 0) {
-    auto cur_state = state_.load(std::memory_order_consume);
+    cur_state = state_.load(std::memory_order_consume);
     HttpHeader h = get_header();
     if (h.empty()) {
       if (cur_state != ParseState::completed) {
@@ -869,7 +866,7 @@ td::Status HttpHeader::basic_check() {
   }
   for (auto &c : value) {
     if (c == '\r' || c == '\n') {
-      return td::Status::Error("bad character in header name");
+      return td::Status::Error("bad character in header value");
     }
   }
   return td::Status::OK();

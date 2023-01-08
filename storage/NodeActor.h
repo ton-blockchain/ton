@@ -25,43 +25,93 @@
 #include "Torrent.h"
 
 #include "td/utils/Random.h"
+#include "td/utils/Variant.h"
 
 #include <map>
+#include "db.h"
 
 namespace ton {
 class NodeActor : public td::actor::Actor {
  public:
+  class NodeCallback {
+   public:
+    virtual ~NodeCallback() = default;
+    virtual td::actor::ActorOwn<PeerActor> create_peer(PeerId self_id, PeerId peer_id,
+                                                       std::shared_ptr<PeerState> state) = 0;
+    virtual void get_peers(PeerId src, td::Promise<std::vector<PeerId>> peers) = 0;
+    virtual void register_self(td::actor::ActorId<ton::NodeActor> self) = 0;
+    virtual void get_peer_info(PeerId src, PeerId peer, td::Promise<std::pair<td::Bits256, std::string>> promise) {
+      promise.set_error(td::Status::Error("Not implemented"));
+    }
+  };
+
   class Callback {
    public:
-    virtual ~Callback() {
-    }
-    virtual td::actor::ActorOwn<PeerActor> create_peer(PeerId self_id, PeerId peer_id,
-                                                       td::SharedState<PeerState> state) = 0;
-    virtual void get_peers(td::Promise<std::vector<PeerId>> peers) = 0;
-    virtual void register_self(td::actor::ActorId<ton::NodeActor> self) = 0;
-
-    //TODO: proper callbacks
+    virtual ~Callback() = default;
     virtual void on_completed() = 0;
     virtual void on_closed(ton::Torrent torrent) = 0;
   };
 
-  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback, bool should_download = true);
+  struct PendingSetFilePriority {
+    struct All {};
+    td::Variant<All, size_t, std::string> file;
+    td::uint8 priority;
+  };
+  struct DbInitialData {
+    std::vector<PendingSetFilePriority> priorities;
+    std::set<td::uint64> pieces_in_db;
+  };
+
+  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download = true,
+            bool should_upload = true);
+  NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download,
+            bool should_upload, DbInitialData db_initial_data);
   void start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise);
 
-  ton::Torrent *with_torrent() {
-    return &torrent_;
+  struct NodeState {
+    Torrent &torrent;
+    bool active_download;
+    bool active_upload;
+    double download_speed;
+    double upload_speed;
+    const std::vector<td::uint8> &file_priority;
+  };
+  void with_torrent(td::Promise<NodeState> promise) {
+    promise.set_value(NodeState{torrent_, should_download_, should_upload_, download_speed_.speed(),
+                                upload_speed_.speed(), file_priority_});
   }
   std::string get_stats_str();
 
-  void set_file_priority(size_t i, td::uint8 priority);
   void set_should_download(bool should_download);
+  void set_should_upload(bool should_upload);
+
+  void set_all_files_priority(td::uint8 priority, td::Promise<bool> promise);
+  void set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise);
+  void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
+
+  void load_from(td::optional<TorrentMeta> meta, std::string files_path, td::Promise<td::Unit> promise);
+  void copy_to_new_root_dir(std::string new_root_dir, td::Promise<td::Unit> promise);
+
+  void wait_for_completion(td::Promise<td::Unit> promise);
+  void get_peers_info(td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise);
+
+  static void load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
+                           td::unique_ptr<NodeCallback> node_callback,
+                           td::Promise<td::actor::ActorOwn<NodeActor>> promise);
+  static void cleanup_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::Promise<td::Unit> promise);
 
  private:
   PeerId self_id_;
   ton::Torrent torrent_;
+  std::shared_ptr<td::BufferSlice> torrent_info_str_;
   std::vector<td::uint8> file_priority_;
   td::unique_ptr<Callback> callback_;
+  td::unique_ptr<NodeCallback> node_callback_;
+  std::shared_ptr<db::DbType> db_;
   bool should_download_{false};
+  bool should_upload_{false};
 
   class Notifier : public td::actor::Actor {
    public:
@@ -80,23 +130,12 @@ class NodeActor : public td::actor::Actor {
   struct Peer {
     td::actor::ActorOwn<PeerActor> actor;
     td::actor::ActorOwn<Notifier> notifier;
-    td::SharedState<PeerState> state;
+    std::shared_ptr<PeerState> state;
     PartsHelper::PeerToken peer_token;
+    LoadSpeed download_speed, upload_speed;
   };
 
   std::map<PeerId, Peer> peers_;
-
-  struct QueryId {
-    PeerId peer;
-    PartId part;
-
-    auto key() const {
-      return std::tie(peer, part);
-    }
-    bool operator<(const QueryId &other) const {
-      return key() < other.key();
-    }
-  };
 
   struct PartsSet {
     struct Info {
@@ -110,7 +149,7 @@ class NodeActor : public td::actor::Actor {
   PartsSet parts_;
   PartsHelper parts_helper_;
   std::vector<PartId> ready_parts_;
-  LoadSpeed download_;
+  LoadSpeed download_speed_, upload_speed_;
 
   td::Timestamp next_get_peers_at_;
   bool has_get_peers_{false};
@@ -118,8 +157,21 @@ class NodeActor : public td::actor::Actor {
   static constexpr double GET_PEER_EACH = 5;
 
   bool is_completed_{false};
+  std::vector<td::Promise<td::Unit>> wait_for_completion_;
 
   td::Timestamp will_upload_at_;
+
+  std::vector<PendingSetFilePriority> pending_set_file_priority_;
+  bool header_ready_ = false;
+  std::map<std::string, size_t> file_name_to_idx_;
+  std::set<td::uint64> pieces_in_db_;
+  bool db_store_priorities_paused_ = false;
+  td::int64 last_stored_meta_count_ = -1;
+  td::Timestamp next_db_store_meta_at_ = td::Timestamp::now();
+
+  void init_torrent();
+  void init_torrent_header();
+  void recheck_parts(Torrent::PartsRange range);
 
   void on_signal_from_peer(PeerId peer_id);
 
@@ -134,13 +186,23 @@ class NodeActor : public td::actor::Actor {
   static constexpr size_t MAX_TOTAL_QUERIES = 20;
   static constexpr size_t MAX_PEER_TOTAL_QUERIES = 5;
   void loop_queries();
-  bool try_send_query();
-  bool try_send_part(PartId part_id);
   void loop_get_peers();
   void got_peers(td::Result<std::vector<PeerId>> r_peers);
   void loop_peer(const PeerId &peer_id, Peer &peer);
   void on_part_ready(PartId part_id);
 
   void loop_will_upload();
+
+  void got_torrent_info_str(td::BufferSlice data);
+
+  void update_pieces_in_db(td::uint64 begin, td::uint64 end);
+
+  void db_store_torrent();
+  void db_store_priorities();
+  void db_store_torrent_meta();
+  void after_db_store_torrent_meta(td::Result<td::int64> R);
+  void db_store_piece(td::uint64 i, std::string s);
+  void db_erase_piece(td::uint64 i);
+  void db_update_pieces_list();
 };
 }  // namespace ton
