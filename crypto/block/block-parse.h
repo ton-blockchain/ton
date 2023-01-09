@@ -653,7 +653,7 @@ struct TrComputeInternal1 final : TLB_Complex {
 };
 
 struct ComputeSkipReason final : TLB {
-  enum { cskip_no_state = 0, cskip_bad_state = 1, cskip_no_gas = 2 };
+  enum { cskip_no_state = 0, cskip_bad_state = 1, cskip_no_gas = 2, cskip_suspended = 3 };
   int get_size(const vm::CellSlice& cs) const override {
     return 2;
   }
@@ -662,7 +662,7 @@ struct ComputeSkipReason final : TLB {
   }
   int get_tag(const vm::CellSlice& cs) const override {
     int t = (int)cs.prefetch_ulong(2);
-    return t < 3 ? t : -1;
+    return t;
   }
 };
 
