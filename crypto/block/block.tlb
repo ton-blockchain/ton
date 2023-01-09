@@ -309,7 +309,7 @@ tr_phase_compute_vm$1 success:Bool msg_state_used:Bool
 cskip_no_state$00 = ComputeSkipReason;
 cskip_bad_state$01 = ComputeSkipReason;
 cskip_no_gas$10 = ComputeSkipReason;
-cskip_suspended$11 = ComputeSkipReason;
+cskip_suspended$110 = ComputeSkipReason;
 
 tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
   status_change:AccStatusChange

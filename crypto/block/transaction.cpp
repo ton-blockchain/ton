@@ -2283,7 +2283,7 @@ bool Transaction::serialize_compute_phase(vm::CellBuilder& cb) {
     case ComputePhase::sk_no_gas:
       return cb.store_long_bool(2, 3);  // cskip_no_gas$10 = ComputeSkipReason;
     case ComputePhase::sk_suspended:
-      return cb.store_long_bool(3, 3);  // cskip_suspended$11 = ComputeSkipReason;
+      return cb.store_long_bool(0b0110, 4);  // cskip_suspended$110 = ComputeSkipReason;
     case ComputePhase::sk_none:
       break;
     default:
