@@ -1,7 +1,6 @@
 #include <string>
 #include "transaction-emulator.h"
 #include "crypto/common/refcnt.hpp"
-#include "crypto/openssl/rand.hpp"
 #include "vm/cp0.h"
 
 using td::Ref;
@@ -18,23 +17,23 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     block::ActionPhaseConfig action_phase_cfg;
     td::RefInt256 masterchain_create_fee, basechain_create_fee;
     
-    auto fetch_res = fetch_config_params(config_, &old_mparams,
-                                        &storage_prices, &storage_phase_cfg,
-                                        rand_seed_, &compute_phase_cfg,
-                                        &action_phase_cfg, &masterchain_create_fee,
-                                        &basechain_create_fee, account.workchain);
-    if(fetch_res.is_error()) {
-        return fetch_res.move_as_error_prefix("cannot fetch config params ");
-    }
-
-    vm::init_op_cp0();
-
     if (!utime) {
       utime = unixtime_;
     }
     if (!utime) {
       utime = (unsigned)std::time(nullptr);
     }
+
+    auto fetch_res = block::FetchConfigParams::fetch_config_params(config_, &old_mparams,
+                                                                   &storage_prices, &storage_phase_cfg,
+                                                                   &rand_seed_.value(), &compute_phase_cfg,
+                                                                   &action_phase_cfg, &masterchain_create_fee,
+                                                                  &basechain_create_fee, account.workchain, utime);
+    if(fetch_res.is_error()) {
+        return fetch_res.move_as_error_prefix("cannot fetch config params ");
+    }
+
+    vm::init_op_cp0();    
 
     if (!lt) {
       lt = lt_;
@@ -43,6 +42,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
     }
 
+    compute_phase_cfg.libraries = std::make_unique<vm::Dictionary>(libraries_);
     compute_phase_cfg.ignore_chksig = ignore_chksig_;
     compute_phase_cfg.with_vm_log = true;
     compute_phase_cfg.vm_log_verbosity = vm_log_verbosity_;
@@ -156,84 +156,6 @@ bool TransactionEmulator::check_state_update(const block::Account& account, cons
   block::gen::HASH_UPDATE::Record hash_update;
   return tlb::type_unpack_cell(trans.state_update, block::gen::t_HASH_UPDATE_Account, hash_update) &&
     hash_update.new_hash == account.total_state->get_hash().bits();
-}
-
-// as in collator::impl_fetch_config_params but using block::Config instead block::ConfigInfo
-td::Status TransactionEmulator::fetch_config_params(const block::Config& config,
-                                              Ref<vm::Cell>* old_mparams,
-                                              std::vector<block::StoragePrices>* storage_prices,
-                                              block::StoragePhaseConfig* storage_phase_cfg,
-                                              td::optional<td::BitArray<256>> rand_seed_maybe,
-                                              block::ComputePhaseConfig* compute_phase_cfg,
-                                              block::ActionPhaseConfig* action_phase_cfg,
-                                              td::RefInt256* masterchain_create_fee,
-                                              td::RefInt256* basechain_create_fee,
-                                              ton::WorkchainId wc) {
-  *old_mparams = config.get_config_param(9);
-  {
-    auto res = config.get_storage_prices();
-    if (res.is_error()) {
-      return res.move_as_error();
-    }
-    *storage_prices = res.move_as_ok();
-  }
-  td::BitArray<256> rand_seed;
-  if (!rand_seed_maybe) {
-    // generate rand seed
-    prng::rand_gen().strong_rand_bytes(rand_seed.data(), 32);
-    LOG(DEBUG) << "block random seed set to " << rand_seed.to_hex();
-  } else {
-    rand_seed = std::move(*rand_seed_maybe);
-  }
-  {
-    // compute compute_phase_cfg / storage_phase_cfg
-    auto cell = config.get_config_param(wc == ton::masterchainId ? 20 : 21);
-    if (cell.is_null()) {
-      return td::Status::Error(-668, "cannot fetch current gas prices and limits from masterchain configuration");
-    }
-    if (!compute_phase_cfg->parse_GasLimitsPrices(std::move(cell), storage_phase_cfg->freeze_due_limit,
-                                                  storage_phase_cfg->delete_due_limit)) {
-      return td::Status::Error(-668, "cannot unpack current gas prices and limits from masterchain configuration");
-    }
-    compute_phase_cfg->block_rand_seed = rand_seed;
-    compute_phase_cfg->libraries = std::make_unique<vm::Dictionary>(libraries_);
-    compute_phase_cfg->global_config = config.get_root_cell();
-  }
-  {
-    // compute action_phase_cfg
-    block::gen::MsgForwardPrices::Record rec;
-    auto cell = config.get_config_param(24);
-    if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-      return td::Status::Error(-668, "cannot fetch masterchain message transfer prices from masterchain configuration");
-    }
-    action_phase_cfg->fwd_mc =
-        block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
-                         (unsigned)rec.first_frac, (unsigned)rec.next_frac};
-    cell = config.get_config_param(25);
-    if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-      return td::Status::Error(-668, "cannot fetch standard message transfer prices from masterchain configuration");
-    }
-    action_phase_cfg->fwd_std =
-        block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
-                         (unsigned)rec.first_frac, (unsigned)rec.next_frac};
-    action_phase_cfg->workchains = &config.get_workchain_list();
-    action_phase_cfg->bounce_msg_body = (config.has_capability(ton::capBounceMsgBody) ? 256 : 0);
-  }
-  {
-    // fetch block_grams_created
-    auto cell = config.get_config_param(14);
-    if (cell.is_null()) {
-      *basechain_create_fee = *masterchain_create_fee = td::zero_refint();
-    } else {
-      block::gen::BlockCreateFees::Record create_fees;
-      if (!(tlb::unpack_cell(cell, create_fees) &&
-            block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, *masterchain_create_fee) &&
-            block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, *basechain_create_fee))) {
-        return td::Status::Error(-668, "cannot unpack BlockCreateFees from configuration parameter #14");
-      }
-    }
-  }
-  return td::Status::OK();
 }
 
 td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator::create_transaction(

@@ -73,17 +73,6 @@ public:
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
 
-  td::Status fetch_config_params(const block::Config& config,
-                            td::Ref<vm::Cell>* old_mparams,
-                            std::vector<block::StoragePrices>* storage_prices,
-                            block::StoragePhaseConfig* storage_phase_cfg,
-                            td::optional<td::BitArray<256>> rand_seed_maybe,
-                            block::ComputePhaseConfig* compute_phase_cfg,
-                            block::ActionPhaseConfig* action_phase_cfg,
-                            td::RefInt256* masterchain_create_fee,
-                            td::RefInt256* basechain_create_fee,
-                            ton::WorkchainId wc);
-
   td::Result<std::unique_ptr<block::transaction::Transaction>> create_transaction(
                                                          td::Ref<vm::Cell> msg_root, block::Account* acc,
                                                          ton::UnixTime utime, ton::LogicalTime lt, int trans_type,

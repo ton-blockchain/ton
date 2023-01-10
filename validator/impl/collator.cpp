@@ -1561,88 +1561,17 @@ bool Collator::init_lt() {
 }
 
 bool Collator::fetch_config_params() {
-  auto res = impl_fetch_config_params(std::move(config_), &old_mparams_, &storage_prices_, &storage_phase_cfg_,
-                                      &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_, &masterchain_create_fee_,
-                                      &basechain_create_fee_, workchain(), now_);
+  auto res = block::FetchConfigParams::fetch_config_params(*config_,
+                                      &old_mparams_, &storage_prices_, &storage_phase_cfg_,
+                                      &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_,
+                                      &masterchain_create_fee_, &basechain_create_fee_,
+                                      workchain(), now_
+                                     );
   if (res.is_error()) {
     return fatal_error(res.move_as_error());
   }
-  config_ = res.move_as_ok();
+  compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
   return true;
-}
-
-td::Result<std::unique_ptr<block::ConfigInfo>> Collator::impl_fetch_config_params(
-    std::unique_ptr<block::ConfigInfo> config, Ref<vm::Cell>* old_mparams,
-    std::vector<block::StoragePrices>* storage_prices, block::StoragePhaseConfig* storage_phase_cfg,
-    td::BitArray<256>* rand_seed, block::ComputePhaseConfig* compute_phase_cfg,
-    block::ActionPhaseConfig* action_phase_cfg, td::RefInt256* masterchain_create_fee,
-    td::RefInt256* basechain_create_fee, WorkchainId wc, UnixTime now) {
-  *old_mparams = config->get_config_param(9);
-  {
-    auto res = config->get_storage_prices();
-    if (res.is_error()) {
-      return res.move_as_error();
-    }
-    *storage_prices = res.move_as_ok();
-  }
-  {
-    // generate rand seed
-    prng::rand_gen().strong_rand_bytes(rand_seed->data(), 32);
-    LOG(DEBUG) << "block random seed set to " << rand_seed->to_hex();
-  }
-  TRY_RESULT(size_limits, config->get_size_limits_config());
-  {
-    // compute compute_phase_cfg / storage_phase_cfg
-    auto cell = config->get_config_param(wc == ton::masterchainId ? 20 : 21);
-    if (cell.is_null()) {
-      return td::Status::Error(-668, "cannot fetch current gas prices and limits from masterchain configuration");
-    }
-    if (!compute_phase_cfg->parse_GasLimitsPrices(std::move(cell), storage_phase_cfg->freeze_due_limit,
-                                                  storage_phase_cfg->delete_due_limit)) {
-      return td::Status::Error(-668, "cannot unpack current gas prices and limits from masterchain configuration");
-    }
-    compute_phase_cfg->block_rand_seed = *rand_seed;
-    compute_phase_cfg->libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
-    compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
-    compute_phase_cfg->global_config = config->get_root_cell();
-    compute_phase_cfg->suspended_addresses = config->get_suspended_addresses(now);
-  }
-  {
-    // compute action_phase_cfg
-    block::gen::MsgForwardPrices::Record rec;
-    auto cell = config->get_config_param(24);
-    if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-      return td::Status::Error(-668, "cannot fetch masterchain message transfer prices from masterchain configuration");
-    }
-    action_phase_cfg->fwd_mc =
-        block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
-                         (unsigned)rec.first_frac, (unsigned)rec.next_frac};
-    cell = config->get_config_param(25);
-    if (cell.is_null() || !tlb::unpack_cell(std::move(cell), rec)) {
-      return td::Status::Error(-668, "cannot fetch standard message transfer prices from masterchain configuration");
-    }
-    action_phase_cfg->fwd_std =
-        block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
-                         (unsigned)rec.first_frac, (unsigned)rec.next_frac};
-    action_phase_cfg->workchains = &config->get_workchain_list();
-    action_phase_cfg->bounce_msg_body = (config->has_capability(ton::capBounceMsgBody) ? 256 : 0);
-    action_phase_cfg->size_limits = size_limits;
-  }
-  {
-    // fetch block_grams_created
-    auto cell = config->get_config_param(14);
-    if (cell.is_null()) {
-      *basechain_create_fee = *masterchain_create_fee = td::zero_refint();
-    } else {
-      block::gen::BlockCreateFees::Record create_fees;
-      if (!(tlb::unpack_cell(cell, create_fees) &&
-            block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, *masterchain_create_fee) &&
-            block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, *basechain_create_fee))) {
-        return td::Status::Error(-668, "cannot unpack BlockCreateFees from configuration parameter #14");
-      }
-    }
-  }
-  return std::move(config);
 }
 
 bool Collator::compute_minted_amount(block::CurrencyCollection& to_mint) {
