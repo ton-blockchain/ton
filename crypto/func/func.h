@@ -851,7 +851,7 @@ extern std::vector<SymDef*> glob_func, glob_vars;
 
 // defined in parse-func.cpp
 bool parse_source(std::istream* is, const src::FileDescr* fdescr);
-bool parse_source_file(const char* filename, src::Lexem lex = {});
+bool parse_source_file(const char* filename, src::Lexem lex = {}, bool is_main = false);
 bool parse_source_stdin();
 
 extern std::stack<src::SrcLocation> inclusion_locations;
@@ -1694,8 +1694,42 @@ void define_builtins();
 
 extern int verbosity, indent, opt_level;
 extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
-extern bool pragma_allow_post_modification, pragma_compute_asm_ltr;
 extern std::string generated_from, boc_output_filename;
+
+class GlobalPragma {
+ public:
+  explicit GlobalPragma(std::string name) : name_(std::move(name)) {
+  }
+  const std::string& name() const {
+    return name_;
+  }
+  bool enabled() const {
+    return enabled_;
+  }
+  void enable(SrcLocation loc) {
+    enabled_ = true;
+    locs_.push_back(std::move(loc));
+  }
+  void check_enable_in_libs() {
+    if (locs_.empty()) {
+      return;
+    }
+    for (const SrcLocation& loc : locs_) {
+      if (loc.fdescr->is_main) {
+        return;
+      }
+    }
+    locs_[0].show_warning(PSTRING() << "#pragma " << name_
+                                    << " is enabled in included libraries, it may change the behavior of your code. "
+                                    << "Add this #pragma to the main source file to suppress this warning.");
+  }
+
+ private:
+  std::string name_;
+  bool enabled_ = false;
+  std::vector<SrcLocation> locs_;
+};
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
 
 /*
  *
