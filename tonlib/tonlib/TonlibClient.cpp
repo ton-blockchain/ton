@@ -1803,7 +1803,7 @@ class RunEmulator : public td::actor::Actor {
   void get_transaction(std::int64_t lt, td::Bits256 hash, td::Promise<td::Ref<vm::Cell>>&& promise) {
     auto actor_id = actor_id_++;
     actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
-        "GetTransactionHistory", client_.get_client(), request_.address, lt, hash, actor_shared(this, actor_id),
+        "GetTransactionHistory", client_.get_client(), request_.address, lt, hash, 1, actor_shared(this, actor_id),
         promise.wrap([](auto&& transactions) mutable {
           return std::move(transactions.transactions.front().transaction);
         }));
@@ -4105,17 +4105,6 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_load& request,
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
   make_request(int_api::GetAccountState{std::move(account_address), query_context_.block_id.copy(), {}},
                promise.send_closure(actor_id(this), &TonlibClient::finish_load_smc));
-  return td::Status::OK();
-}
-
-td::Status TonlibClient::do_request(const tonlib_api::smc_forget& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
-  auto it = smcs_.find(request.id_);
-  if (it == smcs_.end()) {
-    return TonlibError::InvalidSmcId();
-  }
-  smcs_.erase(it);
-  promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
   return td::Status::OK();
 }
 

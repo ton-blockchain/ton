@@ -167,7 +167,6 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     }
     actions_boc_b64 = actions_boc_b64_result.move_as_ok();
   }
-  auto actions_boc_b64 = td::base64_encode(actions_boc.move_as_ok().as_slice());
 
   return success_response(trans_boc_b64.move_as_ok(), new_shard_account_boc_b64.move_as_ok(), std::move(emulation_success.vm_log), std::move(actions_boc_b64));
 }
