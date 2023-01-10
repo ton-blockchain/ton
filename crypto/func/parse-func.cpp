@@ -261,6 +261,12 @@ void parse_const_decl(Lexer& lex) {
   }
   lex.next();
   CodeBlob code;
+  if (pragma_allow_post_modification) {
+    code.flags |= CodeBlob::_AllowPostModification;
+  }
+  if (pragma_compute_asm_ltr) {
+    code.flags |= CodeBlob::_ComputeAsmLtr;
+  }
   // Handles processing and resolution of literals and consts
   auto x = parse_expr(lex, code, false); // also does lex.next() !
   if (x->flags != Expr::_IsRvalue) {
@@ -1210,6 +1216,12 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
 CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
+  if (pragma_allow_post_modification) {
+    blob->flags |= CodeBlob::_AllowPostModification;
+  }
+  if (pragma_compute_asm_ltr) {
+    blob->flags |= CodeBlob::_ComputeAsmLtr;
+  }
   blob->import_params(std::move(arg_list));
   blk_fl::val res = blk_fl::init;
   bool warned = false;
@@ -1676,6 +1688,10 @@ void parse_pragma(Lexer& lex) {
     }
     func_ver_test = lex.cur().str;
     lex.next();
+  } else if (!pragma_name.compare("allow-post-modification")) {
+    pragma_allow_post_modification = true;
+  } else if (!pragma_name.compare("compute-asm-ltr")) {
+    pragma_compute_asm_ltr = true;
   } else {
     lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
   }

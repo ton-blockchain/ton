@@ -272,14 +272,10 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       std::vector<var_idx_t> res;
       for (const auto& x : args) {
         auto add = x->pre_compile(code, lval_globs);
-        for (var_idx_t v : add) {
-          code.mark_modify_forbidden(v);
-        }
+        code.preprocess_tensor_vars(add, lval_globs != nullptr);
         res.insert(res.end(), add.cbegin(), add.cend());
       }
-      for (var_idx_t v : res) {
-        code.unmark_modify_forbidden(v);
-      }
+      code.postprocess_tensor_vars(res);
       return res;
     }
     case _Apply: {
@@ -289,10 +285,15 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       if (func && func->arg_order.size() == args.size()) {
         //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
         std::vector<std::vector<var_idx_t>> add_list(args.size());
-        for (int i : func->arg_order) {
-          add_list[i] = args[i]->pre_compile(code);
-          for (var_idx_t v : add_list[i]) {
-            code.mark_modify_forbidden(v);
+        if (code.flags & CodeBlob::_ComputeAsmLtr) {
+          for (size_t i = 0; i < args.size(); ++i) {
+            add_list[i] = args[i]->pre_compile(code);
+            code.preprocess_tensor_vars(add_list[i], false);
+          }
+        } else {
+          for (int i : func->arg_order) {
+            add_list[i] = args[i]->pre_compile(code);
+            code.preprocess_tensor_vars(add_list[i], false);
           }
         }
         for (const auto& add : add_list) {
@@ -301,15 +302,11 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       } else {
         for (const auto& x : args) {
           auto add = x->pre_compile(code);
-          for (var_idx_t v : add) {
-            code.mark_modify_forbidden(v);
-          }
+          code.preprocess_tensor_vars(add, false);
           res.insert(res.end(), add.cbegin(), add.cend());
         }
       }
-      for (var_idx_t v : res) {
-        code.unmark_modify_forbidden(v);
-      }
+      code.postprocess_tensor_vars(res);
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
       if (flags & _IsImpure) {
@@ -404,6 +401,31 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
     default:
       std::cerr << "expression constructor is " << cls << std::endl;
       throw src::Fatal{"cannot compile expression with unknown constructor"};
+  }
+}
+
+void CodeBlob::preprocess_tensor_vars(std::vector<var_idx_t>& t, bool is_lvalue) {
+  for (var_idx_t& v : t) {
+    auto& var = vars.at(v);
+    if (flags & _AllowPostModification) {
+      if (!is_lvalue && (var.cls & TmpVar::_Named)) {
+        var_idx_t v2 = create_tmp_var(var.v_type, var.where.get());
+        emplace_back(nullptr, Op::_Let, (std::vector<var_idx_t>){v2}, (std::vector<var_idx_t>){v});
+        v = v2;
+      }
+    } else {
+      ++var.modify_forbidden;
+    }
+  }
+}
+
+void CodeBlob::postprocess_tensor_vars(const std::vector<var_idx_t>& t) {
+  if (!(flags & _AllowPostModification)) {
+    for (var_idx_t v : t) {
+      auto& var = vars.at(v);
+      assert(var.modify_forbidden > 0);
+      --var.modify_forbidden;
+    }
   }
 }
 

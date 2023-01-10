@@ -681,6 +681,7 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
+  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;
@@ -689,6 +690,7 @@ struct CodeBlob {
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
+  int flags = 0;
   CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
   }
   template <typename... Args>
@@ -729,14 +731,8 @@ struct CodeBlob {
   void generate_code(AsmOpList& out_list, int mode = 0);
   void generate_code(std::ostream& os, int mode = 0, int indent = 0);
 
-  void mark_modify_forbidden(var_idx_t idx) {
-    ++vars.at(idx).modify_forbidden;
-  }
-
-  void unmark_modify_forbidden(var_idx_t idx) {
-    assert(vars.at(idx).modify_forbidden > 0);
-    --vars.at(idx).modify_forbidden;
-  }
+  void preprocess_tensor_vars(std::vector<var_idx_t>& t, bool is_lvalue);
+  void postprocess_tensor_vars(const std::vector<var_idx_t>& t);
 
   void check_modify_forbidden(var_idx_t idx, const SrcLocation& here) const {
     if (vars.at(idx).modify_forbidden) {
@@ -1698,6 +1694,7 @@ void define_builtins();
 
 extern int verbosity, indent, opt_level;
 extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
+extern bool pragma_allow_post_modification, pragma_compute_asm_ltr;
 extern std::string generated_from, boc_output_filename;
 
 /*

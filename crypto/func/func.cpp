@@ -36,6 +36,8 @@ namespace funC {
 int verbosity, indent, opt_level = 2;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
+bool pragma_allow_post_modification = false;
+bool pragma_compute_asm_ltr = false;
 std::string generated_from, boc_output_filename;
 
 /*
