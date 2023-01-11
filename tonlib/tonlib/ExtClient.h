@@ -32,7 +32,6 @@
 #include "TonlibError.h"
 #include "utils.h"
 #include "QueryTraits.h"
-#include "ExtClientRaw.h"
 
 namespace tonlib {
 class LastBlock;

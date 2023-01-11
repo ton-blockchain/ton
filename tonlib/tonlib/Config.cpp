@@ -66,16 +66,16 @@ td::Result<Config> Config::parse(std::string str) {
     return td::Status::Error("Invalid config (1)");
   }
   td::JsonArray empty_array;
-  TRY_RESULT(lite_clients_obj,
+  TRY_RESULT(lite_servers_obj,
              td::get_json_object_field(json.get_object(), "liteservers", td::JsonValue::Type::Array, true));
-  auto &lite_clients =
-      lite_clients_obj.type() == td::JsonValue::Type::Array ? lite_clients_obj.get_array() : empty_array;
-  TRY_RESULT(lite_clients_v2_obj,
+  auto &lite_servers =
+      lite_servers_obj.type() == td::JsonValue::Type::Array ? lite_servers_obj.get_array() : empty_array;
+  TRY_RESULT(lite_servers_v2_obj,
              td::get_json_object_field(json.get_object(), "liteservers_v2", td::JsonValue::Type::Array, true));
-  auto &lite_clients_v2 =
-      lite_clients_v2_obj.type() == td::JsonValue::Type::Array ? lite_clients_v2_obj.get_array() : empty_array;
+  auto &lite_servers_v2 =
+      lite_servers_v2_obj.type() == td::JsonValue::Type::Array ? lite_servers_v2_obj.get_array() : empty_array;
 
-  auto parse_desc = [&](td::JsonValue& value) -> td::Result<Config::LiteClient> {
+  auto parse_desc = [&](td::JsonValue &value) -> td::Result<Config::LiteServer> {
     if (value.type() != td::JsonValue::Type::Object) {
       return td::Status::Error("Invalid config (2)");
     }
@@ -83,8 +83,8 @@ td::Result<Config> Config::parse(std::string str) {
 
     TRY_RESULT(ip, td::get_json_object_long_field(object, "ip", false));
     TRY_RESULT(port, td::get_json_object_int_field(object, "port", false));
-    Config::LiteClient client;
-    TRY_STATUS(client.address.init_host_port(td::IPAddress::ipv4_to_str(static_cast<td::int32>(ip)), port));
+    Config::LiteServer server;
+    TRY_STATUS(server.address.init_host_port(td::IPAddress::ipv4_to_str(static_cast<td::int32>(ip)), port));
 
     TRY_RESULT(id_obj, td::get_json_object_field(object, "id", td::JsonValue::Type::Object, false));
     auto &id = id_obj.get_object();
@@ -98,20 +98,19 @@ td::Result<Config> Config::parse(std::string str) {
       return td::Status::Error("Invalid config (4)");
     }
 
-    client.adnl_id = ton::adnl::AdnlNodeIdFull(ton::pubkeys::Ed25519(td::Bits256(td::Slice(key).ubegin())));
-    return client;
+    server.adnl_id = ton::adnl::AdnlNodeIdFull(ton::pubkeys::Ed25519(td::Bits256(td::Slice(key).ubegin())));
+    return server;
   };
 
   Config res;
-  for (auto &value : lite_clients) {
-    TRY_RESULT(client, parse_desc(value));
-    res.lite_clients.push_back(std::move(client));
+  for (auto &value : lite_servers) {
+    TRY_RESULT(server, parse_desc(value));
+    res.lite_servers.push_back(std::move(server));
   }
-  for (auto &value : lite_clients_v2) {
-    TRY_RESULT(client, parse_desc(value));
-    client.is_full = false;
-    TRY_RESULT(shards_obj,
-               td::get_json_object_field(value.get_object(), "shards", td::JsonValue::Type::Array, false));
+  for (auto &value : lite_servers_v2) {
+    TRY_RESULT(server, parse_desc(value));
+    server.is_full = false;
+    TRY_RESULT(shards_obj, td::get_json_object_field(value.get_object(), "shards", td::JsonValue::Type::Array, false));
     for (auto &shard : shards_obj.get_array()) {
       if (shard.type() != td::JsonValue::Type::Object) {
         return td::Status::Error("Invalid config (5)");
@@ -122,10 +121,10 @@ td::Result<Config> Config::parse(std::string str) {
       if (shard_id == 0) {
         return td::Status::Error("Invalid config (6)");
       }
-      client.shards.emplace_back(workchain, shard_id);
+      server.shards.emplace_back(workchain, shard_id);
     }
 
-    res.lite_clients.push_back(std::move(client));
+    res.lite_servers.push_back(std::move(server));
   }
 
   TRY_RESULT(validator_obj,

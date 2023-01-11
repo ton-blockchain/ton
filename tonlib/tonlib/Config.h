@@ -23,7 +23,7 @@
 
 namespace tonlib {
 struct Config {
-  struct LiteClient {
+  struct LiteServer {
     ton::adnl::AdnlNodeIdFull adnl_id;
     td::IPAddress address;
     bool is_full = true;
@@ -32,7 +32,7 @@ struct Config {
   ton::BlockIdExt zero_state_id;
   ton::BlockIdExt init_block_id;
   std::vector<ton::BlockIdExt> hardforks;
-  std::vector<LiteClient> lite_clients;
+  std::vector<LiteServer> lite_servers;
   std::string name;
   static td::Result<Config> parse(std::string str);
 };

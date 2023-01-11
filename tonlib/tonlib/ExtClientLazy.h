@@ -18,23 +18,27 @@
 */
 #pragma once
 #include "td/actor/actor.h"
-#include "adnl/adnl-ext-client.h"
 #include "ton/ton-types.h"
+#include "adnl/adnl-ext-client.h"
+#include "Config.h"
 
 namespace tonlib {
-class ExtClientLazy : public ton::adnl::AdnlExtClient {
+class ExtClientLazy : public td::actor::Actor {
  public:
   class Callback {
    public:
-    virtual ~Callback() = default;
+    virtual ~Callback() {
+    }
   };
 
+  virtual void send_query(std::string name, td::BufferSlice data, ton::ShardIdFull shard, td::Timestamp timeout,
+                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void force_change_liteserver() = 0;
 
   static td::actor::ActorOwn<ExtClientLazy> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
                                                    td::unique_ptr<Callback> callback);
-  static td::actor::ActorOwn<ExtClientLazy> create(
-      std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers, td::unique_ptr<Callback> callback);
+  static td::actor::ActorOwn<ExtClientLazy> create(std::vector<Config::LiteServer> servers,
+                                                   td::unique_ptr<Callback> callback);
 };
 
 }  // namespace tonlib

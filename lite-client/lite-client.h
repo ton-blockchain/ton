@@ -57,8 +57,7 @@ class TestNode : public td::actor::Actor {
     bool client_ready = false;
     std::vector<td::Promise<td::Unit>> wait_client_ready;
 
-    int max_common_prefix(ton::ShardIdFull shard) const;
-    bool supports_shard(ton::ShardIdFull shard) const;
+    bool supports(ton::ShardIdFull shard) const;
   };
   std::vector<LiteServer> servers_;
 
@@ -352,9 +351,6 @@ class TestNode : public td::actor::Actor {
   bool parse_shard_id(ton::ShardIdFull& shard);
   bool parse_block_id_ext(ton::BlockIdExt& blkid, bool allow_incomplete = false);
   bool parse_block_id_ext(std::string blk_id_string, ton::BlockIdExt& blkid, bool allow_incomplete = false) const;
-  bool parse_stack_value(td::Slice str, vm::StackEntry& value);
-  bool parse_stack_value(vm::StackEntry& value);
-  bool parse_stack_values(std::vector<vm::StackEntry>& values);
   bool register_blkid(const ton::BlockIdExt& blkid);
   bool show_new_blkids(bool all = false);
   bool complete_blkid(ton::BlockId partial_blkid, ton::BlockIdExt& complete_blkid) const;
@@ -458,8 +454,7 @@ class TestNode : public td::actor::Actor {
 
   void parse_line(td::BufferSlice data);
 
-  TestNode() {
-  }
+  TestNode() = default;
 
   void run();
 };
