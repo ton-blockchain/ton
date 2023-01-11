@@ -24,7 +24,7 @@
 #include <queue>
 #include "keyring/keyring.h"
 
-using namespace ton;
+namespace ton {
 
 struct ContractAddress {
   WorkchainId wc = workchainIdNotYet;
@@ -182,3 +182,5 @@ struct StorageContractData {
 
 void get_storage_contract_data(ContractAddress address, td::actor::ActorId<tonlib::TonlibClientWrapper> client,
                                td::Promise<StorageContractData> promise);
+
+}  // namespace ton

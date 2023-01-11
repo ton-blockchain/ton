@@ -795,7 +795,7 @@ storage.db.key.piecesInDb hash:int256 = storage.db.key.PiecesInDb;
 storage.db.key.pieceInDb hash:int256 idx:long = storage.db.key.PieceInDb;
 
 storage.db.torrentList torrents:(vector int256) = storage.db.TorrentList;
-storage.db.torrent root_dir:string active_download:Bool = storage.db.TorrentShort;
+storage.db.torrent root_dir:string active_download:Bool active_upload:Bool = storage.db.TorrentShort;
 storage.db.priorities actions:(vector storage.PriorityAction) = storage.db.Priorities;
 storage.db.piecesInDb pieces:(vector long) = storage.db.PiecesInDb;
 
@@ -831,7 +831,7 @@ storage.daemon.torrent
     total_size:flags.0?long description:flags.0?string
     files_count:flags.1?long included_size:flags.1?long dir_name:flags.1?string
     downloaded_size:long
-    root_dir:string active_download:Bool completed:Bool
+    root_dir:string active_download:Bool active_upload:Bool completed:Bool
     download_speed:double upload_speed:double
     fatal_error:flags.2?string
     = storage.daemon.Torrent;
@@ -866,10 +866,11 @@ storage.daemon.providerAddress address:string = storage.daemon.ProviderAddress;
 
 ---functions---
 storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
-storage.daemon.createTorrent path:string description:string = storage.daemon.TorrentFull;
-storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
-storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
+storage.daemon.createTorrent path:string description:string allow_upload:Bool copy_inside:Bool = storage.daemon.TorrentFull;
+storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
+storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
 storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Success;
+storage.daemon.setActiveUpload hash:int256 active:Bool = storage.daemon.Success;
 
 storage.daemon.getTorrents = storage.daemon.TorrentList;
 storage.daemon.getTorrentFull hash:int256 = storage.daemon.TorrentFull;

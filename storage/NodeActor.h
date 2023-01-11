@@ -63,32 +63,36 @@ class NodeActor : public td::actor::Actor {
   };
 
   NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
-            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download = true);
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download = true,
+            bool should_upload = true);
   NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
             td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download,
-            DbInitialData db_initial_data);
+            bool should_upload, DbInitialData db_initial_data);
   void start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise);
 
   struct NodeState {
     Torrent &torrent;
     bool active_download;
+    bool active_upload;
     double download_speed;
     double upload_speed;
     const std::vector<td::uint8> &file_priority;
   };
   void with_torrent(td::Promise<NodeState> promise) {
-    promise.set_value(
-        NodeState{torrent_, should_download_, download_speed_.speed(), upload_speed_.speed(), file_priority_});
+    promise.set_value(NodeState{torrent_, should_download_, should_upload_, download_speed_.speed(),
+                                upload_speed_.speed(), file_priority_});
   }
   std::string get_stats_str();
 
   void set_should_download(bool should_download);
+  void set_should_upload(bool should_upload);
 
   void set_all_files_priority(td::uint8 priority, td::Promise<bool> promise);
   void set_file_priority_by_idx(size_t i, td::uint8 priority, td::Promise<bool> promise);
   void set_file_priority_by_name(std::string name, td::uint8 priority, td::Promise<bool> promise);
 
   void load_from(td::optional<TorrentMeta> meta, std::string files_path, td::Promise<td::Unit> promise);
+  void copy_to_new_root_dir(std::string new_root_dir, td::Promise<td::Unit> promise);
 
   void wait_for_completion(td::Promise<td::Unit> promise);
   void get_peers_info(td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise);
@@ -107,6 +111,7 @@ class NodeActor : public td::actor::Actor {
   td::unique_ptr<NodeCallback> node_callback_;
   std::shared_ptr<db::DbType> db_;
   bool should_download_{false};
+  bool should_upload_{false};
 
   class Notifier : public td::actor::Actor {
    public:

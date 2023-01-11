@@ -119,6 +119,7 @@ dns.entryDataText text:string = dns.EntryData;
 dns.entryDataNextResolver resolver:AccountAddress = dns.EntryData;
 dns.entryDataSmcAddress smc_address:AccountAddress = dns.EntryData;
 dns.entryDataAdnlAddress adnl_address:AdnlAddress = dns.EntryData;
+dns.entryDataStorageAddress bag_id:int256 = dns.EntryData;
 
 dns.entry name:string category:int256 entry:dns.EntryData = dns.Entry;
 

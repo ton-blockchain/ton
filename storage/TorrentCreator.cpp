@@ -98,6 +98,9 @@ TD_WARN_UNUSED_RESULT td::Status Torrent::Creator::add_file(td::Slice name, td::
 }
 
 td::Result<Torrent> Torrent::Creator::finalize() {
+  if (files_.empty()) {
+    return td::Status::Error("No files");
+  }
   TorrentHeader header;
   TRY_RESULT(files_count, td::narrow_cast_safe<td::uint32>(files_.size()));
   header.files_count = files_count;

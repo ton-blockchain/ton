@@ -113,7 +113,7 @@ class Collator final : public td::actor::Actor {
                                               block::ActionPhaseConfig* action_phase_cfg,
                                               td::RefInt256* masterchain_create_fee,
                                               td::RefInt256* basechain_create_fee,
-                                              WorkchainId wc);
+                                              WorkchainId wc, UnixTime now);
 
   static td::Result<std::unique_ptr<block::Transaction>>
                         impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,

@@ -698,4 +698,37 @@ void Torrent::load_from_files(std::string files_path) {
   }
 }
 
+td::Status Torrent::copy_to(const std::string &new_root_dir) {
+  if (!is_completed() || included_size_ != info_.file_size) {
+    return td::Status::Error("Torrent::copy_to is allowed only for fully completed torrents");
+  }
+  auto get_new_chunk_path = [&](td::Slice name) -> std::string {
+    return PSTRING() << new_root_dir << TD_DIR_SLASH << header_.value().dir_name << TD_DIR_SLASH << name;
+  };
+  std::vector<td::BlobView> new_blobs;
+  for (size_t i = 1; i < chunks_.size(); ++i) {
+    auto &chunk = chunks_[i];
+    std::string new_path = get_new_chunk_path(chunk.name);
+    TRY_STATUS(td::mkpath(new_path));
+    TRY_RESULT(new_blob, td::FileNoCacheBlobView::create(new_path, chunk.size, true));
+    static const td::uint64 BUF_SIZE = 1 << 17;
+    td::BufferSlice buf(BUF_SIZE);
+    for (td::uint64 l = 0; l < chunk.size; l += BUF_SIZE) {
+      td::uint64 r = std::min(chunk.size, l + BUF_SIZE);
+      TRY_RESULT_PREFIX(s, chunk.data.view(buf.as_slice().substr(0, r - l), l),
+                        PSTRING() << "Failed to read " << chunk.name << ": ");
+      if (s.size() != r - l) {
+        return td::Status::Error(PSTRING() << "Failed to read " << chunk.name);
+      }
+      TRY_STATUS_PREFIX(new_blob.write(s, l), PSTRING() << "Failed to write " << chunk.name << ": ");
+    }
+    new_blobs.push_back(std::move(new_blob));
+  }
+  root_dir_ = new_root_dir;
+  for (size_t i = 1; i < chunks_.size(); ++i) {
+    chunks_[i].data = std::move(new_blobs[i - 1]);
+  }
+  return td::Status::OK();
+}
+
 }  // namespace ton

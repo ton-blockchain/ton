@@ -789,6 +789,7 @@ bool ValidateQuery::fetch_config_params() {
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg_.global_config = config_->get_root_cell();
+    compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
   }
   {
     // compute action_phase_cfg

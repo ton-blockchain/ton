@@ -309,6 +309,7 @@ tr_phase_compute_vm$1 success:Bool msg_state_used:Bool
 cskip_no_state$00 = ComputeSkipReason;
 cskip_bad_state$01 = ComputeSkipReason;
 cskip_no_gas$10 = ComputeSkipReason;
+cskip_suspended$110 = ComputeSkipReason;
 
 tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
   status_change:AccStatusChange
@@ -762,6 +763,10 @@ size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_ce
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32 = SizeLimitsConfig;
 _ SizeLimitsConfig = ConfigParam 43;
 
+// key is [ wc:int32 addr:uint256 ]
+suspended_address_list#00 addresses:(HashmapE 288 Unit) suspended_until:uint32 = SuspendedAddressList;
+_ SuspendedAddressList = ConfigParam 44;
+
 oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;
 _ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
 _ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
@@ -882,6 +887,8 @@ cap_method_seqno#5371 = SmcCapability;
 cap_method_pubkey#71f4 = SmcCapability;
 cap_is_wallet#2177 = SmcCapability;
 cap_name#ff name:Text = SmcCapability;
+
+dns_storage_address#7473 bag_id:bits256 = DNSRecord;
 
 //
 // PAYMENT CHANNELS
