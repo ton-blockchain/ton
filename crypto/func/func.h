@@ -306,7 +306,7 @@ struct TmpVar {
   sym_idx_t name;
   int coord;
   std::unique_ptr<SrcLocation> where;
-  size_t modify_forbidden = 0;
+  std::vector<std::function<void(const SrcLocation &)>> on_modification;
   TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
@@ -731,13 +731,9 @@ struct CodeBlob {
   void generate_code(AsmOpList& out_list, int mode = 0);
   void generate_code(std::ostream& os, int mode = 0, int indent = 0);
 
-  void preprocess_tensor_vars(std::vector<var_idx_t>& t, bool is_lvalue);
-  void postprocess_tensor_vars(const std::vector<var_idx_t>& t);
-
-  void check_modify_forbidden(var_idx_t idx, const SrcLocation& here) const {
-    if (vars.at(idx).modify_forbidden) {
-      throw src::ParseError{here, PSTRING() << "Modifying local variable " << vars[idx].to_string()
-                                            << " after using it in the same expression"};
+  void on_var_modification(var_idx_t idx, const SrcLocation& here) const {
+    for (auto& f : vars.at(idx).on_modification) {
+      f(here);
     }
   }
 };
