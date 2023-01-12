@@ -1,0 +1,199 @@
+;; Wallet smart contract with plugins
+
+#include "stdlib.fc";
+
+(slice, int) dict_get?(cell dict, int key_len, slice index) asm(index dict key_len) "DICTGET" "NULLSWAPIFNOT";
+(cell, int) dict_add_builder?(cell dict, int key_len, slice index, builder value) asm(value index dict key_len) "DICTADDB";
+(cell, int) dict_delete?(cell dict, int key_len, slice index) asm(index dict key_len) "DICTDEL";
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+  var cs = in_msg_cell.begin_parse();
+  var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  if (flags & 1) {
+    ;; ignore all bounced messages
+    return ();
+  }
+  if (in_msg.slice_bits() < 32) {
+    ;; ignore simple transfers
+    return ();
+  }
+  int op = in_msg~load_uint(32);
+  if (op != 0x706c7567) & (op != 0x64737472) { ;; "plug" & "dstr"
+    ;; ignore all messages not related to plugins
+    return ();
+  }
+  slice s_addr = cs~load_msg_addr();
+  (int wc, int addr_hash) = parse_std_addr(s_addr);
+  slice wc_n_address = begin_cell().store_int(wc, 8).store_uint(addr_hash, 256).end_cell().begin_parse();
+  var ds = get_data().begin_parse().skip_bits(32 + 32 + 256);
+  var plugins = ds~load_dict();
+  var (_, success?) = plugins.dict_get?(8 + 256, wc_n_address);
+  if ~(success?) {
+    ;; it may be a transfer
+    return ();
+  }
+  int query_id = in_msg~load_uint(64);
+  var msg = begin_cell();
+  if (op == 0x706c7567) { ;; request funds
+
+    (int r_toncoins, cell r_extra) = (in_msg~load_grams(), in_msg~load_dict());
+
+    [int my_balance, _] = get_balance();
+    throw_unless(80, my_balance - msg_value >= r_toncoins);
+
+    msg = msg.store_uint(0x18, 6)
+             .store_slice(s_addr)
+             .store_grams(r_toncoins)
+             .store_dict(r_extra)
+             .store_uint(0, 4 + 4 + 64 + 32 + 1 + 1)
+             .store_uint(0x706c7567 | 0x80000000, 32)
+             .store_uint(query_id, 64);
+    send_raw_message(msg.end_cell(), 64);
+
+  }
+
+  if (op == 0x64737472) { ;; remove plugin by its request
+
+    plugins~dict_delete?(8 + 256, wc_n_address);
+    var ds = get_data().begin_parse().first_bits(32 + 32 + 256);
+    set_data(begin_cell().store_slice(ds).store_dict(plugins).end_cell());
+    ;; return coins only if bounce expected
+    if (flags & 2) {
+      msg = msg.store_uint(0x18, 6)
+               .store_slice(s_addr)
+               .store_grams(0)
+               .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+               .store_uint(0x64737472 | 0x80000000, 32)
+               .store_uint(query_id, 64);
+      send_raw_message(msg.end_cell(), 64);
+    }
+  }
+}
+
+() recv_external(slice in_msg) impure {
+  var signature = in_msg~load_bits(512);
+  var cs = in_msg;
+  var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));
+  throw_if(36, valid_until <= now());
+  var ds = get_data().begin_parse();
+  var (stored_seqno, stored_subwallet, public_key, plugins) = (ds~load_uint(32), ds~load_uint(32), ds~load_uint(256), ds~load_dict());
+  ds.end_parse();
+  throw_unless(33, msg_seqno == stored_seqno);
+  throw_unless(34, subwallet_id == stored_subwallet);
+  throw_unless(35, check_signature(slice_hash(in_msg), signature, public_key));
+  accept_message();
+  set_data(begin_cell()
+    .store_uint(stored_seqno + 1, 32)
+    .store_uint(stored_subwallet, 32)
+    .store_uint(public_key, 256)
+    .store_dict(plugins)
+    .end_cell());
+  commit();
+  cs~touch();
+  int op = cs~load_uint(8);
+
+  if (op == 0) { ;; simple send
+    while (cs.slice_refs()) {
+      var mode = cs~load_uint(8);
+      send_raw_message(cs~load_ref(), mode);
+    }
+    return (); ;; have already saved the storage
+  }
+
+  if (op == 1) { ;; deploy and install plugin
+    int plugin_workchain = cs~load_int(8);
+    int plugin_balance = cs~load_grams();
+    (cell state_init, cell body) = (cs~load_ref(), cs~load_ref());
+    int plugin_address = cell_hash(state_init);
+    slice wc_n_address = begin_cell().store_int(plugin_workchain, 8).store_uint(plugin_address, 256).end_cell().begin_parse();
+    var msg = begin_cell()
+      .store_uint(0x18, 6)
+      .store_uint(4, 3).store_slice(wc_n_address)
+      .store_grams(plugin_balance)
+      .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+      .store_ref(state_init)
+      .store_ref(body);
+    send_raw_message(msg.end_cell(), 3);
+    (plugins, int success?) = plugins.dict_add_builder?(8 + 256, wc_n_address, begin_cell());
+    throw_unless(39, success?);
+  }
+
+  if (op == 2) { ;; install plugin
+    slice wc_n_address = cs~load_bits(8 + 256);
+    int amount = cs~load_grams();
+    int query_id = cs~load_uint(64);
+
+    (plugins, int success?) = plugins.dict_add_builder?(8 + 256, wc_n_address, begin_cell());
+    throw_unless(39, success?);
+
+    builder msg = begin_cell()
+      .store_uint(0x18, 6)
+      .store_uint(4, 3).store_slice(wc_n_address)
+      .store_grams(amount)
+      .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+      .store_uint(0x6e6f7465, 32) ;; op
+      .store_uint(query_id, 64);
+    send_raw_message(msg.end_cell(), 3);
+  }
+
+  if (op == 3) { ;; remove plugin
+    slice wc_n_address = cs~load_bits(8 + 256);
+    int amount = cs~load_grams();
+    int query_id = cs~load_uint(64);
+
+    (plugins, int success?) = plugins.dict_delete?(8 + 256, wc_n_address);
+    throw_unless(39, success?);
+
+    builder msg = begin_cell()
+      .store_uint(0x18, 6)
+      .store_uint(4, 3).store_slice(wc_n_address)
+      .store_grams(amount)
+      .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+      .store_uint(0x64737472, 32) ;; op
+      .store_uint(query_id, 64);
+    send_raw_message(msg.end_cell(), 3);
+  }
+
+  set_data(begin_cell()
+    .store_uint(stored_seqno + 1, 32)
+    .store_uint(stored_subwallet, 32)
+    .store_uint(public_key, 256)
+    .store_dict(plugins)
+    .end_cell());
+}
+
+;; Get methods
+
+int seqno() method_id {
+  return get_data().begin_parse().preload_uint(32);
+}
+
+int get_subwallet_id() method_id {
+  return get_data().begin_parse().skip_bits(32).preload_uint(32);
+}
+
+int get_public_key() method_id {
+  var cs = get_data().begin_parse().skip_bits(64);
+  return cs.preload_uint(256);
+}
+
+int is_plugin_installed(int wc, int addr_hash) method_id {
+  var ds = get_data().begin_parse().skip_bits(32 + 32 + 256);
+  var plugins = ds~load_dict();
+  var (_, success?) = plugins.dict_get?(8 + 256, begin_cell().store_int(wc, 8).store_uint(addr_hash, 256).end_cell().begin_parse());
+  return success?;
+}
+
+tuple get_plugin_list() method_id {
+  var list = null();
+  var ds = get_data().begin_parse().skip_bits(32 + 32 + 256);
+  var plugins = ds~load_dict();
+  do {
+    var (wc_n_address, _, f) = plugins~dict::delete_get_min(8 + 256);
+    if (f) {
+      (int wc, int addr) = (wc_n_address~load_int(8), wc_n_address~load_uint(256));
+      list = cons(pair(wc, addr), list);
+    }
+  } until (~ f);
+  return list;
+}

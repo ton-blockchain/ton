@@ -1,0 +1,10 @@
+int workchain() asm "0 PUSHINT";
+
+() force_chain(slice addr) impure {
+  (int wc, _) = parse_std_addr(addr);
+  throw_unless(333, wc == workchain());
+}
+
+slice null_addr() asm "b{00} PUSHSLICE";
+int flag::regular() asm "0x10 PUSHINT";
+int flag::bounce() asm "0x8 PUSHINT";
