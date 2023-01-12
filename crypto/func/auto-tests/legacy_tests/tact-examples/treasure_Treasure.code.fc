@@ -1,0 +1,229 @@
+#include "stdlib.fc";
+
+forall X -> X __tact_not_null(X x) { throw_if(128, null?(x)); return x; }
+
+global (int, slice, int, slice) __tact_context;
+global cell __tact_context_sys;
+
+(int, slice, int, slice) __tact_context_get() inline { return __tact_context; }
+
+() __tact_verify_address(slice address) inline {
+    throw_unless(136, address.slice_bits() != 267);
+}
+
+builder __tact_store_bool(builder b, int v) inline {
+    b = b.store_int(v, 1);
+    return b;
+}
+
+(slice, slice) __tact_load_address(slice cs) inline {
+    slice raw = cs~load_msg_addr();
+    __tact_verify_address(raw);
+    return (cs, raw);
+}
+
+builder __tact_store_address(builder b, slice address) inline {
+    __tact_verify_address(address);
+    b = b.store_slice(address);
+    return b;
+}
+
+int __tact_address_eq(slice a, slice b) inline {
+    return equal_slice_bits(a, b);
+}
+
+(slice, ((slice))) __gen_read_ChangeOwner(slice sc_0) inline_ref {
+    throw_unless(129, sc_0~load_uint(32) == 256331011);
+    var v'newOwner = sc_0~__tact_load_address();
+    return (sc_0, (v'newOwner));
+}
+
+(slice, ((int, int))) __gen_read_Withdraw(slice sc_0) inline_ref {
+    throw_unless(129, sc_0~load_uint(32) == 1672521544);
+    var v'amount = sc_0~load_coins();
+    var v'mode = sc_0~load_uint(8);
+    return (sc_0, (v'amount, v'mode));
+}
+
+builder __gen_write_Treasure(builder build_0, (slice) v) inline_ref {
+    var (v'owner) = v;
+    build_0 = __tact_store_address(build_0, v'owner);
+    return build_0;
+}
+
+(slice, ((slice))) __gen_read_Treasure(slice sc_0) inline_ref {
+    var v'owner = sc_0~__tact_load_address();
+    return (sc_0, (v'owner));
+}
+
+_ __gen_Context_get_sender((int, slice, int, slice) v) inline {
+    var (v'bounced, v'sender, v'value, v'raw) = v;
+    return v'sender;
+}
+
+(slice) __gen_load_Treasure() inline_ref {
+    slice sc = get_data().begin_parse();
+    __tact_context_sys = sc~load_ref();
+    return sc~__gen_read_Treasure();
+}
+
+() __gen_store_Treasure((slice) v) impure inline_ref {
+    builder b = begin_cell();
+    b = b.store_ref(__tact_context_sys);
+    b = __gen_write_Treasure(b, v);
+    set_data(b.end_cell());
+}
+
+() $send((int, slice, int, int, cell, cell, cell) $params) impure {
+    var (($params'bounce, $params'to, $params'value, $params'mode, $params'body, $params'code, $params'data)) = $params;
+    builder $b = begin_cell();
+    $b = store_int($b, 1, 2);
+    $b = __tact_store_bool($b, $params'bounce);
+    $b = store_int($b, 0, 3);
+    $b = __tact_store_address($b, $params'to);
+    $b = store_coins($b, $params'value);
+    $b = store_int($b, 0, ((((1 + 4) + 4) + 64) + 32));
+    if (((~ null?($params'code)) | (~ null?($params'data)))) {
+        $b = __tact_store_bool($b, true);
+        builder $bc = begin_cell();
+        $bc = __tact_store_bool($bc, false);
+        $bc = __tact_store_bool($bc, false);
+        if ((~ null?($params'code))) {
+            $bc = __tact_store_bool($bc, true);
+            $bc = store_ref($bc, __tact_not_null($params'code));
+        } else {
+            $bc = __tact_store_bool($bc, false);
+        }
+        if ((~ null?($params'data))) {
+            $bc = __tact_store_bool($bc, true);
+            $bc = store_ref($bc, __tact_not_null($params'data));
+        } else {
+            $bc = __tact_store_bool($bc, false);
+        }
+        $bc = __tact_store_bool($bc, false);
+        $b = __tact_store_bool($b, true);
+        $b = store_ref($b, end_cell($bc));
+    } else {
+        $b = __tact_store_bool($b, false);
+    }
+    cell $body = $params'body;
+    if ((~ null?($body))) {
+        $b = __tact_store_bool($b, true);
+        $b = store_ref($b, __tact_not_null($body));
+    } else {
+        $b = __tact_store_bool($b, false);
+    }
+    cell $c = end_cell($b);
+    send_raw_message($c, $params'mode);
+}
+
+((slice), ()) $__gen_Treasure_requireOwner((slice) $self) impure {
+    var (($self'owner)) = $self;
+    throw_unless(132, __tact_address_eq(__gen_Context_get_sender(__tact_context_get()), $self'owner));
+    return (($self'owner), ());
+}
+
+((slice), ()) $__gen_Treasure_doWithdraw((slice) $self, int $amount, int $mode) impure {
+    var (($self'owner)) = $self;
+    ($self'owner)~$__gen_Treasure_requireOwner();
+    $send((true, $self'owner, $amount, $mode, end_cell(begin_cell()), null(), null()));
+    return (($self'owner), ());
+}
+
+slice $__gen_Treasure_owner((slice) $self) impure {
+    var (($self'owner)) = $self;
+    return $self'owner;
+}
+
+_ $__gen_get_owner() method_id(83229) {
+    var self = __gen_load_Treasure();
+    var res = $__gen_Treasure_owner(self);
+    return res;
+}
+
+(((slice)), ()) $__gen_Treasure_receive_Withdraw((slice) $self, (int, int) $msg) impure {
+    var ($self'owner) = $self;
+    var ($msg'amount, $msg'mode) = $msg;
+    ($self'owner)~$__gen_Treasure_doWithdraw($msg'amount, $msg'mode);
+    return (($self'owner), ());
+}
+
+((slice), ()) $__gen_Treasure_receive_comment_986c2ba124bb9287eb4a0bd8d3104e1c0067a3c93952d889c74d08185bd30d4d((slice) $self) impure {
+    var ($self'owner) = $self;
+    ($self'owner)~$__gen_Treasure_doWithdraw(0, (32 + 128));
+    return (($self'owner), ());
+}
+
+(((slice)), ()) $__gen_Treasure_receive_ChangeOwner((slice) $self, (slice) $msg) impure {
+    var ($self'owner) = $self;
+    var ($msg'newOwner) = $msg;
+    ($self'owner)~$__gen_Treasure_requireOwner();
+    $self'owner = $msg'newOwner;
+    return (($self'owner), ());
+}
+
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+    
+    ;; Parse incoming message
+    int op = 0;
+    if (slice_bits(in_msg) >= 32) {
+        op = in_msg.preload_uint(32);
+    }
+    var cs = in_msg_cell.begin_parse();
+    var msg_flags = cs~load_uint(4);
+    var msg_bounced = ((msg_flags & 1) == 1 ? true : false);
+    slice msg_sender_addr = cs~load_msg_addr();
+    __tact_context = (msg_bounced, msg_sender_addr, msg_value, cs);
+    
+    ;; Handle bounced messages
+    if (msg_bounced) {
+        return ();
+    }
+    
+    ;; Receive Withdraw message
+    if (op == 1672521544) {
+        var self = __gen_load_Treasure();
+        var msg = in_msg~__gen_read_Withdraw();
+        self~$__gen_Treasure_receive_Withdraw(msg);
+        __gen_store_Treasure(self);
+        return ();
+    }
+    
+    ;; Receive ChangeOwner message
+    if (op == 256331011) {
+        var self = __gen_load_Treasure();
+        var msg = in_msg~__gen_read_ChangeOwner();
+        self~$__gen_Treasure_receive_ChangeOwner(msg);
+        __gen_store_Treasure(self);
+        return ();
+    }
+    
+    ;; Text Receivers
+    if (op == 0) {
+        var text_op = slice_hash(in_msg);
+        
+        ;; Receive "Destroy" message
+        if (text_op == 0x986c2ba124bb9287eb4a0bd8d3104e1c0067a3c93952d889c74d08185bd30d4d) {
+            var self = __gen_load_Treasure();
+            self~$__gen_Treasure_receive_comment_986c2ba124bb9287eb4a0bd8d3104e1c0067a3c93952d889c74d08185bd30d4d();
+            __gen_store_Treasure(self);
+            return ();
+        }
+    }
+    
+    throw(130);
+}
+
+_ supported_interfaces() method_id {
+    return (
+        "org.ton.introspection.v0"H >> 128,
+        "org.ton.abi.ipfs.v0"H >> 128,
+        "org.ton.ownable.transferable"H >> 128,
+        "org.ton.ownable"H >> 128
+    );
+}
+
+_ get_abi_ipfs() {
+    return "ipfs://QmSZriPPLDUQWqjYmMRWAqKkhCeq32L339Q2PQrBaYMAqT";
+}

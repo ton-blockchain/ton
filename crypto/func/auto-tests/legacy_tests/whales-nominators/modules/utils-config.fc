@@ -1,0 +1,44 @@
+(int, int) get_stake_parameters() {
+    var cs = config_param(15).begin_parse();
+    int electedFor = cs~load_uint(32);
+    cs~skip_bits(64);
+    int stakeHeldFor = cs~load_uint(32);
+    return (electedFor, stakeHeldFor);
+}
+
+(int, int) get_previous_cycle() {
+    var cs = config_param(32).begin_parse();
+    cs~skip_bits(8); ;; Header
+    int timeSince = cs~load_uint(32);
+    int timeUntil = cs~load_uint(32);
+    return (timeSince, timeUntil);
+}
+
+(int, int) get_current_cycle() {
+    var cs = config_param(34).begin_parse();
+    cs~skip_bits(8); ;; Header
+    int timeSince = cs~load_uint(32);
+    int timeUntil = cs~load_uint(32);
+    return (timeSince, timeUntil);
+}
+
+int lockup_lift_time(int stake_at, int stake_untill) {
+    
+    ;; Resolve previous cycle parameters
+    var (timeSince, timeUntil) = get_previous_cycle();
+
+    ;; If previous cycle looks as a valid one
+    if (stake_at <= timeSince) {
+        return timeSince + (stake_untill - stake_at);
+    }
+
+    ;; Check current cycle
+    var (timeSince, timeUntil) = get_current_cycle();
+
+    ;; If current cycle could be the one we joined validation
+    if (stake_at <= timeSince) {
+        return timeSince + (stake_untill - stake_at);
+    }
+
+    return stake_untill;
+}

@@ -1,0 +1,99 @@
+global int ctx_query_id;
+
+global int ctx_locked;
+global slice ctx_owner;
+global slice ctx_controller;
+global slice ctx_proxy;
+global cell ctx_proxy_state;
+
+global int ctx_profit_per_coin;
+global int ctx_balance;
+global int ctx_balance_sent;
+global int ctx_balance_withdraw;
+global int ctx_balance_pending_withdraw;
+global int ctx_balance_pending_deposits;
+
+global cell ctx_nominators;
+
+;; var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+global (int, int, int, int, int, int, int) ctx_extras;
+
+() load_base_data() impure {
+    var ds = get_data().begin_parse();
+    ctx_locked = ds~load_int(1);
+
+    ctx_owner = ds~load_msg_addr();
+    ctx_controller = ds~load_msg_addr();
+    ctx_proxy = ds~load_msg_addr();
+
+    cell balance_cell = ds~load_ref();
+    ctx_nominators = ds~load_dict();
+    ctx_proxy_state = ds~load_ref();
+    cell extras_cell = null();
+    if (ds.slice_refs() > 0) {
+        extras_cell = ds~load_ref();
+    }
+    ds.end_parse();
+
+    var bs = balance_cell.begin_parse();
+    ctx_profit_per_coin = bs~load_int(128);
+    ctx_balance = bs~load_coins();
+    ctx_balance_sent = bs~load_coins();
+    ctx_balance_withdraw = bs~load_coins();
+    ctx_balance_pending_withdraw = bs~load_coins();
+    ctx_balance_pending_deposits = bs~load_coins();
+    bs.end_parse();
+
+    ;; Parsing extras (enabled, upgrades_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price)
+    ctx_extras = (
+        true,  ;; Enabled
+        true,  ;; Upgrades enabled
+        params::min_stake(), ;; Min Stake
+        fees::op(), ;; Deposit fee
+        fees::op(), ;; Withdraw fee
+        10 * 100, ;; Pool fee (%),
+        fees::receipt()
+    );
+    if (~ extras_cell.null?()) {
+        var ec = extras_cell.begin_parse();
+        var enabled = ec~load_int(1);
+        var udpates_enabled = ec~load_int(1);
+        var min_stake = ec~load_coins();
+        var deposit_fee = ec~load_coins();
+        var withdraw_fee = ec~load_coins();
+        var pool_fee = ec~load_coins();
+        var receipt_price = ec~load_coins();
+        ctx_extras = (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price);
+        ec.end_parse();
+    }
+}
+
+() store_base_data() impure {
+    var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+    set_data(begin_cell()
+        .store_int(ctx_locked, 1)
+        .store_slice(ctx_owner)
+        .store_slice(ctx_controller)
+        .store_slice(ctx_proxy)
+        .store_ref(begin_cell()
+            .store_int(ctx_profit_per_coin, 128)
+            .store_coins(ctx_balance)
+            .store_coins(ctx_balance_sent)
+            .store_coins(ctx_balance_withdraw)
+            .store_coins(ctx_balance_pending_withdraw)
+            .store_coins(ctx_balance_pending_deposits)
+        .end_cell())
+        .store_dict(ctx_nominators)
+        .store_ref(ctx_proxy_state)
+        .store_ref(begin_cell()
+            .store_int(enabled, 1)
+            .store_int(udpates_enabled, 1)
+            .store_coins(min_stake)
+            .store_coins(deposit_fee)
+            .store_coins(withdraw_fee)
+            .store_coins(pool_fee)
+            .store_coins(receipt_price)
+        .end_cell())
+    .end_cell());
+    commit();
+}

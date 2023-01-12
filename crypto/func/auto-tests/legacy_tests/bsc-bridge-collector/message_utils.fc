@@ -1,0 +1,38 @@
+() send_receipt_message(addr, ans_tag, query_id, body, grams, mode) impure inline_ref {
+  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(addr)
+    .store_grams(grams)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_uint(ans_tag, 32)
+    .store_uint(query_id, 64);
+  if (body >= 0) {
+    msg~store_uint(body, 256);
+  }
+  send_raw_message(msg.end_cell(), mode);
+}
+
+() send_text_receipt_message(addr, grams, mode) impure inline_ref {
+  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(addr)
+    .store_grams(grams)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_uint(0, 32)
+    .store_uint(0x4f4b, 16); ;; "OK"
+  send_raw_message(msg.end_cell(), mode);
+}
+
+() emit_log_simple (int event_id, slice data) impure inline {
+  var msg = begin_cell()
+                        .store_uint (12, 4) ;; ext_out_msg_info$11 src:MsgAddressInt ()
+                        .store_uint (1, 2)
+                        .store_uint (256, 9)
+                        .store_uint(event_id, 256)
+                        .store_uint(0, 64 + 32 + 2) ;; created_lt, created_at, init:Maybe, body:Either
+                        .store_slice(data)
+           .end_cell();
+  send_raw_message(msg, 0);
+}

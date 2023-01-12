@@ -1,0 +1,110 @@
+;; NFT marketplace smart contract v2
+;; Extends wallet v3r2 & adds ability to deploy sales
+
+#include "stdlib.fc";
+
+;;
+;; storage scheme
+;;
+;; storage#_ seqno:uint32 subwallet:uint32 public_key:uint25
+;;           = Storage;
+;;
+_ load_data() {
+    var ds = get_data().begin_parse();
+    return (
+        ds~load_uint(32),   ;; seqno
+        ds~load_uint(32),   ;; subwallet
+        ds~load_uint(256)   ;; public_key
+    );
+}
+
+() store_data(var data) impure {
+    (
+        int seqno,
+        int subwallet,
+        int public_key
+    ) = data;
+
+    set_data(
+        begin_cell()
+            .store_uint(seqno, 32)
+            .store_uint(subwallet, 32)
+            .store_uint(public_key, 256)
+            .end_cell()
+    );
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) { ;; ignore empty messages
+        return ();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+    slice sender_address = cs~load_msg_addr();
+    var (seqno, subwallet, public_key) = load_data();
+
+    int op = in_msg_body~load_uint(32);
+
+    if (op == 1) { ;; deploy new signed sale
+        var signature = in_msg_body~load_bits(512);
+        throw_unless(35, check_signature(slice_hash(in_msg_body), signature, public_key));
+
+        (cell state_init, cell body) = (in_msg_body~load_ref(), in_msg_body~load_ref());
+
+        int state_init_hash = cell_hash(state_init);
+        slice dest_address = begin_cell().store_int(0, 8).store_uint(state_init_hash, 256).end_cell().begin_parse();
+
+        var msg = begin_cell()
+            .store_uint(0x18, 6)
+            .store_uint(4, 3).store_slice(dest_address)
+            .store_grams(0)
+            .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+            .store_ref(state_init)
+            .store_ref(body);
+
+        send_raw_message(msg.end_cell(), 64); ;; carry remaining value of message
+        return ();
+    }
+
+    return ();
+}
+
+() recv_external(slice in_msg) impure {
+    var signature = in_msg~load_bits(512);
+    var cs = in_msg;
+    var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));
+    throw_if(35, valid_until <= now());
+    var (seqno, subwallet, public_key) = load_data();
+    throw_unless(33, msg_seqno == seqno);
+    throw_unless(34, subwallet_id == subwallet);
+    throw_unless(35, check_signature(slice_hash(in_msg), signature, public_key));
+    accept_message();
+    cs~touch();
+    while (cs.slice_refs()) {
+        var mode = cs~load_uint(8);
+        send_raw_message(cs~load_ref(), mode);
+    }
+
+    store_data(
+        seqno + 1,
+        subwallet,
+        public_key
+    );
+}
+
+;; Get methods
+
+int seqno() method_id {
+    return get_data().begin_parse().preload_uint(32);
+}
+
+int get_public_key() method_id {
+    var cs = get_data().begin_parse();
+    cs~load_uint(64);
+    return cs.preload_uint(256);
+}
