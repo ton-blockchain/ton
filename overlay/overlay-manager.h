@@ -98,6 +98,7 @@ class OverlayManager : public Overlays {
 
   void set_priority_broadcast_receivers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
                                         std::vector<adnl::AdnlNodeIdShort> nodes) override;
+  void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) override;
 
   struct PrintId {};
 

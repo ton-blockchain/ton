@@ -145,7 +145,7 @@ class Certificate {
                              bool is_fec) const;
   tl_object_ptr<ton_api::overlay_Certificate> tl() const;
   const PublicKey &issuer() const;
-  PublicKeyHash issuer_hash() const;
+  const PublicKeyHash issuer_hash() const;
 
   static td::Result<std::shared_ptr<Certificate>> create(tl_object_ptr<ton_api::overlay_Certificate> cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
@@ -169,8 +169,6 @@ class Overlays : public td::actor::Actor {
     virtual void check_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
                                  td::Promise<td::Unit> promise) {
       promise.set_value(td::Unit());
-    }
-    virtual void on_remove_peer(adnl::AdnlNodeIdShort src) {
     }
     virtual ~Callback() = default;
   };
@@ -242,6 +240,7 @@ class Overlays : public td::actor::Actor {
 
   virtual void set_priority_broadcast_receivers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
                                                 std::vector<adnl::AdnlNodeIdShort> nodes) = 0;
+  virtual void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) = 0;
 };
 
 }  // namespace overlay

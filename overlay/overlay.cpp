@@ -231,7 +231,7 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice dat
     return;
   }
   auto Q = X.move_as_ok();
-  ton_api::downcast_call(*Q, [Self = this, &Q, &src](auto &object) {
+  ton_api::downcast_call(*Q.get(), [Self = this, &Q, &src](auto &object) {
     Self->process_broadcast(src, move_tl_object_as<std::remove_reference_t<decltype(object)>>(Q));
   });
 }

@@ -139,6 +139,13 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
                      collator_config_.full_collated_data ? ValidateMode::full_collated_data : 0);
 }
 
+void ValidatorGroup::update_approve_cache(td::uint32 round_id, CacheKey key, UnixTime value) {
+  if (approved_candidates_cache_round_ != round_id) {
+    return;
+  }
+  approved_candidates_cache_[key] = value;
+}
+
 void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block_data,
                                             RootHash root_hash, FileHash file_hash,
                                             std::vector<BlockSignature> signatures,
@@ -382,8 +389,8 @@ void ValidatorGroup::get_session_info(
   td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_session_info, std::move(P));
 }
 
-void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeout,
-                                        td::Promise<BlockCandidate> promise, unsigned max_retries) {
+void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+                                        unsigned max_retries) {
   if (round_id < last_known_round_id_) {
     promise.set_error(td::Status::Error("too old"));
     return;
@@ -391,9 +398,11 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
   adnl::AdnlNodeIdShort collator = adnl::AdnlNodeIdShort::zero();
   // TODO: some way to choose node (similar to "unreliability" in full-node)
   int cnt = 0;
-  for (const block::CollatorNodeDescr& c : collator_config_.collator_nodes) {
-    if (shard_intersects(shard_, c.shard) && td::Random::fast(0, cnt) == 0) {
-      collator = adnl::AdnlNodeIdShort(c.adnl_id);
+  for (const block::CollatorNodeDescr &c : collator_config_.collator_nodes) {
+    if (shard_intersects(shard_, c.shard)) {
+      if (td::Random::fast(0, cnt) == 0) {
+        collator = adnl::AdnlNodeIdShort(c.adnl_id);
+      }
       ++cnt;
     }
   }
@@ -438,8 +447,8 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
   size_t max_answer_size = config_.max_block_size + config_.max_collated_data_size + 256;
   td::Timestamp query_timeout = td::Timestamp::in(10.0);
   query_timeout.relax(timeout);
-  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_adnl_id_, collator, "collatequery",
-                          std::move(P), timeout, std::move(query), max_answer_size);
+  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_adnl_id_, collator, "collatequery", std::move(P),
+                          timeout, std::move(query), max_answer_size);
 }
 
 void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::BufferSlice data,
@@ -460,15 +469,11 @@ void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::Buf
     return;
   }
   auto key = PublicKey{b->source_};
-  if (!key.is_ed25519()) {
+  if (key != local_id_full_) {
     promise.set_error(td::Status::Error("collate query: block candidate source mismatch"));
     return;
   }
   auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-  if (e_key != Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}) {
-    promise.set_error(td::Status::Error("collate query: block candidate source mismatch"));
-    return;
-  }
   auto block_id = ton::create_block_id(b->id_);
   if (block_id.shard_full() != shard_) {
     promise.set_error(td::Status::Error("collate query: shard mismatch"));

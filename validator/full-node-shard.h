@@ -31,7 +31,7 @@ namespace fullnode {
 enum FullNodeShardMode {
   active, // Node can answer queries about the shard
   active_temp, // Like 'active', but queries about shard state are not allowed (only blocks)
-  inactive // Node is not a part of the overlay (overlay is_external)
+  inactive // Node is not a part of the overlay
 };
 
 

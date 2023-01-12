@@ -218,8 +218,6 @@ overlay.message overlay:int256 = overlay.Message;
 //overlay.randomPeers peers:(vector adnl.node) = overlay.RandomPeers;
 overlay.broadcastList hashes:(vector int256) = overlay.BroadcastList;
 
-overlay.message.removePeer = overlay.message.InternalMessage;
-
 overlay.fec.received hash:int256 = overlay.Broadcast;
 overlay.fec.completed hash:int256 = overlay.Broadcast;
 
@@ -423,6 +421,8 @@ tonNode.archiveInfo id:long = tonNode.ArchiveInfo;
 
 tonNode.outMsgQueueProof queue_proof:bytes block_state_proof:bytes = tonNode.OutMsgQueueProof;
 tonNode.outMsgQueueProofEmpty = tonNode.OutMsgQueueProof;
+
+tonNode.forgetPeer = tonNode.ForgetPeer;
 
 ---functions---
 

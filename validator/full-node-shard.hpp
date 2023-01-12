@@ -142,6 +142,7 @@ class FullNodeShardImpl : public FullNodeShard {
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
+  void receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);

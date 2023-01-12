@@ -115,6 +115,13 @@ struct QueryTraits<ton::lite_api::liteServer_getAccountState> {
 };
 
 template<>
+struct QueryTraits<ton::lite_api::liteServer_getAccountStatePrunned> {
+  static ton::ShardIdFull get_shard(const ton::lite_api::liteServer_getAccountStatePrunned& q) {
+    return ton::AccountIdPrefixFull(q.account_->workchain_, q.account_->id_.bits().get_uint(64)).as_leaf_shard();
+  }
+};
+
+template<>
 struct QueryTraits<ton::lite_api::liteServer_runSmcMethod> {
   static ton::ShardIdFull get_shard(const ton::lite_api::liteServer_runSmcMethod& q) {
     return ton::AccountIdPrefixFull(q.account_->workchain_, q.account_->id_.bits().get_uint(64)).as_leaf_shard();
@@ -195,6 +202,13 @@ template<>
 struct QueryTraits<ton::lite_api::liteServer_getLibraries> {
   static ton::ShardIdFull get_shard(const ton::lite_api::liteServer_getLibraries& q) {
     return ton::ShardIdFull(ton::masterchainId, ton::shardIdAll);
+  }
+};
+
+template<>
+struct QueryTraits<ton::lite_api::liteServer_getShardBlockProof> {
+  static ton::ShardIdFull get_shard(const ton::lite_api::liteServer_getShardBlockProof& q) {
+    return ton::ShardIdFull(q.id_->workchain_, q.id_->shard_);
   }
 };
 

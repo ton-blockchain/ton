@@ -105,16 +105,6 @@ void OverlayManager::create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, Ov
                                    std::move(callback), std::move(rules), scope, announce_self));
 }
 
-void OverlayManager::create_public_overlay_external(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                                    std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
-                                                    td::string scope) {
-  CHECK(!dht_node_.empty());
-  auto id = overlay_id.compute_short_id();
-  register_overlay(local_id, id,
-                   Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                   std::move(callback), std::move(rules), scope, true));
-}
-
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                             std::vector<adnl::AdnlNodeIdShort> nodes,
                                             std::unique_ptr<Callback> callback, OverlayPrivacyRules rules) {
@@ -162,23 +152,16 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
 
   auto M = R.move_as_ok();
 
-  OverlayIdShort overlay_id{M->overlay_};
-  auto send_remove_peer = [&, this]() {
-    send_message(src, dst, overlay_id, create_serialize_tl_object<ton_api::overlay_message_removePeer>());
-  };
-
   auto it = overlays_.find(dst);
   if (it == overlays_.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": query to unknown overlay " << M->overlay_ << "@" << dst << " from " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad local_id " << dst));
-    send_remove_peer();
     return;
   }
-  auto it2 = it->second.find(overlay_id);
+  auto it2 = it->second.find(OverlayIdShort{M->overlay_});
   if (it2 == it->second.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << M->overlay_ << "@" << dst << " from " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << M->overlay_));
-    send_remove_peer();
     return;
   }
 
@@ -380,6 +363,19 @@ void OverlayManager::set_priority_broadcast_receivers(adnl::AdnlNodeIdShort loca
   td::actor::send_closure(it2->second, &Overlay::set_priority_broadcast_receivers, std::move(nodes));
 }
 
+void OverlayManager::forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                 adnl::AdnlNodeIdShort peer_id) {
+  auto it = overlays_.find(local_id);
+  if (it == overlays_.end()) {
+    return;
+  }
+  auto it2 = it->second.find(overlay);
+  if (it2 == it->second.end()) {
+    return;
+  }
+  td::actor::send_closure(it2->second, &Overlay::forget_peer, peer_id);
+}
+
 Certificate::Certificate(PublicKey issued_by, td::int32 expire_at, td::uint32 max_size, td::uint32 flags,
                          td::BufferSlice signature)
     : issued_by_(issued_by)
@@ -421,7 +417,7 @@ td::BufferSlice Certificate::to_sign(OverlayIdShort overlay_id, PublicKeyHash is
   }
 }
 
-PublicKeyHash Certificate::issuer_hash() const {
+const PublicKeyHash Certificate::issuer_hash() const {
   PublicKeyHash r;
   issued_by_.visit(
       td::overloaded([&](const PublicKeyHash &x) { r = x; }, [&](const PublicKey &x) { r = x.compute_short_id(); }));

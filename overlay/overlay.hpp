@@ -278,7 +278,11 @@ class OverlayImpl : public Overlay {
     priority_broadcast_receivers_ = std::move(nodes);
   }
 
-  void wait_neighbours_not_empty(td::Promise<td::Unit> promise, int max_retries = 10);
+  void forget_peer(adnl::AdnlNodeIdShort peer_id) override {
+    del_peer(peer_id);
+  }
+
+  void wait_neighbours_not_empty(td::Promise<td::Unit> promise, int max_retries = 20);
 
  private:
   template <class T>

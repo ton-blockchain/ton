@@ -88,7 +88,7 @@ void FullNodeShardImpl::create_overlay() {
    public:
     void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id,
                          td::BufferSlice data) override {
-      // just ignore
+      td::actor::send_closure(node_, &FullNodeShardImpl::receive_message, src, std::move(data));
     }
     void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                        td::Promise<td::BufferSlice> promise) override {
@@ -101,26 +101,23 @@ void FullNodeShardImpl::create_overlay() {
                          td::Promise<td::Unit> promise) override {
       td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
     }
-    void on_remove_peer(adnl::AdnlNodeIdShort src) override {
-      td::actor::send_closure(node_, &FullNodeShardImpl::remove_neighbour, src);
-    }
     Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
     }
 
    private:
     td::actor::ActorId<FullNodeShardImpl> node_;
   };
-
   if (is_active()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_full_.clone(),
                             std::make_unique<Callback>(actor_id(this)), rules_,
                             PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
                                       << ", \"workchain_id\": " << get_workchain() << " }");
   } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_external, adnl_id_,
-                            overlay_id_full_.clone(), std::make_unique<Callback>(actor_id(this)), rules_,
+    td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
+                            std::make_unique<Callback>(actor_id(this)), rules_,
                             PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
-                                      << ", \"workchain_id\": " << get_workchain() << " }");
+                                      << ", \"workchain_id\": " << get_workchain() << " }",
+                            false);
   }
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl_id_);
@@ -647,6 +644,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                       td::Promise<td::BufferSlice> promise) {
   if (!is_active()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_message, src, adnl_id_, overlay_id_,
+                            create_serialize_tl_object<ton_api::tonNode_forgetPeer>());
     promise.set_error(td::Status::Error("shard is inactive"));
     return;
   }
@@ -656,6 +655,16 @@ void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice
     return;
   }
   ton_api::downcast_call(*B.move_as_ok().get(), [&](auto &obj) { this->process_query(src, obj, std::move(promise)); });
+}
+
+void FullNodeShardImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
+  auto B = fetch_tl_object<ton_api::tonNode_forgetPeer>(std::move(data), true);
+  if (B.is_error()) {
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Got tonNode.forgetPeer from " << src;
+  neighbours_.erase(src);
+  td::actor::send_closure(overlays_, &overlay::Overlays::forget_peer, adnl_id_, overlay_id_, src);
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query) {

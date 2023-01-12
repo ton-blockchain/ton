@@ -17,10 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "full-node.hpp"
-#include "ton/ton-shard.h"
 #include "ton/ton-io.hpp"
 #include "td/actor/MultiPromise.h"
-#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -140,12 +138,8 @@ void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, s
   new_shards.insert(ShardIdFull(masterchainId));
   std::set<WorkchainId> workchains;
   auto cut_shard = [&](ShardIdFull shard) -> ShardIdFull {
-    unsigned pfx_len = shard.pfx_len();
-    unsigned min_split = state->soft_min_split_depth(shard.workchain);
-    if (min_split < pfx_len) {
-      return shard_prefix(shard, min_split);
-    }
-    return shard;
+    int min_split = state->soft_min_split_depth(shard.workchain);
+    return min_split < shard.pfx_len() ? shard_prefix(shard, min_split) : shard;
   };
   auto set_active = [&](ShardIdFull shard, FullNodeShardMode mode) {
     while (new_active.emplace(shard, mode).second && shard.pfx_len() > 0) {
@@ -388,6 +382,7 @@ void FullNodeImpl::download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
+  ShardIdFull shard0 = shard;
   while (true) {
     auto it = shards_.find(shard);
     if (it != shards_.end() && it->second.exists) {
@@ -404,6 +399,7 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
     }
     shard = shard_parent(shard);
   }
+  shard = shard0;
   auto it = shards_.find(shard);
   if (it == shards_.end()) {
     it = shards_.emplace(shard = ShardIdFull(shard.workchain), ShardInfo{}).first;
