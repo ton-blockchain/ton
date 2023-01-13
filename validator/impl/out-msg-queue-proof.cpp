@@ -177,7 +177,7 @@ void WaitOutMsgQueueProof::run_local() {
                           [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                             if (R.is_error()) {
                               td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::abort_query,
-                                                      R.move_as_error_prefix("failed to get shard state"));
+                                                      R.move_as_error_prefix("failed to get shard state: "));
                             } else {
                               td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::got_state_root,
                                                       R.move_as_ok()->root_cell());
@@ -189,7 +189,7 @@ void WaitOutMsgQueueProof::run_local() {
                             [SelfId = actor_id(this)](td::Result<Ref<BlockData>> R) {
                               if (R.is_error()) {
                                 td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::abort_query,
-                                                        R.move_as_error_prefix("failed to get block data"));
+                                                        R.move_as_error_prefix("failed to get block data: "));
                               } else {
                                 td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::got_block_root,
                                                         R.move_as_ok()->root_cell());
@@ -247,7 +247,7 @@ void WaitOutMsgQueueProof::run_net() {
 
 void BuildOutMsgQueueProof::abort_query(td::Status reason) {
   if (promise_) {
-    LOG(WARNING) << "failed to build msg queue proof for " << block_id_.to_str() << ": " << reason;
+    LOG(DEBUG) << "failed to build msg queue proof for " << block_id_.to_str() << ": " << reason;
     promise_.set_error(
         reason.move_as_error_prefix(PSTRING() << "failed to build msg queue proof for " << block_id_.to_str() << ": "));
   }
@@ -260,7 +260,7 @@ void BuildOutMsgQueueProof::start_up() {
                           [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                             if (R.is_error()) {
                               td::actor::send_closure(SelfId, &BuildOutMsgQueueProof::abort_query,
-                                                      R.move_as_error_prefix("failed to get shard state"));
+                                                      R.move_as_error_prefix("failed to get shard state: "));
                             } else {
                               td::actor::send_closure(SelfId, &BuildOutMsgQueueProof::got_state_root,
                                                       R.move_as_ok()->root_cell());
@@ -272,7 +272,7 @@ void BuildOutMsgQueueProof::start_up() {
                             [SelfId = actor_id(this)](td::Result<Ref<BlockData>> R) {
                               if (R.is_error()) {
                                 td::actor::send_closure(SelfId, &BuildOutMsgQueueProof::abort_query,
-                                                        R.move_as_error_prefix("failed to get block data"));
+                                                        R.move_as_error_prefix("failed to get block data: "));
                               } else {
                                 td::actor::send_closure(SelfId, &BuildOutMsgQueueProof::got_block_root,
                                                         R.move_as_ok()->root_cell());

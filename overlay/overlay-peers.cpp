@@ -24,7 +24,9 @@ namespace overlay {
 
 void OverlayImpl::del_peer(adnl::AdnlNodeIdShort id) {
   auto P = peers_.get(id);
-  CHECK(P != nullptr);
+  if (P == nullptr) {
+    return;
+  }
 
   VLOG(OVERLAY_DEBUG) << this << ": deleting peer " << id;
 
