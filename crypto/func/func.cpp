@@ -36,6 +36,8 @@ namespace funC {
 int verbosity, indent, opt_level = 2;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
+GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
+GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
 std::string generated_from, boc_output_filename;
 
 /*
@@ -194,7 +196,7 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
   int ok = 0, proc = 0;
   try {
     for (auto src : sources) {
-      ok += funC::parse_source_file(src.c_str());
+      ok += funC::parse_source_file(src.c_str(), {}, true);
       proc++;
     }
     if (funC::interactive) {
@@ -208,6 +210,8 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
     if (!proc) {
       throw src::Fatal{"no source files, no output"};
     }
+    pragma_allow_post_modification.check_enable_in_libs();
+    pragma_compute_asm_ltr.check_enable_in_libs();
     return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
     errs << "fatal: " << fatal << std::endl;
