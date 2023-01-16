@@ -506,6 +506,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   bool is_validator();
   bool is_collator();
+  bool validating_masterchain();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,

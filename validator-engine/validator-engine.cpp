@@ -1419,7 +1419,7 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_validator_lite_mode(validator_lite_mode_);
+  validator_options_.write().set_validator_mode(validator_mode_);
 
   return td::Status::OK();
 }
@@ -3866,9 +3866,20 @@ int main(int argc, char *argv[]) {
   p.add_option('M', "not-all-shards", "monitor only a necessary set of shards instead of all", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_not_all_shards); });
   });
-  p.add_option('\0', "lite-validator", "lite-mode validator (don't collate blocks, use collator nodes instead)", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_validator_lite_mode); });
-  });
+  p.add_option('\0', "lite-validator-shards",
+               "lite-mode validator for shard blocks (don't collate blocks, use collator nodes instead)", [&]() {
+                 acts.push_back([&x]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_validator_mode,
+                                           ton::validator::ValidatorManagerOptions::validator_lite_shards);
+                 });
+               });
+  p.add_option('\0', "lite-validator-all",
+               "lite-mode validator for all blocks (don't collate blocks, use collator nodes instead)", [&]() {
+                 acts.push_back([&x]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_validator_mode,
+                                           ton::validator::ValidatorManagerOptions::validator_lite_all);
+                 });
+               });
   td::uint32 threads = 7;
   p.add_checked_option(
       't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {

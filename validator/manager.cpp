@@ -18,11 +18,9 @@
 */
 #include "manager.hpp"
 #include "validator-group.hpp"
-#include "adnl/utils.hpp"
 #include "downloaders/wait-block-state.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-data.hpp"
-#include "validator-group.hpp"
 #include "fabric.h"
 #include "manager.h"
 #include "validate-broadcast.hpp"
@@ -199,7 +197,7 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
   CHECK(blkid.is_masterchain());
 
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), promise = std::move(promise), id = block.id](td::Result<td::Unit> R) mutable {
+      [SelfId = actor_id(this), promise = std::move(promise), id = blkid](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
           promise.set_error(R.move_as_error());
         } else {
@@ -1241,7 +1239,7 @@ void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit
 void ValidatorManagerImpl::written_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
   bool received = handle->received();
   bool inited_state = handle->received_state();
-  bool inited_proof = handle->id().is_masterchain() ? handle->inited_proof() : handle->inited_proof();
+  bool inited_proof = handle->inited_proof();
 
   if (handle->need_flush()) {
     handle->flush(actor_id(this), handle, std::move(promise));
@@ -1712,13 +1710,14 @@ bool ValidatorManagerImpl::out_of_sync() {
 void ValidatorManagerImpl::prestart_sync() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
+    // Don't download archives
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::finish_prestart_sync);
   });
   td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
 }
 
 void ValidatorManagerImpl::download_next_archive() {
-  if (true) {
+  if (!out_of_sync()) {
     finish_prestart_sync();
     return;
   }
@@ -1835,6 +1834,13 @@ void ValidatorManagerImpl::new_masterchain_block() {
   }
   for (auto &c : collator_nodes_) {
     td::actor::send_closure(c.second.actor, &CollatorNode::new_masterchain_block_notification, last_masterchain_state_);
+  }
+  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_shards && validating_masterchain()) {
+    // Prepare neighboours' queues for collating masterchain
+    for (const auto &desc : last_masterchain_state_->get_shards()) {
+      wait_out_msg_queue_proof(desc->top_block_id(), ShardIdFull(masterchainId), 0, td::Timestamp::in(10.0),
+                               [](td::Ref<OutMsgQueueProof>) {});
+    }
   }
 
   if (last_masterchain_seqno_ % 1024 == 0) {
@@ -2174,7 +2180,7 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
         "validatorgroup", shard, validator_id, session_id, validator_set,
         last_masterchain_state_->get_collator_config(true), opts, keyring_, adnl_, rldp_, overlays_, db_root_,
         actor_id(this), init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()),
-        opts_->validator_lite_mode());
+        opts_->validator_mode());
     return G;
   }
 }
@@ -2348,7 +2354,7 @@ void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise
     return;
   }
   auto shards = gc_masterchain_state_->get_shards();
-  for (auto shard : shards) {
+  for (const auto &shard : shards) {
     if (shard_intersects(shard->shard(), block_id.shard_full())) {
       promise.set_result(block_id.id.seqno < shard->top_block_id().id.seqno);
       return;
@@ -2564,7 +2570,14 @@ bool ValidatorManagerImpl::is_validator() {
 }
 
 bool ValidatorManagerImpl::is_collator() {
-  return !collator_nodes_.empty() || (!opts_->validator_lite_mode() && is_validator());
+  return !collator_nodes_.empty() ||
+         (opts_->validator_mode() != ValidatorManagerOptions::validator_lite_all && is_validator());
+}
+
+bool ValidatorManagerImpl::validating_masterchain() {
+  return !get_validator(ShardIdFull(masterchainId),
+                        last_masterchain_state_->get_validator_set(ShardIdFull(masterchainId)))
+              .is_zero();
 }
 
 PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {

@@ -160,19 +160,19 @@ void CollatorNode::receive_query_cont(adnl::AdnlNodeIdShort src, ShardIdFull sha
                                       td::Ref<MasterchainState> min_mc_state, std::vector<BlockIdExt> prev_blocks,
                                       Ed25519_PublicKey creator, td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda([promise = std::move(promise), src](td::Result<BlockCandidate> R) mutable {
-      if (R.is_error()) {
-        LOG(WARNING) << "Query from " << src << ", error: " << R.error();
-        promise.set_result(serialize_error(R.move_as_error()));
-      } else {
-        LOG(INFO) << "Query from " << src << ", success";
-        auto block = R.move_as_ok();
-        auto result = create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(
-            create_tl_object<ton_api::db_candidate>(PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(),
-                                                    create_tl_block_id(block.id), std::move(block.data),
-                                                    std::move(block.collated_data)));
-        promise.set_result(std::move(result));
-      }
-    });
+    if (R.is_error()) {
+      LOG(WARNING) << "Query from " << src << ", error: " << R.error();
+      promise.set_result(serialize_error(R.move_as_error()));
+    } else {
+      LOG(INFO) << "Query from " << src << ", success";
+      auto block = R.move_as_ok();
+      auto result = create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(
+          create_tl_object<ton_api::db_candidate>(PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(),
+                                                  create_tl_block_id(block.id), std::move(block.data),
+                                                  std::move(block.collated_data)));
+      promise.set_result(std::move(result));
+    }
+  });
 
   run_collate_query(shard, min_mc_state->get_block_id(), std::move(prev_blocks), creator,
                     min_mc_state->get_validator_set(shard), manager_, td::Timestamp::in(10.0), std::move(P));

@@ -112,8 +112,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::string get_session_logs_file() const override {
     return session_logs_file_;
   }
-  bool validator_lite_mode() const override {
-    return validator_lite_mode_;
+  ValidatorMode validator_mode() const override {
+    return validator_mode_;
   }
 
   void set_zero_block_id(BlockIdExt block_id) override {
@@ -168,8 +168,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_session_logs_file(std::string f) override {
     session_logs_file_ = std::move(f);
   }
-  void set_validator_lite_mode(bool value) override {
-    validator_lite_mode_ = value;
+  void set_validator_mode(ValidatorMode value) override {
+    validator_mode_ = value;
   }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
@@ -211,7 +211,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   BlockSeqno truncate_{0};
   BlockSeqno sync_upto_{0};
   std::string session_logs_file_;
-  bool validator_lite_mode_ = false;
+  ValidatorMode validator_mode_ = validator_normal;
 };
 
 }  // namespace validator

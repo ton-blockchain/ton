@@ -54,6 +54,8 @@ struct PerfTimerStats {
 
 struct ValidatorManagerOptions : public td::CntObject {
  public:
+  enum ValidatorMode { validator_normal, validator_lite_shards, validator_lite_all };
+
   virtual BlockIdExt zero_block_id() const = 0;
   virtual BlockIdExt init_block_id() const = 0;
   virtual bool need_monitor(ShardIdFull shard, const td::Ref<MasterchainState>& state) const = 0;
@@ -79,7 +81,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockSeqno get_truncate_seqno() const = 0;
   virtual BlockSeqno sync_upto() const = 0;
   virtual std::string get_session_logs_file() const = 0;
-  virtual bool validator_lite_mode() const = 0;
+  virtual ValidatorMode validator_mode() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -98,7 +100,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void truncate_db(BlockSeqno seqno) = 0;
   virtual void set_sync_upto(BlockSeqno seqno) = 0;
   virtual void set_session_logs_file(std::string f) = 0;
-  virtual void set_validator_lite_mode(bool value) = 0;
+  virtual void set_validator_mode(ValidatorMode value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,

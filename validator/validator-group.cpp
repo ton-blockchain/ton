@@ -50,7 +50,8 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
                                    cache = cached_collated_block_](td::Result<BlockCandidate> R) {
     td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
   };
-  if (lite_mode_) {
+  if (mode_ == ValidatorManagerOptions::validator_lite_all ||
+      (mode_ == ValidatorManagerOptions::validator_lite_shards && !shard_.is_masterchain())) {
     send_collate_query(round_id, td::Timestamp::in(10.0), std::move(P));
     return;
   }
@@ -197,7 +198,8 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
   });
 
   run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
-                         std::move(approve_sig_set), send_broadcast, shard_.is_masterchain() || !lite_mode_, manager_,
+                         std::move(approve_sig_set), send_broadcast,
+                         shard_.is_masterchain() || mode_ == ValidatorManagerOptions::validator_normal, manager_,
                          std::move(P));
 }
 

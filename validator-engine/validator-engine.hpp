@@ -217,7 +217,8 @@ class ValidatorEngine : public td::actor::Actor {
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
   bool not_all_shards_ = false;
-  bool validator_lite_mode_ = false;
+  ton::validator::ValidatorManagerOptions::ValidatorMode validator_mode_ =
+      ton::validator::ValidatorManagerOptions::validator_normal;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -272,8 +273,8 @@ class ValidatorEngine : public td::actor::Actor {
   void set_not_all_shards() {
     not_all_shards_ = true;
   }
-  void set_validator_lite_mode() {
-    validator_lite_mode_ = true;
+  void set_validator_mode(ton::validator::ValidatorManagerOptions::ValidatorMode mode) {
+    validator_mode_ = mode;
   }
 
   void start_up() override;
