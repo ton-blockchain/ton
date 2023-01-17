@@ -100,6 +100,22 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
       }
     }
   }
+  if (validators_.empty() || state->is_key_state()) {
+    validators_.clear();
+    for (int next : {-1, 0, 1}) {
+      td::Ref<ValidatorSet> vals = state->get_total_validator_set(next);
+      if (vals.not_null()) {
+        for (const ValidatorDescr& descr : vals->export_vector()) {
+          if (descr.addr.is_zero()) {
+            validators_.insert(
+                adnl::AdnlNodeIdShort(PublicKey(pubkeys::Ed25519{descr.key.as_bits256()}).compute_short_id()));
+          } else {
+            validators_.insert(adnl::AdnlNodeIdShort(descr.addr));
+          }
+        }
+      }
+    }
+  }
 }
 
 static td::BufferSlice serialize_error(td::Status error) {
@@ -110,6 +126,9 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
                                  td::Promise<td::BufferSlice> promise) {
   auto SelfId = actor_id(this);
   auto status = [&]() -> td::Status {
+    if (!validators_.count(src)) {
+      return td::Status::Error("src is not a validator");
+    }
     TRY_RESULT(f, fetch_tl_object<ton_api::collatorNode_generateBlock>(std::move(data), true));
     ShardIdFull shard(f->workchain_, f->shard_);
     if (!shard.is_valid_ext()) {

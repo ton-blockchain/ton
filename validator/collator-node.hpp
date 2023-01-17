@@ -49,6 +49,7 @@ class CollatorNode : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
   std::vector<ShardIdFull> shards_;
+  std::set<adnl::AdnlNodeIdShort> validators_;
 };
 
 }  // namespace validator
