@@ -677,6 +677,8 @@ x{DB3C} @Defop(ref) CALLREF
 x{DB3D} @Defop(ref) JMPREF
 x{DB3E} @Defop(ref) JMPREFDATA
 x{DB3F} @Defop RETDATA
+x{DB40} @Defop(8u) RUNVM
+x{DB41} @Defop RUNVMX
 // conditional and iterated execution primitives
 x{DC} @Defop IFRET
 x{DD} @Defop IFNOTRET

@@ -80,6 +80,8 @@ struct CommittedState {
   bool committed{false};
 };
 
+struct ParentVmState;
+
 class VmState final : public VmStateInterface {
   Ref<CellSlice> code;
   Ref<Stack> stack;
@@ -100,6 +102,7 @@ class VmState final : public VmStateInterface {
   td::uint16 max_data_depth = 512; // Default value
   int global_version{0};
   bool bounce_on_action_phase_fail = false;
+  std::unique_ptr<ParentVmState> parent = nullptr;
 
  public:
   enum {
@@ -124,9 +127,9 @@ class VmState final : public VmStateInterface {
       : VmState(convert_code_cell(std::move(code_cell)), std::forward<Args>(args)...) {
   }
   VmState(const VmState&) = delete;
-  VmState(VmState&&) = delete;
+  VmState(VmState&&) = default;
   VmState& operator=(const VmState&) = delete;
-  VmState& operator=(VmState&&) = delete;
+  VmState& operator=(VmState&&) = default;
   bool set_gas_limits(long long _max, long long _limit, long long _credit = 0);
   bool final_gas_ok() const {
     return gas.final_ok();
@@ -342,9 +345,17 @@ class VmState final : public VmStateInterface {
   void set_bounce_on_action_phase_fail(bool value) {
     bounce_on_action_phase_fail = value;
   }
+  void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas);
+  void restore_parent_vm(int res);
 
  private:
   void init_cregs(bool same_c3 = false, bool push_0 = true);
+  int run_inner();
+};
+
+struct ParentVmState {
+  VmState state;
+  bool return_data, return_actions, return_gas;
 };
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},

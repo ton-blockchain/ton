@@ -453,7 +453,7 @@ int VmState::step() {
   }
 }
 
-int VmState::run() {
+int VmState::run_inner() {
   if (code.is_null() || stack.is_null()) {
     // throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
     return (int)Excno::fatal;  // no ~ for unhandled exceptions
@@ -499,6 +499,17 @@ int VmState::run() {
     return ~(int)Excno::cell_ov;
   }
   return res;
+}
+
+int VmState::run() {
+  while (true) {
+    int res = run_inner();
+    if (parent) {
+      restore_parent_vm(res);
+    } else {
+      return res;
+    }
+  }
 }
 
 bool VmState::try_commit() {
@@ -671,6 +682,47 @@ Ref<vm::Cell> lookup_library_in(td::ConstBitPtr key, Ref<vm::Cell> lib_root) {
   }
   vm::Dictionary dict{std::move(lib_root), 256};
   return lookup_library_in(key, dict);
+}
+
+void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas) {
+  new_state.log = std::move(log);
+  new_state.libraries = std::move(libraries);
+  new_state.stack_trace = stack_trace;
+  new_state.max_data_depth = max_data_depth;
+
+  auto new_parent = std::make_unique<ParentVmState>();
+  new_parent->return_data = return_data;
+  new_parent->return_actions = return_actions;
+  new_parent->return_gas = return_gas;
+  new_parent->state = std::move(*this);
+  new_state.parent = std::move(new_parent);
+  *this = std::move(new_state);
+}
+
+void VmState::restore_parent_vm(int res) {
+  auto parent = std::move(this->parent);
+  CHECK(parent);
+  VmState child_state = std::move(*this);
+  *this = std::move(parent->state);
+  log = std::move(child_state.log);
+  libraries = std::move(child_state.libraries);
+  VM_LOG(this) << "restoring state after RUNVM\n";
+
+  Stack& cur_stack = get_stack();
+  for (StackEntry& e : child_state.stack->extract_contents()) {
+    cur_stack.push(std::move(e));
+  }
+  cur_stack.push_smallint(~res);
+  if (parent->return_data) {
+    cur_stack.push_cell(child_state.get_committed_state().c4);
+  }
+  if (parent->return_actions) {
+    cur_stack.push_cell(child_state.get_committed_state().c5);
+  }
+  if (parent->return_gas) {
+    cur_stack.push_smallint(child_state.gas.gas_consumed());
+  }
+  consume_gas(child_state.gas_consumed());
 }
 
 }  // namespace vm

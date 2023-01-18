@@ -212,6 +212,65 @@ int exec_ret_data(VmState* st) {
   return st->ret();
 }
 
+// Mode:
+// +1 = same_c3 (set c3 to code)
+// +2 = push_0 (push an implicit 0 before running the code)
+// +4 = load c4 (persistent data) from stack and return its final value
+// +8 = load gas limit from stack and return consumed gas
+// +16 = load c7 (smart-contract context)
+// +32 = return c5 (actions)
+// +64 = pop hard gas limit (enabled by ACCEPT) from stack as well
+int exec_runvm_common(VmState* st, unsigned mode) {
+  if (mode >= 128) {
+    throw VmError{Excno::range_chk, "invalid flags"};
+  }
+  Stack& stack = st->get_stack();
+  bool with_data = mode & 4;
+  Ref<vm::Tuple> c7;
+  Ref<vm::Cell> data, actions;
+  long long gas_max = (mode & 64) ? stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  long long gas_limit = (mode & 8) ? stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  if (!(mode & 64)) {
+    gas_max = gas_limit;
+  } else {
+    gas_max = std::max(gas_max, gas_limit);
+  }
+  if (mode & 16) {
+    c7 = stack.pop_tuple();
+  }
+  if (with_data) {
+    data = stack.pop_cell();
+  }
+  auto code = stack.pop_cellslice();
+  int stack_size = stack.pop_smallint_range(stack.depth() - 1);
+  std::vector<StackEntry> new_stack_entries(stack_size);
+  for (int i = 0; i < stack_size; ++i) {
+    new_stack_entries[stack_size - 1 - i] = stack.pop();
+  }
+  td::Ref<Stack> new_stack{true, std::move(new_stack_entries)};
+  gas_max = std::min(gas_max, st->get_gas_limits().gas_remaining);
+  gas_limit = std::min(gas_limit, st->get_gas_limits().gas_remaining);
+  vm::GasLimits gas{gas_limit, gas_max};
+  st->consume_stack_gas(new_stack);
+
+  VmState new_state{std::move(code), std::move(new_stack),     gas,          (int)mode & 3, std::move(data),
+                    VmLog{},         std::vector<Ref<Cell>>{}, std::move(c7)};
+  new_state.set_chksig_always_succeed(st->get_chksig_always_succeed());
+  new_state.set_global_version(st->get_global_version());
+  st->run_child_vm(std::move(new_state), with_data, mode & 32, mode & 8);
+  return 0;
+}
+
+int exec_runvm(VmState* st, unsigned args) {
+  VM_LOG(st) << "execute RUNVM " << (args & 255) << "\n";
+  return exec_runvm_common(st, args & 255);
+}
+
+int exec_runvmx(VmState* st) {
+  VM_LOG(st) << "execute RUNVMX\n";
+  return exec_runvm_common(st, st->get_stack().pop_smallint_range(255));
+}
+
 void register_continuation_jump_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xd8, 8, "EXECUTE", exec_execute))
@@ -246,7 +305,9 @@ void register_continuation_jump_ops(OpcodeTable& cp0) {
                                            },
                                            "JMPREFDATA"),
                                  compute_len_push_ref))
-      .insert(OpcodeInstr::mksimple(0xdb3f, 16, "RETDATA", exec_ret_data));
+      .insert(OpcodeInstr::mksimple(0xdb3f, 16, "RETDATA", exec_ret_data))
+      .insert(OpcodeInstr::mkfixed(0xdb40, 16, 8, instr::dump_1c_l_add(0, "RUNVM "), exec_runvm)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xdb41, 16, "RUNVMX ", exec_runvmx)->require_version(4));
 }
 
 int exec_if(VmState* st) {

@@ -10,6 +10,7 @@ Various features are enabled depending on the global version.
 * `ECRECOVER`
 * `SENDMSG`
 * `SETBOUNCEONACTIONPHASEFAIL`
+* `RUNVM`, `RUNVMX`
 
 #### Division
 [Division instruction](https://ton.org/docs/learn/tvm-instructions/instructions#52-division) can add a number to the
