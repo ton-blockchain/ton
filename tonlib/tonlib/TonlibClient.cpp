@@ -1694,8 +1694,9 @@ class RunEmulator : public td::actor::Actor {
   bool stopped_{false};
 
   void get_block_id(td::Promise<FullBlockId>&& promise) {
-    auto query = ton::lite_api::liteServer_lookupBlock(0b111111010, ton::create_tl_lite_block_id_simple({request_.address.workchain, ton::shardIdAll, 0}), request_.lt, 0);
-    client_.send_query(std::move(query), promise.wrap([self = this](td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_blockHeader>> header_r) -> td::Result<FullBlockId> {
+    auto shard_id = ton::shard_prefix(request_.address.addr, 60);
+    auto query = ton::lite_api::liteServer_lookupBlock(0b111111010, ton::create_tl_lite_block_id_simple({request_.address.workchain, shard_id, 0}), request_.lt, 0);
+    client_.send_query(std::move(query), promise.wrap([self = this, shard_id](td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_blockHeader>> header_r) -> td::Result<FullBlockId> {
 
       TRY_RESULT(header, std::move(header_r));
       ton::BlockIdExt block_id = ton::create_block_id(header->id_);
@@ -1721,7 +1722,7 @@ class RunEmulator : public td::actor::Actor {
         }
 
         ton::BlockIdExt prev_block;
-        if (prev_blocks.size() == 1 || ton::is_left_child(block_id.id.shard)) {
+        if (prev_blocks.size() == 1 || ton::shard_is_ancestor(prev_blocks[0].id.shard, shard_id)) {
           prev_block = std::move(prev_blocks[0]);
         } else {
           prev_block = std::move(prev_blocks[1]);
