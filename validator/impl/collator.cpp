@@ -2352,8 +2352,11 @@ td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_t
     return td::Status::Error(
         -669, "cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
-  if (trans->bounce_enabled && (!trans->compute_phase->success || trans->action_phase->state_size_too_big) &&
-      !trans->prepare_bounce_phase(*action_phase_cfg)) {
+  bool bounce = !trans->compute_phase->success;
+  bounce |= trans->action_phase->state_size_too_big;
+  bounce |= trans->compute_phase->bounce_on_action_phase_fail && !trans->action_phase->success;
+  bounce &= trans->bounce_enabled;
+  if (bounce && !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(
         -669, "cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }

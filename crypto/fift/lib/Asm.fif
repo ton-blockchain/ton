@@ -24,6 +24,7 @@ false @was-split !
 { tuck bbitrefs @ensurebitrefs swap b+ } : @addopb
 ' @addopb : @inline
 { 1 ' @addop does create } : @Defop
+{ 1 { <b swap s, swap 1 u, @addopb } does create } : @Defop(1u)
 { 1 { <b swap s, swap 8 u, @addopb } does create } : @Defop(8u)
 { 1 { <b swap s, swap 8 i, @addopb } does create } : @Defop(8i)
 { 1 { <b swap s, swap 1- 8 u, @addopb } does create } : @Defop(8u+1)
@@ -1172,6 +1173,7 @@ x{FB04} @Defop SETCODE
 x{FB06} @Defop SETLIBCODE
 x{FB07} @Defop CHANGELIB
 x{FB08} @Defop SENDMSG
+x{FB0B_} @Defop(1u) SETBOUNCEONACTIONPHASEFAIL
 
 //
 // debug primitives

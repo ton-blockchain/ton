@@ -9,6 +9,7 @@ Various features are enabled depending on the global version.
 * `HASHSTART`, `HASHEND`, `HASHENDST`, `HASHINFO`, `HASHAPPU`, `HASHAPPI`, `HASHAPPS`, `HASHAPPB`
 * `ECRECOVER`
 * `SENDMSG`
+* `SETBOUNCEONACTIONPHASEFAIL`
 
 ### c7 tuple
 **c7** tuple extended from 10 to 14 elements:
@@ -17,5 +18,6 @@ Various features are enabled depending on the global version.
 * **12**: fees collected in the storage phase.
 * **13**: information about previous blocks.
 
-### Fines in action phase
-If "send message" action fails, the account is required to pay for processing cells of the message.
+### Action phase
+* If "send message" action fails, the account is required to pay for processing cells of the message.
+* Optional bounce on action phase failure (enabled by `SETBOUNCEONACTIOINPHASEFAIL`).

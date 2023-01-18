@@ -179,6 +179,7 @@ struct ComputePhase {
   Ref<vm::Cell> new_data;
   Ref<vm::Cell> actions;
   std::string vm_log;
+  bool bounce_on_action_phase_fail = false;
 };
 
 struct ActionPhase {

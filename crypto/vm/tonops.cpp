@@ -1238,6 +1238,18 @@ int exec_change_lib(VmState* st) {
   return install_output_action(st, cb.finalize());
 }
 
+std::string dump_bounce_on_action_fail(CellSlice&, unsigned args) {
+  unsigned arg = (args & 1);
+  return PSTRING() << "SETBOUNCEONACTIONPHASEFAIL " << arg;
+}
+
+int exec_bounce_on_action_fail(VmState* st, unsigned args) {
+  unsigned value = args & 1;
+  VM_LOG(st) << "execute SETBOUNCEONACTIONPHASEFAIL " << value;
+  st->set_bounce_on_action_phase_fail(value);
+  return 0;
+}
+
 void register_ton_message_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xfb00, 16, "SENDRAWMSG", exec_send_raw_message))
@@ -1246,7 +1258,9 @@ void register_ton_message_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xfb04, 16, "SETCODE", exec_set_code))
       .insert(OpcodeInstr::mksimple(0xfb06, 16, "SETLIBCODE", exec_set_lib_code))
       .insert(OpcodeInstr::mksimple(0xfb07, 16, "CHANGELIB", exec_change_lib))
-      .insert(OpcodeInstr::mksimple(0xfb08, 16, "SENDMSG", exec_send_message)->require_version(4));
+      .insert(OpcodeInstr::mksimple(0xfb08, 16, "SENDMSG", exec_send_message)->require_version(4))
+      .insert(OpcodeInstr::mkfixedrange(0xfb0a, 0xfb0c, 16, 1, dump_bounce_on_action_fail, exec_bounce_on_action_fail)
+                  ->require_version(4));
 }
 
 void register_ton_ops(OpcodeTable& cp0) {

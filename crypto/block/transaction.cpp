@@ -1094,6 +1094,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.new_data = vm.get_committed_state().c4;  // c4 -> persistent data
     cp.actions = vm.get_committed_state().c5;   // c5 -> action list
     int out_act_num = output_actions_count(cp.actions);
+    cp.bounce_on_action_phase_fail = vm.get_bounce_on_action_phase_fail();
     if (verbosity > 2) {
       std::cerr << "new smart contract data: ";
       load_cell_slice(cp.new_data).print_rec(std::cerr);
