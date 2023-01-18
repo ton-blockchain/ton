@@ -1,5 +1,5 @@
 # Global versions
-Global version is a parameter specified in `ConfigParam 8` ([block.tlb#593](https://github.com/newton-blockchain/ton/blob/master/crypto/block/block.tlb#L593)).
+Global version is a parameter specified in `ConfigParam 8` ([block.tlb](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L595)).
 Various features are enabled depending on the global version.
 
 ## Version 4
@@ -10,6 +10,10 @@ Various features are enabled depending on the global version.
 * `ECRECOVER`
 * `SENDMSG`
 * `SETBOUNCEONACTIONPHASEFAIL`
+
+#### Division
+[Division instruction](https://ton.org/docs/learn/tvm-instructions/instructions#52-division) can add a number to the
+intermediate value before division (e.g. `(xy+w)/z`).
 
 ### c7 tuple
 **c7** tuple extended from 10 to 14 elements:
