@@ -51,13 +51,13 @@ void DNSResolver::sync() {
                           std::move(P));
 }
 
-void DNSResolver::resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdShort> promise) {
+void DNSResolver::resolve(std::string host, td::Promise<std::string> promise) {
   auto it = cache_.find(host);
   if (it != cache_.end()) {
     const CacheEntry &entry = it->second;
     double now = td::Time::now();
     if (now < entry.created_at_ + CACHE_TIMEOUT_HARD) {
-      promise.set_result(entry.id_);
+      promise.set_result(entry.address_);
       promise.reset();
       if (now < entry.created_at_ + CACHE_TIMEOUT_SOFT) {
         return;
@@ -73,42 +73,42 @@ void DNSResolver::resolve(std::string host, td::Promise<ton::adnl::AdnlNodeIdSho
       if (promise) {
         promise.set_result(R.move_as_error());
       }
-    } else {
-      auto obj = R.move_as_ok();
-      ton::adnl::AdnlNodeIdShort id;
-      td::uint32 cnt = 0;
-      for (auto &e : obj->entries_) {
-        tonlib_api::downcast_call(*e->entry_.get(),
-                                  td::overloaded(
-                                      [&](tonlib_api::dns_entryDataAdnlAddress &x) {
-                                        if (td::Random::fast(0, cnt) == 0) {
-                                          auto R = ton::adnl::AdnlNodeIdShort::parse(x.adnl_address_->adnl_address_);
-                                          if (R.is_ok()) {
-                                            id = R.move_as_ok();
-                                            cnt++;
-                                          }
-                                        }
-                                      },
-                                      [&](auto &x) {}));
+      return;
+    }
+    auto obj = R.move_as_ok();
+    std::string result;
+    if (!obj->entries_.empty()) {
+      tonlib_api::downcast_call(*obj->entries_[0]->entry_,
+                                td::overloaded(
+                                    [&](tonlib_api::dns_entryDataAdnlAddress &x) {
+                                      auto R = ton::adnl::AdnlNodeIdShort::parse(x.adnl_address_->adnl_address_);
+                                      if (R.is_ok()) {
+                                        ton::adnl::AdnlNodeIdShort id = R.move_as_ok();
+                                        result = id.serialize() + ".adnl";
+                                      }
+                                    },
+                                    [&](tonlib_api::dns_entryDataStorageAddress &x) {
+                                      result = td::to_lower(x.bag_id_.to_hex()) + ".bag";
+                                    },
+                                    [&](auto &x) {}));
+    }
+    if (result.empty()) {
+      if (promise) {
+        promise.set_error(td::Status::Error("no DNS entries"));
       }
-      if (cnt == 0) {
-        if (promise) {
-          promise.set_error(td::Status::Error("no DNS entries"));
-        }
-      } else {
-        td::actor::send_closure(SelfId, &DNSResolver::save_to_cache, std::move(host), id);
-        if (promise) {
-          promise.set_result(id);
-        }
-      }
+      return;
+    }
+    td::actor::send_closure(SelfId, &DNSResolver::save_to_cache, std::move(host), result);
+    if (promise) {
+      promise.set_result(std::move(result));
     }
   });
   td::actor::send_closure(tonlib_client_, &tonlib::TonlibClientWrapper::send_request<tonlib_api::dns_resolve>,
                           std::move(obj), std::move(P));
 }
 
-void DNSResolver::save_to_cache(std::string host, ton::adnl::AdnlNodeIdShort id) {
+void DNSResolver::save_to_cache(std::string host, std::string address) {
   CacheEntry &entry = cache_[host];
-  entry.id_ = id;
+  entry.address_ = address;
   entry.created_at_ = td::Time::now();
 }

@@ -810,6 +810,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     }
     case _While: {
+      auto values0 = values;
       values = block0->fwd_analyze(values);
       if (values[left[0]] && values[left[0]]->always_false()) {
         // block1 never executed
@@ -817,7 +818,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
         break;
       }
       while (true) {
-        VarDescrList next_values = values | block0->fwd_analyze(block1->fwd_analyze(values));
+        VarDescrList next_values = values | block0->fwd_analyze(values0 | block1->fwd_analyze(values));
         if (same_values(next_values, values)) {
           break;
         }
