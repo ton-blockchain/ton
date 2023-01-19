@@ -114,7 +114,8 @@ class VmState final : public VmStateInterface {
     implicit_jmpref_gas_price = 10,
     implicit_ret_gas_price = 5,
     free_stack_depth = 32,
-    stack_entry_gas_price = 1
+    stack_entry_gas_price = 1,
+    runvm_gas_price = 0
   };
   VmState();
   VmState(Ref<CellSlice> _code);
@@ -351,6 +352,7 @@ class VmState final : public VmStateInterface {
  private:
   void init_cregs(bool same_c3 = false, bool push_0 = true);
   int run_inner();
+  int handle_no_gas(int err = (int)Excno::out_of_gas);
 };
 
 struct ParentVmState {

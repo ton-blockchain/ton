@@ -484,12 +484,7 @@ int VmState::run_inner() {
         }
       }
     } catch (VmNoGas vmoog) {
-      ++steps;
-      VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed()
-                   << ", limit=" << gas.gas_limit;
-      get_stack().clear();
-      get_stack().push_smallint(gas.gas_consumed());
-      return vmoog.get_errno();  // no ~ for unhandled exceptions (to make their faking impossible)
+      return handle_no_gas(vmoog.get_errno());
     }
   } while (!res);
   if ((res | 1) == -1 && !try_commit()) {
@@ -501,13 +496,27 @@ int VmState::run_inner() {
   return res;
 }
 
+int VmState::handle_no_gas(int err) {
+  ++steps;
+  VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed()
+               << ", limit=" << gas.gas_limit;
+  get_stack().clear();
+  get_stack().push_smallint(gas.gas_consumed());
+  return err;  // no ~ for unhandled exceptions (to make their faking impossible)
+}
+
 int VmState::run() {
   while (true) {
     int res = run_inner();
-    if (parent) {
+    while (true) {
+      if (!parent) {
+        return res;
+      }
       restore_parent_vm(res);
-    } else {
-      return res;
+      if (gas.gas_remaining >= 0) {
+        break;
+      }
+      res = handle_no_gas();
     }
   }
 }
@@ -706,9 +715,12 @@ void VmState::restore_parent_vm(int res) {
   *this = std::move(parent->state);
   log = std::move(child_state.log);
   libraries = std::move(child_state.libraries);
+  steps += child_state.steps;
   VM_LOG(this) << "restoring state after RUNVM\n";
 
   Stack& cur_stack = get_stack();
+  consume_stack_gas(child_state.stack);
+  consume_gas(child_state.gas_consumed());
   for (StackEntry& e : child_state.stack->extract_contents()) {
     cur_stack.push(std::move(e));
   }
@@ -722,7 +734,6 @@ void VmState::restore_parent_vm(int res) {
   if (parent->return_gas) {
     cur_stack.push_smallint(child_state.gas.gas_consumed());
   }
-  consume_gas(child_state.gas_consumed());
 }
 
 }  // namespace vm
