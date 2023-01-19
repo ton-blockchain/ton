@@ -23,7 +23,7 @@ jobs:
       - name: Build all
         run: |
           export NONINTERACTIVE=1
-          brew install ninja
+          brew install ninja libmicrohttpd
           rootPath=`pwd`
           mkdir build
           cd build
