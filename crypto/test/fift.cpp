@@ -33,9 +33,14 @@ std::string load_test(std::string name) {
   return td::read_file_str(current_dir() + "fift/" + name).move_as_ok();
 }
 
-td::Status run_fift(std::string name, bool preload_fift = true) {
-  TRY_RESULT(res, fift::mem_run_fift(load_test(name)));
-  REGRESSION_VERIFY(res.output);
+td::Status run_fift(std::string name, bool expect_error = false, bool preload_fift = true) {
+  auto res = fift::mem_run_fift(load_test(name));
+  if (expect_error) {
+    res.ensure_error();
+    return td::Status::OK();
+  }
+  res.ensure();
+  REGRESSION_VERIFY(res.ok().output);
   return td::Status::OK();
 }
 
@@ -79,7 +84,7 @@ TEST(Fift, testvmprog) {
   run_fift("testvmprog.fif");
 }
 TEST(Fift, bug) {
-  run_fift("bug.fif");
+  run_fift("bug.fif", true);
 }
 TEST(Fift, contfrac) {
   run_fift("contfrac.fif");
@@ -109,4 +114,11 @@ TEST(Fift, test_sort) {
 
 TEST(Fift, test_sort2) {
   run_fift("sort2.fif");
+}
+
+TEST(Fift, test_adddiv) {
+  run_fift("adddiv.fif");
+}
+TEST(Fift, test_tvm_runvm) {
+  run_fift("tvm_runvm.fif");
 }
