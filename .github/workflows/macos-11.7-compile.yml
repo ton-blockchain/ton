@@ -35,6 +35,7 @@ jobs:
           mkdir artifacts
           cp build/storage/storage-daemon/storage-daemon artifacts/
           cp build/storage/storage-daemon/storage-daemon-cli artifacts/
+          cp build/blockchain-explorer/blockchain-explorer artifacts/
           cp build/crypto/fift artifacts/
           cp build/crypto/func artifacts/
           cp build/crypto/create-state artifacts/
