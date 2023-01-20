@@ -1,0 +1,104 @@
+(slice, (int)) ~parse_text_command(slice in_msg) {
+    int op = 0;
+    ;; 3 possible commands deposit, recover, withdraw
+    int first_char = in_msg~load_uint(8);
+
+    ;; Deposit
+    if( first_char == 68 ) { ;; D
+      throw_unless(error::unknown_text_command(), in_msg~load_uint(48) == 111533580577140); ;; eposit
+      op = op::stake_deposit();
+    }
+
+    ;; Withdraw
+    if( first_char == 87 ) { ;; W
+      throw_unless(error::unknown_text_command(), in_msg~load_uint(56) == 29682864265257335); ;; ithdraw
+      op = op::stake_withdraw();
+    }
+
+    ;; Recover
+    if( first_char == 82 ) { ;; R
+      throw_unless(error::unknown_text_command(), in_msg~load_uint(48) == 111477746197874); ;; ecover
+      op = op::stake_recover();
+    }
+
+    return (in_msg, (op));
+}
+
+() op_nominators(int member, int flags, int value, slice in_msg) impure {
+    
+    ;; Ignore bounced
+    if (flags & 1) {
+        return ();
+    }
+
+    ;; Check value
+    throw_unless(error::invalid_message(), value >= params::min_op());
+
+    ;; Parse operation
+    int op = in_msg~load_uint(32);
+
+    ;; Text operations
+    if (op == 0) {
+        ctx_query_id = 0;
+        op = in_msg~parse_text_command();
+
+        ;; Deposit stake
+        if (op == op::stake_deposit()) {
+            op_deposit(member, value);
+            return ();
+        }
+
+        ;; Withdraw stake
+        if (op == op::stake_withdraw()) {
+            op_withdraw(member, value, 0);
+            return ();
+        }
+
+        ;; Recover stake
+        if (op == op::stake_recover()) {
+            load_validator_data();
+            op_stake_recover(value);
+            return ();
+        }
+        
+        ;; Unknown message
+        throw(error::invalid_message());
+        return ();
+    }
+
+    int query_id = in_msg~load_uint(64);
+    int gas_limit = in_msg~load_coins();
+    set_gas_limit(gas_limit);
+    ctx_query_id = query_id;
+    throw_unless(error::invalid_message(), ctx_query_id > 0);
+
+    ;; Deposit stake
+    if (op == op::stake_deposit()) {
+        op_deposit(member, value);
+        return ();
+    }
+
+    ;; Withdraw stake
+    if (op == op::stake_withdraw()) {
+        int stake = in_msg~load_coins();
+        in_msg.end_parse();
+        op_withdraw(member, value, stake);
+        return ();
+    }
+
+    ;; Recover stake
+    if (op == op::stake_recover()) {
+        load_validator_data();
+        op_stake_recover(value);
+        return ();
+    }
+
+    ;; Donate stake
+    if (op == op::donate()) {
+        op_donate(value);
+        return ();
+    }
+
+    ;; Unknown message
+    throw(error::invalid_message());
+}

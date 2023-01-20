@@ -35,6 +35,7 @@ struct FileDescr {
   std::string text;
   std::vector<long> line_offs;
   bool is_stdin;
+  bool is_main = false;
   FileDescr(std::string _fname, bool _stdin = false) : filename(std::move(_fname)), is_stdin(_stdin) {
   }
   const char* push_line(std::string new_line);

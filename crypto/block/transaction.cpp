@@ -794,6 +794,20 @@ bool ComputePhaseConfig::parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, t
   return true;
 }
 
+bool ComputePhaseConfig::is_address_suspended(ton::WorkchainId wc, td::Bits256 addr) const {
+  if (!suspended_addresses) {
+    return false;
+  }
+  try {
+    vm::CellBuilder key;
+    key.store_long_bool(wc, 32);
+    key.store_bits_bool(addr);
+    return !suspended_addresses->lookup(key.data_bits(), 288).is_null();
+  } catch (vm::VmError) {
+    return false;
+  }
+}
+
 void ComputePhaseConfig::compute_threshold() {
   gas_price256 = td::make_refint(gas_price);
   if (gas_limit > flat_gas_limit) {
@@ -1006,6 +1020,11 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   if (in_msg_state.not_null() &&
       (acc_status == Account::acc_uninit ||
        (acc_status == Account::acc_frozen && account.state_hash == in_msg_state->get_hash().bits()))) {
+    if (acc_status == Account::acc_uninit && cfg.is_address_suspended(account.workchain, account.addr)) {
+      LOG(DEBUG) << "address is suspended, skipping compute phase";
+      cp.skip_reason = ComputePhase::sk_suspended;
+      return true;
+    }
     use_msg_state = true;
     if (!(unpack_msg_state() && account.check_split_depth(new_split_depth))) {
       LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad split_depth; cannot init account state";
@@ -2263,6 +2282,8 @@ bool Transaction::serialize_compute_phase(vm::CellBuilder& cb) {
       return cb.store_long_bool(1, 3);  // cskip_bad_state$01 = ComputeSkipReason;
     case ComputePhase::sk_no_gas:
       return cb.store_long_bool(2, 3);  // cskip_no_gas$10 = ComputeSkipReason;
+    case ComputePhase::sk_suspended:
+      return cb.store_long_bool(0b0110, 4);  // cskip_suspended$110 = ComputeSkipReason;
     case ComputePhase::sk_none:
       break;
     default:
