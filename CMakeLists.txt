@@ -383,12 +383,11 @@ add_subdirectory(tl-utils)
 add_subdirectory(adnl)
 add_subdirectory(crypto)
 add_subdirectory(lite-client)
+add_subdirectory(emulator)
 
 #BEGIN tonlib
 add_subdirectory(tonlib)
 #END tonlib
-
-add_subdirectory(emulator)
 
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
