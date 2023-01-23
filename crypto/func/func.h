@@ -388,7 +388,7 @@ struct VarDescr {
     return val & _Const;
   }
   bool is_int_const() const {
-    return (val & (_Int | _Const)) == (_Int | _Const);
+    return (val & (_Int | _Const)) == (_Int | _Const) && int_const.not_null();
   }
   bool always_nonpos() const {
     return val & _Neg;

@@ -1372,7 +1372,7 @@ std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
     }
     auto loc = lex.cur().loc;
     SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
-    if (new_sym_def->value) {
+    if (!new_sym_def || new_sym_def->value) {
       lex.cur().error_at("redefined type variable `", "`");
     }
     auto var = TypeExpr::new_var(idx);
@@ -1582,8 +1582,15 @@ void parse_pragma(Lexer& lex) {
     char op = '='; bool eq = false;
     int sem_ver[3] = {0, 0, 0};
     char segs = 1;
+    auto stoi = [&](const std::string& s) {
+      auto R = td::to_integer_safe<int>(s);
+      if (R.is_error()) {
+        lex.cur().error("invalid semver format");
+      }
+      return R.move_as_ok();
+    };
     if (lex.tp() == _Number) {
-      sem_ver[0] = std::stoi(lex.cur().str);
+      sem_ver[0] = stoi(lex.cur().str);
     } else if (lex.tp() == _Ident) {
       auto id1 = lex.cur().str;
       char ch1 = id1[0];
@@ -1600,9 +1607,9 @@ void parse_pragma(Lexer& lex) {
         if (id1.length() < 3) {
           lex.cur().error("expected number after comparator");
         }
-        sem_ver[0] = std::stoi(id1.substr(2));
+        sem_ver[0] = stoi(id1.substr(2));
       } else {
-        sem_ver[0] = std::stoi(id1.substr(1));
+        sem_ver[0] = stoi(id1.substr(1));
       }
     } else {
       lex.cur().error("expected semver with optional comparator");
@@ -1612,7 +1619,7 @@ void parse_pragma(Lexer& lex) {
       if (lex.tp() != _Ident || lex.cur().str[0] != '.') {
         lex.cur().error("invalid semver format");
       }
-      sem_ver[1] = std::stoi(lex.cur().str.substr(1));
+      sem_ver[1] = stoi(lex.cur().str.substr(1));
       segs = 2;
       lex.next();
     }
@@ -1620,7 +1627,7 @@ void parse_pragma(Lexer& lex) {
       if (lex.tp() != _Ident || lex.cur().str[0] != '.') {
         lex.cur().error("invalid semver format");
       }
-      sem_ver[2] = std::stoi(lex.cur().str.substr(1));
+      sem_ver[2] = stoi(lex.cur().str.substr(1));
       segs = 3;
       lex.next();
     }
@@ -1630,7 +1637,7 @@ void parse_pragma(Lexer& lex) {
     std::string s;
     for (int idx = 0; idx < 3; idx++) {
       std::getline(iss, s, '.');
-      func_ver[idx] = std::stoi(s);
+      func_ver[idx] = stoi(s);
     }
     // End parsing embedded semver
     std::string semver_expr;

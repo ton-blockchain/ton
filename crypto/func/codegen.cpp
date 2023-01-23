@@ -663,12 +663,20 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << "REPEAT:<{";
         stack.o.indent();
         stack.forget_const();
-        StackLayout layout1 = stack.vars();
-        stack.mode &= ~Stack::_InlineFunc;
-        stack.mode |= Stack::_NeedRetAlt;
-        block0->generate_code_all(stack);
-        stack.enforce_state(std::move(layout1));
-        stack.opt_show();
+        if (block0->noreturn()) {
+          Stack stack_copy{stack};
+          StackLayout layout1 = stack.vars();
+          stack_copy.mode &= ~Stack::_InlineFunc;
+          stack_copy.mode |= Stack::_NeedRetAlt;
+          block0->generate_code_all(stack_copy);
+        } else {
+          StackLayout layout1 = stack.vars();
+          stack.mode &= ~Stack::_InlineFunc;
+          stack.mode |= Stack::_NeedRetAlt;
+          block0->generate_code_all(stack);
+          stack.enforce_state(std::move(layout1));
+          stack.opt_show();
+        }
         stack.o.undent();
         stack.o << "}>";
         return true;
