@@ -93,19 +93,19 @@ PROGRAM{
     s1 s5 XCHG
     s1 s6 XCHG	//  query_id merkle_hash file_size rate_per_mb_day max_span client torrent_hash
     build_storage_contract_stateinit CALLDICT	//  query_id state_init
-    276580847 PUSHINT	//  query_id state_init _54=276580847
-    6 PUSHINT	//  query_id state_init _54=276580847 _57
-    24 PUSHINT	//  query_id state_init _54=276580847 _57 _58=24
-    NEWC	//  query_id state_init _54=276580847 _57 _58=24 _59
-    6 STU	//  query_id state_init _54=276580847 _57 _61
-    s3 PUSH	//  query_id state_init _54=276580847 _57 _61 state_init
-    calculate_address_by_stateinit CALLDICT	//  query_id state_init _54=276580847 _57 _61 _62
-    STSLICER	//  query_id state_init _54=276580847 _57 _63
-    0 PUSHINT	//  query_id state_init _54=276580847 _57 _63 _64=0
-    STGRAMS	//  query_id state_init _54=276580847 _57 _65
-    108 STU	//  query_id state_init _54=276580847 _81
-    s1 s2 XCHG	//  query_id _54=276580847 state_init _81
-    STREF	//  query_id _54=276580847 _82
+    3832843761 PUSHINT	//  query_id state_init _54=3832843761
+    6 PUSHINT	//  query_id state_init _54=3832843761 _57
+    24 PUSHINT	//  query_id state_init _54=3832843761 _57 _58=24
+    NEWC	//  query_id state_init _54=3832843761 _57 _58=24 _59
+    6 STU	//  query_id state_init _54=3832843761 _57 _61
+    s3 PUSH	//  query_id state_init _54=3832843761 _57 _61 state_init
+    calculate_address_by_stateinit CALLDICT	//  query_id state_init _54=3832843761 _57 _61 _62
+    STSLICER	//  query_id state_init _54=3832843761 _57 _63
+    0 PUSHINT	//  query_id state_init _54=3832843761 _57 _63 _64=0
+    STGRAMS	//  query_id state_init _54=3832843761 _57 _65
+    108 STU	//  query_id state_init _54=3832843761 _81
+    s1 s2 XCHG	//  query_id _54=3832843761 state_init _81
+    STREF	//  query_id _54=3832843761 _82
     32 STU	//  query_id _84
     64 STU	//  _86
     ENDC	//  msg
@@ -113,6 +113,7 @@ PROGRAM{
     SENDRAWMSG
   }>
   recv_internal PROC:<{
+    c2 SAVE
     SAMEALTSAVE	//  msg_value in_msg_full in_msg_body
     SWAP	//  msg_value in_msg_body in_msg_full
     CTOS	//  msg_value in_msg_body cs

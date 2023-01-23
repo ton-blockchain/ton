@@ -67,7 +67,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
             .store_coins(0)
             .store_uint(4 + 2, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
             .store_ref(state_init)
-            .store_uint(op::offer_storage_contract, 32)
+            .store_uint(op::deploy_storage_contract, 32)
             .store_uint(query_id, 64)
             .end_cell();
     send_raw_message(msg, 64);
