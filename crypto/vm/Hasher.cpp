@@ -25,7 +25,7 @@ namespace vm {
 
 using td::Ref;
 
-class HasherImplEVP : public HasherImpl {
+class HasherImplEVP : public Hasher::HasherImpl {
  public:
   explicit HasherImplEVP(EVP_MD_CTX* ctx) : ctx_(ctx) {
   }
@@ -57,7 +57,7 @@ class HasherImplEVP : public HasherImpl {
   EVP_MD_CTX *ctx_;
 };
 
-class HasherImplKeccak : public HasherImpl {
+class HasherImplKeccak : public Hasher::HasherImpl {
  public:
   explicit HasherImplKeccak(size_t hash_size) : hash_size_(hash_size) {
     CHECK(keccak_init(&state_, hash_size * 2, 24) == 0);
@@ -109,9 +109,6 @@ Hasher::Hasher(unsigned hash_id) : id_(hash_id) {
   impl_ = std::make_unique<HasherImplEVP>(ctx);
 }
 
-Hasher::Hasher(unsigned id, std::unique_ptr<HasherImpl> impl) : id_(id), impl_(std::move(impl)) {
-}
-
 void Hasher::append(td::ConstBitPtr data, unsigned size) {
   if (!impl_) {
     throw VmError{Excno::unknown, "can't use finished hasher"};
@@ -119,10 +116,9 @@ void Hasher::append(td::ConstBitPtr data, unsigned size) {
   if (size == 0) {
     return;
   }
-  if ((data - extra_bits_cnt_).byte_aligned()) {
+  if ((data - extra_bits_cnt_).byte_aligned() && size >= 8) {
     if (extra_bits_cnt_) {
       unsigned s = 8 - extra_bits_cnt_;
-      CHECK(s <= size);
       td::BitPtr(&extra_bits_, extra_bits_cnt_).copy_from(data, s);
       impl_->append(&extra_bits_, 1);
       data += s;
@@ -143,7 +139,6 @@ void Hasher::append(td::ConstBitPtr data, unsigned size) {
   while (true) {
     unsigned s = std::min(size, buf_cap - buf_size);
     buf_ptr.copy_from(data, s);
-    buf_ptr += s;
     data += s;
     buf_size += s;
     size -= s;
@@ -172,13 +167,6 @@ td::BufferSlice Hasher::finish() {
   td::BufferSlice hash = impl_->finish();
   impl_ = nullptr;
   return hash;
-}
-
-td::CntObject* Hasher::make_copy() const {
-  auto copy = new Hasher(id_, impl_ ? impl_->make_copy() : nullptr);
-  copy->extra_bits_ = extra_bits_;
-  copy->extra_bits_cnt_ = extra_bits_cnt_;
-  return copy;
 }
 
 }

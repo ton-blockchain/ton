@@ -387,107 +387,62 @@ int exec_compute_sha256(VmState* st) {
   return 0;
 }
 
-int exec_hash_start(VmState* st, unsigned hash_id) {
-  hash_id &= 255;
-  VM_LOG(st) << "execute HASHSTART " << hash_id;
-  st->get_stack().push_object(vm::Hasher::create(hash_id));
-  return 0;
-}
-
-int exec_hash_end(VmState* st) {
-  VM_LOG(st) << "execute HASHEND";
+int exec_hash_ext(VmState* st, unsigned args) {
+  bool rev = (args >> 8) & 1;
+  bool append = (args >> 9) & 1;
+  unsigned hash_id = args & 255;
+  VM_LOG(st) << "execute HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << hash_id;
   Stack& stack = st->get_stack();
-  Ref<vm::Hasher> hasher = stack.pop_object<vm::Hasher>();
-  if (hasher.is_null()) {
-    throw VmError{Excno::type_chk, "not a hasher"};
-  }
-  td::BufferSlice hash = hasher.write().finish();
-  if (hash.size() <= 32) {
-    td::RefInt256 res{true};
-    CHECK(res.write().import_bytes((unsigned char*)hash.data(), hash.size(), false));
-    stack.push_int(std::move(res));
-  } else {
-    std::vector<StackEntry> res;
-    for (size_t i = 0; i < hash.size(); i += 32) {
-      td::RefInt256 x{true};
-      CHECK(x.write().import_bytes((unsigned char*)hash.data() + i, std::min<size_t>(hash.size() - i, 32), false));
-      res.push_back(std::move(x));
+  int cnt = stack.pop_smallint_range(stack.depth() - 1);
+  st->consume_gas(VmState::hash_ext_entry_gas_price * cnt);
+  Hasher hasher{hash_id};
+  for (int i = 0; i < cnt; ++i) {
+    int idx = rev ? i : cnt - 1 - i;
+    auto slice = stack[idx].as_slice();
+    if (slice.not_null()) {
+      hasher.append(slice->data_bits(), slice->size());
+      continue;
     }
-    stack.push_tuple(std::move(res));
+    auto builder = stack[idx].as_builder();
+    if (builder.not_null()) {
+      hasher.append(builder->data_bits(), builder->size());
+      continue;
+    }
+    stack.pop_many(cnt);
+    throw VmError{Excno::type_chk, "expected slice or builder"};
+  }
+  stack.pop_many(cnt);
+  td::BufferSlice hash = hasher.finish();
+  if (append) {
+    Ref<CellBuilder> builder = stack.pop_builder();
+    if (!builder->can_extend_by(hash.size() * 8)) {
+      throw VmError{Excno::cell_ov};
+    }
+    builder.write().store_bytes(hash.as_slice());
+    stack.push_builder(std::move(builder));
+  } else {
+    if (hash.size() <= 32) {
+      td::RefInt256 res{true};
+      CHECK(res.write().import_bytes((unsigned char*)hash.data(), hash.size(), false));
+      stack.push_int(std::move(res));
+    } else {
+      std::vector<StackEntry> res;
+      for (size_t i = 0; i < hash.size(); i += 32) {
+        td::RefInt256 x{true};
+        CHECK(x.write().import_bytes((unsigned char*)hash.data() + i, std::min<size_t>(hash.size() - i, 32), false));
+        res.push_back(std::move(x));
+      }
+      stack.push_tuple(std::move(res));
+    }
   }
   return 0;
 }
 
-int exec_hash_end_store(VmState* st) {
-  VM_LOG(st) << "execute HASHENDST";
-  Stack& stack = st->get_stack();
-  Ref<CellBuilder> builder = stack.pop_builder();
-  Ref<vm::Hasher> hasher = stack.pop_object<vm::Hasher>();
-  if (hasher.is_null()) {
-    throw VmError{Excno::type_chk, "not a hasher"};
-  }
-  td::BufferSlice hash = hasher.write().finish();
-  if (!builder->can_extend_by(hash.size() * 8)) {
-    throw VmError{Excno::cell_ov};
-  }
-  builder.write().store_bytes(hash.as_slice());
-  stack.push_builder(std::move(builder));
-  return 0;
-}
-
-int exec_hash_info(VmState* st) {
-  VM_LOG(st) << "execute HASHINFO";
-  Stack& stack = st->get_stack();
-  Ref<vm::Hasher> hasher = stack.pop_object<vm::Hasher>();
-  if (hasher.is_null()) {
-    throw VmError{Excno::type_chk, "not a hasher"};
-  }
-  stack.push_smallint(hasher->get_hash_id());
-  return 0;
-}
-
-int exec_hash_append_int(VmState* st, unsigned args, bool sgnd) {
-  unsigned bits = (args & 0xff) + 1;
-  VM_LOG(st) << "execute HASHAPP" << (sgnd ? 'I' : 'U');
-  Stack& stack = st->get_stack();
-  td::RefInt256 x = stack.pop_int();
-  Ref<vm::Hasher> hasher = stack.pop_object<vm::Hasher>();
-  if (hasher.is_null()) {
-    throw VmError{Excno::type_chk, "not a hasher"};
-  }
-  unsigned char data[32];
-  if (!x->export_bits(data, 0, bits, sgnd)) {
-    throw VmError{Excno::range_chk};
-  }
-  hasher.write().append(td::ConstBitPtr(data), bits);
-  stack.push_object<vm::Hasher>(hasher);
-  return 0;
-}
-
-int exec_hash_append_slice(VmState* st) {
-  VM_LOG(st) << "execute HASHAPPS";
-  Stack& stack = st->get_stack();
-  Ref<vm::CellSlice> s = stack.pop_cellslice();
-  Ref<vm::Hasher> hasher = stack.pop_object<vm::Hasher>();
-  if (hasher.is_null()) {
-    throw VmError{Excno::type_chk, "not a hasher"};
-  }
-  hasher.write().append(s->data_bits(), s->size());
-  stack.push_object<vm::Hasher>(hasher);
-  return 0;
-}
-
-int exec_hash_append_builder(VmState* st) {
-  VM_LOG(st) << "execute HASHAPPB";
-  Stack& stack = st->get_stack();
-  Ref<vm::CellBuilder> b = stack.pop_builder();
-  Ref<vm::Hasher> hasher = stack.pop_object<vm::Hasher>();
-  if (hasher.is_null()) {
-    throw VmError{Excno::type_chk, "not a hasher"};
-  }
-  hasher.write().append(b->data_bits(), b->size());
-  stack.push_object<vm::Hasher>(hasher);
-  return 0;
+std::string dump_hash_ext(CellSlice& cs, unsigned args) {
+  bool rev = (args >> 8) & 1;
+  bool append = (args >> 9) & 1;
+  unsigned hash_id = args & 255;
+  return PSTRING() << "HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << hash_id;
 }
 
 int exec_ed25519_check_signature(VmState* st, bool from_slice) {
@@ -567,14 +522,7 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
   cp0.insert(OpcodeInstr::mksimple(0xf900, 16, "HASHCU", std::bind(exec_compute_hash, _1, 0)))
       .insert(OpcodeInstr::mksimple(0xf901, 16, "HASHSU", std::bind(exec_compute_hash, _1, 1)))
       .insert(OpcodeInstr::mksimple(0xf902, 16, "SHA256U", exec_compute_sha256))
-      .insert(OpcodeInstr::mkfixed(0xf903,  16, 8, instr::dump_1c("HASHSTART "), exec_hash_start)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf904, 16, "HASHEND", exec_hash_end)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf905, 16, "HASHENDST", exec_hash_end_store)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf906, 16, "HASHINFO", exec_hash_info)->require_version(4))
-      .insert(OpcodeInstr::mkfixed(0xf907, 16, 8, instr::dump_1c_l_add(1, "HASHAPPU "), std::bind(exec_hash_append_int, _1, _2, false))->require_version(4))
-      .insert(OpcodeInstr::mkfixed(0xf908, 16, 8, instr::dump_1c_l_add(1, "HASHAPPI "), std::bind(exec_hash_append_int, _1, _2, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf909, 16, "HASHAPPS", exec_hash_append_slice)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf90a, 16, "HASHAPPB", exec_hash_append_builder)->require_version(4))
+      .insert(OpcodeInstr::mkfixed(0xf904 >> 2,  14, 10, dump_hash_ext, exec_hash_ext)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4));

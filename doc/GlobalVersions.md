@@ -6,7 +6,7 @@ Various features are enabled depending on the global version.
 
 ### New TVM instructions
 * `PREVMCBLOCKS`, `PREVKEYBLOCK`
-* `HASHSTART`, `HASHEND`, `HASHENDST`, `HASHINFO`, `HASHAPPU`, `HASHAPPI`, `HASHAPPS`, `HASHAPPB`
+* `HASHEXT(A)(R)`
 * `ECRECOVER`
 * `SENDMSG`
 * `SETBOUNCEONACTIONPHASEFAIL`

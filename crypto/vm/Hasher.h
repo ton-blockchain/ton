@@ -25,29 +25,12 @@ namespace vm {
 
 using td::Ref;
 
-class HasherImpl {
- public:
-  virtual ~HasherImpl() = default;
-  virtual void append(const unsigned char* data, size_t size) = 0;
-  virtual td::BufferSlice finish() = 0;
-  virtual std::unique_ptr<HasherImpl> make_copy() const = 0;
-};
-
-class Hasher : public td::CntObject {
+class Hasher {
  public:
   explicit Hasher(unsigned id);
   Hasher(const Hasher&) = delete;
-  td::CntObject* make_copy() const override;
   void append(td::ConstBitPtr data, unsigned size);
   td::BufferSlice finish();
-
-  unsigned get_hash_id() const {
-    return id_;
-  }
-
-  static Ref<Hasher> create(unsigned hash_id) {
-    return td::make_ref<Hasher>(hash_id);
-  }
 
   static const unsigned SHA256 = 0;
   static const unsigned SHA512 = 1;
@@ -55,13 +38,19 @@ class Hasher : public td::CntObject {
   static const unsigned KECCAK256 = 3;
   static const unsigned KECCAK512 = 4;
 
+  class HasherImpl {
+   public:
+    virtual ~HasherImpl() = default;
+    virtual void append(const unsigned char* data, size_t size) = 0;
+    virtual td::BufferSlice finish() = 0;
+    virtual std::unique_ptr<HasherImpl> make_copy() const = 0;
+  };
+
  private:
   unsigned id_ = 0;
   unsigned char extra_bits_ = 0;
   unsigned extra_bits_cnt_ = 0;
   std::unique_ptr<HasherImpl> impl_;
-
-  Hasher(unsigned id, std::unique_ptr<HasherImpl> impl);
 };
 
 }

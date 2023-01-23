@@ -119,6 +119,11 @@ TEST(Fift, test_sort2) {
 TEST(Fift, test_adddiv) {
   run_fift("adddiv.fif");
 }
+
 TEST(Fift, test_tvm_runvm) {
   run_fift("tvm_runvm.fif");
+}
+
+TEST(Fift, test_hash_ext) {
+  run_fift("hash_ext.fif");
 }
