@@ -355,6 +355,9 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       return args[0]->pre_compile(code, lval_globs);
     case _Var:
     case _Hole:
+      if (val < 0) {
+        throw src::ParseError{here, "unexpected variable definition"};
+      }
       return {val};
     case _VarApply:
       if (args[0]->cls == _Glob) {

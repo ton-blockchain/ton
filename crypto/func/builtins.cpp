@@ -266,7 +266,7 @@ int emulate_div(int a, int b) {
   if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return a;
   } else if ((b & (VarDescr::_NonZero | VarDescr::_Bool)) == (VarDescr::_NonZero | VarDescr::_Bool)) {
-    return emulate_negate(b);
+    return emulate_negate(a);
   }
   if (b & VarDescr::_Zero) {
     return VarDescr::_Int | VarDescr::_Nan;
