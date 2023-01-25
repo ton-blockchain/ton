@@ -16,8 +16,6 @@ td::Ref<vm::Cell> to_cell(const unsigned char *buff, int bits) {
   return vm::CellBuilder().store_bits(buff, bits, 0).finalize();
 }
 
-long double timingBaseline;
-
 typedef struct {
   long double mean;
   long double stddev;
@@ -56,54 +54,59 @@ typedef struct {
   bool errored;
 } runtimeStats;
 
-runInfo time_run_vm(td::Slice command) {
+vm::Stack prepare_stack(td::Slice command) {
+  unsigned char buff[128];
+  const int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), command.begin(), command.end());
+  CHECK(bits >= 0);
+  const auto cell = to_cell(buff, bits);
+  vm::init_op_cp0();
+  vm::DictionaryBase::get_empty_dictionary();
+  vm::Stack stack;
+  try {
+    vm::GasLimits gas_limit(1000000, 1000000);
+    int ret = vm::run_vm_code(vm::load_cell_slice_ref(cell), stack, 0 /*flags*/, nullptr /*data*/,
+                              vm::VmLog{}, nullptr, &gas_limit, {}, {}, nullptr, 4);
+    CHECK(ret == 0);
+  } catch (...) {
+    LOG(FATAL) << "catch unhandled exception";
+  }
+  return stack;
+}
+
+runInfo time_run_vm(td::Slice command, td::Ref<vm::Stack> stack) {
   unsigned char buff[128];
   const int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), command.begin(), command.end());
   CHECK(bits >= 0);
 
   const auto cell = to_cell(buff, bits);
-
   vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
-
-  class Logger : public td::LogInterface {
-   public:
-    void append(td::CSlice slice) override {
-      res.append(slice.data(), slice.size());
-    }
-    std::string res;
-  };
-  static Logger logger;
-  logger.res = "";
-  td::set_log_fatal_error_callback([](td::CSlice message) { td::default_log_interface->append(logger.res); });
-  vm::VmLog log{&logger, td::LogOptions::plain()};
-  log.log_options.level = 4;
-  log.log_options.fix_newlines = true;
-  log.log_mask |= vm::VmLog::DumpStack;
-
-  vm::Stack stack;
+  CHECK(stack.is_unique());
   try {
-    vm::GasLimits gas_limit(10000, 10000);
-
+    vm::GasLimits gas_limit(1000000, 1000000);
+    vm::VmState vm{vm::load_cell_slice_ref(cell), std::move(stack), gas_limit, 0, {}, vm::VmLog{}, {}, {}};
+    vm.set_global_version(4);
     std::clock_t cStart = std::clock();
-    int ret = vm::run_vm_code(vm::load_cell_slice_ref(cell), stack, 0 /*flags*/, nullptr /*data*/,
-                              std::move(log) /*VmLog*/, nullptr, &gas_limit);
+    int ret = ~vm.run();
     std::clock_t cEnd = std::clock();
-    const auto time = (1000.0 * static_cast<long double>(cEnd - cStart) / CLOCKS_PER_SEC) - timingBaseline;
-    return {time >= 0 ? time : 0, gas_limit.gas_consumed(), ret};
+    const auto time = (1000.0 * static_cast<long double>(cEnd - cStart) / CLOCKS_PER_SEC);
+    return {time >= 0 ? time : 0, vm.gas_consumed(), ret};
   } catch (...) {
     LOG(FATAL) << "catch unhandled exception";
     return {-1, -1, 1};
   }
 }
 
-runtimeStats averageRuntime(td::Slice command) {
-  const size_t samples = 5000;
+runtimeStats averageRuntime(td::Slice command, const vm::Stack& stack) {
+  const size_t samples = 100000;
   runInfo total;
   std::vector<runInfo> values;
   values.reserve(samples);
-  for(size_t i=0; i<samples; ++i) {
-    const auto value = time_run_vm(command);
+  for(size_t i = 0; i < samples; ++i) {
+    const auto value_empty = time_run_vm(td::Slice(""), td::Ref<vm::Stack>(true, stack));
+    const auto value_code = time_run_vm(command, td::Ref<vm::Stack>(true, stack));
+    runInfo value{value_code.runtime - value_empty.runtime, value_code.gasUsage - value_empty.gasUsage,
+                  value_code.vmReturnCode};
     values.push_back(value);
     total += value;
   }
@@ -120,23 +123,19 @@ runtimeStats averageRuntime(td::Slice command) {
     errored = errored || value.errored();
   }
   return {
-      {runtimeMean, sqrt(runtimeDiffSum / static_cast<long double>(samples))},
-      {gasMean, sqrt(gasDiffSum / static_cast<long double>(samples))},
+      {runtimeMean, sqrtl(runtimeDiffSum / static_cast<long double>(samples))},
+      {gasMean, sqrtl(gasDiffSum / static_cast<long double>(samples))},
       errored
   };
 }
 
 runtimeStats timeInstruction(const std::string& setupCode, const std::string& toMeasure) {
-  const auto setupCodeTime = averageRuntime(setupCode);
-  const auto totalCodeTime = averageRuntime(setupCode + toMeasure);
-  return {
-      {totalCodeTime.runtime.mean - setupCodeTime.runtime.mean, totalCodeTime.runtime.stddev},
-      {totalCodeTime.gasUsage.mean - setupCodeTime.gasUsage.mean, totalCodeTime.gasUsage.stddev},
-      false
-  };
+  vm::Stack stack = prepare_stack(setupCode);
+  return averageRuntime(toMeasure, stack);
 }
 
 int main(int argc, char** argv) {
+  SET_VERBOSITY_LEVEL(verbosity_ERROR);
   if(argc != 2 && argc != 3) {
     std::cerr <<
         "This utility compares the timing of VM execution against the gas used.\n"
@@ -154,8 +153,7 @@ int main(int argc, char** argv) {
         " [TVM_SETUP_BYTECODE_HEX] TVM_BYTECODE_HEX" << std::endl << std::endl;
     return 1;
   }
-  std::cout << "OPCODE,runtime mean,runtime stddev,gas mean,gas stddev" << std::endl;
-  timingBaseline = averageRuntime("").runtime.mean;
+  std::cout << "OPCODE,runtime mean,runtime stddev,gas mean,gas stddev,error" << std::endl;
   std::string setup, code;
   if(argc == 2) {
     setup = "";
@@ -165,7 +163,7 @@ int main(int argc, char** argv) {
     code = argv[2];
   }
   const auto time = timeInstruction(setup, code);
-  std::cout << code << "," << time.runtime.mean << "," << time.runtime.stddev << "," <<
-      time.gasUsage.mean << "," << time.gasUsage.stddev << std::endl;
+  std::cout << std::fixed << std::setprecision(9) << code << "," << time.runtime.mean << "," << time.runtime.stddev
+            << "," << time.gasUsage.mean << "," << time.gasUsage.stddev << "," << (int)time.errored << std::endl;
   return 0;
 }
