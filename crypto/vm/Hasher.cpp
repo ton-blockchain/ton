@@ -89,7 +89,7 @@ class HasherImplKeccak : public Hasher::HasherImpl {
   keccak_state *state_ = nullptr;
 };
 
-Hasher::Hasher(unsigned hash_id) : id_(hash_id) {
+Hasher::Hasher(int hash_id) : id_(hash_id) {
   if (hash_id == KECCAK256 || hash_id == KECCAK512) {
     impl_ = std::make_unique<HasherImplKeccak>(hash_id == KECCAK256 ? 32 : 64);
     return;
@@ -113,47 +113,16 @@ void Hasher::append(td::ConstBitPtr data, unsigned size) {
   if (!impl_) {
     throw VmError{Excno::unknown, "can't use finished hasher"};
   }
-  if (size == 0) {
-    return;
-  }
-  if ((data - extra_bits_cnt_).byte_aligned() && size >= 8) {
-    if (extra_bits_cnt_) {
-      unsigned s = 8 - extra_bits_cnt_;
-      td::BitPtr(&extra_bits_, extra_bits_cnt_).copy_from(data, s);
-      impl_->append(&extra_bits_, 1);
-      data += s;
-      size -= s;
+  while (size > 0) {
+    unsigned cur_size = std::min(size, BUF_SIZE * 8 - buf_ptr_);
+    td::BitPtr{buf_, (int)buf_ptr_}.copy_from(data, cur_size);
+    buf_ptr_ += cur_size;
+    if (buf_ptr_ == BUF_SIZE * 8) {
+      impl_->append(buf_, BUF_SIZE);
+      buf_ptr_ = 0;
     }
-    impl_->append(data.get_byte_ptr(), size / 8);
-    extra_bits_cnt_ = size % 8;
-    if (extra_bits_cnt_) {
-      extra_bits_ = data.get_byte_ptr()[size / 8];
-    }
-    return;
-  }
-
-  unsigned char buf[256];
-  buf[0] = extra_bits_;
-  unsigned buf_cap = 256 * 8, buf_size = extra_bits_cnt_;
-  td::BitPtr buf_ptr(buf, buf_size);
-  while (true) {
-    unsigned s = std::min(size, buf_cap - buf_size);
-    buf_ptr.copy_from(data, s);
-    data += s;
-    buf_size += s;
-    size -= s;
-    if (buf_size >= 8) {
-      impl_->append(buf, buf_size / 8);
-    }
-    if (size == 0) {
-      extra_bits_cnt_ = buf_size % 8;
-      if (extra_bits_cnt_) {
-        extra_bits_ = buf[buf_size / 8];
-      }
-      break;
-    }
-    buf_size = 0;
-    buf_ptr = td::BitPtr(buf);
+    size -= cur_size;
+    data += cur_size;
   }
 }
 
@@ -161,12 +130,19 @@ td::BufferSlice Hasher::finish() {
   if (!impl_) {
     throw VmError{Excno::unknown, "can't use finished hasher"};
   }
-  if (extra_bits_cnt_ != 0) {
+  if (buf_ptr_ % 8 != 0) {
     throw VmError{Excno::cell_und, "data does not consist of an integer number of bytes"};
   }
+  impl_->append(buf_, buf_ptr_ / 8);
   td::BufferSlice hash = impl_->finish();
   impl_ = nullptr;
   return hash;
+}
+
+static const size_t BYTES_PER_GAS_UNIT[5] = {33, 16, 19, 11, 6};
+
+size_t Hasher::bytes_per_gas_unit() const {
+  return BYTES_PER_GAS_UNIT[id_];
 }
 
 }

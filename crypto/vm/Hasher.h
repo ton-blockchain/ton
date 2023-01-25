@@ -27,16 +27,17 @@ using td::Ref;
 
 class Hasher {
  public:
-  explicit Hasher(unsigned id);
+  explicit Hasher(int id);
   Hasher(const Hasher&) = delete;
   void append(td::ConstBitPtr data, unsigned size);
   td::BufferSlice finish();
+  size_t bytes_per_gas_unit() const;
 
-  static const unsigned SHA256 = 0;
-  static const unsigned SHA512 = 1;
-  static const unsigned BLAKE2B = 2;
-  static const unsigned KECCAK256 = 3;
-  static const unsigned KECCAK512 = 4;
+  static const int SHA256 = 0;
+  static const int SHA512 = 1;
+  static const int BLAKE2B = 2;
+  static const int KECCAK256 = 3;
+  static const int KECCAK512 = 4;
 
   class HasherImpl {
    public:
@@ -47,9 +48,10 @@ class Hasher {
   };
 
  private:
-  unsigned id_ = 0;
-  unsigned char extra_bits_ = 0;
-  unsigned extra_bits_cnt_ = 0;
+  int id_ = 0;
+  static const unsigned BUF_SIZE = 256;
+  unsigned char buf_[BUF_SIZE];
+  unsigned buf_ptr_ = 0;
   std::unique_ptr<HasherImpl> impl_;
 };
 

@@ -390,26 +390,39 @@ int exec_compute_sha256(VmState* st) {
 int exec_hash_ext(VmState* st, unsigned args) {
   bool rev = (args >> 8) & 1;
   bool append = (args >> 9) & 1;
-  unsigned hash_id = args & 255;
-  VM_LOG(st) << "execute HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << hash_id;
+  int hash_id = args & 255;
+  VM_LOG(st) << "execute HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << (hash_id == 255 ? -1 : hash_id);
   Stack& stack = st->get_stack();
+  if (hash_id == 255) {
+    hash_id = stack.pop_smallint_range(254);
+  }
   int cnt = stack.pop_smallint_range(stack.depth() - 1);
-  st->consume_gas(VmState::hash_ext_entry_gas_price * cnt);
   Hasher hasher{hash_id};
+  size_t total_bits = 0;
+  long long gas_consumed = 0;
   for (int i = 0; i < cnt; ++i) {
+    td::ConstBitPtr data{nullptr};
+    unsigned size;
     int idx = rev ? i : cnt - 1 - i;
     auto slice = stack[idx].as_slice();
     if (slice.not_null()) {
-      hasher.append(slice->data_bits(), slice->size());
-      continue;
+      data = slice->data_bits();
+      size = slice->size();
+    } else {
+      auto builder = stack[idx].as_builder();
+      if (builder.not_null()) {
+        data = builder->data_bits();
+        size = builder->size();
+      } else {
+        stack.pop_many(cnt);
+        throw VmError{Excno::type_chk, "expected slice or builder"};
+      }
     }
-    auto builder = stack[idx].as_builder();
-    if (builder.not_null()) {
-      hasher.append(builder->data_bits(), builder->size());
-      continue;
-    }
-    stack.pop_many(cnt);
-    throw VmError{Excno::type_chk, "expected slice or builder"};
+    hasher.append(data, size);
+    total_bits += size;
+    long long gas_total = (i + 1) + total_bits / 8 / hasher.bytes_per_gas_unit();
+    st->consume_gas_chk(gas_total - gas_consumed);
+    gas_consumed = gas_total;
   }
   stack.pop_many(cnt);
   td::BufferSlice hash = hasher.finish();
@@ -441,8 +454,8 @@ int exec_hash_ext(VmState* st, unsigned args) {
 std::string dump_hash_ext(CellSlice& cs, unsigned args) {
   bool rev = (args >> 8) & 1;
   bool append = (args >> 9) & 1;
-  unsigned hash_id = args & 255;
-  return PSTRING() << "HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << hash_id;
+  int hash_id = args & 255;
+  return PSTRING() << "HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << (hash_id == 255 ? -1 : hash_id);
 }
 
 int exec_ed25519_check_signature(VmState* st, bool from_slice) {
