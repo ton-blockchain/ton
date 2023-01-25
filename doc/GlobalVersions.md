@@ -11,9 +11,13 @@ Various features are enabled depending on the global version.
 * `SENDMSG`
 * `RUNVM`, `RUNVMX`
 
-#### Division
+### Division
 [Division instruction](https://ton.org/docs/learn/tvm-instructions/instructions#52-division) can add a number to the
 intermediate value before division (e.g. `(xy+w)/z`).
+
+### Stack operations
+* Arguments of `PICK`, `ROLL`, `ROLLREV`, `BLKSWX`, `REVX`, `DROPX`, `XCHGX`, `CHKDEPTH`, `ONLYTOPX`, `ONLYX` are now unlimited.
+* `ROLL`, `ROLLREV`, `BLKSWX`, `REVX`, `ONLYTOPX` consume more gas when arguments are big.
 
 ### c7 tuple
 **c7** tuple extended from 10 to 14 elements:

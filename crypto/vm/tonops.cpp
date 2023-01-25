@@ -421,7 +421,7 @@ int exec_hash_ext(VmState* st, unsigned args) {
     hasher.append(data, size);
     total_bits += size;
     long long gas_total = (i + 1) + total_bits / 8 / hasher.bytes_per_gas_unit();
-    st->consume_gas_chk(gas_total - gas_consumed);
+    st->consume_gas_limited_chk(gas_total - gas_consumed);
     gas_consumed = gas_total;
   }
   stack.pop_many(cnt);

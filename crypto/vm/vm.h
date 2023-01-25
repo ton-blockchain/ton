@@ -147,8 +147,11 @@ class VmState final : public VmStateInterface {
   void consume_gas(long long amount) {
     gas.consume(amount);
   }
-  void consume_gas_chk(long long amount) {
-    gas.consume_chk(amount);
+  void consume_gas_limited_chk(long long amount) {
+    if (!gas.try_consume(amount)) {
+      gas.gas_remaining = -1;
+      gas.gas_exception();
+    }
   }
   void consume_tuple_gas(unsigned tuple_len) {
     consume_gas(tuple_len * tuple_entry_gas_price);

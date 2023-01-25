@@ -127,3 +127,7 @@ TEST(Fift, test_tvm_runvm) {
 TEST(Fift, test_hash_ext) {
   run_fift("hash_ext.fif");
 }
+
+TEST(Fift, test_deep_stack_ops) {
+  run_fift("deep_stack_ops.fif");
+}
