@@ -115,7 +115,7 @@ class VmState final : public VmStateInterface {
     implicit_ret_gas_price = 5,
     free_stack_depth = 32,
     stack_entry_gas_price = 1,
-    runvm_gas_price = 0,
+    runvm_gas_price = 40,
     hash_ext_entry_gas_price = 1
   };
   VmState();
