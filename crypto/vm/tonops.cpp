@@ -1132,7 +1132,7 @@ int exec_reserve_raw(VmState* st, int mode) {
   VM_LOG(st) << "execute RAWRESERVE" << (mode & 1 ? "X" : "");
   Stack& stack = st->get_stack();
   stack.check_underflow(2 + (mode & 1));
-  int f = stack.pop_smallint_range(15);
+  int f = stack.pop_smallint_range(st->get_global_version() >= 4 ? 31 : 15);
   Ref<Cell> y;
   if (mode & 1) {
     y = stack.pop_maybe_cell();
@@ -1168,12 +1168,20 @@ int exec_set_lib_code(VmState* st) {
   VM_LOG(st) << "execute SETLIBCODE";
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
-  int mode = stack.pop_smallint_range(2);
+  int mode;
+  if (st->get_global_version() >= 4) {
+    mode = stack.pop_smallint_range(31);
+    if ((mode & ~16) > 2) {
+      throw VmError{Excno::range_chk};
+    }
+  } else {
+    mode = stack.pop_smallint_range(2);
+  }
   auto code = stack.pop_cell();
   CellBuilder cb;
   if (!(cb.store_ref_bool(get_actions(st))         // out_list$_ {n:#} prev:^(OutList n)
         && cb.store_long_bool(0x26fa1dd4, 32)      // action_change_library#26fa1dd4
-        && cb.store_long_bool(mode * 2 + 1, 8)     // mode:(## 7) { mode <= 2 }
+        && cb.store_long_bool(mode * 2 + 1, 8)     // mode:(## 7)
         && cb.store_ref_bool(std::move(code)))) {  // libref:LibRef = OutAction;
     throw VmError{Excno::cell_ov, "cannot serialize new library code into an output action cell"};
   }
@@ -1184,7 +1192,15 @@ int exec_change_lib(VmState* st) {
   VM_LOG(st) << "execute CHANGELIB";
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
-  int mode = stack.pop_smallint_range(2);
+  int mode;
+  if (st->get_global_version() >= 4) {
+    mode = stack.pop_smallint_range(31);
+    if ((mode & ~16) > 2) {
+      throw VmError{Excno::range_chk};
+    }
+  } else {
+    mode = stack.pop_smallint_range(2);
+  }
   auto hash = stack.pop_int_finite();
   if (!hash->unsigned_fits_bits(256)) {
     throw VmError{Excno::range_chk, "library hash must be non-negative"};
@@ -1199,18 +1215,6 @@ int exec_change_lib(VmState* st) {
   return install_output_action(st, cb.finalize());
 }
 
-std::string dump_bounce_on_action_fail(CellSlice&, unsigned args) {
-  unsigned arg = (args & 1);
-  return PSTRING() << "SETBOUNCEONACTIONPHASEFAIL " << arg;
-}
-
-int exec_bounce_on_action_fail(VmState* st, unsigned args) {
-  unsigned value = args & 1;
-  VM_LOG(st) << "execute SETBOUNCEONACTIONPHASEFAIL " << value;
-  st->set_bounce_on_action_phase_fail(value);
-  return 0;
-}
-
 void register_ton_message_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xfb00, 16, "SENDRAWMSG", exec_send_raw_message))
@@ -1219,9 +1223,7 @@ void register_ton_message_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xfb04, 16, "SETCODE", exec_set_code))
       .insert(OpcodeInstr::mksimple(0xfb06, 16, "SETLIBCODE", exec_set_lib_code))
       .insert(OpcodeInstr::mksimple(0xfb07, 16, "CHANGELIB", exec_change_lib))
-      .insert(OpcodeInstr::mksimple(0xfb08, 16, "SENDMSG", exec_send_message)->require_version(4))
-      .insert(OpcodeInstr::mkfixedrange(0xfb0a, 0xfb0c, 16, 1, dump_bounce_on_action_fail, exec_bounce_on_action_fail)
-                  ->require_version(4));
+      .insert(OpcodeInstr::mksimple(0xfb08, 16, "SENDMSG", exec_send_message)->require_version(4));
 }
 
 void register_ton_ops(OpcodeTable& cp0) {

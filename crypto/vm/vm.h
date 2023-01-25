@@ -101,7 +101,6 @@ class VmState final : public VmStateInterface {
   td::ConstBitPtr missing_library{0};
   td::uint16 max_data_depth = 512; // Default value
   int global_version{0};
-  bool bounce_on_action_phase_fail = false;
   std::unique_ptr<ParentVmState> parent = nullptr;
 
  public:
@@ -343,12 +342,6 @@ class VmState final : public VmStateInterface {
   }
   void set_max_data_depth(td::uint16 depth) {
     max_data_depth = depth;
-  }
-  bool get_bounce_on_action_phase_fail() const {
-    return bounce_on_action_phase_fail;
-  }
-  void set_bounce_on_action_phase_fail(bool value) {
-    bounce_on_action_phase_fail = value;
   }
   void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas);
   void restore_parent_vm(int res);

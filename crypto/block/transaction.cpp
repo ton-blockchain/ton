@@ -1094,7 +1094,6 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.new_data = vm.get_committed_state().c4;  // c4 -> persistent data
     cp.actions = vm.get_committed_state().c5;   // c5 -> action list
     int out_act_num = output_actions_count(cp.actions);
-    cp.bounce_on_action_phase_fail = vm.get_bounce_on_action_phase_fail();
     if (verbosity > 2) {
       std::cerr << "new smart contract data: ";
       load_cell_slice(cp.new_data).print_rec(std::cerr);
@@ -1209,6 +1208,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     int tag = block::gen::t_OutAction.get_tag(cs);
     CHECK(tag >= 0);
     int err_code = 34;
+    ap.need_bounce_on_fail = false;
     switch (tag) {
       case block::gen::OutAction::action_set_code:
         err_code = try_action_set_code(cs, ap, cfg);
@@ -1246,6 +1246,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         ap.total_action_fees = ap.action_fine;
         balance.grams -= ap.action_fine;
         total_fees += ap.action_fine;
+      }
+      if (ap.need_bounce_on_fail) {
+        ap.bounce = true;
       }
       return true;
     }
@@ -1299,7 +1302,17 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
-  // mode: +0 = remove library, +1 = add private library, +2 = add public library
+  // mode: +0 = remove library, +1 = add private library, +2 = add public library, +16 - bounce on fail
+  if (rec.mode & 16) {
+    if (!cfg.bounce_on_fail_enabled) {
+      return -1;
+    }
+    ap.need_bounce_on_fail = true;
+    rec.mode &= ~16;
+  }
+  if (rec.mode > 2) {
+    return -1;
+  }
   Ref<vm::Cell> lib_ref = rec.libref->prefetch_ref();
   ton::Bits256 hash;
   if (lib_ref.not_null()) {
@@ -1511,9 +1524,22 @@ bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const A
 int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, const ActionPhaseConfig& cfg,
                                      int redoing) {
   block::gen::OutAction::Record_action_send_msg act_rec;
-  // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message, +32 = delete smart contract if balance becomes zero, +1 = pay message fees, +2 = skip if message cannot be sent
+  // mode:
+  // +128 = attach all remaining balance
+  // +64 = attach all remaining balance of the inbound message
+  // +32 = delete smart contract if balance becomes zero
+  // +1 = pay message fees
+  // +2 = skip if message cannot be sent
+  // +16 = bounce if action fails
   vm::CellSlice cs{cs0};
-  if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+  if (!tlb::unpack_exact(cs, act_rec)) {
+    return -1;
+  }
+  if ((act_rec.mode & 16) && cfg.bounce_on_fail_enabled) {
+    act_rec.mode &= ~16;
+    ap.need_bounce_on_fail = true;
+  }
+  if ((act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
     return -1;
   }
   bool skip_invalid = (act_rec.mode & 2);
@@ -1875,7 +1901,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
 int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
   block::gen::OutAction::Record_action_reserve_currency rec;
-  if (!tlb::unpack_exact(cs, rec) || (rec.mode & ~15)) {
+  if (!tlb::unpack_exact(cs, rec)) {
+    return -1;
+  }
+  if ((rec.mode & 16) && cfg.bounce_on_fail_enabled) {
+    rec.mode &= ~16;
+    ap.need_bounce_on_fail = true;
+  }
+  if (rec.mode & ~15) {
     return -1;
   }
   int mode = rec.mode;

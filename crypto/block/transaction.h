@@ -150,6 +150,7 @@ struct ActionPhaseConfig {
   SizeLimitsConfig size_limits;
   const WorkchainSet* workchains{nullptr};
   bool action_fine_enabled{false};
+  bool bounce_on_fail_enabled{false};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -179,7 +180,6 @@ struct ComputePhase {
   Ref<vm::Cell> new_data;
   Ref<vm::Cell> actions;
   std::string vm_log;
-  bool bounce_on_action_phase_fail = false;
 };
 
 struct ActionPhase {
@@ -208,6 +208,8 @@ struct ActionPhase {
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
   td::RefInt256 action_fine;
+  bool need_bounce_on_fail = false;
+  bool bounce = false;
 };
 
 struct BouncePhase {

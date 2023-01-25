@@ -1637,6 +1637,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>> Collator::impl_fetch_config_param
     action_phase_cfg->bounce_msg_body = (config->has_capability(ton::capBounceMsgBody) ? 256 : 0);
     action_phase_cfg->size_limits = size_limits;
     action_phase_cfg->action_fine_enabled = config->get_global_version() >= 4;
+    action_phase_cfg->bounce_on_fail_enabled = config->get_global_version() >= 4;
   }
   {
     // fetch block_grams_created
@@ -2352,11 +2353,9 @@ td::Result<std::unique_ptr<block::Transaction>> Collator::impl_create_ordinary_t
     return td::Status::Error(
         -669, "cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
-  bool bounce = !trans->compute_phase->success;
-  bounce |= trans->action_phase->state_size_too_big;
-  bounce |= trans->compute_phase->bounce_on_action_phase_fail && !trans->action_phase->success;
-  bounce &= trans->bounce_enabled;
-  if (bounce && !trans->prepare_bounce_phase(*action_phase_cfg)) {
+  if (trans->bounce_enabled &&
+      (!trans->compute_phase->success || trans->action_phase->state_size_too_big || trans->action_phase->bounce) &&
+      !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(
         -669, "cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }

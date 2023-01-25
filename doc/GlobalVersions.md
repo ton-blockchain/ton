@@ -9,7 +9,6 @@ Various features are enabled depending on the global version.
 * `HASHEXT(A)(R)`
 * `ECRECOVER`
 * `SENDMSG`
-* `SETBOUNCEONACTIONPHASEFAIL`
 * `RUNVM`, `RUNVMX`
 
 #### Division
@@ -25,4 +24,4 @@ intermediate value before division (e.g. `(xy+w)/z`).
 
 ### Action phase
 * If "send message" action fails, the account is required to pay for processing cells of the message.
-* Optional bounce on action phase failure (enabled by `SETBOUNCEONACTIOINPHASEFAIL`).
+* Flag +16 in actions "Send message", "Reserve", "Change library" causes bounce if action fails.

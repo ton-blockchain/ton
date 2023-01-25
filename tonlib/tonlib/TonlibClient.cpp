@@ -820,8 +820,9 @@ class Query {
           return td::Status::Error("estimate_fee: action_set_code unsupported");
         case block::gen::OutAction::action_send_msg: {
           block::gen::OutAction::Record_action_send_msg act_rec;
-          // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message, +1 = pay message fees, +2 = skip if message cannot be sent
-          if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+          // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message,
+          // +1 = pay message fees, +2 = skip if message cannot be sent, +16 = bounce if action fails
+          if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xf3) || (act_rec.mode & 0xc0) == 0xc0) {
             return td::Status::Error("estimate_fee: can't parse send_msg");
           }
           block::gen::MessageRelaxed::Record msg;
