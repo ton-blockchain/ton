@@ -131,3 +131,7 @@ TEST(Fift, test_hash_ext) {
 TEST(Fift, test_deep_stack_ops) {
   run_fift("deep_stack_ops.fif");
 }
+
+TEST(Fift, test_rist255) {
+  run_fift("rist255.fif");
+}

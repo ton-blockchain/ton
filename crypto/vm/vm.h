@@ -115,7 +115,13 @@ class VmState final : public VmStateInterface {
     free_stack_depth = 32,
     stack_entry_gas_price = 1,
     runvm_gas_price = 40,
-    hash_ext_entry_gas_price = 1
+    hash_ext_entry_gas_price = 1,
+
+    rist255_mul_gas_price = 2000,
+    rist255_mulbase_gas_price = 750,
+    rist255_add_gas_price = 600,
+    rist255_fromhash_gas_price = 600,
+    rist255_validate_gas_price = 200
   };
   VmState();
   VmState(Ref<CellSlice> _code);

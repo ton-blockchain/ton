@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
+find_package(Sodium REQUIRED)
 
 set(TON_CRYPTO_CORE_SOURCE
   Ed25519.cpp
@@ -302,6 +303,8 @@ if (NOT WIN32)
   endif()
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+target_include_directories(ton_crypto PUBLIC ${sodium_INCLUDE_DIR})
+target_link_libraries(ton_crypto PUBLIC ${sodium_LIBRARY_RELEASE})
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})
 target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

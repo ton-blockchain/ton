@@ -32,6 +32,7 @@
 #include "crypto/ellcurve/secp256k1.h"
 
 #include "openssl/digest.hpp"
+#include <sodium.h>
 
 namespace vm {
 
@@ -530,15 +531,199 @@ int exec_ecrecover(VmState* st) {
   return 0;
 }
 
+static_assert(crypto_scalarmult_ristretto255_BYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_scalarmult_ristretto255_SCALARBYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_BYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_HASHBYTES == 64, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_SCALARBYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_NONREDUCEDSCALARBYTES == 64, "Unexpected value of ristretto255 constant");
+
+int exec_ristretto255_from_hash(VmState* st) {
+  VM_LOG(st) << "execute RIST255_FROMHASH";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto x2 = stack.pop_int();
+  auto x1 = stack.pop_int();
+  st->consume_gas(VmState::rist255_fromhash_gas_price);
+  unsigned char xb[64], rb[32];
+  if (!x1->export_bytes(xb, 32, false)) {
+    throw VmError{Excno::range_chk, "x1 must fit in an unsigned 256-bit integer"};
+  }
+  if (!x2->export_bytes(xb + 32, 32, false)) {
+    throw VmError{Excno::range_chk, "x2 must fit in an unsigned 256-bit integer"};
+  }
+  CHECK(sodium_init() >= 0);
+  crypto_core_ristretto255_from_hash(rb, xb);
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  return 0;
+}
+
+int exec_ristretto255_validate(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_VALIDATE";
+  Stack& stack = st->get_stack();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_validate_gas_price);
+  unsigned char xb[64];
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !crypto_core_ristretto255_is_valid_point(xb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "x is not a valid encoded element"};
+  }
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_add(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto y = stack.pop_int();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_add_gas_price);
+  unsigned char xb[32], yb[32], rb[32];
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_add(rb, xb, yb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "x and/or y are not valid encoded elements"};
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_sub(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_SUB";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto y = stack.pop_int();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_add_gas_price);
+  unsigned char xb[32], yb[32], rb[32];
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_sub(rb, xb, yb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "x and/or y are not valid encoded elements"};
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+static bool export_bytes_little(const td::RefInt256& n, unsigned char* nb) {
+  if (!n->export_bytes(nb, 32, false)) {
+    return false;
+  }
+  std::reverse(nb, nb + 32);
+  return true;
+}
+
+int exec_ristretto255_mul(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_MUL";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto n = stack.pop_int();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_mul_gas_price);
+  unsigned char xb[32], nb[32], rb[32];
+  memset(rb, 255, sizeof(rb));
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !export_bytes_little(n, nb) || crypto_scalarmult_ristretto255(rb, nb, xb)) {
+    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      }
+      throw VmError{Excno::range_chk, "invalid x or n"};
+    }
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_mul_base(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_MULBASE";
+  Stack& stack = st->get_stack();
+  auto n = stack.pop_int();
+  st->consume_gas(VmState::rist255_mulbase_gas_price);
+  unsigned char nb[32], rb[32];
+  memset(rb, 255, sizeof(rb));
+  CHECK(sodium_init() >= 0);
+  if (!export_bytes_little(n, nb) || crypto_scalarmult_ristretto255_base(rb, nb)) {
+    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      }
+      throw VmError{Excno::range_chk, "invalid n"};
+    }
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_push_l(VmState* st) {
+  VM_LOG(st) << "execute RIST255_PUSHL";
+  Stack& stack = st->get_stack();
+  static td::RefInt256 l =
+      (td::make_refint(1) << 252) + td::dec_string_to_int256(td::Slice("27742317777372353535851937790883648493"));
+  stack.push_int(l);
+  return 0;
+}
+
 void register_ton_crypto_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xf900, 16, "HASHCU", std::bind(exec_compute_hash, _1, 0)))
       .insert(OpcodeInstr::mksimple(0xf901, 16, "HASHSU", std::bind(exec_compute_hash, _1, 1)))
       .insert(OpcodeInstr::mksimple(0xf902, 16, "SHA256U", exec_compute_sha256))
-      .insert(OpcodeInstr::mkfixed(0xf904 >> 2,  14, 10, dump_hash_ext, exec_hash_ext)->require_version(4))
+      .insert(OpcodeInstr::mkfixed(0xf904 >> 2, 14, 10, dump_hash_ext, exec_hash_ext)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
-      .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4));
+      .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf920, 16, "RIST255_FROMHASH", exec_ristretto255_from_hash)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf922, 16, "RIST255_ADD", std::bind(exec_ristretto255_add, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf923, 16, "RIST255_SUB", std::bind(exec_ristretto255_sub, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf924, 16, "RIST255_MUL", std::bind(exec_ristretto255_mul, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf925, 16, "RIST255_MULBASE", std::bind(exec_ristretto255_mul_base, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf926, 16, "RIST255_PUSHL", exec_ristretto255_push_l)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xb7f921, 24, "RIST255_QVALIDATE", std::bind(exec_ristretto255_validate, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f922, 24, "RIST255_QADD", std::bind(exec_ristretto255_add, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f923, 24, "RIST255_QSUB", std::bind(exec_ristretto255_sub, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f924, 24, "RIST255_QMUL", std::bind(exec_ristretto255_mul, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))->require_version(4));
 }
 
 int exec_compute_data_size(VmState* st, int mode) {
