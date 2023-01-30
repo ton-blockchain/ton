@@ -194,3 +194,28 @@ PROGRAM{
 <b x{12345678} s, b> <b x{87654321} s, b>
 <{ DUP CTOS DROP 2 INT <{ CTOS DROP CTOS DROP }>s SLICE 10000 INT 8 128 + RUNVM }>s 1000000 8 runvmx
 .s { drop } depth 1- times // 0 277 0 584
+
+// +256 - fixed number of return values
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
+3
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 3 4 5 0 0
+
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
+0
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 0 0
+
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT 77 THROW }>s
+3
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 0 77 0
+
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
+20
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 0 2 0

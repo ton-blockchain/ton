@@ -357,7 +357,8 @@ class VmState final : public VmStateInterface {
   void set_max_data_depth(td::uint16 depth) {
     max_data_depth = depth;
   }
-  void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas, bool isolate_gas);
+  void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas, bool isolate_gas,
+                    int ret_vals);
   void restore_parent_vm(int res);
 
   void register_chksgn_call() {
@@ -378,6 +379,7 @@ class VmState final : public VmStateInterface {
 struct ParentVmState {
   VmState state;
   bool return_data, return_actions, return_gas, isolate_gas;
+  int ret_vals;
 };
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},

@@ -454,10 +454,6 @@ int VmState::step() {
 }
 
 int VmState::run_inner() {
-  if (code.is_null() || stack.is_null()) {
-    // throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
-    return (int)Excno::fatal;  // no ~ for unhandled exceptions
-  }
   int res;
   Guard guard(this);
   do {
@@ -498,21 +494,24 @@ int VmState::run_inner() {
 
 int VmState::handle_no_gas(int err) {
   ++steps;
-  VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed()
-               << ", limit=" << gas.gas_limit;
+  VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed() << ", limit=" << gas.gas_limit;
   get_stack().clear();
   get_stack().push_smallint(gas.gas_consumed());
   return err;  // no ~ for unhandled exceptions (to make their faking impossible)
 }
 
 int VmState::run() {
+  if (code.is_null() || stack.is_null()) {
+    // throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
+    return (int)Excno::fatal;  // no ~ for unhandled exceptions
+  }
   while (true) {
     int res = run_inner();
     while (true) {
       if (!parent) {
         return res;
       }
-      restore_parent_vm(res);
+      restore_parent_vm(~res);
       if (gas.gas_remaining >= 0) {
         break;
       }
@@ -691,7 +690,7 @@ Ref<vm::Cell> lookup_library_in(td::ConstBitPtr key, Ref<vm::Cell> lib_root) {
 }
 
 void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas,
-                           bool isolate_gas) {
+                           bool isolate_gas, int ret_vals) {
   new_state.log = std::move(log);
   new_state.libraries = std::move(libraries);
   new_state.stack_trace = stack_trace;
@@ -709,6 +708,7 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
   new_parent->return_actions = return_actions;
   new_parent->return_gas = return_gas;
   new_parent->isolate_gas = isolate_gas;
+  new_parent->ret_vals = ret_vals;
   new_parent->state = std::move(*this);
   new_state.parent = std::move(new_parent);
   *this = std::move(new_state);
@@ -722,15 +722,32 @@ void VmState::restore_parent_vm(int res) {
   log = std::move(child_state.log);
   libraries = std::move(child_state.libraries);
   steps += child_state.steps;
-  VM_LOG(this) << "restoring state after RUNVM\n";
+  VM_LOG(this) << "Child VM finished. res: " << res << ", steps: " << child_state.steps
+               << ", gas: " << child_state.gas_consumed();
 
-  Stack& cur_stack = get_stack();
-  consume_stack_gas(child_state.stack);
   consume_gas(child_state.gas_consumed());
-  for (StackEntry& e : child_state.stack->extract_contents()) {
-    cur_stack.push(std::move(e));
+  Stack& cur_stack = get_stack();
+  int ret_cnt;
+  if (res == 0 || res == 1) {
+    if (parent->ret_vals >= 0) {
+      if (child_state.stack->depth() >= parent->ret_vals) {
+        ret_cnt = parent->ret_vals;
+      } else {
+        ret_cnt = 0;
+        res = (int)Excno::stk_und;
+        cur_stack.push(td::zero_refint());
+      }
+    } else {
+      ret_cnt = child_state.stack->depth();
+    }
+  } else {
+    ret_cnt = std::min(child_state.stack->depth(), 1);
   }
-  cur_stack.push_smallint(~res);
+  consume_stack_gas(ret_cnt);
+  for (int i = ret_cnt - 1; i >= 0; --i) {
+    cur_stack.push(std::move(child_state.stack->at(i)));
+  }
+  cur_stack.push_smallint(res);
   if (parent->return_data) {
     cur_stack.push_cell(child_state.get_committed_state().c4);
   }
