@@ -28,6 +28,7 @@ false @was-split !
 { 1 { <b swap s, swap 8 i, @addopb } does create } : @Defop(8i)
 { 1 { <b swap s, swap 1- 8 u, @addopb } does create } : @Defop(8u+1)
 { 1 { <b swap s, swap 4 u, @addopb } does create } : @Defop(4u)
+{ 1 { <b swap s, swap 12 u, @addopb } does create } : @Defop(12u)
 { 1 { <b swap s, rot 4 u, swap 4 u, @addopb } does create } : @Defop(4u,4u)
 { 1 { <b swap s, swap ref, @addopb } does create } : @Defop(ref)
 { 1 { <b swap s, rot ref, swap ref, @addopb } does create } : @Defop(ref*2)
@@ -676,8 +677,8 @@ x{DB3C} @Defop(ref) CALLREF
 x{DB3D} @Defop(ref) JMPREF
 x{DB3E} @Defop(ref) JMPREFDATA
 x{DB3F} @Defop RETDATA
-x{DB40} @Defop(8u) RUNVM
-x{DB41} @Defop RUNVMX
+x{DB4} @Defop(12u) RUNVM
+x{DB50} @Defop RUNVMX
 // conditional and iterated execution primitives
 x{DC} @Defop IFRET
 x{DD} @Defop IFNOTRET

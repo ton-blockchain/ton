@@ -422,7 +422,7 @@ int exec_hash_ext(VmState* st, unsigned args) {
     hasher.append(data, size);
     total_bits += size;
     long long gas_total = (i + 1) + total_bits / 8 / hasher.bytes_per_gas_unit();
-    st->consume_gas_limited_chk(gas_total - gas_consumed);
+    st->check_consume_gas(gas_total - gas_consumed);
     gas_consumed = gas_total;
   }
   stack.pop_many(cnt);
@@ -488,6 +488,7 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   if (!key_int->export_bytes(key, 32, false)) {
     throw VmError{Excno::range_chk, "Ed25519 public key must fit in an unsigned 256-bit integer"};
   }
+  st->register_chksgn_call();
   td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, 32})};
   auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64});
   stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
@@ -515,6 +516,7 @@ int exec_ecrecover(VmState* st) {
   if (!hash->export_bytes(hash_bytes, 32, false)) {
     throw VmError{Excno::range_chk, "data hash must fit in an unsigned 256-bit integer"};
   }
+  st->check_consume_gas(VmState::ecrecover_gas_price);
   unsigned char public_key[65];
   if (td::ecrecover(hash_bytes, signature, public_key)) {
     td::uint8 h = public_key[0];
@@ -544,7 +546,7 @@ int exec_ristretto255_from_hash(VmState* st) {
   stack.check_underflow(2);
   auto x2 = stack.pop_int();
   auto x1 = stack.pop_int();
-  st->consume_gas(VmState::rist255_fromhash_gas_price);
+  st->check_consume_gas(VmState::rist255_fromhash_gas_price);
   unsigned char xb[64], rb[32];
   if (!x1->export_bytes(xb, 32, false)) {
     throw VmError{Excno::range_chk, "x1 must fit in an unsigned 256-bit integer"};
@@ -564,7 +566,7 @@ int exec_ristretto255_validate(VmState* st, bool quiet) {
   VM_LOG(st) << "execute RIST255_VALIDATE";
   Stack& stack = st->get_stack();
   auto x = stack.pop_int();
-  st->consume_gas(VmState::rist255_validate_gas_price);
+  st->check_consume_gas(VmState::rist255_validate_gas_price);
   unsigned char xb[64];
   CHECK(sodium_init() >= 0);
   if (!x->export_bytes(xb, 32, false) || !crypto_core_ristretto255_is_valid_point(xb)) {
@@ -586,7 +588,7 @@ int exec_ristretto255_add(VmState* st, bool quiet) {
   stack.check_underflow(2);
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  st->consume_gas(VmState::rist255_add_gas_price);
+  st->check_consume_gas(VmState::rist255_add_gas_price);
   unsigned char xb[32], yb[32], rb[32];
   CHECK(sodium_init() >= 0);
   if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_add(rb, xb, yb)) {
@@ -611,7 +613,7 @@ int exec_ristretto255_sub(VmState* st, bool quiet) {
   stack.check_underflow(2);
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  st->consume_gas(VmState::rist255_add_gas_price);
+  st->check_consume_gas(VmState::rist255_add_gas_price);
   unsigned char xb[32], yb[32], rb[32];
   CHECK(sodium_init() >= 0);
   if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_sub(rb, xb, yb)) {
@@ -644,7 +646,7 @@ int exec_ristretto255_mul(VmState* st, bool quiet) {
   stack.check_underflow(2);
   auto n = stack.pop_int();
   auto x = stack.pop_int();
-  st->consume_gas(VmState::rist255_mul_gas_price);
+  st->check_consume_gas(VmState::rist255_mul_gas_price);
   unsigned char xb[32], nb[32], rb[32];
   memset(rb, 255, sizeof(rb));
   CHECK(sodium_init() >= 0);
@@ -670,7 +672,7 @@ int exec_ristretto255_mul_base(VmState* st, bool quiet) {
   VM_LOG(st) << "execute RIST255_MULBASE";
   Stack& stack = st->get_stack();
   auto n = stack.pop_int();
-  st->consume_gas(VmState::rist255_mulbase_gas_price);
+  st->check_consume_gas(VmState::rist255_mulbase_gas_price);
   unsigned char nb[32], rb[32];
   memset(rb, 255, sizeof(rb));
   CHECK(sodium_init() >= 0);

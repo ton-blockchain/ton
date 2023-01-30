@@ -95,12 +95,12 @@ class VmState final : public VmStateInterface {
   GasLimits gas;
   std::vector<Ref<Cell>> libraries;
   td::HashSet<CellHash> loaded_cells;
-  td::int64 loaded_cells_count{0};
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   td::ConstBitPtr missing_library{0};
   td::uint16 max_data_depth = 512; // Default value
   int global_version{0};
+  size_t chksgn_counter = 0;
   std::unique_ptr<ParentVmState> parent = nullptr;
 
  public:
@@ -121,7 +121,11 @@ class VmState final : public VmStateInterface {
     rist255_mulbase_gas_price = 750,
     rist255_add_gas_price = 600,
     rist255_fromhash_gas_price = 600,
-    rist255_validate_gas_price = 200
+    rist255_validate_gas_price = 200,
+
+    ecrecover_gas_price = 1500,
+    chksgn_free_count = 10,
+    chksgn_gas_price = 4000
   };
   VmState();
   VmState(Ref<CellSlice> _code);
@@ -153,9 +157,10 @@ class VmState final : public VmStateInterface {
   void consume_gas(long long amount) {
     gas.consume(amount);
   }
-  void consume_gas_limited_chk(long long amount) {
-    if (!gas.try_consume(amount)) {
-      gas.gas_remaining = -1;
+  void check_consume_gas(long long amount) {
+    if (gas.gas_remaining >= amount) {
+      gas.gas_remaining -= amount;
+    } else {
       gas.gas_exception();
     }
   }
@@ -352,8 +357,17 @@ class VmState final : public VmStateInterface {
   void set_max_data_depth(td::uint16 depth) {
     max_data_depth = depth;
   }
-  void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas);
+  void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas, bool isolate_gas);
   void restore_parent_vm(int res);
+
+  void register_chksgn_call() {
+    if (global_version >= 4) {
+      ++chksgn_counter;
+      if (chksgn_counter > chksgn_free_count) {
+        check_consume_gas(chksgn_gas_price);
+      }
+    }
+  }
 
  private:
   void init_cregs(bool same_c3 = false, bool push_0 = true);
@@ -363,7 +377,7 @@ class VmState final : public VmStateInterface {
 
 struct ParentVmState {
   VmState state;
-  bool return_data, return_actions, return_gas;
+  bool return_data, return_actions, return_gas, isolate_gas;
 };
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},

@@ -186,3 +186,11 @@ PROGRAM{
 200
 <{ 8 PUSHINT RUNVMX 1234 PUSHINT }>s 0 runvmx
 .s { drop } depth 1- times // 215 -14 215 1234 0
+
+// +128 - separate loaded_cells
+<b x{12345678} s, b> <b x{87654321} s, b>
+<{ DUP CTOS DROP 2 INT <{ CTOS DROP CTOS DROP }>s SLICE 10000 INT 8 RUNVM }>s 1000000 8 runvmx
+.s { drop } depth 1- times // 0 202 0 509
+<b x{12345678} s, b> <b x{87654321} s, b>
+<{ DUP CTOS DROP 2 INT <{ CTOS DROP CTOS DROP }>s SLICE 10000 INT 8 128 + RUNVM }>s 1000000 8 runvmx
+.s { drop } depth 1- times // 0 277 0 584

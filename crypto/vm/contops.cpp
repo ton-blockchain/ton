@@ -220,11 +220,12 @@ int exec_ret_data(VmState* st) {
 // +16 = load c7 (smart-contract context)
 // +32 = return c5 (actions)
 // +64 = pop hard gas limit (enabled by ACCEPT) from stack as well
+// +128 = isolated gas consumption (separate set of visited cells, reset chksgn counter)
 int exec_runvm_common(VmState* st, unsigned mode) {
-  if (mode >= 128) {
+  if (mode >= 256) {
     throw VmError{Excno::range_chk, "invalid flags"};
   }
-  st->consume_gas(VmState::runvm_gas_price);
+  st->check_consume_gas(VmState::runvm_gas_price);
   Stack& stack = st->get_stack();
   bool with_data = mode & 4;
   Ref<vm::Tuple> c7;
@@ -259,18 +260,22 @@ int exec_runvm_common(VmState* st, unsigned mode) {
                     VmLog{},         std::vector<Ref<Cell>>{}, std::move(c7)};
   new_state.set_chksig_always_succeed(st->get_chksig_always_succeed());
   new_state.set_global_version(st->get_global_version());
-  st->run_child_vm(std::move(new_state), with_data, mode & 32, mode & 8);
+  st->run_child_vm(std::move(new_state), with_data, mode & 32, mode & 8, mode & 128);
   return 0;
 }
 
 int exec_runvm(VmState* st, unsigned args) {
-  VM_LOG(st) << "execute RUNVM " << (args & 255) << "\n";
-  return exec_runvm_common(st, args & 255);
+  VM_LOG(st) << "execute RUNVM " << (args & 4095) << "\n";
+  return exec_runvm_common(st, args & 4095);
 }
 
 int exec_runvmx(VmState* st) {
   VM_LOG(st) << "execute RUNVMX\n";
-  return exec_runvm_common(st, st->get_stack().pop_smallint_range(255));
+  return exec_runvm_common(st, st->get_stack().pop_smallint_range(4095));
+}
+
+std::string dump_runvm(CellSlice&, unsigned args) {
+  return PSTRING() << "RUNVM " << (args & 4095);
 }
 
 void register_continuation_jump_ops(OpcodeTable& cp0) {
@@ -308,8 +313,8 @@ void register_continuation_jump_ops(OpcodeTable& cp0) {
                                            "JMPREFDATA"),
                                  compute_len_push_ref))
       .insert(OpcodeInstr::mksimple(0xdb3f, 16, "RETDATA", exec_ret_data))
-      .insert(OpcodeInstr::mkfixed(0xdb40, 16, 8, instr::dump_1c_l_add(0, "RUNVM "), exec_runvm)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xdb41, 16, "RUNVMX ", exec_runvmx)->require_version(4));
+      .insert(OpcodeInstr::mkfixed(0xdb4, 12, 12, dump_runvm, exec_runvm)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xdb50, 16, "RUNVMX ", exec_runvmx)->require_version(4));
 }
 
 int exec_if(VmState* st) {

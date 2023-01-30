@@ -644,9 +644,6 @@ void VmState::register_cell_load(const CellHash& cell_hash) {
     consume_gas(cell_load_gas_price);
   } else {
     auto ok = loaded_cells.insert(cell_hash);  // check whether this is the first time this cell is loaded
-    if (ok.second) {
-      loaded_cells_count++;
-    }
     consume_gas(ok.second ? cell_load_gas_price : cell_reload_gas_price);
   }
 }
@@ -693,16 +690,25 @@ Ref<vm::Cell> lookup_library_in(td::ConstBitPtr key, Ref<vm::Cell> lib_root) {
   return lookup_library_in(key, dict);
 }
 
-void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas) {
+void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas,
+                           bool isolate_gas) {
   new_state.log = std::move(log);
   new_state.libraries = std::move(libraries);
   new_state.stack_trace = stack_trace;
   new_state.max_data_depth = max_data_depth;
+  if (!isolate_gas) {
+    new_state.loaded_cells = std::move(loaded_cells);
+  } else {
+    check_consume_gas(std::min<long long>(chksgn_counter, chksgn_free_count) * chksgn_gas_price);
+    chksgn_counter = 0;
+  }
+  new_state.chksgn_counter = chksgn_counter;
 
   auto new_parent = std::make_unique<ParentVmState>();
   new_parent->return_data = return_data;
   new_parent->return_actions = return_actions;
   new_parent->return_gas = return_gas;
+  new_parent->isolate_gas = isolate_gas;
   new_parent->state = std::move(*this);
   new_state.parent = std::move(new_parent);
   *this = std::move(new_state);
@@ -734,6 +740,10 @@ void VmState::restore_parent_vm(int res) {
   if (parent->return_gas) {
     cur_stack.push_smallint(child_state.gas.gas_consumed());
   }
+  if (!parent->isolate_gas) {
+    loaded_cells = std::move(child_state.loaded_cells);
+  }
+  chksgn_counter = child_state.chksgn_counter;
 }
 
 }  // namespace vm
