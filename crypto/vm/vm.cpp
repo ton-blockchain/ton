@@ -698,7 +698,7 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
   if (!isolate_gas) {
     new_state.loaded_cells = std::move(loaded_cells);
   } else {
-    check_consume_gas(std::min<long long>(chksgn_counter, chksgn_free_count) * chksgn_gas_price);
+    consume_gas_limited_chk(std::min<long long>(chksgn_counter, chksgn_free_count) * chksgn_gas_price);
     chksgn_counter = 0;
   }
   new_state.chksgn_counter = chksgn_counter;

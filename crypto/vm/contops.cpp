@@ -226,7 +226,7 @@ int exec_runvm_common(VmState* st, unsigned mode) {
   if (mode >= 512) {
     throw VmError{Excno::range_chk, "invalid flags"};
   }
-  st->check_consume_gas(VmState::runvm_gas_price);
+  st->consume_gas_limited_chk(VmState::runvm_gas_price);
   Stack& stack = st->get_stack();
   bool with_data = mode & 4;
   Ref<vm::Tuple> c7;

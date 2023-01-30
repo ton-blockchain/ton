@@ -157,10 +157,9 @@ class VmState final : public VmStateInterface {
   void consume_gas(long long amount) {
     gas.consume(amount);
   }
-  void check_consume_gas(long long amount) {
-    if (gas.gas_remaining >= amount) {
-      gas.gas_remaining -= amount;
-    } else {
+  void consume_gas_limited_chk(long long amount) {
+    if (!gas.try_consume(amount)) {
+      gas.gas_remaining = -1;
       gas.gas_exception();
     }
   }
@@ -365,7 +364,7 @@ class VmState final : public VmStateInterface {
     if (global_version >= 4) {
       ++chksgn_counter;
       if (chksgn_counter > chksgn_free_count) {
-        check_consume_gas(chksgn_gas_price);
+        consume_gas_limited_chk(chksgn_gas_price);
       }
     }
   }
