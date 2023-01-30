@@ -1,0 +1,62 @@
+;;
+;; Members
+;;
+
+global int ctx_member;
+global int ctx_member_balance;
+global int ctx_member_pending_withdraw;
+global int ctx_member_pending_withdraw_all;
+global int ctx_member_pending_deposit;
+global int ctx_member_withdraw;
+global int ctx_member_profit_per_coin;
+global int ctx_member_exist;
+
+slice load_member_slice(slice cs) impure {
+    ctx_member_profit_per_coin = cs~load_int(128);
+    ctx_member_balance = cs~load_coins();
+    ctx_member_pending_withdraw = cs~load_coins();
+    ctx_member_pending_withdraw_all = cs~load_int(1);
+    ctx_member_pending_deposit = cs~load_coins();
+    ctx_member_withdraw = cs~load_coins();
+    ctx_member_exist = true;
+    return cs;
+}
+
+() load_member(int member) impure {
+    var (cs, found) = ctx_nominators.udict_get?(256, member);
+    ctx_member = member;
+    if (found) {
+        cs = load_member_slice(cs);
+        cs.end_parse();
+        ctx_member_exist = true;
+    } else {
+        ctx_member_balance = 0;
+        ctx_member_pending_withdraw = 0;
+        ctx_member_pending_withdraw_all = false;
+        ctx_member_pending_deposit = 0;
+        ctx_member_profit_per_coin = 0;
+        ctx_member_withdraw = 0;
+        ctx_member_exist = false;
+    }
+}
+
+() store_member() impure {
+    var shouldExist = (ctx_member_balance > 0) | (ctx_member_pending_deposit > 0) | (ctx_member_withdraw > 0);
+    if ((~ shouldExist) & ctx_member_exist) {
+        ;; Compiler crashes when single lined
+        var (changed, _) = udict_delete?(ctx_nominators, 256, ctx_member);
+        ctx_nominators = changed;
+    } elseif (shouldExist) {
+        var data = begin_cell()
+            .store_int(ctx_member_profit_per_coin, 128)
+            .store_coins(ctx_member_balance)
+            .store_coins(ctx_member_pending_withdraw)
+            .store_int(ctx_member_pending_withdraw_all, 1)
+            .store_coins(ctx_member_pending_deposit)
+            .store_coins(ctx_member_withdraw);
+
+        ;; Compiler crashes when single lined
+        var changed = udict_set_builder(ctx_nominators, 256, ctx_member, data);
+        ctx_nominators = changed;
+    }
+}

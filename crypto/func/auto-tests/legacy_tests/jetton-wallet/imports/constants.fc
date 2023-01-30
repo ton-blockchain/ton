@@ -1,0 +1,17 @@
+;; operations (constant values taken from crc32 on op message in the companion .tlb files and appear during build)
+int op::increment() asm "0x37491f2f PUSHINT";
+int op::deposit() asm "0x47d54391 PUSHINT";
+int op::withdraw() asm "0x41836980 PUSHINT";
+int op::transfer_ownership() asm "0x2da38aaf PUSHINT";
+
+;; errors
+int error::unknown_op() asm "101 PUSHINT";
+int error::access_denied() asm "102 PUSHINT";
+int error::insufficient_balance() asm "103 PUSHINT";
+
+;; other
+int const::min_tons_for_storage() asm "10000000 PUSHINT"; ;; 0.01 TON
+
+;; 6905(computational_gas_price) * 1000(cur_gas_price) = 6905000
+;; ceil(6905000) = 10000000 ~= 0.01 TON
+int const::provide_address_gas_consumption() asm "10000000 PUSHINT";

@@ -1945,6 +1945,15 @@ td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
   return limits;
 }
 
+std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime now) const {
+  td::Ref<vm::Cell> param = get_config_param(44);
+  gen::SuspendedAddressList::Record rec;
+  if (param.is_null() || !tlb::unpack_cell(param, rec) || rec.suspended_until <= now) {
+    return {};
+  }
+  return std::make_unique<vm::Dictionary>(rec.addresses->prefetch_ref(), 288);
+}
+
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set absent");

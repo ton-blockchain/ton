@@ -1,0 +1,118 @@
+#include "stdlib.fc";
+#include "bridge-config.fc";
+#include "message_utils.fc";
+
+cell load_data() inline_ref {
+  var ds = get_data().begin_parse();
+  return ds~load_dict();
+}
+
+() save_data(cell external_votings) impure inline_ref {
+  var st = begin_cell().store_dict(external_votings).end_cell();
+  set_data(st);
+}
+
+() vote_on_external_chain(slice s_addr, int query_id, int voting_id, slice signature) impure {
+    cell external_votings = load_data();
+    (_, int oracles_address, cell oracles) = get_bridge_config();
+    (int wc, int addr) = parse_std_addr(s_addr);
+    throw_if(301, wc + 1);
+    (slice key, int found?) = oracles.udict_get?(256, addr);
+    throw_unless(304, found?);
+
+    (slice old_voting_data, int voting_found?) = external_votings.udict_get?(256, voting_id);
+    cell signatures = new_dict();
+    if (voting_found?) {
+      (_, int old_oracles_address, signatures) = (old_voting_data~load_uint(32),
+                                                  old_voting_data~load_uint(256),
+                                                  old_voting_data~load_dict());
+      if (old_oracles_address != oracles_address) {
+        signatures = new_dict();
+      }
+    }
+    int secp_key = key~load_uint(256);
+    int success? = signatures~udict_add?(256, secp_key, signature);
+    throw_unless(324, success?);
+    builder new_voting_data = begin_cell()
+                               .store_uint(now(), 32)
+                               .store_uint(oracles_address, 256)
+                               .store_dict(signatures);
+    external_votings~udict_set_builder(256, voting_id, new_voting_data);
+
+    save_data(external_votings);
+    return send_receipt_message(s_addr, 0x10000 + 5, query_id, voting_id, 0, 64);
+}
+
+() remove_outdated_votings(slice s_addr, int query_id, slice external_ids) impure {
+    cell external_votings = load_data();
+
+    int bound = now() - 60 * 60 * 24 * 7;
+    while (~ external_ids.slice_empty?()) {
+      if (external_ids.slice_data_empty?()) {
+          external_ids = external_ids.preload_ref().begin_parse();
+      }
+      int voting_id = external_ids~load_uint(256);
+      (cell external_votings', slice voting, int voting_found?) = external_votings.udict_delete_get?(256, voting_id);
+      if (voting_found?) {
+        int last_update = voting~load_uint(32);
+        if (bound > last_update) {
+          ;; remove only old votings
+          external_votings = external_votings';
+        }
+      }
+    }
+
+    save_data(external_votings);
+    return send_receipt_message(s_addr, 0x10000 + 6, query_id, 0, 0, 64); ;; thanks 
+}
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+  var cs = in_msg_cell.begin_parse();
+  var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  if (flags & 1) {
+    ;; ignore all bounced messages
+    return ();
+  }
+  slice s_addr = cs~load_msg_addr();
+  if (in_msg.slice_empty?()) {
+    ;; inbound message has empty body
+    return ();
+  }
+  int op = in_msg~load_uint(32);
+  if (op == 0) {
+    return ();
+  }
+  int query_id = in_msg~load_uint(64);
+ 
+  if (op == 5) { ;; submit signatures
+    int voting_id = in_msg~load_uint(256);
+    slice signature = in_msg~load_bits(520);
+    return vote_on_external_chain(s_addr, query_id, voting_id, signature);
+  }
+
+  if (op == 6) {  ;; remove old swaps
+    return remove_outdated_votings(s_addr, query_id, in_msg);
+  }
+}
+
+(tuple) get_external_voting_data(int voting_id) method_id {
+    cell external_votings = load_data();
+    (slice voting_data, int found?) = external_votings.udict_get?(256, voting_id);
+    throw_unless(309, found?);
+    (int time, int old_oracles_address, cell signatures) = (voting_data~load_uint(32),
+                                                            voting_data~load_uint(256),
+                                                            voting_data~load_dict());
+    tuple list = null();
+
+    int secp_key = -1;
+    do {
+      (secp_key, slice sig, int found?) = signatures.udict_get_next?(256, secp_key);
+      if (found?) {
+        (int r, int s, int v) = (sig~load_uint(256),
+                                 sig~load_uint(256),
+                                 sig~load_uint(8));
+        list = cons( pair( secp_key, triple(r,s,v)), list);
+      }
+    } until (~ found?);
+    return (list);
+}

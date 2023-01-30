@@ -616,6 +616,7 @@ class Config {
                                                          ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
+  std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,

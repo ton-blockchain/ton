@@ -1,0 +1,440 @@
+#include "stdlib.fc";
+
+forall X -> X __tact_not_null(X x) { throw_if(128, null?(x)); return x; }
+
+global (int, slice, int, slice) __tact_context;
+global cell __tact_context_sys;
+
+(int, slice, int, slice) __tact_context_get() inline { return __tact_context; }
+
+() __tact_verify_address(slice address) inline {
+    throw_unless(136, address.slice_bits() != 267);
+}
+
+builder __tact_store_bool(builder b, int v) inline {
+    b = b.store_int(v, 1);
+    return b;
+}
+
+(slice, slice) __tact_load_address(slice cs) inline {
+    slice raw = cs~load_msg_addr();
+    __tact_verify_address(raw);
+    return (cs, raw);
+}
+
+(slice, slice) __tact_load_address_opt(slice cs) inline {
+    slice raw = cs~load_msg_addr();
+    if (raw.preload_uint(2) != 0) {
+        __tact_verify_address(raw);
+        return (cs, raw);
+    } else {
+        return (cs, null());
+    }
+}
+
+builder __tact_store_address(builder b, slice address) inline {
+    __tact_verify_address(address);
+    b = b.store_slice(address);
+    return b;
+}
+
+builder __tact_store_address_opt(builder b, slice address) inline {
+    if (null?(address)) {
+        b = b.store_uint(0, 2);
+        return b;
+    } else {
+        return __tact_store_address(b, address);
+    }
+}
+
+slice __tact_create_address(int chain, int hash) inline {
+    var b = begin_cell();
+    b = b.store_uint(2, 2);
+    b = b.store_uint(0, 1);
+    b = b.store_int(chain, 8);
+    b = b.store_uint(hash, 256);
+    return b.end_cell().begin_parse();
+}
+
+slice __tact_compute_contract_address(int chain, cell code, cell data) inline {
+    var b = begin_cell();
+    b = b.store_uint(0, 2);
+    b = b.store_uint(3, 2);
+    b = b.store_uint(0, 1);
+    b = b.store_ref(code);
+    b = b.store_ref(data);
+    var hash = cell_hash(b.end_cell());
+    return __tact_create_address(chain, hash);
+}
+
+int __tact_address_eq(slice a, slice b) inline {
+    return equal_slice_bits(a, b);
+}
+
+cell __tact_dict_set_code(cell dict, int id, cell code) inline {
+    return udict_set_ref(dict, 16, id, code);
+}
+
+cell __tact_dict_get_code(cell dict, int id) inline {
+    var (data, ok) = udict_get_ref?(dict, 16, id);
+    throw_unless(135, ok);
+    return data;
+}
+
+builder __gen_write_TokenTransferInternal(builder build_0, (int, int, slice, slice, int, slice) v) inline_ref {
+    var (v'queryId, v'amount, v'from, v'responseAddress, v'forwardTonAmount, v'forwardPayload) = v;
+    build_0 = store_uint(build_0, 395134233, 32);
+    build_0 = build_0.store_uint(v'queryId, 64);
+    build_0 = build_0.store_coins(v'amount);
+    build_0 = __tact_store_address(build_0, v'from);
+    build_0 = __tact_store_address_opt(build_0, v'responseAddress);
+    build_0 = build_0.store_coins(v'forwardTonAmount);
+    build_0 = build_0.store_slice(v'forwardPayload);
+    return build_0;
+}
+
+cell __gen_writecell_TokenTransferInternal((int, int, slice, slice, int, slice) v) inline_ref {
+    return __gen_write_TokenTransferInternal(begin_cell(), v).end_cell();
+}
+
+(slice, ((int, int, slice, slice))) __gen_read_TokenBurnNotification(slice sc_0) inline_ref {
+    throw_unless(129, sc_0~load_uint(32) == 2078119902);
+    var v'queryId = sc_0~load_uint(64);
+    var v'amount = sc_0~load_coins();
+    var v'owner = sc_0~__tact_load_address();
+    var v'responseAddress = sc_0~__tact_load_address_opt();
+    return (sc_0, (v'queryId, v'amount, v'owner, v'responseAddress));
+}
+
+builder __gen_write_TokenExcesses(builder build_0, (int) v) inline_ref {
+    var (v'queryId) = v;
+    build_0 = store_uint(build_0, 3576854235, 32);
+    build_0 = build_0.store_uint(v'queryId, 64);
+    return build_0;
+}
+
+cell __gen_writecell_TokenExcesses((int) v) inline_ref {
+    return __gen_write_TokenExcesses(begin_cell(), v).end_cell();
+}
+
+(slice, ((cell))) __gen_read_TokenUpdateContent(slice sc_0) inline_ref {
+    throw_unless(129, sc_0~load_uint(32) == 201882270);
+    var v'content = sc_0~load_int(1) ? sc_0~load_ref() : null();
+    return (sc_0, (v'content));
+}
+
+(slice, ((int))) __gen_read_Mint(slice sc_0) inline_ref {
+    throw_unless(129, sc_0~load_uint(32) == 33240155);
+    var v'amount = sc_0~load_int(257);
+    return (sc_0, (v'amount));
+}
+
+builder __gen_write_JettonDefaultWallet(builder build_0, (int, slice, slice) v) inline_ref {
+    var (v'balance, v'owner, v'master) = v;
+    build_0 = build_0.store_int(v'balance, 257);
+    build_0 = __tact_store_address(build_0, v'owner);
+    build_0 = __tact_store_address(build_0, v'master);
+    return build_0;
+}
+
+builder __gen_write_SampleJetton(builder build_0, (int, slice, cell, int) v) inline_ref {
+    var (v'totalSupply, v'owner, v'content, v'mintable) = v;
+    build_0 = build_0.store_coins(v'totalSupply);
+    build_0 = __tact_store_address(build_0, v'owner);
+    build_0 = ~ null?(v'content) ? build_0.store_int(true, 1).store_ref(v'content) : build_0.store_int(false, 1);
+    build_0 = build_0.store_int(v'mintable, 1);
+    return build_0;
+}
+
+(slice, ((int, slice, cell, int))) __gen_read_SampleJetton(slice sc_0) inline_ref {
+    var v'totalSupply = sc_0~load_coins();
+    var v'owner = sc_0~__tact_load_address();
+    var v'content = sc_0~load_int(1) ? sc_0~load_ref() : null();
+    var v'mintable = sc_0~load_int(1);
+    return (sc_0, (v'totalSupply, v'owner, v'content, v'mintable));
+}
+
+_ __gen_StateInit_get_code((cell, cell) v) inline {
+    var (v'code, v'data) = v;
+    return v'code;
+}
+
+_ __gen_Context_get_sender((int, slice, int, slice) v) inline {
+    var (v'bounced, v'sender, v'value, v'raw) = v;
+    return v'sender;
+}
+
+(int, int, slice, cell, cell) __gen_JettonData_to_external(((int, int, slice, cell, cell)) v) {
+    var (v'totalSupply, v'mintable, v'owner, v'content, v'walletCode) = v; 
+    return (v'totalSupply, v'mintable, v'owner, v'content, v'walletCode);
+}
+
+(int, slice, cell, int) __gen_load_SampleJetton() inline_ref {
+    slice sc = get_data().begin_parse();
+    __tact_context_sys = sc~load_ref();
+    return sc~__gen_read_SampleJetton();
+}
+
+() __gen_store_SampleJetton((int, slice, cell, int) v) impure inline_ref {
+    builder b = begin_cell();
+    b = b.store_ref(__tact_context_sys);
+    b = __gen_write_SampleJetton(b, v);
+    set_data(b.end_cell());
+}
+
+cell $emptyCell() impure {
+    return end_cell(begin_cell());
+}
+
+slice $__gen_Cell_asSlice(cell $self) impure {
+    var ($self) = $self;
+    return begin_parse($self);
+}
+
+slice $emptySlice() impure {
+    return $__gen_Cell_asSlice($emptyCell());
+}
+
+slice $contractAddress((cell, cell) $s) impure {
+    var (($s'code, $s'data)) = $s;
+    return __tact_compute_contract_address(0, $s'code, $s'data);
+}
+
+() $send((int, slice, int, int, cell, cell, cell) $params) impure {
+    var (($params'bounce, $params'to, $params'value, $params'mode, $params'body, $params'code, $params'data)) = $params;
+    builder $b = begin_cell();
+    $b = store_int($b, 1, 2);
+    $b = __tact_store_bool($b, $params'bounce);
+    $b = store_int($b, 0, 3);
+    $b = __tact_store_address($b, $params'to);
+    $b = store_coins($b, $params'value);
+    $b = store_int($b, 0, ((((1 + 4) + 4) + 64) + 32));
+    if (((~ null?($params'code)) | (~ null?($params'data)))) {
+        $b = __tact_store_bool($b, true);
+        builder $bc = begin_cell();
+        $bc = __tact_store_bool($bc, false);
+        $bc = __tact_store_bool($bc, false);
+        if ((~ null?($params'code))) {
+            $bc = __tact_store_bool($bc, true);
+            $bc = store_ref($bc, __tact_not_null($params'code));
+        } else {
+            $bc = __tact_store_bool($bc, false);
+        }
+        if ((~ null?($params'data))) {
+            $bc = __tact_store_bool($bc, true);
+            $bc = store_ref($bc, __tact_not_null($params'data));
+        } else {
+            $bc = __tact_store_bool($bc, false);
+        }
+        $bc = __tact_store_bool($bc, false);
+        $b = __tact_store_bool($b, true);
+        $b = store_ref($b, end_cell($bc));
+    } else {
+        $b = __tact_store_bool($b, false);
+    }
+    cell $body = $params'body;
+    if ((~ null?($body))) {
+        $b = __tact_store_bool($b, true);
+        $b = store_ref($b, __tact_not_null($body));
+    } else {
+        $b = __tact_store_bool($b, false);
+    }
+    cell $c = end_cell($b);
+    send_raw_message($c, $params'mode);
+}
+
+cell $__gen_JettonDefaultWallet_init(cell sys', slice $master, slice $owner) {
+    var (($self'balance, $self'owner, $self'master)) = (null(), null(), null());
+    $self'balance = 0;
+    $self'owner = $owner;
+    $self'master = $master;
+    var b' = begin_cell();
+    b' = b'.store_ref(sys');
+    b' = __gen_write_JettonDefaultWallet(b', ($self'balance, $self'owner, $self'master));
+    return b'.end_cell();
+}
+
+(cell, cell) $__gen_JettonDefaultWallet_init_child(cell sys', slice $master, slice $owner) {
+    slice sc' = sys'.begin_parse();
+    cell source = sc'~load_dict();
+    cell contracts = new_dict();
+    
+    ;; Contract Code: JettonDefaultWallet
+    cell mine = __tact_dict_get_code(source, 55471);
+    contracts = __tact_dict_set_code(contracts, 55471, mine);
+    cell sys = begin_cell().store_dict(contracts).end_cell();
+    return (mine, $__gen_JettonDefaultWallet_init(sys, $master, $owner));
+}
+
+((int, slice, cell, int), (cell, cell)) $__gen_SampleJetton_getJettonWalletInit((int, slice, cell, int) $self, slice $address) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), $__gen_JettonDefaultWallet_init_child(__tact_context_sys, my_address(), $address));
+}
+
+slice $__gen_SampleJetton_get_wallet_address((int, slice, cell, int) $self, slice $owner) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    var ($winit'code, $winit'data) = ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_getJettonWalletInit($owner);
+    return $contractAddress(($winit'code, $winit'data));
+}
+
+_ $__gen_get_get_wallet_address(slice $$owner) method_id(103289) {
+    slice $owner = $$owner;
+    var self = __gen_load_SampleJetton();
+    var res = $__gen_SampleJetton_get_wallet_address(self, $owner);
+    return res;
+}
+
+(int, int, slice, cell, cell) $__gen_SampleJetton_get_jetton_data((int, slice, cell, int) $self) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    cell $code = __gen_StateInit_get_code(($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_getJettonWalletInit(my_address()));
+    return ($self'totalSupply, $self'mintable, $self'owner, $self'content, $code);
+}
+
+_ $__gen_get_get_jetton_data() method_id(106029) {
+    var self = __gen_load_SampleJetton();
+    var res = $__gen_SampleJetton_get_jetton_data(self);
+    return __gen_JettonData_to_external(res);
+}
+
+((int, slice, cell, int), ()) $__gen_SampleJetton_mint((int, slice, cell, int) $self, slice $to, int $amount, slice $responseAddress) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    $self'totalSupply = ($self'totalSupply + $amount);
+    var ($winit'code, $winit'data) = ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_getJettonWalletInit($to);
+    slice $walletAddress = $contractAddress(($winit'code, $winit'data));
+    $send((false, $walletAddress, 0, 64, __gen_writecell_TokenTransferInternal((0, $amount, my_address(), $responseAddress, 0, $emptySlice())), $winit'code, $winit'data));
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+((int, slice, cell, int), ()) $__gen_SampleJetton_requireWallet((int, slice, cell, int) $self, slice $owner) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    var ($ctx'bounced, $ctx'sender, $ctx'value, $ctx'raw) = __tact_context_get();
+    var ($winit'code, $winit'data) = ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_getJettonWalletInit($owner);
+    throw_unless(4429, __tact_address_eq($contractAddress(($winit'code, $winit'data)), $ctx'sender));
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+((int, slice, cell, int), ()) $__gen_SampleJetton_requireOwner((int, slice, cell, int) $self) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    throw_unless(132, __tact_address_eq(__gen_Context_get_sender(__tact_context_get()), $self'owner));
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+slice $__gen_SampleJetton_owner((int, slice, cell, int) $self) impure {
+    var (($self'totalSupply, $self'owner, $self'content, $self'mintable)) = $self;
+    return $self'owner;
+}
+
+_ $__gen_get_owner() method_id(83229) {
+    var self = __gen_load_SampleJetton();
+    var res = $__gen_SampleJetton_owner(self);
+    return res;
+}
+
+(((int, slice, cell, int)), ()) $__gen_SampleJetton_receive_Mint((int, slice, cell, int) $self, (int) $msg) impure {
+    var ($self'totalSupply, $self'owner, $self'content, $self'mintable) = $self;
+    var ($msg'amount) = $msg;
+    var ($ctx'bounced, $ctx'sender, $ctx'value, $ctx'raw) = __tact_context_get();
+    ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_mint($ctx'sender, $msg'amount, $ctx'sender);
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+((int, slice, cell, int), ()) $__gen_SampleJetton_receive_comment_cd0d986cb1a2f468ae7089f4fc3162c116e5f53fbd11a6839f52dbf5040830b2((int, slice, cell, int) $self) impure {
+    var ($self'totalSupply, $self'owner, $self'content, $self'mintable) = $self;
+    var ($ctx'bounced, $ctx'sender, $ctx'value, $ctx'raw) = __tact_context_get();
+    ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_mint($ctx'sender, 1000000000, $ctx'sender);
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+(((int, slice, cell, int)), ()) $__gen_SampleJetton_receive_TokenUpdateContent((int, slice, cell, int) $self, (cell) $msg) impure {
+    var ($self'totalSupply, $self'owner, $self'content, $self'mintable) = $self;
+    var ($msg'content) = $msg;
+    ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_requireOwner();
+    $self'content = $msg'content;
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+(((int, slice, cell, int)), ()) $__gen_SampleJetton_receive_TokenBurnNotification((int, slice, cell, int) $self, (int, int, slice, slice) $msg) impure {
+    var ($self'totalSupply, $self'owner, $self'content, $self'mintable) = $self;
+    var ($msg'queryId, $msg'amount, $msg'owner, $msg'responseAddress) = $msg;
+    ($self'totalSupply, $self'owner, $self'content, $self'mintable)~$__gen_SampleJetton_requireWallet($msg'owner);
+    $self'totalSupply = ($self'totalSupply - $msg'amount);
+    if ((~ null?($msg'responseAddress))) {
+        $send((false, $msg'responseAddress, 0, (64 + 2), __gen_writecell_TokenExcesses(($msg'queryId)), null(), null()));
+    }
+    return (($self'totalSupply, $self'owner, $self'content, $self'mintable), ());
+}
+
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+    
+    ;; Parse incoming message
+    int op = 0;
+    if (slice_bits(in_msg) >= 32) {
+        op = in_msg.preload_uint(32);
+    }
+    var cs = in_msg_cell.begin_parse();
+    var msg_flags = cs~load_uint(4);
+    var msg_bounced = ((msg_flags & 1) == 1 ? true : false);
+    slice msg_sender_addr = cs~load_msg_addr();
+    __tact_context = (msg_bounced, msg_sender_addr, msg_value, cs);
+    
+    ;; Handle bounced messages
+    if (msg_bounced) {
+        return ();
+    }
+    
+    ;; Receive Mint message
+    if (op == 33240155) {
+        var self = __gen_load_SampleJetton();
+        var msg = in_msg~__gen_read_Mint();
+        self~$__gen_SampleJetton_receive_Mint(msg);
+        __gen_store_SampleJetton(self);
+        return ();
+    }
+    
+    ;; Receive TokenUpdateContent message
+    if (op == 201882270) {
+        var self = __gen_load_SampleJetton();
+        var msg = in_msg~__gen_read_TokenUpdateContent();
+        self~$__gen_SampleJetton_receive_TokenUpdateContent(msg);
+        __gen_store_SampleJetton(self);
+        return ();
+    }
+    
+    ;; Receive TokenBurnNotification message
+    if (op == 2078119902) {
+        var self = __gen_load_SampleJetton();
+        var msg = in_msg~__gen_read_TokenBurnNotification();
+        self~$__gen_SampleJetton_receive_TokenBurnNotification(msg);
+        __gen_store_SampleJetton(self);
+        return ();
+    }
+    
+    ;; Text Receivers
+    if (op == 0) {
+        var text_op = slice_hash(in_msg);
+        
+        ;; Receive "Mint!" message
+        if (text_op == 0xcd0d986cb1a2f468ae7089f4fc3162c116e5f53fbd11a6839f52dbf5040830b2) {
+            var self = __gen_load_SampleJetton();
+            self~$__gen_SampleJetton_receive_comment_cd0d986cb1a2f468ae7089f4fc3162c116e5f53fbd11a6839f52dbf5040830b2();
+            __gen_store_SampleJetton(self);
+            return ();
+        }
+    }
+    
+    throw(130);
+}
+
+_ supported_interfaces() method_id {
+    return (
+        "org.ton.introspection.v0"H >> 128,
+        "org.ton.abi.ipfs.v0"H >> 128,
+        "org.ton.jetton.master"H >> 128,
+        "org.ton.ownable"H >> 128
+    );
+}
+
+_ get_abi_ipfs() {
+    return "ipfs://QmPfyoAvkPUqzx93gq8EBcVccAYXFEbjnqCMrHYtyPUHfE";
+}

@@ -1564,7 +1564,7 @@ bool Collator::init_lt() {
 bool Collator::fetch_config_params() {
   auto res = impl_fetch_config_params(std::move(config_), &old_mparams_, &storage_prices_, &storage_phase_cfg_,
                                       &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_, &masterchain_create_fee_,
-                                      &basechain_create_fee_, workchain());
+                                      &basechain_create_fee_, workchain(), now_);
   if (res.is_error()) {
     return fatal_error(res.move_as_error());
   }
@@ -1577,7 +1577,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>> Collator::impl_fetch_config_param
     std::vector<block::StoragePrices>* storage_prices, block::StoragePhaseConfig* storage_phase_cfg,
     td::BitArray<256>* rand_seed, block::ComputePhaseConfig* compute_phase_cfg,
     block::ActionPhaseConfig* action_phase_cfg, td::RefInt256* masterchain_create_fee,
-    td::RefInt256* basechain_create_fee, WorkchainId wc) {
+    td::RefInt256* basechain_create_fee, WorkchainId wc, UnixTime now) {
   *old_mparams = config->get_config_param(9);
   {
     auto res = config->get_storage_prices();
@@ -1615,6 +1615,7 @@ td::Result<std::unique_ptr<block::ConfigInfo>> Collator::impl_fetch_config_param
       }
       compute_phase_cfg->prev_blocks_info = prev_blocks_info.move_as_ok();
     }
+    compute_phase_cfg->suspended_addresses = config->get_suspended_addresses(now);
   }
   {
     // compute action_phase_cfg

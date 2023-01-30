@@ -110,6 +110,7 @@ struct ComputePhaseConfig {
   td::uint16 max_vm_data_depth = 512;
   int global_version = 0;
   Ref<vm::Tuple> prev_blocks_info;
+  std::unique_ptr<vm::Dictionary> suspended_addresses;
 
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
@@ -135,6 +136,7 @@ struct ComputePhaseConfig {
   }
   bool parse_GasLimitsPrices(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
   bool parse_GasLimitsPrices(Ref<vm::Cell> cell, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
+  bool is_address_suspended(ton::WorkchainId wc, td::Bits256 addr) const;
 
  private:
   bool parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit,
@@ -162,7 +164,7 @@ struct CreditPhase {
 };
 
 struct ComputePhase {
-  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas };
+  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas, sk_suspended };
   int skip_reason{sk_none};
   bool success{false};
   bool msg_state_used{false};
