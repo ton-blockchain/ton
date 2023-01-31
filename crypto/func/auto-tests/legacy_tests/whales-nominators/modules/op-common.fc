@@ -1,0 +1,175 @@
+() op_deposit(int member, int value) impure {
+
+    ;; Read extras
+    var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+    throw_unless(error::invalid_message(), enabled);
+    
+    ;; Read stake value
+    int fee = receipt_price + deposit_fee;
+    int stake = value - fee;
+    throw_unless(error::invalid_stake_value(), stake >= min_stake);
+
+    ;; Load nominators
+    load_member(member);
+
+    ;; Add deposit
+    member_stake_deposit(stake);
+
+    ;; Resolve address
+    var address = ctx_owner;
+    if (member != owner_id()) {
+        address = serialize_work_addr(member);
+    }
+
+    ;; Send receipt
+    if (ctx_query_id == 0) {
+        send_text_message(
+            address,
+            receipt_price,
+            send_mode::default(),
+            begin_cell()
+                .store_accepted_stake(stake)
+        );
+    } else {
+        send_empty_std_message(
+            address,
+            receipt_price,
+            send_mode::default(),
+            op::stake_deposit::response(),
+            ctx_query_id
+        );
+    }
+
+    ;; Persist
+    store_member();
+    store_base_data();
+}
+
+() op_withdraw(int member, int value, int stake) impure {
+
+    ;; Read extras
+    var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+
+    ;; Check fee
+    int fee = receipt_price + withdraw_fee;
+
+    ;; Check value
+    throw_unless(error::too_low_value(), value == fee);
+
+    ;; Load member
+    load_member(member);
+
+    ;; Try to withdraw immediatelly
+    var (withdrawed, all) = member_stake_withdraw(stake);
+
+    ;; Resolve address
+    var address = ctx_owner;
+    if (member != owner_id()) {
+        address = serialize_work_addr(member);
+    }
+    
+    ;; Send receipt
+    if (ctx_query_id == 0) {
+        send_text_message(
+            address,
+            withdrawed + receipt_price,
+            send_mode::default(),
+            all ? begin_cell().store_withdraw_completed() : begin_cell().store_withdraw_delayed()
+        );
+    } else {    
+        send_empty_std_message(
+            address,
+            withdrawed + receipt_price,
+            send_mode::default(),
+            all ? op::stake_withdraw::response() : op::stake_withdraw::delayed(),
+            ctx_query_id
+        );
+    }
+
+    ;; Persist
+    store_member();
+    store_base_data();
+}
+
+() op_donate(int value) impure {
+    
+    ;; Check value
+    throw_unless(error::invalid_message(), value >= 2 * coins::1());
+    
+    ;; Distribute profit to everyone
+    distribute_profit(value - coins::1());
+
+    ;; Persist
+    store_base_data();
+}
+
+() op_upgrade(int value, slice in_msg) impure {
+
+    ;; Read extras
+    var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+    throw_unless(error::invalid_message(), udpates_enabled);
+    
+    ;; Check value
+    throw_unless(error::too_low_value(), value >= fees::deploy());
+
+    ;; Upgrade code
+    var code = in_msg~load_ref();
+    in_msg.end_parse();
+    set_code(code);
+
+    ;; Send receipt
+    send_empty_std_message(
+        ctx_owner,
+        0,
+        send_mode::carry_remaining_value(),
+        op::upgrade::response(),
+        ctx_query_id
+    );
+}
+
+() op_update(int value, slice in_msg) impure {
+
+    ;; Read extras
+    var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+
+    ;; Check value
+    throw_unless(error::too_low_value(), value >= fees::deploy());
+
+    ;; Check extras
+    var newExtras = in_msg~load_ref();
+    var es = newExtras.begin_parse();
+    var new_enabled = es~load_int(1);
+    var new_udpates_enabled = es~load_int(1);
+    var new_min_stake = es~load_coins();
+    var new_deposit_fee = es~load_coins();
+    var new_withdraw_fee = es~load_coins();
+    var new_pool_fee = es~load_coins();
+    var new_receipt_price = es~load_coins();
+    es.end_parse();
+
+    ;; Once upgrades are disabled: prohibit re-enabling
+    throw_if(error::invalid_message(), (~ udpates_enabled) & new_udpates_enabled);
+
+    ;; At least min_stake
+    throw_unless(error::invalid_message(), new_min_stake >= params::min_stake());
+    ;; At least op fee
+    throw_unless(error::invalid_message(), new_deposit_fee >= fees::op());
+    throw_unless(error::invalid_message(), new_withdraw_fee >= fees::op());
+    ;; Must be in 0...10000
+    throw_unless(error::invalid_message(), new_pool_fee <= 100 * 100);
+    ;; At least receipt price
+    throw_unless(error::invalid_message(), new_receipt_price >= fees::receipt());
+
+    ;; Persist extras
+    ctx_extras = (new_enabled, new_udpates_enabled, new_min_stake, new_deposit_fee, new_withdraw_fee, new_pool_fee, new_receipt_price);
+    store_base_data();
+
+    ;; Send receipt
+    send_empty_std_message(
+        ctx_owner,
+        0,
+        send_mode::carry_remaining_value(),
+        op::update::response(),
+        ctx_query_id
+    );
+}

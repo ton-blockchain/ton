@@ -1,0 +1,60 @@
+() op_owner(int flags, int value, slice in_msg) impure {
+    
+    ;; Ignore bounced
+    if (flags & 1) {
+        return ();
+    }
+
+    ;; Check value
+    throw_unless(error::invalid_message(), value >= params::min_op());
+
+    ;; Parse operation
+    int op = in_msg~load_uint(32);
+    int query_id = in_msg~load_uint(64);
+    int gas_limit = in_msg~load_coins();
+    set_gas_limit(gas_limit);
+    ctx_query_id = query_id;
+    throw_unless(error::invalid_message(), ctx_query_id > 0);
+
+    ;; Upgrade
+    if (op == op::upgrade()) {
+        op_upgrade(value, in_msg);
+        return ();
+    }
+
+    ;; Upgrade
+    if (op == op::update()) {
+        op_update(value, in_msg);
+        return ();
+    }
+
+    ;; Add stake
+    if (op == op::stake_deposit()) {
+        op_deposit(owner_id(), value);
+        return ();
+    }
+
+    ;; Withdraw stake
+    if (op == op::stake_withdraw()) {
+        int stake = in_msg~load_coins();
+        in_msg.end_parse();
+        op_withdraw(owner_id(), value, stake);
+        return ();
+    }
+
+    ;; Recover stake
+    if (op == op::stake_recover()) {
+        load_validator_data();
+        op_stake_recover(value);
+        return ();
+    }
+
+    ;; Donate stake
+    if (op == op::donate()) {
+        op_donate(value);
+        return ();
+    }
+
+    ;; Unknown message
+    throw(error::invalid_message());
+}

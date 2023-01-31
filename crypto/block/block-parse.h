@@ -653,16 +653,20 @@ struct TrComputeInternal1 final : TLB_Complex {
 };
 
 struct ComputeSkipReason final : TLB {
-  enum { cskip_no_state = 0, cskip_bad_state = 1, cskip_no_gas = 2 };
+  enum { cskip_no_state = 0, cskip_bad_state = 1, cskip_no_gas = 2, cskip_suspended = 3 };
   int get_size(const vm::CellSlice& cs) const override {
-    return 2;
+    return cs.prefetch_ulong(2) == 3 ? 3 : 2;
   }
   bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override {
-    return get_tag(cs) >= 0 && cs.advance(2);
+    int tag = get_tag(cs);
+    return tag >= 0 && cs.advance(tag == 3 ? 3 : 2);
   }
   int get_tag(const vm::CellSlice& cs) const override {
     int t = (int)cs.prefetch_ulong(2);
-    return t < 3 ? t : -1;
+    if (t == 3 && cs.prefetch_ulong(3) != 0b110) {
+      return -1;
+    }
+    return t;
   }
 };
 
