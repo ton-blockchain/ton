@@ -147,7 +147,7 @@ PROGRAM{
 <{ AGAIN:<{ NOP }> }>s
 1000000
 <{ 8 RUNVM 1234 PUSHINT }>s 300 8 runvmx
-.s { drop } depth 1- times // 318 -14 318
+.s { drop } depth 1- times // 301 -14 301
 
 // Mode +64 - hard gas limit
 0 <{ AGAIN:<{ NOP }> }>s 200 500
@@ -178,7 +178,7 @@ PROGRAM{
 
 // Same thing, but out of gas
 <{ code1 PUSHSLICE 10000 PUSHINT 2 PUSHINT code1 PUSHSLICE 0 RUNVM }>s 100000 8 runvmx // Show gas
-.s { drop } depth 1- times // 100014 -14 100014
+.s { drop } depth 1- times // 100001 -14 100001
 
 // RUNVMX
 0
@@ -218,4 +218,4 @@ PROGRAM{
 <{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
 20
 <{ 256 RUNVM }>s 0 runvmx
-.s { drop } depth 1- times // 0 2 0
+.s { drop } depth 1- times // 0 -3 0

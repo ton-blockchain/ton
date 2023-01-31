@@ -154,13 +154,14 @@ class VmState final : public VmStateInterface {
   const CommittedState& get_committed_state() const {
     return cstate;
   }
-  void consume_gas(long long amount) {
-    gas.consume(amount);
+  void consume_gas_chk(long long amount) {
+    gas.consume_chk(amount);
   }
-  void consume_gas_limited_chk(long long amount) {
-    if (!gas.try_consume(amount)) {
-      gas.gas_remaining = -1;
-      gas.gas_exception();
+  void consume_gas(long long amount) {
+    if (global_version >= 4) {
+      gas.consume_chk(amount);
+    } else {
+      gas.consume(amount);
     }
   }
   void consume_tuple_gas(unsigned tuple_len) {
@@ -364,7 +365,7 @@ class VmState final : public VmStateInterface {
     if (global_version >= 4) {
       ++chksgn_counter;
       if (chksgn_counter > chksgn_free_count) {
-        consume_gas_limited_chk(chksgn_gas_price);
+        consume_gas(chksgn_gas_price);
       }
     }
   }
@@ -372,7 +373,6 @@ class VmState final : public VmStateInterface {
  private:
   void init_cregs(bool same_c3 = false, bool push_0 = true);
   int run_inner();
-  int handle_no_gas(int err = (int)Excno::out_of_gas);
 };
 
 struct ParentVmState {

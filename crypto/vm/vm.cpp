@@ -389,7 +389,7 @@ int VmState::throw_exception(int excno) {
   stack_ref.push_smallint(0);
   stack_ref.push_smallint(excno);
   code.clear();
-  gas.consume_chk(exception_gas_price);
+  consume_gas_chk(exception_gas_price);
   return jump(get_c2());
 }
 
@@ -399,7 +399,7 @@ int VmState::throw_exception(int excno, StackEntry&& arg) {
   stack_ref.push(std::move(arg));
   stack_ref.push_smallint(excno);
   code.clear();
-  gas.consume_chk(exception_gas_price);
+  consume_gas_chk(exception_gas_price);
   return jump(get_c2());
 }
 
@@ -443,12 +443,12 @@ int VmState::step() {
     return dispatch->dispatch(this, code.write());
   } else if (code->size_refs()) {
     VM_LOG(this) << "execute implicit JMPREF";
-    gas.consume_chk(implicit_jmpref_gas_price);
+    consume_gas_chk(implicit_jmpref_gas_price);
     Ref<Continuation> cont = Ref<OrdCont>{true, load_cell_slice_ref(code->prefetch_ref()), get_cp()};
     return jump(std::move(cont));
   } else {
     VM_LOG(this) << "execute implicit RET";
-    gas.consume_chk(implicit_ret_gas_price);
+    consume_gas_chk(implicit_ret_gas_price);
     return ret();
   }
 }
@@ -459,28 +459,24 @@ int VmState::run_inner() {
   do {
     try {
       try {
-        try {
-          res = step();
-          gas.check();
-        } catch (vm::CellBuilder::CellWriteError) {
-          throw VmError{Excno::cell_ov};
-        } catch (vm::CellBuilder::CellCreateError) {
-          throw VmError{Excno::cell_ov};
-        } catch (vm::CellSlice::CellReadError) {
-          throw VmError{Excno::cell_und};
-        }
-      } catch (const VmError& vme) {
-        VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
-        try {
-          ++steps;
-          res = throw_exception(vme.get_errno());
-        } catch (const VmError& vme2) {
-          VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
-          return ~vme2.get_errno();
-        }
+        res = step();
+        gas.check();
+      } catch (vm::CellBuilder::CellWriteError) {
+        throw VmError{Excno::cell_ov};
+      } catch (vm::CellBuilder::CellCreateError) {
+        throw VmError{Excno::cell_ov};
+      } catch (vm::CellSlice::CellReadError) {
+        throw VmError{Excno::cell_und};
       }
-    } catch (VmNoGas vmoog) {
-      return handle_no_gas(vmoog.get_errno());
+    } catch (const VmError& vme) {
+      VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
+      try {
+        ++steps;
+        res = throw_exception(vme.get_errno());
+      } catch (const VmError& vme2) {
+        VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
+        return ~vme2.get_errno();
+      }
     }
   } while (!res);
   if ((res | 1) == -1 && !try_commit()) {
@@ -492,31 +488,31 @@ int VmState::run_inner() {
   return res;
 }
 
-int VmState::handle_no_gas(int err) {
-  ++steps;
-  VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed() << ", limit=" << gas.gas_limit;
-  get_stack().clear();
-  get_stack().push_smallint(gas.gas_consumed());
-  return err;  // no ~ for unhandled exceptions (to make their faking impossible)
-}
-
 int VmState::run() {
   if (code.is_null() || stack.is_null()) {
     // throw VmError{Excno::fatal, "cannot run an uninitialized VM"};
     return (int)Excno::fatal;  // no ~ for unhandled exceptions
   }
+  int res = 0;
+  bool restore_parent = false;
   while (true) {
-    int res = run_inner();
-    while (true) {
-      if (!parent) {
-        return res;
+    try {
+      if (restore_parent) {
+        restore_parent_vm(~res);
       }
-      restore_parent_vm(~res);
-      if (gas.gas_remaining >= 0) {
-        break;
-      }
-      res = handle_no_gas();
+      res = run_inner();
+    } catch (VmNoGas &vmoog) {
+      ++steps;
+      VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed()
+                   << ", limit=" << gas.gas_limit;
+      get_stack().clear();
+      get_stack().push_smallint(gas.gas_consumed());
+      res = vmoog.get_errno();  // no ~ for unhandled exceptions (to make their faking impossible)
     }
+    if (!parent) {
+      return res;
+    }
+    restore_parent = true;
   }
 }
 
@@ -698,7 +694,7 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
   if (!isolate_gas) {
     new_state.loaded_cells = std::move(loaded_cells);
   } else {
-    consume_gas_limited_chk(std::min<long long>(chksgn_counter, chksgn_free_count) * chksgn_gas_price);
+    consume_gas(std::min<long long>(chksgn_counter, chksgn_free_count) * chksgn_gas_price);
     chksgn_counter = 0;
   }
   new_state.chksgn_counter = chksgn_counter;
@@ -722,10 +718,14 @@ void VmState::restore_parent_vm(int res) {
   log = std::move(child_state.log);
   libraries = std::move(child_state.libraries);
   steps += child_state.steps;
+  if (!parent->isolate_gas) {
+    loaded_cells = std::move(child_state.loaded_cells);
+  }
+  chksgn_counter = child_state.chksgn_counter;
   VM_LOG(this) << "Child VM finished. res: " << res << ", steps: " << child_state.steps
                << ", gas: " << child_state.gas_consumed();
 
-  consume_gas(child_state.gas_consumed());
+  consume_gas(std::min(child_state.gas_consumed(), child_state.gas.gas_limit + 1));
   Stack& cur_stack = get_stack();
   int ret_cnt;
   if (res == 0 || res == 1) {
@@ -734,7 +734,7 @@ void VmState::restore_parent_vm(int res) {
         ret_cnt = parent->ret_vals;
       } else {
         ret_cnt = 0;
-        res = (int)Excno::stk_und;
+        res = ~(int)Excno::stk_und;
         cur_stack.push(td::zero_refint());
       }
     } else {
@@ -757,10 +757,6 @@ void VmState::restore_parent_vm(int res) {
   if (parent->return_gas) {
     cur_stack.push_smallint(child_state.gas.gas_consumed());
   }
-  if (!parent->isolate_gas) {
-    loaded_cells = std::move(child_state.loaded_cells);
-  }
-  chksgn_counter = child_state.chksgn_counter;
 }
 
 }  // namespace vm

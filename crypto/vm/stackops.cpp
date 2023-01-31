@@ -413,7 +413,7 @@ int exec_roll(VmState* st) {
   stack.check_underflow(1);
   int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow_p(x);
-  st->consume_gas_limited_chk(std::max(x - 255, 0));
+  st->consume_gas(std::max(x - 255, 0));
   while (--x >= 0) {
     swap(stack[x], stack[x + 1]);
   }
@@ -426,7 +426,7 @@ int exec_rollrev(VmState* st) {
   stack.check_underflow(1);
   int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow_p(x);
-  st->consume_gas_limited_chk(std::max(x - 255, 0));
+  st->consume_gas(std::max(x - 255, 0));
   for (int i = 0; i < x; i++) {
     swap(stack[i], stack[i + 1]);
   }
@@ -441,7 +441,7 @@ int exec_blkswap_x(VmState* st) {
   int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x + y);
   if (x > 0 && y > 0) {
-    st->consume_gas_limited_chk(std::max(x + y - 255 * 2, 0));
+    st->consume_gas(std::max(x + y - 255 * 2, 0));
     std::rotate(stack.from_top(x + y), stack.from_top(y), stack.top());
   }
   return 0;
@@ -454,7 +454,7 @@ int exec_reverse_x(VmState* st) {
   int y = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x + y);
-  st->consume_gas_limited_chk(std::max(x - 255, 0));
+  st->consume_gas(std::max(x - 255, 0));
   std::reverse(stack.from_top(x + y), stack.from_top(y));
   return 0;
 }
@@ -512,7 +512,7 @@ int exec_onlytop_x(VmState* st) {
   stack.check_underflow(x);
   int n = stack.depth(), d = n - x;
   if (d > 0) {
-    st->consume_gas_limited_chk(std::max(x - 255, 0));
+    st->consume_gas(std::max(x - 255, 0));
     for (int i = n - 1; i >= d; i--) {
       stack[i] = std::move(stack[i - d]);
     }

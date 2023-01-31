@@ -226,7 +226,7 @@ int exec_runvm_common(VmState* st, unsigned mode) {
   if (mode >= 512) {
     throw VmError{Excno::range_chk, "invalid flags"};
   }
-  st->consume_gas_limited_chk(VmState::runvm_gas_price);
+  st->consume_gas(VmState::runvm_gas_price);
   Stack& stack = st->get_stack();
   bool with_data = mode & 4;
   Ref<vm::Tuple> c7;
@@ -260,7 +260,7 @@ int exec_runvm_common(VmState* st, unsigned mode) {
   gas_limit = std::min(gas_limit, st->get_gas_limits().gas_remaining);
   vm::GasLimits gas{gas_limit, gas_max};
 
-  VmState::Guard guard{nullptr}; // Don't consume gas during VM init
+  VmStateInterface::Guard guard{nullptr}; // Don't consume gas for creating/loading cells during VM init
   VmState new_state{std::move(code), std::move(new_stack),     gas,          (int)mode & 3, std::move(data),
                     VmLog{},         std::vector<Ref<Cell>>{}, std::move(c7)};
   new_state.set_chksig_always_succeed(st->get_chksig_always_succeed());
