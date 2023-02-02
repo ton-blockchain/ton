@@ -35,7 +35,10 @@ using td::Ref;
 using LtCellRef = std::pair<ton::LogicalTime, Ref<vm::Cell>>;
 
 struct Account;
+
+namespace transaction {
 struct Transaction;
+}  // namespace transaction
 
 struct CollatorError {
   std::string msg;
@@ -106,9 +109,11 @@ struct ComputePhaseConfig {
   std::unique_ptr<vm::Dictionary> libraries;
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
+  bool ignore_chksig{false};
   bool with_vm_log{false};
   td::uint16 max_vm_data_depth = 512;
   std::unique_ptr<vm::Dictionary> suspended_addresses;
+  int vm_log_verbosity = 0;
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();
@@ -273,7 +278,7 @@ struct Account {
   bool create_account_block(vm::CellBuilder& cb);  // stores an AccountBlock with all transactions
 
  protected:
-  friend struct Transaction;
+  friend struct transaction::Transaction;
   bool set_split_depth(int split_depth);
   bool check_split_depth(int split_depth) const;
   bool forget_split_depth();
@@ -288,6 +293,7 @@ struct Account {
   bool compute_my_addr(bool force = false);
 };
 
+namespace transaction {
 struct Transaction {
   enum {
     tr_none,
@@ -389,6 +395,21 @@ struct Transaction {
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
   bool unpack_msg_state(bool lib_only = false);
+};
+}  // namespace transaction
+
+struct FetchConfigParams {
+static td::Status fetch_config_params(const block::Config& config,
+                                      Ref<vm::Cell>* old_mparams,
+                                      std::vector<block::StoragePrices>* storage_prices,
+                                      StoragePhaseConfig* storage_phase_cfg,
+                                      td::BitArray<256>* rand_seed,
+                                      ComputePhaseConfig* compute_phase_cfg,
+                                      ActionPhaseConfig* action_phase_cfg,
+                                      td::RefInt256* masterchain_create_fee,
+                                      td::RefInt256* basechain_create_fee,
+                                      ton::WorkchainId wc,
+                                      ton::UnixTime now);
 };
 
 }  // namespace block

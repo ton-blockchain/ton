@@ -143,16 +143,17 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
    block::ActionPhaseConfig action_phase_cfg_;
    td::RefInt256 masterchain_create_fee, basechain_create_fee;
 
-   auto fetch_res = Collator::impl_fetch_config_params(std::move(config), &old_mparams,
-                                                 &storage_prices_, &storage_phase_cfg_,
-                                                 &rand_seed_, &compute_phase_cfg_,
-                                                 &action_phase_cfg_, &masterchain_create_fee,
-                                                 &basechain_create_fee, wc, utime);
+   auto fetch_res = block::FetchConfigParams::fetch_config_params(*config, &old_mparams,
+                                                                  &storage_prices_, &storage_phase_cfg_,
+                                                                  &rand_seed_, &compute_phase_cfg_,
+                                                                  &action_phase_cfg_, &masterchain_create_fee,
+                                                                  &basechain_create_fee, wc, utime);
    if(fetch_res.is_error()) {
      auto error = fetch_res.move_as_error();
      LOG(DEBUG) << "Cannot fetch config params: " << error.message();
      return error.move_as_error_prefix("Cannot fetch config params: ");
    }
+   compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
    compute_phase_cfg_.with_vm_log = true;
 
    auto res = Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt,
@@ -164,7 +165,7 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
      LOG(DEBUG) << "Cannot run message on account: " << error.message();
      return error.move_as_error_prefix("Cannot run message on account: ");
    }
-   std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
    auto trans_root = trans->commit(*acc);
    if (trans_root.is_null()) {
