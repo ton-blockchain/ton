@@ -362,7 +362,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
     if (to.seqno()) {
       TRY_STATUS(check_block_header(vd_root, to));
       if (!(tlb::unpack_cell(vd_root, blk) && tlb::unpack_cell(blk.info, info))) {
-        return td::Status::Error("cannot unpack header for block "s + from.to_str());
+        return td::Status::Error("cannot unpack header for block "s + to.to_str());
       }
       if (info.key_block != is_key) {
         return td::Status::Error(PSTRING() << "incorrect is_key_block value " << is_key << " for destination block "
