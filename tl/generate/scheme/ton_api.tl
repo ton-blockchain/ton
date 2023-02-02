@@ -720,11 +720,13 @@ storage.getPiece piece_id:int = storage.Piece;
 http.header name:string value:string = http.Header;
 http.payloadPart data:bytes trailer:(vector http.header) last:Bool = http.PayloadPart;
 http.response http_version:string status_code:int reason:string headers:(vector http.header) no_payload:Bool = http.Response;
+http.proxy.capabilities capabilities:long = http.proxy.Capabilities;
 
 ---functions---
 
 http.request id:int256 method:string url:string http_version:string headers:(vector http.header) = http.Response;
 http.getNextPayloadPart id:int256 seqno:int max_chunk_size:int = http.PayloadPart;
+http.proxy.getCapabilities capabilities:long = http.proxy.Capabilities;
 
 ---types---
 
