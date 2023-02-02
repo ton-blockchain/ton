@@ -49,8 +49,8 @@ class FullNodeImpl : public FullNode {
                                         std::shared_ptr<ton::overlay::Certificate> cert,
                                         td::Promise<td::Unit> promise) override;
 
-
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
+  void set_ext_messages_broadcast_disabled(bool disabled) override;
 
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
@@ -112,6 +112,7 @@ class FullNodeImpl : public FullNode {
   std::vector<PublicKeyHash> all_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+  bool ext_messages_broadcast_disabled_ = false;
 };
 
 }  // namespace fullnode

@@ -59,6 +59,7 @@ class FullNode : public td::actor::Actor {
   virtual void import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                                 std::shared_ptr<ton::overlay::Certificate> cert,
                                                 td::Promise<td::Unit> promise) = 0;
+  virtual void set_ext_messages_broadcast_disabled(bool disabled) = 0;
 
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
 

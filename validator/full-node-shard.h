@@ -36,6 +36,7 @@ class FullNodeShard : public td::actor::Actor {
   virtual ShardIdFull get_shard_full() const = 0;
 
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
+  virtual void set_ext_messages_broadcast_disabled(bool disabled) = 0;
 
   virtual void send_ihr_message(td::BufferSlice data) = 0;
   virtual void send_external_message(td::BufferSlice data) = 0;

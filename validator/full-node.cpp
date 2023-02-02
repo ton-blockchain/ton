@@ -110,6 +110,16 @@ void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td:
   local_id_ = adnl_id_.pubkey_hash();
 }
 
+void FullNodeImpl::set_ext_messages_broadcast_disabled(bool disabled) {
+  if (disabled == ext_messages_broadcast_disabled_) {
+    return;
+  }
+  ext_messages_broadcast_disabled_ = disabled;
+  for (auto& shard : shards_) {
+    td::actor::send_closure(shard.second, &FullNodeShard::set_ext_messages_broadcast_disabled, disabled);
+  }
+}
+
 void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
@@ -127,6 +137,9 @@ void FullNodeImpl::add_shard(ShardIdFull shard) {
                                                    rldp_, overlays_, validator_manager_, client_));
       if (all_validators_.size() > 0) {
         td::actor::send_closure(shards_[shard], &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+      }
+      if (ext_messages_broadcast_disabled_) {
+        td::actor::send_closure(shards_[shard], &FullNodeShard::set_ext_messages_broadcast_disabled, true);
       }
     } else {
       break;

@@ -108,15 +108,17 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
   }
 
   auto q = B.move_as_ok();
+  if (ext_messages_broadcast_disabled_) {
+    promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
+    promise = [manager = validator_manager_, message = q->message_->data_.clone()](td::Result<td::Unit> R) mutable {
+      if (R.is_ok()) {
+        td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message));
+      }
+    };
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
                           std::move(q->message_->data_),
-                          [promise = std::move(promise)](td::Result<td::Ref<ExtMessage>> R) mutable {
-                            if (R.is_error()) {
-                              promise.set_error(R.move_as_error());
-                            } else {
-                              promise.set_result(td::Unit());
-                            }
-                          });
+                          promise.wrap([](td::Ref<ExtMessage>) { return td::Unit(); }));
 }
 
 void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
@@ -685,6 +687,9 @@ void FullNodeShardImpl::send_ihr_message(td::BufferSlice data) {
 }
 
 void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
+  if (ext_messages_broadcast_disabled_) {
+    return;
+  }
   if (!client_.empty()) {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "send_ext_query",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(

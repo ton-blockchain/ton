@@ -205,6 +205,7 @@ class ValidatorEngine : public td::actor::Actor {
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
+  bool ext_messages_broadcast_disabled_ = false;
 
  public:
   static constexpr td::uint8 max_cat() {
@@ -216,6 +217,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void add_unsafe_catchain_rotation(ton::BlockSeqno b_seqno, ton::CatchainSeqno cc_seqno, td::uint32 value) {
     unsafe_catchain_rotations_.insert({b_seqno, {cc_seqno, value}});
+  }
+  void disable_ext_messages_broadcast() {
+    ext_messages_broadcast_disabled_ = true;
   }
   void set_local_config(std::string str);
   void set_global_config(std::string str);

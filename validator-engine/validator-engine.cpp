@@ -1813,6 +1813,9 @@ void ValidatorEngine::start_full_node() {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                             [](td::Unit) {});
   }
+  if (ext_messages_broadcast_disabled_) {
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_ext_messages_broadcast_disabled, true);
+  }
 
   started_full_node();
 }
@@ -3601,6 +3604,9 @@ int main(int argc, char *argv[]) {
         threads = v;
         return td::Status::OK();
       });
+  p.add_option('\0', "disable-ext-msg-broadcast", "disable broadcasting external messages", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::disable_ext_messages_broadcast); });
+  });
   p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

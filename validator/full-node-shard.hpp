@@ -81,6 +81,10 @@ class FullNodeShardImpl : public FullNodeShard {
   void create_overlay();
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
+  void set_ext_messages_broadcast_disabled(bool disabled) override {
+    ext_messages_broadcast_disabled_ = disabled;
+  }
+
   //td::Result<Block> fetch_block(td::BufferSlice data);
   void prevalidate_block(BlockIdExt block_id, td::BufferSlice data, td::BufferSlice proof,
                          td::Promise<ReceivedBlock> promise);
@@ -239,6 +243,8 @@ class FullNodeShardImpl : public FullNodeShard {
   td::Timestamp reload_neighbours_at_;
   td::Timestamp ping_neighbours_at_;
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
+
+  bool ext_messages_broadcast_disabled_ = false;
 };
 
 }  // namespace fullnode
