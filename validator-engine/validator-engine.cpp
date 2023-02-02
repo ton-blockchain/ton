@@ -69,7 +69,8 @@
 #include <limits>
 #include <set>
 #include "git.h"
-
+#include "block-auto.h"
+#include "block-parse.h"
 
 Config::Config() {
   out_port = 3278;
@@ -3334,6 +3335,86 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTi
         }
       });
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_perf_timer_stats, std::move(P));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getShardOutQueueSize &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+
+  ton::BlockId block_id = ton::create_block_id_simple(query.block_id_);
+  if (!block_id.is_valid_ext()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "invalid block id")));
+    return;
+  }
+  td::optional<ton::ShardIdFull> dest;
+  if (query.flags_ & 1) {
+    dest = ton::ShardIdFull{query.dest_wc_, (ton::ShardId)query.dest_shard_};
+    if (!dest.value().is_valid_ext()) {
+      promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "invalid shard")));
+      return;
+    }
+  }
+
+  td::actor::send_closure(
+      validator_manager_, &ton::validator::ValidatorManagerInterface::get_block_by_seqno_from_db,
+      ton::AccountIdPrefixFull{block_id.workchain, block_id.shard}, block_id.seqno,
+      [=, promise = std::move(promise),
+       manager = validator_manager_.get()](td::Result<ton::validator::ConstBlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+          return;
+        }
+        auto handle = R.move_as_ok();
+        if (handle->id().id != block_id) {
+          promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no such block")));
+          return;
+        }
+        td::actor::send_closure(
+            manager, &ton::validator::ValidatorManagerInterface::get_shard_state_from_db, handle,
+            [=, promise = std::move(promise)](td::Result<td::Ref<ton::validator::ShardState>> R) mutable {
+              auto res = [&]() -> td::Result<td::BufferSlice> {
+                TRY_RESULT(state, std::move(R));
+                TRY_RESULT(outq_descr, state->message_queue());
+                block::gen::OutMsgQueueInfo::Record qinfo;
+                if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
+                  return td::Status::Error(ton::ErrorCode::error, "invalid message queue");
+                }
+                auto queue = std::make_unique<vm::AugmentedDictionary>(qinfo.out_queue->prefetch_ref(0), 352,
+                                                                       block::tlb::aug_OutMsgQueue);
+                if (dest) {
+                  td::BitArray<96> prefix;
+                  td::BitPtr ptr = prefix.bits();
+                  ptr.store_int(dest.value().workchain, 32);
+                  ptr.advance(32);
+                  ptr.store_uint(dest.value().shard, 64);
+                  if (!queue->cut_prefix_subdict(prefix.bits(), 32 + dest.value().pfx_len())) {
+                    return td::Status::Error(ton::ErrorCode::error, "invalid message queue");
+                  }
+                }
+                int size = 0;
+                queue->check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) -> bool {
+                  ++size;
+                  return true;
+                });
+                return ton::create_serialize_tl_object<ton::ton_api::engine_validator_shardOutQueueSize>(size);
+              }();
+              if (res.is_error()) {
+                promise.set_value(create_control_query_error(res.move_as_error()));
+              } else {
+                promise.set_value(res.move_as_ok());
+              }
+            });
+      });
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,

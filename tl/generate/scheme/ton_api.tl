@@ -642,6 +642,8 @@ engine.validator.onePerfTimerStat time:int min:double avg:double max:double = en
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
 engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByName) = engine.validator.PerfTimerStats;
 
+engine.validator.shardOutQueueSize size:int = engine.validator.ShardOutQueueSize;
+
 
 ---functions---
 
@@ -693,6 +695,7 @@ engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key
 engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
 engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
+engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
 
 ---types---
 
