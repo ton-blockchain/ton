@@ -1085,3 +1085,25 @@ td::Status GetShardOutQueueSizeQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "Queue_size: " << f->size_ << "\n";
   return td::Status::OK();
 }
+
+td::Status SetExtMessagesBroadcastDisabledQuery::run() {
+  TRY_RESULT(x, tokenizer_.get_token<int>());
+  if (x < 0 || x > 1) {
+    return td::Status::Error("value should be 0 or 1");
+  }
+  value = x;
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagesBroadcastDisabledQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled>(value);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagesBroadcastDisabledQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}

@@ -50,7 +50,7 @@ class FullNodeImpl : public FullNode {
                                         td::Promise<td::Unit> promise) override;
 
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
-  void set_ext_messages_broadcast_disabled(bool disabled) override;
+  void set_config(FullNodeConfig config) override;
 
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
@@ -82,7 +82,7 @@ class FullNodeImpl : public FullNode {
   void start_up() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+               FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
                td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -112,7 +112,7 @@ class FullNodeImpl : public FullNode {
   std::vector<PublicKeyHash> all_validators_;
 
   std::set<PublicKeyHash> local_keys_;
-  bool ext_messages_broadcast_disabled_ = false;
+  FullNodeConfig config_;
 };
 
 }  // namespace fullnode

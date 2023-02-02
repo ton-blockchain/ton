@@ -81,8 +81,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void create_overlay();
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
 
-  void set_ext_messages_broadcast_disabled(bool disabled) override {
-    ext_messages_broadcast_disabled_ = disabled;
+  void set_config(FullNodeConfig config) override {
+    config_ = config;
   }
 
   //td::Result<Block> fetch_block(td::BufferSlice data);
@@ -202,7 +202,7 @@ class FullNodeShardImpl : public FullNodeShard {
   }
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                    FileHash zero_state_file_hash, td::actor::ActorId<keyring::Keyring> keyring,
+                    FileHash zero_state_file_hash, FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                     td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -244,7 +244,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::Timestamp ping_neighbours_at_;
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 
-  bool ext_messages_broadcast_disabled_ = false;
+  FullNodeConfig config_;
 };
 
 }  // namespace fullnode

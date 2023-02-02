@@ -85,6 +85,7 @@ struct Config {
   std::vector<FullNodeSlave> full_node_slaves;
   std::map<td::int32, ton::PublicKeyHash> full_node_masters;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
+  ton::validator::fullnode::FullNodeConfig full_node_config;
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
 
@@ -205,7 +206,6 @@ class ValidatorEngine : public td::actor::Actor {
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
-  bool ext_messages_broadcast_disabled_ = false;
 
  public:
   static constexpr td::uint8 max_cat() {
@@ -217,9 +217,6 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void add_unsafe_catchain_rotation(ton::BlockSeqno b_seqno, ton::CatchainSeqno cc_seqno, td::uint32 value) {
     unsafe_catchain_rotations_.insert({b_seqno, {cc_seqno, value}});
-  }
-  void disable_ext_messages_broadcast() {
-    ext_messages_broadcast_disabled_ = true;
   }
   void set_local_config(std::string str);
   void set_global_config(std::string str);
@@ -414,6 +411,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getShardOutQueueSize &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

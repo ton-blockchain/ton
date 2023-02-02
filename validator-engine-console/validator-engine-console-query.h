@@ -1121,3 +1121,26 @@ class GetShardOutQueueSizeQuery : public Query {
   ton::BlockId block_id_;
   td::optional<ton::ShardIdFull> dest_;
 };
+
+class SetExtMessagesBroadcastDisabledQuery : public Query {
+ public:
+  SetExtMessagesBroadcastDisabledQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "setextmessagesbroadcastdisabled";
+  }
+  static std::string get_help() {
+    return "setextmessagesbroadcastdisabled <value>\tdisable broadcasting and rebroadcasting ext messages; value is 0 "
+           "or 1.";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  bool value;
+};

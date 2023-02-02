@@ -588,12 +588,14 @@ engine.gc ids:(vector int256) = engine.Gc;
 engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
+engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
         dht:(vector engine.dht)
         validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
+        fullnodeconfig:engine.validator.fullNodeConfig
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
-        gc:engine.gc = engine.validator.Config; 
+        gc:engine.gc = engine.validator.Config;
 
 ---functions---
 ---types---
@@ -696,6 +698,7 @@ engine.validator.importShardOverlayCertificate workchain:int shard:long signed_k
 
 engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
 engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
+engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validator.Success;
 
 ---types---
 

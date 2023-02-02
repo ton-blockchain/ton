@@ -150,6 +150,10 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
     config_add_full_node_master(s->port_, ton::PublicKeyHash{s->adnl_}).ensure();
   }
 
+  if (config.fullnodeconfig_) {
+    full_node_config = ton::validator::fullnode::FullNodeConfig(config.fullnodeconfig_);
+  }
+
   for (auto &serv : config.liteservers_) {
     config_add_lite_server(ton::PublicKeyHash{serv->id_}, serv->port_).ensure();
   }
@@ -220,6 +224,11 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
         ton::create_tl_object<ton::ton_api::engine_validator_fullNodeMaster>(x.first, x.second.tl()));
   }
 
+  ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeConfig> full_node_config_obj = {};
+  if (full_node_config != ton::validator::fullnode::FullNodeConfig()) {
+    full_node_config_obj = full_node_config.tl();
+  }
+
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_liteServer>> liteserver_vec;
   for (auto &x : liteservers) {
     liteserver_vec.push_back(ton::create_tl_object<ton::ton_api::engine_liteServer>(x.second.tl(), x.first));
@@ -241,8 +250,8 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
       out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
-      std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(liteserver_vec),
-      std::move(control_vec), std::move(gc_vec));
+      std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(full_node_config_obj),
+      std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -1805,7 +1814,7 @@ void ValidatorEngine::start_full_node() {
     }
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,
-        keyring_.get(), adnl_.get(), rldp_.get(),
+        config_.full_node_config, keyring_.get(), adnl_.get(), rldp_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
   }
@@ -1813,9 +1822,6 @@ void ValidatorEngine::start_full_node() {
   for (auto &v : config_.validators) {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                             [](td::Unit) {});
-  }
-  if (ext_messages_broadcast_disabled_) {
-    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_ext_messages_broadcast_disabled, true);
   }
 
   started_full_node();
@@ -3417,6 +3423,32 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getShardO
       });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  if (config_.full_node_config.ext_messages_broadcast_disabled_ == query.disabled_) {
+    promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    return;
+  }
+  config_.full_node_config.ext_messages_broadcast_disabled_ = query.disabled_;
+  td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_config, config_.full_node_config);
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    }
+  });
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -3685,9 +3717,6 @@ int main(int argc, char *argv[]) {
         threads = v;
         return td::Status::OK();
       });
-  p.add_option('\0', "disable-ext-msg-broadcast", "disable broadcasting external messages", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::disable_ext_messages_broadcast); });
-  });
   p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
