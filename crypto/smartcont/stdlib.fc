@@ -624,7 +624,7 @@ int equal_slice_bits (slice a, slice b) asm "SDEQ";
 builder store_builder(builder to, builder from) asm "STBR";
 
 ;; Detaches the last element x=x_n from a non-empty Tuple t=(x_1,...,x_n), and returns both the resulting Tuple t'=(x_1,...,x_{n-1}) and the original last element x.
-forall X -> tuple tpop(tuple t) asm "TPOP";
+forall X -> (tuple, X) tpop(tuple t) asm "TPOP";
 forall X -> (tuple, X) ~tpop(tuple t) asm "TPOP";
 
 ;; Returns the length of a Tuple.
