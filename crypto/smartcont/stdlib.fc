@@ -641,7 +641,6 @@ forall X -> cell force_cast_to_cell(X x) asm "NOP";
 forall X -> slice force_cast_to_slice(X x) asm "NOP";
 forall X -> int force_cast_to_int(X x) asm "NOP";
 forall X -> tuple force_cast_to_tuple(X x) asm "NOP";
-forall X -> tuple unsafe_tuple(X x) asm "NOP";
 
 ;; get c5 register
 cell get_c5() asm "c5 PUSH";
