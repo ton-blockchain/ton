@@ -56,6 +56,14 @@ jobs:
           workflow_conclusion: success
           skip_unpack: true
 
+      - name: Download Android artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: tonlib-android-jni.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
       - name: Show all artifacts
         run: |
           tree artifacts
@@ -118,14 +126,6 @@ jobs:
           asset_name: ton-macos-12.6-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu 18.04 x86-64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-binaries-ubuntu-18.04.zip
-          asset_name: ton-ubuntu-18.04-x86-64.zip
-          tag: v${{ steps.date.outputs.date }}
-
       - name: Upload Ubuntu 20.04 x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
@@ -142,14 +142,6 @@ jobs:
           asset_name: ton-ubuntu-22.04-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu 18.04 arm64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-18.04-arm64.zip
-          asset_name: ton-ubuntu-18.04-arm64.zip
-          tag: v${{ steps.date.outputs.date }}
-
       - name: Upload Ubuntu 20.04 arm64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
@@ -164,4 +156,12 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-ubuntu-22.04-arm64.zip
           asset_name: ton-ubuntu-22.04-arm64.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Android tonlib artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/tonlib-android-jni.zip
+          asset_name: tonlib-android-jni.zip
           tag: v${{ steps.date.outputs.date }}

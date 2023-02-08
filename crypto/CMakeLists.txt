@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
-find_package(Sodium REQUIRED)
 
 set(TON_CRYPTO_CORE_SOURCE
   Ed25519.cpp
@@ -284,7 +283,7 @@ set(USE_EMSCRIPTEN ${USE_EMSCRIPTEN} PARENT_SCOPE)
 add_library(ton_crypto_core STATIC ${TON_CRYPTO_CORE_SOURCE})
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_crypto_core PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils secp256k1)
+target_link_libraries(ton_crypto_core PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
 if (NOT WIN32)
   target_link_libraries(ton_crypto_core PUBLIC dl z)
 endif()
@@ -303,8 +302,28 @@ if (NOT WIN32)
   endif()
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
-target_include_directories(ton_crypto PUBLIC ${sodium_INCLUDE_DIR})
-target_link_libraries(ton_crypto PUBLIC ${sodium_LIBRARY_RELEASE})
+
+find_package(Secp256k1 REQUIRED)
+
+if (MSVC)
+  find_package(Sodium REQUIRED)
+  target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIRS}>)
+  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
+elseif (ANDROID)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto PUBLIC $<BUILD_INTERFACE:${SECP256K1_LIBRARY}>)
+else()
+  find_package(Sodium REQUIRED)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIRS}>)
+  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
+  if (NOT APPLE)
+    target_link_libraries(ton_crypto_core PUBLIC secp256k1)
+  endif()
+endif()
+
+target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
+target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})
 target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

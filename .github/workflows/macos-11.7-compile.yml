@@ -23,7 +23,7 @@ jobs:
       - name: Build all
         run: |
           export NONINTERACTIVE=1
-          brew install ninja
+          brew install ninja secp256k1 libsodium
           rootPath=`pwd`
           mkdir build
           cd build

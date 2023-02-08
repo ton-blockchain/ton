@@ -14,16 +14,25 @@ jobs:
           submodules: 'recursive'
       - name: Compile OpenSSL
         run: |
+          export NONINTERACTIVE=1
+          brew install ninja libsodium automake
           git clone https://github.com/openssl/openssl openssl_1_1_1
           cd openssl_1_1_1
           git checkout OpenSSL_1_1_1-stable
           ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=12.6
           make build_libs -j4
 
+      - name: Compile Secp256k1
+        run: |
+          git clone https://github.com/libbitcoin/secp256k1.git
+          cd secp256k1
+          ./autogen.sh
+          ./configure --enable-module-recovery
+          make
+          make install
+
       - name: Build all
         run: |
-          export NONINTERACTIVE=1
-          brew install ninja
           rootPath=`pwd`
           mkdir build
           cd build
