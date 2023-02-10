@@ -25,26 +25,27 @@ public:
 
   struct EmulationResult {
     std::string vm_log;
+    double elapsed_time;
 
-    EmulationResult(std::string vm_log_) : vm_log(vm_log_) {}
+    EmulationResult(std::string vm_log_, double elapsed_time_) : vm_log(vm_log_), elapsed_time(elapsed_time_) {}
     virtual ~EmulationResult() = default;
   };
 
   struct EmulationSuccess: EmulationResult {
     td::Ref<vm::Cell> transaction;
     block::Account account;
-    td::Ref<vm::Cell> actions;
+    td::Ref<vm::Cell> actions;    
 
-    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_, td::Ref<vm::Cell> actions_) :
-      EmulationResult(vm_log_), transaction(transaction_), account(account_) , actions(actions_)
+    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_, td::Ref<vm::Cell> actions_, double elapsed_time_) :
+      EmulationResult(vm_log_, elapsed_time_), transaction(transaction_), account(account_) , actions(actions_)
     {}
   };
 
   struct EmulationExternalNotAccepted: EmulationResult {
     int vm_exit_code;
 
-    EmulationExternalNotAccepted(std::string vm_log_, int vm_exit_code_) : 
-      EmulationResult(vm_log_), vm_exit_code(vm_exit_code_) 
+    EmulationExternalNotAccepted(std::string vm_log_, int vm_exit_code_, double elapsed_time_) : 
+      EmulationResult(vm_log_, elapsed_time_), vm_exit_code(vm_exit_code_) 
     {}
   };
 
