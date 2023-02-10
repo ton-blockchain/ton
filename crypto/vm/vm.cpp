@@ -615,7 +615,7 @@ int run_vm_code(Ref<CellSlice> code, Stack& stack, int flags, Ref<Cell>* data_pt
 Ref<Cell> VmState::load_library(td::ConstBitPtr hash) {
   std::unique_ptr<VmStateInterface> tmp_ctx;
   // install temporary dummy vm state interface to prevent charging for cell load operations during library lookup
-  VmStateInterface::Guard(tmp_ctx.get());
+  VmStateInterface::Guard guard{global_version >= 4 ? tmp_ctx.get() : VmStateInterface::get()};
   for (const auto& lib_collection : libraries) {
     auto lib = lookup_library_in(hash, lib_collection);
     if (lib.not_null()) {
