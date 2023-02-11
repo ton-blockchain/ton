@@ -5277,7 +5277,6 @@ auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid)
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& request,
                         td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise) {
-  constexpr int max_answer_transactions = 256;
   TRY_RESULT(block, to_lite_api(*request.id_))
   auto root_hash = block->root_hash_;
   bool check_proof = request.mode_ & 32;
@@ -5311,6 +5310,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                                   (lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) -> td::Result<object_ptr<tonlib_api::blocks_transactions>> {
                         if (check_proof) {
                           try {
+                            constexpr int max_answer_transactions = 256;
                             TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(bTxes->proof_)));
                             auto virt_root = vm::MerkleProof::virtualize(proof_cell, 1);
 
