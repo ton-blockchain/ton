@@ -21,54 +21,6 @@
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
-## Packages
-
-### deb
-
-```sh
-echo 'deb [trusted=yes] https://github.com/tonthemoon/ton/releases/download/nightly-deb ./' > /etc/apt/sources.list.d/10-ton.list
-```
-
-### rpm
-
-```sh
-cat > /etc/yum.repos.d/ton.repo << EOF
-[ton]
-name=Ton
-baseurl=https://tonthemoon.github.io/ton-repo/rpm
-enabled=1
-type=rpm
-gpgcheck=0
-EOF
-```
-
-### brew
-
-```sh
-brew tap tonthemoon/ton-repo
-```
-
-### AUR
-
-<https://aur.archlinux.org/packages/ton-git-bin>
-
-### chocolatey
-
-```sh
-choco install ton-nightly --pre
-```
-
-### Direct download
-
-Binaries for all platforms are available at [GitHub releases](https://github.com/tonthemoon/ton/releases).
-
-```sh
-# example: x64 linux
-mkdir /opt/ton
-cd /opt/ton
-curl -L https://github.com/tonthemoon/ton/releases/download/nightly-linux-x86_64/ton-x86_64.tar.gz | tar -x
-```
-
 ## Updates flow:
 
 * **master branch** - mainnet is running on this stable branch.
@@ -92,10 +44,3 @@ If a CI workflow fails not because of your changes but workflow issues, try to f
 
 * **C/C++ CI (ccpp-linux.yml)**: TBD
 * **C/C++ CI Win64 Compile (ccpp-win64.yml)**: TBD
-
-To locally build and upload nightly packages:
-
-```sh
-# https://github.com/nektos/act
-act workflow_dispatch -W .github/workflows/deb_rpm-nightly-glibc_static.yml --no-skip-checkout -s GITHUB_TOKEN="$GITHUB_TOKEN" -s PACKAGES_REPO_KEY="$PACKAGES_REPO_DEPLOY_KEY"
-```
