@@ -11,16 +11,19 @@ WORKDIR /ton
 
 RUN mkdir build && \
 	cd build && \
-	cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. && \
-	ninja tonlibjson fift func validator-engine validator-engine-console generate-random-id dht-server lite-client
+	cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DCMAKE_CXX_FLAGS="-mavx2" .. && \
+	ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console generate-random-id dht-server lite-client
 
 FROM ubuntu:20.04
 RUN apt-get update && \
 	apt-get install -y openssl wget libatomic1 && \
 	rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /var/ton-work/db && \
 	mkdir -p /var/ton-work/db/static
 
+COPY --from=builder /ton/build/storage/storage-daemon/storage-daemon /usr/local/bin/
+COPY --from=builder /ton/build/storage/storage-daemon/storage-daemon-cli /usr/local/bin/
 COPY --from=builder /ton/build/lite-client/lite-client /usr/local/bin/
 COPY --from=builder /ton/build/validator-engine/validator-engine /usr/local/bin/
 COPY --from=builder /ton/build/validator-engine-console/validator-engine-console /usr/local/bin/

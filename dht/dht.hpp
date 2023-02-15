@@ -52,15 +52,20 @@ class DhtGlobalConfig {
   auto get_a() const {
     return a_;
   }
+  auto get_network_id() const {
+    return network_id_;
+  }
   const auto &nodes() const {
     return static_nodes_;
   }
-  DhtGlobalConfig(td::uint32 k, td::uint32 a, DhtNodesList nodes) : k_(k), a_(a), static_nodes_(std::move(nodes)) {
+  DhtGlobalConfig(td::uint32 k, td::uint32 a, td::int32 network_id, DhtNodesList nodes)
+      : k_(k), a_(a), network_id_(network_id), static_nodes_(std::move(nodes)) {
   }
 
  private:
   td::uint32 k_;
   td::uint32 a_;
+  td::int32 network_id_;
   DhtNodesList static_nodes_;
 };
 
@@ -85,8 +90,8 @@ class DhtMember : public Dht {
 
   static td::actor::ActorOwn<DhtMember> create(adnl::AdnlNodeIdShort id, std::string db_root,
                                                td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl, td::uint32 k = 10, td::uint32 a = 3,
-                                               bool client_only = false);
+                                               td::actor::ActorId<adnl::Adnl> adnl, td::int32 network_id,
+                                               td::uint32 k = 10, td::uint32 a = 3, bool client_only = false);
 
   //virtual void update_addr_list(tl_object_ptr<ton_api::adnl_addressList> addr_list) = 0;
   //virtual void add_node(adnl::AdnlNodeIdShort id) = 0;
@@ -101,6 +106,10 @@ class DhtMember : public Dht {
   virtual void get_self_node(td::Promise<DhtNode> promise) = 0;
 
   virtual PrintId print_id() const = 0;
+
+  static DhtKey get_reverse_connection_key(adnl::AdnlNodeIdShort node) {
+    return DhtKey{node.pubkey_hash(), "address", 0};
+  }
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const DhtMember::PrintId &id) {

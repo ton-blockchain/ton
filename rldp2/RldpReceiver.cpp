@@ -33,9 +33,8 @@ void RldpReceiver::on_ack_sent(td::Timestamp now) {
     //LOG(ERROR) << "RESEND ACK " << cnt_;
   }
   cnt_++;
-  if (cnt_ > 7) {
-    send_ack_at_ = {};
-  } else {
+  send_ack_at_ = {};
+  if (cnt_ <= 7) {
     send_ack_at_.relax(td::Timestamp::at(now.at() + config_.ack_delay * (1 << cnt_)));
   }
 }

@@ -1000,7 +1000,7 @@ bool Account::skip_copy_depth_balance(vm::CellBuilder& cb, vm::CellSlice& cs) co
 }
 
 const Account t_Account, t_AccountE{true};
-const RefTo<Account> t_Ref_Account;
+const RefTo<Account> t_Ref_AccountE{true};
 
 bool ShardAccount::extract_account_state(Ref<vm::CellSlice> cs_ref, Ref<vm::Cell>& acc_state) {
   if (cs_ref.is_null()) {

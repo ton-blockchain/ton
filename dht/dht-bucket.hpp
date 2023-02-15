@@ -31,7 +31,6 @@ class DhtMember;
 
 class DhtBucket {
  private:
-  double ping_timeout_ = 60;
   td::uint32 max_missed_pings_ = 3;
 
   std::vector<std::unique_ptr<DhtRemoteNode>> active_nodes_;
@@ -43,6 +42,7 @@ class DhtBucket {
   //               const DhtMember::PrintId &print_id);
   void demote_node(size_t idx);
   void promote_node(size_t idx);
+  size_t select_backup_node_to_drop() const;
 
  public:
   DhtBucket(td::uint32 k) : k_(k) {
@@ -51,7 +51,7 @@ class DhtBucket {
   }
   td::uint32 active_cnt();
   td::Status add_full_node(DhtKeyId id, DhtNode node, td::actor::ActorId<adnl::Adnl> adnl,
-                           adnl::AdnlNodeIdShort self_id);
+                           adnl::AdnlNodeIdShort self_id, td::int32 our_network_id, bool set_active = false);
   void check(bool client_only, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<DhtMember> node,
              adnl::AdnlNodeIdShort src);
   void receive_ping(DhtKeyId id, DhtNode result, td::actor::ActorId<adnl::Adnl> adnl, adnl::AdnlNodeIdShort self_id);

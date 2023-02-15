@@ -396,6 +396,7 @@ add_subdirectory(tl-utils)
 add_subdirectory(adnl)
 add_subdirectory(crypto)
 add_subdirectory(lite-client)
+add_subdirectory(emulator)
 
 #BEGIN tonlib
 add_subdirectory(tonlib)

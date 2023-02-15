@@ -25,11 +25,20 @@
 #include "td/utils/PathView.h"
 #include "td/utils/port/path.h"
 #include "td/utils/tl_helpers.h"
+#include "MicrochunkTree.h"
+#include "TorrentHeader.hpp"
 
 namespace ton {
 td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSlice raw_path) {
   TRY_RESULT(path, td::realpath(raw_path));
   TRY_RESULT(stat, td::stat(path));
+  std::string root_dir = path;
+  while (!root_dir.empty() && root_dir.back() == TD_DIR_SLASH) {
+    root_dir.pop_back();
+  }
+  while (!root_dir.empty() && root_dir.back() != TD_DIR_SLASH) {
+    root_dir.pop_back();
+  }
   if (stat.is_dir_) {
     if (!path.empty() && path.back() != TD_DIR_SLASH) {
       path += TD_DIR_SLASH;
@@ -50,17 +59,21 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
     });
     TRY_STATUS(std::move(status));
     TRY_STATUS(std::move(walk_status));
+    creator.root_dir_ = std::move(root_dir);
+    std::sort(creator.files_.begin(), creator.files_.end(),
+              [](const Torrent::Creator::File& a, const Torrent::Creator::File& b) { return a.name < b.name; });
     return creator.finalize();
   } else {
     Torrent::Creator creator(options);
     TRY_STATUS(creator.add_file(td::PathView(path).file_name(), path));
+    creator.root_dir_ = std::move(root_dir);
     return creator.finalize();
   }
 }
 
 td::Result<Torrent> Torrent::Creator::create_from_blobs(Options options, td::Span<Blob> blobs) {
   Torrent::Creator creator(options);
-  for (auto &blob : blobs) {
+  for (auto& blob : blobs) {
     TRY_STATUS(creator.add_blob(blob.name, blob.data));
   }
   return creator.finalize();
@@ -79,12 +92,15 @@ td::Status Torrent::Creator::add_blob(td::Slice name, td::BlobView blob) {
 }
 
 TD_WARN_UNUSED_RESULT td::Status Torrent::Creator::add_file(td::Slice name, td::CSlice path) {
-  LOG(INFO) << "Add file " << name << " " << path;
+  LOG(DEBUG) << "Add file " << name << " " << path;
   TRY_RESULT(data, td::FileNoCacheBlobView::create(path));
   return add_blob(name, std::move(data));
 }
 
 td::Result<Torrent> Torrent::Creator::finalize() {
+  if (files_.empty()) {
+    return td::Status::Error("No files");
+  }
   TorrentHeader header;
   TRY_RESULT(files_count, td::narrow_cast_safe<td::uint32>(files_.size()));
   header.files_count = files_count;
@@ -115,11 +131,9 @@ td::Result<Torrent> Torrent::Creator::finalize() {
 
   auto header_size = header.serialization_size();
   auto file_size = header_size + data_offset;
-  auto chunks_count = (file_size + options_.piece_size - 1) / options_.piece_size;
-  ton::MerkleTree tree;
-  tree.init_begin(chunks_count);
+  auto pieces_count = (file_size + options_.piece_size - 1) / options_.piece_size;
   std::vector<Torrent::ChunkState> chunks;
-  size_t chunk_i = 0;
+  std::vector<td::Bits256> pieces;
   auto flush_reader = [&](bool force) {
     while (true) {
       auto slice = reader.prepare_read();
@@ -127,16 +141,14 @@ td::Result<Torrent> Torrent::Creator::finalize() {
       if (slice.empty() || (slice.size() != options_.piece_size && !force)) {
         break;
       }
-      td::UInt256 hash;
+      td::Bits256 hash;
       sha256(slice, hash.as_slice());
-      CHECK(chunk_i < chunks_count);
-      tree.init_add_chunk(chunk_i, hash.as_slice());
-      chunk_i++;
+      pieces.push_back(hash);
       reader.confirm_read(slice.size());
     }
   };
   td::uint64 offset = 0;
-  auto add_blob = [&](auto &&data, td::Slice name) {
+  auto add_blob = [&](auto data, td::Slice name) {
     td::uint64 data_offset = 0;
     while (data_offset < data.size()) {
       auto dest = writer.prepare_write();
@@ -168,24 +180,25 @@ td::Result<Torrent> Torrent::Creator::finalize() {
   td::sha256(header_str, info.header_hash.as_slice());
 
   add_blob(td::BufferSliceBlobView::create(td::BufferSlice(header_str)), "").ensure();
-  for (auto &file : files_) {
+  for (auto& file : files_) {
     add_blob(std::move(file.data), file.name).ensure();
   }
   flush_reader(true);
-  tree.init_finish();
-  CHECK(chunk_i == chunks_count);
+  CHECK(pieces.size() == pieces_count);
   CHECK(offset == file_size);
+  MerkleTree tree(std::move(pieces));
 
   info.header_size = header.serialization_size();
   info.piece_size = options_.piece_size;
   info.description = options_.description;
   info.file_size = file_size;
-  info.depth = tree.get_depth();
   info.root_hash = tree.get_root_hash();
 
   info.init_cell();
+  TRY_STATUS_PREFIX(info.validate(), "Invalid torrent info: ");
+  TRY_STATUS_PREFIX(header.validate(info.file_size, info.header_size), "Invalid torrent header: ");
 
-  Torrent torrent(info, std::move(header), std::move(tree), std::move(chunks));
+  Torrent torrent(info, std::move(header), std::move(tree), std::move(chunks), root_dir_);
 
   return std::move(torrent);
 }

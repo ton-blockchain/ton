@@ -54,7 +54,11 @@ td::Ref<vm::Stack> prepare_vm_stack(td::RefInt256 amount, td::Ref<vm::CellSlice>
 
 td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
   td::BitArray<256> rand_seed;
-  rand_seed.as_slice().fill(0);
+  if (args.rand_seed) {
+    rand_seed = args.rand_seed.unwrap();
+  } else {
+    rand_seed.as_slice().fill(0);
+  }
   td::RefInt256 rand_seed_int{true};
   rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false);
 
@@ -96,7 +100,7 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
 }
 
 SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7,
-                                    vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries) {
+                                    vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity) {
   auto gas_credit = gas.gas_credit;
   vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
@@ -109,15 +113,12 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     std::string res;
   };
   Logger logger;
-  vm::VmLog log{&logger, td::LogOptions::plain()};
-
-  if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
-    log.log_options.level = 4;
-    log.log_options.fix_newlines = true;
-    log.log_mask |= vm::VmLog::DumpStack;
-  } else {
-    log.log_options.level = 0;
-    log.log_mask = 0;
+  vm::VmLog log{&logger, td::LogOptions(VERBOSITY_NAME(DEBUG), true, false)};
+  if (vm_log_verbosity > 1) {
+    log.log_mask |= vm::VmLog::ExecLocation;
+    if (vm_log_verbosity > 2) {
+      log.log_mask |= vm::VmLog::DumpStack | vm::VmLog::GasRemaining;
+    }
   }
 
   SmartContract::Answer res;
@@ -137,13 +138,13 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   } catch (...) {
     LOG(FATAL) << "catch unhandled exception";
   }
-  td::ConstBitPtr mlib = vm.get_missing_library();
   res.new_state = std::move(state);
   res.stack = vm.get_stack_ref();
   gas = vm.get_gas_limits();
   res.gas_used = gas.gas_consumed();
   res.accepted = gas.gas_credit == 0;
   res.success = (res.accepted && (unsigned)res.code <= 1);
+  res.vm_log = logger.res;
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     LOG(DEBUG) << "VM log\n" << logger.res;
     std::ostringstream os;
@@ -153,6 +154,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     LOG(DEBUG) << "VM accepted: " << res.accepted;
     LOG(DEBUG) << "VM success: " << res.success;
   }
+  td::ConstBitPtr mlib = vm.get_missing_library();
   if (!mlib.is_null()) {
     LOG(DEBUG) << "Missing library: " << mlib.to_hex(256);
     res.missing_library = mlib;
@@ -219,7 +221,7 @@ SmartContract::Answer SmartContract::run_method(Args args) {
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   auto res =
       run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
-                    args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{});
+                    args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{}, args.vm_log_verbosity_level);
   state_ = res.new_state;
   return res;
 }
@@ -237,7 +239,7 @@ SmartContract::Answer SmartContract::run_get_method(Args args) const {
   CHECK(args.method_id);
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   return run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
-                       args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{});
+                       args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{}, args.vm_log_verbosity_level);
 }
 
 SmartContract::Answer SmartContract::run_get_method(td::Slice method, Args args) const {

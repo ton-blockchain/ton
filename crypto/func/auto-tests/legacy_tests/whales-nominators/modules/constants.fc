@@ -1,0 +1,100 @@
+;;
+;; Errors
+;;
+
+int error::invalid_address() asm "70 PUSHINT";
+int error::invalid_message() asm "72 PUSHINT";
+int error::access_denied() asm "73 PUSHINT";
+int error::internal_error() asm "74 PUSHINT";
+int error::already_deployed() asm "75 PUSHINT";
+int error::too_low_value() asm "76 PUSHINT";
+int error::invalid_stake_value() asm "77 PUSHINT";
+int error::unknown_text_command() asm "78 PUSHINT";
+
+;;
+;; Members
+;;
+
+int op::stake_deposit() asm "2077040623 PUSHINT";
+int op::stake_deposit::response() asm "3326208306 PUSHINT";
+int op::stake_withdraw() asm "3665837821 PUSHINT";
+int op::stake_withdraw::delayed() asm "1958425639 PUSHINT";
+int op::stake_withdraw::response() asm "601104865 PUSHINT";
+int op::donate() asm "1203495973 PUSHINT";
+int op::donate::response() asm "3095625004 PUSHINT";
+;;
+;; Owner
+;;
+
+int op::upgrade() asm "3690657815 PUSHINT";
+int op::upgrade::response() asm "1395540087 PUSHINT";
+int op::update() asm "37541164 PUSHINT";
+int op::update::response() asm "839996522 PUSHINT";
+
+;;
+;; Controller
+;;
+
+int op::stake_send() asm "2718326572 PUSHINT";
+int op::accept_stakes() asm "2577928699 PUSHINT";
+int op::accept_withdraws() asm "2711607604 PUSHINT";
+int op::stake_recover() asm "1699565966 PUSHINT";
+int op::withdraw_unowned() asm "622684824 PUSHINT";
+int op::withdraw_unowned::response() asm "488052159 PUSHINT";
+int op::force_kick() asm "1396625244 PUSHINT";
+int op::force_kick::notification() asm "2060499266 PUSHINT";
+
+;;
+;; Elector
+;;
+
+int elector::refund::request() asm "0x47657424 PUSHINT";
+int elector::refund::response() asm "0xf96f7324 PUSHINT";
+
+int elector::stake::request() asm "0x4e73744b PUSHINT";
+int elector::stake::response() asm "0xf374484c PUSHINT";
+int elector::stake::response::fail() asm "0xee6f454c PUSHINT";
+
+;;
+;; Send Mode
+;;
+
+int send_mode::default() asm "0 PUSHINT";
+int send_mode::separate_gas() asm "1 PUSHINT";
+int send_mode::ignore_errors() asm "2 PUSHINT";
+int send_mode::carry_remaining_balance() asm "128 PUSHINT";
+int send_mode::carry_remaining_value() asm "64 PUSHINT";
+int send_mode::destroy_if_zero() asm "64 PUSHINT";
+
+;;
+;; Coins
+;;
+
+int coins::1() asm "1000000000 PUSHINT";
+int coins::100() asm "100000000000 PUSHINT";
+
+;;
+;; Fees
+;;
+
+int fees::storage_reserve() asm "1000000000 PUSHINT"; ;; 1 TON
+int fees::receipt() asm "100000000 PUSHINT"; ;; 0.1 TON
+int fees::op() asm "100000000 PUSHINT"; ;; 0.1 TON
+int fees::deploy() asm "5000000000 PUSHINT"; ;; 5 TON
+int fees::stake_fees() asm "2000000000 PUSHINT"; ;; 2 TON
+
+;;
+;; Parameters
+;;
+
+int params::min_op() asm "100000000 PUSHINT"; ;; 0.1 TON
+int params::min_stake() asm "1000000000 PUSHINT"; ;; 1 TON
+int params::min_fee() asm "1000000000 PUSHINT"; ;; 1 TON
+int params::pending_op() asm "5000000000 PUSHINT"; ;; 5 TON
+int params::ppc_precision() asm "10000000000000 PUSHINT"; ;; 10^13
+
+;;
+;; Members
+;;
+
+int owner_id() asm "0 PUSHINT";

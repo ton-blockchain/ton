@@ -39,6 +39,9 @@ class AdnlAddressImpl : public td::CntObject {
   virtual td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const = 0;
+  virtual bool is_reverse() const {
+    return false;
+  }
 
   static td::Ref<AdnlAddressImpl> create(const tl_object_ptr<ton_api::adnl_Address> &addr);
 };
@@ -54,6 +57,7 @@ class AdnlAddressList {
   td::int32 priority_;
   td::int32 expire_at_;
   std::vector<AdnlAddress> addrs_;
+  bool has_reverse_{false};
 
  public:
   static constexpr td::uint32 max_serialized_size() {
@@ -102,6 +106,13 @@ class AdnlAddressList {
 
   static td::Result<AdnlAddressList> create(const tl_object_ptr<ton_api::adnl_addressList> &addr_list);
   td::Status add_udp_address(td::IPAddress addr);
+
+  void set_reverse(bool x = true) {
+    has_reverse_ = x;
+  }
+  bool has_reverse() const {
+    return has_reverse_;
+  }
 };
 
 }  // namespace adnl

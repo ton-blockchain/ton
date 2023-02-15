@@ -24,6 +24,7 @@
 #include "vm/cells.h"
 
 #include "Bitset.h"
+#include <map>
 
 namespace ton {
 // merkle_node$_ {n:#} left:^(ton::MerkleTree n) right:^(ton::MerkleTree n) = ton::MerkleTree (n + 1);
@@ -31,66 +32,33 @@ namespace ton {
 
 class MerkleTree {
  public:
-  td::uint32 get_depth() const;
-  td::Ref<vm::Cell> get_root(size_t depth_limit = std::numeric_limits<size_t>::max()) const;
-  td::Bits256 get_root_hash() const;
-
-  MerkleTree(size_t chunks_count, td::Bits256 root_hash);
-  MerkleTree(size_t chunks_count, td::Ref<vm::Cell> root_proof);
-
-  struct Chunk {
-    std::size_t index{0};
-    td::Bits256 hash;
-  };
-
-  explicit MerkleTree(td::Span<Chunk> chunks);
-
   MerkleTree() = default;
-  void init_begin(size_t chunks_count);
-  void init_add_chunk(std::size_t index, td::Slice hash);
-  void init_finish();
+  MerkleTree(size_t pieces_count, td::Bits256 root_hash);
+  explicit MerkleTree(std::vector<td::Bits256> hashes);
 
-  // merge external proof with an existing proof
-  td::Status add_proof(td::Ref<vm::Cell> new_root);
-  // generate proof for all chunks from l to r inclusive
-  td::Result<td::Ref<vm::Cell>> gen_proof(size_t l, size_t r);
+  td::Status add_proof(td::Ref<vm::Cell> proof);
+  td::Result<td::Bits256> get_piece_hash(size_t idx) const;
+  td::Result<td::Ref<vm::Cell>> gen_proof(size_t l, size_t r) const;
+  td::Ref<vm::Cell> get_root(size_t depth_limit = std::numeric_limits<size_t>::max()) const;
 
-  // Trying to add and validate list of chunks simultaniously
-  td::Status try_add_chunks(td::Span<Chunk> chunks);
+  std::vector<size_t> add_pieces(std::vector<std::pair<size_t, td::Bits256>> pieces);
 
-  // Returns bitmask of successfully added chunks
-  // Intended to be used during validation of a torrent.
-  // We got arbitrary chunks read from disk, and we got an arbirary proof.
-  // Now we can say about some chunks that they are correct. This ia a general way
-  // to do this.
-  //
-  // NB: already added chunks are simply validated. One should be careful
-  // not to process them twice
-  void add_chunks(td::Span<Chunk> chunks, td::Bitset &bitmask);
+  size_t get_depth() const {
+    return depth_;
+  }
+
+  td::Bits256 get_root_hash() const {
+    return root_hash_;
+  }
 
  private:
-  td::uint64 total_blocks_;
-  std::size_t n_;  // n = 2^log_n
-  td::uint32 log_n_;
-  std::size_t mark_id_{0};
-  std::vector<std::size_t> mark_;          // n_ * 2
-  std::vector<td::Ref<vm::Cell>> proof_;  // n_ * 2
-
-  td::optional<td::Bits256> root_hash_;
+  size_t pieces_count_{0};
+  td::Bits256 root_hash_ = td::Bits256::zero();
+  size_t depth_{0}, n_{1};
   td::Ref<vm::Cell> root_proof_;
 
-  td::Status validate_proof(td::Ref<vm::Cell> new_root);
-  bool has_chunk(std::size_t index) const;
-  void remove_chunk(std::size_t index);
-
-  void add_chunk(std::size_t index, td::Slice hash);
-  void init_proof();
-
-  td::Ref<vm::Cell> merge(td::Ref<vm::Cell> root, size_t index);
-  void cleanup_add(size_t index);
-  td::Status do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir, size_t l, size_t r) const;
-  void do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) const;
-  td::Status validate_existing_chunk(const Chunk &chunk);
+  td::Ref<vm::Cell> do_add_pieces(td::Ref<vm::Cell> node, std::vector<size_t> &ok_pieces, size_t il, size_t ir,
+                                  std::pair<size_t, td::Bits256> *pl, std::pair<size_t, td::Bits256> *pr);
 };
 
 }  // namespace ton

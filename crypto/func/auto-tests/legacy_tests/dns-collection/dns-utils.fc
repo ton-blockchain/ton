@@ -1,0 +1,110 @@
+const int one_month = 2592000; ;; 1 month in seconds = 60 * 60 * 24 * 30
+const int one_year = 31622400; ;; 1 year in seconds = 60 * 60 * 24 * 366
+const int auction_start_time = 1659171600; ;; GMT: Monday, 30 July 2022 г., 09:00:00
+const int one_ton = 1000000000;
+const int dns_next_resolver_prefix = 0xba93; ;; dns_next_resolver prefix - https://github.com/ton-blockchain/ton/blob/7e3df93ca2ab336716a230fceb1726d81bac0a06/crypto/block/block.tlb#L819
+
+const int dns_config_id = 80; ;; dns black list config param; in testnet -80
+
+const int op::fill_up = 0x370fec51;
+const int op::outbid_notification = 0x557cea20;
+const int op::change_dns_record = 0x4eb1f0f9;
+const int op::process_governance_decision = 0x44beae41;
+const int op::dns_balance_release = 0x4ed14b65;
+
+int mod(int x, int y) asm "MOD";
+
+slice zero_address() {
+    return begin_cell().store_uint(0, 2).end_cell().begin_parse();
+}
+
+;; "ton\0test\0" -> "ton"
+int get_top_domain_bits(slice domain) {
+    int i = 0;
+    int need_break = 0;
+    do {
+        int char = domain~load_uint(8); ;; we do not check domain.length because it MUST contains \0 character
+        need_break = char == 0;
+        if (~ need_break) {
+            i += 8;
+        }
+    } until (need_break);
+    throw_if(201, i == 0); ;; starts with \0
+    return i;
+}
+
+slice read_domain_from_comment(slice in_msg_body) {
+    int need_break = 0;
+    builder result = begin_cell();
+    do {
+        result = result.store_slice(in_msg_body~load_bits(in_msg_body.slice_bits()));
+        int refs_len = in_msg_body.slice_refs();
+        need_break = refs_len == 0;
+        if (~ need_break) {
+            throw_unless(202, refs_len == 1);
+            in_msg_body = in_msg_body~load_ref().begin_parse();
+        }
+    } until (need_break);
+    return result.end_cell().begin_parse();
+}
+
+int check_domain_string(slice domain) {
+    int i = 0;
+    int len = slice_bits(domain);
+    int need_break = 0;
+    do {
+        need_break = i == len;
+        if (~ need_break) {
+            int char = domain~load_uint(8);
+            ;; we can do it because additional UTF-8 character's octets >= 128 -- https://www.ietf.org/rfc/rfc3629.txt
+            int is_hyphen = (char == 45);
+            int valid_char = (is_hyphen & (i > 0) & (i < len - 8)) | ((char >= 48) & (char <= 57)) | ((char >= 97) & (char <= 122)); ;; '-' or 0-9 or a-z
+
+            need_break = ~ valid_char;
+            if (~ need_break) {
+                i += 8;
+            }
+        }
+    } until (need_break);
+    return i == len;
+}
+
+(int, int) get_min_price_config(int domain_char_count) {
+    if (domain_char_count == 4) {
+        return (1000, 100);
+    }
+    if (domain_char_count == 5) {
+        return (500, 50);
+    }
+    if (domain_char_count == 6) {
+        return (400, 40);
+    }
+    if (domain_char_count == 7) {
+        return (300, 30);
+    }
+    if (domain_char_count == 8) {
+        return (200, 20);
+    }
+    if (domain_char_count == 9) {
+        return (100, 10);
+    }
+    if (domain_char_count == 10) {
+        return (50, 5);
+    }
+    return (10, 1);
+}
+
+int get_min_price(int domain_bits_length, int now_time) {
+    (int start_min_price, int end_min_price) = get_min_price_config(domain_bits_length / 8);
+    start_min_price *= one_ton;
+    end_min_price *= one_ton;
+    int seconds = now_time - auction_start_time;
+    int months = seconds / one_month;
+    if (months > 21) {
+        return end_min_price;
+    }
+    repeat (months) {
+        start_min_price = start_min_price * 90 / 100;
+    }
+    return start_min_price;
+}

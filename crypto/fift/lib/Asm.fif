@@ -875,9 +875,15 @@ x{EDFB} @Defop SAMEALTSAVE
 } dup : PREPARE : PREPAREDICT
 //
 // inline support
-{ dup sbits { @addop } {
-  dup srefs 1- abort"exactly one reference expected in inline"
-  ref@ CALLREF } cond
+{ dup sbits
+   { @addop }
+   {
+    dup srefs // 
+      { ref@ CALLREF }
+      { drop }
+      cond
+   }
+   cond
 } : INLINE
 //
 // throwing and handling exceptions
