@@ -21,7 +21,7 @@
           src = ./.;
 
           nativeBuildInputs = with host;
-            [ bash cmake ninja pkg-config git ] ++
+            [ ninja pkg-config git ] ++
             optionals stdenv.isLinux [ dpkg rpm createrepo_c pacman ];
           buildInputs = with pkgs;
           # at some point nixpkgs' pkgsStatic will build with static glibc
@@ -31,6 +31,7 @@
               openssl_1_1
               zlib
               libmicrohttpd
+              bash
             ] else
               [
                 (openssl_1_1.override { static = true; }).dev
