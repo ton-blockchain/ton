@@ -24,7 +24,7 @@ jobs:
     - name: Compile
       run: |
         /usr/bin/env sh
-        nix build .?submodules=1#packages.aarch64-linux.ton-oldglibc_staticbinaries --print-build-logs --system aarch64-linux -o result-aarch64
+        nix build .?submodules=1#packages.aarch64-linux.ton-static --print-build-logs --system aarch64-linux -o result-aarch64
 
     - name: Copy binaries
       run: |
