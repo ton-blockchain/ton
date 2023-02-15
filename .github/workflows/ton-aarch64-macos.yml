@@ -20,7 +20,7 @@ jobs:
 
     - name: Compile
       run: |
-        nix build .?submodules=1#packages.aarch64-darwin.ton-static --print-build-logs --system aarch64-darwin -o result-aarch64-darwin -A bash
+        nix build .?submodules=1#packages.aarch64-darwin.ton-static --print-build-logs --system aarch64-darwin -o result-aarch64-darwin -A sh
 
     - name: Copy binaries
       run: |
