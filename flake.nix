@@ -21,7 +21,7 @@
           src = ./.;
 
           nativeBuildInputs = with host;
-            [ cmake ninja pkg-config git ] ++
+            [ bash cmake ninja pkg-config git ] ++
             optionals stdenv.isLinux [ dpkg rpm createrepo_c pacman ];
           buildInputs = with pkgs;
           # at some point nixpkgs' pkgsStatic will build with static glibc
