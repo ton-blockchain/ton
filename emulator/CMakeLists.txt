@@ -27,19 +27,17 @@ include(GenerateExportHeader)
 add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
 target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope)
 
-add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
-target_link_libraries(emulator PUBLIC emulator_static)
-generate_export_header(emulator EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/emulator_export.h)
-target_include_directories(emulator PUBLIC
+generate_export_header(emulator_static EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/emulator_export.h)
+target_include_directories(emulator_static PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 if (APPLE)
-  set_target_properties(emulator PROPERTIES LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/emulator_export_list")
+  set_target_properties(emulator_static PROPERTIES LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/emulator_export_list")
 endif()
 
 if (USE_EMSCRIPTEN)
   add_executable(emulator-emscripten ${EMULATOR_EMSCRIPTEN_SOURCE})
-  target_link_libraries(emulator-emscripten PUBLIC emulator)
+  target_link_libraries(emulator-emscripten PUBLIC emulator_static)
   target_link_options(emulator-emscripten PRIVATE -sEXPORTED_RUNTIME_METHODS=_malloc,free,UTF8ToString,stringToUTF8,allocate,ALLOC_NORMAL,lengthBytesUTF8)
   target_link_options(emulator-emscripten PRIVATE -sEXPORTED_FUNCTIONS=_emulate,_free,_run_get_method)
   target_link_options(emulator-emscripten PRIVATE -sEXPORT_NAME=EmulatorModule)
