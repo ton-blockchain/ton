@@ -22,7 +22,9 @@ jobs:
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
     - name: Compile
-      run: nix build .?submodules=1#packages.aarch64-linux.ton-oldglibc_staticbinaries --print-build-logs --system aarch64-linux -o result-aarch64
+      run: |
+        /usr/bin/env bash
+        nix build .?submodules=1#packages.aarch64-linux.ton-oldglibc_staticbinaries --print-build-logs --system aarch64-linux -o result-aarch64
 
     - name: Copy binaries
       run: |
