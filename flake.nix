@@ -28,12 +28,12 @@
           # then we can skip these manual overrides
           # and switch between pkgsStatic and pkgsStatic.pkgsMusl for static glibc and musl builds
             if !staticExternalDeps then [
-              openssl
+              openssl_1_1
               zlib
               libmicrohttpd
             ] else
               [
-                (openssl.override { static = true; }).dev
+                (openssl_1_1.override { static = true; }).dev
                 (zlib.override { shared = false; }).dev
                 pkgsStatic.libmicrohttpd.dev
               ] ++ optional staticGlibc glibc.static;

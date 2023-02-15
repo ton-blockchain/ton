@@ -1,4 +1,4 @@
-name: "TON aarch64 macOS build"
+name: "TON aarch64 macOS binaries"
 
 on: [push,workflow_dispatch,workflow_call]
 
@@ -26,6 +26,7 @@ jobs:
         ls -lart
         mkdir artifacts
         cp $PWD/result-aarch64-darwin/bin/* artifacts/
+        cp $PWD/result-aarch64-darwin/lib/libtonlibjson* artifacts/
         cp -R crypto/smartcont artifacts/
         cp -R crypto/fift/lib artifacts/
 
