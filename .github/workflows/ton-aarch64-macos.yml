@@ -19,8 +19,9 @@ jobs:
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
     - name: Compile
-      shell: bash
-      run: nix build .?submodules=1#packages.aarch64-darwin.ton-static --print-build-logs --system aarch64-darwin -o result-aarch64-darwin
+      run: |
+        sudo ln -s /usr/bin/bash /bin/bash
+        nix build .?submodules=1#packages.aarch64-darwin.ton-static --print-build-logs --system aarch64-darwin -o result-aarch64-darwin
 
     - name: Copy binaries
       run: |
