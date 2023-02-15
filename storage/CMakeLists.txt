@@ -54,4 +54,4 @@ set(STORAGE_TEST_SOURCE
 add_subdirectory(storage-daemon)
 
 # Do not install it yet
-install(TARGETS storage-cli RUNTIME DESTINATION bin)
+install(TARGETS storage-cli storage-daemon storage-daemon-cli RUNTIME DESTINATION bin)
