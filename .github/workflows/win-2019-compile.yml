@@ -30,6 +30,9 @@ jobs:
       - name: Setup msbuild.exe
         uses: microsoft/setup-msbuild@v1.1
 
+      - name: Install Pkg-config Lite
+        run: choco install pkgconfiglite
+
       - name: Compile zlib Win64
         run: |
           cd zlib\contrib\vstudio\vc14
