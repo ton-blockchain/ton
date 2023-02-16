@@ -17,15 +17,15 @@ jobs:
 
     - name: Configure & Build
       run: |
-        cd ton/.github/script
+        cd .github/script
         ./fift-func-wasm-build-ubuntu.sh
 
     - name: Find & copy binaries
       run: |
         mkdir artifacts
         
-        cp  ton/.github/script/ton/build/crypto/fift* artifacts
-        cp  ton/.github/script/ton/build/crypto/wasm* artifacts
+        cp  .github/script/ton/build/crypto/fift* artifacts
+        cp  .github/script/ton/build/crypto/wasm* artifacts
         cp -R crypto/smartcont artifacts/
         cp -R crypto/fift/lib artifacts/
 
