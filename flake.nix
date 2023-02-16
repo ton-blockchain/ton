@@ -31,7 +31,6 @@
               openssl_1_1
               zlib
               libmicrohttpd
-              bash
             ] else
               [
                 (openssl_1_1.override { static = true; }).dev
