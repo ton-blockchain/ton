@@ -123,5 +123,7 @@ int main(int argc, char* const argv[]) {
     sources.push_back(std::string(argv[optind++]));
   }
 
+  funC::read_callback = funC::fs_read_callback;
+
   return funC::func_proceed(sources, *outs, std::cerr);
 }
