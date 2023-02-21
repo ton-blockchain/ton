@@ -165,3 +165,19 @@ jobs:
           file: artifacts/ton-ubuntu-22.04-arm64.zip
           asset_name: ton-ubuntu-22.04-arm64.zip
           tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries.zip
+          asset_name: ton-x86_64-linux-binaries.zip
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload macOS x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries.zip
+          asset_name: ton-x86_64-macos-binaries.zip
+          tag: v${{ steps.date.outputs.date }}
