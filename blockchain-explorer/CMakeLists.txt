@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
+option(NIX "Use \"ON\" for a static build." OFF)
 
 set(BLOCHAIN_EXPLORER_SOURCE
     blockchain-explorer.cpp
@@ -13,9 +13,7 @@ set(BLOCHAIN_EXPLORER_SOURCE
 
 add_executable(blockchain-explorer ${BLOCHAIN_EXPLORER_SOURCE})
 
-message (STATUS "BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS}")
-
-if (NOT BUILD_SHARED_LIBS)
+if (NIX)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(MHD libmicrohttpd)
   target_include_directories(blockchain-explorer PUBLIC ${MHD_STATIC_INCLUDE_DIRS})
