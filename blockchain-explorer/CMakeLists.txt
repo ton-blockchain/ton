@@ -1,4 +1,4 @@
-make_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MHD libmicrohttpd)
