@@ -38,7 +38,7 @@
                 pkgsStatic.libmicrohttpd.dev
               ] ++ optional staticGlibc glibc.static;
 
-          cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" ] ++ optionals staticMusl [
+          cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" "-DBUILD_SHARED_LIBS=OFF" ] ++ optionals staticMusl [
             "-DCMAKE_CROSSCOMPILING=OFF" # pkgsStatic sets cross
           ] ++ optionals (staticGlibc || staticMusl) [
             "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
