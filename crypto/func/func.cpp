@@ -30,6 +30,8 @@
 #include "parser/lexer.h"
 #include <getopt.h>
 #include "git.h"
+#include <fstream>
+#include "td/utils/port/path.h"
 
 namespace funC {
 
@@ -39,6 +41,28 @@ bool interactive = false;
 GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
 GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
 std::string generated_from, boc_output_filename;
+ReadCallback::Callback read_callback;
+
+td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
+  switch (kind) {
+    case ReadCallback::Kind::ReadFile: {
+      std::ifstream ifs{query};
+      if (ifs.fail()) {
+        auto msg = std::string{"cannot open source file `"} + query + "`";
+        return td::Status::Error(msg);
+      }
+      std::stringstream ss;
+      ss << ifs.rdbuf();
+      return ss.str();
+    }
+    case ReadCallback::Kind::Realpath: {
+      return td::realpath(td::CSlice(query));
+    }
+    default: {
+      return td::Status::Error("Unknown query kind");
+    }
+  }
+}
 
 /*
  *
