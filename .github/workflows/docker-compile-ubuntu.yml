@@ -50,6 +50,13 @@ jobs:
           docker cp -a $container_id:/ton/crypto/smartcont build-${{matrix.ver}}-${{matrix.arch}}/
           docker cp -a $container_id:/ton/crypto/fift/lib build-${{matrix.ver}}-${{matrix.arch}}/
 
+      - name: Simple binaries test
+        run: |
+          build-${{matrix.ver}}-${{matrix.arch}}/validator-engine -V
+          build-${{matrix.ver}}-${{matrix.arch}}/lite-client -V
+          build-${{matrix.ver}}-${{matrix.arch}}/fift -V
+          build-${{matrix.ver}}-${{matrix.arch}}/func -V
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
         with:

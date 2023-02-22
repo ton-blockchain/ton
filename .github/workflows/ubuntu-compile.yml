@@ -42,6 +42,14 @@ jobs:
         chmod +x artifacts-${{ matrix.os }}/*
         cp -R crypto/smartcont artifacts-${{ matrix.os }}
         cp -R crypto/fift/lib artifacts-${{ matrix.os }}
+
+    - name: Simple binaries test
+      run: |
+        artifacts-${{ matrix.os }}/validator-engine -V
+        artifacts-${{ matrix.os }}/lite-client -V
+        artifacts-${{ matrix.os }}/fift -V
+        artifacts-${{ matrix.os }}/func -V
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:

@@ -56,6 +56,13 @@ jobs:
           rsync -r crypto/fift/lib artifacts/
           ls -laRt artifacts
 
+      - name: Simple binaries test
+        run: |
+          artifacts/validator-engine -V
+          artifacts/lite-client -V
+          artifacts/fift -V
+          artifacts/func -V
+
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
