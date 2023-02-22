@@ -28,6 +28,7 @@ jobs:
         ls -lart 
         mkdir artifacts
         cp $PWD/result-x86_64/bin/* artifacts/
+        chmod +x artifacts/*
         cp $PWD/result-x86_64/lib/libtonlibjson.so.0.5 artifacts/
         cp -R crypto/smartcont artifacts/
         cp -R crypto/fift/lib artifacts/

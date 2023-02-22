@@ -181,3 +181,11 @@ jobs:
           file: artifacts/ton-x86_64-macos-binaries.zip
           asset_name: ton-x86_64-macos-binaries.zip
           tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload WASM artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-wasm-binaries.zip
+          asset_name: ton-wasm-binaries.zip
+          tag: v${{ steps.date.outputs.date }}
