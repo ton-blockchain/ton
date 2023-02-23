@@ -1,0 +1,28 @@
+global int proxy_stake_at;
+global int proxy_stake_until;
+global int proxy_stake_sent;
+global int proxy_stored_query_id;
+global int proxy_stored_query_op;
+global int proxy_stored_query_stake;
+
+() load_validator_data() impure {
+    var cs = ctx_proxy_state.begin_parse();
+    proxy_stake_at = cs~load_uint(32);
+    proxy_stake_until = cs~load_uint(32);
+    proxy_stake_sent = cs~load_coins();
+    proxy_stored_query_id = cs~load_uint(64);
+    proxy_stored_query_op = cs~load_uint(32);
+    proxy_stored_query_stake = cs~load_coins();
+    cs.end_parse();
+}
+
+() store_validator_data() impure {
+    ctx_proxy_state = begin_cell()
+        .store_uint(proxy_stake_at, 32)
+        .store_uint(proxy_stake_until, 32)
+        .store_coins(proxy_stake_sent)
+        .store_uint(proxy_stored_query_id, 64)
+        .store_uint(proxy_stored_query_op, 32)
+        .store_coins(proxy_stored_query_stake)
+    .end_cell();
+}

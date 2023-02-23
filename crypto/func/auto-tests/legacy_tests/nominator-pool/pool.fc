@@ -1,0 +1,746 @@
+;; The validator has his own wallet in the masterchain, on which he holds his own coins for operating.
+;; From this wallet he sends commands to this nominator pool (mostly `new_stake`, `update_validator_set` and `recover_stake`).
+;; Register/vote_for complaints and register/vote_for config proposals are sent from validator's wallet.
+;;
+;; Pool contract must be in masterchain.
+;; Nominators' wallets must be in the basechain.
+;; The validator in most cases have two pools (for even and odd validation rounds).
+
+#include "stdlib.fc";
+
+int op::new_stake() asm "0x4e73744b PUSHINT"; ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L621
+int op::new_stake_error() asm "0xee6f454c PUSHINT"; ;; return_stake https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L169
+int op::new_stake_ok() asm "0xf374484c PUSHINT"; ;; send_confirmation https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L173
+
+int op::recover_stake() asm "0x47657424 PUSHINT"; ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L625
+int op::recover_stake_error() asm "0xfffffffe PUSHINT"; ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L407
+int op::recover_stake_ok() asm "0xf96f7324 PUSHINT"; ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L426
+
+int ADDR_SIZE() asm "256 PUSHINT";
+int BOUNCEABLE() asm "0x18 PUSHINT";
+int NON_BOUNCEABLE() asm "0x10 PUSHINT";
+int SEND_MODE_PAY_FEE_SEPARATELY() asm "1 PUSHINT"; ;; means that the sender wants to pay transfer fees separately
+int SEND_MODE_IGNORE_ERRORS() asm "2 PUSHINT"; ;; means that any errors arising while processing this message during the action phase should be ignored
+int SEND_MODE_REMAINING_AMOUNT() asm "64 PUSHINT"; ;; is used for messages that carry all the remaining value of the inbound message in addition to the value initially indicated in the new message
+int ONE_TON() asm "1000000000 PUSHINT";
+int MIN_TONS_FOR_STORAGE() asm "10000000000 PUSHINT"; ;; 10 TON
+int DEPOSIT_PROCESSING_FEE() asm "1000000000 PUSHINT"; ;; 1 TON
+int MIN_STAKE_TO_SEND() asm "500000000000 PUSHINT"; ;; 500 TON
+int VOTES_LIFETIME() asm "2592000 PUSHINT"; ;; 30 days
+
+int binary_log_ceil(int x) asm "UBITSIZE";
+
+;; hex parse same with bridge https://github.com/ton-blockchain/bridge-func/blob/d03dbdbe9236e01efe7f5d344831bf770ac4c613/func/text_utils.fc
+(slice, int) ~load_hex_symbol(slice comment) {
+    int n = comment~load_uint(8);
+    n = n - 48;
+    throw_unless(329, n >= 0);
+    if (n < 10) {
+        return (comment, (n));
+    }
+    n = n - 7;
+    throw_unless(329, n >= 0);
+    if (n < 16) {
+        return (comment, (n));
+    }
+    n = n - 32;
+    throw_unless(329, (n >= 0) & (n < 16));
+    return (comment, n);
+}
+
+(slice, int) ~load_text_hex_number(slice comment, int byte_length) {
+    int current_slice_length = comment.slice_bits() / 8;
+    int result = 0;
+    int counter = 0;
+    repeat (2 * byte_length) {
+        result = result * 16 + comment~load_hex_symbol();
+        counter = counter + 1;
+        if (counter == current_slice_length) {
+            if (comment.slice_refs() == 1) {
+                cell _cont = comment~load_ref();
+                comment = _cont.begin_parse();
+                current_slice_length = comment.slice_bits() / 8;
+                counter = 0;
+            }
+        }
+    }
+    return (comment, result);
+}
+
+slice make_address(int wc, int addr) inline_ref {
+    return begin_cell()
+           .store_uint(4, 3).store_int(wc, 8).store_uint(addr, ADDR_SIZE()).end_cell().begin_parse();
+}
+
+;; https://github.com/ton-blockchain/ton/blob/ae5c0720143e231c32c3d2034cfe4e533a16d969/crypto/block/block.tlb#L584
+int is_elector_address(int wc, int addr) inline_ref {
+  return (wc == -1) & (config_param(1).begin_parse().preload_uint(ADDR_SIZE()) == addr);
+}
+
+slice elector_address() inline_ref {
+    int elector = config_param(1).begin_parse().preload_uint(ADDR_SIZE());
+    return make_address(-1, elector);
+}
+
+;; https://github.com/ton-blockchain/ton/blob/ae5c0720143e231c32c3d2034cfe4e533a16d969/crypto/block/block.tlb#L721
+int max_recommended_punishment_for_validator_misbehaviour(int stake) inline_ref {
+    cell cp = config_param(40);
+    if (cell_null?(cp)) {
+        return 101000000000; ;; 101 TON - https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/lite-client/lite-client.cpp#L3678
+    }
+
+    slice cs = cp.begin_parse();
+
+    (int prefix,
+     int default_flat_fine, int default_proportional_fine,
+     int severity_flat_mult, int severity_proportional_mult,
+     int unpunishable_interval,
+     int long_interval, int long_flat_mult, int long_proportional_mult) =
+        (cs~load_uint(8),
+         cs~load_coins(), cs~load_uint(32),
+         cs~load_uint(16), cs~load_uint(16),
+         cs~load_uint(16),
+         cs~load_uint(16), cs~load_uint(16), cs~load_uint(16)
+        );
+
+     ;; https://github.com/ton-blockchain/ton/blob/master/lite-client/lite-client.cpp#L3721
+     int fine = default_flat_fine;
+     int fine_part = default_proportional_fine;
+
+     fine *= severity_flat_mult; fine >>= 8;
+     fine_part *= severity_proportional_mult; fine_part >>= 8;
+
+     fine *= long_flat_mult; fine >>= 8;
+     fine_part *= long_proportional_mult; fine_part >>= 8;
+
+     return min(stake, fine + muldiv(stake, fine_part, 1 << 32)); ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L529
+}
+
+;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/block/block.tlb#L632
+;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L118
+int get_validator_config() inline_ref {
+    slice cs = config_param(15).begin_parse();
+    (int validators_elected_for, int elections_start_before, int elections_end_before, int stake_held_for) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32), cs.preload_uint(32));
+    return stake_held_for;
+}
+
+;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/block/block.tlb#L712
+(int, int, cell) get_current_validator_set() inline_ref {
+    cell vset = config_param(34); ;; current validator set
+    slice cs = vset.begin_parse();
+    ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/block/block.tlb#L579
+    ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/config-code.fc#L49
+    throw_unless(9, cs~load_uint(8) == 0x12);  ;; validators_ext#12 only
+    int utime_since = cs~load_uint(32); ;; actual start unixtime of current validation round
+    int utime_until = cs~load_uint(32); ;; supposed end unixtime of current validation round (utime_until = utime_since + validators_elected_for); unfreeze_at = utime_until + stake_held_for
+    return (utime_since, utime_until, vset);
+}
+
+;; check the validity of the new_stake message
+;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L208
+int check_new_stake_msg(slice cs) impure inline_ref {
+    var validator_pubkey = cs~load_uint(256);
+    var stake_at = cs~load_uint(32);
+    var max_factor = cs~load_uint(32);
+    var adnl_addr = cs~load_uint(256);
+    var signature = cs~load_ref().begin_parse().preload_bits(512);
+    cs.end_parse();
+    return stake_at; ;; supposed start of next validation round (utime_since)
+}
+
+builder pack_nominator(int amount, int pending_deposit_amount) inline_ref {
+    return begin_cell().store_coins(amount).store_coins(pending_deposit_amount);
+}
+
+(int, int) unpack_nominator(slice ds) inline_ref {
+    return (
+        ds~load_coins(), ;; amount
+        ds~load_coins()  ;; pending_deposit_amount
+    );
+}
+
+cell pack_config(int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake) inline_ref {
+    return begin_cell()
+        .store_uint(validator_address, ADDR_SIZE())
+        .store_uint(validator_reward_share, 16)
+        .store_uint(max_nominators_count, 16)
+        .store_coins(min_validator_stake)
+        .store_coins(min_nominator_stake)
+        .end_cell();
+}
+
+(int, int, int, int, int) unpack_config(slice ds) inline_ref {
+    return (
+        ds~load_uint(ADDR_SIZE()), ;; validator_address
+        ds~load_uint(16), ;; validator_reward_share
+        ds~load_uint(16), ;; max_nominators_count
+        ds~load_coins(), ;; min_validator_stake
+        ds~load_coins() ;; min_nominator_stake
+    );
+}
+
+() save_data(int state, int nominators_count, int stake_amount_sent, int validator_amount, cell config, cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) impure inline_ref {
+    set_data(begin_cell()
+        .store_uint(state, 8)
+        .store_uint(nominators_count, 16)
+        .store_coins(stake_amount_sent)
+        .store_coins(validator_amount)
+        .store_ref(config)
+        .store_dict(nominators)
+        .store_dict(withdraw_requests)
+        .store_uint(stake_at, 32)
+        .store_uint(saved_validator_set_hash, 256)
+        .store_uint(validator_set_changes_count, 8)
+        .store_uint(validator_set_change_time, 32)
+        .store_uint(stake_held_for, 32)
+        .store_dict(config_proposal_votings)
+        .end_cell());
+}
+
+(int, int, int, int, (int, int, int, int, int), cell, cell, int, int, int, int, int, cell) load_data() inline_ref {
+    slice ds = get_data().begin_parse();
+    return (
+        ds~load_uint(8), ;; state
+        ds~load_uint(16), ;; nominators_count
+        ds~load_coins(), ;; stake_amount_sent
+        ds~load_coins(), ;; validator_amount
+        unpack_config(ds~load_ref().begin_parse()), ;; config
+        ds~load_dict(), ;; nominators
+        ds~load_dict(), ;; withdraw_requests
+        ds~load_uint(32), ;; stake_at
+        ds~load_uint(256), ;; saved_validator_set_hash
+        ds~load_uint(8), ;; validator_set_changes_count
+        ds~load_uint(32), ;; validator_set_change_time
+        ds~load_uint(32), ;; stake_held_for
+        ds~load_dict() ;; config_proposal_votings
+    );
+}
+
+() send_msg(slice to_address, int amount, cell payload, int flags, int send_mode) impure inline_ref {
+    int has_payload = ~ cell_null?(payload);
+
+    builder msg = begin_cell()
+        .store_uint(flags, 6)
+        .store_slice(to_address)
+        .store_coins(amount)
+        .store_uint(has_payload ? 1 : 0, 1 + 4 + 4 + 64 + 32 + 1 + 1);
+
+    if (has_payload) {
+        msg = msg.store_ref(payload);
+    }
+
+    send_raw_message(msg.end_cell(), send_mode);
+}
+
+() send_excesses(slice sender_address) impure inline_ref {
+    send_msg(sender_address, 0, null(), NON_BOUNCEABLE(), SEND_MODE_REMAINING_AMOUNT() + SEND_MODE_IGNORE_ERRORS()); ;; non-bouneable, remaining inbound message amount, fee deducted from amount, ignore errors
+}
+
+(cell, cell, int, int) withdraw_nominator(int address, cell nominators, cell withdraw_requests, int balance, int nominators_count) impure inline_ref {
+    (slice nominator, int found) = nominators.udict_get?(ADDR_SIZE(), address);
+    throw_unless(60, found);
+    (int amount, int pending_deposit_amount) = unpack_nominator(nominator);
+    int withdraw_amount = amount + pending_deposit_amount;
+
+    if (withdraw_amount > balance - MIN_TONS_FOR_STORAGE()) {
+        return (nominators, withdraw_requests, balance, nominators_count);
+    }
+
+    nominators~udict_delete?(ADDR_SIZE(), address);
+    withdraw_requests~udict_delete?(ADDR_SIZE(), address);
+    nominators_count -= 1;
+    balance -= withdraw_amount;
+
+    if (withdraw_amount >= ONE_TON()) {
+        send_msg(make_address(0, address), withdraw_amount, null(), NON_BOUNCEABLE(), 0); ;; non-bouneable, fee deducted from amount, revert on errors
+    }
+    return (nominators, withdraw_requests, balance, nominators_count);
+}
+
+(cell, cell, int, int) process_withdraw_requests(cell nominators, cell withdraw_requests, int balance, int nominators_count, int limit) impure inline_ref {
+    int count = 0;
+    int address = -1;
+    int need_break = 0;
+    do {
+        (address, slice cs, int f) = withdraw_requests.udict_get_next?(ADDR_SIZE(), address);
+        if (f) {
+            (nominators, withdraw_requests, int new_balance, nominators_count) = withdraw_nominator(address, nominators, withdraw_requests, balance, nominators_count);
+            need_break = (new_balance == balance);
+            balance = new_balance;
+            count += 1;
+            if (count >= limit) {
+                need_break = -1;
+            }
+        }
+    } until ((~ f) | (need_break));
+
+    return (nominators, withdraw_requests, nominators_count, balance);
+}
+
+int calculate_total_nominators_amount(cell nominators) inline_ref {
+    int total = 0;
+    int address = -1;
+    do {
+        (address, slice cs, int f) = nominators.udict_get_next?(ADDR_SIZE(), address);
+        if (f) {
+            (int amount, int pending_deposit_amount) = unpack_nominator(cs);
+            total += (amount + pending_deposit_amount);
+        }
+    } until (~ f);
+    return total;
+}
+
+cell distribute_share(int reward, cell nominators) inline_ref {
+    int total_amount = 0;
+    int address = -1;
+    do {
+        (address, slice cs, int f) = nominators.udict_get_next?(ADDR_SIZE(), address);
+        if (f) {
+            (int amount, int pending_deposit_amount) = unpack_nominator(cs);
+            total_amount += amount;
+        }
+    } until (~ f);
+
+    cell new_nominators = new_dict();
+    address = -1;
+    do {
+        (address, slice cs, int f) = nominators.udict_get_next?(ADDR_SIZE(), address);
+        if (f) {
+            (int amount, int pending_deposit_amount) = unpack_nominator(cs);
+            if (total_amount > 0) {
+                amount += muldiv(reward, amount, total_amount);
+                if (amount < 0) {
+                    amount = 0;
+                }
+            }
+            amount += pending_deposit_amount;
+            new_nominators~udict_set_builder(ADDR_SIZE(), address, pack_nominator(amount, 0));
+        }
+    } until (~ f);
+
+    return new_nominators;
+}
+
+() recv_internal(int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    int balance = pair_first(get_balance());
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    slice sender_address = cs~load_msg_addr();
+    (int sender_wc, int sender_addr) = parse_std_addr(sender_address);
+
+    if (flags & 1) { ;; bounced messages
+        if (in_msg_body.slice_bits() >= 64) {
+            in_msg_body~skip_bits(32); ;; skip 0xFFFFFFFF bounced prefix
+            int op = in_msg_body~load_uint(32);
+            if ((op == op::new_stake()) & (is_elector_address(sender_wc, sender_addr))) {
+                ;; `new_stake` from nominator-pool should always be handled without throws by elector
+                ;; because nominator-pool do `check_new_stake_msg` and `msg_value` checks before sending `new_stake`.
+                ;; If the stake is not accepted elector will send `new_stake_error` response message.
+                ;; Nevertheless we do process theoretically possible bounced `new_stake`.
+
+                (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+                if (state == 1) {
+                    state = 0;
+                }
+                save_data(
+                    state,
+                    nominators_count,
+                    stake_amount_sent,
+                    validator_amount,
+                    pack_config(validator_address, validator_reward_share, max_nominators_count, min_validator_stake, min_nominator_stake),
+                    nominators,
+                    withdraw_requests,
+                    stake_at,
+                    saved_validator_set_hash,
+                    validator_set_changes_count,
+                    validator_set_change_time,
+                    stake_held_for,
+                    config_proposal_votings
+                );
+            }
+        }
+        return (); ;; ignore other bounces messages
+    }
+
+    int op = in_msg_body~load_uint(32);
+
+   (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+
+    if (op == 0) {
+        ;; We use simple text comments for nominator operations so nominators can do it from any wallet app.
+        ;; In other cases, they will need to put a stake on a browser extension, or use scripts, which can be inconvenient.
+
+        ;; Throw on any unexpected request so that the stake is bounced back to the nominator in case of a typo.
+
+        int action = in_msg_body~load_uint(8);
+        int is_vote = (action == 121) | (action == 110); ;; "y" or "n"
+        throw_unless(64, (action == 100) | (action == 119) | is_vote); ;; "d" or "w" or "y" or "n"
+
+        if (~ is_vote) {
+            in_msg_body.end_parse();
+            throw_unless(61, sender_wc == 0); ;; nominators only in basechain
+            throw_unless(62, sender_addr != validator_address);
+        }
+
+        if (action == 100) { ;; "d" - deposit nominator (any time, will take effect in the next round)
+            (slice nominator, int found) = nominators.udict_get?(ADDR_SIZE(), sender_addr);
+
+            if (~ found) {
+                nominators_count += 1;
+            }
+            throw_unless(65, nominators_count <= max_nominators_count);
+
+            msg_value -= DEPOSIT_PROCESSING_FEE();
+            throw_unless(66, msg_value > 0);
+
+            (int amount, int pending_deposit_amount) = found ? unpack_nominator(nominator) : (0, 0);
+            if (state == 0) {
+                amount += msg_value;
+            } else {
+                pending_deposit_amount += msg_value;
+            }
+            throw_unless(67, amount + pending_deposit_amount >= min_nominator_stake);
+            throw_unless(68, cell_depth(nominators) < max(5, binary_log_ceil(nominators_count) * 2) ); ;; prevent dict depth ddos
+            nominators~udict_set_builder(ADDR_SIZE(), sender_addr, pack_nominator(amount, pending_deposit_amount));
+        }
+
+        if (action == 119) { ;; "w" - withdraw request (any time)
+            if (state == 0) {
+                (nominators, withdraw_requests, int new_balance, nominators_count) = withdraw_nominator(sender_addr, nominators, withdraw_requests, balance, nominators_count);
+                if (new_balance - msg_value >= MIN_TONS_FOR_STORAGE()) {
+                    send_excesses(sender_address);
+                }
+            } else {
+                (slice nominator, int found) = nominators.udict_get?(ADDR_SIZE(), sender_addr);
+                throw_unless(69, found);
+                withdraw_requests~udict_set_builder(ADDR_SIZE(), sender_addr, begin_cell());
+                send_excesses(sender_address);
+            }
+        }
+
+        if (is_vote) {
+            int authorized = (sender_wc == -1) & (sender_addr == validator_address);
+
+            if (~ authorized) {
+                throw_unless(121, sender_wc == 0);
+                (slice nominator, authorized) = nominators.udict_get?(ADDR_SIZE(), sender_addr);
+                throw_unless(122, authorized);
+                (int amount, int pending_deposit_amount) = unpack_nominator(nominator);
+                throw_unless(123, amount > 0);
+            }
+
+            int proposal_hash = in_msg_body~load_text_hex_number(32);
+            in_msg_body.end_parse();
+            int support = action == 121;
+
+            (slice votes_slice, int found) = config_proposal_votings.udict_get?(256, proposal_hash);
+
+            if (~ found) {
+                ;; require higher fee to prevent dictionary spam
+                int fee = ONE_TON();
+                int power = cell_depth(config_proposal_votings);
+                repeat (power) {
+                    fee = muldiv(fee, 15, 10);
+               }
+               throw_unless(123, msg_value >= fee);
+            }
+
+            (cell votes_dict, int votes_create_time) = found ? (votes_slice~load_dict(), votes_slice~load_uint(32)) : (new_dict(), now());
+
+            (_, int vote_found) = votes_dict.udict_get?(256, sender_addr);
+            throw_if(124, vote_found);
+            votes_dict~udict_set_builder(256, sender_addr, begin_cell().store_int(support, 1).store_uint(now(), 32));
+
+            builder new_votes = begin_cell().store_dict(votes_dict).store_uint(votes_create_time, 32);
+            config_proposal_votings~udict_set_builder(256, proposal_hash, new_votes);
+
+            if (found) {
+                send_excesses(sender_address);
+            }
+        }
+
+    } else {
+
+        int query_id = in_msg_body~load_uint(64);
+
+        if (is_elector_address(sender_wc, sender_addr)) { ;; response from elector
+
+            accept_message();
+
+            if (op == op::recover_stake_ok()) {
+                state = 0;
+
+                int reward = msg_value - stake_amount_sent;
+                int nominators_reward = 0;
+
+                if (reward <= 0) {
+                    validator_amount += reward;
+                    if (validator_amount < 0) {
+                        ;; even this should never happen
+                        nominators_reward = validator_amount;
+                        validator_amount = 0;
+                    }
+                } else {
+                    int validator_reward = (reward * validator_reward_share) / 10000;
+                    if (validator_reward > reward) { ;; Theoretical invalid case if validator_reward_share > 10000
+                        validator_reward = reward;
+                    }
+                    validator_amount += validator_reward;
+                    nominators_reward = reward - validator_reward;
+                }
+
+                nominators = distribute_share(nominators_reward, nominators); ;; call even if there was no reward to process deposit requests
+                stake_amount_sent = 0;
+            }
+
+            if (state == 1) {
+                if (op == op::new_stake_error()) { ;; error when new_stake; stake returned
+                    state = 0;
+                }
+
+                if (op == op::new_stake_ok()) {
+                    state = 2;
+                }
+            }
+
+            ;; else just accept coins from elector
+
+        } else {
+
+            ;; throw on any unexpected request so that the coins is bounced back to the sender in case of a typo
+            throw_unless(70, ((op >= 1) & (op <= 7)) | (op == op::recover_stake()) | (op == op::new_stake()));
+
+            if (op == 1) {
+                ;; just accept coins
+            }
+
+            if (op == 2) { ;; process withdraw requests (at any time while the balance is enough)
+                int limit = in_msg_body~load_uint(8);
+
+                (nominators, withdraw_requests, nominators_count, int new_balance) = process_withdraw_requests(nominators, withdraw_requests, balance, nominators_count, limit);
+
+                if (new_balance - msg_value >= MIN_TONS_FOR_STORAGE()) {
+                    send_excesses(sender_address);
+                }
+            }
+
+            if (op == 3) { ;; emergency process withdraw request  (at any time if the balance is enough)
+                int request_address = in_msg_body~load_uint(ADDR_SIZE());
+                (slice withdraw_request, int found) = withdraw_requests.udict_get?(ADDR_SIZE(), request_address);
+                throw_unless(71, found);
+                (nominators, withdraw_requests, int new_balance, nominators_count) = withdraw_nominator(request_address, nominators, withdraw_requests, balance, nominators_count);
+                if (new_balance - msg_value >= MIN_TONS_FOR_STORAGE()) {
+                    send_excesses(sender_address);
+                }
+            }
+
+            if (op == 6) { ;; update current valudator set hash (anyone can invoke)
+                throw_unless(113, validator_set_changes_count < 3);
+                (int utime_since, int utime_until, cell vset) = get_current_validator_set();
+                int current_hash = cell_hash(vset);
+                if (saved_validator_set_hash != current_hash) {
+                    saved_validator_set_hash = current_hash;
+                    validator_set_changes_count += 1;
+                    validator_set_change_time = now();
+                }
+                send_excesses(sender_address);
+            }
+
+            if (op == 7) { ;; clean up outdating votings
+                int t = now();
+                int proposal_hash = -1;
+                do {
+                    (proposal_hash, slice votes_slice, int found) = config_proposal_votings.udict_get_next?(256, proposal_hash);
+                    if (found) {
+                        (cell votes_dict, int votes_create_time) = (votes_slice~load_dict(), votes_slice~load_uint(32));
+                        if (t - votes_create_time > VOTES_LIFETIME()) {
+                            config_proposal_votings~udict_delete?(256, proposal_hash);
+                        }
+                    }
+                } until (~ found);
+                send_excesses(sender_address);
+            }
+
+            if (op == op::recover_stake()) { ;; send recover_stake to elector (anyone can send)
+
+                ;; We need to take all credits from the elector at once,
+                ;; because if we do not take all at once, then it will be processed as a fine by pool.
+                ;; In the elector, credits (`credit_to`) are accrued in three places:
+                ;; 1) return of surplus stake in elections (`try_elect`)
+                ;; 2) reward for complaint when punish (`punish`) - before unfreezing
+                ;; 3) unfreeze round (`unfreeze_without_bonuses`/`unfreeze_with_bonuses`)
+                ;; We need to be guaranteed to wait for unfreezing round and only then send `recover_stake`.
+                ;; So we are waiting for the change of 3 validator sets.
+
+                ;; ADDITIONAL NOTE:
+                ;; In a special case (if the network was down), the config theoretically can refuse the elector to save a new round after election - https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/config-code.fc#L494
+                ;; and the elector will start a new election - https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L364
+                ;; in this case, our pool will have to skip the round, but it will be able to recover stake later
+
+                throw_unless(111, validator_set_changes_count >= 2);
+                throw_unless(112, (validator_set_changes_count > 2) | (now() - validator_set_change_time > stake_held_for + 60));
+                ;; https://github.com/ton-blockchain/ton/blob/b38d227a469666d83ac535ad2eea80cb49d911b8/crypto/smartcont/elector-code.fc#L887
+
+                cell payload = begin_cell().store_uint(op::recover_stake(), 32).store_uint(query_id, 64).end_cell();
+                send_msg(elector_address(), 0, payload, BOUNCEABLE(), SEND_MODE_REMAINING_AMOUNT()); ;; bounceable,  carry all the remaining value of the inbound message, fee deducted from amount, revert on errors
+            }
+
+            ;; message from validator
+
+            if (op == 4) { ;; deposit validator (any time)
+                throw_unless(73, (sender_wc == -1) & (sender_addr == validator_address));
+                msg_value -= DEPOSIT_PROCESSING_FEE();
+                throw_unless(74, msg_value > 0);
+                validator_amount += msg_value;
+            }
+
+            if (op == 5) { ;; withdraw validator (after recover_stake and before new_stake)
+                throw_unless(74, state == 0); ;; no withdraw request because validator software can wait right time
+                throw_unless(75, (sender_wc == -1) & (sender_addr == validator_address));
+                int request_amount = in_msg_body~load_coins();
+                throw_unless(78, request_amount > 0);
+
+                int total_nominators_amount = calculate_total_nominators_amount(nominators);
+                ;; the validator can withdraw everything that does not belong to the nominators
+                throw_unless(76, request_amount <= balance - MIN_TONS_FOR_STORAGE() - total_nominators_amount);
+                validator_amount -= request_amount;
+                if (validator_amount < 0) {
+                    validator_amount = 0;
+                }
+                send_msg(make_address(-1, validator_address), request_amount, null(), NON_BOUNCEABLE(), 0); ;; non-bouneable, fee deducted from amount, revert on errors
+                int new_balance = balance - request_amount;
+                if (new_balance - msg_value >= MIN_TONS_FOR_STORAGE()) {
+                    send_excesses(sender_address);
+                }
+            }
+
+            if (op == op::new_stake()) {
+                throw_unless(78, (sender_wc == -1) & (sender_addr == validator_address));
+
+                throw_unless(79, state == 0);
+
+                throw_unless(80, query_id); ;; query_id must be greater then 0 to receive confirmation message from elector
+
+                throw_unless(86, msg_value >= ONE_TON()); ;; must be greater then new_stake sending to elector fee
+
+                int value = in_msg_body~load_coins();
+
+                slice msg = in_msg_body;
+
+                stake_at = check_new_stake_msg(in_msg_body);
+
+                stake_amount_sent = value - ONE_TON();
+
+                throw_unless(81, value >= MIN_STAKE_TO_SEND());
+
+                throw_unless(82, value <= balance - MIN_TONS_FOR_STORAGE());
+
+                throw_unless(83, validator_amount >= min_validator_stake);
+
+                throw_unless(84, validator_amount >= max_recommended_punishment_for_validator_misbehaviour(stake_amount_sent));
+
+                throw_unless(85, cell_null?(withdraw_requests)); ;; no withdraw requests
+
+                state = 1;
+                (int utime_since, int utime_until, cell vset) = get_current_validator_set();
+                saved_validator_set_hash = cell_hash(vset); ;; current validator set, we will be in next validator set
+                validator_set_changes_count = 0;
+                validator_set_change_time = utime_since;
+                stake_held_for = get_validator_config(); ;; save `stake_held_for` in case the config changes in the process
+
+                send_msg(elector_address(), value, begin_cell().store_uint(op, 32).store_uint(query_id, 64).store_slice(msg).end_cell(), BOUNCEABLE(), SEND_MODE_PAY_FEE_SEPARATELY()); ;; pay fee separately, rever on errors
+            }
+        }
+    }
+
+    save_data(
+        state,
+        nominators_count,
+        stake_amount_sent,
+        validator_amount,
+        pack_config(validator_address, validator_reward_share, max_nominators_count, min_validator_stake, min_nominator_stake),
+        nominators,
+        withdraw_requests,
+        stake_at,
+        saved_validator_set_hash,
+        validator_set_changes_count,
+        validator_set_change_time,
+        stake_held_for,
+        config_proposal_votings
+    );
+}
+
+;; Get methods
+
+_ get_pool_data() method_id {
+    return load_data();
+}
+
+int has_withdraw_requests() method_id {
+    (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+    return ~ cell_null?(withdraw_requests);
+}
+
+(int, int, int) get_nominator_data(int nominator_address) method_id {
+    (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+
+    (slice nominator, int found) = nominators.udict_get?(ADDR_SIZE(), nominator_address);
+    throw_unless(86, found);
+    (int amount, int pending_deposit_amount) = unpack_nominator(nominator);
+    (slice withdraw_request, int withdraw_found) = withdraw_requests.udict_get?(ADDR_SIZE(), nominator_address);
+
+    return (amount, pending_deposit_amount, withdraw_found);
+}
+
+int get_max_punishment(int stake) method_id {
+    return max_recommended_punishment_for_validator_misbehaviour(stake);
+}
+
+tuple list_nominators() method_id {
+    (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+    var list = null();
+    int address = -1;
+    do {
+        (address, slice nominator, int found) = nominators.udict_get_next?(ADDR_SIZE(), address);
+        if (found) {
+            (int amount, int pending_deposit_amount) = unpack_nominator(nominator);
+            (_, int withdraw_requested) = withdraw_requests.udict_get?(ADDR_SIZE(), address);
+            list = cons(tuple4(address, amount, pending_deposit_amount, withdraw_requested), list);
+        }
+    } until (~ found);
+    return list;
+}
+
+tuple list_votes() method_id {
+    (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+    var list = null();
+    int proposal_hash = -1;
+    do {
+        (proposal_hash, slice votes_slice, int found) = config_proposal_votings.udict_get_next?(256, proposal_hash);
+        if (found) {
+            (cell votes_dict, int votes_create_time) = (votes_slice~load_dict(), votes_slice~load_uint(32));
+            list = cons(pair(proposal_hash, votes_create_time), list);
+        }
+    } until (~ found);
+    return list;
+}
+
+tuple list_voters(int proposal_hash) method_id {
+    (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
+    var list = null();
+    (slice votes_slice, int found) = config_proposal_votings.udict_get?(256, proposal_hash);
+    throw_unless(133, found);
+    cell votes_dict = votes_slice~load_dict();
+
+    int address = -1;
+    do {
+        (address, slice cs, int found) = votes_dict.udict_get_next?(ADDR_SIZE(), address);
+        if (found) {
+            (int support, int vote_time) = (cs~load_int(1), cs~load_uint(32));
+            list = cons(triple(address, support, vote_time), list);
+        }
+    } until (~ found);
+    return list;
+}

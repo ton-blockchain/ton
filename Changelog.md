@@ -53,3 +53,10 @@ Node update:
 10. TON Storage: added storage-daemon (create, download bag of Files, storage-provider staff), added storage-daemon-cli
 
 Besides the work of the core team, this update is based on the efforts of @vtamara (help with abseil-cpp upgrade), @krigga(in-place modification of global variables) and third-party security auditors.
+
+## 01.2023 Update
+1. Added ConfigParam 44: `SuspendedAddressList`. Upon being set this config suspends initialisation of **uninit** addresses from the list for given time.
+2. FunC: `v0.4.1` added pragmas for precise control of computation order
+3. FunC: fixed compiler crashes for some exotic inputs
+4. FunC: added legacy tester, a collection of smart-contracts which is used to check whether compilator update change compilation result
+5. Improved archive manager: proper handling of recently garbage-collected blocks
