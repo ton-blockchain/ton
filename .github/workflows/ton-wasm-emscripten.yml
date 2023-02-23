@@ -25,13 +25,13 @@ jobs:
     - name: Find & copy binaries
       run: |
         mkdir artifacts
-        ls .github/script/ton/build/crypto
-        cp .github/script/ton/build/crypto/fift* artifacts
-        cp .github/script/ton/build/crypto/func* artifacts
-        cp .github/script/ton/build/crypto/tlbc* artifacts
-        cp .github/script/ton/build/emulator/emulator* artifacts
-        cp -R crypto/smartcont artifacts/
-        cp -R crypto/fift/lib artifacts/
+        ls build/crypto
+        cp build/crypto/fift* artifacts
+        cp build/crypto/func* artifacts
+        cp build/crypto/tlbc* artifacts
+        cp build/emulator/emulator-emscripten* artifacts
+        cp -R crypto/smartcont artifacts
+        cp -R crypto/fift/lib artifacts
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
