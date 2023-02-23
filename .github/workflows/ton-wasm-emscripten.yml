@@ -9,6 +9,8 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
 
     - name: Install libraries
       run: |
