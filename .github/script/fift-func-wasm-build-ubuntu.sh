@@ -7,36 +7,37 @@ export CC=$(which clang)
 export CXX=$(which clang++)
 export CCACHE_DISABLE=1
 
+cd ../..
+rm -rf openssl zlib emsdk build
+echo `pwd`
+
 git clone https://github.com/openssl/openssl.git
 cd openssl
 git checkout OpenSSL_1_1_1j
-
 ./config
-make -j4
-
+make -j16
 OPENSSL_DIR=`pwd`
-
 cd ..
 
 git clone https://github.com/madler/zlib.git
 cd zlib
 ZLIB_DIR=`pwd`
-
 cd ..
 
-# clone ton repo
-git clone --recursive https://github.com/ton-blockchain/ton.git
-
-# only to generate auto-block.cpp
-cd ton
 mkdir build
 cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.so ..
-ninja fift
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.so -DTON_USE_ABSEIL=OFF ..
+
+test $? -eq 0 || { echo "Cant configure TON build"; exit 1;}
+
+
+ninja fift smc-envelope
+
+test $? -eq 0 || { echo "Cant compile fift "; exit 1;}
 
 rm -rf *
 
-cd ../..
+cd ..
 
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk
@@ -52,7 +53,7 @@ export CCACHE_DISABLE=1
 cd ../zlib
 
 emconfigure ./configure --static
-emmake make -j4
+emmake make -j16
 ZLIB_DIR=`pwd`
 
 cd ../openssl
@@ -63,14 +64,13 @@ sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
 sed -i 's/-ldl//g' Makefile
 sed -i 's/-O3/-Os/g' Makefile
 emmake make depend
-emmake make -j4
+emmake make -j16
 
-cd ../ton
-
-cd build
+cd ../build
 
 emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=$ZLIB_DIR/libz.a -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.a -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" ..
 
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 
-emmake make -j4 funcfiftlib func fift emulator-emscripten
+emmake make -j16 funcfiftlib func fift tlbc emulator-emscripten
+

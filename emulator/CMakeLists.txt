@@ -19,7 +19,7 @@ set(EMULATOR_SOURCE
 )
 
 set(EMULATOR_EMSCRIPTEN_SOURCE
-  transaction-emscripten.cpp
+  emulator-emscripten.cpp
 )
 
 include(GenerateExportHeader)
