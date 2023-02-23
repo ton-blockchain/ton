@@ -28,12 +28,12 @@ mkdir build
 cd build
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.so -DTON_USE_ABSEIL=OFF ..
 
-test $? -eq 0 || { echo "Cant configure TON build"; exit 1;}
+test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
 
 
 ninja fift smc-envelope
 
-test $? -eq 0 || { echo "Cant compile fift "; exit 1;}
+test $? -eq 0 || { echo "Can't compile fift "; exit 1; }
 
 rm -rf *
 
@@ -54,6 +54,7 @@ cd ../zlib
 
 emconfigure ./configure --static
 emmake make -j16
+test $? -eq 0 || { echo "Can't compile zlib with emmake "; exit 1; }
 ZLIB_DIR=`pwd`
 
 cd ../openssl
@@ -65,11 +66,11 @@ sed -i 's/-ldl//g' Makefile
 sed -i 's/-O3/-Os/g' Makefile
 emmake make depend
 emmake make -j16
-
+test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
 cd ../build
 
 emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=$ZLIB_DIR/libz.a -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.a -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" ..
-
+test $? -eq 0 || { echo "Can't configure TON with with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 
 emmake make -j16 funcfiftlib func fift tlbc emulator-emscripten
