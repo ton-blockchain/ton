@@ -199,6 +199,22 @@ jobs:
           asset_name: storage-daemon-cli.exe
           tag: v${{ steps.date.outputs.date }}
 
+      - name: Upload Windows 2019 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/tonlibjson.dll
+          asset_name: tonlibjson.dll
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Windows 2019 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/tonlib-cli.exe
+          asset_name: tonlib-cli.exe
+          tag: v${{ steps.date.outputs.date }}
+
 # mac
 
       - name: Upload Mac x86-64 artifacts
@@ -257,6 +273,22 @@ jobs:
           asset_name: storage-daemon-cli-mac-x86-64
           tag: v${{ steps.date.outputs.date }}
 
+      - name: Upload Mac x86-64 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/libtonlibjson.dylib
+          asset_name: tonlibjson-mac-x86-64.dylib
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Mac x86-64 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/tonlib-cli
+          asset_name: tonlib-cli-mac-x86-64
+          tag: v${{ steps.date.outputs.date }}
+
 # linux
 
       - name: Upload Linux x86-64 artifacts
@@ -313,6 +345,22 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux-binaries/storage-daemon-cli
           asset_name: storage-daemon-cli-linux-x86_64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/libtonlibjson.so.0.5
+          asset_name: tonlibjson-linux-x86_64.so
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/tonlib-cli
+          asset_name: tonlib-cli-linux-x86_64
           tag: v${{ steps.date.outputs.date }}
 
 #      - name: Upload Linux arm64 artifacts
