@@ -7,6 +7,7 @@ RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gpe
 WORKDIR /
 
 ARG BRANCH
+ARG REPO
 RUN git clone --recurse-submodules https://github.com/$REPO && cd ton && git checkout $BRANCH
 
 WORKDIR /ton
