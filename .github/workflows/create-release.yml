@@ -11,42 +11,69 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Show all artifacts
-        run: |
-          mkdir artifacts
-          ls -lart artifacts
-
-      - name: Download Ubuntu x86-64 artifacts
+      - name: Download Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ubuntu-compile.yml
+          workflow: ton-x86-64-linux.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
 
-      - name: Download Ubuntu arm64 artifacts
+      - name: Download and unzip Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: docker-compile-ubuntu.yml
+          workflow: ton-x86-64-linux.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
+
+#      - name: Download Linux arm64 artifacts
+#        uses: dawidd6/action-download-artifact@v2
+#        with:
+#          workflow: ton-aarch64-linux.yml
+#          path: artifacts
+#          workflow_conclusion: success
+#          skip_unpack: true
+#
+#      - name: Download and unzip Linux arm64 artifacts
+#        uses: dawidd6/action-download-artifact@v2
+#        with:
+#          workflow: ton-aarch64-linux.yml
+#          path: artifacts
+#          workflow_conclusion: success
+#          skip_unpack: false
+
+      - name: Download Mac x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-macos.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
 
-      - name: Download MacOS 11.7 artifacts
+      - name: Download and unzip Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: macos-11.7-compile.yml
+          workflow: ton-x86-64-macos.yml
           path: artifacts
           workflow_conclusion: success
-          skip_unpack: true
+          skip_unpack: false
 
-      - name: Download MacOS 12.6 artifacts
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          workflow: macos-12.6-compile.yml
-          path: artifacts
-          workflow_conclusion: success
-          skip_unpack: true
+#      - name: Download Mac arm64 artifacts
+#        uses: dawidd6/action-download-artifact@v2
+#        with:
+#          workflow: ton-aarch64-macos.yml
+#          path: artifacts
+#          workflow_conclusion: success
+#          skip_unpack: true
+#
+#      - name: Download and unzip Mac arm64 artifacts
+#        uses: dawidd6/action-download-artifact@v2
+#        with:
+#          workflow: ton-aarch64-macos.yml
+#          path: artifacts
+#          workflow_conclusion: success
+#          skip_unpack: false
 
       - name: Download Windows artifacts
         uses: dawidd6/action-download-artifact@v2
@@ -55,6 +82,14 @@ jobs:
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
+
+      - name: Download and unzip Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: win-2019-compile.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
 
       - name: Show all artifacts
         run: |
@@ -102,68 +137,28 @@ jobs:
           asset_name: ton-windows-2019-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload MacOS 11.7 x86-64 artifacts
+      - name: Upload Windows 2019 single artifact - fift
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-macos-11.7.zip
-          asset_name: ton-macos-11.7-x86-64.zip
+          file: artifacts/ton-win-binaries/fift.exe
+          asset_name: fift.exe
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload MacOS 12.6 x86-64 artifacts
+      - name: Upload Mac x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-macos-12.6.zip
-          asset_name: ton-macos-12.6-x86-64.zip
+          file: artifacts/ton-x86_64-macos-binaries.zip
+          asset_name: ton-mac-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload Ubuntu 18.04 x86-64 artifacts
+      - name: Upload Mac x86-64 single artifact - fift
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-binaries-ubuntu-18.04.zip
-          asset_name: ton-ubuntu-18.04-x86-64.zip
-          tag: v${{ steps.date.outputs.date }}
-
-      - name: Upload Ubuntu 20.04 x86-64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-binaries-ubuntu-20.04.zip
-          asset_name: ton-ubuntu-20.04-x86-64.zip
-          tag: v${{ steps.date.outputs.date }}
-
-      - name: Upload Ubuntu 22.04 x86-64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-binaries-ubuntu-22.04.zip
-          asset_name: ton-ubuntu-22.04-x86-64.zip
-          tag: v${{ steps.date.outputs.date }}
-
-      - name: Upload Ubuntu 18.04 arm64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-18.04-arm64.zip
-          asset_name: ton-ubuntu-18.04-arm64.zip
-          tag: v${{ steps.date.outputs.date }}
-
-      - name: Upload Ubuntu 20.04 arm64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-20.04-arm64.zip
-          asset_name: ton-ubuntu-20.04-arm64.zip
-          tag: v${{ steps.date.outputs.date }}
-
-      - name: Upload Ubuntu 22.04 arm64 artifacts
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-ubuntu-22.04-arm64.zip
-          asset_name: ton-ubuntu-22.04-arm64.zip
+          file: artifacts/ton-x86_64-macos-binaries/fift
+          asset_name: fift-mac-x86-64
           tag: v${{ steps.date.outputs.date }}
 
       - name: Upload Linux x86-64 artifacts
@@ -171,16 +166,32 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux-binaries.zip
-          asset_name: ton-x86_64-linux-binaries.zip
+          asset_name: ton-linux-x86_64.zip
           tag: v${{ steps.date.outputs.date }}
 
-      - name: Upload macOS x86-64 artifacts
+      - name: Upload Linux x86-64 single artifact - fift
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-macos-binaries.zip
-          asset_name: ton-x86_64-macos-binaries.zip
+          file: artifacts/ton-x86_64-linux-binaries/fift
+          asset_name: fift-linux-x86_64
           tag: v${{ steps.date.outputs.date }}
+
+#      - name: Upload Linux arm64 artifacts
+#        uses: svenstaro/upload-release-action@v2
+#        with:
+#          repo_token: ${{ secrets.GITHUB_TOKEN }}
+#          file: artifacts/ton-aarch64-linux-binaries.zip
+#          asset_name: ton-linux-arm64.zip
+#          tag: v${{ steps.date.outputs.date }}
+#
+#      - name: Upload Mac arm64 artifacts
+#        uses: svenstaro/upload-release-action@v2
+#        with:
+#          repo_token: ${{ secrets.GITHUB_TOKEN }}
+#          file: artifacts/ton-aarch64-macos-binaries
+#          asset_name: ton-mac-arm64.zip
+#          tag: v${{ steps.date.outputs.date }}
 
       - name: Upload WASM artifacts
         uses: svenstaro/upload-release-action@v2
