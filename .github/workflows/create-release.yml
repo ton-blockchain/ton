@@ -141,12 +141,14 @@ jobs:
 
 # upload
 
+# win
+
       - name: Upload Windows 2019 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-win-binaries.zip
-          asset_name: ton-windows-2019-x86-64.zip
+          asset_name: ton-win-x86-64.zip
           tag: v${{ steps.date.outputs.date }}
 
       - name: Upload Windows 2019 single artifact - fift
@@ -156,6 +158,48 @@ jobs:
           file: artifacts/ton-win-binaries/fift.exe
           asset_name: fift.exe
           tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Windows 2019 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/func.exe
+          asset_name: func.exe
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Windows 2019 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/lite-client.exe
+          asset_name: lite-client.exe
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Windows 2019 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/rldp-http-proxy.exe
+          asset_name: rldp-http-proxy.exe
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Windows 2019 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/http-proxy.exe
+          asset_name: http-proxy.exe
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Windows 2019 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/storage-daemon-cli.exe
+          asset_name: storage-daemon-cli.exe
+          tag: v${{ steps.date.outputs.date }}
+
+# mac
 
       - name: Upload Mac x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
@@ -173,6 +217,48 @@ jobs:
           asset_name: fift-mac-x86-64
           tag: v${{ steps.date.outputs.date }}
 
+      - name: Upload Mac x86-64 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/func
+          asset_name: func-mac-x86-64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Mac x86-64 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/lite-client
+          asset_name: lite-client-mac-x86-64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Mac x86-64 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/rldp-http-proxy
+          asset_name: rldp-http-proxy-mac-x86-64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Mac x86-64 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/http-proxy
+          asset_name: http-proxy-mac-x86-64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Mac x86-64 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/storage-daemon-cli
+          asset_name: storage-daemon-cli-mac-x86-64
+          tag: v${{ steps.date.outputs.date }}
+
+# linux
+
       - name: Upload Linux x86-64 artifacts
         uses: svenstaro/upload-release-action@v2
         with:
@@ -187,6 +273,46 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux-binaries/fift
           asset_name: fift-linux-x86_64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/func
+          asset_name: func-linux-x86_64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/lite-client
+          asset_name: lite-client-linux-x86_64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/rldp-http-proxy
+          asset_name: rldp-http-proxy-linux-x86_64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/http-proxy
+          asset_name: http-proxy-linux-x86_64
+          tag: v${{ steps.date.outputs.date }}
+
+      - name: Upload Linux x86-64 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/storage-daemon-cli
+          asset_name: storage-daemon-cli-linux-x86_64
           tag: v${{ steps.date.outputs.date }}
 
 #      - name: Upload Linux arm64 artifacts
