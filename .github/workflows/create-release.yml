@@ -97,45 +97,13 @@ jobs:
           workflow: ton-wasm-emscripten.yml
           path: artifacts
           workflow_conclusion: success
-          skip_unpack: false
+          skip_unpack: true
 
       - name: Show all artifacts
         run: |
           tree artifacts
 
-# create release
-
-      - name: Read Changelog.md and use it as a body of new release
-        id: read_release
-        shell: bash
-        run: |
-          r=$(cat Changelog.md)
-          r="${r//'%'/'%25'}"
-          r="${r//$'\n'/'%0A'}"
-          r="${r//$'\r'/'%0D'}"
-          echo "::set-output name=CHANGELOG_BODY::$r"
-
-      - name: Get current date
-        id: date
-        run: echo "::set-output name=date::$(date +'%Y.%m')"
-
-      - name: Get registration token
-        id: getRegToken
-        run: |
-          curl -X POST -H \"Accept: application/vnd.github+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/neodix42/HardTestDevelopment/actions/runners/registration-token
-
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.date.outputs.date }}
-          release_name: v${{ steps.date.outputs.date }}
-          body: |
-            ${{ steps.read_release.outputs.CHANGELOG_BODY }}
-          draft: false
-          prerelease: false
+# upload
 
       - name: Upload Windows 2019 artifacts
         uses: svenstaro/upload-release-action@v2
@@ -208,3 +176,37 @@ jobs:
           file: artifacts/ton-wasm-binaries.zip
           asset_name: ton-wasm-binaries.zip
           tag: v${{ steps.date.outputs.date }}
+
+# create release
+
+      - name: Read Changelog.md and use it as a body of new release
+        id: read_release
+        shell: bash
+        run: |
+          r=$(cat Changelog.md)
+          r="${r//'%'/'%25'}"
+          r="${r//$'\n'/'%0A'}"
+          r="${r//$'\r'/'%0D'}"
+          echo "::set-output name=CHANGELOG_BODY::$r"
+
+      - name: Get current date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y.%m')"
+
+      - name: Get registration token
+        id: getRegToken
+        run: |
+          curl -X POST -H \"Accept: application/vnd.github+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/neodix42/HardTestDevelopment/actions/runners/registration-token
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.date.outputs.date }}
+          release_name: v${{ steps.date.outputs.date }}
+          body: |
+            ${{ steps.read_release.outputs.CHANGELOG_BODY }}
+          draft: false
+          prerelease: false
