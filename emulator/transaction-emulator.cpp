@@ -83,6 +83,7 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
     ton::LogicalTime lt = record_trans.lt;
     ton::UnixTime utime = record_trans.now;
     account.now_ = utime;
+    account.block_lt = record_trans.lt - record_trans.lt % block::ConfigInfo::get_lt_align();
     td::Ref<vm::Cell> msg_root = record_trans.r1.in_msg->prefetch_ref();
     int tag = block::gen::t_TransactionDescr.get_tag(vm::load_cell_slice(record_trans.description));
 
