@@ -20,7 +20,7 @@ class TransactionEmulator {
 public:
   TransactionEmulator(block::Config&& config, int vm_log_verbosity = 0) : 
     config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),
-    unixtime_(0), lt_(0), rand_seed_(0), ignore_chksig_(false) {
+    unixtime_(0), lt_(0), rand_seed_(td::BitArray<256>::zero()), ignore_chksig_(false) {
   }
 
   struct EmulationResult {
