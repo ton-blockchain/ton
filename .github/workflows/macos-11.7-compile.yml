@@ -23,7 +23,7 @@ jobs:
       - name: Build all
         run: |
           export NONINTERACTIVE=1
-          brew install ninja libmicrohttpd
+          brew install ninja libmicrohttpd pkg-config
           rootPath=`pwd`
           mkdir build
           cd build
@@ -51,9 +51,17 @@ jobs:
           cp build/utils/generate-random-id artifacts/
           cp build/utils/json2tlo artifacts/
           cp build/adnl/adnl-proxy artifacts/
+          chmod +x artifacts/*
           rsync -r crypto/smartcont artifacts/
           rsync -r crypto/fift/lib artifacts/
           ls -laRt artifacts
+
+      - name: Simple binaries test
+        run: |
+          artifacts/validator-engine -V
+          artifacts/lite-client -V
+          artifacts/fift -V
+          artifacts/func -V
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
