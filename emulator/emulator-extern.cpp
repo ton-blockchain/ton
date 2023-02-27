@@ -59,7 +59,7 @@ const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_cod
 
 td::Result<block::Config> decode_config(const char* config_boc) {
   TRY_RESULT_PREFIX(config_params_cell, boc_b64_to_cell(config_boc), "Can't deserialize config params boc: ");
-  auto global_config = block::Config(config_params_cell, td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
+  auto global_config = block::Config(config_params_cell, td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
   TRY_STATUS_PREFIX(global_config.unpack(), "Can't unpack config params: ");
   return global_config;
 }
