@@ -505,7 +505,7 @@ class ListIterator {
     ptr = ptr->next.get();
     return *this;
   }
-  ListIterator& operator++(int) {
+  ListIterator operator++(int) {
     T* z = ptr;
     ptr = ptr->next.get();
     return ListIterator{z};
@@ -1631,11 +1631,11 @@ struct Stack {
  * 
  */
 
-typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&)> simple_compile_func_t;
+typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, const SrcLocation)> simple_compile_func_t;
 typedef std::function<bool(AsmOpList&, std::vector<VarDescr>&, std::vector<VarDescr>&)> compile_func_t;
 
 inline simple_compile_func_t make_simple_compile(AsmOp op) {
-  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in) -> AsmOp { return op; };
+  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation&) -> AsmOp { return op; };
 }
 
 inline compile_func_t make_ext_compile(std::vector<AsmOp> ops) {
@@ -1674,7 +1674,7 @@ struct SymValAsmFunc : SymValFunc {
                 std::initializer_list<int> ret_order = {}, bool impure = false)
       : SymValFunc(-1, ft, arg_order, ret_order, impure), ext_compile(std::move(_compile)) {
   }
-  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in) const;
+  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation& where) const;
 };
 
 // defined in builtins.cpp

@@ -170,8 +170,8 @@ TEST(Misc, TsList) {
 
 TEST(Misc, TsListConcurrent) {
   td::TsList<ListData> root;
-  td::vector<td::thread> threads;
   std::atomic<td::uint64> id{0};
+  td::vector<td::thread> threads;
   for (std::size_t i = 0; i < 4; i++) {
     threads.emplace_back(
         [&] { do_run_list_test<td::TsListNode<ListData>, td::TsList<ListData>, td::TsListNode<ListData>>(root, id); });
