@@ -63,7 +63,7 @@ class MerkleProofBuilder {
   Ref<Cell> root() const {
     return usage_root;
   }
-  Ref<Cell> extract_proof() const;
+  td::Result<Ref<Cell>> extract_proof() const;
   bool extract_proof_to(Ref<Cell> &proof_root) const;
   td::Result<td::BufferSlice> extract_proof_boc() const;
 };

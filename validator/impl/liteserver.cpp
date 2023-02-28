@@ -1168,7 +1168,7 @@ void LiteQuery::continue_getAccountState() {
 
 void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   LOG(INFO) << "completing getAccountState() query";
-  Ref<vm::Cell> proof1;
+  Ref<vm::Cell> proof1, proof2;
   if (!make_state_root_proof(proof1)) {
     return;
   }
@@ -1197,7 +1197,11 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   if (acc_csr.not_null()) {
     acc_root = acc_csr->prefetch_ref();
   }
-  auto proof = vm::std_boc_serialize_multi({std::move(proof1), pb.extract_proof()});
+  if (!pb.extract_proof_to(proof2)) {
+    fatal_error("unknown error creating Merkle proof");
+    return;
+  }
+  auto proof = vm::std_boc_serialize_multi({std::move(proof1), std::move(proof2)});
   pb.clear();
   if (proof.is_error()) {
     fatal_error(proof.move_as_error());
@@ -1221,7 +1225,10 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
         fatal_error(S.move_as_error_prefix("Failed to load account: "));
         return;
       }
-      acc_root = mpb.extract_proof();
+      if (!mpb.extract_proof_to(acc_root)) {
+        fatal_error("unknown error creating Merkle proof");
+        return;
+      }
     }
     auto res = vm::std_boc_serialize(std::move(acc_root));
     if (res.is_error()) {
@@ -1283,10 +1290,20 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
         balance.validate_unpack(store.balance) && store.state->prefetch_ulong(1) == 1 &&
         store.state.write().advance(1) && tlb::csr_unpack(std::move(store.state), state_init))) {
     LOG(INFO) << "error unpacking account state, or account is frozen or uninitialized";
+    td::Result<td::BufferSlice> proof_boc;
+    if (mode & 2) {
+      proof_boc = pb.extract_proof_boc();
+      if (proof_boc.is_error()) {
+        fatal_error(proof_boc.move_as_error());
+        return;
+      }
+    } else {
+      proof_boc = td::BufferSlice();
+    }
     auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_runMethodResult>(
         mode, ton::create_tl_lite_block_id(base_blk_id_), ton::create_tl_lite_block_id(blk_id_), std::move(shard_proof),
-        std::move(state_proof), mode & 2 ? pb.extract_proof_boc().move_as_ok() : td::BufferSlice(), td::BufferSlice(),
-        td::BufferSlice(), -0x100, td::BufferSlice());
+        std::move(state_proof), proof_boc.move_as_ok(), td::BufferSlice(), td::BufferSlice(), -0x100,
+        td::BufferSlice());
     finish_query(std::move(b));
     return;
   }
@@ -1340,10 +1357,20 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
     }
     result = res.move_as_ok();
   }
+  td::Result<td::BufferSlice> proof_boc;
+  if (mode & 2) {
+    proof_boc = pb.extract_proof_boc();
+    if (proof_boc.is_error()) {
+      fatal_error(proof_boc.move_as_error());
+      return;
+    }
+  } else {
+    proof_boc = td::BufferSlice();
+  }
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_runMethodResult>(
       mode, ton::create_tl_lite_block_id(base_blk_id_), ton::create_tl_lite_block_id(blk_id_), std::move(shard_proof),
-      std::move(state_proof), mode & 2 ? pb.extract_proof_boc().move_as_ok() : td::BufferSlice(), std::move(c7_info),
-      td::BufferSlice(), exit_code, std::move(result));
+      std::move(state_proof), proof_boc.move_as_ok(), std::move(c7_info), td::BufferSlice(), exit_code,
+      std::move(result));
   finish_query(std::move(b));
 }
 

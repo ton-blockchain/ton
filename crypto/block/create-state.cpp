@@ -308,7 +308,7 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   THRERR("cannot create smart-contract AccountStorage");
   Ref<vm::DataCell> storage = cb.finalize();
   vm::CellStorageStat stats;
-  PDO(stats.compute_used_storage(Ref<vm::Cell>(storage)));
+  PDO(stats.compute_used_storage(Ref<vm::Cell>(storage)).is_ok());
   if (verbosity > 2) {
     std::cerr << "storage is:\n";
     vm::load_cell_slice(storage).print_rec(std::cerr);

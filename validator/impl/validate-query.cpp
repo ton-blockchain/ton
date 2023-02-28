@@ -4506,7 +4506,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_size_too_big) &&
+  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits) &&
       !trs->prepare_bounce_phase(action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());
