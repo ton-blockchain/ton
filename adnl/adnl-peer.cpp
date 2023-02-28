@@ -68,7 +68,9 @@ void AdnlPeerPairImpl::alarm() {
   }
   if (retry_send_at_ && retry_send_at_.is_in_past()) {
     retry_send_at_ = td::Timestamp::never();
-    send_messages_in(std::move(pending_messages_), false);
+    auto messages = std::move(pending_messages_);
+    pending_messages_.clear();
+    send_messages_in(std::move(messages), true);
   }
   alarm_timestamp().relax(next_dht_query_at_);
   alarm_timestamp().relax(next_db_update_at_);
@@ -791,7 +793,9 @@ void AdnlPeerPairImpl::Conn::create_conn(td::actor::ActorId<AdnlPeerPairImpl> pe
 void AdnlPeerPairImpl::conn_change_state(AdnlConnectionIdShort id, bool ready) {
   if (ready) {
     if (pending_messages_.size() > 0) {
-      send_messages_in(std::move(pending_messages_), true);
+      auto messages = std::move(pending_messages_);
+      pending_messages_.clear();
+      send_messages_in(std::move(messages), true);
     }
   }
 }

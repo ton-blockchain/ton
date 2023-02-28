@@ -277,8 +277,7 @@ std::enable_if_t<!std::is_constructible<T>::value, Status> from_json(ton::tl_obj
 
   DowncastHelper<T> helper(constructor);
   Status status;
-  bool ok = downcast_call(static_cast<T &>(helper), [&](auto &dummy) {
-    auto result = ton::create_tl_object<std::decay_t<decltype(dummy)>>();
+  bool ok = downcast_construct(static_cast<T &>(helper), [&](auto result) {
     status = from_json(*result, object);
     to = std::move(result);
   });

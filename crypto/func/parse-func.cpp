@@ -487,7 +487,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     Expr* res = new Expr{Expr::_Const, lex.cur().loc};
     res->flags = Expr::_IsRvalue;
     res->intval = td::string_to_int256(lex.cur().str);
-    if (res->intval.is_null()) {
+    if (res->intval.is_null() || !res->intval->signed_fits_bits(257)) {
       lex.cur().error_at("invalid integer constant `", "`");
     }
     res->e_type = TypeExpr::new_atomic(_Int);

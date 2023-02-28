@@ -1050,9 +1050,9 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
   }
-  auto upd_hash = upd_cs.prefetch_ref(1)->get_hash(0).bits();
-  auto state_hash = state_root->get_hash().bits();
-  if (upd_hash.compare(state_hash, 256)) {
+  auto upd_hash = upd_cs.prefetch_ref(1)->get_hash(0);
+  auto state_hash = state_root->get_hash();
+  if (upd_hash != state_hash) {
     return fatal_error("cannot construct Merkle proof for given masterchain state because of hash mismatch");
   }
   if (!pb.extract_proof_to(proof)) {
