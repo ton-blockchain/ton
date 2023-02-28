@@ -2274,7 +2274,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     return td::Status::Error(
         -669, "cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
-  if (trans->bounce_enabled && (!trans->compute_phase->success || trans->action_phase->state_size_too_big) &&
+  if (trans->bounce_enabled && (!trans->compute_phase->success || trans->action_phase->state_exceeds_limits) &&
       !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(
         -669, "cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
@@ -3640,6 +3640,9 @@ bool Collator::create_shard_state() {
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
   state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
+  if (state_update.is_null()) {
+    return fatal_error("cannot create Merkle update for ShardState");
+  }
   if (verbosity > 2) {
     std::cerr << "Merkle Update for ShardState: ";
     vm::CellSlice cs{vm::NoVm{}, state_update};

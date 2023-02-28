@@ -108,12 +108,14 @@ struct CellStorageStat {
   unsigned long long cells;
   unsigned long long bits;
   unsigned long long public_cells;
-  std::set<vm::Cell::Hash> seen;
+  struct CellInfo {
+    td::uint32 max_merkle_depth = 0;
+  };
+  std::map<vm::Cell::Hash, CellInfo> seen;
   CellStorageStat() : cells(0), bits(0), public_cells(0) {
   }
-  bool clear_seen() {
+  void clear_seen() {
     seen.clear();
-    return true;
   }
   void clear() {
     cells = bits = public_cells = 0;
@@ -124,15 +126,16 @@ struct CellStorageStat {
     limit_cells = std::numeric_limits<unsigned long long>::max();
     limit_bits = std::numeric_limits<unsigned long long>::max();
   }
-  bool compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true, unsigned skip_count_root = 0);
-  bool compute_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  bool compute_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  bool compute_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true,
+                                            unsigned skip_count_root = 0);
+  td::Result<CellInfo> compute_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> compute_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> compute_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
 
-  bool add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true, unsigned skip_count_root = 0);
-  bool add_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  bool add_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  bool add_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> add_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> add_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::Result<CellInfo> add_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
 
   unsigned long long limit_cells = std::numeric_limits<unsigned long long>::max();
   unsigned long long limit_bits = std::numeric_limits<unsigned long long>::max();
