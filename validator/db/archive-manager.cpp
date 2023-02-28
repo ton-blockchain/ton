@@ -27,12 +27,6 @@ namespace ton {
 
 namespace validator {
 
-#if defined(WIN32) || defined(_WIN32) || defined __CYGWIN__
-#define PATH_SEPARATOR '\\'
-#else
-#define PATH_SEPARATOR '/'
-#endif
-
 std::string PackageId::path() const {
   if (temp) {
     return "/files/packages/";
@@ -912,7 +906,7 @@ void ArchiveManager::start_up() {
   td::WalkPath::run(db_root_ + "/archive/states/", [&](td::CSlice fname, td::WalkPath::Type t) -> void {
     if (t == td::WalkPath::Type::NotDir) {
       LOG(ERROR) << "checking file " << fname;
-      auto pos = fname.rfind(PATH_SEPARATOR);
+      auto pos = fname.rfind(TD_DIR_SLASH);
       if (pos != td::Slice::npos) {
         fname.remove_prefix(pos + 1);
       }

@@ -51,12 +51,6 @@ namespace ton {
 
 namespace validator {
 
-#if defined(WIN32) || defined(_WIN32) || defined __CYGWIN__
-#define PATH_SEPARATOR '\\'
-#else
-#define PATH_SEPARATOR '/'
-#endif
-
 void ValidatorManagerImpl::validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id,
                                                         td::BufferSlice proof, td::Promise<td::Unit> promise) {
   if (!prev_block_id.is_masterchain() || !next_block_id.is_masterchain()) {
@@ -1470,7 +1464,7 @@ void ValidatorManagerImpl::start_up() {
   auto S = td::WalkPath::run(to_import_dir, [&](td::CSlice cfname, td::WalkPath::Type t) -> void {
     auto fname = td::Slice(cfname);
     if (t == td::WalkPath::Type::NotDir) {
-      auto d = fname.rfind(PATH_SEPARATOR);
+      auto d = fname.rfind(TD_DIR_SLASH);
       if (d != td::Slice::npos) {
         fname = fname.substr(d + 1);
       }
