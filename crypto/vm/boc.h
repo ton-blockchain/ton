@@ -18,6 +18,7 @@
 */
 #pragma once
 #include <set>
+#include <map>
 #include "vm/db/DynamicBagOfCellsDb.h"
 #include "vm/cells.h"
 #include "td/utils/Status.h"
