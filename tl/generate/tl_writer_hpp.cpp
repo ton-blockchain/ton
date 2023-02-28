@@ -27,7 +27,7 @@ bool TD_TL_writer_hpp::is_documentation_generated() const {
 }
 
 int TD_TL_writer_hpp::get_additional_function_type(const std::string &additional_function_name) const {
-  assert(additional_function_name == "downcast_call");
+  assert(additional_function_name == "downcast_call" || additional_function_name == "downcast_construct");
   return 2;
 }
 
@@ -195,7 +195,7 @@ std::string TD_TL_writer_hpp::gen_fetch_switch_end() const {
 
 std::string TD_TL_writer_hpp::gen_additional_function(const std::string &function_name, const tl::tl_combinator *t,
                                                       bool is_function) const {
-  assert(function_name == "downcast_call");
+  assert(function_name == "downcast_call" || function_name == "downcast_construct");
   return "";
 }
 
