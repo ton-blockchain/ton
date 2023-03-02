@@ -1370,10 +1370,10 @@ class RldpHttpProxy : public td::actor::Actor {
     auto &c = peer_capabilities_[peer];
     if (!c.received && c.retry_at.is_in_past()) {
       c.retry_at = td::Timestamp::in(30.0);
-      auto send_query = [&](const ton::adnl::AdnlNodeIdShort &local_id) {
+      auto send_query = [&, this, SelfId = actor_id(this)](const ton::adnl::AdnlNodeIdShort &local_id) {
         td::actor::send_closure(
             adnl_, &ton::adnl::Adnl::send_query, local_id, peer, "q",
-            [SelfId = actor_id(this), peer](td::Result<td::BufferSlice> R) {
+            [SelfId, peer](td::Result<td::BufferSlice> R) {
               if (R.is_error()) {
                 return;
               }
