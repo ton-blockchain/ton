@@ -3,17 +3,19 @@
     <source media="(prefers-color-scheme: dark)" srcset="https://ton.org/download/ton_logo_dark_background.svg">
     <img alt="TON logo" src="https://ton.org/download/ton_logo_light_background.svg">
   </picture>
+  <h3>Reference implementation of TON Node and tools</h3>
   <hr/>
 </div>
 
+## 
 [![TON Overflow Group][ton-overflow-badge]][ton-overflow-url]
 [![Stack Overflow Group][stack-overflow-badge]][stack-overflow-url]
 [![Telegram Foundation Group][telegram-foundation-badge]][telegram-foundation-url]
 [![Telegram Community Group][telegram-community-badge]][telegram-community-url]
 [![Twitter Group][twitter-badge]][twitter-url]
 
-[telegram-foundation-badge]: https://img.shields.io/badge/-TON%20Foundation-2CA5E0?style=flat&logo=telegram&logoColor=white
-[telegram-community-badge]: https://img.shields.io/badge/-TON%20Community-2CA5E0?style=flat&logo=telegram&logoColor=white
+[telegram-foundation-badge]: https://img.shields.io/badge/channel-TON%20Foundation-2CA5E0?logo=telegram&logoColor=white&style=flat
+[telegram-community-badge]: https://img.shields.io/badge/chat-TON%20Community-2CA5E0?logo=telegram&logoColor=white&style=flat
 [telegram-foundation-url]: https://t.me/tonblockchain
 [telegram-community-url]: https://t.me/toncoin
 [twitter-badge]: https://img.shields.io/twitter/follow/ton_blockchain
@@ -26,6 +28,15 @@
 
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
+
+## The Open Network
+
+__The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
+- To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](ton.org/docs)
+- To run node, validator or lite-server check [Participate section](https://ton.org/docs/participate/nodes/run-node)
+- To develop decentralised apps check [Tutorials](https://ton.org/docs/develop/smart-contracts/), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://ton.org/docs/develop/dapps/)
+- To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities)
+- To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/)
 
 ## Updates flow:
 
