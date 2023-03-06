@@ -76,7 +76,7 @@ int check_proof(int merkle_hash, int byte_to_proof, int file_size, cell file_dic
 
     int query_id = in_msg_body~load_uint(64);
 
-    if(op == op::offer_storage_contract) {
+    if(op == op::deploy_storage_contract) {
         add_to_balance(msg_value - 2 * fee::receipt_value);
         var (client, torrent_hash) = get_client_data(get_data().begin_parse());
         var msg = begin_cell()

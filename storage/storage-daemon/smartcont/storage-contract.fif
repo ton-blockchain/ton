@@ -111,7 +111,7 @@ PROGRAM{
     }>	//  msg_value sender_address op in_msg_body
     64 LDU	//  msg_value sender_address op query_id in_msg_body
     s2 PUSH
-    276580847 PUSHINT	//  msg_value sender_address op query_id in_msg_body op _27=276580847
+    3832843761 PUSHINT	//  msg_value sender_address op query_id in_msg_body op _27=3832843761
     EQUAL	//  msg_value sender_address op query_id in_msg_body _28
     IF:<{	//  msg_value sender_address op query_id in_msg_body
       s0 s4 XCHG

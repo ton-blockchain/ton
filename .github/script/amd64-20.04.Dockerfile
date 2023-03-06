@@ -2,12 +2,13 @@ FROM ubuntu:20.04
 
 RUN apt update
 RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
-RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build
+RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build pkg-config
 
 WORKDIR /
 
 ARG BRANCH
-RUN git clone --recurse-submodules https://github.com/ton-blockchain/ton.git && cd ton && git checkout $BRANCH
+ARG REPO
+RUN git clone --recurse-submodules https://github.com/$REPO && cd ton && git checkout $BRANCH
 
 WORKDIR /ton
 RUN mkdir /ton/build

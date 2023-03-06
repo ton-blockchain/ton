@@ -276,7 +276,6 @@ bool Op::generate_code_step(Stack& stack) {
   stack.opt_show();
   stack.drop_vars_except(var_info);
   stack.opt_show();
-  const auto& next_var_info = next->var_info;
   bool inline_func = stack.mode & Stack::_InlineFunc;
   switch (cl) {
     case _Nop:
@@ -291,7 +290,7 @@ bool Op::generate_code_step(Stack& stack) {
       return false;
     }
     case _IntConst: {
-      auto p = next_var_info[left[0]];
+      auto p = next->var_info[left[0]];
       if (!p || p->is_unused()) {
         return true;
       }
@@ -307,7 +306,7 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _SliceConst: {
-      auto p = next_var_info[left[0]];
+      auto p = next->var_info[left[0]];
       if (!p || p->is_unused()) {
         return true;
       }
@@ -319,7 +318,7 @@ bool Op::generate_code_step(Stack& stack) {
       if (dynamic_cast<const SymValGlobVar*>(fun_ref->value)) {
         bool used = false;
         for (auto i : left) {
-          auto p = next_var_info[i];
+          auto p = next->var_info[i];
           if (p && !p->is_unused()) {
             used = true;
           }
@@ -339,7 +338,7 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       } else {
         assert(left.size() == 1);
-        auto p = next_var_info[left[0]];
+        auto p = next->var_info[left[0]];
         if (!p || p->is_unused() || disabled()) {
           return true;
         }
@@ -360,7 +359,7 @@ bool Op::generate_code_step(Stack& stack) {
           for (int i = 0; i < wr; i++) {
             args0.emplace_back(0);
           }
-          func->compile(stack.o, res, args0);  // compile res := f (args0)
+          func->compile(stack.o, res, args0, where);  // compile res := f (args0)
         } else {
           std::string name = sym::symbols.get_name(fun_ref->sym_idx);
           stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
@@ -377,7 +376,7 @@ bool Op::generate_code_step(Stack& stack) {
       active.reserve(left.size());
       for (std::size_t k = 0; k < left.size(); k++) {
         var_idx_t y = left[k];  // "y" = "x"
-        auto p = next_var_info[y];
+        auto p = next->var_info[y];
         active.push_back(p && !p->is_unused());
       }
       for (std::size_t k = 0; k < left.size(); k++) {
@@ -489,7 +488,7 @@ bool Op::generate_code_step(Stack& stack) {
           for (var_idx_t i : left) {
             res.emplace_back(i);
           }
-          func->compile(stack.o, res, args);  // compile res := f (args)
+          func->compile(stack.o, res, args, where);  // compile res := f (args)
         } else {
           auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
           std::string name = sym::symbols.get_name(fun_ref->sym_idx);

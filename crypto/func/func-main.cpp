@@ -109,7 +109,7 @@ int main(int argc, char* const argv[]) {
 
   std::unique_ptr<std::fstream> fs;
   if (!output_filename.empty()) {
-    fs = std::make_unique<std::fstream>(output_filename, fs->trunc | fs->out);
+    fs = std::make_unique<std::fstream>(output_filename, std::fstream::trunc | std::fstream::out);
     if (!fs->is_open()) {
       std::cerr << "failed to create output file " << output_filename << '\n';
       return 2;

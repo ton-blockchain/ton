@@ -1,0 +1,100 @@
+{-------------------------- TESTS for mathlib.fc ----------------------------}
+
+;; computes 1-acos(x)/Pi by a very simple, extremely slow (~70k gas) and imprecise method
+;; fixed256 acos_prepare_slow(fixed255 x);
+int acos_prepare_slow_f255(int x) inline {
+  x -= (x == 0);
+  int t = 1;
+  repeat (255) {
+    t = t * sgn(x) * 2 + 1;    ;; decode Gray code (sgn(x_0), sgn(x_1), ...)
+    x = (-1 << 255) - muldivr(x, - x, 1 << 254);    ;; iterate x := 2*x^2 - 1 = cos(2*acos(x))
+  }
+  return abs(t);
+}
+
+;; extremely slow (~70k gas) and somewhat imprecise (very imprecise when x is small), for testing only
+;; fixed254 acos_slow(fixed255 x);
+int acos_slow_f255(int x) inline_ref {
+  int t = acos_prepare_slow_f255(x);
+  return - mulrshiftr256(t + (-1 << 256), Pi_const_f254());
+}
+
+;; fixed255 asin_slow(fixed255 x);
+int asin_slow_f255(int x) inline_ref {
+  int t = acos_prepare_slow_f255(abs(x)) % (1 << 255);
+  return muldivr(t, Pi_const_f254(), 1 << 255) * sgn(x);
+}
+
+_ main() {
+  int One = 1;
+  ;; repeat(76 / 4) { One *= 10000; }
+  int sqrt2 = geom_mean(One, 2 * One);
+  int sqrt3 = geom_mean(One, 3 * One);
+  ;; return geom_mean((1 << 255) - 1 + (1 << 255), (1 << 255) - 1);
+  ;; return geom_mean((1 << 255) - 1, (1 << 255) - 2);
+  ;; return (sqrt2, geom_mean(sqrt2, One));  ;; (sqrt(2), 2^(1/4))
+  ;; return (sqrt3, geom_mean(sqrt3, One));  ;; (sqrt(3), 3^(1/4))
+  ;; return geom_mean(3 << 254, 1 << 254);
+  ;; return tan_f260(115641670674223639132965820642403718536242645001775371762318060545014644837101 - 1);
+  ;; return tan_f260(15 << 252);  ;; tan(15/256) * 2^260
+  ;; return sincosm1_f259(1 << 255);  ;; (sin,1-cos)(1/16) * 2^259
+  ;; return sincosm1_f259(115641670674223639132965820642403718536242645001775371762318060545014644837101 - 1);
+  ;; return sincosm1_f256((1 << 255) - 1 + (1 << 255));  ;; (sin,1-cos)(1-2^(-256))
+  ;; return sincosm1_f256(Pi_const_f254());  ;; (sin,1-cos)(Pi/4)
+  ;; return sincosn_f256(Pi_const_f254(), 0);  ;; (sin,-cos)(Pi/4)
+  ;; return sincosn_f256((1 << 255) + 1, 0);  ;; (sin,-cos)(1/2+1/2^256)
+  ;; return sincosn_f256(1 << 254, 0);
+  ;; return sincosn_f256(touch(15) << 252, 0);  ;; (sin,-cos)(15/16)
+  ;; return sincosm1_f256(touch(15) << 252);  ;; (sin,1-cos)(15/16)
+  ;; return sincosn_f256(60628596148627720713372490462954977108898896221398738326462025186323149077698, 0);  ;; (sin,-cos)(Pi/6)
+  ;; return sincosm1_f256(60628596148627720713372490462954977108898896221398738326462025186323149077698);  ;; (sin,1-cos)(Pi/6)
+  ;; return tan_aux_f256(1899 << 245);  ;; (p,q) such that p/q=tan(1899/2048)
+  ;; return fixed248::tan(11 << 248);  ;; tan(11)
+  ;; return atanh_alt_f258(1 << 252);  ;; atanh(1/64) * 2^258
+  ;; return atanh_f258(1 << 252, 18);  ;; atanh(1/64) * 2^258
+  ;; return atanh_f261(muldivr(64, 1 << 255, 55), 18);   ;; atanh(1/55) * 2^261
+  ;; return log2_aux_f256(1 << 255);
+  ;; return log2_aux_f256(-1 - (-1 << 256));   ;; log2(2-1/2^255))*2^256 ~ 2^256 - 1.43
+  ;; return log_aux_f256(-1 - (-1 << 256));
+  ;; return log_aux_f256(3);  ;; log(3/2)*2^256
+  ;; return fixed248::pow(3 << 248, 3 << 248);  ;; 3^3
+  ;; return fixed248::exp(fixed248::log(5 << 248) ~/ 7);   ;; exp(log(5)/7) = 5^(1/7)
+  ;; return fixed248::log(Pi_const_f254() ~>> 6);  ;; log(Pi)
+  ;; return atanh_alt_f258(1 << 255);  ;; atanh(1/8) * 2^258
+  ;; return atanh_f258(1 << 255, 37);  ;; atanh(1/8) * 2^258
+  ;; return log_aux_f257(Pi_const_f254());   ;; log(Pi/4)
+  ;; return log_aux_f257(3 << 254);   ;; log(3)
+  ;; return atanh_alt_f258(81877371507464127617551201542979628307507432471243237061821853600756754782485);   ;; atanh(sqrt(2)/8) * 2^258
+  ;; return atanh_f258(81877371507464127617551201542979628307507432471243237061821853600756754782485, 36);   ;; atanh(sqrt(2)/8) * 2^258
+  ;; return fixed248::sincos(Pi_const_f254() ~/ (64 * 3));   ;; (sin,cos)(Pi/3)
+  ;; return fixed248::exp(3 << 248);  ;; exp(3)*2^248
+  ;; return fixed248::exp2((1 << 248) ~/ 5);  ;; 2^(1/5)*2^248
+  ;; return fixed248::pow(3 << 248, -3 << 247);  ;; 3^(-1.5)
+  ;; return fixed248::pow(10 << 248, -70 << 248);  ;; 10^(-70)
+  ;; return fixed248::exp(fixed248::log(fixed248::Pi_const()) * 3);   ;; Pi^3 ~ 31.006
+  ;; return fixed248::pow(fixed248::Pi_const(), touch(3) << 248);   ;; Pi^3 ~ 31.006, computed more precisely
+  ;; return fixed248::exp(muldivr(fixed248::log(fixed248::Pi_const()), fixed248::Pi_const(), 1 << 248));   ;; Pi^Pi
+  ;; return fixed248::pow(fixed248::Pi_const(), fixed248::Pi_const());   ;; Pi^Pi, more precisely
+  ;; return fixed248::sin(fixed248::log(fixed248::exp(fixed248::Pi_const())));   ;; sin(log(e^Pi))
+  ;; return expm1_f257(1 << 255);  ;; (exp(1/4)-1)*2^256
+  ;; return expm1_f257(-1 << 256);  ;; (exp(-1/2)-1)*2^256 (argument out of range, will overflow)
+  ;; return expm1_f257(log2_const_f256());  ;; (exp(log(2)/2)-1)*2^256
+  ;; return expm1_f257(- log2_const_f256());  ;; (exp(-log(2)/2)-1)*2^256
+  ;; return tanh_f258(log2_const_f256(), 17);  ;; tanh(log(2)/4)*2^258
+  ;; return atan_f255(0xa0 << 247);
+  ;; return atan_f259(1 << 255, 26);   ;; atan(1/16)
+  ;; return atan_f259(touch(2273) << 244, 26);   ;; atan(2273/2^15)
+  ;; return atan_aux_f256(0xa0 << 248);
+  ;; return atan_aux_f256(-1 - (-1 << 256));
+  ;; return atan_aux_f256(-1 << 256);
+  ;; return atan_aux_f256(1);  ;; atan(1/2^256)*2^261 = 32
+  int One = touch(1 << 255);
+  ;; return asin_f255(-2 * One ~/ -3);
+  int arg = muldivr(12, One, 17);  ;; 12/17
+  ;; return [ asin_slow_f255(arg), asin_f255(arg) ];
+  ;; return [ acos_slow_f255(arg), acos_f255(arg) ];
+  return 4 * atan_f255(One ~/ 5) - atan_f255(One ~/ 239);   ;; 4 * atan(1/5) - atan(1/239) = Pi/4 as fixed255
+  int One = touch(1 << 248);
+  ;; return fixed248::atan(One) ~/ 5);   ;; atan(1/5)
+  ;; return fixed248::acot(One ~/ 239);   ;; atan(1/5)
+}

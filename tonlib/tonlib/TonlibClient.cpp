@@ -36,6 +36,8 @@
 #include "smc-envelope/PaymentChannel.h"
 #include "smc-envelope/SmartContractCode.h"
 
+#include "emulator/transaction-emulator.h"
+
 #include "auto/tl/tonlib_api.hpp"
 #include "block/block-auto.h"
 #include "block/check-proof.h"
@@ -71,6 +73,14 @@ struct GetAccountState {
   block::StdAddress address;
   td::optional<ton::BlockIdExt> block_id;
   td::optional<td::Ed25519::PublicKey> public_key;
+  using ReturnType = td::unique_ptr<AccountState>;
+};
+
+struct GetAccountStateByTransaction {
+  block::StdAddress address;
+  std::int64_t lt;
+  td::Bits256 hash;
+  //td::optional<td::Ed25519::PublicKey> public_key;
   using ReturnType = td::unique_ptr<AccountState>;
 };
 
@@ -414,6 +424,23 @@ class AccountState {
         tonlib_api::make_object<tonlib_api::accountAddress>(get_address().rserialize(true)), get_balance(),
         to_transaction_id(raw().info), to_tonlib_api(raw().block_id), get_sync_time(), std::move(account_state),
         get_wallet_revision());
+  }
+
+  td::Result<tonlib_api::object_ptr<tonlib_api::tvm_cell>> to_shardAccountCell() const {
+    auto account_root = raw_.info.root;
+    if (account_root.is_null()) {
+      block::gen::Account().cell_pack_account_none(account_root);
+    }
+    auto cell = vm::CellBuilder().store_ref(account_root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).finalize();
+    return tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(cell));
+  }
+
+  td::Result<td::Ref<vm::CellSlice>> to_shardAccountCellSlice() const {
+    auto account_root = raw_.info.root;
+    if (account_root.is_null()) {
+      block::gen::Account().cell_pack_account_none(account_root);
+    }
+    return vm::CellBuilder().store_ref(account_root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).as_cellslice_ref();
   }
 
   //NB: Order is important! Used during guessAccountRevision
@@ -940,7 +967,7 @@ class Query {
     } while (list.not_null());
     return i;
   }
-};  // namespace tonlib
+};
 
 td::Result<td::int64> to_balance_or_throw(td::Ref<vm::CellSlice> balance_ref) {
   vm::CellSlice balance_slice = *balance_ref;
@@ -1288,7 +1315,7 @@ class GetRawAccountState : public td::actor::Actor {
         ton::lite_api::liteServer_getAccountState(
             ton::create_tl_lite_block_id(block_id_.value()),
             ton::create_tl_object<ton::lite_api::liteServer_accountId>(address_.workchain, address_.addr)),
-        [self = this](auto r_state) { self->with_account_state(std::move(r_state)); }, block_id_.value().id.seqno);
+        [self = this](auto r_state) { self->with_account_state(std::move(r_state)); });
   }
 
   td::Status do_with_last_block(td::Result<LastBlockState> r_last_block) {
@@ -1631,6 +1658,305 @@ class GetShardBlockProof : public td::actor::Actor {
   td::Promise<tonlib_api_ptr<tonlib_api::blocks_shardBlockProof>> promise_;
   ExtClient client_;
   std::vector<std::pair<ton::BlockIdExt, td::BufferSlice>> links_;
+};
+
+auto to_lite_api(const tonlib_api::ton_blockIdExt& blk) -> td::Result<lite_api_ptr<ton::lite_api::tonNode_blockIdExt>>;
+auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid) -> tonlib_api_ptr<tonlib_api::blocks_shortTxId>;
+
+class RunEmulator : public td::actor::Actor {
+ public:
+  RunEmulator(ExtClientRef ext_client_ref, int_api::GetAccountStateByTransaction request,
+      td::actor::ActorShared<> parent, td::Promise<td::unique_ptr<AccountState>>&& promise)
+    : request_(std::move(request)), parent_(std::move(parent)), promise_(std::move(promise)) {
+    client_.set_client(ext_client_ref);
+  }
+
+ private:
+  struct FullBlockId {
+    ton::BlockIdExt id;
+    ton::BlockIdExt mc;
+    ton::BlockIdExt prev;
+    ton::Bits256 rand_seed;
+  };
+
+  ExtClient client_;
+  int_api::GetAccountStateByTransaction request_;
+  td::actor::ActorShared<> parent_;
+  td::Promise<td::unique_ptr<AccountState>> promise_;
+
+  std::map<td::int64, td::actor::ActorOwn<>> actors_;
+  td::int64 actor_id_{1};
+
+  FullBlockId block_id_;
+  td::Ref<vm::Cell> mc_state_root_; // ^ShardStateUnsplit
+  td::unique_ptr<AccountState> account_state_;
+  std::vector<td::Ref<vm::Cell>> transactions_; // std::vector<^Transaction>
+
+  size_t count_{0};
+  size_t count_transactions_{0};
+  bool incomplete_{true};
+  bool stopped_{false};
+
+  void get_block_id(td::Promise<FullBlockId>&& promise) {
+    auto shard_id = ton::shard_prefix(request_.address.addr, 60);
+    auto query = ton::lite_api::liteServer_lookupBlock(0b111111010, ton::create_tl_lite_block_id_simple({request_.address.workchain, shard_id, 0}), request_.lt, 0);
+    client_.send_query(std::move(query), promise.wrap([self = this, shard_id](td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_blockHeader>> header_r) -> td::Result<FullBlockId> {
+
+      TRY_RESULT(header, std::move(header_r));
+      ton::BlockIdExt block_id = ton::create_block_id(header->id_);
+      TRY_RESULT(root, vm::std_boc_deserialize(std::move(header->header_proof_)));
+
+      try {
+        auto virt_root = vm::MerkleProof::virtualize(root, 1);
+        if (virt_root.is_null()) {
+          return td::Status::Error("block header proof is not a valid Merkle proof");
+        }
+
+        ton::RootHash vhash{virt_root->get_hash().bits()};
+        if (ton::RootHash{virt_root->get_hash().bits()} != block_id.root_hash) {
+          return td::Status::Error("block header has incorrect root hash");
+        }
+
+        std::vector<ton::BlockIdExt> prev_blocks;
+        ton::BlockIdExt mc_block_id;
+        bool after_split;
+        td::Status status = block::unpack_block_prev_blk_ext(virt_root, block_id, prev_blocks, mc_block_id, after_split);
+        if (status.is_error()) {
+          return status.move_as_error();
+        }
+
+        ton::BlockIdExt prev_block;
+        if (prev_blocks.size() == 1 || ton::shard_is_ancestor(prev_blocks[0].id.shard, shard_id)) {
+          prev_block = std::move(prev_blocks[0]);
+        } else {
+          prev_block = std::move(prev_blocks[1]);
+        }
+
+        block::gen::Block::Record block;
+        block::gen::BlockExtra::Record extra;
+        if (!tlb::unpack_cell(virt_root, block) || !tlb::unpack_cell(block.extra, extra)) {
+          return td::Status::Error("cannot unpack block header");
+        }
+
+        return FullBlockId{std::move(block_id), std::move(mc_block_id), std::move(prev_block), std::move(extra.rand_seed)};
+      } catch (vm::VmError& err) {
+        return err.as_status("error processing header");
+      } catch (vm::VmVirtError& err) {
+        return err.as_status("error processing header");
+      }
+    }));
+  }
+
+  void get_mc_state_root(td::Promise<td::Ref<vm::Cell>>&& promise) {
+    TRY_RESULT_PROMISE(promise, lite_block, to_lite_api(*to_tonlib_api(block_id_.mc)));
+    auto block = ton::create_block_id(lite_block);
+    client_.send_query(ton::lite_api::liteServer_getConfigAll(0b11'11111111, std::move(lite_block)), promise.wrap([self = this, block](auto r_config) -> td::Result<td::Ref<vm::Cell>> {
+
+      TRY_RESULT(state, block::check_extract_state_proof(block, r_config->state_proof_.as_slice(), r_config->config_proof_.as_slice()));
+
+      return std::move(state);
+    }));
+  }
+
+  void get_account_state(td::Promise<td::unique_ptr<AccountState>>&& promise) {
+    auto actor_id = actor_id_++;
+    actors_[actor_id] = td::actor::create_actor<GetRawAccountState>(
+      "GetAccountState", client_.get_client(), request_.address, block_id_.prev,
+      actor_shared(this, actor_id),
+      promise.wrap([address = request_.address](auto&& state) {
+        return td::make_unique<AccountState>(std::move(address), std::move(state), 0);
+    }));
+  }
+
+  td::Status get_transactions(std::int64_t lt) {
+    TRY_RESULT(lite_block, to_lite_api(*to_tonlib_api(block_id_.id)));
+    auto after = ton::lite_api::make_object<ton::lite_api::liteServer_transactionId3>(request_.address.addr, lt);
+    auto query = ton::lite_api::liteServer_listBlockTransactions(std::move(lite_block), 0b10100111, 256, std::move(after), false, false);
+
+    client_.send_query(std::move(query), [self = this](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
+      if (!bTxes) {
+        self->check(td::Status::Error("liteServer.blockTransactions is null"));
+        return;
+      }
+
+      std::int64_t last_lt = 0;
+      for (auto& id : bTxes->ids_) {
+        last_lt = id->lt_;
+        if (id->account_ != self->request_.address.addr) {
+          continue;
+        }
+
+        if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
+          self->incomplete_ = false;
+        }
+
+        self->transactions_.push_back({});
+        self->get_transaction(id->lt_, id->hash_, [self, i = self->transactions_.size() - 1](auto transaction) { self->set_transaction(i, std::move(transaction)); });
+
+        if (!self->incomplete_) {
+          return;
+        }
+      }
+
+      if (bTxes->incomplete_) {
+        self->check(self->get_transactions(last_lt));
+      }
+    });
+    return td::Status::OK();
+  }
+
+  void get_transaction(std::int64_t lt, td::Bits256 hash, td::Promise<td::Ref<vm::Cell>>&& promise) {
+    auto actor_id = actor_id_++;
+    actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
+        "GetTransactionHistory", client_.get_client(), request_.address, lt, hash, 1, actor_shared(this, actor_id),
+        promise.wrap([](auto&& transactions) mutable {
+          return std::move(transactions.transactions.front().transaction);
+        }));
+  }
+
+  void start_up() override {
+    if (stopped_) {
+      return;
+    }
+    get_block_id([self = this](td::Result<FullBlockId>&& block_id) { self->set_block_id(std::move(block_id)); });
+  }
+
+  void set_block_id(td::Result<FullBlockId>&& block_id) {
+    if (block_id.is_error()) {
+      check(block_id.move_as_error());
+    } else {
+      block_id_ = block_id.move_as_ok();
+
+      get_mc_state_root([self = this](td::Result<td::Ref<vm::Cell>>&& mc_state_root) { self->set_mc_state_root(std::move(mc_state_root)); });
+      get_account_state([self = this](td::Result<td::unique_ptr<AccountState>>&& state) { self->set_account_state(std::move(state)); });
+      check(get_transactions(0));
+
+      inc();
+    }
+  }
+
+  void set_mc_state_root(td::Result<td::Ref<vm::Cell>>&& mc_state_root) {
+    if (mc_state_root.is_error()) {
+      check(mc_state_root.move_as_error());
+    } else {
+      mc_state_root_ = mc_state_root.move_as_ok();
+      inc();
+    }
+  }
+
+  void set_account_state(td::Result<td::unique_ptr<AccountState>>&& account_state) {
+    if (account_state.is_error()) {
+      check(account_state.move_as_error());
+    } else {
+      account_state_ = account_state.move_as_ok();
+      inc();
+    }
+  }
+
+  void set_transaction(size_t i, td::Result<td::Ref<vm::Cell>>&& transaction) {
+    if (transaction.is_error()) {
+      check(transaction.move_as_error());
+    } else {
+      transactions_[i] = transaction.move_as_ok();
+      inc_transactions();
+    }
+  }
+
+  void inc_transactions() {
+    if (stopped_ || ++count_transactions_ != transactions_.size() || incomplete_) {
+      return;
+    }
+    inc();
+  }
+
+  void inc() {
+    if (stopped_ || ++count_ != 4) { // 4 -- block_id + mc_state_root + account_state + transactions
+      return;
+    }
+
+    auto r_config = block::Config::extract_from_state(mc_state_root_, 0b11'11111111);
+    if (r_config.is_error()) {
+      check(r_config.move_as_error());
+      return;
+    }
+    std::unique_ptr<block::Config> config = r_config.move_as_ok();
+
+    block::gen::ShardStateUnsplit::Record shard_state;
+    if (!tlb::unpack_cell(mc_state_root_, shard_state)) {
+      check(td::Status::Error("Failed to unpack masterchain state"));
+      return;
+    }
+    vm::Dictionary libraries(shard_state.r1.libraries->prefetch_ref(), 256);
+
+    auto r_shard_account = account_state_->to_shardAccountCellSlice();
+    if (r_shard_account.is_error()) {
+      check(r_shard_account.move_as_error());
+      return;
+    }
+    td::Ref<vm::CellSlice> shard_account = r_shard_account.move_as_ok();
+
+    const block::StdAddress& address = account_state_->get_address();
+    ton::UnixTime now = account_state_->get_sync_time();
+    bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
+    block::Account account(address.workchain, address.addr.bits());
+    if (!account.unpack(std::move(shard_account), td::Ref<vm::CellSlice>(), now, is_special)) {
+      check(td::Status::Error("Can't unpack shard account"));
+      return;
+    }
+
+    emulator::TransactionEmulator trans_emulator(std::move(*config));
+    trans_emulator.set_libs(std::move(libraries));
+    trans_emulator.set_rand_seed(block_id_.rand_seed);
+    td::Result<emulator::TransactionEmulator::EmulationChain> emulation_result = trans_emulator.emulate_transactions_chain(std::move(account), std::move(transactions_));
+
+    if (emulation_result.is_error()) {
+      promise_.set_error(emulation_result.move_as_error());
+    } else {
+      account = std::move(emulation_result.move_as_ok().account);
+      RawAccountState raw = std::move(account_state_->raw());
+      raw.block_id = block_id_.id;
+      raw.balance = account.get_balance().grams->to_long();
+      raw.storage_last_paid = std::move(account.last_paid);
+      raw.storage_stat = std::move(account.storage_stat);
+      raw.code = std::move(account.code);
+      raw.data = std::move(account.data);
+      raw.state = std::move(account.total_state);
+      raw.info.last_trans_lt = account.last_trans_lt_;
+      raw.info.last_trans_hash = account.last_trans_hash_;
+      raw.info.gen_utime = account.now_;
+
+      if (account.status == block::Account::acc_frozen) {
+        raw.frozen_hash = (char*)account.state_hash.data();
+      }
+
+      promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
+    }
+    stopped_ = true;
+    try_stop();
+  }
+
+  void check(td::Status status) {
+    if (status.is_error()) {
+      promise_.set_error(std::move(status));
+      stopped_ = true;
+      try_stop();
+    }
+  }
+
+  void try_stop() {
+    if (stopped_ && actors_.empty()) {
+      stop();
+    }
+  }
+
+  void hangup_shared() override {
+    actors_.erase(get_link_token());
+    try_stop();
+  }
+
+  void hangup() override {
+    check(TonlibError::Cancelled());
+  }
 };
 
 TonlibClient::TonlibClient(td::unique_ptr<TonlibCallback> callback) : callback_(std::move(callback)) {
@@ -2765,6 +3091,27 @@ td::Status TonlibClient::do_request(tonlib_api::raw_getAccountState& request,
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(tonlib_api::raw_getAccountStateByTransaction& request,
+                                    td::Promise<object_ptr<tonlib_api::raw_fullAccountState>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  if (!request.transaction_id_) {
+    return TonlibError::EmptyField("transaction_id");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  auto lt = request.transaction_id_->lt_;
+  auto hash_str = request.transaction_id_->hash_;
+  if (hash_str.size() != 32) {
+    return td::Status::Error(400, "Invalid transaction id hash size");
+  }
+  td::Bits256 hash;
+  hash.as_slice().copy_from(hash_str);
+  make_request(int_api::GetAccountStateByTransaction{account_address, lt, hash},
+               promise.wrap([](auto&& res) { return res->to_raw_fullAccountState(); }));
+  return td::Status::OK();
+}
+
 td::Result<KeyStorage::InputKey> from_tonlib(tonlib_api::inputKeyRegular& input_key) {
   if (!input_key.key_) {
     return TonlibError::EmptyField("key");
@@ -2874,6 +3221,59 @@ td::Status TonlibClient::do_request(const tonlib_api::getAccountState& request,
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
   make_request(int_api::GetAccountState{std::move(account_address), query_context_.block_id.copy(), {}},
                promise.wrap([](auto&& res) { return res->to_fullAccountState(); }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::getAccountStateByTransaction& request,
+                                    td::Promise<object_ptr<tonlib_api::fullAccountState>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  if (!request.transaction_id_) {
+    return TonlibError::EmptyField("transaction_id");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  auto lt = request.transaction_id_->lt_;
+  auto hash_str = request.transaction_id_->hash_;
+  if (hash_str.size() != 32) {
+    return td::Status::Error(400, "Invalid transaction id hash size");
+  }
+  td::Bits256 hash;
+  hash.as_slice().copy_from(hash_str);
+  make_request(int_api::GetAccountStateByTransaction{account_address, lt, hash},
+               promise.wrap([](auto&& res) { return res->to_fullAccountState(); }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::getShardAccountCell& request,
+                                    td::Promise<object_ptr<tonlib_api::tvm_cell>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  make_request(int_api::GetAccountState{std::move(account_address), query_context_.block_id.copy(), {}},
+               promise.wrap([](auto&& res) { return res->to_shardAccountCell(); }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::getShardAccountCellByTransaction& request,
+                                    td::Promise<object_ptr<tonlib_api::tvm_cell>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  if (!request.transaction_id_) {
+    return TonlibError::EmptyField("transaction_id");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  auto lt = request.transaction_id_->lt_;
+  auto hash_str = request.transaction_id_->hash_;
+  if (hash_str.size() != 32) {
+    return td::Status::Error(400, "Invalid transaction id hash size");
+  }
+  td::Bits256 hash;
+  hash.as_slice().copy_from(hash_str);
+  make_request(int_api::GetAccountStateByTransaction{account_address, lt, hash},
+               promise.wrap([](auto&& res) { return res->to_shardAccountCell(); }));
   return td::Status::OK();
 }
 
@@ -3502,7 +3902,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
 
     return with_wallet(*source_->get_wallet());
   }
-};  // namespace tonlib
+};
 
 td::int64 TonlibClient::register_query(td::unique_ptr<Query> query) {
   auto query_id = ++next_query_id_;
@@ -3709,6 +4109,27 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_load& request,
   }
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
   make_request(int_api::GetAccountState{std::move(account_address), query_context_.block_id.copy(), {}},
+               promise.send_closure(actor_id(this), &TonlibClient::finish_load_smc));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::smc_loadByTransaction& request,
+                                    td::Promise<object_ptr<tonlib_api::smc_info>>&& promise) {
+  if (!request.account_address_) {
+    return TonlibError::EmptyField("account_address");
+  }
+  if (!request.transaction_id_) {
+    return TonlibError::EmptyField("transaction_id");
+  }
+  TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
+  auto lt = request.transaction_id_->lt_;
+  auto hash_str = request.transaction_id_->hash_;
+  if (hash_str.size() != 32) {
+    return td::Status::Error(400, "Invalid transaction id hash size");
+  }
+  td::Bits256 hash;
+  hash.as_slice().copy_from(hash_str);
+  make_request(int_api::GetAccountStateByTransaction{account_address, lt, hash},
                promise.send_closure(actor_id(this), &TonlibClient::finish_load_smc));
   return td::Status::OK();
 }
@@ -4555,6 +4976,17 @@ td::Status TonlibClient::do_request(int_api::GetAccountState request,
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(int_api::GetAccountStateByTransaction request,
+                                    td::Promise<td::unique_ptr<AccountState>>&& promise) {
+  auto actor_id = actor_id_++;
+  actors_[actor_id] = td::actor::create_actor<RunEmulator>(
+      "RunEmulator", client_.get_client(), request, actor_shared(this, actor_id),
+      promise.wrap([](auto&& state) {
+        return std::move(state);
+      }));
+  return td::Status::OK();
+}
+
 td::Status TonlibClient::do_request(int_api::RemoteRunSmcMethod request,
                                     td::Promise<int_api::RemoteRunSmcMethod::ReturnType>&& promise) {
   auto actor_id = actor_id_++;
@@ -4641,29 +5073,72 @@ td::Result<ton::BlockIdExt> to_block_id(const tonlib_api::ton_blockIdExt& blk) {
   return ton::BlockIdExt(blk.workchain_, blk.shard_, blk.seqno_, root_hash, file_hash);
 }
 
-td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
-                        td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
-  TRY_RESULT(lite_block, to_lite_api(*request.id_))
-  auto block = create_block_id(std::move(lite_block));
-  auto param = request.param_;
+void TonlibClient::get_config_param(int32_t param, int32_t mode, ton::BlockIdExt block, td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
   std::vector<int32_t> params = { param };
-
-  client_.send_query(ton::lite_api::liteServer_getConfigParams(0, std::move(lite_block), std::move(params)),
-                     promise.wrap([block, param](auto r_config) {
+  client_.send_query(ton::lite_api::liteServer_getConfigParams(mode, ton::create_tl_lite_block_id(block), std::move(params)),
+                  promise.wrap([param, block](auto r_config) -> td::Result<object_ptr<tonlib_api::configInfo>> { 
     auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
                                                   r_config->config_proof_.as_slice());
     if (state.is_error()) {
-      LOG(ERROR) << "block::check_extract_state_proof failed: " << state.error();
+      return state.move_as_error_prefix(TonlibError::ValidateConfig());
     }
     auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
     if (config.is_error()) {
-      LOG(ERROR) << "block::Config::extract_from_state failed: " << config.error();
+      return config.move_as_error_prefix(TonlibError::ValidateConfig());
     }
     tonlib_api::configInfo config_result;
     config_result.config_ = tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(config.move_as_ok()->get_config_param(param)));
     return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
   }));
+}
 
+td::Status TonlibClient::do_request(const tonlib_api::getConfigParam& request,
+                        td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
+  if (query_context_.block_id) {
+    get_config_param(request.param_, request.mode_, query_context_.block_id.value(), std::move(promise));
+  } else {
+    client_.with_last_block([this, promise = std::move(promise), param = request.param_, mode = request.mode_](td::Result<LastBlockState> r_last_block) mutable {       
+      if (r_last_block.is_error()) {
+        promise.set_error(r_last_block.move_as_error_prefix(TonlibError::Internal("get last block failed ")));
+      } else {
+        this->get_config_param(param, mode, r_last_block.move_as_ok().last_block_id, std::move(promise));
+      }
+    });
+  }
+  return td::Status::OK();
+}
+
+void TonlibClient::get_config_all(int32_t mode, ton::BlockIdExt block, td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
+  client_.send_query(ton::lite_api::liteServer_getConfigAll(mode, ton::create_tl_lite_block_id(block)),
+                     promise.wrap([block](auto r_config) -> td::Result<object_ptr<tonlib_api::configInfo>> { 
+    auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
+                                                  r_config->config_proof_.as_slice());
+    if (state.is_error()) {
+      return state.move_as_error_prefix(TonlibError::ValidateConfig());
+    }
+    auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
+    if (config.is_error()) {
+      return config.move_as_error_prefix(TonlibError::ValidateConfig());
+    }
+    tonlib_api::configInfo config_result;
+    config_result.config_ = tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(config.move_as_ok()->get_root_cell()));
+    return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+  }));
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::getConfigAll& request,
+                        td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
+  if (query_context_.block_id) {
+    get_config_all(request.mode_, query_context_.block_id.value(), std::move(promise));
+  } else {
+    client_.with_last_block([this, promise = std::move(promise), mode = request.mode_](td::Result<LastBlockState> r_last_block) mutable {       
+      if (r_last_block.is_error()) {
+        promise.set_error(r_last_block.move_as_error_prefix(TonlibError::Internal("get last block failed ")));
+      } else {
+        this->get_config_all(mode, r_last_block.move_as_ok().last_block_id, std::move(promise));
+      }
+    });
+  }
   return td::Status::OK();
 }
 

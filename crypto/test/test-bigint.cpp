@@ -186,7 +186,7 @@ td::RefInt256 make_special_int(int x, BInt* ptr = nullptr, unsigned char bin[64]
     int acc = b, r = ord;
     for (int i = 63; i >= 0; --i) {
       if (r < 8) {
-        acc += (a << r);
+        acc += ((unsigned)a << r);
         r = 1024;
       }
       r -= 8;
@@ -215,7 +215,7 @@ int randexp(int max = 63, int min = 0) {
 }
 
 void bin_add_small(unsigned char bin[64], long long val, int shift = 0) {
-  val <<= shift & 7;
+  val *= (1 << (shift & 7));
   for (int i = 63 - (shift >> 3); i >= 0 && val; --i) {
     val += bin[i];
     bin[i] = (unsigned char)val;
