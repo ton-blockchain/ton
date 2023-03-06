@@ -85,10 +85,10 @@ class CellDbIn : public CellDbBase {
   static BlockIdExt get_empty_key();
   KeyHash get_empty_key_hash();
 
-  void gc();
+  void gc(BlockIdExt block_id);
   void gc_cont(BlockHandle handle);
   void gc_cont2(BlockHandle handle);
-  void gc_cont3(td::Promise<td::Unit> promise);
+  void gc_cont3(BlockIdExt block_id, td::Promise<td::Unit> promise);
   void skip_gc();
 
   void store_cell_cont(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
@@ -103,8 +103,6 @@ class CellDbIn : public CellDbBase {
 
   std::queue<td::Promise<td::Unit>> db_queue_;
   bool db_busy_ = false;
-
-  KeyHash last_gc_;
 
   void enqueue(td::Promise<td::Unit> promise);
   void release_db();
