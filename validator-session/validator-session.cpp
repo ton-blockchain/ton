@@ -556,7 +556,7 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
 
           get_broadcast_p2p(id, block->get_file_hash(), block->get_collated_data_file_hash(),
                             description().get_source_id(block->get_src_idx()), cur_round_, block->get_root_hash(),
-                            std::move(P), td::Timestamp::in(2.0));
+                            std::move(P), td::Timestamp::in(15.0));
         } else {
           LOG(VALIDATOR_SESSION_DEBUG) << this << ": no nodes to download candidate " << block << " from";
         }
