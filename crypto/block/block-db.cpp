@@ -624,6 +624,7 @@ void BlockDbImpl::get_block_by_id(ton::BlockId blk_id, bool need_data, td::Promi
       }
     }
     promise(it->second);
+    return;
   }
   promise(td::Status::Error(-666, "block not found in database"));
 }
@@ -642,6 +643,7 @@ void BlockDbImpl::get_state_by_id(ton::BlockId blk_id, bool need_data, td::Promi
       }
     }
     promise(it->second);
+    return;
   }
   if (zerostate.not_null() && blk_id == zerostate->blk.id) {
     LOG(DEBUG) << "get_state_by_id(): zerostate requested";
@@ -666,6 +668,7 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
   if (it == state_info.end()) {
     promise(td::Status::Error(
         -666, std::string{"cannot obtain output queue info for block "} + blk_id.to_str() + " : cannot load state"));
+    return;
   }
   if (it->second->data.is_null()) {
     LOG(DEBUG) << "loading data for state " << blk_id.to_str();
@@ -679,6 +682,7 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
   if (it2 == block_info.end()) {
     promise(td::Status::Error(-666, std::string{"cannot obtain output queue info for block "} + blk_id.to_str() +
                                         " : cannot load block description"));
+    return;
   }
   vm::StaticBagOfCellsDbLazy::Options options;
   auto res = vm::StaticBagOfCellsDbLazy::create(it->second->data.clone(), options);
@@ -707,10 +711,12 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
   if (it->second->blk.root_hash != state_root->get_hash().bits()) {
     promise(td::Status::Error(
         -668, std::string{"state for block "} + blk_id.to_str() + " is invalid : state root hash mismatch"));
+    return;
   }
   vm::CellSlice cs = vm::load_cell_slice(state_root);
   if (!cs.have(64, 1) || cs.prefetch_ulong(32) != 0x9023afde) {
     promise(td::Status::Error(-668, std::string{"state for block "} + blk_id.to_str() + " is invalid"));
+    return;
   }
   auto out_queue_info = cs.prefetch_ref();
   promise(Ref<OutputQueueInfoDescr>{true, blk_id, it2->second->blk.root_hash.cbits(), state_root->get_hash().bits(),
@@ -758,6 +764,7 @@ void BlockDbImpl::save_new_block(ton::BlockIdExt id, td::BufferSlice data, int a
   auto save_res = save_db_file(id.file_hash, data, FMode::chk_if_exists | FMode::overwrite | FMode::chk_file_hash);
   if (save_res.is_error()) {
     promise(std::move(save_res));
+    return;
   }
   auto sz = data.size();
   auto lev = bb.alloc<log::NewBlock>(id.id, id.root_hash, id.file_hash, data.size(), authority & 0xff);
@@ -780,6 +787,7 @@ void BlockDbImpl::save_new_state(ton::BlockIdExt id, td::BufferSlice data, int a
   auto save_res = save_db_file(id.file_hash, data, FMode::chk_if_exists | FMode::overwrite | FMode::chk_file_hash);
   if (save_res.is_error()) {
     promise(std::move(save_res));
+    return;
   }
   auto sz = data.size();
   auto lev = bb.alloc<log::NewState>(id.id, id.root_hash, id.file_hash, data.size(), authority & 0xff);

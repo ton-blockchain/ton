@@ -39,7 +39,13 @@ class MerkleProofImpl {
       dfs_usage_tree(cell, usage_tree_->root_id());
       is_prunned_ = [this](const Ref<Cell> &cell) { return visited_cells_.count(cell->get_hash()) == 0; };
     }
-    return dfs(cell, cell->get_level());
+    try {
+      return dfs(cell, cell->get_level());
+    } catch (CellBuilder::CellWriteError &) {
+      return {};
+    } catch (CellBuilder::CellCreateError &) {
+      return {};
+    }
   }
 
  private:
@@ -119,6 +125,9 @@ Ref<Cell> MerkleProof::generate(Ref<Cell> cell, CellUsageTree *usage_tree) {
     return {};
   }
   auto raw = generate_raw(std::move(cell), usage_tree);
+  if (raw.is_null()) {
+    return {};
+  }
   return CellBuilder::create_merkle_proof(std::move(raw));
 }
 
@@ -384,21 +393,29 @@ bool MerkleProofBuilder::clear() {
   return true;
 }
 
-Ref<Cell> MerkleProofBuilder::extract_proof() const {
-  return MerkleProof::generate(orig_root, usage_tree.get());
+td::Result<Ref<Cell>> MerkleProofBuilder::extract_proof() const {
+  Ref<Cell> proof = MerkleProof::generate(orig_root, usage_tree.get());
+  if (proof.is_null()) {
+    return td::Status::Error("cannot create Merkle proof");
+  }
+  return proof;
 }
 
 bool MerkleProofBuilder::extract_proof_to(Ref<Cell> &proof_root) const {
-  return orig_root.not_null() && (proof_root = extract_proof()).not_null();
+  if (orig_root.is_null()) {
+    return false;
+  }
+  auto R = extract_proof();
+  if (R.is_error()) {
+    return false;
+  }
+  proof_root = R.move_as_ok();
+  return true;
 }
 
 td::Result<td::BufferSlice> MerkleProofBuilder::extract_proof_boc() const {
-  Ref<Cell> proof_root = extract_proof();
-  if (proof_root.is_null()) {
-    return td::Status::Error("cannot create Merkle proof");
-  } else {
-    return std_boc_serialize(std::move(proof_root));
-  }
+  TRY_RESULT(proof_root, extract_proof());
+  return std_boc_serialize(std::move(proof_root));
 }
 
 }  // namespace vm

@@ -436,7 +436,11 @@ class AccountState {
   }
 
   td::Result<td::Ref<vm::CellSlice>> to_shardAccountCellSlice() const {
-    return vm::CellBuilder().store_ref(raw_.info.root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).as_cellslice_ref();
+    auto account_root = raw_.info.root;
+    if (account_root.is_null()) {
+      block::gen::Account().cell_pack_account_none(account_root);
+    }
+    return vm::CellBuilder().store_ref(account_root).store_bits(raw_.info.last_trans_hash.as_bitslice()).store_long(raw_.info.last_trans_lt).as_cellslice_ref();
   }
 
   //NB: Order is important! Used during guessAccountRevision
@@ -1311,7 +1315,7 @@ class GetRawAccountState : public td::actor::Actor {
         ton::lite_api::liteServer_getAccountState(
             ton::create_tl_lite_block_id(block_id_.value()),
             ton::create_tl_object<ton::lite_api::liteServer_accountId>(address_.workchain, address_.addr)),
-        [self = this](auto r_state) { self->with_account_state(std::move(r_state)); }, block_id_.value().id.seqno);
+        [self = this](auto r_state) { self->with_account_state(std::move(r_state)); });
   }
 
   td::Status do_with_last_block(td::Result<LastBlockState> r_last_block) {

@@ -158,9 +158,9 @@ void VarDescr::set_const(td::RefInt256 value) {
   } else if (s > 0) {
     val |= _NonZero | _Pos | _Finite;
   } else if (!s) {
-    if (*int_const == 1) {
-      val |= _Bit;
-    }
+    //if (*int_const == 1) {
+    //  val |= _Bit;
+    //}
     val |= _Zero | _Neg | _Pos | _Finite | _Bool | _Bit;
   }
   if (val & _Finite) {

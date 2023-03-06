@@ -221,6 +221,9 @@ Ref<Cell> MerkleUpdate::generate(Ref<Cell> from, Ref<Cell> to, CellUsageTree *us
     return {};
   }
   auto res = generate_raw(std::move(from), std::move(to), usage_tree);
+  if (res.first.is_null() || res.second.is_null()) {
+    return {};
+  }
   return CellBuilder::create_merkle_update(res.first, res.second);
 }
 

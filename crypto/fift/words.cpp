@@ -486,7 +486,7 @@ void interpret_make_pop(vm::Stack& stack) {
 }
 
 void interpret_is_string(vm::Stack& stack) {
-  stack.push_bool(stack.pop().type() == vm::StackEntry::t_string);
+  stack.push_bool(stack.pop_chk().type() == vm::StackEntry::t_string);
 }
 
 int make_utf8_char(char buffer[4], int x) {
@@ -1285,7 +1285,7 @@ void interpret_atom_anon(vm::Stack& stack) {
 }
 
 void interpret_is_atom(vm::Stack& stack) {
-  stack.push_bool(stack.pop().is_atom());
+  stack.push_bool(stack.pop_chk().is_atom());
 }
 
 bool are_eqv(vm::StackEntry x, vm::StackEntry y) {
@@ -1307,11 +1307,13 @@ bool are_eqv(vm::StackEntry x, vm::StackEntry y) {
 }
 
 void interpret_is_eqv(vm::Stack& stack) {
+  stack.check_underflow(2);
   auto y = stack.pop(), x = stack.pop();
   stack.push_bool(are_eqv(std::move(x), std::move(y)));
 }
 
 void interpret_is_eq(vm::Stack& stack) {
+  stack.check_underflow(2);
   auto y = stack.pop(), x = stack.pop();
   stack.push_bool(x == y);
 }

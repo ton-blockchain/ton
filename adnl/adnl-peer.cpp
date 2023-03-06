@@ -68,7 +68,9 @@ void AdnlPeerPairImpl::alarm() {
   }
   if (retry_send_at_ && retry_send_at_.is_in_past()) {
     retry_send_at_ = td::Timestamp::never();
-    send_messages_in(std::move(pending_messages_), false);
+    auto messages = std::move(pending_messages_);
+    pending_messages_.clear();
+    send_messages_in(std::move(messages), false);
   }
   alarm_timestamp().relax(next_dht_query_at_);
   alarm_timestamp().relax(next_db_update_at_);
@@ -265,7 +267,9 @@ void AdnlPeerPairImpl::send_messages_in(std::vector<OutboundAdnlMessage> message
     size_t ptr = 0;
     bool first = true;
     do {
-      size_t s = (channel_ready_ ? channel_packet_header_max_size() : packet_header_max_size());
+      bool try_reinit = try_reinit_at_ && try_reinit_at_.is_in_past();
+      bool via_channel = channel_ready_ && !try_reinit;
+      size_t s = (via_channel ? channel_packet_header_max_size() : packet_header_max_size());
       if (first) {
         s += 2 * addr_list_max_size();
       }
@@ -309,8 +313,6 @@ void AdnlPeerPairImpl::send_messages_in(std::vector<OutboundAdnlMessage> message
         }
       }
 
-      bool try_reinit = try_reinit_at_ && try_reinit_at_.is_in_past();
-      bool via_channel = channel_ready_ && !try_reinit;
       if (!via_channel) {
         packet.set_reinit_date(Adnl::adnl_start_time(), reinit_date_);
         packet.set_source(local_id_);
@@ -791,7 +793,9 @@ void AdnlPeerPairImpl::Conn::create_conn(td::actor::ActorId<AdnlPeerPairImpl> pe
 void AdnlPeerPairImpl::conn_change_state(AdnlConnectionIdShort id, bool ready) {
   if (ready) {
     if (pending_messages_.size() > 0) {
-      send_messages_in(std::move(pending_messages_), true);
+      auto messages = std::move(pending_messages_);
+      pending_messages_.clear();
+      send_messages_in(std::move(messages), true);
     }
   }
 }

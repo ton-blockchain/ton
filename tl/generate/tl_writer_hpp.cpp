@@ -27,13 +27,14 @@ bool TD_TL_writer_hpp::is_documentation_generated() const {
 }
 
 int TD_TL_writer_hpp::get_additional_function_type(const std::string &additional_function_name) const {
-  assert(additional_function_name == "downcast_call");
+  assert(additional_function_name == "downcast_call" || additional_function_name == "downcast_construct");
   return 2;
 }
 
 std::vector<std::string> TD_TL_writer_hpp::get_additional_functions() const {
   std::vector<std::string> additional_functions;
   additional_functions.push_back("downcast_call");
+  additional_functions.push_back("downcast_construct");
   return additional_functions;
 }
 
@@ -194,7 +195,7 @@ std::string TD_TL_writer_hpp::gen_fetch_switch_end() const {
 
 std::string TD_TL_writer_hpp::gen_additional_function(const std::string &function_name, const tl::tl_combinator *t,
                                                       bool is_function) const {
-  assert(function_name == "downcast_call");
+  assert(function_name == "downcast_call" || function_name == "downcast_construct");
   return "";
 }
 
@@ -202,24 +203,40 @@ std::string TD_TL_writer_hpp::gen_additional_proxy_function_begin(const std::str
                                                                   const tl::tl_type *type,
                                                                   const std::string &class_name, int arity,
                                                                   bool is_function) const {
-  assert(function_name == "downcast_call");
-  return "/**\n"
-         " * Calls specified function object with the specified object downcasted to the most-derived type.\n"
-         " * \\param[in] obj Object to pass as an argument to the function object.\n"
-         " * \\param[in] func Function object to which the object will be passed.\n"
-         " * \\returns whether function object call has happened. Should always return true for correct parameters.\n"
-         " */\n"
-         "template <class T>\n"
-         "bool downcast_call(" +
-         class_name +
-         " &obj, const T &func) {\n"
-         "  switch (obj.get_id()) {\n";
+  if (function_name == "downcast_call") {
+    return "/**\n"
+           " * Calls specified function object with the specified object downcasted to the most-derived type.\n"
+           " * \\param[in] obj Object to pass as an argument to the function object.\n"
+           " * \\param[in] func Function object to which the object will be passed.\n"
+           " * \\returns whether function object call has happened. Should always return true for correct parameters.\n"
+           " */\n"
+           "template <class T>\n"
+           "bool downcast_call(" +
+           class_name +
+           " &obj, const T &func) {\n"
+           "  switch (obj.get_id()) {\n";
+  }
+  if (function_name == "downcast_construct") {
+    return "/**\n"
+           "* Constructs tl_object_ptr with the object of the same type as the specified object, calls the specified "
+           "function.\n"
+           " * \\param[in] obj Object to get the type from.\n"
+           " * \\param[in] func Function object to which the new object will be passed.\n"
+           " * \\returns whether function object call has happened. Should always return true for correct parameters.\n"
+           "*/"
+           "template <class T>\n"
+           "bool downcast_construct(" +
+           class_name +
+           " &obj, const T &func) {\n"
+           "switch (obj.get_id()) {";
+  }
+  assert(false);
 }
 
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::string &function_name,
                                                                  const tl::tl_type *type, const std::string &class_name,
                                                                  int arity) const {
-  assert(function_name == "downcast_call");
+  //assert(function_name == "downcast_call");
   assert(false);
   return "";
 }
@@ -227,18 +244,28 @@ std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::stri
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::string &function_name,
                                                                  const tl::tl_type *type, const tl::tl_combinator *t,
                                                                  int arity, bool is_function) const {
-  assert(function_name == "downcast_call");
-  return "    case " + gen_class_name(t->name) +
-         "::ID:\n"
-         "      func(static_cast<" +
-         gen_class_name(t->name) +
-         " &>(obj));\n"
-         "      return true;\n";
+  if (function_name == "downcast_call") {
+    return "    case " + gen_class_name(t->name) +
+           "::ID:\n"
+           "      func(static_cast<" +
+           gen_class_name(t->name) +
+           " &>(obj));\n"
+           "      return true;\n";
+  }
+  if (function_name == "downcast_construct") {
+    return "    case " + gen_class_name(t->name) +
+           "::ID:\n"
+           "      func(create_tl_object<" +
+           gen_class_name(t->name) +
+           ">());\n"
+           "      return true;\n";
+  }
+  assert(false);
 }
 
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_end(const std::string &function_name,
                                                                 const tl::tl_type *type, bool is_function) const {
-  assert(function_name == "downcast_call");
+  assert(function_name == "downcast_call" || function_name == "downcast_construct");
   return "    default:\n"
          "      return false;\n"
          "  }\n"
