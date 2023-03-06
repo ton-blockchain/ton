@@ -75,6 +75,7 @@ class DynamicBagOfCellsDb {
 
   virtual void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
                                td::Promise<Ref<DataCell>> promise) = 0;
+  virtual void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) = 0;
 };
 
 }  // namespace vm
