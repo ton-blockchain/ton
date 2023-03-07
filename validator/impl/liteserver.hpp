@@ -133,6 +133,8 @@ class LiteQuery : public td::actor::Actor {
   void perform_lookupBlock(BlockId blkid, int mode, LogicalTime lt, UnixTime utime);
   void perform_listBlockTransactions(BlockIdExt blkid, int mode, int count, Bits256 account, LogicalTime lt);
   void finish_listBlockTransactions(int mode, int count);
+  void perform_listBlockTransactionsExt(BlockIdExt blkid, int mode, int count, Bits256 account, LogicalTime lt);
+  void finish_listBlockTransactionsExt(int mode, int count);
   void perform_getBlockProof(BlockIdExt from, BlockIdExt to, int mode);
   void continue_getBlockProof(BlockIdExt from, BlockIdExt to, int mode, BlockIdExt baseblk,
                               Ref<MasterchainStateQ> state);
