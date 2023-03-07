@@ -19,7 +19,8 @@ td::Result<std::string> cell_to_boc_b64(td::Ref<vm::Cell> cell) {
   return td::base64_encode(boc.as_slice());
 }
 
-const char *success_response(std::string&& transaction, std::string&& new_shard_account, std::string&& vm_log, td::optional<std::string>&& actions) {
+const char *success_response(std::string&& transaction, std::string&& new_shard_account, std::string&& vm_log, 
+                             td::optional<std::string>&& actions, double elapsed_time) {
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonTrue());
@@ -31,6 +32,7 @@ const char *success_response(std::string&& transaction, std::string&& new_shard_
   } else {
     json_obj("actions", td::JsonNull());
   }
+  json_obj("elapsed_time", elapsed_time);
   json_obj.leave();
   return strdup(jb.string_builder().as_cslice().c_str());
 }
@@ -44,13 +46,14 @@ const char *error_response(std::string&& error) {
   return strdup(jb.string_builder().as_cslice().c_str());
 }
 
-const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_code) {
+const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_code, double elapsed_time) {
   td::JsonBuilder jb;
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonFalse());
   json_obj("error", "External message not accepted by smart contract");
   json_obj("vm_log", std::move(vm_log));
   json_obj("vm_exit_code", vm_exit_code);
+  json_obj("elapsed_time", elapsed_time);
   json_obj.leave();
   return strdup(jb.string_builder().as_cslice().c_str());
 }
@@ -142,7 +145,8 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
 
   auto external_not_accepted = dynamic_cast<emulator::TransactionEmulator::EmulationExternalNotAccepted *>(emulation_result.get());
   if (external_not_accepted) {
-    return external_not_accepted_response(std::move(external_not_accepted->vm_log), external_not_accepted->vm_exit_code);
+    return external_not_accepted_response(std::move(external_not_accepted->vm_log), external_not_accepted->vm_exit_code, 
+                                          external_not_accepted->elapsed_time);
   }
 
   auto emulation_success = dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result);
@@ -168,7 +172,8 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     actions_boc_b64 = actions_boc_b64_result.move_as_ok();
   }
 
-  return success_response(trans_boc_b64.move_as_ok(), new_shard_account_boc_b64.move_as_ok(), std::move(emulation_success.vm_log), std::move(actions_boc_b64));
+  return success_response(trans_boc_b64.move_as_ok(), new_shard_account_boc_b64.move_as_ok(), std::move(emulation_success.vm_log), 
+                          std::move(actions_boc_b64), emulation_success.elapsed_time);
 }
 
 bool transaction_emulator_set_unixtime(void *transaction_emulator, uint32_t unixtime) {
