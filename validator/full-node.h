@@ -27,6 +27,7 @@
 
 #include "adnl/adnl.h"
 #include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "validator/validator.h"
@@ -87,7 +88,7 @@ class FullNode : public td::actor::Actor {
                                               FileHash zero_state_file_hash, FullNodeConfig config,
                                               td::actor::ActorId<keyring::Keyring> keyring,
                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                                              td::actor::ActorId<dht::Dht> dht,
+                                              td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
                                               td::actor::ActorId<overlay::Overlays> overlays,
                                               td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);

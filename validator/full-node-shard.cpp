@@ -96,6 +96,7 @@ void FullNodeShardImpl::create_overlay() {
                           std::make_unique<Callback>(actor_id(this)), rules_, PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard() << ", \"workchain_id\": " << get_workchain() << " }");
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl_id_);
+  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, adnl_id_);
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
   }
@@ -773,9 +774,11 @@ void FullNodeShardImpl::download_zero_state(BlockIdExt id, td::uint32 priority, 
 
 void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
                                                   td::Timestamp timeout, td::Promise<td::BufferSlice> promise) {
+  auto &b = choose_neighbour();
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, masterchain_block_id,
-                                         adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
-                                         validator_manager_, rldp_, overlays_, adnl_, client_, std::move(promise))
+                                         adnl_id_, overlay_id_, b.adnl_id, priority, timeout, validator_manager_,
+                                         b.use_rldp2() ? (td::actor::ActorId<adnl::AdnlSenderInterface>)rldp2_ : rldp_,
+                                         overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 
@@ -810,8 +813,9 @@ void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, std::stri
                                          td::Promise<std::string> promise) {
   auto &b = choose_neighbour();
   td::actor::create_actor<DownloadArchiveSlice>(
-      "archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), timeout,
-      validator_manager_, rldp_, overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
+      "archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_, b.adnl_id, timeout, validator_manager_,
+      b.use_rldp2() ? (td::actor::ActorId<adnl::AdnlSenderInterface>)rldp2_ : rldp_, overlays_, adnl_, client_,
+      create_neighbour_promise(b, std::move(promise)))
       .release();
 }
 
@@ -1107,7 +1111,7 @@ void FullNodeShardImpl::ping_neighbours() {
 FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                                      FileHash zero_state_file_hash, FullNodeConfig config,
                                      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                                     td::actor::ActorId<rldp::Rldp> rldp,
+                                     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                                      td::actor::ActorId<overlay::Overlays> overlays,
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                      td::actor::ActorId<adnl::AdnlExtClient> client)
@@ -1118,6 +1122,7 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp_(rldp)
+    , rldp2_(rldp2)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
     , client_(client)
@@ -1127,10 +1132,11 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
     FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client) {
+    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+    td::actor::ActorId<adnl::AdnlExtClient> client) {
   return td::actor::create_actor<FullNodeShardImpl>("tonnode", shard, local_id, adnl_id, zero_state_file_hash, config,
-                                                    keyring, adnl, rldp, overlays, validator_manager, client);
+                                                    keyring, adnl, rldp, rldp2, overlays, validator_manager, client);
 }
 
 }  // namespace fullnode

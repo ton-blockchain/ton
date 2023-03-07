@@ -32,9 +32,9 @@ DownloadState::DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_i
                              overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from,
                              td::uint32 priority, td::Timestamp timeout,
                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                             td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                             td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                             td::Promise<td::BufferSlice> promise)
+                             td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
+                             td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
+                             td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<td::BufferSlice> promise)
     : block_id_(block_id)
     , masterchain_block_id_(masterchain_block_id)
     , local_id_(local_id)
@@ -210,7 +210,7 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
     return;
   }
 
-  td::uint32 part_size = 1 << 18;
+  td::uint32 part_size = 1 << 21;
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), part_size](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &DownloadState::abort_query, R.move_as_error());
@@ -223,12 +223,12 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
       create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "download state", std::move(P), td::Timestamp::in(10.0), std::move(query),
+                            "download state", std::move(P), td::Timestamp::in(20.0), std::move(query),
                             FullNode::max_state_size(), rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
-                            td::Timestamp::in(10.0), std::move(P));
+                            td::Timestamp::in(20.0), std::move(P));
   }
 }
 

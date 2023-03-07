@@ -132,7 +132,7 @@ void FullNodeImpl::add_shard(ShardIdFull shard) {
   while (true) {
     if (shards_.count(shard) == 0) {
       shards_.emplace(shard, FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, config_, keyring_,
-                                                   adnl_, rldp_, overlays_, validator_manager_, client_));
+                                                   adnl_, rldp_, rldp2_, overlays_, validator_manager_, client_));
       if (all_validators_.size() > 0) {
         td::actor::send_closure(shards_[shard], &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
       }
@@ -459,7 +459,8 @@ void FullNodeImpl::start_up() {
 FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
                            FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
                            td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                           td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
+                           td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
+                           td::actor::ActorId<overlay::Overlays> overlays,
                            td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                            td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root)
     : local_id_(local_id)
@@ -468,6 +469,7 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp_(rldp)
+    , rldp2_(rldp2)
     , dht_(dht)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
@@ -481,12 +483,12 @@ td::actor::ActorOwn<FullNode> FullNode::create(ton::PublicKeyHash local_id, adnl
                                                FileHash zero_state_file_hash, FullNodeConfig config,
                                                td::actor::ActorId<keyring::Keyring> keyring,
                                                td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                                               td::actor::ActorId<dht::Dht> dht,
+                                               td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
                                                td::actor::ActorId<overlay::Overlays> overlays,
                                                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                                td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root) {
   return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, config, keyring,
-                                               adnl, rldp, dht, overlays, validator_manager, client, db_root);
+                                               adnl, rldp, rldp2, dht, overlays, validator_manager, client, db_root);
 }
 
 FullNodeConfig::FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig> &obj)

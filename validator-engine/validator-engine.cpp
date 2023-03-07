@@ -1752,6 +1752,7 @@ void ValidatorEngine::started_dht() {
 
 void ValidatorEngine::start_rldp() {
   rldp_ = ton::rldp::Rldp::create(adnl_.get());
+  rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
   started_rldp();
 }
 
@@ -1814,7 +1815,7 @@ void ValidatorEngine::start_full_node() {
     }
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,
-        config_.full_node_config, keyring_.get(), adnl_.get(), rldp_.get(),
+        config_.full_node_config, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
   }
