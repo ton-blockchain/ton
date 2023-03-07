@@ -144,6 +144,8 @@ void DownloadArchiveSlice::got_archive_info(td::BufferSlice data) {
     return;
   }
 
+  prev_logged_timer_ = td::Timer();
+  LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " from " << download_from_;
   get_archive_slice();
 }
 
@@ -181,7 +183,16 @@ void DownloadArchiveSlice::got_archive_slice(td::BufferSlice data) {
 
   offset_ += data.size();
 
+  double elapsed = prev_logged_timer_.elapsed();
+  if (elapsed > 10.0) {
+    prev_logged_timer_ = td::Timer();
+    LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << ": total=" << offset_ << " ("
+              << td::format::as_size((td::uint64)(double(offset_ - prev_logged_sum_) / elapsed)) << "/s)";
+    prev_logged_sum_ = offset_;
+  }
+
   if (data.size() < slice_size()) {
+    LOG(INFO) << "finished downloading arcrive slice #" << masterchain_seqno_ << ": total=" << offset_;
     finish_query();
   } else {
     get_archive_slice();

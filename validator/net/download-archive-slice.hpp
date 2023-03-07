@@ -72,6 +72,9 @@ class DownloadArchiveSlice : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<std::string> promise_;
+
+  td::uint64 prev_logged_sum_ = 0;
+  td::Timer prev_logged_timer_;
 };
 
 }  // namespace fullnode

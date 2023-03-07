@@ -115,7 +115,7 @@ void DownloadState::got_block_handle(BlockHandle handle) {
 
 void DownloadState::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
-  LOG(INFO) << "downloading state " << block_id_ << " from " << download_from_;
+  LOG(INFO) << "downloading state " << block_id_.to_str() << " from " << download_from_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
@@ -192,8 +192,8 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
   double elapsed = prev_logged_timer_.elapsed();
   if (elapsed > 10.0) {
     prev_logged_timer_ = td::Timer();
-    LOG(INFO) << "downloading state " << block_id_ << ": total=" << sum_ <<
-        " (" << double(sum_ - prev_logged_sum_) / elapsed << " B/s)";
+    LOG(INFO) << "downloading state " << block_id_.to_str() << ": total=" << sum_ << " ("
+              << td::format::as_size((td::uint64)(double(sum_ - prev_logged_sum_) / elapsed)) << "/s)";
     prev_logged_sum_ = sum_;
   }
 
@@ -234,7 +234,7 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
 
 void DownloadState::got_block_state(td::BufferSlice data) {
   state_ = std::move(data);
-  LOG(INFO) << "finished downloading state " << block_id_ << ": total=" << sum_;
+  LOG(INFO) << "finished downloading state " << block_id_.to_str() << ": total=" << sum_;
   finish_query();
 }
 
