@@ -1522,10 +1522,10 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   block::gen::OutAction::Record_action_send_msg act_rec;
   // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message, +32 = delete smart contract if balance becomes zero, +1 = pay message fees, +2 = skip if message cannot be sent
   vm::CellSlice cs{cs0};
-  if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+  if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & SendModeInvalidFlags) || (act_rec.mode & SendModeConflictingValue) == SendModeConflictingValue) {
     return -1;
   }
-  bool skip_invalid = (act_rec.mode & 2);
+  bool skip_invalid = (act_rec.mode & SendModeIgnoreErrors);
   // try to parse suggested message in act_rec.out_msg
   td::RefInt256 fwd_fee, ihr_fee;
   block::gen::MessageRelaxed::Record msg;
@@ -1573,7 +1573,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (!tlb::csr_unpack(msg.info, erec)) {
       return -1;
     }
-    if (act_rec.mode & ~3) {
+    if (act_rec.mode & ~(SendModePayMsgFees | SendModeIgnoreErrors)) {
       return -1;  // invalid mode for an external message
     }
     info.src = std::move(erec.src);
@@ -1673,14 +1673,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     CHECK(req.unpack(info.value));
     CHECK(req.grams.not_null());
 
-    if (act_rec.mode & 0x80) {
+    if (act_rec.mode & SendModeRemainingBalance) {
       // attach all remaining balance to this message
       req = ap.remaining_balance;
-      act_rec.mode &= ~1;  // pay fees from attached value
-    } else if (act_rec.mode & 0x40) {
+      act_rec.mode &= ~SendModePayMsgFees;  // pay fees from attached value
+    } else if (act_rec.mode & SendModeAddInboundValue) {
       // attach all remaining balance of the inbound message (in addition to the original value)
       req += msg_balance_remaining;
-      if (!(act_rec.mode & 1) && compute_phase) {
+      if (!(act_rec.mode & SendModePayMsgFees) && compute_phase) {
         req -= compute_phase->gas_fees;
         if (!req.is_valid()) {
           LOG(DEBUG)
@@ -1693,7 +1693,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // compute req_grams + fees
     td::RefInt256 req_grams_brutto = req.grams;
     fees_total = fwd_fee + ihr_fee;
-    if (act_rec.mode & 1) {
+    if (act_rec.mode & SendModePayMsgFees) {
       // we are going to pay the fees
       req_grams_brutto += fees_total;
     } else if (req.grams < fees_total) {
@@ -1748,7 +1748,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     new_msg = cb.finalize();
 
     // clear msg_balance_remaining if it has been used
-    if (act_rec.mode & 0xc0) {
+    if (act_rec.mode & (SendModeRemainingBalance | SendModeAddInboundValue))) {
       msg_balance_remaining.set_zero();
     }
 
@@ -1811,7 +1811,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   ap.total_action_fees += fees_collected;
   ap.total_fwd_fees += fees_total;
 
-  if ((act_rec.mode & 0xa0) == 0xa0) {
+  if ((act_rec.mode & SendModeRemainingBalanceAndDestroy) == SendModeRemainingBalanceAndDestroy) {
     CHECK(ap.remaining_balance.is_zero());
     ap.acc_delete_req = ap.reserved_balance.is_zero();
   }
