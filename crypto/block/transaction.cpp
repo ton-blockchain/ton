@@ -1748,7 +1748,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     new_msg = cb.finalize();
 
     // clear msg_balance_remaining if it has been used
-    if (act_rec.mode & (SendModeRemainingBalance | SendModeAddInboundValue))) {
+    if (act_rec.mode & (SendModeRemainingBalance | SendModeAddInboundValue)) {
       msg_balance_remaining.set_zero();
     }
 
