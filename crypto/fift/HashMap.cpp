@@ -16,6 +16,7 @@
 */
 #include "HashMap.h"
 #include "td/utils/Random.h"
+#include "IntCtx.h"
 
 namespace fift {
 using td::Ref;
@@ -35,8 +36,10 @@ DictKey::DictKey(vm::StackEntry se) {
     case Type::t_bytes:
       ref_ = se.as_bytes_ref();
       break;
+    case Type::t_null:
+      break;
     default:
-      tp_ = Type::t_null;
+      throw IntError{"unsupported key type"};
   }
   compute_hash();
 }
