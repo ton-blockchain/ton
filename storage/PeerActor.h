@@ -59,6 +59,10 @@ class PeerActor : public td::actor::Actor {
   // startSession
   td::uint64 node_session_id_;
   td::Bitset peer_have_pieces_;
+  td::optional<td::uint64> parts_count_;
+  std::vector<tl_object_ptr<ton_api::storage_Update>> pending_update_peer_parts_;
+
+  void process_update_peer_parts(const tl_object_ptr<ton_api::storage_Update> &update);
 
   // update
   td::optional<td::uint64> peer_session_id_;

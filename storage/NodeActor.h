@@ -105,7 +105,7 @@ class NodeActor : public td::actor::Actor {
  private:
   PeerId self_id_;
   ton::Torrent torrent_;
-  std::shared_ptr<td::BufferSlice> torrent_info_str_;
+  std::shared_ptr<TorrentInfo> torrent_info_shared_;
   std::vector<td::uint8> file_priority_;
   td::unique_ptr<Callback> callback_;
   td::unique_ptr<NodeCallback> node_callback_;

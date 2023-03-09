@@ -24,6 +24,7 @@
 
 #include "td/utils/overloaded.h"
 #include "td/utils/Random.h"
+#include "vm/boc.h"
 
 namespace ton {
 
@@ -86,7 +87,9 @@ void PeerActor::on_ping_result(td::Result<td::BufferSlice> r_answer) {
 
 void PeerActor::on_pong() {
   wait_pong_till_ = td::Timestamp::in(10);
-  state_->peer_online_ = true;
+  if (!state_->peer_online_.exchange(true)) {
+    state_->peer_online_set_ = true;
+  }
   notify_node();
 }
 
@@ -296,7 +299,17 @@ void PeerActor::loop_update_pieces() {
 }
 
 void PeerActor::loop_get_torrent_info() {
-  if (get_info_query_id_ || state_->torrent_info_ready_) {
+  if (state_->torrent_info_ready_) {
+    if (!parts_count_) {
+      parts_count_ = state_->torrent_info_->pieces_count();
+      for (const auto& u : pending_update_peer_parts_) {
+        process_update_peer_parts(u);
+      }
+      pending_update_peer_parts_.clear();
+    }
+    return;
+  }
+  if (get_info_query_id_) {
     return;
   }
   if (next_get_info_at_ && !next_get_info_at_.is_in_past()) {
@@ -373,17 +386,7 @@ void PeerActor::execute_add_update(ton::ton_api::storage_addUpdate &add_update, 
     promise.set_error(td::Status::Error(404, "INVALID_SESSION"));
     return;
   }
-
   promise.set_value(ton::create_serialize_tl_object<ton::ton_api::storage_ok>());
-
-  std::vector<td::uint32> new_peer_ready_parts;
-  auto add_piece = [&](PartId id) {
-    if (!peer_have_pieces_.get(id)) {
-      peer_have_pieces_.set_one(id);
-      new_peer_ready_parts.push_back(id);
-      notify_node();
-    }
-  };
 
   auto seqno = static_cast<td::uint32>(add_update.seqno_);
   auto update_peer_state = [&](PeerState::State peer_state) {
@@ -398,26 +401,46 @@ void PeerActor::execute_add_update(ton::ton_api::storage_addUpdate &add_update, 
     state_->peer_state_ready_ = true;
     notify_node();
   };
+  downcast_call(
+      *add_update.update_,
+      td::overloaded(
+          [&](const ton::ton_api::storage_updateHavePieces &have_pieces) {},
+          [&](const ton::ton_api::storage_updateState &state) { update_peer_state(from_ton_api(*state.state_)); },
+          [&](const ton::ton_api::storage_updateInit &init) { update_peer_state(from_ton_api(*init.state_)); }));
+  if (parts_count_) {
+    process_update_peer_parts(add_update.update_);
+  } else {
+    pending_update_peer_parts_.push_back(std::move(add_update.update_));
+  }
+}
 
-  downcast_call(*add_update.update_,
-                td::overloaded(
-                    [&](ton::ton_api::storage_updateHavePieces &have_pieces) {
-                      for (auto id : have_pieces.piece_id_) {
-                        add_piece(id);
-                      }
-                    },
-                    [&](ton::ton_api::storage_updateState &state) { update_peer_state(from_ton_api(*state.state_)); },
-                    [&](ton::ton_api::storage_updateInit &init) {
-                      update_peer_state(from_ton_api(*init.state_));
-                      td::Bitset new_bitset;
-                      new_bitset.set_raw(init.have_pieces_.as_slice().str());
-                      size_t offset = init.have_pieces_offset_ * 8;
-                      for (auto size = new_bitset.size(), i = size_t(0); i < size; i++) {
-                        if (new_bitset.get(i)) {
-                          add_piece(static_cast<PartId>(offset + i));
-                        }
-                      }
-                    }));
+void PeerActor::process_update_peer_parts(const tl_object_ptr<ton_api::storage_Update> &update) {
+  td::uint64 parts_count = parts_count_.value();
+  std::vector<td::uint32> new_peer_ready_parts;
+  auto add_piece = [&](PartId id) {
+    if (id < parts_count && !peer_have_pieces_.get(id)) {
+      peer_have_pieces_.set_one(id);
+      new_peer_ready_parts.push_back(id);
+      notify_node();
+    }
+  };
+  downcast_call(*update, td::overloaded(
+                             [&](const ton::ton_api::storage_updateHavePieces &have_pieces) {
+                               for (auto id : have_pieces.piece_id_) {
+                                 add_piece(id);
+                               }
+                             },
+                             [&](const ton::ton_api::storage_updateState &state) {},
+                             [&](const ton::ton_api::storage_updateInit &init) {
+                               td::Bitset new_bitset;
+                               new_bitset.set_raw(init.have_pieces_.as_slice().str());
+                               size_t offset = init.have_pieces_offset_ * 8;
+                               for (auto size = new_bitset.size(), i = size_t(0); i < size; i++) {
+                                 if (new_bitset.get(i)) {
+                                   add_piece(static_cast<PartId>(offset + i));
+                                 }
+                               }
+                             }));
   state_->peer_ready_parts_.add_elements(std::move(new_peer_ready_parts));
 }
 
@@ -428,7 +451,8 @@ void PeerActor::execute_get_piece(ton::ton_api::storage_getPiece &get_piece, td:
 
 void PeerActor::execute_get_torrent_info(td::Promise<td::BufferSlice> promise) {
   td::BufferSlice result = create_serialize_tl_object<ton_api::storage_torrentInfo>(
-      state_->torrent_info_ready_ ? state_->torrent_info_str_->clone() : td::BufferSlice());
+      state_->torrent_info_ready_ ? vm::std_boc_serialize(state_->torrent_info_->as_cell()).move_as_ok()
+                                  : td::BufferSlice());
   promise.set_result(std::move(result));
 }
 }  // namespace ton

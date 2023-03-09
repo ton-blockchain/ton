@@ -23,6 +23,7 @@
 #include "td/utils/optional.h"
 
 #include "td/actor/actor.h"
+#include "TorrentInfo.h"
 
 #include <map>
 #include <atomic>
@@ -100,6 +101,7 @@ struct PeerState {
   std::atomic_bool peer_state_ready_{false};
   std::atomic<State> peer_state_{State{false, false}};
   std::atomic_bool peer_online_{false};
+  std::atomic_bool peer_online_set_{false};
 
   struct Part {
     td::BufferSlice proof;
@@ -121,7 +123,7 @@ struct PeerState {
 
   // Node -> Peer
   std::atomic_bool torrent_info_ready_{false};
-  std::shared_ptr<td::BufferSlice> torrent_info_str_;
+  std::shared_ptr<TorrentInfo> torrent_info_;
   std::function<void(td::BufferSlice)> torrent_info_response_callback_;
 
   const td::actor::ActorId<> node;
