@@ -90,7 +90,7 @@ void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promi
     if (R.is_error()) {
       return;
     }
-    boc_->load_cell_async(hash.as_slice(), async_executor, std::move(promise));
+    promise.set_result(boc_->load_cell(hash.as_slice()));
     release_db();
   });
 }

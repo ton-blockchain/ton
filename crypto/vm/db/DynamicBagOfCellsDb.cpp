@@ -639,7 +639,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   }
 
   void pca_load_from_db(PrepareCommitAsyncState::CellInfo2 *info) {
-    info->info->sync_with_db = true;
     pca_state_->executor_->execute_async(
         [db = this, info, executor = pca_state_->executor_, loader = *loader_]() mutable {
           auto res = loader.load_refcnt(info->info->cell->get_hash().as_slice()).move_as_ok();
