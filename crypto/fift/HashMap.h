@@ -31,8 +31,8 @@ class DictKey {
 
  private:
   RefAny ref_;
-  Type tp_;
-  keyhash_t hash_;
+  Type tp_ = Type::t_null;
+  keyhash_t hash_ = 0;
 
   static constexpr keyhash_t IntHash0 = 0xce6ab89d724409ed, MixConst1 = 0xcd5c126501510979,
                              MixConst2 = 0xb8f44d7fd6274ad1, MixConst3 = 0xd08726ea2422e405,
@@ -180,7 +180,7 @@ struct HashmapIdx {
   Ref<Hashmap>& root_;
   DictKey idx_;
   template <typename... Args>
-  HashmapIdx(Ref<Hashmap> root, Args&&... args) : root_(root), idx_(std::forward<Args>(args)...) {
+  HashmapIdx(Ref<Hashmap>& root, Args&&... args) : root_(root), idx_(std::forward<Args>(args)...) {
   }
   operator vm::StackEntry() const {
     return Hashmap::get(root_, idx_);
