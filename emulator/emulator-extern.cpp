@@ -398,7 +398,11 @@ const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *m
   } else {
     json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
   }
-  json_obj("actions", cell_to_boc_b64(result.actions).move_as_ok());
+  if (result.actions.is_null()) {
+    json_obj("actions", td::JsonNull());
+  } else {
+    json_obj("actions", cell_to_boc_b64(result.actions).move_as_ok());
+  }
   json_obj("new_code", cell_to_boc_b64(result.new_state.code).move_as_ok());
   json_obj("new_data", cell_to_boc_b64(result.new_state.data).move_as_ok());
   json_obj.leave();
@@ -427,7 +431,11 @@ const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *m
   } else {
     json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
   }
-  json_obj("actions", cell_to_boc_b64(result.actions).move_as_ok());
+  if (result.actions.is_null()) {
+    json_obj("actions", td::JsonNull());
+  } else {
+    json_obj("actions", cell_to_boc_b64(result.actions).move_as_ok());
+  }
   json_obj("new_code", cell_to_boc_b64(result.new_state.code).move_as_ok());
   json_obj("new_data", cell_to_boc_b64(result.new_state.data).move_as_ok());
   json_obj.leave();
