@@ -143,6 +143,7 @@ set(FIFT_SOURCE
   fift/Dictionary.cpp
   fift/Fift.cpp
   fift/IntCtx.cpp
+  fift/HashMap.cpp
   fift/Continuation.cpp
   fift/SourceLookup.cpp
   fift/utils.cpp
@@ -151,6 +152,7 @@ set(FIFT_SOURCE
   fift/Dictionary.h
   fift/Fift.h
   fift/IntCtx.h
+  fift/HashMap.h
   fift/Continuation.h
   fift/SourceLookup.h
   fift/utils.h

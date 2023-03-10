@@ -1,0 +1,118 @@
+{ ?dup { 1+ { execute } { 0 swap } cond } 
+       { (number) ?dup 0= abort"-?" 'nop } cond
+} : (interpret-prepare)
+{ { include-depth 0= (seekeof?) not } { 
+    (word-prefix-find) (interpret-prepare) (execute)
+  } while
+} : interpret
+{ ({)
+  { 0 (seekeof?) abort"no }" (word-prefix-find) (interpret-prepare) (compile) over atom? not } until
+  (}) swap execute
+} : begin-block
+{ swap 0 'nop } : end-block
+{ { 1 'nop } `{ begin-block } 
+{ { swap `{ eq? not abort"} without {" swap execute } end-block }
+:: } :: {
+
+// if{ ... }then{ ... }elseif{ ... }then{ ... }else{ ... }
+{ eq? not abort"unexpected" } : ?pairs
+{ dup `if eq? swap `ifnot eq? over or not abort"without if{" } : if-ifnot?
+// cond then ? -- exec
+{ { ' if } { ' ifnot } cond rot ({) 0 rot (compile) -rot 1 swap (compile) (})  
+} : (make-if)
+// cond then else -- exec
+{ rot ({) 0 rot (compile) -rot 2 ' cond (compile) (})
+} : (make-cond)
+{ `noelse `if begin-block } :: if{
+{ `noelse `ifnot begin-block } :: ifnot{
+{ 1 ' end-block does } : end-block-does
+{ { over `else eq? } {
+    nip rot if-ifnot? ' swap ifnot (make-cond)
+  } while
+  swap `noelse ?pairs 0 swap 
+} : finish-else-chain
+{ swap dup if-ifnot? drop `then {
+    swap `then ?pairs
+    swap if-ifnot? (make-if) finish-else-chain
+  } `{ begin-block
+} end-block-does :: }then{
+{ swap `{ ?pairs nip
+  swap `then eq? not abort"without }then{" `else
+} : ?else-ok
+{ ?else-ok { finish-else-chain } `{ begin-block } end-block-does :: }else{
+{ ?else-ok `if begin-block } end-block-does :: }elseif{
+{ ?else-ok `ifnot begin-block } end-block-does :: }elseifnot{
+
+// while{ ... }do{ ... }
+{ 2 ' while does } : (make-while)
+{ `while begin-block } :: while{
+{ swap `while eq? not abort"without while{" `while-do {
+    swap `while-do ?pairs (make-while) 0 swap
+  } `{ begin-block
+} end-block-does :: }do{
+
+// repeat{ ... }until{ ... }
+{ swap ({) 0 rot (compile) 0 rot (compile) (}) 1 ' until does } : (make-until) 
+{ `repeat begin-block } :: repeat{
+{ swap `repeat eq? not abort"without repeat{" `until {
+    swap `until ?pairs (make-until) 0 swap
+  } `{ begin-block
+} end-block-does :: }until{
+
+// def <name> { ... } instead of { ... } : <name>
+{ bl word swap bl word "{" $cmp abort"{ expected" `def {
+    swap `def ?pairs -rot 3 ' (create) 
+  } `{ begin-block
+} : (def)
+{ 0 (def) } :: def
+{ 1 (def) } :: def::
+
+// defrec <name> { ... } instead of recursive <name> { ... } swap !
+{ recursive bl word "{" $cmp abort"{ expected" `defrec {
+    swap `defrec ?pairs swap ! 0 'nop
+  } `{ begin-block
+} :: defrec
+
+def .sgn {
+  if{ ?dup 0= }then{
+    ."zero"
+  }elseif{ 0> }then{
+    ."positive" 
+  }else{
+    ."negative" 
+  } 
+  cr
+}
+// equivalent to: { ?dup 0= { ."zero" } { 0> { ."positive" } { ."negative" } cond } cond cr } : .sgn
+
+defrec fact {
+  if{ dup }then{
+    dup 1- fact *
+  }else{
+    drop 1
+  }
+}
+// equivalent to: recursive fact { dup { dup 1- fact * } { drop 1 } cond } swap !
+
+// [[ ... ]] computes arbitrary constants inside definitions
+//   { [[ 5 dup * ]] + } : add25
+// is equivalent to
+//   { 25 + } : add25
+{ "without [[" abort } box constant ']]
+{ ']] @ execute } : ]]
+{ { ']] @ 2 { ']] ! call/cc } does ']] !
+    interpret 'nop ']] ! "]] not found" abort
+  } call/cc
+  drop 1 'nop
+} :: [[
+
+{ { over @ swap 2 { call/cc } does swap !
+    interpret "literal to eof" abort
+  } call/cc
+  drop execute 1 'nop
+} : interpret-literal-to
+// use next line only if Lists.fif is loaded (or move it to Lists.fif if FiftExt.fif becomes part of Fift.fif)
+//   { ( ') interpret-literal-to } :: '(
+// then you can use list literals '( a b c ... ) inside definitions:
+//   { '( 1 2 3 ) } : test
+//   { '( ( `a { ."A" } ) ( `b { ."B" } ) ) assoc { cadr execute } { ."???" } cond } : test2

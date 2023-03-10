@@ -59,6 +59,12 @@ td::Result<std::string> load_GetOpt_fif(std::string dir = "") {
 td::Result<std::string> load_wallet3_code_fif(std::string dir = "") {
   return td::read_file_str(smartcont_dir(dir) + "wallet-v3-code.fif");
 }
+td::Result<std::string> load_FiftExt_fif(std::string dir = "") {
+  return load_source("FiftExt.fif", dir);
+}
+td::Result<std::string> load_Disasm_fif(std::string dir = "") {
+  return load_source("Disasm.fif", dir);
+}
 
 class MemoryFileLoader : public fift::FileLoader {
  public:
@@ -108,7 +114,8 @@ class MemoryFileLoader : public fift::FileLoader {
 
 td::Result<fift::SourceLookup> create_source_lookup(std::string main, bool need_preamble = true, bool need_asm = true,
                                                     bool need_ton_util = true, bool need_lisp = true,
-                                                    bool need_w3_code = true, std::string dir = "") {
+                                                    bool need_w3_code = true, bool need_fift_ext = true,
+                                                    bool need_disasm = true, std::string dir = "") {
   auto loader = std::make_unique<MemoryFileLoader>();
   loader->add_file("/main.fif", std::move(main));
   if (need_preamble) {
@@ -141,6 +148,14 @@ td::Result<fift::SourceLookup> create_source_lookup(std::string main, bool need_
     TRY_RESULT(f, load_wallet3_code_fif(dir));
     loader->add_file("/wallet-v3-code.fif", std::move(f));
   }
+  if (need_fift_ext) {
+    TRY_RESULT(f, load_FiftExt_fif(dir));
+    loader->add_file("/FiftExt.fif", std::move(f));
+  }
+  if (need_disasm) {
+    TRY_RESULT(f, load_Disasm_fif(dir));
+    loader->add_file("/Disasm.fif", std::move(f));
+  }
   auto res = fift::SourceLookup(std::move(loader));
   res.add_include_path("/");
   return std::move(res);
@@ -172,7 +187,7 @@ td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::o
 }  // namespace
 td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string> args, std::string fift_dir) {
   std::stringstream ss;
-  TRY_RESULT(source_lookup, create_source_lookup(source, true, true, true, true, true, fift_dir));
+  TRY_RESULT(source_lookup, create_source_lookup(source, true, true, true, true, true, true, true, fift_dir));
   TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, std::move(args)));
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
@@ -190,7 +205,8 @@ td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std:
 td::Result<fift::SourceLookup> create_mem_source_lookup(std::string main, std::string fift_dir, bool need_preamble,
                                                         bool need_asm, bool need_ton_util, bool need_lisp,
                                                         bool need_w3_code) {
-  return create_source_lookup(main, need_preamble, need_asm, need_ton_util, need_lisp, need_w3_code, fift_dir);
+  return create_source_lookup(main, need_preamble, need_asm, need_ton_util, need_lisp, need_w3_code, false, false,
+                              fift_dir);
 }
 
 td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code, std::string fift_dir, bool is_raw) {
@@ -198,7 +214,7 @@ td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code, std::string fift_d
   TRY_RESULT(source_lookup,
              create_source_lookup(PSTRING() << "\"Asm.fif\" include\n " << (is_raw ? "<{" : "") << asm_code << "\n"
                                             << (is_raw ? "}>c" : "") << " boc>B \"res\" B>file",
-                                  true, true, true, false, false, fift_dir));
+                                  true, true, true, false, false, false, false, fift_dir));
   TRY_RESULT(res, run_fift(std::move(source_lookup), &ss));
   TRY_RESULT(boc, res.read_file("res"));
   return vm::std_boc_deserialize(std::move(boc.data));

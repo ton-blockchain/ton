@@ -1,12 +1,14 @@
 library TVM_Asm
 // simple TVM Assembler
+namespace Asm
+Asm definitions
 variable @atend
 variable @was-split
 false @was-split !
 { "not in asm context" abort } @atend !
 { `normal eq? not abort"must be terminated by }>" } : @normal?
-{ @atend @ 1 { @atend ! @normal? } does @atend ! } : @pushatend
-{ @pushatend <b } : <{
+{ context@ @atend @ 2 { @atend ! context! @normal? } does @atend ! } : @pushatend
+{ @pushatend Asm <b } : <{
 { @atend @ execute } : @endblk
 { false @was-split ! `normal @endblk } : }>
 { }> b> } : }>c
@@ -1219,7 +1221,10 @@ variable asm-mode  1 asm-mode !
 { 1 'nop does swap 0 (create) } : @declglobvar
 { @proccnt @ 1+ dup @proccnt ! 1 @declproc } : @newproc
 { @gvarcnt @ 1+ dup @gvarcnt ! @declglobvar } : @newglobvar
-{ 0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
+variable @oldcurrent  variable @oldctx
+Fift-wordlist dup @oldcurrent ! @oldctx !
+{ current@ @oldcurrent !  context@ @oldctx !  Asm definitions
+  0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
   { bl word @newproc } : NEWPROC
   { bl word dup (def?) ' drop ' @newproc cond } : DECLPROC
   { bl word dup find
@@ -1293,6 +1298,7 @@ variable asm-mode  1 asm-mode !
   } while
   drop @proclist null! @procinfo null! @proccnt 0!
   @procdict dup @ swap null!
+  @oldctx @ context!  @oldcurrent @ current!
 } : }END
 forget @proclist  forget @proccnt
 { }END <{ SETCP0 swap @procdictkeylen DICTPUSHCONST DICTIGETJMPZ 11 THROWARG }> } : }END>
@@ -1319,3 +1325,8 @@ forget @proclist  forget @proccnt
 { <b 2 8 u, swap 256 u, b>spec } : hash>libref
 // ( c -- c' )
 { hash hash>libref } : >libref
+
+Fift definitions Asm
+' <{ : <{
+' PROGRAM{ : PROGRAM{
+Fift

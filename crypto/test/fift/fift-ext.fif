@@ -1,0 +1,107 @@
+"FiftExt.fif" include
+
+// if then
+{
+  if{ 0> }then{ "Yes" }
+} : run
+5 run type cr // Yes
+-5 run .s // nothing
+
+// if then else
+{
+  if{ 0> }then{ "Yes" }else{ "No" }
+} : run
+5 run type ." " // Yes
+-5 run type cr // No
+
+// if then elseif else
+{
+  dup dup if{ 20 > }then{ 2drop "AAA" }elseif{ 10 > }then{ drop "BBB" }elseif{ 0> }then{ "CCC" }else{ "DDD" }
+} : run
+25 run type ." " // AAA
+15 run type ." " // BBB
+5  run type ." " // CCC
+-5 run type cr   // DDD
+
+// while do
+1
+while{ dup 100 < }do{
+  dup .
+  2 *
+}
+cr // 1 2 4 8 16 32 64
+drop
+
+// repeat until
+1
+repeat{
+  dup .
+  3 *
+}until{ dup 500 > }
+cr // 1 3 9 27 81 243
+drop
+
+// def
+def foo1 { * + }
+5 10 20 foo1 . // 205
+6 100 100 foo1 . cr // 10006
+
+// defrec
+defrec fib {
+  if{ dup 2 < }then{
+    drop 1
+  }else{
+    dup 1- fib swap 2- fib +
+  }
+}
+8 fib . // 34
+9 fib . // 55
+20 fib . cr // 10946
+
+// [[ ... ]]
+def foo2 { [[ ."Exec" cr 5 5 * ]] + }
+."Calling foo2: "
+100 foo2 . 200 foo2 . cr
+
+// Nested blocks
+def sqr { dup * }
+def power {
+  1 -rot
+  while{ dup 0> }do{
+    if{ dup 1 and }then{
+      -rot tuck * swap rot
+    }
+    2/
+    if{ dup 0> }then{
+      swap sqr swap
+    }
+  }
+  2drop
+}
+
+3 0  power . // 1
+3 1  power . // 3
+3 4  power . // 81
+3 12 power . // 531441
+3 50 power . // 717897987691852588770249
+cr
+
+0 while{ dup 2 < }do{
+  ."A"
+  0 while{ dup 2 < }do{
+    ."B"
+    0 while{ dup 2 < }do{
+      ."C"
+      0 while{ dup 2 < }do{
+        ."D"
+        0 while{ dup 2 < }do{
+          ."E"
+          0 while{ dup 2 < }do{
+            ."F"
+          1+ } drop
+        1+ } drop
+      1+ } drop
+    1+ } drop
+  1+ } drop
+1+ } drop
+cr // ABCDEFFEFFDEFFEFFCDEFFEFFDEFFEFFBCDEFFEFFDEFFEFFCDEFFEFFDEFFEFFABCDEFFEFFDEFFEFFCDEFFEFFDEFFEFFBCDEFFEFFDEFFEFFCDEFFEFFDEFFEFF
