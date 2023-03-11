@@ -66,6 +66,21 @@ for ti, tf in enumerate(tests):
         print("Error: no test cases", file=sys.stderr)
         exit(2)
 
+    # preprocess arithmetics in input
+    for i in range(len(cases)):
+      inputs = cases[i][1].split(" ")
+      processed_inputs = ""
+      for in_arg in inputs:
+        if "x{" in in_arg:
+          processed_inputs += in_arg
+          continue
+        # filter and execute
+        # is it safe enough?
+        filtered_in = "".join(filter(lambda x: x in "0x123456789()+-*/<>", in_arg))
+        if(filtered_in):
+          processed_inputs += str(eval(filtered_in)) + " ";
+      cases[i][1] = processed_inputs.strip()
+
     with open(RUNNER_FIF, "w") as f:
         print("\"%s\" include <s constant code" % COMPILED_FIF, file=f)
         for function, test_in, _ in cases:
