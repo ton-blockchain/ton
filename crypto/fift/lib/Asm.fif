@@ -1280,9 +1280,9 @@ variable asm-mode  1 asm-mode !
 variable @oldcurrent  variable @oldctx
 Fift-wordlist dup @oldcurrent ! @oldctx !
 { current@ @oldcurrent !  context@ @oldctx !  Asm definitions
-  @proccnt @ @proclist @ @procdict @ @procinfo @ @gvarcnt @ @parent-state @ current@
-  7 tuple @parent-state !
-  current@ @ box current!
+  @proccnt @ @proclist @ @procdict @ @procinfo @ @gvarcnt @ @parent-state @ current@ @oldcurrent @ @oldctx @
+  9 tuple @parent-state !
+  hole current!
   0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
   { bl word @newproc } : NEWPROC
   { bl word dup (def?) ' drop ' @newproc cond } : DECLPROC
@@ -1358,8 +1358,8 @@ Fift-wordlist dup @oldcurrent ! @oldctx !
   drop @proclist null! @procinfo null! @proccnt 0!
   @procdict dup @ swap null!
   @parent-state @ dup null? { drop } {
-    7 untuple
-    current! @parent-state ! @gvarcnt ! @procinfo ! @procdict ! @proclist ! @proccnt !
+    9 untuple
+    @oldctx ! @oldcurrent ! current! @parent-state ! @gvarcnt ! @procinfo ! @procdict ! @proclist ! @proccnt !
   } cond
   @oldctx @ context!  @oldcurrent @ current!
 } : }END

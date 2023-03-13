@@ -126,3 +126,7 @@ TEST(Fift, test_fiftext) {
 TEST(Fift, test_namespaces) {
   run_fift("namespaces.fif");
 }
+
+TEST(Fift, test_asm_nested_program) {
+  run_fift("asm-nested-program.fif");
+}
