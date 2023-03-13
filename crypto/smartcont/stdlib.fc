@@ -310,7 +310,7 @@ cell preload_ref(slice s) asm "PLDREF";
 ;;; Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
 ;; slice preload_bits(slice s, int len) asm "PLDSLICEX";
 
-;;; Loads serialized amount of TonCoins (any unsigned integer up to `2^128 - 1`).
+;;; Loads serialized amount of TonCoins (any unsigned integer up to `2^120 - 1`).
 (slice, int) load_grams(slice s) asm( -> 1 0) "LDGRAMS";
 (slice, int) load_coins(slice s) asm( -> 1 0) "LDGRAMS";
 
@@ -426,7 +426,7 @@ builder store_ref(builder b, cell c) asm(c b) "STREF";
 ;;; Stores `slice` [s] into `builder` [b]
 builder store_slice(builder b, slice s) asm "STSLICER";
 
-;;; Stores (serializes) an integer [x] in the range `0..2^128 − 1` into `builder` [b].
+;;; Stores (serializes) an integer [x] in the range `0..2^120 − 1` into `builder` [b].
 ;;; The serialization of [x] consists of a 4-bit unsigned big-endian integer `l`,
 ;;; which is the smallest integer `l ≥ 0`, such that `x < 2^8l`,
 ;;; followed by an `8l`-bit unsigned big-endian representation of [x].

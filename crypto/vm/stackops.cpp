@@ -75,8 +75,8 @@ std::string dump_xchg(CellSlice&, unsigned args) {
   if (!x || x >= y) {
     return "";
   }
-  std::ostringstream os{"XCHG s"};
-  os << x << ",s" << y;
+  std::ostringstream os;
+  os << "XCHG s" << x << ",s" << y;
   return os.str();
 }
 
@@ -92,7 +92,7 @@ int exec_xchg1(VmState* st, unsigned args) {
 
 int exec_dup(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute DUP\n";
+  VM_LOG(st) << "execute DUP";
   stack.check_underflow(1);
   stack.push(stack.fetch(0));
   return 0;
@@ -100,7 +100,7 @@ int exec_dup(VmState* st) {
 
 int exec_over(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute OVER\n";
+  VM_LOG(st) << "execute OVER";
   stack.check_underflow(2);
   stack.push(stack.fetch(1));
   return 0;
@@ -126,7 +126,7 @@ int exec_push_l(VmState* st, unsigned args) {
 
 int exec_drop(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute DROP\n";
+  VM_LOG(st) << "execute DROP";
   stack.check_underflow(1);
   stack.pop();
   return 0;
@@ -134,7 +134,7 @@ int exec_drop(VmState* st) {
 
 int exec_nip(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute NIP\n";
+  VM_LOG(st) << "execute NIP";
   stack.check_underflow(2);
   stack.pop(stack[1]);
   return 0;

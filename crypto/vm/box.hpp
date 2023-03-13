@@ -30,7 +30,7 @@ class Box : public td::CntObject {
   Box(const Box&) = default;
   Box(Box&&) = default;
   template <typename... Args>
-  Box(Args... args) : data_{std::move(args...)} {
+  Box(Args&&... args) : data_{std::forward<Args>(args)...} {
   }
   ~Box() override = default;
   Box(const StackEntry& data) : data_(data) {

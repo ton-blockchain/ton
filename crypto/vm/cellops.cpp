@@ -103,7 +103,8 @@ std::string dump_push_slice_common(CellSlice& cs, unsigned data_bits, unsigned r
   cs.advance(pfx_bits);
   auto slice = cs.fetch_subslice(data_bits, refs);
   slice.unique_write().remove_trailing();
-  std::ostringstream os{name};
+  std::ostringstream os;
+  os << name;
   slice->dump_hex(os, 1, false);
   return os.str();
 }
@@ -188,7 +189,8 @@ std::string dump_push_cont(CellSlice& cs, unsigned args, int pfx_bits) {
   }
   cs.advance(pfx_bits);
   auto slice = cs.fetch_subslice(data_bits, refs);
-  std::ostringstream os{"PUSHCONT "};
+  std::ostringstream os;
+  os << "PUSHCONT ";
   slice->dump_hex(os, 1, false);
   return os.str();
 }
@@ -219,7 +221,8 @@ std::string dump_push_cont_simple(CellSlice& cs, unsigned args, int pfx_bits) {
   }
   cs.advance(pfx_bits);
   auto slice = cs.fetch_subslice(data_bits);
-  std::ostringstream os{"PUSHCONT "};
+  std::ostringstream os;
+  os << "PUSHCONT ";
   slice->dump_hex(os, 1, false);
   return os.str();
 }
@@ -1060,8 +1063,8 @@ int exec_load_int_fixed2(VmState* st, unsigned args) {
 }
 
 std::string dump_load_int_fixed2(CellSlice&, unsigned args) {
-  std::ostringstream os{args & 0x200 ? "PLD" : "LD"};
-  os << (args & 0x100 ? 'U' : 'I');
+  std::ostringstream os;
+  os << (args & 0x200 ? "PLD" : "LD") << (args & 0x100 ? 'U' : 'I');
   if (args & 0x400) {
     os << 'Q';
   }
@@ -1081,9 +1084,9 @@ int exec_preload_uint_fixed_0e(VmState* st, unsigned args) {
 }
 
 std::string dump_preload_uint_fixed_0e(CellSlice&, unsigned args) {
-  std::ostringstream os{"PLDUZ "};
+  std::ostringstream os;
   unsigned bits = ((args & 7) + 1) << 5;
-  os << bits;
+  os << "PLDUZ " << bits;
   return os.str();
 }
 
@@ -1108,7 +1111,8 @@ int exec_load_slice_fixed2(VmState* st, unsigned args) {
 
 std::string dump_load_slice_fixed2(CellSlice&, unsigned args) {
   unsigned bits = (args & 0xff) + 1;
-  std::ostringstream os{args & 0x100 ? "PLDSLICE" : "LDSLICE"};
+  std::ostringstream os;
+  os << (args & 0x100 ? "PLDSLICE" : "LDSLICE");
   if (args & 0x200) {
     os << 'Q';
   }

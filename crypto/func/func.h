@@ -30,6 +30,7 @@
 #include "parser/srcread.h"
 #include "parser/lexer.h"
 #include "parser/symtable.h"
+#include "td/utils/Status.h"
 
 namespace funC {
 
@@ -39,7 +40,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.4.1"};
+const std::string func_version{"0.4.2"};
 
 enum Keyword {
   _Eof = -1,
@@ -505,7 +506,7 @@ class ListIterator {
     ptr = ptr->next.get();
     return *this;
   }
-  ListIterator& operator++(int) {
+  ListIterator operator++(int) {
     T* z = ptr;
     ptr = ptr->next.get();
     return ListIterator{z};
@@ -844,6 +845,35 @@ extern std::vector<SymDef*> glob_func, glob_vars;
  *   PARSE SOURCE
  * 
  */
+
+class ReadCallback {
+public:
+  /// Noncopyable.
+  ReadCallback(ReadCallback const&) = delete;
+  ReadCallback& operator=(ReadCallback const&) = delete;
+
+  enum class Kind
+  {
+    ReadFile,
+    Realpath
+  };
+
+  static std::string kindString(Kind _kind)
+  {
+    switch (_kind)
+    {
+    case Kind::ReadFile:
+      return "source";
+    case Kind::Realpath:
+      return "realpath";
+    default:
+      throw ""; // todo ?
+    }
+  }
+
+  /// File reading or generic query callback.
+  using Callback = std::function<td::Result<std::string>(ReadCallback::Kind, const char*)>;
+};
 
 // defined in parse-func.cpp
 bool parse_source(std::istream* is, const src::FileDescr* fdescr);
@@ -1631,11 +1661,11 @@ struct Stack {
  * 
  */
 
-typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&)> simple_compile_func_t;
+typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, const SrcLocation)> simple_compile_func_t;
 typedef std::function<bool(AsmOpList&, std::vector<VarDescr>&, std::vector<VarDescr>&)> compile_func_t;
 
 inline simple_compile_func_t make_simple_compile(AsmOp op) {
-  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in) -> AsmOp { return op; };
+  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation&) -> AsmOp { return op; };
 }
 
 inline compile_func_t make_ext_compile(std::vector<AsmOp> ops) {
@@ -1674,7 +1704,7 @@ struct SymValAsmFunc : SymValFunc {
                 std::initializer_list<int> ret_order = {}, bool impure = false)
       : SymValFunc(-1, ft, arg_order, ret_order, impure), ext_compile(std::move(_compile)) {
   }
-  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in) const;
+  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation& where) const;
 };
 
 // defined in builtins.cpp
@@ -1691,6 +1721,9 @@ void define_builtins();
 extern int verbosity, indent, opt_level;
 extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
 extern std::string generated_from, boc_output_filename;
+extern ReadCallback::Callback read_callback;
+
+td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query);
 
 class GlobalPragma {
  public:

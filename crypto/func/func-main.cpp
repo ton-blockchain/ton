@@ -109,7 +109,7 @@ int main(int argc, char* const argv[]) {
 
   std::unique_ptr<std::fstream> fs;
   if (!output_filename.empty()) {
-    fs = std::make_unique<std::fstream>(output_filename, fs->trunc | fs->out);
+    fs = std::make_unique<std::fstream>(output_filename, std::fstream::trunc | std::fstream::out);
     if (!fs->is_open()) {
       std::cerr << "failed to create output file " << output_filename << '\n';
       return 2;
@@ -122,6 +122,8 @@ int main(int argc, char* const argv[]) {
   while (optind < argc) {
     sources.push_back(std::string(argv[optind++]));
   }
+
+  funC::read_callback = funC::fs_read_callback;
 
   return funC::func_proceed(sources, *outs, std::cerr);
 }

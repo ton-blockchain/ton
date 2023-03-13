@@ -116,6 +116,22 @@ TEST(Fift, test_sort2) {
   run_fift("sort2.fif");
 }
 
+TEST(Fift, test_hmap) {
+  run_fift("hmap.fif");
+}
+
+TEST(Fift, test_disasm) {
+  run_fift("disasm.fif");
+}
+
+TEST(Fift, test_fiftext) {
+  run_fift("fift-ext.fif");
+}
+
+TEST(Fift, test_namespaces) {
+  run_fift("namespaces.fif");
+}
+
 TEST(Fift, test_adddiv) {
   run_fift("adddiv.fif");
 }

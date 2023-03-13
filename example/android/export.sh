@@ -2,7 +2,7 @@
 pushd .
 mkdir -p build_native
 cd build_native
-cmake -DTON_ONLY_TONLIB=ON .. || exit 1
+cmake -DTON_ONLY_TONLIB=ON -DBUILD_SHARED_LIBS=OFF .. || exit 1
 cmake --build . --target prepare_cross_compiling || exit 2
 #cmake --build . --target tl_generate_java || exit 1
 popd

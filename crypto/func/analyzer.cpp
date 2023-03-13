@@ -735,7 +735,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           res.emplace_back(i);
         }
         AsmOpList tmp;
-        func->compile(tmp, res, args);  // abstract interpretation of res := f (args)
+        func->compile(tmp, res, args, where);  // abstract interpretation of res := f (args)
         int j = 0;
         for (var_idx_t i : left) {
           values.add_newval(i).set_value(res[j++]);

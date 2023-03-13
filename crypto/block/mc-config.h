@@ -632,7 +632,6 @@ class Config {
   static td::Result<std::vector<int>> unpack_param_dict(vm::Dictionary& dict);
   static td::Result<std::vector<int>> unpack_param_dict(Ref<vm::Cell> dict_root);
 
- protected:
   Config(int _mode) : mode(_mode) {
     config_addr.set_zero();
   }

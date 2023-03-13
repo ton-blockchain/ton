@@ -108,7 +108,8 @@ set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
 #BEGIN M1 support
 EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )
 
-if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
+    (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0)) # only clang 13+ supports cpu=apple-m1
     set(TON_ARCH "apple-m1")
 endif()
 #END M1 support
@@ -135,7 +136,16 @@ set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "Build CRC32C's benchmarks")
 set(CRC32C_USE_GLOG OFF CACHE BOOL "Build CRC32C's tests with Google Logging")
 set(CRC32C_INSTALL OFF CACHE BOOL "Install CRC32C's header and library")
 message("Add crc32c")
-add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
+if (NOT MSVC)
+  set(OLD_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+  # fix aarch64 build @ crc32c/src/crc32c_arm64_linux_check.h
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=address")
+  add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
+  set(CMAKE_CXX_FLAGS ${OLD_CMAKE_CXX_FLAGS})
+  unset(OLD_CMAKE_CXX_FLAGS)
+else()
+  add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
+endif()
 set(CRC32C_FOUND 1)
 
 if (TON_USE_ROCKSDB)
@@ -198,6 +208,7 @@ include(CheckCXXCompilerFlag)
 set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
 find_package(ZLIB REQUIRED)
 
 if (TON_ARCH AND NOT MSVC)
@@ -383,6 +394,7 @@ add_subdirectory(tl-utils)
 add_subdirectory(adnl)
 add_subdirectory(crypto)
 add_subdirectory(lite-client)
+add_subdirectory(emulator)
 
 #BEGIN tonlib
 add_subdirectory(tonlib)

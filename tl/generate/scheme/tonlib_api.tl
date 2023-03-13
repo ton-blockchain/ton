@@ -52,7 +52,7 @@ ton.blockIdExt workchain:int32 shard:int64 seqno:int32 root_hash:bytes file_hash
 
 raw.fullAccountState balance:int64 code:bytes data:bytes last_transaction_id:internal.transactionId block_id:ton.blockIdExt frozen_hash:bytes sync_utime:int53 = raw.FullAccountState;
 raw.message source:accountAddress destination:accountAddress value:int64 fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes msg_data:msg.Data = raw.Message;
-raw.transaction utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
+raw.transaction address:accountAddress utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
 raw.extMessageInfo hash:bytes = raw.ExtMessageInfo;
@@ -215,6 +215,7 @@ blocks.shards shards:vector<ton.BlockIdExt> = blocks.Shards;
 blocks.accountTransactionId account:bytes lt:int64 = blocks.AccountTransactionId;
 blocks.shortTxId mode:# account:mode.0?bytes lt:mode.1?int64 hash:mode.2?bytes = liteServer.TransactionId;
 blocks.transactions id:ton.blockIdExt req_count:int32 incomplete:Bool transactions:vector<blocks.shortTxId> = blocks.Transactions;
+blocks.transactionsExt id:ton.blockIdExt req_count:int32 incomplete:Bool transactions:vector<raw.transaction> = blocks.TransactionsExt;
 blocks.header id:ton.blockIdExt global_id:int32 version:int32 flags:# after_merge:Bool after_split:Bool before_split:Bool want_merge:Bool want_split:Bool validator_list_hash_short:int32 catchain_seqno:int32 min_ref_mc_seqno:int32 is_key_block:Bool prev_key_block_seqno:int32 start_lt:int64 end_lt:int64 gen_utime:int53 vert_seqno:# prev_blocks:vector<ton.blockIdExt> = blocks.Header;
 //blocks.shortData header:blocks.Header transactions:blocks.Header = blocks.BlockData;
 
@@ -257,6 +258,7 @@ getBip39Hints prefix:string = Bip39Hints;
 
 //raw.init initial_account_state:raw.initialAccountState = Ok;
 raw.getAccountState account_address:accountAddress = raw.FullAccountState;
+raw.getAccountStateByTransaction account_address:accountAddress transaction_id:internal.transactionId = raw.FullAccountState;
 raw.getTransactions private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId = raw.Transactions;
 raw.getTransactionsV2 private_key:InputKey account_address:accountAddress from_transaction_id:internal.transactionId count:# try_decode_messages:Bool = raw.Transactions;
 raw.sendMessage body:bytes = Ok;
@@ -278,9 +280,13 @@ guessAccountRevision initial_account_state:InitialAccountState workchain_id:int3
 guessAccount public_key:string rwallet_init_public_key:string = AccountRevisionList;
 
 getAccountState account_address:accountAddress = FullAccountState;
+getAccountStateByTransaction account_address:accountAddress transaction_id:internal.transactionId = FullAccountState;
+getShardAccountCell account_address:accountAddress = tvm.Cell;
+getShardAccountCellByTransaction account_address:accountAddress transaction_id:internal.transactionId = tvm.Cell;
 createQuery private_key:InputKey address:accountAddress timeout:int32 action:Action initial_account_state:InitialAccountState = query.Info;
 
-getConfigParam mode:# id:ton.blockIdExt param:# = ConfigInfo;
+getConfigParam mode:# param:# = ConfigInfo;
+getConfigAll mode:# = ConfigInfo;
 
 msg.decrypt input_key:InputKey data:msg.dataEncryptedArray = msg.DataDecryptedArray;
 msg.decryptWithProof proof:bytes data:msg.dataEncrypted = msg.Data;
@@ -292,6 +298,7 @@ query.estimateFees id:int53 ignore_chksig:Bool = query.Fees;
 query.getInfo id:int53 = query.Info;
 
 smc.load account_address:accountAddress = smc.Info;
+smc.loadByTransaction account_address:accountAddress transaction_id:internal.transactionId = smc.Info;
 smc.forget id:int53 = Ok;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
@@ -313,6 +320,7 @@ blocks.getMasterchainInfo = blocks.MasterchainInfo;
 blocks.getShards id:ton.blockIdExt = blocks.Shards;
 blocks.lookupBlock mode:int32 id:ton.blockId lt:int64 utime:int32 = ton.BlockIdExt;
 blocks.getTransactions id:ton.blockIdExt mode:# count:# after:blocks.accountTransactionId = blocks.Transactions;
+blocks.getTransactionsExt id:ton.blockIdExt mode:# count:# after:blocks.accountTransactionId = blocks.TransactionsExt;
 blocks.getBlockHeader id:ton.blockIdExt = blocks.Header;
 blocks.getMasterchainBlockSignatures seqno:int32 = blocks.BlockSignatures;
 blocks.getShardBlockProof id:ton.blockIdExt mode:# from:mode.0?ton.blockIdExt = blocks.ShardBlockProof;

@@ -112,6 +112,12 @@ def run_runner():
     s = s.strip()
     return int(s)
 
+def get_version():
+    res = subprocess.run([FUNC_EXECUTABLE, "-s"], capture_output=True, timeout=10)
+    if res.returncode != 0:
+        raise ExecutionError(str(res.stderr, "utf-8"))
+    s = str(res.stdout, "utf-8")
+    return s.strip()
 
 success = 0
 for ti, t in enumerate(tests):
@@ -142,4 +148,6 @@ for ti, t in enumerate(tests):
         #exit(2)
     print("  OK  ", file=sys.stderr)
 
+print(get_version())
 print("Done: Success %d, Error: %d"%(success, len(tests)-success), file=sys.stderr)
+
