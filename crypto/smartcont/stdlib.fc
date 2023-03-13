@@ -337,6 +337,7 @@ cell preload_dict(slice s) asm "PLDDICT";
 
 ;;; Loads a dictionary as [load_dict], but returns only the remainder of the slice.
 slice skip_dict(slice s) asm "SKIPDICT";
+(slice, ()) ~skip_dict(slice s) asm "SKIPDICT";
 
 ;;; Loads (Maybe ^Cell) from `slice` [s].
 ;;; In other words loads 1 bit and if it is true
