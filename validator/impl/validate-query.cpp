@@ -782,6 +782,7 @@ bool ValidateQuery::fetch_config_params() {
                                                   storage_phase_cfg_.delete_due_limit)) {
       return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
+    storage_phase_cfg_.enable_due_payment = config_->get_global_version() >= 4;
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;

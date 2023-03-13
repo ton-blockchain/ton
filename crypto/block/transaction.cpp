@@ -478,7 +478,7 @@ void add_partial_storage_payment(td::BigInt256& payment, ton::UnixTime delta, co
     b.mul_short(prices.bit_price);
   }
   b += c;
-  b.mul_short(delta);
+  b.mul_short(delta).normalize();
   CHECK(b.sgn() >= 0);
   payment += b;
 }
@@ -506,8 +506,7 @@ td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::
     }
     upto = valid_until;
   }
-  total.unique_write().rshift(16, 1);  // divide by 2^16 with ceil rounding to obtain nanograms
-  return total;
+  return td::rshift(total, 16, 1);  // divide by 2^16 with ceil rounding to obtain nanograms
 }
 
 td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const {
@@ -721,6 +720,9 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
             acc_status = Account::acc_frozen;
           }
           break;
+      }
+      if (cfg.enable_due_payment) {
+        due_payment = total_due;
       }
     }
   }
@@ -2734,6 +2736,7 @@ td::Status FetchConfigParams::fetch_config_params(
                                                   storage_phase_cfg->delete_due_limit)) {
       return td::Status::Error(-668, "cannot unpack current gas prices and limits from masterchain configuration");
     }
+    storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg->global_config = config.get_root_cell();

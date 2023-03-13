@@ -30,3 +30,6 @@ intermediate value before division (e.g. `(xy+w)/z`).
 ### Action phase
 * If "send message" action fails, the account is required to pay for processing cells of the message.
 * Flag +16 in actions "Send message", "Reserve", "Change library" causes bounce if action fails.
+
+### Storage phase
+* Unpaid storage fee is now saved to `due_payment`
