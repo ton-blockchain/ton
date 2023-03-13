@@ -2691,8 +2691,23 @@ bool Account::libraries_changed() const {
 
 td::Status FetchConfigParams::fetch_config_params(
     const block::ConfigInfo& config, Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
-    block::StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
-    block::ComputePhaseConfig* compute_phase_cfg, block::ActionPhaseConfig* action_phase_cfg,
+    StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg,
+    ActionPhaseConfig* action_phase_cfg, td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+    ton::WorkchainId wc, ton::UnixTime now) {
+  auto prev_blocks_info = config.get_prev_blocks_info();
+  if (prev_blocks_info.is_error()) {
+    return prev_blocks_info.move_as_error_prefix(
+        td::Status::Error(-668, "cannot fetch prev blocks info from masterchain configuration: "));
+  }
+  return fetch_config_params(config, prev_blocks_info.move_as_ok(), old_mparams, storage_prices, storage_phase_cfg,
+                             rand_seed, compute_phase_cfg, action_phase_cfg, masterchain_create_fee,
+                             basechain_create_fee, wc, now);
+}
+
+td::Status FetchConfigParams::fetch_config_params(
+    const block::Config& config, td::Ref<vm::Tuple> prev_blocks_info, Ref<vm::Cell>* old_mparams,
+    std::vector<block::StoragePrices>* storage_prices, StoragePhaseConfig* storage_phase_cfg,
+    td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
     td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee, ton::WorkchainId wc,
     ton::UnixTime now) {
   *old_mparams = config.get_config_param(9);
@@ -2724,12 +2739,7 @@ td::Status FetchConfigParams::fetch_config_params(
     compute_phase_cfg->global_config = config.get_root_cell();
     compute_phase_cfg->global_version = config.get_global_version();
     if (compute_phase_cfg->global_version >= 4) {
-      auto prev_blocks_info = config.get_prev_blocks_info();
-      if (prev_blocks_info.is_error()) {
-        return prev_blocks_info.move_as_error_prefix(
-            td::Status::Error(-668, "cannot fetch prev blocks info from masterchain configuration: "));
-      }
-      compute_phase_cfg->prev_blocks_info = prev_blocks_info.move_as_ok();
+      compute_phase_cfg->prev_blocks_info = std::move(prev_blocks_info);
     }
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
   }
