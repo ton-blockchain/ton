@@ -3,7 +3,10 @@
  - FunC fixed-point mathematical library
  -
  -}
- 
+
+#include "stdlib.fc";
+#pragma version >=0.4.2;
+
 {---------------- HIGH-LEVEL FUNCTION DECLARATIONS -----------------}
 {-
  Most functions declared here work either with integers or with fixed-point numbers of type `fixed248`.
@@ -62,6 +65,17 @@ int fixed248::acos(int x) inline;
 int fixed248::atan(int x) inline_ref;
 ;; fixed248 acot(fixed248 x);
 int fixed248::acot(int x) inline_ref;
+
+;; random number uniformly distributed in [0..1)
+;; fixed248 random();
+int fixed248::random() impure inline;
+;; random number with standard normal distribution (2100 gas on average)
+;; fixed248 nrand();
+int fixed248::nrand() impure inline;
+;; generates a random number approximately distributed according to the standard normal distribution (1200 gas)
+;; (fails chi-squared test, but it is shorter and faster than fixed248::nrand())
+;; fixed248 nrand_fast();
+int fixed248::nrand_fast() impure inline;
 
 -}  ;; end (declarations)
 
@@ -125,30 +139,27 @@ int asin_f255(int x);
 ;; fixed254 acos(fixed255 x);
 int acos_f255(int x);
 
+;; generates normally distributed pseudo-random number
+;; fixed252 nrand();
+int nrand_f252(int x);
+
+;; a faster and shorter variant of nrand_f252() that fails chi-squared test
+;; (should suffice for most purposes)
+;; fixed252 nrand_fast();
+int nrand_fast_f252(int x);
 
 -}  ;; end (declarations)
 
 {---------------- MISSING OPERATIONS AND BUILT-INS -----------------}
 
 int sgn(int x) asm "SGN";
-int abs(int x) asm "ABS";
-int min(int x, int y) asm "MIN";
 
 ;; compute floor(log2(x))+1
 int log2_floor_p1(int x) asm "UBITSIZE";
 
-;; FunC compiler emits MULDIVC instruction, but Asm.fif usually does not know it
-;; add the following line to your Asm.fif if necessary
-;; x{A986} @Defop MULDIVC
-
-;; the following instructions might have been emitted by muldivmod() and muldivmodr() builtins, but FunC does not have these
-;; x{A9A5} @Defop MULRSHIFTR
 int mulrshiftr(int x, int y, int s) asm "MULRSHIFTR";
-;; x{A9B5} @Defop(8u+1) MULRSHIFTR#
 int mulrshiftr256(int x, int y) asm "256 MULRSHIFTR#";
-;; x{A9BC} @Defop(8u+1) MULRSHIFT#MOD
 (int, int) mulrshift256mod(int x, int y) asm "256 MULRSHIFT#MOD";
-;; x{A9BD} @Defop(8u+1) MULRSHIFTR#MOD
 (int, int) mulrshiftr256mod(int x, int y) asm "256 MULRSHIFTR#MOD";
 (int, int) mulrshiftr255mod(int x, int y) asm "255 MULRSHIFTR#MOD";
 (int, int) mulrshiftr248mod(int x, int y) asm "248 MULRSHIFTR#MOD";
@@ -156,28 +167,23 @@ int mulrshiftr256(int x, int y) asm "256 MULRSHIFTR#";
 (int, int) mulrshiftr6mod(int x, int y) asm "6 MULRSHIFTR#MOD";
 (int, int) mulrshiftr7mod(int x, int y) asm "7 MULRSHIFTR#MOD";
 
-;; these instructions might have been emitted by muldivmodr(..., 1 << N, ...) built-ins
-;; x{A9D5} @Defop(8u+1) LSHIFT#DIVR
 int lshift256divr(int x, int y) asm "256 LSHIFT#DIVR";
-;; x{A9DD} @Defop(8u+1) LSHIFT#DIVMODR
 (int, int) lshift256divmodr(int x, int y) asm "256 LSHIFT#DIVMODR";
 (int, int) lshift255divmodr(int x, int y) asm "255 LSHIFT#DIVMODR";
 (int, int) lshift2divmodr(int x, int y) asm "2 LSHIFT#DIVMODR";
 (int, int) lshift7divmodr(int x, int y) asm "7 LSHIFT#DIVMODR";
-;; x{A9CD} @Defop LSHIFTDIVMODR
 (int, int) lshiftdivmodr(int x, int y, int s) asm "LSHIFTDIVMODR";
 
-;; these instructions might have been emitted by divmodr(..., 1 << NN) or divmod(..., 1 << N) built-ins
-;; but FunC does not have divmodr(), and divmod() always compiles to "DIVMOD"
-;; x{A93D} @Defop(8u+1) RSHIFTR#MOD
 (int, int) rshiftr256mod(int x) asm "256 RSHIFTR#MOD";
 (int, int) rshiftr248mod(int x) asm "248 RSHIFTR#MOD";
 (int, int) rshiftr4mod(int x) asm "4 RSHIFTR#MOD";
-;; x{A93C} @Defop(8u+1) RSHIFT#MOD
 (int, int) rshift3mod(int x) asm "3 RSHIFT#MOD";
 
 ;; computes y - x (FunC compiler does not try to use this by itself) 
 int sub_rev(int x, int y) asm "SUBR";
+
+int nan() asm "PUSHNAN";
+int is_nan(int x) asm "ISNAN";
 
 {------------------------ SQUARE ROOTS ----------------------------}
 
@@ -185,10 +191,10 @@ int sub_rev(int x, int y) asm "SUBR";
 ;; for all 0 <= a, b <= 2^256-1
 ;; may be used with b=1 or b=scale of fixed-point numbers
 int geom_mean(int a, int b) inline_ref {
-  if (min(a, b) <= 0) {
+  ifnot (min(a, b)) {
     return 0;
   }
-  int s = log2_floor_p1(a);
+  int s = log2_floor_p1(a);   ;; throws out of range error if a < 0 or b < 0
   int t = log2_floor_p1(b);
   ;; NB: (a-b)/2+b == (a+b)/2, but without overflow for large a and b
   int x = (s == t ? (a - b) / 2 + b : 1 << ((s + t) / 2));
@@ -313,9 +319,6 @@ int expm1_f257(int x) inline_ref {
   return x - muldivr(x2, t / 2, a + mulrshiftr256(x, t) ~/ 4) ~/ 4;  ;; x - x^2 * (x-a) / (a + x*(x-a))
 }
 
-;; used to avoid broken optimisations in older versions of FunC
-int minus_one() asm "-1 PUSHINT";
-
 ;; expm1_f257() may be used to implement specific fixed-point exponentials
 ;; example:
 ;; fixed248 exp(fixed248 x)
@@ -327,8 +330,7 @@ int fixed248::exp(int x) inline_ref {
   x = 2 * x - muldivr(q, l2d, 1 << 127);
   int y = expm1_f257(x);
   ;; result is (1 + y) * (2^q) --> ((1 << 257) + y) >> (9 - q)
-  return (y ~>> (9 - q)) - (minus_one() << (248 + q));
-  ;; (-1 << (248 + q)) is compiled into non-existent instruction NEGPOW2
+  return (y ~>> (9 - q)) - (-1 << (248 + q));
   ;; note that (y ~>> (9 - q)) + (1 << (248 + q)) leads to overflow when q=8
 }
 
@@ -339,7 +341,7 @@ int fixed248::exp2(int x) inline_ref {
   (int q, x) = rshiftr248mod(x);
   x = muldivr(x, log2_const_f256(), 1 << 247);
   int y = expm1_f257(x);
-  return (y ~>> (9 - q)) - (minus_one() << (248 + q));
+  return (y ~>> (9 - q)) - (-1 << (248 + q));
 }
 
 {--------------------- TRIGONOMETRIC FUNCTIONS -----------------------}
@@ -662,7 +664,7 @@ int fixed248::pow(int x, int y) inline_ref {
     return - (sq == 0);   ;; underflow
   }
   int y = expm1_f257(mulrshiftr256(ll, log2_const_f256()));
-  return (y ~>> (9 - q)) - (minus_one() << sq);
+  return (y ~>> (9 - q)) - (-1 << sq);
 }
 
 {--------------------- INVERSE TRIGONOMETRIC FUNCTIONS -------------------}
@@ -795,7 +797,7 @@ int atan_f256_small(int x) inline_ref {
 ;; fixed255 asin(fixed255 x);
 int asin_f255(int x) inline_ref {
   int a = fixed255::One - fixed255::sqr(x);  ;; a:=1-x^2
-  if (a <= 0) {
+  ifnot (a) {
     return sgn(x) * Pi_const_f254();   ;; Pi/2 or -Pi/2
   }
   int y = fixed255::sqrt(a);   ;; sqrt(1-x^2)
@@ -806,7 +808,7 @@ int asin_f255(int x) inline_ref {
 ;; fixed254 acos(fixed255 x);
 int acos_f255(int x) inline_ref {
   int Pi = Pi_const_f254();
-  if (x <= (-1 << 255)) {
+  if (x == (-1 << 255)) {
     return Pi;   ;; acos(-1) = Pi
   }
   Pi /= 2;
@@ -857,4 +859,66 @@ int fixed248::acot(int x) inline_ref {
   var (q, z) = atan_aux_f256(x);
   ;; now acot(x) = - z - q*atan(1/32) + s*(Pi/2), z is fixed261
   return (s * Pi_const_f254() - z ~/ 64 - muldivr(q, Atan1_32_f261(), 64)) ~/ 128;   ;; compute in fixed255, then convert 
+}
+
+{--------------------- PSEUDO-RANDOM NUMBERS -------------------}
+
+;; random number with standard normal distribution N(0,1)
+;; generated by Kinderman--Monahan ratio method modified by J.Leva
+;; spends ~ 2k..3k gas on average
+;; fixed252 nrand();
+int nrand_f252() impure inline_ref {
+  var (x, s, t, A, B, r0) = (nan(), touch(29483) << 236, touch(-3167) << 239, 12845, 16693, 9043);
+  ;; 4/sqrt(e*Pi) = 1.369 loop iterations on average
+  do {
+    var (u, v) = (random() / 16 + 1, muldivr(random() - (1 << 255), 7027, 1 << 16));   ;; fixed252; 7027=ceil(sqrt(8/e)*2^12)
+    int va = abs(v);
+    var (u1, v1) = (u - s, va - t);   ;; (u - 29483/2^16, abs(v) + 3167/2^13) as fixed252
+    ;; Q := u1^2 + v1 * (A*v1 - B*u1) as fixed252 where A=12845/2^16, B=16693/2^16
+    int Q = muldivr(u1, u1, 1 << 252) + muldivr(v1, muldivr(v1, A, 1 << 16) - muldivr(u1, B, 1 << 16), 1 << 252);
+    ;; must have 9043 / 2^15 < Q < 9125 / 2^15, otherwise accept if smaller, reject if larger
+    int Qd = (Q >> 237) - r0;
+    if ((Qd < 9125 - 9043) & (va / u < 16)) {
+      x = muldivr(v, 1 << 252, u);    ;; x:=v/u as fixed252; reject immediately if |v/u| >= 16
+      if (Qd >= 0) {   ;; immediately accept if Qd < 0
+        ;; rarely taken branch - 0.012 times per call on average
+        ;; check condition v^2 < -4*u^2*log(u), or equivalent condition u < exp(-x^2/4) for x=v/u
+        int xx = mulrshiftr256(x, x) ~/ 4;   ;; x^2/4 as fixed248
+        int ex = fixed248::exp(- xx) * 16;   ;; exp(-x^2/4) as fixed252
+        if (u > ex) {
+          x = nan();      ;; condition false, reject
+        }
+      }
+    }
+  } until (~ is_nan(x));
+  return x;
+}
+
+;; generates a random number approximately distributed according to the standard normal distribution
+;; much faster than nrand_f252(), should be suitable for most purposes when only several random numbers are needed
+;; fixed252 nrand_fast();
+int nrand_fast_f252() impure inline_ref {
+  int t = touch(-3) << 253;   ;; -6. as fixed252
+  repeat (12) {
+    t += random() / 16;         ;; add together 12 uniformly random numbers
+  }
+  return t;
+}
+
+;; random number uniformly distributed in [0..1)
+;; fixed248 random();
+int fixed248::random() impure inline {
+  return random() >> 8;
+}
+
+;; random number with standard normal distribution
+;; fixed248 nrand();
+int fixed248::nrand() impure inline {
+  return nrand_f252() ~>> 4;
+}
+
+;; generates a random number approximately distributed according to the standard normal distribution
+;; fixed248 nrand_fast();
+int fixed248::nrand_fast() impure inline {
+  return nrand_fast_f252() ~>> 4;
 }
