@@ -2,7 +2,7 @@ library TVM_Asm
 // simple TVM Assembler
 namespace Asm
 Asm definitions
-"1.0.0" constant asm-fif-version
+"0.4.3" constant asm-fif-version
 
 variable @atend
 variable @was-split
@@ -1389,28 +1389,43 @@ forget @proclist  forget @proccnt
 // ( c -- c' )
 { hash hash>libref } : >libref
 
+{ dup "." $pos dup -1 =
+     { drop 0 }
+     { $| 1 $| nip swap (number) 1- abort"invalid version"
+       dup dup 0 < swap 999 > or abort"invalid version" 
+     }
+     cond
+} : parse-version-level
+
 {
+  0 swap
   "." $+
-  { dup "." $pos dup -1 = abort"invalid version" $| 1 $| nip swap (number) drop swap } 3 times
-  "" $= not abort"invalid version" 3 tuple
+  { swap 1000 * swap parse-version-level rot + swap } 3 times
+  "" $= not abort"invalid version"
 } : parse-asm-fif-version
+
 {
   dup =: required-version parse-asm-fif-version
   asm-fif-version parse-asm-fif-version
-  0 =: idx
-  {
-    over @' idx [] over @' idx [] cmp
-    dup 1 = {
+  = 1+ {
       "Required Asm.fif version: " @' required-version "; actual Asm.fif version: " asm-fif-version $+ $+ $+ abort
     } if
-    { 1 } { @' idx 1+ =: idx @' idx 3 = } cond
-  } until
-  2drop
 } : require-asm-fif-version
+
+{
+  dup =: required-version parse-asm-fif-version
+  asm-fif-version parse-asm-fif-version
+  swap
+  >= 1+ {
+      "Required Asm.fif version: " @' required-version "; actual Asm.fif version: " asm-fif-version $+ $+ $+ abort
+    } if
+} : require-asm-fif-version>=
+
 
 Fift definitions Asm
 ' <{ : <{
 ' PROGRAM{ : PROGRAM{
 ' asm-fif-version : asm-fif-version
 ' require-asm-fif-version : require-asm-fif-version
+' require-asm-fif-version>= : require-asm-fif-version>=
 Fift
