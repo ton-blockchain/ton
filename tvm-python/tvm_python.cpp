@@ -437,16 +437,22 @@ struct PyTVM {
     lib_set.clear();  // remove old libs
 
     auto iter = py::iter(std::move(cells));
+    vm::Dictionary libraries{256};
+
     while (iter != py::iterator::sentinel()) {
       auto value = *iter;
       auto stack_entry = cast_python_item_to_stack_entry(value);
+
       if (stack_entry.is_cell()) {
-        lib_set.push_back(stack_entry.as_cell());
+        libraries.set_ref(stack_entry.as_cell()->get_hash().bits(), 256, stack_entry.as_cell(),
+                          vm::Dictionary::SetMode::Add);
       } else {
         throw std::invalid_argument("All libs must be cells");
       }
       ++iter;
     }
+
+    lib_set.push_back(libraries.get_root_cell());
   }
 
   void clear_stack() {
@@ -459,8 +465,6 @@ struct PyTVM {
     }
 
     auto stack_ = td::make_ref<vm::Stack>();
-
-    std::vector<td::Ref<vm::Cell>> lib_set;
 
     vm::VmLog vm_log;
     vm::VmDumper vm_dumper{true, &stacks, &vm_ops};
@@ -659,53 +663,19 @@ std::string load_address(const std::string& boc) {
 }
 
 std::string onchain_hash_key_to_string(const std::string& hash) {
-  td::Bits256 uri;
-  td::Bits256 name;
-  td::Bits256 description;
-  td::Bits256 image;
-  td::Bits256 image_data;
-  td::Bits256 symbol;
-  td::Bits256 decimals;
-  td::Bits256 amount_style;
-  td::Bits256 render_type;
-  td::Bits256 jetton;
-  td::Bits256 master;
-  td::Bits256 address;
+  std::vector<td::string> s = {"uri",      "name",         "description", "image",  "image_data", "symbol",
+                               "decimals", "amount_style", "render_type", "jetton", "master",     "address"};
 
-  td::sha256(td::Slice("uri", strlen("uri")), uri.as_slice());
-  td::sha256(td::Slice("name", strlen("name")), name.as_slice());
-  td::sha256(td::Slice("description", strlen("description")), description.as_slice());
-  td::sha256(td::Slice("image", strlen("image")), image.as_slice());
-  td::sha256(td::Slice("image_data", strlen("image_data")), image_data.as_slice());
-  td::sha256(td::Slice("symbol", strlen("symbol")), symbol.as_slice());
-  td::sha256(td::Slice("decimals", strlen("decimals")), decimals.as_slice());
-  td::sha256(td::Slice("amount_style", strlen("amount_style")), amount_style.as_slice());
-  td::sha256(td::Slice("render_type", strlen("render_type")), render_type.as_slice());
-  td::sha256(td::Slice("jetton", strlen("jetton")), jetton.as_slice());
-  td::sha256(td::Slice("master", strlen("master")), master.as_slice());
-  td::sha256(td::Slice("address", strlen("address")), address.as_slice());
+  for (const auto& it : s) {
+    td::Bits256 tmp;
+    td::sha256(td::Slice(it), tmp.as_slice());
 
-  if (hash == uri.to_hex()) {
-    return "uri";
-  } else if (hash == name.to_hex()) {
-    return "name";
-  } else if (hash == description.to_hex()) {
-    return "description";
-  } else if (hash == image.to_hex()) {
-    return "image";
-  } else if (hash == image_data.to_hex()) {
-    return "image_data";
-  } else if (hash == symbol.to_hex()) {
-    return "symbol";
-  } else if (hash == decimals.to_hex()) {
-    return "decimals";
-  } else if (hash == amount_style.to_hex()) {
-    return "amount_style";
-  } else if (hash == render_type.to_hex()) {
-    return "render_type";
-  } else {
-    return hash;
+    if (hash == tmp.to_hex()) {
+      return it;
+    }
   }
+
+  return hash;
 }
 
 std::string map_to_utf8(const long long val) {
@@ -713,34 +683,59 @@ std::string map_to_utf8(const long long val) {
   return converter.to_bytes(static_cast<char32_t>(val));
 }
 
-std::string parse_snake_data_string(vm::CellSlice& cs) {
-  auto text_size = cs.size() / 8;
-  bool has_next_ref = cs.have_refs();
+std::string fetch_string(vm::CellSlice& cs, bool convert_to_utf8 = true) {
+  if (convert_to_utf8) {
+    auto text_size = cs.size() / 8;
 
-  std::string text;
+    std::string text;
 
-  while (text_size > 0) {
-    auto text_tmp = map_to_utf8(cs.fetch_long(8));
-    text += text_tmp;
-    text_size -= 1;
+    while (text_size > 0) {
+      text += map_to_utf8(cs.fetch_long(8));
+      text_size -= 1;
+    }
+
+    return text;
+  } else {
+    const unsigned int text_size = cs.size() / 8;
+
+    unsigned char b[text_size];
+    cs.fetch_bytes(b, text_size);
+    std::string tmp(b, b + sizeof b / sizeof b[0]);
+    return tmp;
   }
+}
 
+std::string parse_snake_data_string(vm::CellSlice& cs, bool convert_to_utf8 = true) {
+  bool has_next_ref = cs.have_refs();
+  std::string text = fetch_string(cs, convert_to_utf8);
   vm::CellSlice rcf = cs;
 
   while (has_next_ref) {
     rcf = load_cell_slice(rcf.prefetch_ref());
-    auto rtext_size = rcf.size() / 8;
+    auto x = fetch_string(rcf, convert_to_utf8);
 
-    while (rtext_size > 0) {
-      auto text_tmp = map_to_utf8(rcf.fetch_long(8));
-      text += text_tmp;
-      rtext_size -= 1;
-    }
+    text += x;
 
     has_next_ref = rcf.have_refs();
   }
 
   return text;
+}
+
+std::string parse_chunked_data(vm::CellSlice& cs) {
+  vm::Dictionary dict{cs, 32};
+
+  std::string slice;
+
+  while (!dict.is_empty()) {
+    td::BitArray<32> key{};
+    dict.get_minmax_key(key);
+
+    auto val = load_cell_slice(dict.lookup_delete_ref(key));
+    slice += parse_snake_data_string(val, false);
+  }
+
+  return td::base64_encode(slice);
 }
 
 py::dict parse_token_data(const std::string& boc) {
@@ -784,7 +779,7 @@ py::dict parse_token_data(const std::string& boc) {
             py::dict d("type"_a = "snake", "value"_a = parse_snake_data_string(vs));
             py_dict[py::str(key_text)] = d;
           } else if (value_type == 1) {
-            py::dict d("type"_a = "chunks", "value"_a = "");
+            py::dict d("type"_a = "chunks", "value"_a = parse_chunked_data(vs));
             py_dict[py::str(key_text)] = d;
           } else {
             py::dict d("type"_a = "unknown", "value"_a = "");
