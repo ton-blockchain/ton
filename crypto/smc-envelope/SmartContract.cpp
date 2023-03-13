@@ -53,7 +53,10 @@ td::Ref<vm::Cell> build_internal_message(td::RefInt256 amount, td::Ref<vm::CellS
   auto address = cb.finalize();
   
   vm::CellBuilder b;
-  b.store_long(0b011000, 6);                      // 0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddressInt
+  b.store_long(0b0110, 4);                      // 0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  // use -1:00..00 as src:MsgAddressInt
+  // addr_std$10 anycast:(Maybe Anycast)  workchain_id:int8 address:bits256  = MsgAddressInt;
+  b.store_long(0b100, 3); b.store_ones(8); b.store_zeroes(256);
   b.append_cellslice(address);  // dest:MsgAddressInt
   unsigned len = (((unsigned)amount->bit_size(false) + 7) >> 3);
   b.store_long_bool(len, 4) && b.store_int256_bool(*amount, len * 8, false); // grams:Grams
@@ -102,8 +105,12 @@ td::Ref<vm::Stack> prepare_vm_stack(td::RefInt256 amount, td::Ref<vm::CellSlice>
   td::RefInt256 acc_addr{true};
   //CHECK(acc_addr.write().import_bits(account.addr.cbits(), 256));
   vm::Stack& stack = stack_ref.write();
-  stack.push_int(td::make_refint(10000000000));
-  stack.push_int(std::move(amount));
+  if(args.balance) {
+    stack.push_int(td::make_refint(args.balance));
+  } else {
+    stack.push_int(td::make_refint(10000000000));
+  }
+  stack.push_int(amount);
   if(selector == 0) {
     stack.push_cell(build_internal_message(amount, body, args));
   } else {
