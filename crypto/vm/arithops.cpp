@@ -38,8 +38,8 @@ int exec_push_tinyint4(VmState* st, unsigned args) {
 
 std::string dump_push_tinyint4(CellSlice&, unsigned args) {
   int x = (int)((args + 5) & 15) - 5;
-  std::ostringstream os{"PUSHINT "};
-  os << x;
+  std::ostringstream os;
+  os << "PUSHINT " << x;
   return os.str();
 }
 
@@ -53,8 +53,8 @@ int exec_push_tinyint8(VmState* st, unsigned args) {
 
 std::string dump_op_tinyint8(const char* op_prefix, CellSlice&, unsigned args) {
   int x = (signed char)args;
-  std::ostringstream os{op_prefix};
-  os << x;
+  std::ostringstream os;
+  os << op_prefix << x;
   return os.str();
 }
 
@@ -68,8 +68,8 @@ int exec_push_smallint(VmState* st, unsigned args) {
 
 std::string dump_push_smallint(CellSlice&, unsigned args) {
   int x = (short)args;
-  std::ostringstream os{"PUSHINT "};
-  os << x;
+  std::ostringstream os;
+  os << "PUSHINT " << x;
   return os.str();
 }
 
@@ -93,8 +93,8 @@ std::string dump_push_int(CellSlice& cs, unsigned args, int pfx_bits) {
   }
   cs.advance(pfx_bits);
   td::RefInt256 x = cs.fetch_int256(3 + l * 8);
-  std::ostringstream os{"PUSHINT "};
-  os << x;
+  std::ostringstream os;
+  os << "PUSHINT " << x;
   return os.str();
 }
 
@@ -302,7 +302,7 @@ std::string dump_divmod(CellSlice&, unsigned args, bool quiet) {
   if (quiet) {
     s = "Q" + s;
   }
-  return s + "FRC"[round_mode];
+  return round_mode ? s + "FRC"[round_mode] : s;
 }
 
 int exec_shrmod(VmState* st, unsigned args, int mode) {
@@ -352,28 +352,28 @@ std::string dump_shrmod(CellSlice&, unsigned args, int mode) {
   if (!(args & 12) || round_mode == 3) {
     return "";
   }
-  std::string s;
+  std::ostringstream os;
+  if (mode & 1) {
+    os << 'Q';
+  }
   switch (args & 12) {
     case 4:
-      s = "RSHIFT";
+      os << "RSHIFT";
       break;
     case 8:
-      s = "MODPOW2";
+      os << "MODPOW2";
       break;
     case 12:
-      s = "RSHIFTMOD";
+      os << "RSHIFTMOD";
       break;
   }
-  if (mode & 1) {
-    s = "Q" + s;
+  if (round_mode) {
+    os << "FRC"[round_mode];
   }
-  s += "FRC"[round_mode];
   if (mode & 2) {
-    char buff[8];
-    sprintf(buff, " %d", y);
-    s += buff;
+    os << ' ' << y;
   }
-  return s;
+  return os.str();
 }
 
 int exec_muldivmod(VmState* st, unsigned args, int quiet) {
@@ -417,7 +417,7 @@ std::string dump_muldivmod(CellSlice&, unsigned args, bool quiet) {
   if (quiet) {
     s = "Q" + s;
   }
-  return s + "FRC"[round_mode];
+  return round_mode ? s + "FRC"[round_mode] : s;
 }
 
 int exec_mulshrmod(VmState* st, unsigned args, int mode) {
@@ -474,28 +474,28 @@ std::string dump_mulshrmod(CellSlice&, unsigned args, int mode) {
   if (!(args & 12) || round_mode == 3) {
     return "";
   }
-  std::string s;
+  std::ostringstream os;
+  if (mode & 1) {
+    os << 'Q';
+  }
   switch (args & 12) {
     case 4:
-      s = "MULRSHIFT";
+      os << "MULRSHIFT";
       break;
     case 8:
-      s = "MULMODPOW2";
+      os << "MULMODPOW2";
       break;
     case 12:
-      s = "MULRSHIFTMOD";
+      os << "MULRSHIFTMOD";
       break;
   }
-  if (mode & 1) {
-    s = "Q" + s;
+  if (round_mode) {
+    os << "FRC"[round_mode];
   }
-  s += "FRC"[round_mode];
   if (mode & 2) {
-    char buff[8];
-    sprintf(buff, " %d", y);
-    s += buff;
+    os << ' ' << y;
   }
-  return s;
+  return os.str();
 }
 
 int exec_shldivmod(VmState* st, unsigned args, int mode) {
@@ -542,19 +542,25 @@ int exec_shldivmod(VmState* st, unsigned args, int mode) {
   return 0;
 }
 
-std::string dump_shldivmod(CellSlice&, unsigned args, bool quiet) {
+std::string dump_shldivmod(CellSlice&, unsigned args, int mode) {
+  int y = -1;
+  if (mode & 2) {
+    y = (args & 0xff) + 1;
+    args >>= 8;
+  }
   int round_mode = (int)(args & 3);
   if (!(args & 12) || round_mode == 3) {
     return "";
   }
-  std::string s = (args & 4) ? "LSHIFTDIV" : "LSHIFT";
-  if (args & 8) {
-    s += "MOD";
+  std::ostringstream os;
+  os << (mode & 1 ? "Q" : "") << (args & 4 ? "LSHIFTDIV" : "LSHIFT") << (args & 8 ? "MOD" : "");
+  if (round_mode) {
+    os << "FRC"[round_mode];
   }
-  if (quiet) {
-    s = "Q" + s;
+  if (y >= 0) {
+    os << ' ' << y;
   }
-  return s + "FRC"[round_mode];
+  return os.str();
 }
 
 void register_div_ops(OpcodeTable& cp0) {

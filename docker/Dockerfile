@@ -1,6 +1,6 @@
 FROM ubuntu:20.04 as builder
 RUN apt-get update && \
-	DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang-6.0 openssl libssl-dev zlib1g-dev gperf wget git ninja-build && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang-6.0 openssl libmicrohttpd-dev pkg-config libssl-dev zlib1g-dev gperf wget git ninja-build && \
 	rm -rf /var/lib/apt/lists/*
 ENV CC clang-6.0
 ENV CXX clang++-6.0

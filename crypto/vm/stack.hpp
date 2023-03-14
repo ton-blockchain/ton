@@ -103,6 +103,9 @@ class StackEntry {
   }
   StackEntry(td::RefInt256 int_ref) : ref(std::move(int_ref)), tp(t_int) {
   }
+  StackEntry(Ref<Cnt<std::string>> str_ref, bool bytes = false)
+      : ref(std::move(str_ref)), tp(bytes ? t_bytes : t_string) {
+  }
   StackEntry(std::string str, bool bytes = false) : ref(), tp(bytes ? t_bytes : t_string) {
     ref = Ref<Cnt<std::string>>{true, std::move(str)};
   }
