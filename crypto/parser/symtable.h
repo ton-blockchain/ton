@@ -161,8 +161,8 @@ struct SymDef {
   }
 };
 
-extern SymDef* sym_def[symbols.hprime];
-extern SymDef* global_sym_def[symbols.hprime];
+extern SymDef* sym_def[symbols.hprime + 1];
+extern SymDef* global_sym_def[symbols.hprime + 1];
 extern std::vector<std::pair<int, SymDef>> symbol_stack;
 extern std::vector<src::SrcLocation> scope_opened_at;
 

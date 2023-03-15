@@ -205,6 +205,10 @@ int Expr::predefine_vars() {
     case _Var:
       if (!sym) {
         assert(val < 0 && here.defined());
+        if (prohibited_var_names.count(sym::symbols.get_name(~val))) {
+          throw src::ParseError{
+              here, PSTRING() << "symbol `" << sym::symbols.get_name(~val) << "` cannot be redefined as a variable"};
+        }
         sym = sym::define_symbol(~val, false, here);
         // std::cerr << "predefining variable " << sym::symbols.get_name(~val) << std::endl;
         if (!sym) {
