@@ -373,12 +373,12 @@ void DownloadBlock::got_block_data_description(td::BufferSlice data_description)
             auto q = create_serialize_tl_object<ton_api::tonNode_downloadBlock>(create_tl_block_id(block_id_));
             if (client_.empty()) {
               td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_,
-                                      overlay_id_, "get_block", std::move(P), td::Timestamp::in(3.0), std::move(q),
+                                      overlay_id_, "get_block", std::move(P), td::Timestamp::in(15.0), std::move(q),
                                       FullNode::max_block_size(), rldp_);
             } else {
               td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_block",
                                       create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(q)),
-                                      td::Timestamp::in(3.0), std::move(P));
+                                      td::Timestamp::in(15.0), std::move(P));
             }
           },
           [&](ton_api::tonNode_notFound &val) {

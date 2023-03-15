@@ -33,6 +33,7 @@
 #include "td/utils/SharedSlice.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/actor/actor.h"
+#include "ton/ton-types.h"
 
 #include "keys/keys.hpp"
 
@@ -1095,4 +1096,51 @@ class GetPerfTimerStatsJsonQuery : public Query {
 
  private:
   std::string file_name_;
+};
+
+class GetShardOutQueueSizeQuery : public Query {
+ public:
+  GetShardOutQueueSizeQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getshardoutqueuesize";
+  }
+  static std::string get_help() {
+    return "getshardoutqueuesize <wc> <shard> <seqno> [<dest_wc> <dest_shard>]\treturns number of messages in the "
+           "queue of the given shard. Destination shard is optional.";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::BlockId block_id_;
+  td::optional<ton::ShardIdFull> dest_;
+};
+
+class SetExtMessagesBroadcastDisabledQuery : public Query {
+ public:
+  SetExtMessagesBroadcastDisabledQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "setextmessagesbroadcastdisabled";
+  }
+  static std::string get_help() {
+    return "setextmessagesbroadcastdisabled <value>\tdisable broadcasting and rebroadcasting ext messages; value is 0 "
+           "or 1.";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  bool value;
 };
