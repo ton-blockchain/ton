@@ -225,6 +225,9 @@ bool AcceptBlockQuery::create_new_proof() {
   }
   // 5. finish constructing Merkle proof from visited cells
   auto proof = vm::MerkleProof::generate(block_root_, usage_tree.get());
+  if (proof.is_null()) {
+    return fatal_error("cannot create proof");
+  }
   proof_roots_.push_back(proof);
   // 6. extract some information from state update
   state_old_hash_ = upd_cs.prefetch_ref(0)->get_hash(0).bits();

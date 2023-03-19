@@ -60,7 +60,7 @@ Result<T> read_file_impl(CSlice path, int64 size, int64 offset) {
   if (size == -1) {
     size = file_size - offset;
   } else if (size >= 0) {
-    if (size + offset > file_size) {
+    if (size > file_size - offset) {
       size = file_size - offset;
     }
   }

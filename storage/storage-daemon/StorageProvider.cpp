@@ -258,9 +258,13 @@ void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transact
     }
     td::Ref<vm::Cell> body = r_body.move_as_ok();
     vm::CellSlice cs = vm::load_cell_slice(body);
-    // const op::offer_storage_contract = 0x107c49ef;
-    if (cs.size() >= 32 && cs.prefetch_long(32) == 0x107c49ef) {
-      new_contract_address = message->destination_->account_address_;
+    if (cs.size() >= 32) {
+      long long op_code = cs.prefetch_long(32);
+      // const op::offer_storage_contract = 0x107c49ef; -- old versions
+      // const op::deploy_storage_contract = 0xe4748df1; -- new versions
+      if((op_code == 0x107c49ef) || (op_code == 0xe4748df1)) {
+        new_contract_address = message->destination_->account_address_;
+      }
     }
   }
   if (!new_contract_address.empty()) {
