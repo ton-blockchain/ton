@@ -1,4 +1,5 @@
 _transaction_emulator_create
+_transaction_emulator_set_unixtime
 _transaction_emulator_set_lt
 _transaction_emulator_set_rand_seed
 _transaction_emulator_set_ignore_chksig

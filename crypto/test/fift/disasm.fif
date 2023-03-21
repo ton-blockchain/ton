@@ -1,0 +1,70 @@
+"Disasm.fif" include
+"Asm.fif" include
+
+<{
+  IF:<{
+    123456789 PUSHINT
+  }>ELSE<{
+    x{12345} PUSHSLICE
+  }>
+  WHILE:<{ ADD }>DO<{
+    10 PUSHINT REPEAT:<{
+      CONT:<{ NOP }>
+      CONT:<{ }>
+    }>
+  }>
+}>s
+disasm cr
+
+x{007A7} disasm cr // Cannot disassemble: x{7}
+
+<{
+  SWAP
+  s0 s10 XCHG s0 100 s() XCHG
+  s5 PUSH s6 POP
+  s4 s10 PUSH2
+  5 10 BLKSWAP
+  c4 PUSH c5 POP
+}>s dup dup
+disasm cr
+std-disasm disasm cr
+stack-disasm show-vm-code disasm cr
+hide-vm-code
+
+<{
+  1 INT 123456789 INT 123456789123456789123456789 INT
+  <b x{1234} s, b> PUSHREF
+  x{567} PUSHSLICE
+  10 ADDCONST
+  DIV DIVR DIVC
+  RSHIFTC 10 RSHIFTC#
+  20 MODPOW2#
+  30 MULRSHIFTR#
+  LSHIFTDIVC 40 LSHIFT#DIVR
+}>s
+disasm cr
+
+PROGRAM{
+  11 DECLMETHOD foo1
+  12 DECLMETHOD foo2
+  13 DECLMETHOD foo3
+  DECLPROC main
+  foo1 PROC:<{
+    123 ADDCONST
+  }>
+  foo2 PROC:<{
+    OVER
+    5 EQINT
+    IFJMP:<{
+      NIP
+    }>
+    MUL
+  }>
+  foo3 PROC:<{
+    ADD
+    foo2 CALLDICT
+  }>
+  main PROC:<{
+  }>
+}END>s
+disasm

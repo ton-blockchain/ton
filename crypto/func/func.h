@@ -30,6 +30,7 @@
 #include "parser/srcread.h"
 #include "parser/lexer.h"
 #include "parser/symtable.h"
+#include "td/utils/Status.h"
 
 namespace funC {
 
@@ -844,6 +845,35 @@ extern std::vector<SymDef*> glob_func, glob_vars;
  *   PARSE SOURCE
  * 
  */
+
+class ReadCallback {
+public:
+  /// Noncopyable.
+  ReadCallback(ReadCallback const&) = delete;
+  ReadCallback& operator=(ReadCallback const&) = delete;
+
+  enum class Kind
+  {
+    ReadFile,
+    Realpath
+  };
+
+  static std::string kindString(Kind _kind)
+  {
+    switch (_kind)
+    {
+    case Kind::ReadFile:
+      return "source";
+    case Kind::Realpath:
+      return "realpath";
+    default:
+      throw ""; // todo ?
+    }
+  }
+
+  /// File reading or generic query callback.
+  using Callback = std::function<td::Result<std::string>(ReadCallback::Kind, const char*)>;
+};
 
 // defined in parse-func.cpp
 bool parse_source(std::istream* is, const src::FileDescr* fdescr);
@@ -1691,6 +1721,9 @@ void define_builtins();
 extern int verbosity, indent, opt_level;
 extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
 extern std::string generated_from, boc_output_filename;
+extern ReadCallback::Callback read_callback;
+
+td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query);
 
 class GlobalPragma {
  public:

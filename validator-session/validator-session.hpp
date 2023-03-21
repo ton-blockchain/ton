@@ -73,7 +73,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   ValidatorSessionCandidateId signed_block_;
   td::BufferSlice signature_;
 
-  std::array<std::map<ValidatorSessionCandidateId, tl_object_ptr<ton_api::validatorSession_candidate>>, 100> blocks_;
+  std::map<ValidatorSessionCandidateId, tl_object_ptr<ton_api::validatorSession_candidate>> blocks_;
 
   catchain::CatChainSessionId unique_hash_;
 
@@ -204,6 +204,8 @@ class ValidatorSessionImpl : public ValidatorSession {
 
  private:
   static const size_t MAX_REJECT_REASON_SIZE = 1024;
+  static const td::int32 MAX_FUTURE_ROUND_BLOCK = 100;
+  static const td::int32 MAX_PAST_ROUND_BLOCK = 20;
 };
 
 }  // namespace validatorsession

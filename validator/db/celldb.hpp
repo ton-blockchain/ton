@@ -25,6 +25,7 @@
 #include "ton/ton-types.h"
 #include "interfaces/block-handle.h"
 #include "auto/tl/ton_api.h"
+#include <queue>
 
 namespace ton {
 
@@ -84,10 +85,13 @@ class CellDbIn : public CellDbBase {
   static BlockIdExt get_empty_key();
   KeyHash get_empty_key_hash();
 
-  void gc();
+  void gc(BlockIdExt block_id);
   void gc_cont(BlockHandle handle);
   void gc_cont2(BlockHandle handle);
+  void gc_cont3(BlockIdExt block_id, td::Promise<td::Unit> promise);
   void skip_gc();
+
+  void store_cell_cont(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
 
   td::actor::ActorId<RootDb> root_db_;
   td::actor::ActorId<CellDb> parent_;
@@ -97,7 +101,12 @@ class CellDbIn : public CellDbBase {
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
 
-  KeyHash last_gc_;
+  std::queue<td::Promise<td::Unit>> db_queue_;
+  bool db_busy_ = false;
+
+  void enqueue(td::Promise<td::Unit> promise);
+  void release_db();
+  void process_event();
 };
 
 class CellDb : public CellDbBase {
