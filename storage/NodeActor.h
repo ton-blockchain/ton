@@ -60,6 +60,7 @@ class NodeActor : public td::actor::Actor {
   struct DbInitialData {
     std::vector<PendingSetFilePriority> priorities;
     std::set<td::uint64> pieces_in_db;
+    td::uint32 added_at;
   };
 
   NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
@@ -76,11 +77,12 @@ class NodeActor : public td::actor::Actor {
     bool active_upload;
     double download_speed;
     double upload_speed;
+    td::uint32 added_at;
     const std::vector<td::uint8> &file_priority;
   };
   void with_torrent(td::Promise<NodeState> promise) {
     promise.set_value(NodeState{torrent_, should_download_, should_upload_, download_speed_.speed(),
-                                upload_speed_.speed(), file_priority_});
+                                upload_speed_.speed(), added_at_, file_priority_});
   }
   std::string get_stats_str();
 
@@ -112,6 +114,7 @@ class NodeActor : public td::actor::Actor {
   std::shared_ptr<db::DbType> db_;
   bool should_download_{false};
   bool should_upload_{false};
+  td::uint32 added_at_{0};
 
   class Notifier : public td::actor::Actor {
    public:

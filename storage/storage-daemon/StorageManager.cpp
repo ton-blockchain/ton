@@ -259,19 +259,55 @@ void StorageManager::load_from(td::Bits256 hash, td::optional<TorrentMeta> meta,
                           std::move(promise));
 }
 
+static bool try_rm_empty_dir(const std::string &path) {
+  auto stat = td::stat(path);
+  if (stat.is_error() || !stat.ok().is_dir_) {
+    return true;
+  }
+  size_t cnt = 0;
+  td::WalkPath::run(path, [&](td::CSlice name, td::WalkPath::Type type) {
+    if (type != td::WalkPath::Type::ExitDir) {
+      ++cnt;
+    }
+    if (cnt < 2) {
+      return td::WalkPath::Action::Continue;
+    } else {
+      return td::WalkPath::Action::Abort;
+    }
+  }).ignore();
+  if (cnt == 1) {
+    td::rmdir(path).ignore();
+    return true;
+  }
+  return false;
+}
+
 void StorageManager::on_torrent_closed(Torrent torrent, std::shared_ptr<TorrentEntry::ClosingState> closing_state) {
   if (!closing_state->removing) {
     return;
   }
   if (closing_state->remove_files && torrent.inited_header()) {
+    // Ignore all errors: files may just not exist
     size_t files_count = torrent.get_files_count().unwrap();
     for (size_t i = 0; i < files_count; ++i) {
       std::string path = torrent.get_file_path(i);
       td::unlink(path).ignore();
-      // TODO: Check errors, remove empty directories
+      std::string name = torrent.get_file_name(i).str();
+      for (int j = (int)name.size() - 1; j >= 0; --j) {
+        if (name[j] == '/') {
+          name.resize(j + 1);
+          if (!try_rm_empty_dir(torrent.get_root_dir() + '/' + torrent.get_header().dir_name + '/' + name)) {
+            break;
+          }
+        }
+      }
+      if (!torrent.get_header().dir_name.empty()) {
+        try_rm_empty_dir(torrent.get_root_dir() + '/' + torrent.get_header().dir_name);
+      }
     }
   }
-  td::rmrf(db_root_ + "/torrent-files/" + torrent.get_hash().to_hex()).ignore();
+  std::string path = db_root_ + "/torrent-files/" + torrent.get_hash().to_hex();
+  td::rmrf(path).ignore();
   NodeActor::cleanup_db(db_, torrent.get_hash(),
                         [promise = std::move(closing_state->promise)](td::Result<td::Unit> R) mutable {
                           if (R.is_error()) {

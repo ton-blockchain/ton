@@ -40,7 +40,8 @@ NodeActor::NodeActor(PeerId self_id, Torrent torrent, td::unique_ptr<Callback> c
     , node_callback_(std::move(node_callback))
     , db_(std::move(db))
     , should_download_(should_download)
-    , should_upload_(should_upload) {
+    , should_upload_(should_upload)
+    , added_at_((td::uint32)td::Clocks::system()) {
 }
 
 NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
@@ -53,6 +54,7 @@ NodeActor::NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callba
     , db_(std::move(db))
     , should_download_(should_download)
     , should_upload_(should_upload)
+    , added_at_(db_initial_data.added_at)
     , pending_set_file_priority_(std::move(db_initial_data.priorities))
     , pieces_in_db_(std::move(db_initial_data.pieces_in_db)) {
 }
@@ -605,7 +607,7 @@ void NodeActor::loop_peer(const PeerId &peer_id, Peer &peer) {
       TRY_RESULT(proof_serialized, vm::std_boc_serialize(std::move(proof)));
       res.proof = std::move(proof_serialized);
       res.data = td::BufferSlice(std::move(data));
-      td::uint64 size = res.data.size() + res.proof.size();
+      td::uint64 size = res.data.size();
       upload_speed_.add(size);
       peer.upload_speed.add(size);
       return std::move(res);
@@ -706,10 +708,11 @@ void NodeActor::db_store_torrent() {
   if (!db_) {
     return;
   }
-  auto obj = create_tl_object<ton_api::storage_db_torrent>();
+  auto obj = create_tl_object<ton_api::storage_db_torrentV2>();
   obj->active_download_ = should_download_;
   obj->active_upload_ = should_upload_;
   obj->root_dir_ = torrent_.get_root_dir();
+  obj->added_at_ = added_at_;
   db_->set(create_hash_tl_object<ton_api::storage_db_key_torrent>(torrent_.get_hash()), serialize_tl_object(obj, true),
            [](td::Result<td::Unit> R) {
              if (R.is_error()) {
@@ -847,9 +850,9 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
     }
 
     void start_up() override {
-      db::db_get<ton_api::storage_db_torrent>(
+      db::db_get<ton_api::storage_db_TorrentShort>(
           *db_, create_hash_tl_object<ton_api::storage_db_key_torrent>(hash_), false,
-          [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_db_torrent>> R) {
+          [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_db_TorrentShort>> R) {
             if (R.is_error()) {
               td::actor::send_closure(SelfId, &Loader::finish, R.move_as_error_prefix("Torrent: "));
             } else {
@@ -858,10 +861,20 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
           });
     }
 
-    void got_torrent(tl_object_ptr<ton_api::storage_db_torrent> obj) {
-      root_dir_ = std::move(obj->root_dir_);
-      active_download_ = obj->active_download_;
-      active_upload_ = obj->active_upload_;
+    void got_torrent(tl_object_ptr<ton_api::storage_db_TorrentShort> obj) {
+      ton_api::downcast_call(*obj, td::overloaded(
+          [&](ton_api::storage_db_torrent &t) {
+            root_dir_ = std::move(t.root_dir_);
+            active_download_ = t.active_download_;
+            active_upload_ = t.active_upload_;
+            added_at_ = (td::uint32)td::Clocks::system();
+          },
+          [&](ton_api::storage_db_torrentV2 &t) {
+            root_dir_ = std::move(t.root_dir_);
+            active_download_ = t.active_download_;
+            active_upload_ = t.active_upload_;
+            added_at_ = t.added_at_;
+          }));
       db_->get(create_hash_tl_object<ton_api::storage_db_key_torrentMeta>(hash_),
                [SelfId = actor_id(this)](td::Result<db::DbType::GetResult> R) {
                  if (R.is_error()) {
@@ -985,6 +998,7 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
       DbInitialData data;
       data.priorities = std::move(priorities_);
       data.pieces_in_db = std::move(pieces_in_db_);
+      data.added_at = added_at_;
       finish(td::actor::create_actor<NodeActor>("Node", 1, torrent_.unwrap(), std::move(callback_),
                                                 std::move(node_callback_), std::move(db_), active_download_,
                                                 active_upload_, std::move(data)));
@@ -1000,6 +1014,7 @@ void NodeActor::load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, t
     std::string root_dir_;
     bool active_download_{false};
     bool active_upload_{false};
+    td::uint32 added_at_;
     td::optional<Torrent> torrent_;
     std::vector<PendingSetFilePriority> priorities_;
     std::set<td::uint64> pieces_in_db_;
