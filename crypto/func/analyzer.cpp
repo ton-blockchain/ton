@@ -388,7 +388,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       for (; l_it < left.cend(); ++l_it, ++r_it) {
         if (std::find(l_it + 1, left.cend(), *l_it) == left.cend()) {
           auto p = next_var_info[*l_it];
-          new_var_info.add_var(*r_it, !p || p->is_unused());
+          new_var_info.add_var(*r_it, edit && (!p || p->is_unused()));
           new_left.push_back(*l_it);
           new_right.push_back(*r_it);
         }
