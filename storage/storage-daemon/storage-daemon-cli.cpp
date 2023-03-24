@@ -107,6 +107,29 @@ std::string size_to_str(td::uint64 size) {
   return s.as_cslice().str();
 }
 
+td::Result<td::uint64> str_to_size(std::string s) {
+  if (!s.empty() && std::tolower(s.back()) == 'b') {
+    s.pop_back();
+  }
+  int shift = 0;
+  if (!s.empty()) {
+    auto c = std::tolower(s.back());
+    static std::string suffixes = "kmgtpe";
+    for (size_t i = 0; i < suffixes.size(); ++i) {
+      if (c == suffixes[i]) {
+        shift = 10 * (int)(i + 1);
+        s.pop_back();
+        break;
+      }
+    }
+  }
+  TRY_RESULT(x, td::to_integer_safe<td::uint64>(s));
+  if (td::count_leading_zeroes64(x) < shift) {
+    return td::Status::Error("Number is too big");
+  }
+  return x << shift;
+}
+
 std::string time_to_str(td::uint32 time) {
   char time_buffer[80];
   time_t rawtime = time;
@@ -587,6 +610,48 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected EOLN");
       }
       return execute_load_from(hash, std::move(meta), std::move(path));
+    } else if (tokens[0] == "get-speed-limits") {
+      bool json = false;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--json") {
+            json = true;
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        return td::Status::Error("Unexpected token");
+      }
+      return execute_get_speed_limits(json);
+    } else if (tokens[0] == "set-speed-limits") {
+      td::optional<double> download, upload;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--download") {
+            ++i;
+            if (tokens[i] == "unlimited") {
+              download = -1.0;
+            } else {
+              TRY_RESULT_PREFIX(x, str_to_size(tokens[i]), "Invalid download speed: ");
+              download = (double)x;
+            }
+            continue;
+          }
+          if (tokens[i] == "--upload") {
+            ++i;
+            if (tokens[i] == "unlimited") {
+              upload = -1.0;
+            } else {
+              TRY_RESULT_PREFIX(x, str_to_size(tokens[i]), "Invalid upload speed: ");
+              upload = (double)x;
+            }
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        return td::Status::Error("Unexpected token");
+      }
+      return execute_set_speed_limits(download, upload);
     } else if (tokens[0] == "new-contract-message") {
       td::Bits256 hash;
       std::string file;
@@ -702,12 +767,12 @@ class StorageDaemonCli : public td::actor::Actor {
           continue;
         }
         if (tokens[i] == "--min-file-size") {
-          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --min-file-size: ");
+          TRY_RESULT_PREFIX(x, str_to_size(tokens[i + 1]), "Invalid value for --min-file-size: ");
           new_params.minimal_file_size = x;
           continue;
         }
         if (tokens[i] == "--max-file-size") {
-          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --max-file-size: ");
+          TRY_RESULT_PREFIX(x, str_to_size(tokens[i + 1]), "Invalid value for --max-file-size: ");
           new_params.maximal_file_size = x;
           continue;
         }
@@ -751,7 +816,7 @@ class StorageDaemonCli : public td::actor::Actor {
           continue;
         }
         if (tokens[i] == "--max-total-size") {
-          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --max-total-size: ");
+          TRY_RESULT_PREFIX(x, str_to_size(tokens[i + 1]), "Invalid value for --max-total-size: ");
           new_config.max_total_size = x;
           continue;
         }
@@ -857,6 +922,12 @@ class StorageDaemonCli : public td::actor::Actor {
                                "incomplete bag.\n";
       td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
       td::TerminalIO::out() << "\t--files path\tdata for files will be taken from here\n";
+      td::TerminalIO::out() << "get-speed-limits [--json]\tShow global limits for download and upload speed\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out()
+          << "set-speed-limits [--download x] [--upload x]\tSet global limits for download and upload speed\n";
+      td::TerminalIO::out() << "\t--download x\tDownload speed limit in bytes/s, or \"unlimited\"\n";
+      td::TerminalIO::out() << "\t--upload x\tUpload speed limit in bytes/s, or \"unlimited\"\n";
       td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --provider <provider>\tCreate "
                                "\"new contract message\" for storage provider. Saves message body to <file>.\n";
       td::TerminalIO::out() << "\t<provider>\tAddress of storage provider account to take parameters from.\n";
@@ -1295,6 +1366,59 @@ class StorageDaemonCli : public td::actor::Actor {
     return td::Status::OK();
   }
 
+  td::Status execute_get_speed_limits(bool json) {
+    auto query = create_tl_object<ton_api::storage_daemon_getSpeedLimits>(0);
+    send_query(std::move(query), [=, SelfId = actor_id(this)](
+                                     td::Result<tl_object_ptr<ton_api::storage_daemon_speedLimits>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      if (json) {
+        print_json(R.ok());
+        td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+        return;
+      }
+      auto obj = R.move_as_ok();
+      if (obj->download_ < 0.0) {
+        td::TerminalIO::out() << "Download speed limit: unlimited\n";
+      } else {
+        td::TerminalIO::out() << "Download speed limit: " << td::format::as_size((td::uint64)obj->download_) << "/s\n";
+      }
+      if (obj->upload_ < 0.0) {
+        td::TerminalIO::out() << "Upload speed limit:   unlimited\n";
+      } else {
+        td::TerminalIO::out() << "Upload speed limit:   " << td::format::as_size((td::uint64)obj->upload_) << "/s\n";
+      }
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
+    return td::Status::OK();
+  }
+
+  td::Status execute_set_speed_limits(td::optional<double> download, td::optional<double> upload) {
+    if (!download && !upload) {
+      return td::Status::Error("No parameters are set");
+    }
+    auto query = create_tl_object<ton_api::storage_daemon_setSpeedLimits>();
+    query->flags_ = 0;
+    if (download) {
+      query->flags_ |= 1;
+      query->download_ = download.value();
+    }
+    if (upload) {
+      query->flags_ |= 2;
+      query->upload_ = upload.value();
+    }
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Speed limits were set\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
+    return td::Status::OK();
+  }
+
   td::Status execute_new_contract_message(td::Bits256 hash, std::string file, td::uint64 query_id,
                                           td::optional<std::string> provider_address, td::optional<std::string> rate,
                                           td::optional<td::uint32> max_span) {
@@ -1394,25 +1518,26 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_get_provider_params(std::string address, bool json) {
     auto query = create_tl_object<ton_api::storage_daemon_getProviderParams>(address);
-    send_query(std::move(query),
-               [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
-                 if (R.is_error()) {
-                   return;
-                 }
-                 if (json) {
-                   print_json(R.ok());
-                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
-                   return;
-                 }
-                 auto params = R.move_as_ok();
-                 td::TerminalIO::out() << "Storage provider parameters:\n";
-                 td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
-                 td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << params->rate_per_mb_day_ << "\n";
-                 td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
-                 td::TerminalIO::out() << "Min file size: " << (td::uint64)params->minimal_file_size_ << "\n";
-                 td::TerminalIO::out() << "Max file size: " << (td::uint64)params->maximal_file_size_ << "\n";
-                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
-               });
+    send_query(std::move(query), [=, SelfId = actor_id(this)](
+                                     td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      if (json) {
+        print_json(R.ok());
+        td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+        return;
+      }
+      auto params = R.move_as_ok();
+      td::TerminalIO::out() << "Storage provider parameters:\n";
+      td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
+      td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << params->rate_per_mb_day_ << "\n";
+      td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
+      auto min_size = (td::uint64)params->minimal_file_size_, max_size = (td::uint64)params->maximal_file_size_;
+      td::TerminalIO::out() << "Min file size: " << td::format::as_size(min_size) << " (" << min_size << ")\n";
+      td::TerminalIO::out() << "Max file size: " << td::format::as_size(max_size) << " (" << max_size << ")\n";
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
     return td::Status::OK();
   }
 

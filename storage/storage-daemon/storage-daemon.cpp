@@ -180,6 +180,9 @@ class StorageDaemon : public td::actor::Actor {
     dht_id_ = dht_id_full.compute_short_id();
     td::actor::send_closure(adnl_, &adnl::Adnl::add_id, dht_id_full, addr_list, static_cast<td::uint8>(0));
 
+    LOG(INFO) << "Storage daemon ADNL id is " << local_id_;
+    LOG(INFO) << "DHT id is " << dht_id_;
+
     if (client_mode_) {
       auto D = dht::Dht::create_client(dht_id_, db_root_, dht_config_, keyring_.get(), adnl_.get());
       D.ensure();
@@ -535,6 +538,24 @@ class StorageDaemon : public td::actor::Actor {
             }));
           }
         });
+  }
+
+  void run_control_query(ton_api::storage_daemon_getSpeedLimits &query, td::Promise<td::BufferSlice> promise) {
+    td::actor::send_closure(manager_, &StorageManager::get_speed_limits,
+                            promise.wrap([](std::pair<double, double> limits) -> td::BufferSlice {
+                              return create_serialize_tl_object<ton_api::storage_daemon_speedLimits>(limits.first,
+                                                                                                     limits.second);
+                            }));
+  }
+
+  void run_control_query(ton_api::storage_daemon_setSpeedLimits &query, td::Promise<td::BufferSlice> promise) {
+    if (query.flags_ & 1) {
+      td::actor::send_closure(manager_, &StorageManager::set_download_speed_limit, query.download_);
+    }
+    if (query.flags_ & 2) {
+      td::actor::send_closure(manager_, &StorageManager::set_upload_speed_limit, query.upload_);
+    }
+    promise.set_result(create_serialize_tl_object<ton_api::storage_daemon_success>());
   }
 
   void run_control_query(ton_api::storage_daemon_getNewContractMessage &query, td::Promise<td::BufferSlice> promise) {

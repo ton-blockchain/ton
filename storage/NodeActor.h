@@ -23,6 +23,7 @@
 #include "PartsHelper.h"
 #include "PeerActor.h"
 #include "Torrent.h"
+#include "SpeedLimiter.h"
 
 #include "td/utils/Random.h"
 #include "td/utils/Variant.h"
@@ -31,6 +32,7 @@
 #include "db.h"
 
 namespace ton {
+
 class NodeActor : public td::actor::Actor {
  public:
   class NodeCallback {
@@ -64,11 +66,11 @@ class NodeActor : public td::actor::Actor {
   };
 
   NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
-            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download = true,
-            bool should_upload = true);
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, SpeedLimiters speed_limiters,
+            bool should_download = true, bool should_upload = true);
   NodeActor(PeerId self_id, ton::Torrent torrent, td::unique_ptr<Callback> callback,
-            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, bool should_download,
-            bool should_upload, DbInitialData db_initial_data);
+            td::unique_ptr<NodeCallback> node_callback, std::shared_ptr<db::DbType> db, SpeedLimiters speed_limiters,
+            bool should_download, bool should_upload, DbInitialData db_initial_data);
   void start_peer(PeerId peer_id, td::Promise<td::actor::ActorId<PeerActor>> promise);
 
   struct NodeState {
@@ -100,7 +102,7 @@ class NodeActor : public td::actor::Actor {
   void get_peers_info(td::Promise<tl_object_ptr<ton_api::storage_daemon_peerList>> promise);
 
   static void load_from_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::unique_ptr<Callback> callback,
-                           td::unique_ptr<NodeCallback> node_callback,
+                           td::unique_ptr<NodeCallback> node_callback, SpeedLimiters speed_limiters,
                            td::Promise<td::actor::ActorOwn<NodeActor>> promise);
   static void cleanup_db(std::shared_ptr<db::DbType> db, td::Bits256 hash, td::Promise<td::Unit> promise);
 
@@ -115,6 +117,7 @@ class NodeActor : public td::actor::Actor {
   bool should_download_{false};
   bool should_upload_{false};
   td::uint32 added_at_{0};
+  SpeedLimiters speed_limiters_;
 
   class Notifier : public td::actor::Actor {
    public:

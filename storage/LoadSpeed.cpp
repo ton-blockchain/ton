@@ -37,7 +37,7 @@ td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed) {
 }
 
 void LoadSpeed::update(td::Timestamp now) const {
-  while (duration(now) > 30) {
+  while (duration(now) > 10) {
     total_size_ -= events_.front().size;
     events_.pop();
   }

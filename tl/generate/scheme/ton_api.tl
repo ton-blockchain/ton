@@ -764,7 +764,9 @@ storage.db.key.torrentMeta hash:int256 = storage.db.key.TorrentMeta;
 storage.db.key.priorities hash:int256 = storage.db.key.Priorities;
 storage.db.key.piecesInDb hash:int256 = storage.db.key.PiecesInDb;
 storage.db.key.pieceInDb hash:int256 idx:long = storage.db.key.PieceInDb;
+storage.db.key.config = storage.db.key.Config;
 
+storage.db.config flags:# download_speed_limit:double upload_speed_limit:double = storage.db.Config;
 storage.db.torrentList torrents:(vector int256) = storage.db.TorrentList;
 storage.db.torrent root_dir:string active_download:Bool active_upload:Bool = storage.db.TorrentShort;
 storage.db.torrentV2 flags:# root_dir:string added_at:int active_download:Bool active_upload:Bool = storage.db.TorrentShort;
@@ -839,6 +841,8 @@ storage.daemon.priorityPending = storage.daemon.SetPriorityStatus;
 
 storage.daemon.keyHash key_hash:int256 = storage.daemon.KeyHash;
 
+storage.daemon.speedLimits download:double upload:double = storage.daemon.SpeedLimits;
+
 storage.daemon.providerConfig max_contracts:int max_total_size:long = storage.daemon.ProviderConfig;
 storage.daemon.contractInfo address:string state:int torrent:int256 created_time:int file_size:long downloaded_size:long
     rate:string max_span:int client_balance:string contract_balance:string = storage.daemon.ContractInfo;
@@ -871,6 +875,9 @@ storage.daemon.setFilePriorityByName hash:int256 name:string priority:int = stor
 
 storage.daemon.removeTorrent hash:int256 remove_files:Bool = storage.daemon.Success;
 storage.daemon.loadFrom hash:int256 meta:bytes path:string flags:# = storage.daemon.Torrent;
+
+storage.daemon.getSpeedLimits flags:# = storage.daemon.SpeedLimits;
+storage.daemon.setSpeedLimits flags:# download:flags.0?double upload:flags.1?double = storage.daemon.Success;
 
 
 storage.daemon.importPrivateKey key:PrivateKey = storage.daemon.KeyHash;

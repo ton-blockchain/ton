@@ -40,7 +40,7 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
   while (!root_dir.empty() && is_dir_slash(root_dir.back())) {
     root_dir.pop_back();
   }
-  while (!root_dir.empty() && is_dir_slash(root_dir.back())) {
+  while (!root_dir.empty() && !is_dir_slash(root_dir.back())) {
     root_dir.pop_back();
   }
   if (stat.is_dir_) {

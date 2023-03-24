@@ -24,6 +24,7 @@
 
 #include "td/actor/actor.h"
 #include "TorrentInfo.h"
+#include "SpeedLimiter.h"
 
 #include <map>
 #include <atomic>
@@ -102,6 +103,7 @@ struct PeerState {
   std::atomic<State> peer_state_{State{false, false}};
   std::atomic_bool peer_online_{false};
   std::atomic_bool peer_online_set_{false};
+  SpeedLimiters speed_limiters_;
 
   struct Part {
     td::BufferSlice proof;
