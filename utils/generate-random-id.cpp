@@ -28,9 +28,6 @@
 #include <iostream>
 #include <iomanip>
 #include <string>
-#include <cstring>
-#include <cassert>
-#include "crypto/ellcurve/Ed25519.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
@@ -38,12 +35,13 @@
 #include "td/utils/OptionParser.h"
 #include "td/utils/filesystem.h"
 #include "keys/encryptor.h"
-#include "keys/keys.hpp"
 #include "git.h"
+#include "dht/dht-node.hpp"
 
 int main(int argc, char *argv[]) {
   ton::PrivateKey pk;
-  ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list;
+  td::optional<ton::adnl::AdnlAddressList> addr_list;
+  td::optional<td::int32> network_id_opt;
 
   td::OptionParser p;
   p.set_description("generate random id");
@@ -78,11 +76,19 @@ int main(int argc, char *argv[]) {
     if (addr_list) {
       return td::Status::Error("duplicate '-a' option");
     }
-    CHECK(!addr_list);
 
     td::BufferSlice bs(key);
     TRY_RESULT_PREFIX(as_json_value, td::json_decode(bs.as_slice()), "bad addr list JSON: ");
-    TRY_STATUS_PREFIX(td::from_json(addr_list, std::move(as_json_value)), "bad addr list TL: ");
+    ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list_tl;
+    TRY_STATUS_PREFIX(td::from_json(addr_list_tl, std::move(as_json_value)), "bad addr list TL: ");
+    TRY_RESULT_PREFIX_ASSIGN(addr_list, ton::adnl::AdnlAddressList::create(addr_list_tl), "bad addr list: ");
+    return td::Status::OK();
+  });
+  p.add_checked_option('i', "network-id", "dht network id (default: -1)", [&](td::Slice key) {
+    if (network_id_opt) {
+      return td::Status::Error("duplicate '-i' option");
+    }
+    TRY_RESULT_PREFIX_ASSIGN(network_id_opt, td::to_integer_safe<td::int32>(key), "bad network id: ");
     return td::Status::OK();
   });
 
@@ -118,7 +124,7 @@ int main(int argc, char *argv[]) {
       std::cerr << "'-a' option missing" << std::endl;
       return 2;
     }
-    auto x = ton::create_tl_object<ton::ton_api::adnl_node>(pub_key.tl(), std::move(addr_list));
+    auto x = ton::create_tl_object<ton::ton_api::adnl_node>(pub_key.tl(), addr_list.value().tl());
     auto e = pk.create_decryptor().move_as_ok();
     auto r = e->sign(ton::serialize_tl_object(x, true).as_slice()).move_as_ok();
 
@@ -129,12 +135,17 @@ int main(int argc, char *argv[]) {
       std::cerr << "'-a' option missing" << std::endl;
       return 2;
     }
-    auto x = ton::create_tl_object<ton::ton_api::dht_node>(pub_key.tl(), std::move(addr_list), -1, td::BufferSlice());
+    td::int32 network_id = network_id_opt ? network_id_opt.value() : -1;
+    td::BufferSlice to_sign = ton::serialize_tl_object(
+        ton::dht::DhtNode{ton::adnl::AdnlNodeIdFull{pub_key}, addr_list.value(), -1, network_id, td::BufferSlice{}}
+            .tl(),
+        true);
     auto e = pk.create_decryptor().move_as_ok();
-    auto r = e->sign(ton::serialize_tl_object(x, true).as_slice()).move_as_ok();
-    x->signature_ = std::move(r);
+    auto signature = e->sign(to_sign.as_slice()).move_as_ok();
+    auto node =
+        ton::dht::DhtNode{ton::adnl::AdnlNodeIdFull{pub_key}, addr_list.value(), -1, network_id, std::move(signature)};
 
-    auto v = td::json_encode<std::string>(td::ToJson(x));
+    auto v = td::json_encode<std::string>(td::ToJson(node.tl()));
     std::cout << v << "\n";
   } else if (mode == "keys") {
     td::write_file(name, pk.export_as_slice()).ensure();
