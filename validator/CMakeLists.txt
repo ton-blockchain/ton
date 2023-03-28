@@ -198,5 +198,5 @@ target_link_libraries(validator-disk PRIVATE tdutils tdactor adnl rldp tl_api dh
 target_link_libraries(validator-hardfork PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
   overlay catchain validatorsession ton_crypto ton_block ton_db)
 
-target_link_libraries(full-node PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
+target_link_libraries(full-node PRIVATE tdutils tdactor adnl rldp rldp2 tl_api dht tdfec
   overlay catchain validatorsession ton_crypto ton_block ton_db)

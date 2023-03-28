@@ -49,8 +49,8 @@ class FullNodeImpl : public FullNode {
                                         std::shared_ptr<ton::overlay::Certificate> cert,
                                         td::Promise<td::Unit> promise) override;
 
-
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
+  void set_config(FullNodeConfig config) override;
 
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
@@ -82,9 +82,9 @@ class FullNodeImpl : public FullNode {
   void start_up() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
-               td::actor::ActorId<overlay::Overlays> overlays,
+               FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+               td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
 
@@ -101,6 +101,7 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
@@ -112,6 +113,7 @@ class FullNodeImpl : public FullNode {
   std::vector<PublicKeyHash> all_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+  FullNodeConfig config_;
 };
 
 }  // namespace fullnode

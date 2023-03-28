@@ -148,7 +148,7 @@ void AsyncStateSerializer::next_iteration() {
           running_ = true;
           delay_action(
             [SelfId = actor_id(this), shard = shards_[next_idx_]]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::request_shard_state, shard); },
-            td::Timestamp::in(td::Random::fast(0, 4 * 3600)));
+            td::Timestamp::in(td::Random::fast(0, 1800)));
         return;
       }
     }

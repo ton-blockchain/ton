@@ -21,7 +21,6 @@
 #include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "rldp/rldp.h"
 #include "adnl/adnl-ext-client.h"
 #include "td/utils/port/FileFd.h"
 
@@ -36,9 +35,9 @@ class DownloadArchiveSlice : public td::actor::Actor {
   DownloadArchiveSlice(BlockSeqno masterchain_seqno, std::string tmp_dir, adnl::AdnlNodeIdShort local_id,
                        overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::Timestamp timeout,
                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                       td::Promise<std::string> promise);
+                       td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
+                       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
+                       td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise);
 
   void abort_query(td::Status reason);
   void alarm() override;
@@ -51,7 +50,7 @@ class DownloadArchiveSlice : public td::actor::Actor {
   void got_archive_slice(td::BufferSlice data);
 
   static constexpr td::uint32 slice_size() {
-    return 1 << 17;
+    return 1 << 21;
   }
 
  private:
@@ -68,11 +67,14 @@ class DownloadArchiveSlice : public td::actor::Actor {
 
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<std::string> promise_;
+
+  td::uint64 prev_logged_sum_ = 0;
+  td::Timer prev_logged_timer_;
 };
 
 }  // namespace fullnode
