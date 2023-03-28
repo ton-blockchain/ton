@@ -500,7 +500,12 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
         }
         changes = (new_var_info.size() == n);
       } while (changes <= edit);
+      assert(left.size() == 1);
+      bool last = new_var_info.count_used(left) == 0;
       new_var_info += left;
+      if (last) {
+        new_var_info[left[0]]->flags |= VarDescr::_Last;
+      }
       return set_var_info(std::move(new_var_info));
     }
     case _Again: {
