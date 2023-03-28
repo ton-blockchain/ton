@@ -25,7 +25,6 @@
 #include "td/utils/Enumerator.h"
 #include "td/utils/tests.h"
 #include "td/utils/overloaded.h"
-#include "tl-utils/common-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api.hpp"
 #include "td/actor/MultiPromise.h"
@@ -252,6 +251,10 @@ void NodeActor::loop() {
       }
       wait_for_completion_.clear();
       is_completed_ = true;
+      download_speed_.reset();
+      for (auto &peer : peers_) {
+        peer.second.download_speed.reset();
+      }
       callback_->on_completed();
     }
   }
@@ -403,6 +406,12 @@ void NodeActor::set_should_download(bool should_download) {
     return;
   }
   should_download_ = should_download;
+  if (!should_download_) {
+    download_speed_.reset();
+    for (auto &peer : peers_) {
+      peer.second.download_speed.reset();
+    }
+  }
   db_store_torrent();
   yield();
 }
@@ -412,7 +421,14 @@ void NodeActor::set_should_upload(bool should_upload) {
     return;
   }
   should_upload_ = should_upload;
+  if (!should_upload_) {
+    upload_speed_.reset();
+    for (auto &peer : peers_) {
+      peer.second.upload_speed.reset();
+    }
+  }
   db_store_torrent();
+  will_upload_at_ = td::Timestamp::now();
   yield();
 }
 

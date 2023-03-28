@@ -31,6 +31,10 @@ double LoadSpeed::speed(td::Timestamp now) const {
   update(now);
   return (double)total_size_ / duration(now);
 }
+void LoadSpeed::reset() {
+  events_ = {};
+  total_size_ = 0;
+}
 
 td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed) {
   return sb << td::format::as_size(static_cast<td::uint64>(speed.speed())) << "/s";
