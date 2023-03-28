@@ -1,0 +1,185 @@
+;;
+;; Basic workchain addresses
+;;
+
+int parse_work_addr(slice cs) {
+  (int sender_wc, slice sender_addr) = parse_var_addr(cs);
+  throw_unless(error::invalid_address(), 0 == sender_wc);
+  return sender_addr~load_uint(256);
+}
+
+(slice) serialize_work_addr(int addr) {
+   return (begin_cell()
+     .store_uint(2, 2)  ;; Is std address
+     .store_uint(0, 1)  ;; Non-unicast
+     .store_uint(0, 8)  ;; Basic workchain
+     .store_uint(addr, 256) ;; Address hash
+   ).end_cell().begin_parse();
+}
+
+;;
+;; Custom Commands
+;;
+
+(int) equal_slices (slice s1, slice s2) asm "SDEQ";
+builder store_builder(builder to, builder what) asm(what to) "STB";
+builder store_builder_ref(builder to, builder what) asm(what to) "STBREFR";
+(slice, cell) load_maybe_cell(slice s) asm( -> 1 0) "LDDICT";
+(int) mod (int x, int y) asm "MOD";
+builder store_coins(builder b, int x) asm "STGRAMS";
+(slice, int) load_coins(slice s) asm( -> 1 0) "LDGRAMS";
+
+
+;;
+;; Events
+;;
+
+() send_std_message(
+  slice to_addr,
+  int value,
+  int mode, 
+  int op, 
+  int query_id,
+  builder content
+) impure {
+
+  var body = begin_cell()
+      .store_uint(op, 32)
+      .store_uint(query_id, 64)
+      .store_builder(content)
+  .end_cell();
+
+  var msg = begin_cell()
+    .store_uint(0x10, 6)
+    .store_slice(to_addr)
+    .store_coins(value)
+    .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_ref(body)
+  .end_cell();
+
+  send_raw_message(msg, mode);
+}
+
+() send_empty_std_message(
+  slice to_addr,
+  int value,
+  int mode, 
+  int op, 
+  int query_id
+) impure {
+
+  var body = begin_cell()
+      .store_uint(op, 32)
+      .store_uint(query_id, 64)
+  .end_cell();
+
+  var msg = begin_cell()
+    .store_uint(0x10, 6)
+    .store_slice(to_addr)
+    .store_coins(value)
+    .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_ref(body)
+  .end_cell();
+
+  send_raw_message(msg, mode);
+}
+
+() send_text_message(
+  slice to_addr,
+  int value,
+  int mode, 
+  builder content
+) impure {
+
+  var body = begin_cell()
+      .store_uint(0, 32)
+      .store_builder(content)
+  .end_cell();
+
+  var msg = begin_cell()
+    .store_uint(0x10, 6)
+    .store_slice(to_addr)
+    .store_coins(value)
+    .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_ref(body)
+  .end_cell();
+
+  send_raw_message(msg, mode);
+}
+
+;;
+;; Generate
+;;
+
+(int) new_query_id() inline {
+    return now() + mod(cur_lt(), 4294967296);
+}
+
+;;
+;; Text Utils
+;;
+
+(int, int) encode_number_to_text(int number) {
+  int len = 0;
+  int value = 0;
+  int mult = 1;
+  do {
+    (number, int res) = number.divmod(10);
+    value = value + (res + 48) * mult;
+    mult = mult * 256;
+    len = len + 1;
+  } until (number == 0);
+  return (len, value);
+}
+
+builder store_coins_string(builder msg, int amount) {
+  (int ceil, int res) = divmod(amount, 1000000000);
+  (int cl, int cv) = encode_number_to_text(ceil);
+  msg = msg.store_uint(cv, cl * 8 );
+  msg = msg.store_uint(46, 8); ;; "."
+  (int rl, int rv) = encode_number_to_text(res);
+  ;; repeat( 9 - rl ) {
+  ;;  msg = msg.store_uint(48, 8); ;; " "
+  ;; }
+  return msg.store_uint(rv, rl * 8);
+}
+
+
+;; 'Stake'
+builder store_text_stake(builder b) inline {
+    return b.store_uint(358434827109, 40);
+}
+
+;; ' '
+builder store_text_space(builder b) inline {
+    return b.store_uint(32, 8);
+}
+
+;; 'accepted'
+builder store_text_accepted(builder b) inline {
+    return b.store_uint(7017561931702887780, 64);
+}
+
+;; Stake 123.333 accepted
+builder store_accepted_stake(builder b, int amount) inline {
+    return b.store_text_stake()
+            .store_text_space()
+            .store_coins_string(amount)
+            .store_text_space()
+            .store_text_accepted();
+}
+
+;; 'Withdraw completed'
+builder store_withdraw_completed(builder b) inline {
+    return b.store_uint(7614653257073527469736132165096662684165476, 144);
+}
+
+;; 'Withdraw requested. Please, retry the command when your balance is ready.'
+builder store_withdraw_delayed(builder b) inline {
+    return b
+      .store_uint(1949351233810823032252520485584178069312463918, 152) ;; 'Withdraw requested.'
+      .store_text_space()
+      .store_uint(555062058613674355757418046597367430905687018487295295368960255172568430, 240) ;; 'Please, retry the command when'
+      .store_text_space()
+      .store_uint(45434371896731988359547695118970428857702208118225198, 176); ;; 'your balance is ready.'
+}

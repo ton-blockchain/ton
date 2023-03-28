@@ -20,7 +20,7 @@
 
 namespace fift {
 
-td::StringBuilder& operator<<(td::StringBuilder& os, const IntCtx& ctx) {
+td::StringBuilder& operator<<(td::StringBuilder& os, const ParseCtx& ctx) {
   if (ctx.include_depth) {
     return os << ctx.filename << ":" << ctx.line_no << ": ";
   } else {
@@ -28,7 +28,7 @@ td::StringBuilder& operator<<(td::StringBuilder& os, const IntCtx& ctx) {
   }
 }
 
-std::ostream& operator<<(std::ostream& os, const IntCtx& ctx) {
+std::ostream& operator<<(std::ostream& os, const ParseCtx& ctx) {
   return os << (PSLICE() << ctx).c_str();
 }
 
@@ -67,73 +67,7 @@ void CharClassifier::set_char_class(int c, int cl) {
   *p = static_cast<unsigned char>((*p & ~mask) | cl);
 }
 
-IntCtx::Savepoint::Savepoint(IntCtx& _ctx, std::string new_filename, std::string new_current_dir,
-                             std::unique_ptr<std::istream> new_input_stream)
-    : ctx(_ctx)
-    , old_line_no(_ctx.line_no)
-    , old_need_line(_ctx.need_line)
-    , old_filename(_ctx.filename)
-    , old_current_dir(_ctx.currentd_dir)
-    , old_input_stream(_ctx.input_stream)
-    , old_input_stream_holder(std::move(_ctx.input_stream_holder))
-    , old_curline(_ctx.str)
-    , old_curpos(_ctx.input_ptr - _ctx.str.c_str())
-    , old_word(_ctx.word) {
-  ctx.line_no = 0;
-  ctx.filename = new_filename;
-  ctx.currentd_dir = new_current_dir;
-  ctx.input_stream = new_input_stream.get();
-  ctx.input_stream_holder = std::move(new_input_stream);
-  ctx.str = "";
-  ctx.input_ptr = 0;
-  ++(ctx.include_depth);
-}
-
-bool IntCtx::Savepoint::restore(IntCtx& _ctx) {
-  if (restored || &ctx != &_ctx) {
-    return false;
-  }
-  ctx.line_no = old_line_no;
-  ctx.need_line = old_need_line;
-  ctx.filename = old_filename;
-  ctx.currentd_dir = old_current_dir;
-  ctx.input_stream = old_input_stream;
-  ctx.input_stream_holder = std::move(old_input_stream_holder);
-  ctx.str = old_curline;
-  ctx.input_ptr = ctx.str.c_str() + old_curpos;
-  ctx.word = old_word;
-  --(ctx.include_depth);
-  return restored = true;
-}
-
-bool IntCtx::enter_ctx(std::string new_filename, std::string new_current_dir,
-                       std::unique_ptr<std::istream> new_input_stream) {
-  if (!new_input_stream) {
-    return false;
-  }
-  ctx_save_stack.emplace_back(*this, std::move(new_filename), std::move(new_current_dir), std::move(new_input_stream));
-  return true;
-}
-
-bool IntCtx::leave_ctx() {
-  if (ctx_save_stack.empty()) {
-    return false;
-  }
-  bool ok = ctx_save_stack.back().restore(*this);
-  ctx_save_stack.pop_back();
-  return ok;
-}
-
-bool IntCtx::top_ctx() {
-  while (!ctx_save_stack.empty()) {
-    if (!leave_ctx()) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool IntCtx::load_next_line() {
+bool ParseCtx::load_next_line() {
   if (!std::getline(*input_stream, str)) {
     return false;
   }
@@ -145,11 +79,11 @@ bool IntCtx::load_next_line() {
   return true;
 }
 
-bool IntCtx::is_sb() const {
+bool ParseCtx::is_sb() const {
   return !eof() && line_no == 1 && *input_ptr == '#' && input_ptr[1] == '!';
 }
 
-td::Slice IntCtx::scan_word_to(char delim, bool err_endl) {
+td::Slice ParseCtx::scan_word_to(char delim, bool err_endl) {
   load_next_line_ifreq();
   auto ptr = input_ptr;
   while (*ptr && *ptr != delim) {
@@ -167,7 +101,7 @@ td::Slice IntCtx::scan_word_to(char delim, bool err_endl) {
   }
 }
 
-td::Slice IntCtx::scan_word() {
+td::Slice ParseCtx::scan_word() {
   skipspc(true);
   auto ptr = input_ptr;
   while (*ptr && *ptr != ' ' && *ptr != '\t' && *ptr != '\r') {
@@ -179,7 +113,7 @@ td::Slice IntCtx::scan_word() {
   return td::Slice{ptr, ptr2};
 }
 
-td::Slice IntCtx::scan_word_ext(const CharClassifier& classifier) {
+td::Slice ParseCtx::scan_word_ext(const CharClassifier& classifier) {
   skipspc(true);
   auto ptr = input_ptr;
   while (*ptr && *ptr != '\r' && *ptr != '\n') {
@@ -196,7 +130,7 @@ td::Slice IntCtx::scan_word_ext(const CharClassifier& classifier) {
   return td::Slice{ptr, input_ptr};
 }
 
-void IntCtx::skipspc(bool skip_eol) {
+void ParseCtx::skipspc(bool skip_eol) {
   do {
     while (*input_ptr == ' ' || *input_ptr == '\t' || *input_ptr == '\r') {
       ++input_ptr;
@@ -205,6 +139,45 @@ void IntCtx::skipspc(bool skip_eol) {
       break;
     }
   } while (load_next_line());
+}
+
+bool IntCtx::enter_ctx(std::unique_ptr<ParseCtx> new_parser) {
+  if (!new_parser) {
+    return false;
+  }
+  if (parser) {
+    parser_save_stack.push_back(std::move(parser));
+  }
+  parser = std::move(new_parser);
+  return true;
+}
+
+bool IntCtx::enter_ctx(std::string new_filename, std::string new_current_dir,
+                       std::unique_ptr<std::istream> new_input_stream) {
+  if (!new_input_stream) {
+    return false;
+  } else {
+    return enter_ctx(
+        std::make_unique<ParseCtx>(std::move(new_input_stream), new_filename, new_current_dir, include_depth() + 1));
+  }
+}
+
+bool IntCtx::leave_ctx() {
+  if (parser_save_stack.empty()) {
+    return false;
+  } else {
+    parser = std::move(parser_save_stack.back());
+    parser_save_stack.pop_back();
+    return true;
+  }
+}
+
+bool IntCtx::top_ctx() {
+  if (!parser_save_stack.empty()) {
+    parser = std::move(parser_save_stack[0]);
+    parser_save_stack.clear();
+  }
+  return true;
 }
 
 void IntCtx::check_compile() const {
@@ -283,15 +256,20 @@ td::Result<int> IntCtx::get_result() {
   }
 }
 
+std::ostream& ParseCtx::show_context(std::ostream& os) const {
+  if (include_depth && line_no) {
+    os << filename << ":" << line_no << ":\t";
+  }
+  if (!word.empty()) {
+    os << word << ":";
+  }
+  return os;
+}
+
 td::Status IntCtx::add_error_loc(td::Status err) const {
-  if (err.is_error()) {
+  if (err.is_error() && parser) {
     std::ostringstream os;
-    if (include_depth && line_no) {
-      os << filename << ":" << line_no << ":\t";
-    }
-    if (!word.empty()) {
-      os << word << ":";
-    }
+    parser->show_context(os);
     return err.move_as_error_prefix(os.str());
   } else {
     return err;

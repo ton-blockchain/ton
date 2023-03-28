@@ -103,19 +103,7 @@ class Collator final : public td::actor::Actor {
     return 2;
   }
 
-  static td::Result<std::unique_ptr<block::ConfigInfo>>
-                     impl_fetch_config_params(std::unique_ptr<block::ConfigInfo> config,
-                                              Ref<vm::Cell>* old_mparams,
-                                              std::vector<block::StoragePrices>* storage_prices,
-                                              block::StoragePhaseConfig* storage_phase_cfg,
-                                              td::BitArray<256>* rand_seed,
-                                              block::ComputePhaseConfig* compute_phase_cfg,
-                                              block::ActionPhaseConfig* action_phase_cfg,
-                                              td::RefInt256* masterchain_create_fee,
-                                              td::RefInt256* basechain_create_fee,
-                                              WorkchainId wc, UnixTime now);
-
-  static td::Result<std::unique_ptr<block::Transaction>>
+  static td::Result<std::unique_ptr<block::transaction::Transaction>>
                         impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
                                                          block::Account* acc,
                                                          UnixTime utime, LogicalTime lt,
@@ -290,7 +278,7 @@ class Collator final : public td::actor::Actor {
   td::Result<bool> register_shard_signatures_cell(Ref<vm::Cell> shard_blk_signatures);
   td::Result<bool> register_shard_signatures(td::Slice shard_blk_signatures_boc);
   void register_new_msg(block::NewOutMsg msg);
-  void register_new_msgs(block::Transaction& trans);
+  void register_new_msgs(block::transaction::Transaction& trans);
   bool process_new_messages(bool enqueue_only = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();

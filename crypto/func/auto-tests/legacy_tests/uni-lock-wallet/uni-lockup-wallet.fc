@@ -1,0 +1,217 @@
+;; Restricted wallet initialized by a third party (a variant of restricted-wallet3-code.fc)
+;; Allows to add more locked budget after initialization
+
+#include "stdlib.fc";
+
+int err:wrong_signature() asm "31 PUSHINT";
+int err:wrong_config_signature() asm "32 PUSHINT";
+int err:value_is_too_small() asm "33 PUSHINT";
+int err:wrong_seqno() asm "34 PUSHINT";
+int err:wrong_subwallet_id() asm "35 PUSHINT";
+int err:replay_protection() asm "36 PUSHINT";
+int err:unknown_op() asm "40 PUSHINT";
+int err:unknown_cmd() asm "41 PUSHINT";
+
+int op:rwallet_op() asm "0x82eaf9c4 PUSHINT";
+int cmd:restricted_transfer() asm "0x373aa9f4 PUSHINT";
+
+_ is_whitelisted?(addr, allowed_destinations) {
+  (_, _, _, int found) = allowed_destinations.pfxdict_get?(addr.slice_bits(), addr);
+  return found;
+}
+
+_ check_message_destination(msg, allowed_destinations) inline_ref {
+  var cs = msg.begin_parse();
+  var flags = cs~load_uint(4);
+  if (flags & 8) {
+    ;; external messages are always valid
+    return true;
+  }
+  var (s_addr, d_addr) = (cs~load_msg_addr(), cs~load_msg_addr());
+
+  return is_whitelisted?(d_addr, allowed_destinations);
+}
+
+_ unpack_data() {
+  var cs = get_data().begin_parse();
+  var res = (
+    cs~load_uint(32),
+    cs~load_uint(32),
+    cs~load_uint(256),
+    cs~load_uint(256),
+    cs~load_dict(),
+    cs~load_grams(),
+    cs~load_dict(),
+    cs~load_grams(),
+    cs~load_dict()
+  );
+  cs.end_parse();
+  return res;
+}
+
+_ pack_data(int seqno, int subwallet_id, int public_key, int config_public_key, cell allowed_destinations, int total_locked_value, cell
+locked, int total_restricted_value, cell restricted) {
+  return begin_cell()
+    .store_int(seqno, 32)
+    .store_int(subwallet_id, 32)
+    .store_uint(public_key, 256)
+    .store_uint(config_public_key, 256)
+    .store_dict(allowed_destinations)
+    .store_grams(total_locked_value)
+    .store_dict(locked)
+    .store_grams(total_restricted_value)
+    .store_dict(restricted).end_cell();
+}
+
+(cell, int) lock_grams(cell locked, int total, int ts, int value) {
+  total += value;
+  (slice found_cs, var found) = locked.udict_get?(32, ts);
+  if (found) {
+    var found_value = found_cs~load_grams();
+    found_cs.end_parse();
+    value += found_value;
+  }
+  locked~udict_set_builder(32, ts, begin_cell().store_grams(value));
+  return (locked, total);
+}
+
+(cell, int) unlock_grams(cell locked, int total, int now_ts) {
+  do {
+    var (locked', ts, value_cs, f) = locked.udict_delete_get_min(32);
+    f~touch();
+    if (f) {
+      f = ts <= now_ts;
+    }
+    if (f) {
+      locked = locked';
+      int value = value_cs~load_grams();
+      value_cs.end_parse();
+      total -= value;
+    }
+  } until (~ f);
+  return (locked, total);
+}
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+  var cs = in_msg_cell.begin_parse();
+  var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  if (flags & 1) {
+    ;; ignore all bounced messages
+    return ();
+  }
+  var s_addr = cs~load_msg_addr();
+  if (in_msg.slice_empty?()) {
+    return();
+  }
+  int op = in_msg~load_uint(32);
+  if (op <= 1) {
+    ;; simple transfer with comment, return
+    return ();
+  }
+  var (stored_seqno, stored_subwallet, public_key, config_public_key, allowed_destinations, total_locked_value, locked,
+       total_restricted_value, restricted) = unpack_data();
+
+  if is_whitelisted?(s_addr, allowed_destinations) & (op != op:rwallet_op()) {
+    return ();
+  }
+
+  throw_unless(err:unknown_op(), op == op:rwallet_op());
+  throw_unless(err:value_is_too_small(), msg_value >= 1000000000);
+
+
+
+  var signature = in_msg~load_bits(512);
+  throw_unless(err:wrong_config_signature(), check_signature(slice_hash(in_msg), signature, config_public_key));
+  int cmd = in_msg~load_uint(32);
+  throw_unless(err:unknown_cmd(), cmd == cmd:restricted_transfer());
+  var (only_restrict, ts) = (in_msg~load_uint(1), in_msg~load_uint(32));
+  if (only_restrict) {
+    (restricted, total_restricted_value) = lock_grams(restricted, total_restricted_value, ts, msg_value);
+  } else {
+    (locked, total_locked_value) = lock_grams(locked, total_locked_value, ts, msg_value);
+  }
+
+  set_data(pack_data(stored_seqno, stored_subwallet, public_key, config_public_key, allowed_destinations, total_locked_value, locked,
+                     total_restricted_value, restricted));
+}
+
+() recv_external(slice in_msg) impure {
+  var signature = in_msg~load_bits(512);
+  var cs = in_msg;
+  var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));
+  throw_if(err:replay_protection(), valid_until <= now());
+  var (stored_seqno, stored_subwallet, public_key, config_public_key, allowed_destinations, total_locked_value, locked,
+       total_restricted_value, restricted) = unpack_data();
+  throw_unless(err:wrong_seqno(), msg_seqno == stored_seqno);
+  throw_unless(err:wrong_subwallet_id(), subwallet_id == stored_subwallet);
+  throw_unless(err:wrong_signature(), check_signature(slice_hash(in_msg), signature, public_key));
+  accept_message();
+
+  (restricted, total_restricted_value) = unlock_grams(restricted, total_restricted_value, now());
+  (locked, total_locked_value) = unlock_grams(locked, total_locked_value, now());
+  int effectively_locked = total_locked_value;
+  int can_use_restricted = 1;
+  var cs_copy = cs;
+  while (cs_copy.slice_refs()) {
+    var mode = cs_copy~load_uint(8);
+    var msg = cs_copy~load_ref();
+    can_use_restricted &= check_message_destination(msg, allowed_destinations);
+  }
+
+  ifnot (can_use_restricted) {
+    effectively_locked += total_restricted_value;
+  }
+  raw_reserve(effectively_locked, 2);
+
+  cs~touch();
+  while (cs.slice_refs()) {
+    var mode = cs~load_uint(8);
+    var msg = cs~load_ref();
+    send_raw_message(msg, mode);
+  }
+  cs.end_parse();
+
+  set_data(pack_data(stored_seqno + 1, stored_subwallet, public_key, config_public_key, allowed_destinations, total_locked_value, locked,
+                     total_restricted_value, restricted));
+}
+
+;; Get methods
+
+int seqno() method_id {
+  return get_data().begin_parse().preload_uint(32);
+}
+
+int wallet_id() method_id {
+  var ds = get_data().begin_parse();
+  ds~load_uint(32);
+  return ds.preload_uint(32);
+}
+
+int get_public_key() method_id {
+  var ds = get_data().begin_parse();
+  ds~load_uint(32 + 32);
+  return ds.preload_uint(256);
+}
+
+;; the next three methods are mostly for testing
+
+(int, int, int) get_balances_at(int time) method_id {
+  var (stored_seqno, stored_subwallet, public_key, config_public_key, allowed_destinations, total_locked_value, locked,
+       total_restricted_value, restricted) = unpack_data();
+  (restricted, total_restricted_value) = unlock_grams(restricted, total_restricted_value, time);
+  (locked, total_locked_value) = unlock_grams(locked, total_locked_value, time);
+  int ton_balance = get_balance().pair_first();
+  return ( ton_balance,
+           total_restricted_value,
+           total_locked_value );
+}
+
+(int, int, int) get_balances() method_id {
+  return get_balances_at(now());
+}
+
+int check_destination(slice destination) method_id {
+  var (stored_seqno, stored_subwallet, public_key, config_public_key, allowed_destinations, total_locked_value, locked,
+       total_restricted_value, restricted) = unpack_data();
+  return is_whitelisted?(destination, allowed_destinations);
+}

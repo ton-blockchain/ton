@@ -1,0 +1,52 @@
+#include "stdlib.fc";
+#include "modules/constants.fc";
+#include "modules/utils-config.fc";
+#include "modules/utils.fc";
+;; #include "modules/utils-config-mock.fc";
+#include "modules/store-base.fc";
+#include "modules/store-nominators.fc";
+#include "modules/store-validator.fc";
+#include "modules/model.fc";
+#include "modules/op-controller.fc";
+#include "modules/op-owner.fc";
+#include "modules/op-common.fc";
+#include "modules/op-nominators.fc";
+#include "modules/get.fc";
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+    
+    ;; Prepare message context
+    var cs = in_msg_cell.begin_parse();
+    var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+    slice s_addr = cs~load_msg_addr();
+    load_base_data();
+
+    ;; Handle controller messages
+    if (equal_slices(s_addr, ctx_controller)) {
+        load_validator_data();
+        op_controller(flags, msg_value, in_msg);
+        return ();
+    }
+
+    ;; Handle elector messages
+    if (equal_slices(s_addr, ctx_proxy)) {
+        load_validator_data();
+        op_elector(flags, msg_value, in_msg);
+        return ();
+    }
+
+    ;; Handle owner messages
+    if (equal_slices(s_addr, ctx_owner)) {
+        op_owner(flags, msg_value, in_msg);
+        return ();
+    }
+
+    ;; Nominators
+    var address = parse_work_addr(s_addr);
+    op_nominators(address, flags, msg_value, in_msg);
+}
+
+() recv_external(slice in_msg) impure {
+    ;; Do not accept external messages
+    throw(error::invalid_message());
+}

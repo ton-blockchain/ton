@@ -141,6 +141,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ImportShardOverlayCertificateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignShardOverlayCertificateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetPerfTimerStatsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetShardOutQueueSizeQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetExtMessagesBroadcastDisabledQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetValidatorSessionsInfoQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddCollatorQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddShardQuery>>());

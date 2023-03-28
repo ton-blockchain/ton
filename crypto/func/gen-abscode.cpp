@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <numeric>
 #include "func.h"
 
 using namespace std::literals::string_literals;
@@ -255,11 +256,73 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
   std::vector<std::pair<SymDef*, var_idx_t>> globs;
   auto left = lhs->pre_compile(code, &globs);
   for (var_idx_t v : left) {
-    code.check_modify_forbidden(v, here);
+    code.on_var_modification(v, here);
   }
   code.emplace_back(here, Op::_Let, std::move(left), right);
   add_set_globs(code, globs, here);
   return right;
+}
+
+std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBlob &code,
+                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs,
+                                          std::vector<int> arg_order) {
+  if (arg_order.empty()) {
+    arg_order.resize(args.size());
+    std::iota(arg_order.begin(), arg_order.end(), 0);
+  }
+  assert(args.size() == arg_order.size());
+  std::vector<std::vector<var_idx_t>> res_lists(args.size());
+
+  struct ModifiedVar {
+    size_t i, j;
+    Op* op;
+  };
+  auto modified_vars = std::make_shared<std::vector<ModifiedVar>>();
+  for (size_t i : arg_order) {
+    res_lists[i] = args[i]->pre_compile(code, lval_globs);
+    for (size_t j = 0; j < res_lists[i].size(); ++j) {
+      TmpVar& var = code.vars.at(res_lists[i][j]);
+      if (code.flags & CodeBlob::_AllowPostModification) {
+        if (!lval_globs && (var.cls & TmpVar::_Named)) {
+          Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
+          op->flags |= Op::_Disabled;
+          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
+            if (!done) {
+              done = true;
+              modified_vars->push_back({i, j, op});
+            }
+          });
+        } else {
+          var.on_modification.push_back([](const SrcLocation &) {
+          });
+        }
+      } else {
+        var.on_modification.push_back([name = var.to_string()](const SrcLocation &here) {
+            throw src::ParseError{here, PSTRING() << "Modifying local variable " << name
+                                                  << " after using it in the same expression"};
+        });
+      }
+    }
+  }
+  for (const auto& list : res_lists) {
+    for (var_idx_t v : list) {
+      assert(!code.vars.at(v).on_modification.empty());
+      code.vars.at(v).on_modification.pop_back();
+    }
+  }
+  for (const ModifiedVar &m : *modified_vars) {
+    var_idx_t& v = res_lists[m.i][m.j];
+    var_idx_t v2 = code.create_tmp_var(code.vars[v].v_type, code.vars[v].where.get());
+    m.op->left = {v2};
+    m.op->right = {v};
+    m.op->flags &= ~Op::_Disabled;
+    v = v2;
+  }
+  std::vector<var_idx_t> res;
+  for (const auto& list : res_lists) {
+    res.insert(res.end(), list.cbegin(), list.cend());
+  }
+  return res;
 }
 
 std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs) const {
@@ -269,46 +332,17 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
   }
   switch (cls) {
     case _Tensor: {
-      std::vector<var_idx_t> res;
-      for (const auto& x : args) {
-        auto add = x->pre_compile(code, lval_globs);
-        for (var_idx_t v : add) {
-          code.mark_modify_forbidden(v);
-        }
-        res.insert(res.end(), add.cbegin(), add.cend());
-      }
-      for (var_idx_t v : res) {
-        code.unmark_modify_forbidden(v);
-      }
-      return res;
+      return pre_compile_tensor(args, code, lval_globs, {});
     }
     case _Apply: {
       assert(sym);
-      std::vector<var_idx_t> res;
       auto func = dynamic_cast<SymValFunc*>(sym->value);
-      if (func && func->arg_order.size() == args.size()) {
+      std::vector<var_idx_t> res;
+      if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
         //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
-        std::vector<std::vector<var_idx_t>> add_list(args.size());
-        for (int i : func->arg_order) {
-          add_list[i] = args[i]->pre_compile(code);
-          for (var_idx_t v : add_list[i]) {
-            code.mark_modify_forbidden(v);
-          }
-        }
-        for (const auto& add : add_list) {
-          res.insert(res.end(), add.cbegin(), add.cend());
-        }
+        res = pre_compile_tensor(args, code, lval_globs, func->arg_order);
       } else {
-        for (const auto& x : args) {
-          auto add = x->pre_compile(code);
-          for (var_idx_t v : add) {
-            code.mark_modify_forbidden(v);
-          }
-          res.insert(res.end(), add.cbegin(), add.cend());
-        }
-      }
-      for (var_idx_t v : res) {
-        code.unmark_modify_forbidden(v);
+        res = pre_compile_tensor(args, code, lval_globs, {});
       }
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
@@ -321,6 +355,9 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       return args[0]->pre_compile(code, lval_globs);
     case _Var:
     case _Hole:
+      if (val < 0) {
+        throw src::ParseError{here, "unexpected variable definition"};
+      }
       return {val};
     case _VarApply:
       if (args[0]->cls == _Glob) {
@@ -371,7 +408,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       auto left = args[0]->pre_compile(code, lval_globs);
       left.push_back(rvect[0]);
       for (var_idx_t v : left) {
-        code.check_modify_forbidden(v, here);
+        code.on_var_modification(v, here);
       }
       code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
       add_set_globs(code, local_globs, here);

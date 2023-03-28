@@ -1,0 +1,416 @@
+const int one_ton = 1000000000;
+const int dns_next_resolver_prefix = 0xba93; ;; dns_next_resolver prefix - https://github.com/ton-blockchain/ton/blob/7e3df93ca2ab336716a230fceb1726d81bac0a06/crypto/block/block.tlb#L819
+
+const int op::fill_up = 0x370fec51;
+const int op::outbid_notification = 0x557cea20;
+const int op::change_dns_record = 0x4eb1f0f9;
+const int op::dns_balance_release = 0x4ed14b65;
+
+const int op::telemint_msg_deploy = 0x4637289a;
+const int op::teleitem_msg_deploy = 0x299a3e15;
+const int op::teleitem_start_auction = 0x487a8e81;
+const int op::teleitem_cancel_auction = 0x371638ae;
+const int op::teleitem_bid_info = 0x38127de1;
+const int op::teleitem_return_bid = 0xa43227e1;
+const int op::teleitem_ok = 0xa37a0983;
+
+const int op::nft_cmd_transfer = 0x5fcc3d14;
+const int op::nft_cmd_get_static_data = 0x2fcb26a2;
+const int op::nft_cmd_edit_content = 0x1a0b9d51;
+const int op::nft_answer_ownership_assigned = 0x05138d91;
+const int op::nft_answer_excesses = 0xd53276db;
+
+const int op::ownership_assigned = 0x05138d91;
+const int op::excesses = 0xd53276db;
+const int op::get_static_data = 0x2fcb26a2;
+const int op::report_static_data = 0x8b771735;
+const int op::get_royalty_params = 0x693d3950;
+const int op::report_royalty_params = 0xa8cb00ad;
+
+const int err::invalid_length = 201;
+const int err::invalid_signature = 202;
+const int err::wrong_subwallet_id = 203;
+const int err::not_yet_valid_signature = 204;
+const int err::expired_signature = 205;
+const int err::not_enough_funds = 206;
+const int err::wrong_topup_comment = 207;
+const int err::unknown_op = 208;
+const int err::uninited = 210;
+const int err::too_small_stake = 211;
+const int err::expected_onchain_content = 212;
+const int err::forbidden_not_deploy = 213;
+const int err::forbidden_not_stake = 214;
+const int err::forbidden_topup = 215;
+const int err::forbidden_transfer = 216;
+const int err::forbidden_change_dns = 217;
+const int err::forbidden_touch = 218;
+const int err::no_auction = 219;
+const int err::forbidden_auction = 220;
+const int err::already_has_stakes = 221;
+const int err::auction_already_started = 222;
+const int err::invalid_auction_config = 223;
+const int err::incorrect_workchain = 333;
+const int err::no_first_zero_byte = 413;
+const int err::bad_subdomain_length = 70;
+
+const int min_tons_for_storage = one_ton;
+const int workchain = 0;
+
+int equal_slices(slice a, slice b) asm "SDEQ";
+int builder_null?(builder b) asm "ISNULL";
+builder store_builder(builder to, builder from) asm "STBR";
+slice zero_address() asm "b{00} PUSHSLICE";
+(slice, int) skip_first_zero_byte?(slice cs) asm "x{00} SDBEGINSQ";
+
+() force_chain(slice addr) impure inline {
+    (int wc, _) = parse_std_addr(addr);
+    throw_unless(err::incorrect_workchain, wc == workchain);
+}
+
+
+;; "ton\0test\0" -> "ton"
+int get_top_domain_bits(slice domain) inline {
+    int i = -8;
+    int char = 1;
+    while (char) {
+        i += 8;
+        char = domain~load_uint(8); ;; we do not check domain.length because it MUST contains \0 character
+    }
+    throw_unless(201, i); ;; should not start with \0
+    return i;
+}
+
+_ load_text(slice cs) inline {
+    int len = cs~load_uint(8);
+    slice text = cs~load_bits(len * 8);
+    return (cs, text);
+}
+
+_ load_text_ref(slice cs) inline {
+    slice text_cs = cs~load_ref().begin_parse();
+    slice text = text_cs~load_text();
+    return (cs, text);
+}
+
+builder store_text(builder b, slice text) inline {
+    int len = slice_bits(text);
+    (int bytes, int rem) = len /% 8;
+    throw_if(err::invalid_length, rem);
+    return b.store_uint(bytes, 8)
+            .store_slice(text);
+}
+
+(slice, slice) unpack_token_info(cell c) inline {
+    slice cs = c.begin_parse();
+    var res = (
+            cs~load_text(),
+            cs~load_text()
+    );
+    cs.end_parse();
+    return res;
+}
+
+cell pack_token_info(slice name, slice domain) {
+    return begin_cell()
+            .store_text(name)
+            .store_text(domain)
+            .end_cell();
+}
+
+cell pack_state_init(cell code, cell data) inline {
+    return begin_cell()
+            .store_uint(0, 2)
+            .store_maybe_ref(code)
+            .store_maybe_ref(data)
+            .store_uint(0, 1)
+            .end_cell();
+}
+
+cell pack_init_int_message(slice dest, cell state_init, cell body) inline {
+    return begin_cell()
+            .store_uint(0x18, 6) ;; 011000 tag=0, ihr_disabled=1, allow_bounces=1, bounced=0, add_none
+            .store_slice(dest)
+            .store_grams(0) ;; grams
+            .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+            .store_ref(state_init)
+            .store_ref(body)
+            .end_cell();
+}
+
+() send_msg(slice to_address, int amount, int op, int query_id, builder payload, int mode) impure inline {
+    var msg = begin_cell()
+            .store_uint(0x10, 6) ;; nobounce - int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 010000
+            .store_slice(to_address)
+            .store_grams(amount)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_uint(op, 32)
+            .store_uint(query_id, 64);
+
+    ifnot (builder_null?(payload)) {
+        msg = msg.store_builder(payload);
+    }
+
+    send_raw_message(msg.end_cell(), mode);
+}
+
+slice calculate_address(int wc, cell state_init) inline {
+    slice res = begin_cell()
+            .store_uint(4, 3)
+            .store_int(wc, 8)
+            .store_uint(cell_hash(state_init), 256)
+            .end_cell()
+            .begin_parse();
+    return res;
+}
+
+(int, slice) unpack_item_config(cell c) inline {
+    slice cs = c.begin_parse();
+    var res = (
+            cs~load_uint(256),
+            cs~load_msg_addr()
+    );
+    cs.end_parse();
+    return res;
+}
+
+cell pack_item_config(int item_index, slice collection_address) inline {
+    return begin_cell()
+            .store_uint(item_index, 256)
+            .store_slice(collection_address)
+            .end_cell();
+}
+
+(cell, cell) unpack_item_data() inline {
+    var cs = get_data().begin_parse();
+    var res = (cs~load_ref(), cs~load_maybe_ref());
+    cs.end_parse();
+    return res;
+}
+
+cell pack_nft_royalty_params(int numerator, int denominator, slice destination) inline {
+    return begin_cell()
+            .store_uint(numerator, 16)
+            .store_uint(denominator, 16)
+            .store_slice(destination)
+            .end_cell();
+}
+
+(int, int, slice) unpack_nft_royalty_params(cell c) inline {
+    var cs = c.begin_parse();
+    var res = (
+            cs~load_uint(16),
+            cs~load_uint(16),
+            cs~load_msg_addr()
+    );
+    cs.end_parse();
+    return res;
+}
+
+cell pack_item_data(cell config, cell state) inline {
+    return begin_cell()
+            .store_ref(config)
+            .store_maybe_ref(state)
+            .end_cell();
+}
+
+cell pack_item_content(cell nft_content, cell dns, cell token_info) inline {
+    return begin_cell()
+            .store_ref(nft_content)
+            .store_dict(dns)
+            .store_ref(token_info)
+            .end_cell();
+}
+
+(cell, cell, cell) unpack_item_content(cell c) inline {
+    var cs = c.begin_parse();
+    var res = (
+            cs~load_ref(),
+            cs~load_dict(),
+            cs~load_ref()
+    );
+    cs.end_parse();
+    return res;
+}
+
+(slice, cell, cell, cell) unpack_item_state(cell c) inline {
+    var cs = c.begin_parse();
+    var res = (
+            cs~load_msg_addr(),
+            cs~load_ref(),
+            cs~load_maybe_ref(),
+            cs~load_ref()
+    );
+    cs.end_parse();
+    return res;
+}
+
+cell pack_item_state(slice owner_address, cell content, cell auction, cell royalty_params) inline {
+    return begin_cell()
+            .store_slice(owner_address)
+            .store_ref(content)
+            .store_maybe_ref(auction)
+            .store_ref(royalty_params)
+            .end_cell();
+}
+
+_ save_item_data(config, state) impure inline {
+    set_data(pack_item_data(config, state));
+}
+
+cell pack_item_state_init(int item_index, cell item_code) inline {
+    var item_config = pack_item_config(item_index, my_address());
+    var item_data = pack_item_data(item_config, null());
+    return pack_state_init(item_code, item_data);
+}
+
+cell pack_teleitem_msg_deploy(slice sender_address, int bid, cell info, cell content, cell auction_config, cell royalty_params) inline {
+    return begin_cell()
+            .store_uint(op::teleitem_msg_deploy, 32)
+            .store_slice(sender_address)
+            .store_grams(bid)
+            .store_ref(info)
+            .store_ref(content)
+            .store_ref(auction_config)
+            .store_ref(royalty_params)
+            .end_cell();
+}
+
+(slice, int, cell, cell, cell, cell) unpack_teleitem_msg_deploy(slice cs) inline {
+    return (cs~load_msg_addr(),
+            cs~load_grams(),
+            cs~load_ref(),
+            cs~load_ref(),
+            cs~load_ref(),
+            cs~load_ref());
+}
+
+(int, int, int, cell, cell, slice, cell) unpack_collection_data() inline {
+    var cs = get_data().begin_parse();
+    var res = (
+            cs~load_int(1), ;; touched
+            cs~load_uint(32), ;; subwallet_id
+            cs~load_uint(256), ;; owner_key
+            cs~load_ref(), ;; content
+            cs~load_ref(), ;; item_code
+            cs~load_text_ref(), ;; full_domain
+            cs~load_ref() ;; royalty_params
+    );
+    cs.end_parse();
+    return res;
+}
+
+_ save_collection_data(int touched, int subwallet_id, int owner_key, cell content, cell item_code, slice full_domain, cell royalty_params) impure inline {
+    cell data = begin_cell()
+            .store_int(touched, 1)
+            .store_uint(subwallet_id, 32)
+            .store_uint(owner_key, 256)
+            .store_ref(content)
+            .store_ref(item_code)
+            .store_ref(begin_cell().store_text(full_domain).end_cell())
+            .store_ref(royalty_params)
+            .end_cell();
+    set_data(data);
+}
+
+_ unpack_signed_cmd(slice cs) inline {
+    return (
+            cs~load_bits(512), ;; signature
+            slice_hash(cs), ;; hash
+            cs~load_uint(32), ;; subwallet_id
+            cs~load_uint(32), ;; valid_since
+            cs~load_uint(32), ;; valid_till
+            cs ;; cmd
+    );
+}
+
+_ unpack_deploy_msg(slice cs) inline {
+    var res = (
+            cs~load_text(), ;; token_name
+            cs~load_ref(), ;; content
+            cs~load_ref(), ;; auction_config
+            cs~load_maybe_ref() ;; royalty
+    );
+    cs.end_parse();
+    return res;
+}
+
+;;teleitem_last_bid bidder_address:MsgAddressInt bid:Grams bid_ts:uint32 = TeleitemLastBid;
+(slice, int, int) unpack_last_bid(cell c) inline {
+    slice cs = c.begin_parse();
+    var res = (
+            cs~load_msg_addr(), ;; bidder_address
+            cs~load_grams(), ;; bid
+            cs~load_uint(32) ;; bid_ts
+    );
+    cs.end_parse();
+    return res;
+}
+cell pack_last_bid(slice bidder_address, int bid, int bid_ts) inline {
+    return begin_cell()
+            .store_slice(bidder_address)
+            .store_grams(bid)
+            .store_uint(bid_ts, 32)
+            .end_cell();
+}
+
+;;teleitem_auction_state$_ last_bid:(Maybe ^TeleitemLastBid) min_bid:Grams end_time:uint32 = TeleitemAuctionState;
+(cell, int, int) unpack_auction_state(cell c) inline {
+    slice cs = c.begin_parse();
+    var res = (
+            cs~load_maybe_ref(), ;; maybe last_bid
+            cs~load_grams(), ;; min_bid
+            cs~load_uint(32) ;; end_time
+    );
+    cs.end_parse();
+    return res;
+}
+cell pack_auction_state(cell last_bid, int min_bid, int end_time) inline {
+    return begin_cell()
+            .store_maybe_ref(last_bid)
+            .store_grams(min_bid)
+            .store_uint(end_time, 32)
+            .end_cell();
+}
+
+(slice, int, int, int, int, int) unpack_auction_config(cell c) inline {
+    slice cs = c.begin_parse();
+    var res = (
+            cs~load_msg_addr(), ;; beneficiary address
+            cs~load_grams(), ;; initial_min_bid
+            cs~load_grams(), ;; max_bid
+            cs~load_uint(8), ;; min_bid_step
+            cs~load_uint(32), ;; min_extend_time
+            cs~load_uint(32) ;; duration
+    );
+    cs.end_parse();
+    return res;
+}
+
+;;teleitem_auction$_ state:^TeleitemAuctionState config:^TeleitemConfig = TeleitemAuction;
+(cell, cell) unpack_auction(cell c) inline {
+    slice cs = c.begin_parse();
+    var res = (
+            cs~load_ref(),
+            cs~load_ref()
+    );
+    cs.end_parse();
+    return res;
+}
+
+cell pack_auction(cell state, cell config) inline {
+    return begin_cell()
+            .store_ref(state)
+            .store_ref(config)
+            .end_cell();
+}
+
+(int, slice, slice, cell, int, slice) unpack_nft_cmd_transfer(slice cs) inline {
+    return (
+            cs~load_uint(64),
+            cs~load_msg_addr(),
+            cs~load_msg_addr(),
+            cs~load_maybe_ref(),
+            cs~load_grams(),
+            cs
+    );
+}

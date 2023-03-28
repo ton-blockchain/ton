@@ -34,7 +34,7 @@ add_library( # Sets the name of the library.
 list(APPEND CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/crypto/${ANDROID_ARCH_NAME}")
 set(TON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 add_subdirectory(${TON_DIR} ton EXCLUDE_FROM_ALL)
-target_link_libraries(native-lib tonlibjson_static)
+target_link_libraries(native-lib tonlibjson)
 target_link_libraries(native-lib tonlib)
 
 #target_sources(native-lib PRIVATE ${ALL_TEST_SOURCE})

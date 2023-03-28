@@ -749,6 +749,9 @@ ArchiveManager::FileDescription *ArchiveManager::get_file_desc_by_seqno(AccountI
     return get_file_desc_by_seqno(ShardIdFull{masterchainId}, seqno, key_block);
   }
   for (auto it = f.rbegin(); it != f.rend(); it++) {
+    if (it->second.deleted) {
+      continue;
+    }
     bool found = false;
     for (int i = 0; i < 60; i++) {
       auto shard = shard_prefix(account, i);
@@ -773,6 +776,9 @@ ArchiveManager::FileDescription *ArchiveManager::get_file_desc_by_unix_time(Acco
     return get_file_desc_by_unix_time(ShardIdFull{masterchainId}, ts, key_block);
   }
   for (auto it = f.rbegin(); it != f.rend(); it++) {
+    if (it->second.deleted) {
+      continue;
+    }
     bool found = false;
     for (int i = 0; i < 60; i++) {
       auto shard = shard_prefix(account, i);
@@ -797,6 +803,9 @@ ArchiveManager::FileDescription *ArchiveManager::get_file_desc_by_lt(AccountIdPr
     return get_file_desc_by_lt(ShardIdFull{masterchainId}, lt, key_block);
   }
   for (auto it = f.rbegin(); it != f.rend(); it++) {
+    if (it->second.deleted) {
+      continue;
+    }
     bool found = false;
     for (int i = 0; i < 60; i++) {
       auto shard = shard_prefix(account, i);
@@ -818,11 +827,13 @@ ArchiveManager::FileDescription *ArchiveManager::get_next_file_desc(FileDescript
   auto &m = get_file_map(f->id);
   auto it = m.find(f->id);
   CHECK(it != m.end());
-  it++;
-  if (it == m.end()) {
-    return nullptr;
-  } else {
-    return &it->second;
+  while (true) {
+    it++;
+    if (it == m.end()) {
+      return nullptr;
+    } else if (!it->second.deleted) {
+      return &it->second;
+    }
   }
 }
 
@@ -895,7 +906,7 @@ void ArchiveManager::start_up() {
   td::WalkPath::run(db_root_ + "/archive/states/", [&](td::CSlice fname, td::WalkPath::Type t) -> void {
     if (t == td::WalkPath::Type::NotDir) {
       LOG(ERROR) << "checking file " << fname;
-      auto pos = fname.rfind('/');
+      auto pos = fname.rfind(TD_DIR_SLASH);
       if (pos != td::Slice::npos) {
         fname.remove_prefix(pos + 1);
       }
@@ -1159,13 +1170,17 @@ void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle han
     auto it = key_files_.begin();
     while (it != key_files_.end()) {
       if (it->first.id <= masterchain_seqno) {
-        td::actor::send_closure(it->second.file_actor_id(), &ArchiveSlice::truncate, masterchain_seqno, handle,
-                                ig.get_promise());
+        if (!it->second.deleted) {
+          td::actor::send_closure(it->second.file_actor_id(), &ArchiveSlice::truncate, masterchain_seqno, handle,
+                                  ig.get_promise());
+        }
         it++;
       } else {
         auto it2 = it;
         it++;
-        td::actor::send_closure(it2->second.file_actor_id(), &ArchiveSlice::destroy, ig.get_promise());
+        if (!it2->second.deleted) {
+          td::actor::send_closure(it2->second.file_actor_id(), &ArchiveSlice::destroy, ig.get_promise());
+        }
         it2->second.file.release();
         index_
             ->erase(create_serialize_tl_object<ton_api::db_files_package_key>(it2->second.id.id, it2->second.id.key,
@@ -1180,13 +1195,17 @@ void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle han
     auto it = files_.begin();
     while (it != files_.end()) {
       if (it->first.id <= masterchain_seqno) {
-        td::actor::send_closure(it->second.file_actor_id(), &ArchiveSlice::truncate, masterchain_seqno, handle,
-                                ig.get_promise());
+        if (!it->second.deleted) {
+          td::actor::send_closure(it->second.file_actor_id(), &ArchiveSlice::truncate, masterchain_seqno, handle,
+                                  ig.get_promise());
+        }
         it++;
       } else {
         auto it2 = it;
         it++;
-        td::actor::send_closure(it2->second.file_actor_id(), &ArchiveSlice::destroy, ig.get_promise());
+        if (!it2->second.deleted) {
+          td::actor::send_closure(it2->second.file_actor_id(), &ArchiveSlice::destroy, ig.get_promise());
+        }
         it2->second.file.release();
         index_
             ->erase(create_serialize_tl_object<ton_api::db_files_package_key>(it2->second.id.id, it2->second.id.key,

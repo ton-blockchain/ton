@@ -171,7 +171,7 @@ td::Result<td::Ref<vm::Cell>> create_block_state_proof(td::Ref<vm::Cell> root) {
   if (!tlb::unpack_cell(mpb.root(), block) || block.state_update->load_cell().is_error()) {
     return td::Status::Error("invalid block");
   }
-  Ref<vm::Cell> proof = mpb.extract_proof();
+  TRY_RESULT(proof, mpb.extract_proof());
   if (proof.is_null()) {
     return td::Status::Error("failed to create proof");
   }

@@ -47,6 +47,7 @@
 #include "fift/Fift.h"
 #include "fift/Dictionary.h"
 #include "fift/SourceLookup.h"
+#include "fift/IntCtx.h"
 #include "fift/words.h"
 
 #include "td/utils/logging.h"
@@ -308,7 +309,7 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   THRERR("cannot create smart-contract AccountStorage");
   Ref<vm::DataCell> storage = cb.finalize();
   vm::CellStorageStat stats;
-  PDO(stats.compute_used_storage(Ref<vm::Cell>(storage)));
+  PDO(stats.compute_used_storage(Ref<vm::Cell>(storage)).is_ok());
   if (verbosity > 2) {
     std::cerr << "storage is:\n";
     vm::load_cell_slice(storage).print_rec(std::cerr);
@@ -866,8 +867,9 @@ int main(int argc, char* const argv[]) {
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
         break;
-      case 'V':        
-        std::cout << "create-state build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+      case 'V':
+        std::cout << "create-state build information: [ Commit: " << GitMetadata::CommitSHA1()
+                  << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       case 'h':

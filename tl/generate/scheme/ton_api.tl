@@ -606,12 +606,14 @@ engine.gc ids:(vector int256) = engine.Gc;
 engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
+engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
 
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector engine.collator)
         fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
+        fullnodeconfig:engine.validator.fullNodeConfig
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         shards_to_monitor:(vector tonNode.shardId)
         gc:engine.gc = engine.validator.Config;
@@ -662,6 +664,8 @@ engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) =
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
 engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByName) = engine.validator.PerfTimerStats;
+
+engine.validator.shardOutQueueSize size:int = engine.validator.ShardOutQueueSize;
 
 engine.validator.validatorSessionInfo current_block:tonNode.blockId self:int256 current_round:int next_producers:(vector int256) = engine.validator.ValidatorSessionInfo;
 engine.validator.validatorSessionsInfo sessions:(vector engine.validator.validatorSessionInfo) = engine.validator.ValidatorSessionsInfo;
@@ -718,6 +722,8 @@ engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key
 engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
 engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
+engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
+engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validator.Success;
 
 engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsInfo;
 
@@ -752,11 +758,13 @@ storage.getPiece piece_id:int = storage.Piece;
 http.header name:string value:string = http.Header;
 http.payloadPart data:bytes trailer:(vector http.header) last:Bool = http.PayloadPart;
 http.response http_version:string status_code:int reason:string headers:(vector http.header) no_payload:Bool = http.Response;
+http.proxy.capabilities capabilities:long = http.proxy.Capabilities;
 
 ---functions---
 
 http.request id:int256 method:string url:string http_version:string headers:(vector http.header) = http.Response;
 http.getNextPayloadPart id:int256 seqno:int max_chunk_size:int = http.PayloadPart;
+http.proxy.getCapabilities capabilities:long = http.proxy.Capabilities;
 
 ---types---
 

@@ -46,6 +46,13 @@ struct Neighbour {
   void query_failed();
   void update_roundtrip(double t);
 
+  bool use_rldp2() const {
+    return std::make_pair(proto_version, capabilities) >= std::make_pair<td::uint32, td::uint64>(2, 2);
+  }
+  bool supports_v2() const {
+    return proto_version >= 3;
+  }
+
   static Neighbour zero;
 };
 
@@ -65,7 +72,7 @@ class FullNodeShardImpl : public FullNodeShard {
     return 1;
   }
   static constexpr td::uint32 proto_version() {
-    return 2;
+    return 3;
   }
   static constexpr td::uint64 proto_capabilities() {
     return 2;
@@ -87,6 +94,13 @@ class FullNodeShardImpl : public FullNodeShard {
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
   void set_mode(FullNodeShardMode mode) override;
 
+  void set_config(FullNodeConfig config) override {
+    config_ = config;
+  }
+
+  //td::Result<Block> fetch_block(td::BufferSlice data);
+  void prevalidate_block(BlockIdExt block_id, td::BufferSlice data, td::BufferSlice proof,
+                         td::Promise<ReceivedBlock> promise);
   void try_get_next_block(td::Timestamp timestamp, td::Promise<ReceivedBlock> promise);
   void got_next_block(td::Result<BlockHandle> block);
   void get_next_block();
@@ -213,9 +227,9 @@ class FullNodeShardImpl : public FullNodeShard {
   }
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                    FileHash zero_state_file_hash, td::actor::ActorId<keyring::Keyring> keyring,
+                    FileHash zero_state_file_hash, FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                    td::actor::ActorId<overlay::Overlays> overlays,
+                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<adnl::AdnlExtClient> client, FullNodeShardMode mode = FullNodeShardMode::active);
 
@@ -239,6 +253,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
@@ -261,6 +276,8 @@ class FullNodeShardImpl : public FullNodeShard {
 
   FullNodeShardMode mode_;
   std::vector<adnl::AdnlNodeIdShort> collator_nodes_;
+
+  FullNodeConfig config_;
 };
 
 }  // namespace fullnode

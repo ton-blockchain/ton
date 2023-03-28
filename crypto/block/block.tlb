@@ -366,7 +366,7 @@ trans_merge_install$0111 split_info:SplitMergeInfo
 smc_info#076ef1ea actions:uint16 msgs_sent:uint16
   unixtime:uint32 block_lt:uint64 trans_lt:uint64 
   rand_seed:bits256 balance_remaining:CurrencyCollection
-  myself:MsgAddressInt = SmartContractInfo;
+  myself:MsgAddressInt global_config:(Maybe Cell) = SmartContractInfo;
 //
 //
 out_list_empty$_ = OutList 0;

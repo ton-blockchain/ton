@@ -129,7 +129,7 @@ td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::s
   }
   dfs(queue->get_root_cell());
 
-  TRY_RESULT(queue_proof, vm::std_boc_serialize(mpb.extract_proof()));
+  TRY_RESULT(queue_proof, mpb.extract_proof_boc());
   td::BufferSlice block_state_proof;
   if (block_id.seqno() != 0) {
     TRY_RESULT(proof, create_block_state_proof(std::move(block_root)));

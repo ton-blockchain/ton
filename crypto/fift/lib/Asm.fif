@@ -1,12 +1,16 @@
 library TVM_Asm
 // simple TVM Assembler
+namespace Asm
+Asm definitions
+"0.4.3" constant asm-fif-version
+
 variable @atend
 variable @was-split
 false @was-split !
 { "not in asm context" abort } @atend !
 { `normal eq? not abort"must be terminated by }>" } : @normal?
-{ @atend @ 1 { @atend ! @normal? } does @atend ! } : @pushatend
-{ @pushatend <b } : <{
+{ context@ @atend @ 2 { @atend ! context! @normal? } does @atend ! } : @pushatend
+{ @pushatend Asm <b } : <{
 { @atend @ execute } : @endblk
 { false @was-split ! `normal @endblk } : }>
 { }> b> } : }>c
@@ -251,7 +255,7 @@ x{7F} @Defop TRUE
     } cond
   } cond
   @addopb } dup : PUSHINT : INT
-{ <b x{83} s, swap 1- 8 u, @addopb } : PUSHPOW2
+{ dup 256 = abort"use PUSHNAN instead of 256 PUSHPOW2" <b x{83} s, swap 1- 8 u, @addopb } : PUSHPOW2
 x{83FF} @Defop PUSHNAN
 { <b x{84} s, swap 1- 8 u, @addopb } : PUSHPOW2DEC
 { <b x{85} s, swap 1- 8 u, @addopb } : PUSHNEGPOW2
@@ -324,38 +328,85 @@ x{A7} x{A8} @Defop(8i,alt) MULCONST
 ' SUBCONST : SUBINT
 ' MULCONST : MULINT
 x{A8} @Defop MUL
+
 x{A904} @Defop DIV
 x{A905} @Defop DIVR
 x{A906} @Defop DIVC
 x{A908} @Defop MOD
+x{A909} @Defop MODR
+x{A90A} @Defop MODC
 x{A90C} @Defop DIVMOD
 x{A90D} @Defop DIVMODR
 x{A90E} @Defop DIVMODC
+
 x{A925} @Defop RSHIFTR
 x{A926} @Defop RSHIFTC
+x{A928} @Defop MODPOW2
+x{A929} @Defop MODPOW2R
+x{A92A} @Defop MODPOW2C
+x{A92C} @Defop RSHIFTMOD
+x{A92D} @Defop RSHIFTMODR
+x{A92E} @Defop RSHIFTMODC
+
 x{A935} @Defop(8u+1) RSHIFTR#
 x{A936} @Defop(8u+1) RSHIFTC#
 x{A938} @Defop(8u+1) MODPOW2#
 x{A939} @Defop(8u+1) MODPOW2R#
 x{A93A} @Defop(8u+1) MODPOW2C#
+x{A93C} @Defop(8u+1) RSHIFT#MOD
+x{A93D} @Defop(8u+1) RSHIFTR#MOD
+x{A93E} @Defop(8u+1) RSHIFTC#MOD
+
 x{A984} @Defop MULDIV
 x{A985} @Defop MULDIVR
+x{A986} @Defop MULDIVC
 x{A988} @Defop MULMOD
+x{A989} @Defop MULMODR
+x{A98A} @Defop MULMODC
 x{A98C} @Defop MULDIVMOD
 x{A98D} @Defop MULDIVMODR
 x{A98E} @Defop MULDIVMODC
+
 x{A9A4} @Defop MULRSHIFT
 x{A9A5} @Defop MULRSHIFTR
 x{A9A6} @Defop MULRSHIFTC
+x{A9A8} @Defop MULMODPOW2
+x{A9A9} @Defop MULMODPOW2R
+x{A9AA} @Defop MULMODPOW2C
+x{A9AC} @Defop MULRSHIFTMOD
+x{A9AD} @Defop MULRSHIFTRMOD
+x{A9AE} @Defop MULRSHIFTCMOD
+
 x{A9B4} @Defop(8u+1) MULRSHIFT#
 x{A9B5} @Defop(8u+1) MULRSHIFTR#
 x{A9B6} @Defop(8u+1) MULRSHIFTC#
+x{A9B8} @Defop(8u+1) MULMODPOW2#
+x{A9B9} @Defop(8u+1) MULMODPOW2R#
+x{A9BA} @Defop(8u+1) MULMODPOW2C#
+x{A9BC} @Defop(8u+1) MULRSHIFT#MOD
+x{A9BD} @Defop(8u+1) MULRSHIFTR#MOD
+x{A9BE} @Defop(8u+1) MULRSHIFTC#MOD
+
 x{A9C4} @Defop LSHIFTDIV
 x{A9C5} @Defop LSHIFTDIVR
 x{A9C6} @Defop LSHIFTDIVC
+x{A9C8} @Defop LSHIFTMOD
+x{A9C9} @Defop LSHIFTMODR
+x{A9CA} @Defop LSHIFTMODC
+x{A9CC} @Defop LSHIFTDIVMOD
+x{A9CD} @Defop LSHIFTDIVMODR
+x{A9CE} @Defop LSHIFTDIVMODC
+
 x{A9D4} @Defop(8u+1) LSHIFT#DIV
 x{A9D5} @Defop(8u+1) LSHIFT#DIVR
 x{A9D6} @Defop(8u+1) LSHIFT#DIVC
+x{A9D8} @Defop(8u+1) LSHIFT#MOD
+x{A9D9} @Defop(8u+1) LSHIFT#MODR
+x{A9DA} @Defop(8u+1) LSHIFT#MODC
+x{A9DC} @Defop(8u+1) LSHIFT#DIVMOD
+x{A9DD} @Defop(8u+1) LSHIFT#DIVMODR
+x{A9DE} @Defop(8u+1) LSHIFT#DIVMODC
+
 x{AA} @Defop(8u+1) LSHIFT#
 x{AB} @Defop(8u+1) RSHIFT#
 x{AC} @Defop LSHIFT
@@ -504,6 +555,7 @@ x{CF1E} @Defop STSLICERQ
 x{CF1F} dup @Defop STBRQ @Defop BCONCATQ
 x{CF20} @Defop(ref) STREFCONST
 { <b x{CF21} s, rot ref, swap ref, @addopb } : STREF2CONST
+x{CF23} @Defop ENDXC
 x{CF28} @Defop STILE4
 x{CF29} @Defop STULE4
 x{CF2A} @Defop STILE8
@@ -606,6 +658,9 @@ x{D733} @Defop SSKIPLAST
 x{D734} @Defop SUBSLICE
 x{D736} @Defop SPLIT
 x{D737} @Defop SPLITQ
+x{D739} @Defop XCTOS
+x{D73A} @Defop XLOAD
+x{D73B} @Defop XLOADQ
 x{D741} @Defop SCHKBITS
 x{D742} @Defop SCHKREFS
 x{D743} @Defop SCHKBITREFS
@@ -875,9 +930,15 @@ x{EDFB} @Defop SAMEALTSAVE
 } dup : PREPARE : PREPAREDICT
 //
 // inline support
-{ dup sbits { @addop } {
-  dup srefs 1- abort"exactly one reference expected in inline"
-  ref@ CALLREF } cond
+{ dup sbits
+   { @addop }
+   {
+    dup srefs // 
+      { ref@ CALLREF }
+      { drop }
+      cond
+   }
+   cond
 } : INLINE
 //
 // throwing and handling exceptions
@@ -1186,6 +1247,8 @@ x{FFF0} @Defop SETCPX
   255 and <b x{FF} s, swap 8 u, @addopb
 } : SETCP
 
+' @addop : CUSTOMOP
+
 //
 // provisions for defining programs consisting of several mutually-recursive procedures
 //
@@ -1194,6 +1257,7 @@ variable @proclist
 variable @procdict
 variable @procinfo
 variable @gvarcnt
+variable @parent-state
 variable asm-mode  1 asm-mode !
 19 constant @procdictkeylen
 32 constant @zcount
@@ -1213,7 +1277,13 @@ variable asm-mode  1 asm-mode !
 { 1 'nop does swap 0 (create) } : @declglobvar
 { @proccnt @ 1+ dup @proccnt ! 1 @declproc } : @newproc
 { @gvarcnt @ 1+ dup @gvarcnt ! @declglobvar } : @newglobvar
-{ 0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
+variable @oldcurrent  variable @oldctx
+Fift-wordlist dup @oldcurrent ! @oldctx !
+{ current@ @oldcurrent !  context@ @oldctx !  Asm definitions
+  @proccnt @ @proclist @ @procdict @ @procinfo @ @gvarcnt @ @parent-state @ current@ @oldcurrent @ @oldctx @
+  9 tuple @parent-state !
+  hole current!
+  0 =: main  @proclist null!  @proccnt 0!  @gvarcnt 0!
   { bl word @newproc } : NEWPROC
   { bl word dup (def?) ' drop ' @newproc cond } : DECLPROC
   { bl word dup find
@@ -1287,6 +1357,11 @@ variable asm-mode  1 asm-mode !
   } while
   drop @proclist null! @procinfo null! @proccnt 0!
   @procdict dup @ swap null!
+  @parent-state @ dup null? { drop } {
+    9 untuple
+    @oldctx ! @oldcurrent ! current! @parent-state ! @gvarcnt ! @procinfo ! @procdict ! @proclist ! @proccnt !
+  } cond
+  @oldctx @ context!  @oldcurrent @ current!
 } : }END
 forget @proclist  forget @proccnt
 { }END <{ SETCP0 swap @procdictkeylen DICTPUSHCONST DICTIGETJMPZ 11 THROWARG }> } : }END>
@@ -1313,3 +1388,44 @@ forget @proclist  forget @proccnt
 { <b 2 8 u, swap 256 u, b>spec } : hash>libref
 // ( c -- c' )
 { hash hash>libref } : >libref
+
+{ dup "." $pos dup -1 =
+     { drop 0 }
+     { $| 1 $| nip swap (number) 1- abort"invalid version"
+       dup dup 0 < swap 999 > or abort"invalid version" 
+     }
+     cond
+} : parse-version-level
+
+{
+  0 swap
+  "." $+
+  { swap 1000 * swap parse-version-level rot + swap } 3 times
+  "" $= not abort"invalid version"
+} : parse-asm-fif-version
+
+{
+  dup =: required-version parse-asm-fif-version
+  asm-fif-version parse-asm-fif-version
+  = 1+ {
+      "Required Asm.fif version: " @' required-version "; actual Asm.fif version: " asm-fif-version $+ $+ $+ abort
+    } if
+} : require-asm-fif-version
+
+{
+  dup =: required-version parse-asm-fif-version
+  asm-fif-version parse-asm-fif-version
+  swap
+  >= 1+ {
+      "Required Asm.fif version: " @' required-version "; actual Asm.fif version: " asm-fif-version $+ $+ $+ abort
+    } if
+} : require-asm-fif-version>=
+
+
+Fift definitions Asm
+' <{ : <{
+' PROGRAM{ : PROGRAM{
+' asm-fif-version : asm-fif-version
+' require-asm-fif-version : require-asm-fif-version
+' require-asm-fif-version>= : require-asm-fif-version>=
+Fift

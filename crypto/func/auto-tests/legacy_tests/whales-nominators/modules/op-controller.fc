@@ -1,0 +1,414 @@
+;;
+;; Stake Sending
+;;
+
+() op_controller_stake_send(int value, slice in_msg) impure {
+
+    ;; Parse message
+    var stake = in_msg~load_coins();
+    var validator_pubkey = in_msg~load_uint(256);
+    var stake_at = in_msg~load_uint(32);
+    var max_factor = in_msg~load_uint(32);
+    var adnl_addr = in_msg~load_uint(256);
+    var signature_ref = in_msg~load_ref();
+    var signature = signature_ref.begin_parse().preload_bits(512);
+    in_msg.end_parse();
+
+    ;; Check message value
+    throw_unless(error::invalid_message(), value >= fees::stake_fees());
+
+    ;; Allow only single request to elector
+    if (proxy_stored_query_id != 0) {
+        throw(error::invalid_message());
+    }
+
+    ;; Allow update only for current stake
+    if ((proxy_stake_at != 0) & (proxy_stake_at != stake_at)) {
+        throw(error::invalid_message());
+    }
+
+    ;; Check stake value
+    var availableStake = available_to_stake();
+    throw_unless(error::invalid_stake_value(), availableStake >= stake);
+
+    ;; Parameters
+    var (electedFor, stakeHeldFor) = get_stake_parameters();
+
+    ;; Lock stakes
+    on_locked();
+    
+    ;; Update operation state
+    proxy_stake_at = stake_at;
+    proxy_stake_until = stake_at + electedFor + stakeHeldFor;
+    proxy_stake_sent = proxy_stake_sent + stake;
+    proxy_stored_query_id = ctx_query_id;
+    proxy_stored_query_op = elector::stake::request();
+    proxy_stored_query_stake = stake;
+
+    ;; Update balances
+    on_stake_sent(stake);
+
+    ;; Send message to elector
+    send_std_message(
+        ctx_proxy, 
+        stake + coins::1(), 
+        send_mode::separate_gas(), 
+        elector::stake::request(), 
+        proxy_stored_query_id, 
+        begin_cell()
+            .store_uint(validator_pubkey, 256)
+            .store_uint(stake_at, 32)
+            .store_uint(max_factor, 32)
+            .store_uint(adnl_addr, 256)
+            .store_ref(signature_ref)
+    );
+
+    ;; Persist
+    store_validator_data();
+    store_base_data();
+}
+
+() op_elector_stake_response(int value, slice in_msg) impure {
+
+    ;; Check response
+    if (ctx_query_id != proxy_stored_query_id) {
+        ;; How to handle invalid? How it is possible?
+        return ();
+    }
+    if (proxy_stored_query_op != elector::stake::request()) {
+        ;; How to handle invalid? How it is possible?
+        return ();
+    }
+
+    ;; Reset active query
+    proxy_stored_query_id = 0;
+    proxy_stored_query_op = 0;
+    proxy_stored_query_stake = 0;
+
+    ;; Persist
+    store_validator_data();
+    store_base_data();
+}
+
+() op_elector_stake_response_fail(int value, slice in_msg) impure {
+
+    ;; Load reason
+    var reason = in_msg~load_uint(32);
+
+    ;; Check response
+    if (ctx_query_id != proxy_stored_query_id) {
+        ;; How to handle invalid? How it is possible?
+        return ();
+    }
+    if (proxy_stored_query_op != elector::stake::request()) {
+        ;; How to handle invalid? How it is possible?
+        return ();
+    }
+
+    ;; Update balances
+    on_stake_sent_failed(proxy_stored_query_stake);
+
+    ;; Update proxy state
+    proxy_stake_sent = proxy_stake_sent - proxy_stored_query_stake;
+
+    ;; Reset stake at since sent stake became zero
+    if (proxy_stake_sent == 0) {
+        proxy_stake_at = 0;
+        proxy_stake_until = 0;
+        proxy_stake_sent = 0;
+        on_unlocked();
+    }
+
+    ;; Reset query
+    proxy_stored_query_id = 0;
+    proxy_stored_query_op = 0;
+    proxy_stored_query_stake = 0;
+
+    ;; Persist
+    store_validator_data();
+    store_base_data();
+}
+
+;;
+;; Recover
+;;
+
+() op_stake_recover(int value) impure {
+
+    ;; NOTE: We never block stake recover operation
+    ;;       in case of misbehaviour of something anyone always can get 
+    ;;       coins from elector after lockup period is up
+
+    ;; Allow request only if stake is exited lockup period
+    if ((proxy_stake_until != 0) & (now() < proxy_stake_until)) {
+        throw(error::invalid_message());
+    }
+
+    ;; Double check that validation session and lockup was lifted
+    if ((proxy_stake_until != 0) & (proxy_stake_at != 0)) {
+        throw_unless(error::invalid_message(), lockup_lift_time(proxy_stake_at, proxy_stake_until) <= now());
+    }
+
+    ;; Check value
+    throw_unless(error::too_low_value(), value >= fees::stake_fees());
+
+    ;; Send message to elector
+    send_empty_std_message(
+        ctx_proxy, 
+        0, 
+        send_mode::carry_remaining_value(),
+        elector::refund::request(), 
+        proxy_stored_query_id
+    );
+
+    ;; Persist
+    store_validator_data();
+    store_base_data();
+}
+
+() op_elector_recover_response(int value, slice in_msg) impure {
+
+    if ((proxy_stake_until != 0) & (now() > proxy_stake_until)) {
+        
+        ;; Reset state: all stake is returned
+        proxy_stake_sent = 0;
+        proxy_stake_at = 0;
+        proxy_stake_until = 0;
+
+        ;; Reset query too
+        proxy_stored_query_id = 0;
+        proxy_stored_query_op = 0;
+        proxy_stored_query_stake = 0;
+
+        ;; Handle stake recovered event
+        ;; NOTE: Any stake recovery outside this condition might be just a noise and 
+        ;;       effect of various race condirtions that doesn't carry any substantianal vakue
+        on_stake_recovered(value - fees::stake_fees());
+
+        ;; Reset lock state
+        ;; NOTE: MUST be after on_stake_recovered since it adjusts withdrawals and 
+        ;;       modifies global balance
+        on_unlocked();
+    }
+
+    ;; Persist
+    store_validator_data();
+    store_base_data();
+}
+
+;;
+;; Withdraw unowned
+;;
+
+() op_controller_withdraw_unowned(int value, slice in_msg) impure {
+
+    ;; Reserve owned
+    raw_reserve(owned_balance(), 0);
+
+    ;; Send message to controller
+    send_empty_std_message(
+        ctx_controller, 
+        0, 
+        send_mode::carry_remaining_balance(), 
+        op::withdraw_unowned::response(), 
+        ctx_query_id
+    );
+}
+
+;;
+;; Process pending
+;;
+
+() op_controller_accept_stakes(int value, slice in_msg) impure {
+
+    ;; Check if enought value
+    throw_unless(error::invalid_message(), value >= params::pending_op());
+
+    ;; Check if not locked
+    throw_if(error::invalid_message(), ctx_locked);
+
+    ;; Parse message
+    var members = in_msg~load_dict();
+    in_msg.end_parse();
+
+    ;; Process operations
+    var member = -1;
+    do {
+        (member, var cs, var f) = members.udict_get_next?(256, member);
+        if (f) {
+            ;; Accept member's stake
+            load_member(member);
+            member_accept_stake();
+            store_member();
+        }
+    } until (~ f);
+
+    ;; Persist
+    store_base_data();
+}
+
+() op_controller_accept_withdraws(int value, slice in_msg) impure {
+
+    ;; Check if enought value
+    throw_unless(error::invalid_message(), value >= params::pending_op());
+
+    ;; Check if not locked
+    throw_if(error::invalid_message(), ctx_locked);
+
+    ;; Parse message
+    var members = in_msg~load_dict();
+    in_msg.end_parse();
+
+    ;; Process operations
+    var member = -1;
+    do {
+        (member, var cs, var f) = members.udict_get_next?(256, member);
+        if (f) {
+            ;; Accept member's stake
+            load_member(member);
+            member_accept_withdraw();
+            store_member();
+        }
+    } until (~ f);
+
+    ;; Persist
+    store_base_data();
+}
+
+() op_controller_force_kick(int value, slice in_msg) impure {
+
+    ;; Check if enought value
+    throw_unless(error::invalid_message(), value >= params::pending_op());
+
+    ;; Check if not locked
+    throw_if(error::invalid_message(), ctx_locked);
+
+    ;; Parse message
+    var members = in_msg~load_dict();
+    in_msg.end_parse();
+
+    ;; Process operations
+    var member = -1;
+    do {
+        (member, var cs, var f) = members.udict_get_next?(256, member);
+        if (f) {
+
+            ;; Reject owner kicking 
+            throw_if(error::invalid_message(), member == owner_id());
+
+            ;; Kick member from a pool
+            load_member(member);
+
+            ;; Withdraw everything
+            var (withdrawed, all) = member_stake_withdraw(0);
+            throw_unless(error::invalid_message(), withdrawed > 0);
+            throw_unless(error::invalid_message(), all);
+
+            ;; Forced kick
+            send_empty_std_message(
+                serialize_work_addr(member),
+                withdrawed,
+                send_mode::default(),
+                op::force_kick::notification(),
+                ctx_query_id
+            );
+            
+            ;; Persist membership
+            store_member();
+        }
+    } until (~ f);
+
+    ;; Persist
+    store_base_data();
+}
+
+;;
+;; Top Level
+;;
+
+() op_controller(int flags, int value, slice in_msg) impure {
+    if (flags & 1) {
+        return ();
+    }
+
+    ;; Check value
+    throw_unless(error::invalid_message(), value >= params::min_op());
+
+    ;; Parse operation
+    int op = in_msg~load_uint(32);
+    int query_id = in_msg~load_uint(64);
+    int gas_limit = in_msg~load_coins();
+    set_gas_limit(gas_limit);
+    ctx_query_id = query_id;
+    throw_unless(error::invalid_message(), ctx_query_id > 0);
+
+    ;; Send stake
+    if (op == op::stake_send()) {
+        op_controller_stake_send(value, in_msg);
+        return ();
+    }
+
+    ;; Recover stake
+    if (op == op::stake_recover()) {
+        op_stake_recover(value);
+        return ();
+    }
+
+    ;; Withdraw unowned
+    if (op == op::withdraw_unowned()) {
+        op_controller_withdraw_unowned(value, in_msg);
+        return ();
+    }
+
+    ;; Accept stakes
+    if (op == op::accept_stakes()) {
+        op_controller_accept_stakes(value, in_msg);
+        return ();
+    }
+
+    ;; Accept withdraws
+    if (op == op::accept_withdraws()) {
+        op_controller_accept_withdraws(value, in_msg);
+        return ();
+    }
+
+    ;; Kick from pool
+    if (op == op::force_kick()) {
+        op_controller_force_kick(value, in_msg);
+        return ();
+    }
+
+    ;; Unknown message
+    throw(error::invalid_message());
+}
+
+() op_elector(int flags, int value, slice in_msg) impure {
+    int op = in_msg~load_uint(32);
+    int query_id = in_msg~load_uint(64);
+    ctx_query_id = query_id;
+
+    ;; Bounced
+    ;; It seems that handling doesn't make sence sicne there are no throws (?) 
+    ;; in elector contract
+    if (flags & 1) {
+        return ();
+    }
+
+    ;; Stake response
+    if (op == elector::stake::response()) {
+        op_elector_stake_response(value, in_msg);
+        return ();
+    }
+    if (op == elector::stake::response::fail()) {
+        op_elector_stake_response_fail(value, in_msg);
+        return ();
+    }
+
+    ;; Refund response
+    if (op == elector::refund::response()) {
+        op_elector_recover_response(value, in_msg);
+        return ();
+    }
+
+    ;; Ignore
+}

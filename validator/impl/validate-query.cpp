@@ -4441,7 +4441,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                   << account.total_state->get_hash().to_hex());
   }
   // some type-specific checks
-  int trans_type = block::Transaction::tr_none;
+  int trans_type = block::transaction::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
       if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
@@ -4451,7 +4451,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                       << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
                                       << "(limit=" << block_limits_->lt_delta.hard() << ")");
       }
-      trans_type = block::Transaction::tr_ord;
+      trans_type = block::transaction::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
                                       << " has no inbound message");
@@ -4460,7 +4460,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_storage: {
-      trans_type = block::Transaction::tr_storage;
+      trans_type = block::transaction::Transaction::tr_storage;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "storage transaction " << lt << " of account " << addr.to_hex()
                                       << " has an inbound message");
@@ -4476,7 +4476,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
     case block::gen::TransactionDescr::trans_tick_tock: {
       bool is_tock = (td_cs.prefetch_ulong(4) & 1);
-      trans_type = is_tock ? block::Transaction::tr_tock : block::Transaction::tr_tick;
+      trans_type = is_tock ? block::transaction::Transaction::tr_tock : block::transaction::Transaction::tr_tick;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << (is_tock ? "tock" : "tick") << " transaction " << lt << " of account "
                                       << addr.to_hex() << " has an inbound message");
@@ -4484,7 +4484,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_merge_prepare: {
-      trans_type = block::Transaction::tr_merge_prepare;
+      trans_type = block::transaction::Transaction::tr_merge_prepare;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "merge prepare transaction " << lt << " of account " << addr.to_hex()
                                       << " has an inbound message");
@@ -4499,7 +4499,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_merge_install: {
-      trans_type = block::Transaction::tr_merge_install;
+      trans_type = block::transaction::Transaction::tr_merge_install;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "merge install transaction " << lt << " of account " << addr.to_hex()
                                       << " has no inbound message");
@@ -4511,7 +4511,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_split_prepare: {
-      trans_type = block::Transaction::tr_split_prepare;
+      trans_type = block::transaction::Transaction::tr_split_prepare;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "split prepare transaction " << lt << " of account " << addr.to_hex()
                                       << " has an inbound message");
@@ -4526,7 +4526,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_split_install: {
-      trans_type = block::Transaction::tr_split_install;
+      trans_type = block::transaction::Transaction::tr_split_install;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "split install transaction " << lt << " of account " << addr.to_hex()
                                       << " has no inbound message");
@@ -4541,8 +4541,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   // check transaction computation by re-doing it
   // similar to Collator::create_ordinary_transaction() and Collator::create_ticktock_transaction()
   // ....
-  std::unique_ptr<block::Transaction> trs =
-      std::make_unique<block::Transaction>(account, trans_type, lt, now_, in_msg_root);
+  std::unique_ptr<block::transaction::Transaction> trs =
+      std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
   if (in_msg_root.not_null()) {
     if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
       // inbound external message was not accepted
@@ -4588,7 +4588,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_size_too_big) &&
+  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits) &&
       !trs->prepare_bounce_phase(action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());

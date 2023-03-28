@@ -46,8 +46,8 @@ void ValidatorSessionImpl::process_blocks(std::vector<catchain::CatChainBlock *>
   std::vector<tl_object_ptr<ton_api::validatorSession_round_Message>> msgs;
 
   if (generated_ && !sent_generated_) {
-    auto it = blocks_[0].find(generated_block_);
-    CHECK(it != blocks_[0].end());
+    auto it = blocks_.find(generated_block_);
+    CHECK(it != blocks_.end());
 
     auto &B = it->second;
     auto file_hash = sha256_bits256(B->data_);
@@ -231,13 +231,15 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   auto block_round = static_cast<td::uint32>(candidate->round_);
   auto block_id = description().candidate_id(src_idx, candidate->root_hash_, file_hash, collated_data_file_hash);
 
-  if (block_round < cur_round_ || block_round >= cur_round_ + blocks_.size()) {
+  if ((td::int32)block_round < (td::int32)cur_round_ - MAX_PAST_ROUND_BLOCK ||
+      block_round >= cur_round_ + MAX_FUTURE_ROUND_BLOCK) {
     VLOG(VALIDATOR_SESSION_NOTICE) << this << "[node " << src << "][broadcast " << block_id
                                    << "]: bad round=" << block_round << " cur_round" << cur_round_;
     return;
   }
-  auto it = blocks_[block_round - cur_round_].find(block_id);
-  if (it != blocks_[block_round - cur_round_].end()) {
+  auto it = blocks_.find(block_id);
+  if (it != blocks_.end()) {
+    it->second->round_ = std::max<td::uint32>(it->second->round_, block_round);
     VLOG(VALIDATOR_SESSION_INFO) << this << "[node " << src << "][broadcast " << block_id << "]: duplicate";
     return;
   }
@@ -249,7 +251,7 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
     return;
   }
 
-  blocks_[block_round - cur_round_][block_id] = std::move(candidate);
+  blocks_[block_id] = std::move(candidate);
 
   VLOG(VALIDATOR_SESSION_WARNING) << this << ": received broadcast " << block_id;
   if (block_round != cur_round_) {
@@ -408,7 +410,7 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, ValidatorSessionCan
 
   td::actor::send_closure(catchain_, &catchain::CatChain::send_broadcast, std::move(B));
 
-  blocks_[0].emplace(block_id, std::move(b));
+  blocks_.emplace(block_id, std::move(b));
   pending_generate_ = false;
   generated_ = true;
   generated_block_ = block_id;
@@ -508,9 +510,10 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
 
   if (block) {
     auto T = td::Timestamp::at(round_started_at_.at() + description().get_delay(block->get_src_idx()) + 2.0);
-    auto it = blocks_[0].find(block_id);
+    auto it = blocks_.find(block_id);
 
-    if (it != blocks_[0].end()) {
+    if (it != blocks_.end()) {
+      it->second->round_ = std::max<td::uint32>(it->second->round_, cur_round_);
       td::PerfWarningTimer timer{"too long block validation", 1.0};
       auto &B = it->second;
 
@@ -533,7 +536,6 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
         }
       });
       pending_approve_.insert(block_id);
-      CHECK(static_cast<td::int32>(cur_round_) == B->round_);
 
       callback_->on_candidate(cur_round_, description().get_source_public_key(block->get_src_idx()), B->root_hash_,
                               B->data_.clone(), B->collated_data_.clone(), std::move(P));
@@ -557,7 +559,7 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
 
           get_broadcast_p2p(id, block->get_file_hash(), block->get_collated_data_file_hash(),
                             description().get_source_id(block->get_src_idx()), cur_round_, block->get_root_hash(),
-                            std::move(P), td::Timestamp::in(2.0));
+                            std::move(P), td::Timestamp::in(15.0));
         } else {
           LOG(VALIDATOR_SESSION_DEBUG) << this << ": no nodes to download candidate " << block << " from";
         }
@@ -774,7 +776,7 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
       }
     }
 
-    auto it = blocks_[0].find(SentBlock::get_block_id(block));
+    auto it = blocks_.find(SentBlock::get_block_id(block));
     bool have_block = (bool)block;
     if (!have_block) {
       callback_->on_block_skipped(cur_round_);
@@ -789,7 +791,7 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
       cur_stats_.creator = description().get_source_id(block->get_src_idx());
       cur_stats_.self = description().get_source_id(local_idx());
 
-      if (it == blocks_[0].end()) {
+      if (it == blocks_.end()) {
         callback_->on_block_committed(cur_round_, description().get_source_public_key(block->get_src_idx()),
                                       block->get_root_hash(), block->get_file_hash(), td::BufferSlice(),
                                       std::move(export_sigs), std::move(export_approve_sigs), std::move(cur_stats_));
@@ -805,10 +807,14 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
     } else {
       stats_add_round();
     }
-    for (size_t i = 0; i < blocks_.size() - 1; i++) {
-      blocks_[i] = std::move(blocks_[i + 1]);
+    auto it2 = blocks_.begin();
+    while (it2 != blocks_.end()) {
+      if (it2->second->round_ < (td::int32)cur_round_ - MAX_PAST_ROUND_BLOCK) {
+        it2 = blocks_.erase(it2);
+      } else {
+        ++it2;
+      }
     }
-    blocks_[blocks_.size() - 1].clear();
   }
 
   round_started_at_ = td::Timestamp::now();

@@ -385,6 +385,7 @@ class TonlibCli : public td::actor::Actor {
       td::TerminalIO::out() << "runmethod <addr> <method-id> <params>...\tRuns GET method <method-id> of account "
                                "<addr> with specified parameters\n";
       td::TerminalIO::out() << "getstate <key_id>\tget state of wallet with requested key\n";
+      td::TerminalIO::out() << "getstatebytransaction <key_id> <lt> <hash>\tget state of wallet with requested key after transaction with local time <lt> and hash <hash> (base64url)\n";
       td::TerminalIO::out() << "guessrevision <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "guessaccount <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "getaddress <key_id>\tget address of wallet with requested key\n";
@@ -485,6 +486,8 @@ class TonlibCli : public td::actor::Actor {
       transfer(parser, cmd, std::move(cmd_promise));
     } else if (cmd == "getstate") {
       get_state(parser.read_word(), std::move(cmd_promise));
+    } else if (cmd == "getstatebytransaction") {
+      get_state_by_transaction(parser, std::move(cmd_promise));
     } else if (cmd == "getaddress") {
       get_address(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "importkeypem") {
@@ -2049,6 +2052,30 @@ class TonlibCli : public td::actor::Actor {
     auto address_str = address.address->account_address_;
     send_query(make_object<tonlib_api::getAccountState>(
                    ton::move_tl_object_as<tonlib_api::accountAddress>(std::move(address.address))),
+               promise.wrap([address_str](auto&& state) {
+                 td::TerminalIO::out() << "Address: " << address_str << "\n";
+                 td::TerminalIO::out() << "Balance: "
+                                       << Grams{td::narrow_cast<td::uint64>(state->balance_ * (state->balance_ > 0))}
+                                       << "\n";
+                 td::TerminalIO::out() << "Sync utime: " << state->sync_utime_ << "\n";
+                 td::TerminalIO::out() << "transaction.LT: " << state->last_transaction_id_->lt_ << "\n";
+                 td::TerminalIO::out() << "transaction.Hash: " << td::base64_encode(state->last_transaction_id_->hash_)
+                                       << "\n";
+                 td::TerminalIO::out() << to_string(state->account_state_);
+                 return td::Unit();
+               }));
+  }
+
+  void get_state_by_transaction(td::ConstParser& parser, td::Promise<td::Unit> promise) {
+    TRY_RESULT_PROMISE(promise, address, to_account_address(parser.read_word(), false));
+    TRY_RESULT_PROMISE(promise, lt, td::to_integer_safe<std::int64_t>(parser.read_word()));
+    TRY_RESULT_PROMISE(promise, hash, td::base64url_decode(parser.read_word()));
+
+    auto address_str = address.address->account_address_;
+    auto transaction_id = std::make_unique<tonlib_api::internal_transactionId>(lt, std::move(hash));
+    send_query(make_object<tonlib_api::getAccountStateByTransaction>(
+                   ton::move_tl_object_as<tonlib_api::accountAddress>(std::move(address.address)),
+                   ton::move_tl_object_as<tonlib_api::internal_transactionId>(std::move(transaction_id))),
                promise.wrap([address_str](auto&& state) {
                  td::TerminalIO::out() << "Address: " << address_str << "\n";
                  td::TerminalIO::out() << "Balance: "

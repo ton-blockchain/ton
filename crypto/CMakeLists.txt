@@ -143,6 +143,7 @@ set(FIFT_SOURCE
   fift/Dictionary.cpp
   fift/Fift.cpp
   fift/IntCtx.cpp
+  fift/HashMap.cpp
   fift/Continuation.cpp
   fift/SourceLookup.cpp
   fift/utils.cpp
@@ -151,6 +152,7 @@ set(FIFT_SOURCE
   fift/Dictionary.h
   fift/Fift.h
   fift/IntCtx.h
+  fift/HashMap.h
   fift/Continuation.h
   fift/SourceLookup.h
   fift/utils.h
@@ -274,6 +276,10 @@ add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
+if (USE_EMSCRIPTEN)
+  target_link_options(ton_crypto PRIVATE -fexceptions)
+  target_compile_options(ton_crypto PRIVATE -fexceptions)
+endif()
 if (NOT WIN32)
   find_library(DL dl) 
   if (DL)
@@ -296,6 +302,10 @@ target_link_libraries(test-ed25519-crypto PUBLIC ton_crypto)
 add_library(fift-lib ${FIFT_SOURCE})
 target_include_directories(fift-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(fift-lib PUBLIC ton_crypto ton_db tdutils ton_block)
+if (USE_EMSCRIPTEN)
+  target_link_options(fift-lib PRIVATE -fexceptions)
+  target_compile_options(fift-lib PRIVATE -fexceptions)
+endif()
 set_target_properties(fift-lib PROPERTIES OUTPUT_NAME fift)
 
 add_executable(fift fift/fift-main.cpp)
@@ -324,17 +334,20 @@ if (USE_EMSCRIPTEN)
   add_executable(funcfiftlib funcfiftlib/funcfiftlib.cpp ${FUNC_LIB_SOURCE})
   target_include_directories(funcfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
   target_link_libraries(funcfiftlib PUBLIC fift-lib src_parser git)
-  target_link_options(funcfiftlib PRIVATE -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,_malloc,free,UTF8ToString,stringToUTF8)
-  target_link_options(funcfiftlib PRIVATE -sEXPORTED_FUNCTIONS=_func_compile,_version)
+  target_link_options(funcfiftlib PRIVATE -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue)
+  target_link_options(funcfiftlib PRIVATE -sEXPORTED_FUNCTIONS=_func_compile,_version,_malloc,_free,_setThrew)
   target_link_options(funcfiftlib PRIVATE -sEXPORT_NAME=CompilerModule)
   target_link_options(funcfiftlib PRIVATE -sERROR_ON_UNDEFINED_SYMBOLS=0)
-  target_link_options(funcfiftlib PRIVATE -sFILESYSTEM=1)
+  target_link_options(funcfiftlib PRIVATE -sFILESYSTEM=1 -lnodefs.js)
   target_link_options(funcfiftlib PRIVATE -Oz)
   target_link_options(funcfiftlib PRIVATE -sIGNORE_MISSING_MAIN=1)
   target_link_options(funcfiftlib PRIVATE -sAUTO_NATIVE_LIBRARIES=0)
   target_link_options(funcfiftlib PRIVATE -sMODULARIZE=1)
+  target_link_options(funcfiftlib PRIVATE -sALLOW_MEMORY_GROWTH=1)
+  target_link_options(funcfiftlib PRIVATE -sALLOW_TABLE_GROWTH=1)
   target_link_options(funcfiftlib PRIVATE --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/fift/lib@/fiftlib)
-  target_compile_options(funcfiftlib PRIVATE -sDISABLE_EXCEPTION_CATCHING=0)
+  target_link_options(funcfiftlib PRIVATE -fexceptions)
+  target_compile_options(funcfiftlib PRIVATE -fexceptions)
 endif()
 
 add_executable(tlbc tl/tlbc.cpp)
@@ -484,6 +497,6 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(test-weight-distr wingetopt)
 endif()
 
-install(TARGETS fift func pow-miner RUNTIME DESTINATION bin)
+install(TARGETS fift func create-state tlbc RUNTIME DESTINATION bin)
 install(DIRECTORY fift/lib/ DESTINATION lib/fift)
 install(DIRECTORY smartcont DESTINATION share/ton)

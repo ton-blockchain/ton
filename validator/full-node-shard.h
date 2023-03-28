@@ -29,11 +29,10 @@ namespace validator {
 namespace fullnode {
 
 enum FullNodeShardMode {
-  active, // Node can answer queries about the shard
-  active_temp, // Like 'active', but queries about shard state are not allowed (only blocks)
-  inactive // Node is not a part of the overlay
+  active,       // Node can answer queries about the shard
+  active_temp,  // Like 'active', but queries about shard state are not allowed (only blocks)
+  inactive      // Node is not a part of the overlay
 };
-
 
 class FullNodeShard : public td::actor::Actor {
  public:
@@ -44,15 +43,17 @@ class FullNodeShard : public td::actor::Actor {
 
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
   virtual void set_mode(FullNodeShardMode mode) = 0;
+  virtual void set_config(FullNodeConfig config) = 0;
 
   virtual void send_ihr_message(td::BufferSlice data) = 0;
   virtual void send_external_message(td::BufferSlice data) = 0;
   virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
   virtual void send_broadcast(BlockBroadcast broadcast) = 0;
 
-  virtual void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) = 0;
-  virtual void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert, td::Promise<td::Unit> promise) = 0;
-
+  virtual void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size,
+                                        td::Promise<td::BufferSlice> promise) = 0;
+  virtual void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert,
+                                          td::Promise<td::Unit> promise) = 0;
 
   virtual void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<ReceivedBlock> promise) = 0;
@@ -79,10 +80,10 @@ class FullNodeShard : public td::actor::Actor {
 
   static td::actor::ActorOwn<FullNodeShard> create(
       ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
-      FullNodeShardMode mode = FullNodeShardMode::active);
+      FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+      td::actor::ActorId<adnl::AdnlExtClient> client, FullNodeShardMode mode = FullNodeShardMode::active);
 };
 
 }  // namespace fullnode

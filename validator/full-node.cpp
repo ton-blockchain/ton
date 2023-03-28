@@ -19,6 +19,7 @@
 #include "full-node.hpp"
 #include "ton/ton-io.hpp"
 #include "td/actor/MultiPromise.h"
+#include "full-node.h"
 
 namespace ton {
 
@@ -81,9 +82,8 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
   promise.set_value(td::Unit());
 }
 
-void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
-                                                  td::uint32 expiry_at, td::uint32 max_size,
-                                                  td::Promise<td::BufferSlice> promise) {
+void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
+                                                  td::uint32 max_size, td::Promise<td::BufferSlice> promise) {
   auto it = shards_.find(shard_id);
   if(it == shards_.end() || it->second.actor.empty()) {
     promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
@@ -118,6 +118,15 @@ void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td:
     }
   }
   local_id_ = adnl_id_.pubkey_hash();
+}
+
+void FullNodeImpl::set_config(FullNodeConfig config) {
+  config_ = config;
+  for (auto& s : shards_) {
+    if (!s.second.actor.empty()) {
+      td::actor::send_closure(s.second.actor, &FullNodeShard::set_config, config);
+    }
+  }
 }
 
 void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
@@ -241,8 +250,8 @@ void FullNodeImpl::add_shard_actor(ShardIdFull shard, FullNodeShardMode mode) {
   if (!info.actor.empty()) {
     return;
   }
-  info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, keyring_, adnl_, rldp_,
-                                     overlays_, validator_manager_, client_, mode);
+  info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, config_, keyring_, adnl_, rldp_,
+                                     rldp2_, overlays_, validator_manager_, client_, mode);
   info.mode = mode;
   info.delete_at = mode != FullNodeShardMode::inactive ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
   if (all_validators_.size() > 0) {
@@ -515,7 +524,7 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
 
 void FullNodeImpl::start_up() {
   if (local_id_.is_zero()) {
-    if(adnl_id_.is_zero()) {
+    if (adnl_id_.is_zero()) {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
       local_id_ = pk.compute_short_id();
 
@@ -600,8 +609,9 @@ void FullNodeImpl::start_up() {
 }
 
 FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                           td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
+                           FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
+                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+                           td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
                            td::actor::ActorId<overlay::Overlays> overlays,
                            td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                            td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
@@ -612,24 +622,40 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp_(rldp)
+    , rldp2_(rldp2)
     , dht_(dht)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
     , client_(client)
     , db_root_(db_root)
-    , started_promise_(std::move(started_promise)) {
+    , started_promise_(std::move(started_promise))
+    , config_(config) {
   add_shard_actor(ShardIdFull{masterchainId}, FullNodeShardMode::active);
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(
-    ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
+    ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeConfig config,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
+    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise) {
-  return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, keyring, adnl, rldp,
-                                               dht, overlays, validator_manager, client, db_root,
+  return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, config, keyring,
+                                               adnl, rldp, rldp2, dht, overlays, validator_manager, client, db_root,
                                                std::move(started_promise));
+}
+
+FullNodeConfig::FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig> &obj)
+    : ext_messages_broadcast_disabled_(obj->ext_messages_broadcast_disabled_) {
+}
+
+tl_object_ptr<ton_api::engine_validator_fullNodeConfig> FullNodeConfig::tl() const {
+  return create_tl_object<ton_api::engine_validator_fullNodeConfig>(ext_messages_broadcast_disabled_);
+}
+bool FullNodeConfig::operator==(const FullNodeConfig &rhs) const {
+  return ext_messages_broadcast_disabled_ == rhs.ext_messages_broadcast_disabled_;
+}
+bool FullNodeConfig::operator!=(const FullNodeConfig &rhs) const {
+  return !(*this == rhs);
 }
 
 }  // namespace fullnode

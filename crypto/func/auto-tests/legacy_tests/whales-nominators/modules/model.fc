@@ -1,0 +1,297 @@
+;;
+;; Low level operations
+;;
+
+() add_member_pending_withdraw(int delta) impure inline {
+    ctx_balance_pending_withdraw = ctx_balance_pending_withdraw + delta;
+    ctx_member_pending_withdraw = ctx_member_pending_withdraw + delta;
+} 
+() set_member_pending_withdraw(int value) impure inline {
+    add_member_pending_withdraw(value - ctx_member_pending_withdraw);
+}
+
+() add_member_pending_deposit(int delta) impure inline {
+    ctx_member_pending_deposit = ctx_member_pending_deposit + delta;
+    ctx_balance_pending_deposits = ctx_balance_pending_deposits + delta;
+}
+() set_member_pending_deposit(int value) impure inline {
+    add_member_pending_deposit(value - ctx_member_pending_deposit);
+}
+
+int compose_profit(int a, int b) {
+    ;; (a + 1) * (b + 1) - 1
+    return (((a + params::ppc_precision()) * (b + params::ppc_precision())) / params::ppc_precision()) - params::ppc_precision(); ;; NOTE: Rounded down
+}
+
+int apply_profit(int value, int value_profit, int profit) {
+    return ((params::ppc_precision() + profit) * value) / (params::ppc_precision() + value_profit); ;; NOTE: Rounded down
+}
+
+;;
+;; Deposit
+;;
+
+() member_update_balance() impure {
+    
+    ;; Update profit (for non-owner)
+    if (ctx_member != owner_id()) {
+        if (ctx_profit_per_coin != ctx_member_profit_per_coin) {
+            int new_balance = apply_profit(ctx_member_balance, ctx_member_profit_per_coin, ctx_profit_per_coin);
+            int delta_balance = new_balance - ctx_member_balance;
+            ctx_member_balance = ctx_member_balance + delta_balance;
+            ctx_member_profit_per_coin = ctx_profit_per_coin;
+        }
+    }
+
+    ;; Update pending withdraw
+    if (ctx_member_pending_withdraw_all) {
+       if (ctx_member_pending_withdraw != ctx_member_balance) {
+           set_member_pending_withdraw(ctx_member_balance);
+        }
+    } else {
+        if (ctx_member_pending_withdraw > ctx_member_balance) {
+            set_member_pending_withdraw(ctx_member_balance);
+        }
+    }
+}
+
+() member_reset_pending_withdraw() impure {
+    set_member_pending_withdraw(0);
+    ctx_member_pending_withdraw_all = false;
+}
+
+() member_stake_deposit(int value) impure {
+    throw_unless(error::invalid_stake_value(), value > 0);
+
+    ;; Update balances
+    member_update_balance();
+
+    ;; Reset pending withdrawal
+    member_reset_pending_withdraw();
+
+    ;; Add deposit to pending
+    ;; NOTE: We are not adding directly deposit to member's balance
+    ;;       and we are always confirming acception of deposit to a pool
+    ;;       via sending accept message. This could be done on- and off-chain.
+    ;;       This could be useful to make private nominator pools or black lists.
+    ;;       Anyone always could withdraw their deposits though.
+    add_member_pending_deposit(value);
+}
+
+() member_accept_stake() impure {
+
+    ;; Checks if there are pending deposits
+    throw_unless(error::invalid_message(), ctx_member_pending_deposit > 0);
+
+    ;; Check if not locked
+    throw_if(error::invalid_message(), ctx_locked);
+
+    ;; Recalculate balance
+    member_update_balance();
+
+    ;; Move deposit to member's balance
+    var amount = ctx_member_pending_deposit;
+    set_member_pending_deposit(0);
+
+
+    ctx_member_balance = ctx_member_balance + amount;
+    ctx_balance =  ctx_balance + amount;
+}
+
+;;
+;; Withdraw
+;;
+
+(int, int) member_stake_withdraw(int value) impure {
+
+    ;; Check input
+    throw_unless(error::invalid_stake_value(), value >= 0);
+
+    ;; Update balances
+    member_update_balance();
+
+    ;; Reset pending withdrawal: would be overwritten later
+    member_reset_pending_withdraw();
+
+    ;; Pre-flight withdraw check
+    throw_unless(error::invalid_stake_value(), value >= 0);
+    throw_unless(error::invalid_stake_value(), ctx_member_balance + ctx_member_withdraw + ctx_member_pending_deposit >= value);
+
+    ;; Check withdraw all
+    var withdraw_all = false;
+    if (value == 0) {
+        withdraw_all = true;
+        value = ctx_member_pending_deposit + ctx_member_balance + ctx_member_withdraw;
+    }
+
+    ;; Trying to withdraw immediatelly
+    var remaining = value;
+    var withdrawed = 0;
+    
+    ;; Try to withdraw from pending deposit
+    if ((remaining > 0) & (ctx_member_pending_deposit >= 0)) {
+        int delta = min(ctx_member_pending_deposit, remaining);
+        add_member_pending_deposit(- delta);
+        withdrawed = withdrawed + delta;
+        remaining = remaining - delta;
+    }
+
+    ;; Try to withdraw from withdraw balance
+    if ((remaining > 0) & ctx_member_withdraw > 0) {
+        int delta = min(ctx_member_withdraw, remaining);
+        ctx_member_withdraw = ctx_member_withdraw - delta;
+        ctx_balance_withdraw = ctx_balance_withdraw - delta;
+        withdrawed = withdrawed + delta;
+        remaining = remaining - delta;
+    }
+
+    ;; Try to withdraw from balance
+    if ((remaining > 0) & (~ ctx_locked) & (ctx_member_balance > 0)) {
+        int delta = min(ctx_member_balance, remaining);
+        ctx_member_balance = ctx_member_balance - delta;
+        ctx_balance = ctx_balance - delta;
+        withdrawed = withdrawed + delta;
+        remaining = remaining - delta;
+    }
+
+    ;; Add to pending withdrawals
+    if (remaining > 0) {
+        add_member_pending_withdraw(remaining);
+        ctx_member_pending_withdraw_all = withdraw_all;
+    }
+
+    ;; Return withdraw result
+    return (withdrawed, remaining == 0);
+}
+
+() member_accept_withdraw() impure {
+    
+    ;; Checks if there are pending withdrawals
+    throw_unless(error::invalid_message(), ctx_member_pending_withdraw > 0);
+
+    ;; Check if not locked
+    throw_if(error::invalid_message(), ctx_locked);
+
+    ;; Recalculate balance
+    member_update_balance();
+
+    ;; Move deposit to member's balance
+    var amount = ctx_member_pending_withdraw;
+
+    ctx_member_balance = ctx_member_balance - amount;
+    ctx_member_withdraw = ctx_member_withdraw + amount;
+    ctx_balance = ctx_balance - amount;
+    ctx_balance_withdraw = ctx_balance_withdraw + amount;
+    ctx_balance_pending_withdraw = ctx_balance_pending_withdraw - amount;
+    ctx_member_pending_withdraw = 0;
+    ctx_member_pending_withdraw_all = false;
+}
+
+() distribute_profit(int profit) impure {
+
+    ;; Load extras
+    var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
+
+    ;; Load owner balances
+    load_member(0);
+
+    ;; Loss
+    if (profit < 0) {
+
+        ;; Stakes
+        var owner_stake = ctx_member_balance;
+        var nominators_stake = ctx_balance - owner_stake;
+
+        ;; Distribute loss to everyone
+        var cycleProfitPerCoin = profit * params::ppc_precision()  / ctx_balance;
+        var nominators_profit = (nominators_stake * cycleProfitPerCoin) / params::ppc_precision();
+        var owner_profit = profit - nominators_profit;
+
+        ;; Update balances
+        ctx_balance = ctx_balance + profit;
+        ctx_member_balance = ctx_member_balance + owner_profit;
+        ctx_profit_per_coin = compose_profit(ctx_profit_per_coin, cycleProfitPerCoin);
+
+        ;; Persist
+        store_member();
+
+        return ();
+    }
+
+    ;; Profit
+    if (profit > 0) {
+
+        ;; Stakes
+        var owner_stake = ctx_member_balance;
+        var nominators_stake = ctx_balance - owner_stake;
+
+        ;; Distribute profit
+        var cycleProfitPerCoin = profit * params::ppc_precision() * (100 * 100 - pool_fee) / (ctx_balance * 100 * 100);
+        var nominators_profit = (nominators_stake * cycleProfitPerCoin) / params::ppc_precision();
+        var owner_profit = profit - nominators_profit;
+
+        ;; Update balances
+        ctx_balance = ctx_balance + profit;
+        ctx_member_balance = ctx_member_balance + owner_profit;
+        ctx_profit_per_coin = compose_profit(ctx_profit_per_coin, cycleProfitPerCoin);
+
+        ;; Persist
+        store_member();
+
+        return ();
+    }
+}
+
+;;
+;; Validator
+;;
+
+() on_locked() impure {
+    if (~ ctx_locked) {
+        
+        ;; Allow locking only on no pending withdrawals
+        throw_unless(error::invalid_message(), ctx_balance_pending_withdraw == 0);
+        
+        ;; Update state
+        ctx_locked = true;
+    }
+}
+
+() on_unlocked() impure {
+    if (ctx_locked) {
+
+        ;; Update state
+        ctx_locked = false;
+    }
+}
+
+int available_to_stake() {
+    return ctx_balance - ctx_balance_sent;
+}
+
+int owned_balance() {
+    return ctx_balance - ctx_balance_sent + ctx_balance_pending_deposits + ctx_balance_withdraw + fees::storage_reserve();
+}
+
+() on_stake_sent(int stake) impure {
+    ctx_balance_sent = ctx_balance_sent + stake;
+}
+
+() on_stake_sent_failed(int stake) impure {
+    ctx_balance_sent = ctx_balance_sent - stake;
+}
+
+() on_stake_recovered(int stake) impure {
+
+    ;; Calculate profit
+    ;; NOTE: ctx_locked is true meaning that ctx_balance 
+    ;;       have the same value as was when stake was sent
+    ;;       balances are going to be unlocked after profit distribution
+    var profit = stake - ctx_balance_sent;
+
+    ;; Distribute profit
+    distribute_profit(profit);
+
+    ;; Reset sent amount
+    ctx_balance_sent = 0;
+}

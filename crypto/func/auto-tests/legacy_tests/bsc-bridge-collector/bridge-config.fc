@@ -1,0 +1,13 @@
+(int, int, cell) get_bridge_config() impure inline_ref {
+  cell bridge_config = config_param(72);
+  if (bridge_config.cell_null?()) {
+    bridge_config = config_param(-72);
+  }
+  throw_if(666, bridge_config.cell_null?());
+  slice ds = bridge_config.begin_parse();
+  ;; wc always equals to -1
+  int bridge_address = ds~load_uint(256);
+  int oracles_address = ds~load_uint(256);
+  cell oracles = ds~load_dict();
+  return (bridge_address, oracles_address, oracles);
+}

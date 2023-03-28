@@ -30,6 +30,7 @@
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
 #include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 #include "dht/dht.h"
 #include "validator/manager.h"
 #include "validator/validator.h"
@@ -94,6 +95,7 @@ struct Config {
   std::vector<FullNodeSlave> full_node_slaves;
   std::map<td::int32, ton::PublicKeyHash> full_node_masters;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
+  ton::validator::fullnode::FullNodeConfig full_node_config;
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
   std::vector<ton::ShardIdFull> shards_to_monitor;
@@ -151,6 +153,7 @@ class ValidatorEngine : public td::actor::Actor {
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> adnl_network_manager_;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
   td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
+  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager_;
@@ -445,6 +448,10 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_delShard &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_getShardOutQueueSize &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

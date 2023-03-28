@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-18.04, ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-20.04, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -39,8 +39,17 @@ jobs:
       run: |
         mkdir artifacts-${{ matrix.os }}
         cp build-${{ matrix.os }}/storage/storage-daemon/storage-daemon build-${{ matrix.os }}/storage/storage-daemon/storage-daemon-cli build-${{ matrix.os }}/crypto/fift build-${{ matrix.os }}/crypto/tlbc build-${{ matrix.os }}/crypto/func build-${{ matrix.os }}/crypto/create-state build-${{ matrix.os }}/validator-engine-console/validator-engine-console build-${{ matrix.os }}/tonlib/tonlib-cli build-${{ matrix.os }}/tonlib/libtonlibjson.so.0.5 build-${{ matrix.os }}/http/http-proxy build-${{ matrix.os }}/rldp-http-proxy/rldp-http-proxy build-${{ matrix.os }}/dht-server/dht-server build-${{ matrix.os }}/lite-client/lite-client build-${{ matrix.os }}/validator-engine/validator-engine build-${{ matrix.os }}/utils/generate-random-id build-${{ matrix.os }}/utils/json2tlo build-${{ matrix.os }}/adnl/adnl-proxy artifacts-${{ matrix.os }}
+        chmod +x artifacts-${{ matrix.os }}/*
         cp -R crypto/smartcont artifacts-${{ matrix.os }}
         cp -R crypto/fift/lib artifacts-${{ matrix.os }}
+
+    - name: Simple binaries test
+      run: |
+        artifacts-${{ matrix.os }}/validator-engine -V
+        artifacts-${{ matrix.os }}/lite-client -V
+        artifacts-${{ matrix.os }}/fift -V
+        artifacts-${{ matrix.os }}/func -V
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
