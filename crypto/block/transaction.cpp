@@ -704,7 +704,9 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
       switch (acc_status) {
         case Account::acc_uninit:
         case Account::acc_frozen:
-          if (total_due > cfg.delete_due_limit) {
+          if (total_due > cfg.delete_due_limit && balance.extra.is_null()) {
+            // Keeping accounts with non-null extras is a temporary measure before implementing proper collection of
+            // extracurrencies from deleted accounts
             res->deleted = true;
             acc_status = Account::acc_deleted;
             if (balance.extra.not_null()) {

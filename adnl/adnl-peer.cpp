@@ -960,7 +960,6 @@ void AdnlPeerPairImpl::got_data_from_dht(td::Result<AdnlNode> R) {
   CHECK(dht_query_active_);
   dht_query_active_ = false;
   next_dht_query_at_ = td::Timestamp::in(td::Random::fast(60.0, 120.0));
-  alarm_timestamp().relax(next_dht_query_at_);
   if (R.is_error()) {
     VLOG(ADNL_INFO) << this << ": dht query failed: " << R.move_as_error();
     return;
