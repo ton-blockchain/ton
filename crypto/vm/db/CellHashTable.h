@@ -43,7 +43,7 @@ class CellHashTable {
   template <class F>
   void for_each(F &&f) {
     for (auto &info : set_) {
-      f(const_cast<InfoT &>(info));
+      f(info);
     }
   }
   template <class F>

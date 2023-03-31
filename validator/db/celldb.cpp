@@ -86,42 +86,19 @@ void CellDbIn::start_up() {
 }
 
 void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
-  enqueue([this, hash, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      return;
-    }
-    promise.set_result(boc_->load_cell(hash.as_slice()));
-    release_db();
-  });
+  boc_->load_cell_async(hash.as_slice(), async_executor, std::move(promise));
 }
 
 void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
-  enqueue([this, block_id, cell = std::move(cell), promise = std::move(promise)](td::Result<td::Unit> R0) mutable {
-    if (R0.is_error()) {
-      return;
-    }
-    promise = promise.wrap([timer = td::PerfWarningTimer{"storecell", 0.1}](td::Ref<vm::DataCell> &&r) { return r; });
-    auto key_hash = get_key_hash(block_id);
-    auto R = get_block(key_hash);
-    // duplicate
-    if (R.is_ok()) {
-      promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
-      release_db();
-      return;
-    }
-
-    boc_->inc(cell);
-    boc_->prepare_commit_async(
-        async_executor, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-          R.ensure();
-          td::actor::send_closure(SelfId, &CellDbIn::store_cell_cont, block_id, cell, std::move(promise));
-        });
-  });
-}
-
-void CellDbIn::store_cell_cont(BlockIdExt block_id, td::Ref<vm::Cell> cell,
-                               td::Promise<td::Ref<vm::DataCell>> promise) {
+  td::PerfWarningTimer timer{"storecell", 0.1};
   auto key_hash = get_key_hash(block_id);
+  auto R = get_block(key_hash);
+  // duplicate
+  if (R.is_ok()) {
+    promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
+    return;
+  }
+
   auto empty = get_empty_key_hash();
   auto ER = get_block(empty);
   ER.ensure();
@@ -142,7 +119,9 @@ void CellDbIn::store_cell_cont(BlockIdExt block_id, td::Ref<vm::Cell> cell,
     P.prev = key_hash;
   }
 
-  vm::CellStorer stor{*cell_db_};
+  boc_->inc(cell);
+  boc_->prepare_commit().ensure();
+  vm::CellStorer stor{*cell_db_.get()};
   cell_db_->begin_write_batch().ensure();
   boc_->commit(stor).ensure();
   set_block(empty, std::move(E));
@@ -154,17 +133,10 @@ void CellDbIn::store_cell_cont(BlockIdExt block_id, td::Ref<vm::Cell> cell,
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
-  release_db();
 }
 
 void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
-  enqueue([this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      return;
-    }
-    promise.set_result(boc_->get_cell_db_reader());
-    release_db();
-  });
+  promise.set_result(boc_->get_cell_db_reader());
 }
 
 void CellDbIn::alarm() {
@@ -214,30 +186,13 @@ void CellDbIn::gc_cont(BlockHandle handle) {
 }
 
 void CellDbIn::gc_cont2(BlockHandle handle) {
-  enqueue([this, handle = std::move(handle)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      return;
-    }
-    td::Promise<td::Unit> promise = [timer = td::PerfWarningTimer{"gccell", 0.1}](td::Result<td::Unit>) {};
-    auto FR = get_block(get_key_hash(handle->id()));
-    FR.ensure();
-    auto F = FR.move_as_ok();
-    auto cell = boc_->load_cell(F.root_hash.as_slice()).move_as_ok();
+  td::PerfWarningTimer timer{"gccell", 0.1};
 
-    boc_->dec(cell);
-    boc_->prepare_commit_async(async_executor, [SelfId = actor_id(this), promise = std::move(promise),
-                                                block_id = handle->id()](td::Result<td::Unit> R) mutable {
-      R.ensure();
-      td::actor::send_closure(SelfId, &CellDbIn::gc_cont3, block_id, std::move(promise));
-    });
-  });
-}
-
-void CellDbIn::gc_cont3(BlockIdExt block_id, td::Promise<td::Unit> promise) {
-  auto key_hash = get_key_hash(block_id);
+  auto key_hash = get_key_hash(handle->id());
   auto FR = get_block(key_hash);
   FR.ensure();
   auto F = FR.move_as_ok();
+
   auto PR = get_block(F.prev);
   PR.ensure();
   auto P = PR.move_as_ok();
@@ -252,6 +207,10 @@ void CellDbIn::gc_cont3(BlockIdExt block_id, td::Promise<td::Unit> promise) {
     N.next = N.prev;
   }
 
+  auto cell = boc_->load_cell(F.root_hash.as_slice()).move_as_ok();
+
+  boc_->dec(cell);
+  boc_->prepare_commit().ensure();
   vm::CellStorer stor{*cell_db_};
   cell_db_->begin_write_batch().ensure();
   boc_->commit(stor).ensure();
@@ -265,28 +224,6 @@ void CellDbIn::gc_cont3(BlockIdExt block_id, td::Promise<td::Unit> promise) {
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   DCHECK(get_block(key_hash).is_error());
-  promise.set_result(td::Unit());
-  release_db();
-}
-
-void CellDbIn::enqueue(td::Promise<td::Unit> promise) {
-  db_queue_.push(std::move(promise));
-  process_event();
-}
-
-void CellDbIn::release_db() {
-  db_busy_ = false;
-  process_event();
-}
-
-void CellDbIn::process_event() {
-  if (db_busy_ || db_queue_.empty()) {
-    return;
-  }
-  db_busy_ = true;
-  auto promise = std::move(db_queue_.front());
-  db_queue_.pop();
-  promise.set_result(td::Unit());
 }
 
 void CellDbIn::skip_gc() {
