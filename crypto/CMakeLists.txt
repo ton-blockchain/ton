@@ -148,6 +148,7 @@ set(FIFT_SOURCE
   fift/SourceLookup.cpp
   fift/utils.cpp
   fift/words.cpp
+  fift/extwords.cpp
 
   fift/Dictionary.h
   fift/Fift.h
@@ -157,6 +158,7 @@ set(FIFT_SOURCE
   fift/SourceLookup.h
   fift/utils.h
   fift/words.h
+  fift/extwords.h
 )
 
 set(PARSER_SOURCE
@@ -462,7 +464,7 @@ target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 if (INTERNAL_COMPILE)
   target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib git)
 else()
-  if (TONLIB_COMPILE) 
+  if (TONLIB_COMPILE)
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib git)
   else()
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block git)
