@@ -12,6 +12,7 @@ struct TransactionEmulationParams {
   uint64_t lt;
   td::optional<std::string> rand_seed_hex;
   bool ignore_chksig;
+  bool debug_enabled;
 };
 
 td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const char* json) {
@@ -37,6 +38,9 @@ td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const
   TRY_RESULT(ignore_chksig, td::get_json_object_bool_field(obj, "ignore_chksig", false));
   params.ignore_chksig = ignore_chksig;
 
+  TRY_RESULT(debug_enabled, td::get_json_object_bool_field(obj, "debug_enabled", false));
+  params.debug_enabled = debug_enabled;
+
   return params;
 }
 
@@ -51,6 +55,7 @@ struct GetMethodParams {
   std::string rand_seed_hex;
   int64_t gas_limit;
   int method_id;
+  bool debug_enabled;
 };
 
 td::Result<GetMethodParams> decode_get_method_params(const char* json) {
@@ -95,6 +100,9 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
   TRY_RESULT(method_id, td::get_json_object_int_field(obj, "method_id", false));
   params.method_id = method_id;
 
+  TRY_RESULT(debug_enabled, td::get_json_object_bool_field(obj, "debug_enabled", false));
+  params.debug_enabled = debug_enabled;
+
   return params;
 }
 
@@ -123,6 +131,7 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
         !transaction_emulator_set_lt(em, decoded_params.lt) ||
         !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
         !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
+        !transaction_emulator_set_debug_enabled(em, decoded_params.debug_enabled) ||
         !rand_seed_set) {
         transaction_emulator_destroy(em);
         return strdup(R"({"fail":true,"message":"Can't set params"})");
@@ -163,7 +172,8 @@ const char *run_get_method(const char *params, const char* stack, const char* co
     if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
         !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime,
           decoded_params.balance, decoded_params.rand_seed_hex.c_str(), config) ||
-        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit))) {
+        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
+        !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
       tvm_emulator_destroy(tvm);
       return strdup(R"({"fail":true,"message":"Can't set params"})");
     }

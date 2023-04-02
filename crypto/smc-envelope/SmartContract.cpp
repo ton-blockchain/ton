@@ -168,9 +168,9 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
 }
 
 SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7,
-                                    vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity) {
+                                    vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity, bool debug_enabled) {
   auto gas_credit = gas.gas_credit;
-  vm::init_op_cp0();
+  vm::init_op_cp0(debug_enabled);
   vm::DictionaryBase::get_empty_dictionary();
 
   class Logger : public td::LogInterface {
@@ -289,7 +289,7 @@ SmartContract::Answer SmartContract::run_method(Args args) {
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   auto res =
       run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
-                    args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{}, args.vm_log_verbosity_level);
+                    args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{}, args.vm_log_verbosity_level, args.debug_enabled);
   state_ = res.new_state;
   return res;
 }
@@ -307,7 +307,7 @@ SmartContract::Answer SmartContract::run_get_method(Args args) const {
   CHECK(args.method_id);
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   return run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
-                       args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{}, args.vm_log_verbosity_level);
+                       args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{}, args.vm_log_verbosity_level, args.debug_enabled);
 }
 
 SmartContract::Answer SmartContract::run_get_method(td::Slice method, Args args) const {
