@@ -31,6 +31,10 @@ public:
     args_.set_config(config);
   }
 
+  void set_debug_enabled(bool debug_enabled) {
+    args_.set_debug_enabled(debug_enabled);
+  }
+
   Answer run_get_method(int method_id, td::Ref<vm::Stack> stack) {
     return smc_.run_get_method(args_.set_stack(stack).set_method_id(method_id));
   }

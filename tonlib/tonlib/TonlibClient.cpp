@@ -2594,9 +2594,9 @@ const MasterConfig& get_default_master_config() {
           "file_hash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24="
         },
         "init_block" : {
-          "root_hash": "irEt9whDfgaYwD+8AzBlYzrMZHhrkhSVp3PU1s4DOz4=",
-          "seqno": 10171687,
-          "file_hash": "lay/bUKUUFDJXU9S6gx9GACQFl+uK+zX8SqHWS9oLZc=",
+          "root_hash": "YRkrcmZMvLBvjanwKCyL3w4oceGPtFfgx8ym1QKCK/4=",
+          "seqno": 27747086,
+          "file_hash": "N42xzPnJjDlE3hxPXOb+pNzXomgRtpX5AZzMPnIA41s=",
           "workchain": -1,
           "shard": -9223372036854775808
         },

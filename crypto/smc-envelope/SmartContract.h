@@ -65,6 +65,7 @@ class SmartContract : public td::CntObject {
     td::uint64 amount{0};
     td::uint64 balance{0};
     int vm_log_verbosity_level{0};
+    bool debug_enabled{false};
 
     td::optional<block::StdAddress> address;
     td::optional<std::shared_ptr<const block::Config>> config;
@@ -133,6 +134,10 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_vm_verbosity_level(int vm_log_verbosity_level) {
       this->vm_log_verbosity_level = vm_log_verbosity_level;
+      return std::move(*this);
+    }
+    Args&& set_debug_enabled(bool debug_enabled) {
+      this->debug_enabled = debug_enabled;
       return std::move(*this);
     }
 
