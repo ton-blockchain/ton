@@ -32,8 +32,8 @@ int scope_level;
 
 SymTable<100003> symbols;
 
-SymDef* sym_def[symbols.hprime];
-SymDef* global_sym_def[symbols.hprime];
+SymDef* sym_def[symbols.hprime + 1];
+SymDef* global_sym_def[symbols.hprime + 1];
 std::vector<std::pair<int, SymDef>> symbol_stack;
 std::vector<src::SrcLocation> scope_opened_at;
 

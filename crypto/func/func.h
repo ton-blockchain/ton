@@ -19,6 +19,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <set>
 #include <stack>
 #include <utility>
 #include <algorithm>
@@ -40,7 +41,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.4.2"};
+const std::string func_version{"0.4.3"};
 
 enum Keyword {
   _Eof = -1,
@@ -839,6 +840,7 @@ struct SymValConst : sym::SymValBase {
 
 extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
 extern std::vector<SymDef*> glob_func, glob_vars;
+extern std::set<std::string> prohibited_var_names;
 
 /*
  * 

@@ -172,6 +172,10 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
     lex.expect(_Ident, "formal parameter name");
   }
   loc = lex.cur().loc;
+  if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+    throw src::ParseError{
+        loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val) << "` cannot be redefined as a variable"};
+  }
   SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
   if (!new_sym_def) {
     lex.cur().error_at("cannot define symbol `", "`");
@@ -397,7 +401,7 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
     def = sym::define_global_symbol(func_name, 0, cur.loc);
     assert(def && "cannot define global function");
     ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_hole());  // was: ... ::new_func()
+    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
     return true;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
@@ -1369,6 +1373,10 @@ std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
       throw src::ParseError{lex.cur().loc, "free type identifier expected"};
     }
     auto loc = lex.cur().loc;
+    if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+      throw src::ParseError{loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val)
+                                           << "` cannot be redefined as a variable"};
+    }
     SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
     if (!new_sym_def || new_sym_def->value) {
       lex.cur().error_at("redefined type variable `", "`");
