@@ -266,7 +266,7 @@ x{89} @Defop(ref) PUSHREFSLICE
 x{8A} @Defop(ref) PUSHREFCONT
 { 1- dup 0< over 8 >= or abort"invalid slice padding"
   swap 1 1 u, 0 rot u, } : @scomplete
-{ tuck sbitrefs swap 17 + swap @havebitrefs not
+{ tuck sbitrefs swap 26 + swap @havebitrefs not
   { <b rot s, b> PUSHREFSLICE }
   { over sbitrefs 2dup 123 0 2x<=
     { drop tuck 4 + 3 >> swap x{8B} s, over 4 u, 3 roll s,
