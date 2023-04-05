@@ -46,8 +46,7 @@ class ArchiveManager : public td::actor::Actor {
   void add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice data,
                             td::Promise<td::Unit> promise);
   void add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                std::function<td::Status(td::FileFd&)> write_state,
-                                td::Promise<td::Unit> promise);
+                                std::function<td::Status(td::FileFd &)> write_state, td::Promise<td::Unit> promise);
   void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise);
   void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::BufferSlice> promise);
   void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
@@ -63,6 +62,8 @@ class ArchiveManager : public td::actor::Actor {
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
   void get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt, td::Promise<ConstBlockHandle> promise);
+  void get_block_by_seqno_custom(AccountIdPrefixFull account_id, BlockSeqno seqno, td::Promise<ConstBlockHandle> promise,
+                          bool with_index, bool async);
   void get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno seqno, td::Promise<ConstBlockHandle> promise);
 
   void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
@@ -103,6 +104,7 @@ class ArchiveManager : public td::actor::Actor {
 
     std::map<ShardIdFull, Desc> first_blocks;
     td::actor::ActorOwn<ArchiveSlice> file;
+    BlockSeqno min_seqno;  // todo: add min_lt & min_unix
   };
 
   std::map<PackageId, FileDescription> files_;
@@ -134,6 +136,9 @@ class ArchiveManager : public td::actor::Actor {
   FileDescription *get_file_desc_by_lt(ShardIdFull shard, LogicalTime lt, bool key_block);
   FileDescription *get_file_desc_by_unix_time(ShardIdFull shard, UnixTime ts, bool key_block);
   FileDescription *get_file_desc_by_seqno(AccountIdPrefixFull shard, BlockSeqno seqno, bool key_block);
+  FileDescription *get_file_desc_by_seqno_with_index(AccountIdPrefixFull account, BlockSeqno seqno, bool key_block);
+  void get_file_desc_by_seqno_with_index_and_async(AccountIdPrefixFull account, BlockSeqno seqno, bool key_block,
+                                                    td::Promise<ConstBlockHandle> promise);
   FileDescription *get_file_desc_by_lt(AccountIdPrefixFull shard, LogicalTime lt, bool key_block);
   FileDescription *get_file_desc_by_unix_time(AccountIdPrefixFull shard, UnixTime ts, bool key_block);
   FileDescription *get_next_file_desc(FileDescription *f);
