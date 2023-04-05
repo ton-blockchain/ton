@@ -535,6 +535,12 @@ target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
 add_executable(test-http test/test-http.cpp)
 target_link_libraries(test-http PRIVATE tonhttp)
 
+include_directories(SYSTEM ./test)
+add_executable(test-get-blocks test/test-get-blocks.cpp)
+target_link_libraries(test-get-blocks PUBLIC overlay tdutils tdactor adnl tl_api dht
+        catchain validatorsession validator-disk ton_validator validator-disk)
+
+
 get_directory_property(HAS_PARENT PARENT_DIRECTORY)
 if (HAS_PARENT)
   set(ALL_TEST_SOURCE
