@@ -55,10 +55,17 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
     auto walk_status = td::WalkPath::run(path, [&](td::CSlice name, td::WalkPath::Type type) {
       if (type == td::WalkPath::Type::NotDir) {
         std::string rel_name = td::PathView::relative(name, path).str();
-        for (char& c : rel_name) {
-          if (is_dir_slash(c)) {
-            c = '/';
+        td::Slice file_name = rel_name;
+        for (size_t i = 0; i < rel_name.size(); ++i) {
+          if (is_dir_slash(rel_name[i])) {
+            rel_name[i] = '/';
+            file_name = td::Slice(rel_name.c_str() + i + 1, rel_name.c_str() + rel_name.size());
           }
+        }
+        // Exclude OS-created files that can be modified automatically and thus break some torrent pieces
+        if (file_name == ".DS_Store" || td::to_lower(file_name) == "desktop.ini" ||
+            td::to_lower(file_name) == "thumbs.db") {
+          return td::WalkPath::Action::Continue;
         }
         status = creator.add_file(rel_name, name);
         if (status.is_error()) {
