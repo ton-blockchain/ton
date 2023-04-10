@@ -1,0 +1,69 @@
+hmapnew .s // (null)
+
+// Get from empty hmap
+dup 10 swap hmap@ null? not abort"expected null"
+dup "abc" swap hmap@ null? not abort"expected null"
+dup 10 swap hmap@? abort"expected 0"
+dup "abc" swap hmap@? abort"expected 0"
+dup hmapempty? not abort"expected -1"
+.s cr // (null)
+
+// Insert values
+"value-1" 123 rot hmap!+
+"value-2" "Abc" rot hmap!+
+"value-3" "xyz" rot hmap!+
+"value-4" B{78797A} rot hmap!+
+"value-5" `xyz rot hmap!+
+"abcdefg" null rot hmap!+ // No effect!
+dup hmapempty? abort"expected 0"
+
+// Get values
+dup 123       swap hmap@ type cr // value-1
+dup "Abc"     swap hmap@ type cr // value-2
+dup "xyz"     swap hmap@ type cr // value-3
+dup B{78797A} swap hmap@ type cr // value-4
+dup `xyz      swap hmap@ type cr // value-5
+dup 123       swap hmap@? . type cr // -1 value-1
+dup "Abc"     swap hmap@? . type cr // -1 value-2
+dup "xyz"     swap hmap@? . type cr // -1 value-3
+dup B{78797A} swap hmap@? . type cr // -1 value-4
+dup `xyz      swap hmap@? . type cr // -1 value-5
+// Get null
+dup 1234 swap hmap@ null? not abort"expected null"
+dup null swap hmap@ null? not abort"expected null"
+dup 1234 swap hmap@? abort"expected 0"
+dup null swap hmap@? abort"expected 0"
+cr
+
+// hmapforeach
+constant hmap
+hmap { .s drop drop -1 } hmapforeach
+.s drop
+3 hmap { .s drop drop 1- dup } hmapforeach
+.s cr drop drop hmap
+
+// hmap! (insert) and hmap!+ (replace)
+"value-11" 123 rot hmap!+
+"value-66" 567 rot hmap!+
+"value-33" "xyz" rot hmap!
+"value-77" "qwe" rot hmap! // No effect!
+dup 123   swap hmap@ type cr // value-11
+dup 567   swap hmap@ type cr // value-66
+dup "xyz" swap hmap@ type cr // value-33
+dup "qwe" swap hmap@ null? not abort"null expected"
+cr
+
+// Delete
+567 swap hmap-
+789 swap hmap-
+"qwe" swap hmap-? . // -1
+"rty" swap hmap-? . // 0
+`xyz swap hmap@- type // value-5
+`zyx swap hmap@- null? not abort"null expected"
+null 123 rot hmap! // same as hmap-
+null 321 rot hmap!
+null `xyz rot hmap!+
+cr
+constant hmap
+hmap { .s drop drop -1 } hmapforeach
+drop

@@ -28,6 +28,7 @@ class LoadSpeed {
  public:
   void add(td::uint64 size, td::Timestamp now = td::Timestamp::now());
   double speed(td::Timestamp now = td::Timestamp::now()) const;
+  void reset();
   friend td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed);
 
  private:

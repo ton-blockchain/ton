@@ -588,12 +588,14 @@ engine.gc ids:(vector int256) = engine.Gc;
 engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
+engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
         dht:(vector engine.dht)
         validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
+        fullnodeconfig:engine.validator.fullNodeConfig
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
-        gc:engine.gc = engine.validator.Config; 
+        gc:engine.gc = engine.validator.Config;
 
 ---functions---
 ---types---
@@ -641,6 +643,8 @@ engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) =
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
 engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByName) = engine.validator.PerfTimerStats;
+
+engine.validator.shardOutQueueSize size:int = engine.validator.ShardOutQueueSize;
 
 
 ---functions---
@@ -693,6 +697,8 @@ engine.validator.signShardOverlayCertificate workchain:int shard:long signed_key
 engine.validator.importShardOverlayCertificate workchain:int shard:long signed_key:engine.validator.KeyHash cert:overlay.Certificate = engine.validator.Success;
 
 engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
+engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
+engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validator.Success;
 
 ---types---
 
@@ -758,9 +764,12 @@ storage.db.key.torrentMeta hash:int256 = storage.db.key.TorrentMeta;
 storage.db.key.priorities hash:int256 = storage.db.key.Priorities;
 storage.db.key.piecesInDb hash:int256 = storage.db.key.PiecesInDb;
 storage.db.key.pieceInDb hash:int256 idx:long = storage.db.key.PieceInDb;
+storage.db.key.config = storage.db.key.Config;
 
+storage.db.config flags:# download_speed_limit:double upload_speed_limit:double = storage.db.Config;
 storage.db.torrentList torrents:(vector int256) = storage.db.TorrentList;
 storage.db.torrent root_dir:string active_download:Bool active_upload:Bool = storage.db.TorrentShort;
+storage.db.torrentV2 flags:# root_dir:string added_at:int active_download:Bool active_upload:Bool = storage.db.TorrentShort;
 storage.db.priorities actions:(vector storage.PriorityAction) = storage.db.Priorities;
 storage.db.piecesInDb pieces:(vector long) = storage.db.PiecesInDb;
 
@@ -788,6 +797,7 @@ storage.provider.db.microchunkTree data:bytes = storage.provider.db.MicrochunkTr
 
 storage.daemon.queryError message:string = storage.daemon.QueryError;
 storage.daemon.success = storage.daemon.Success;
+
 storage.daemon.torrent
     hash:int256 flags:#
     // 0 - info ready
@@ -796,18 +806,28 @@ storage.daemon.torrent
     total_size:flags.0?long description:flags.0?string
     files_count:flags.1?long included_size:flags.1?long dir_name:flags.1?string
     downloaded_size:long
-    root_dir:string active_download:Bool active_upload:Bool completed:Bool
+    added_at:int root_dir:string active_download:Bool active_upload:Bool completed:Bool
     download_speed:double upload_speed:double
     fatal_error:flags.2?string
     = storage.daemon.Torrent;
+
 storage.daemon.fileInfo
-    name:string size:long
+    name:string size:long flags:#
     priority:int
     downloaded_size:long
     = storage.daemon.FileInfo;
+
 storage.daemon.torrentFull torrent:storage.daemon.torrent files:(vector storage.daemon.fileInfo) = storage.daemon.TorrentFull;
 storage.daemon.torrentList torrents:(vector storage.daemon.torrent) = storage.daemon.TorrentList;
 storage.daemon.torrentMeta meta:bytes = storage.daemon.TorrentMeta;
+
+storage.daemon.filePiecesInfo name:string range_l:long range_r:long = storage.daemon.FilePiecesInfo;
+storage.daemon.torrentPiecesInfo
+    flags:# // 0 - with file ranges
+    total_pieces:long piece_size:int
+    range_l:long range_r:long piece_ready_bitset:bytes
+    files:flags.0?(vector storage.daemon.filePiecesInfo) // files[0] is header
+    = storage.daemon.TorrentPiecesInfo;
 
 storage.daemon.newContractParams rate:string max_span:int = storage.daemon.NewContractParams;
 storage.daemon.newContractParamsAuto provider_address:string = storage.daemon.NewContractParams;
@@ -821,6 +841,8 @@ storage.daemon.priorityPending = storage.daemon.SetPriorityStatus;
 
 storage.daemon.keyHash key_hash:int256 = storage.daemon.KeyHash;
 
+storage.daemon.speedLimits download:double upload:double = storage.daemon.SpeedLimits;
+
 storage.daemon.providerConfig max_contracts:int max_total_size:long = storage.daemon.ProviderConfig;
 storage.daemon.contractInfo address:string state:int torrent:int256 created_time:int file_size:long downloaded_size:long
     rate:string max_span:int client_balance:string contract_balance:string = storage.daemon.ContractInfo;
@@ -831,24 +853,32 @@ storage.daemon.providerAddress address:string = storage.daemon.ProviderAddress;
 
 ---functions---
 storage.daemon.setVerbosity verbosity:int = storage.daemon.Success;
-storage.daemon.createTorrent path:string description:string allow_upload:Bool copy_inside:Bool = storage.daemon.TorrentFull;
-storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
-storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) = storage.daemon.TorrentFull;
+storage.daemon.createTorrent path:string description:string allow_upload:Bool copy_inside:Bool flags:# = storage.daemon.TorrentFull;
+storage.daemon.addByHash hash:int256 root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) flags:# = storage.daemon.TorrentFull;
+storage.daemon.addByMeta meta:bytes root_dir:string start_download:Bool allow_upload:Bool priorities:(vector storage.PriorityAction) flags:# = storage.daemon.TorrentFull;
 storage.daemon.setActiveDownload hash:int256 active:Bool = storage.daemon.Success;
 storage.daemon.setActiveUpload hash:int256 active:Bool = storage.daemon.Success;
 
-storage.daemon.getTorrents = storage.daemon.TorrentList;
-storage.daemon.getTorrentFull hash:int256 = storage.daemon.TorrentFull;
-storage.daemon.getTorrentMeta hash:int256 = storage.daemon.TorrentMeta;
+storage.daemon.getTorrents flags:# = storage.daemon.TorrentList;
+storage.daemon.getTorrentFull hash:int256 flags:# = storage.daemon.TorrentFull;
+storage.daemon.getTorrentMeta hash:int256 flags:# = storage.daemon.TorrentMeta;
 storage.daemon.getNewContractMessage hash:int256 query_id:long params:storage.daemon.NewContractParams = storage.daemon.NewContractMessage;
-storage.daemon.getTorrentPeers hash:int256 = storage.daemon.PeerList;
+storage.daemon.getTorrentPeers hash:int256 flags:# = storage.daemon.PeerList;
+storage.daemon.getTorrentPiecesInfo hash:int256
+    flags:# // 0 - with file ranges
+    offset:long max_pieces:long
+    = storage.daemon.TorrentPiecesInfo;
 
 storage.daemon.setFilePriorityAll hash:int256 priority:int = storage.daemon.SetPriorityStatus;
 storage.daemon.setFilePriorityByIdx hash:int256 idx:long priority:int = storage.daemon.SetPriorityStatus;
 storage.daemon.setFilePriorityByName hash:int256 name:string priority:int = storage.daemon.SetPriorityStatus;
 
 storage.daemon.removeTorrent hash:int256 remove_files:Bool = storage.daemon.Success;
-storage.daemon.loadFrom hash:int256 meta:bytes path:string = storage.daemon.Torrent;
+storage.daemon.loadFrom hash:int256 meta:bytes path:string flags:# = storage.daemon.Torrent;
+
+storage.daemon.getSpeedLimits flags:# = storage.daemon.SpeedLimits;
+storage.daemon.setSpeedLimits flags:# download:flags.0?double upload:flags.1?double = storage.daemon.Success;
+
 
 storage.daemon.importPrivateKey key:PrivateKey = storage.daemon.KeyHash;
 storage.daemon.initProvider account_address:string = storage.daemon.Success;

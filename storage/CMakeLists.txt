@@ -8,9 +8,11 @@ endif()
 set(STORAGE_SOURCE
   LoadSpeed.cpp
   MerkleTree.cpp
+  MicrochunkTree.cpp
   NodeActor.cpp
   PeerActor.cpp
   PeerState.cpp
+  SpeedLimiter.cpp
   Torrent.cpp
   TorrentCreator.cpp
   TorrentHeader.cpp
@@ -25,13 +27,14 @@ set(STORAGE_SOURCE
   PartsHelper.h
   PeerActor.h
   PeerState.h
+  SpeedLimiter.h
   Torrent.h
   TorrentCreator.h
   TorrentHeader.h
   TorrentInfo.h
   TorrentMeta.h
   PeerManager.h
-  MicrochunkTree.h MicrochunkTree.cpp)
+  MicrochunkTree.h)
 set(STORAGE_CLI_SOURCE
   storage-cli.cpp
 )

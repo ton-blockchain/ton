@@ -22,8 +22,6 @@
 #include "openssl/digest.hpp"
 #include "block/block.h"
 #include "block-parse.h"
-#include <fstream>
-#include "td/utils/port/path.h"
 
 namespace sym {
 
@@ -174,6 +172,10 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
     lex.expect(_Ident, "formal parameter name");
   }
   loc = lex.cur().loc;
+  if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+    throw src::ParseError{
+        loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val) << "` cannot be redefined as a variable"};
+  }
   SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
   if (!new_sym_def) {
     lex.cur().error_at("cannot define symbol `", "`");
@@ -399,7 +401,7 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
     def = sym::define_global_symbol(func_name, 0, cur.loc);
     assert(def && "cannot define global function");
     ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_hole());  // was: ... ::new_func()
+    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
     return true;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
@@ -1371,6 +1373,10 @@ std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
       throw src::ParseError{lex.cur().loc, "free type identifier expected"};
     }
     auto loc = lex.cur().loc;
+    if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+      throw src::ParseError{loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val)
+                                           << "` cannot be redefined as a variable"};
+    }
     SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
     if (!new_sym_def || new_sym_def->value) {
       lex.cur().error_at("redefined type variable `", "`");
@@ -1757,7 +1763,7 @@ bool parse_source_file(const char* filename, src::Lexem lex, bool is_main) {
     }
   }
 
-  auto path_res = td::realpath(td::CSlice(filename));
+  auto path_res = read_callback(ReadCallback::Kind::Realpath, filename);
   if (path_res.is_error()) {
     auto error = path_res.move_as_error();
     lex.error(error.message().c_str());
@@ -1784,17 +1790,19 @@ bool parse_source_file(const char* filename, src::Lexem lex, bool is_main) {
   source_files[real_filename] = cur_source;
   cur_source->is_main = is_main;
   source_fdescr.push_back(cur_source);
-  std::ifstream ifs{filename};
-  if (ifs.fail()) {
-    auto msg = std::string{"cannot open source file `"} + filename + "`";
+  auto file_res = read_callback(ReadCallback::Kind::ReadFile, filename);
+  if (file_res.is_error()) {
+    auto msg = file_res.move_as_error().message().str();
     if (lex.tp) {
       lex.error(msg);
     } else {
       throw src::Fatal{msg};
     }
   }
+  auto file_str = file_res.move_as_ok();
+  std::stringstream ss{file_str};
   inclusion_locations.push(lex.loc);
-  bool res = parse_source(&ifs, cur_source);
+  bool res = parse_source(&ss, cur_source);
   inclusion_locations.pop();
   return res;
 }

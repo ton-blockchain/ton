@@ -172,7 +172,8 @@ int exec_load_dict(VmState* st, unsigned args) {
 }
 
 std::string dump_dictop(unsigned args, const char* name) {
-  std::ostringstream os{"DICT"};
+  std::ostringstream os;
+  os << "DICT";
   if (args & 4) {
     os << (args & 2 ? 'U' : 'I');
   }
@@ -184,7 +185,8 @@ std::string dump_dictop(unsigned args, const char* name) {
 }
 
 std::string dump_dictop2(unsigned args, const char* name) {
-  std::ostringstream os{"DICT"};
+  std::ostringstream os;
+  os << "DICT";
   if (args & 2) {
     os << (args & 1 ? 'U' : 'I');
   }
@@ -193,7 +195,8 @@ std::string dump_dictop2(unsigned args, const char* name) {
 }
 
 std::string dump_subdictop2(unsigned args, const char* name) {
-  std::ostringstream os{"SUBDICT"};
+  std::ostringstream os;
+  os << "SUBDICT";
   if (args & 2) {
     os << (args & 1 ? 'U' : 'I');
   }
@@ -508,7 +511,8 @@ int exec_dict_getmin(VmState* st, unsigned args) {
 }
 
 std::string dump_dictop_getnear(CellSlice& cs, unsigned args) {
-  std::ostringstream os{"DICT"};
+  std::ostringstream os;
+  os << "DICT";
   if (args & 8) {
     os << (args & 4 ? 'U' : 'I');
   }
@@ -637,8 +641,8 @@ std::string dump_push_const_dict(CellSlice& cs, int pfx_bits, const char* name) 
   cs.advance(pfx_bits - 11);
   auto slice = cs.fetch_subslice(1, 1);
   int n = (int)cs.fetch_ulong(10);
-  std::ostringstream os{name};
-  os << ' ' << n << " (";
+  std::ostringstream os;
+  os << name << ' ' << n << " (";
   slice->dump_hex(os, false);
   os << ')';
   return os.str();

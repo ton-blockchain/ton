@@ -65,6 +65,14 @@ EMULATOR_EXPORT bool transaction_emulator_set_config(void *transaction_emulator,
 EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, const char* libs_boc);
 
 /**
+ * @brief Enable or disable TVM debug primitives
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param debug_enabled Whether debug primitives should be enabled or not
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool debug_enabled);
+
+/**
  * @brief Emulate transaction
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
@@ -133,6 +141,14 @@ EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address
  * @return true in case of success, false in case of error
  */
 EMULATOR_EXPORT bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_limit);
+
+/**
+ * @brief Enable or disable TVM debug primitives
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param debug_enabled Whether debug primitives should be enabled or not
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool debug_enabled);
 
 /**
  * @brief Run get method

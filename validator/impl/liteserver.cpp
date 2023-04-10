@@ -182,6 +182,11 @@ void LiteQuery::start_up() {
                                                 (q.mode_ & 128) ? q.after_->account_ : td::Bits256::zero(),
                                                 static_cast<LogicalTime>((q.mode_ & 128) ? (q.after_->lt_) : 0));
           },
+          [&](lite_api::liteServer_listBlockTransactionsExt& q) {
+            this->perform_listBlockTransactionsExt(ton::create_block_id(q.id_), q.mode_, q.count_,
+                                                (q.mode_ & 128) ? q.after_->account_ : td::Bits256::zero(),
+                                                static_cast<LogicalTime>((q.mode_ & 128) ? (q.after_->lt_) : 0));
+          },
           [&](lite_api::liteServer_getConfigParams& q) {
             this->perform_getConfigParams(ton::create_block_id(q.id_), (q.mode_ & 0xffff) | 0x10000, q.param_list_);
           },
@@ -1961,6 +1966,118 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
   LOG(INFO) << "listBlockTransactions() query completed";
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockTransactions>(
       ton::create_tl_lite_block_id(base_blk_id_), req_count, !eof, std::move(result), std::move(proof_data));
+  finish_query(std::move(b));
+}
+
+void LiteQuery::perform_listBlockTransactionsExt(BlockIdExt blkid, int mode, int count, Bits256 account, LogicalTime lt) {
+  LOG(INFO) << "started a listBlockTransactionsExt(" << blkid.to_str() << ", " << mode << ", " << count << ", "
+            << account.to_hex() << ", " << lt << ") liteserver query";
+  base_blk_id_ = blkid;
+  acc_addr_ = account;
+  trans_lt_ = lt;
+  set_continuation([this, mode, count]() -> void { finish_listBlockTransactionsExt(mode, count); });
+  request_block_data(blkid);
+}
+
+void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
+  LOG(INFO) << "completing a listBlockTransactionsExt(" << base_blk_id_.to_str() << ", " << mode << ", " << req_count
+            << ", " << acc_addr_.to_hex() << ", " << trans_lt_ << ") liteserver query";
+  constexpr int max_answer_transactions = 256;
+  CHECK(block_.not_null());
+  auto block_root = block_->root_cell();
+  CHECK(block_root.not_null());
+  RootHash rhash{block_root->get_hash().bits()};
+  CHECK(rhash == base_blk_id_.root_hash);
+  vm::MerkleProofBuilder pb;
+  auto virt_root = block_root;
+  if (mode & 32) {
+    // proof requested
+    virt_root = pb.init(std::move(virt_root));
+  }
+  if ((mode & 192) == 64) {  // reverse order, no starting point
+    acc_addr_.set_ones();
+    trans_lt_ = ~0ULL;
+  }
+  std::vector<Ref<vm::Cell>> trans_roots;
+  bool eof = false;
+  ton::LogicalTime reverse = (mode & 64) ? ~0ULL : 0;
+  try {
+    block::gen::Block::Record blk;
+    block::gen::BlockExtra::Record extra;
+    if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(std::move(blk.extra), extra))) {
+      fatal_error("cannot find account transaction data in block "s + base_blk_id_.to_str());
+      return;
+    }
+    vm::AugmentedDictionary acc_dict{vm::load_cell_slice_ref(extra.account_blocks), 256,
+                                     block::tlb::aug_ShardAccountBlocks};
+    int count = 0;
+    bool allow_same = true;
+    td::Bits256 cur_addr = acc_addr_;
+    while (!eof && count < req_count && count < max_answer_transactions) {
+      Ref<vm::CellSlice> value;
+      try {
+        value = acc_dict.extract_value(
+            acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
+      } catch (vm::VmError err) {
+        fatal_error("error while traversing account block dictionary: "s + err.get_msg());
+        return;
+      }
+      if (value.is_null()) {
+        eof = true;
+        break;
+      }
+      allow_same = false;
+      if (cur_addr != acc_addr_) {
+        trans_lt_ = reverse;
+      }
+      block::gen::AccountBlock::Record acc_blk;
+      if (!(tlb::csr_unpack(std::move(value), acc_blk) && acc_blk.account_addr == cur_addr)) {
+        fatal_error("invalid AccountBlock for account "s + cur_addr.to_hex());
+        return;
+      }
+      vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
+                                         block::tlb::aug_AccountTransactions};
+      td::BitArray<64> cur_trans{(long long)trans_lt_};
+      while (count < req_count && count < max_answer_transactions) {
+        Ref<vm::Cell> tvalue;
+        try {
+          tvalue = trans_dict.extract_value_ref(
+              trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
+        } catch (vm::VmError err) {
+          fatal_error("error while traversing transaction dictionary of an AccountBlock: "s + err.get_msg());
+          return;
+        }
+        if (tvalue.is_null()) {
+          trans_lt_ = reverse;
+          break;
+        }
+        trans_roots.push_back(std::move(tvalue));
+        ++count;
+      }
+    }
+  } catch (vm::VmError err) {
+    fatal_error("error while parsing AccountBlocks of block "s + base_blk_id_.to_str() + " : " + err.get_msg());
+    return;
+  }
+  td::BufferSlice proof_data;
+  if (mode & 32) {
+    // create proof
+    auto proof_boc = pb.extract_proof_boc();
+    if (proof_boc.is_error()) {
+      fatal_error(proof_boc.move_as_error());
+      return;
+    }
+    proof_data = proof_boc.move_as_ok();
+  }
+  auto res = vm::std_boc_serialize_multi(std::move(trans_roots));
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return;
+  }
+  
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockTransactionsExt>(
+      ton::create_tl_lite_block_id(base_blk_id_), req_count, !eof, res.move_as_ok(), std::move(proof_data));
+  LOG(INFO) << "listBlockTransactionsExt() query completed";
   finish_query(std::move(b));
 }
 

@@ -2,6 +2,7 @@
 #include "transaction-emulator.h"
 #include "crypto/common/refcnt.hpp"
 #include "vm/cp0.h"
+#include "tdutils/td/utils/Time.h"
 
 using td::Ref;
 using namespace std::string_literals;
@@ -33,7 +34,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
         return fetch_res.move_as_error_prefix("cannot fetch config params ");
     }
 
-    vm::init_op_cp0();    
+    vm::init_op_cp0(debug_enabled_);
 
     if (!lt) {
       lt = lt_;
@@ -47,9 +48,12 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     compute_phase_cfg.with_vm_log = true;
     compute_phase_cfg.vm_log_verbosity = vm_log_verbosity_;
 
+    double start_time = td::Time::now();
     auto res = create_transaction(msg_root, &account, utime, lt, trans_type,
                                                     &storage_phase_cfg, &compute_phase_cfg,
                                                     &action_phase_cfg);
+    double elapsed = td::Time::now() - start_time;
+
     if(res.is_error()) {
       return res.move_as_error_prefix("cannot run message on account ");
     }
@@ -58,7 +62,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     if (!trans->compute_phase->accepted && trans->in_msg_extern) {
       auto vm_log = trans->compute_phase->vm_log;
       auto vm_exit_code = trans->compute_phase->exit_code;
-      return std::make_unique<TransactionEmulator::EmulationExternalNotAccepted>(std::move(vm_log), vm_exit_code);
+      return std::make_unique<TransactionEmulator::EmulationExternalNotAccepted>(std::move(vm_log), vm_exit_code, elapsed);
     }
 
     if (!trans->serialize()) {
@@ -70,7 +74,8 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       return td::Status::Error(PSLICE() << "cannot commit new transaction for smart contract");
     }
 
-    return std::make_unique<TransactionEmulator::EmulationSuccess>(std::move(trans_root), std::move(account), std::move(trans->compute_phase->vm_log), std::move(trans->compute_phase->actions));
+    return std::make_unique<TransactionEmulator::EmulationSuccess>(std::move(trans_root), std::move(account), 
+      std::move(trans->compute_phase->vm_log), std::move(trans->compute_phase->actions), elapsed);
 }
 
 td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans) {
@@ -250,6 +255,10 @@ void TransactionEmulator::set_config(block::Config &&config) {
 
 void TransactionEmulator::set_libs(vm::Dictionary &&libs) {
   libraries_ = std::forward<vm::Dictionary>(libs);
+}
+
+void TransactionEmulator::set_debug_enabled(bool debug_enabled) {
+  debug_enabled_ = debug_enabled;
 }
 
 } // namespace emulator
