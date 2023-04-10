@@ -1,3 +1,13 @@
+## 2023.04 Update
+1. CPU load optimization: previous DHT reconnect policy was too aggressive
+2. Network throughput improvements: granular control on external message broadcast, optimize celldb GC, adjust state serialization and block downloading timings, rldp2 for states and archives 
+3. Update for Fift (namespaces) and Fift libraries (list of improvements: https://github.com/ton-blockchain/ton/issues/631)
+4. Better handling of incorrect inputs in funC: fix UB and prevent crashes on some inputs, improve optimizing int consts and unused variables in FunC, fix analyzing repeat loop. FunC version is increase to 0.4.3.
+5. `listBlockTransactionsExt` in liteserver added
+6. Tvm emulator improvements
+
+Besides the work of the core team, this update is based on the efforts of @krigga (tvm emulator improvement), @ex3ndr (`PUSHSLICE` fift-asm improvement) and [sec3-service](https://github.com/sec3-service) security auditors (funC improvements).
+
 ## 2023.03 Update
 1. Improvement of ADNL connection stability
 2. Transaction emulator support and getAccountStateByTransaction method
