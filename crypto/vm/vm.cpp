@@ -435,7 +435,11 @@ int VmState::step() {
   CHECK(code.not_null() && stack.not_null());
   if (log.log_mask & vm::VmLog::DumpStack) {
     std::stringstream ss;
-    stack->dump(ss, 3);
+    int mode = 3;
+    if (log.log_mask & vm::VmLog::DumpStackVerbose) {
+      mode += 4;
+    }
+    stack->dump(ss, mode);
     VM_LOG(this) << "stack:" << ss.str();
   }
   if (stack_trace) {

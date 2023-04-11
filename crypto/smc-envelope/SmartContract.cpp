@@ -186,6 +186,9 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     log.log_mask |= vm::VmLog::ExecLocation;
     if (vm_log_verbosity > 2) {
       log.log_mask |= vm::VmLog::DumpStack | vm::VmLog::GasRemaining;
+      if (vm_log_verbosity > 3) {
+        log.log_mask |= vm::VmLog::DumpStackVerbose;
+      }
     }
   }
 
