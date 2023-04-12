@@ -445,7 +445,7 @@ const ValidatorSessionRoundAttemptState* ValidatorSessionRoundAttemptState::acti
                                     << "]: invalid message: too early for VOTEFOR";
     return state;
   }
-  if (round->get_first_attempt(src_idx) + desc.opts().max_round_attempts > att && desc.opts().max_round_attempts == 0) {
+  if (round->get_first_attempt(src_idx) + desc.opts().max_round_attempts > att && desc.opts().max_round_attempts > 0) {
     VLOG(VALIDATOR_SESSION_WARNING) << "[validator session][node " << desc.get_source_id(src_idx) << "][" << act
                                     << "]: invalid message: too early for VOTEFOR";
     return state;
