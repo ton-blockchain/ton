@@ -972,10 +972,15 @@ void CatChainReceiverImpl::written_unsafe_root_block(CatChainReceivedBlock *bloc
 
 void CatChainReceiverImpl::alarm() {
   alarm_timestamp() = td::Timestamp::never();
-  if (next_sync_ && next_sync_.is_in_past()) {
+  if (next_sync_ && next_sync_.is_in_past() && get_sources_cnt() > 1) {
     next_sync_ = td::Timestamp::in(td::Random::fast(SYNC_INTERVAL_MIN, SYNC_INTERVAL_MAX));
     for (unsigned i = 0; i < SYNC_ITERATIONS; i++) {
-      CatChainReceiverSource *S = get_source(td::Random::fast(0, static_cast<td::int32>(get_sources_cnt()) - 1));
+      auto idx = td::Random::fast(1, static_cast<td::int32>(get_sources_cnt()) - 1);
+      if (idx == static_cast<td::int32>(local_idx_)) {
+        idx = 0;
+      }
+      // idx is a random number in [0, get_sources_cnt-1] not equal to local_idx
+      CatChainReceiverSource *S = get_source(idx);
       CHECK(S != nullptr);
       if (!S->blamed()) {
         synchronize_with(S);
