@@ -537,7 +537,8 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
     if (!ensure_candidate_unique(block->get_src_idx(), cur_round_, SentBlock::get_block_id(block))) {
       return;
     }
-    auto T = td::Timestamp::at(round_started_at_.at() + description().get_delay(block->get_src_idx()) + 2.0);
+    auto T = td::Timestamp::at(round_started_at_.at() + description().get_delay(block->get_src_idx()) +
+                               REQUEST_BROADCAST_P2P_DELAY);
     auto it = blocks_.find(block_id);
 
     if (it != blocks_.end()) {
@@ -617,10 +618,11 @@ void ValidatorSessionImpl::get_broadcast_p2p(PublicKeyHash node, ValidatorSessio
       round,
       create_tl_object<ton_api::validatorSession_candidateId>(src.tl(), root_hash, file_hash, collated_data_file_hash));
 
-  td::actor::send_closure(catchain_, &catchain::CatChain::send_query_via, node, "download candidate",
-                          std::move(promise), timeout, serialize_tl_object(obj, true),
-                          description().opts().max_block_size + description().opts().max_collated_data_size + 1024,
-                          rldp_);
+  td::actor::send_closure(
+      catchain_, &catchain::CatChain::send_query_via, node, "download candidate", std::move(promise), timeout,
+      serialize_tl_object(obj, true),
+      description().opts().max_block_size + description().opts().max_collated_data_size + MAX_CANDIDATE_EXTRA_SIZE,
+      rldp_);
 }
 
 void ValidatorSessionImpl::check_sign_slot() {

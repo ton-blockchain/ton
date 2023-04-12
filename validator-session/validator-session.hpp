@@ -211,6 +211,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   static const size_t MAX_REJECT_REASON_SIZE = 1024;
   static const td::int32 MAX_FUTURE_ROUND_BLOCK = 100;
   static const td::int32 MAX_PAST_ROUND_BLOCK = 20;
+  constexpr static const double REQUEST_BROADCAST_P2P_DELAY = 2.0;
+  static const td::uint32 MAX_CANDIDATE_EXTRA_SIZE = 1024;
 };
 
 }  // namespace validatorsession
