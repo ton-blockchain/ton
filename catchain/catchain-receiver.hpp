@@ -73,10 +73,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   void receive_query_from_overlay(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                   td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlock query, td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlocks query,
-                     td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlockHistory query,
-                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getDifference query,
                      td::Promise<td::BufferSlice> promise);
   template <class T>

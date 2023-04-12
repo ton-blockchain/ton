@@ -722,65 +722,6 @@ void CatChainReceiverImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::cat
   }
 }
 
-void CatChainReceiverImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlocks query,
-                                         td::Promise<td::BufferSlice> promise) {
-  if (query.blocks_.size() > MAX_QUERY_BLOCKS) {
-    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "too many blocks"));
-    return;
-  }
-  td::int32 cnt = 0;
-  for (const CatChainBlockHash &b : query.blocks_) {
-    auto it = blocks_.find(b);
-    if (it != blocks_.end() && it->second->get_height() > 0) {
-      auto block = create_tl_object<ton_api::catchain_blockUpdate>(it->second->export_tl());
-      CHECK(!it->second->get_payload().empty());
-      td::BufferSlice B = serialize_tl_object(block, true, it->second->get_payload().clone());
-      CHECK(B.size() <= opts_.max_serialized_block_size);
-      td::actor::send_closure(overlay_manager_, &overlay::Overlays::send_message, src,
-                              get_source(local_idx_)->get_adnl_id(), overlay_id_, std::move(B));
-      cnt++;
-    }
-  }
-  promise.set_value(serialize_tl_object(create_tl_object<ton_api::catchain_sent>(cnt), true));
-}
-
-void CatChainReceiverImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlockHistory query,
-                                         td::Promise<td::BufferSlice> promise) {
-  int64_t h = query.height_;
-  if (h <= 0) {
-    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "not-positive height"));
-    return;
-  }
-  if (h > MAX_QUERY_HEIGHT) {
-    h = MAX_QUERY_HEIGHT;
-  }
-  std::set<CatChainBlockHash> s{query.stop_if_.begin(), query.stop_if_.end()};
-
-  CatChainReceivedBlock *B = get_block(query.block_);
-  if (B == nullptr) {
-    promise.set_value(serialize_tl_object(create_tl_object<ton_api::catchain_sent>(0), true));
-    return;
-  }
-  if (static_cast<CatChainBlockHeight>(h) > B->get_height()) {
-    h = B->get_height();
-  }
-  td::uint32 cnt = 0;
-  while (h-- > 0) {
-    if (s.find(B->get_hash()) != s.end()) {
-      break;
-    }
-    auto block = create_tl_object<ton_api::catchain_blockUpdate>(B->export_tl());
-    CHECK(!B->get_payload().empty());
-    td::BufferSlice BB = serialize_tl_object(block, true, B->get_payload().as_slice());
-    CHECK(BB.size() <= opts_.max_serialized_block_size);
-    td::actor::send_closure(overlay_manager_, &overlay::Overlays::send_message, src,
-                            get_source(local_idx_)->get_adnl_id(), overlay_id_, std::move(BB));
-    B = B->get_prev();
-    cnt++;
-  }
-  promise.set_value(serialize_tl_object(create_tl_object<ton_api::catchain_sent>(cnt), true));
-}
-
 void CatChainReceiverImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getDifference query,
                                          td::Promise<td::BufferSlice> promise) {
   auto &vt = query.rt_;
