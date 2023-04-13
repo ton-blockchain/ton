@@ -894,7 +894,7 @@ bool Op::mark_noreturn() {
       return set_noreturn((block0->mark_noreturn() & (block1 && block1->mark_noreturn())) | next->mark_noreturn());
     case _Again:
       block0->mark_noreturn();
-      return set_noreturn(false);
+      return set_noreturn(true);
     case _Until:
       return set_noreturn(block0->mark_noreturn() | next->mark_noreturn());
     case _While:
