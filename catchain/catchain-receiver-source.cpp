@@ -162,6 +162,15 @@ void CatChainReceiverSourceImpl::on_found_fork_proof(const td::Slice &proof) {
   }
 }
 
+bool CatChainReceiverSourceImpl::allow_send_block(CatChainBlockHash hash) {
+  td::uint32 count = ++block_requests_count_[hash];
+  if (count > MAX_BLOCK_REQUESTS) {
+    VLOG(CATCHAIN_INFO) << this << ": node requested block " << hash << " " << count << " times";
+    return false;
+  }
+  return true;
+}
+
 }  // namespace catchain
 
 }  // namespace ton
