@@ -1302,6 +1302,8 @@ std::vector<const SentBlock*> ValidatorSessionRoundState::choose_blocks_to_appro
     CHECK(prio >= 0);
     td::uint32 blk_src_idx = B->get_src_idx();
     if (was_source.count(blk_src_idx) > 0) {
+      // Any honest validator submits at most one block in a round
+      // Therefore, we can ignore all blocks from a node if it submits more than one
       x[prio] = nullptr;
     } else {
       was_source.insert(blk_src_idx);
