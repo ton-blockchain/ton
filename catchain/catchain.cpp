@@ -108,11 +108,12 @@ void CatChainImpl::need_new_block(td::Timestamp t) {
   if (!receiver_started_) {
     return;
   }
-  if (!force_process_) {
+  if (!force_process_ || !active_process_) {
     VLOG(CATCHAIN_INFO) << this << ": forcing creation of new block";
   }
-  force_process_ = true;
-  if (!active_process_) {
+  if (active_process_) {
+    force_process_ = true;
+  } else {
     alarm_timestamp().relax(t);
   }
 }
