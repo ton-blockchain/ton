@@ -28,6 +28,7 @@ jobs:
         cp $PWD/result-aarch64-darwin/bin/* artifacts/
         chmod +x artifacts/*
         cp $PWD/result-aarch64-darwin/lib/libtonlibjson* artifacts/
+        cp $PWD/result-aarch64-darwin/lib/libemulator* artifacts/
         cp -R crypto/smartcont artifacts/
         cp -R crypto/fift/lib artifacts/
 
