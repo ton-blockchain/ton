@@ -59,6 +59,10 @@ class PeerActor : public td::actor::Actor {
   // startSession
   td::uint64 node_session_id_;
   td::Bitset peer_have_pieces_;
+  std::shared_ptr<TorrentInfo> torrent_info_;
+  std::vector<tl_object_ptr<ton_api::storage_Update>> pending_update_peer_parts_;
+
+  void process_update_peer_parts(const tl_object_ptr<ton_api::storage_Update> &update);
 
   // update
   td::optional<td::uint64> peer_session_id_;
@@ -112,6 +116,7 @@ class PeerActor : public td::actor::Actor {
   td::BufferSlice create_update_query(ton::tl_object_ptr<ton::ton_api::storage_Update> update);
 
   void loop_node_get_piece();
+  void node_get_piece_query_ready(PartId part, td::Result<td::Unit> R);
 
   void loop_peer_get_piece();
 

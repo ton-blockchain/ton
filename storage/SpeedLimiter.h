@@ -13,33 +13,40 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
 
 #pragma once
-
-#include "td/utils/StringBuilder.h"
-#include "td/utils/Time.h"
-#include "td/utils/VectorQueue.h"
+#include "td/actor/actor.h"
+#include <queue>
 
 namespace ton {
-class LoadSpeed {
+
+class SpeedLimiter : public td::actor::Actor {
  public:
-  void add(td::uint64 size, td::Timestamp now = td::Timestamp::now());
-  double speed(td::Timestamp now = td::Timestamp::now()) const;
-  void reset();
-  friend td::StringBuilder &operator<<(td::StringBuilder &sb, const LoadSpeed &speed);
+  explicit SpeedLimiter(double max_speed);
+
+  void set_max_speed(double max_speed);  // Negative = unlimited
+  void enqueue(double size, td::Timestamp timeout, td::Promise<td::Unit> promise);
+
+  void alarm() override;
 
  private:
-  struct Event {
-    td::uint64 size;
-    td::Timestamp at;
-  };
-  mutable td::VectorQueue<Event> events_;
-  mutable td::uint64 total_size_{0};
+  double max_speed_ = -1.0;
+  td::Timestamp unlock_at_ = td::Timestamp::never();
 
-  double duration(td::Timestamp now) const;
-  void update(td::Timestamp now) const;
+  struct Event {
+    td::Timestamp execute_at_;
+    double size_;
+    td::Timestamp timeout_;
+    td::Promise<td::Unit> promise_;
+  };
+  std::queue<Event> queue_;
+
+  void process_queue();
 };
+
+struct SpeedLimiters {
+  td::actor::ActorId<SpeedLimiter> download, upload;
+};
+
 }  // namespace ton
