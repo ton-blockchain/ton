@@ -439,7 +439,7 @@ int exec_hash_ext(VmState* st, unsigned args) {
       }
     }
     total_bits += size;
-    long long gas_total = (i + 1) + total_bits / 8 / hasher.bytes_per_gas_unit();
+    long long gas_total = (i + 1) * VmState::hash_ext_entry_gas_price + total_bits / 8 / hasher.bytes_per_gas_unit();
     st->consume_gas(gas_total - gas_consumed);
     gas_consumed = gas_total;
     hasher.append(data, size);
