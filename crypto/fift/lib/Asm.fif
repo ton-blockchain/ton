@@ -1209,6 +1209,7 @@ x{F832} @Defop CONFIGPARAM
 x{F833} @Defop CONFIGOPTPARAM
 x{F83400} @Defop PREVMCBLOCKS
 x{F83401} @Defop PREVKEYBLOCK
+x{F835} @Defop GLOBALID
 
 x{F840} @Defop GETGLOBVAR
 { dup 1 31 @rangechk <b x{F85_} s, swap 5 u, @addopb } : GETGLOB

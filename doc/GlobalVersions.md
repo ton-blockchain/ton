@@ -6,6 +6,7 @@ Various features are enabled depending on the global version.
 
 ### New TVM instructions
 * `PREVMCBLOCKS`, `PREVKEYBLOCK`
+* `GLOBALID`
 * `HASHEXT(A)(R)`
 * `ECRECOVER`
 * `SENDMSG`

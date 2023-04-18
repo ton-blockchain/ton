@@ -218,6 +218,24 @@ int exec_get_prev_blocks_info(VmState* st, unsigned idx, const char* name) {
   return 0;
 }
 
+int exec_get_global_id(VmState* st) {
+  Ref<Cell> config = get_param(st, 9).as_cell();
+  if (config.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a cell"};
+  }
+  Dictionary config_dict{std::move(config), 32};
+  Ref<Cell> cell = config_dict.lookup_ref(td::BitArray<32>{19});
+  if (cell.is_null()) {
+    throw VmError{Excno::unknown, "invalid global-id config"};
+  }
+  CellSlice cs = load_cell_slice(cell);
+  if (cs.size() < 32) {
+    throw VmError{Excno::unknown, "invalid global-id config"};
+  }
+  st->get_stack().push_smallint(cs.fetch_long(32));
+  return 0;
+}
+
 void register_ton_config_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mkfixedrange(0xf820, 0xf823, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
@@ -238,6 +256,7 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf833, 16, "CONFIGOPTPARAM", std::bind(exec_get_config_param, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS", std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf835, 16, "GLOBALID", exec_get_global_id)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf840, 16, "GETGLOBVAR", exec_get_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))

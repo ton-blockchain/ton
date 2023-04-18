@@ -663,6 +663,8 @@ _#cc utime_since:uint32 bit_price_ps:uint64 cell_price_ps:uint64
   mc_bit_price_ps:uint64 mc_cell_price_ps:uint64 = StoragePrices;
 _ (Hashmap 32 StoragePrices) = ConfigParam 18;
 
+_ global_id:int32 = ConfigParam 19;
+
 gas_prices#dd gas_price:uint64 gas_limit:uint64 gas_credit:uint64 
   block_gas_limit:uint64 freeze_due_limit:uint64 delete_due_limit:uint64 
   = GasLimitsPrices;
