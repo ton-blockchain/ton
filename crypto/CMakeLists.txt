@@ -309,6 +309,10 @@ if (NOT WIN32)
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
+add_dependencies(ton_crypto blst)
+target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
+target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
+
 if (NOT USE_EMSCRIPTEN)
   find_package(Secp256k1 REQUIRED)
 endif()

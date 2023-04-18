@@ -182,6 +182,8 @@ endif()
 message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
+include(BuildBLST)
+
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)
 #set(CCACHE_FOUND 0)
