@@ -1194,6 +1194,11 @@ x{FA01} @Defop LDVARINT16
 x{FA02} dup @Defop STGRAMS @Defop STVARUINT16
 x{FA03} @Defop STVARINT16
 
+x{FA04} @Defop LDVARUINT32 // (s -- x s')
+x{FA05} @Defop LDVARINT32  // (s -- x s')
+x{FA06} @Defop STVARUINT32 // (b x -- b')
+x{FA07} @Defop STVARINT32  // (b x -- b')
+
 x{FA40} @Defop LDMSGADDR
 x{FA41} @Defop LDMSGADDRQ
 x{FA42} @Defop PARSEMSGADDR
