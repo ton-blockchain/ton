@@ -113,6 +113,7 @@ set(TON_CRYPTO_SOURCE
   vm/tonops.cpp
   vm/utils.cpp
   vm/vm.cpp
+  vm/bls.cpp
 
   vm/arithops.h
   vm/atom.h
@@ -137,7 +138,7 @@ set(TON_CRYPTO_SOURCE
   vm/vmstate.h
   vm/utils.h
   vm/vm.h
-)
+  vm/bls.h)
 
 set(TON_DB_SOURCE
   vm/db/DynamicBagOfCellsDb.cpp

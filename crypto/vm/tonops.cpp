@@ -33,6 +33,7 @@
 
 #include "openssl/digest.hpp"
 #include <sodium.h>
+#include "bls.h"
 
 namespace vm {
 
@@ -722,6 +723,125 @@ int exec_ristretto255_push_l(VmState* st) {
   return 0;
 }
 
+int exec_bls_verify(VmState* st) {
+  VM_LOG(st) << "execute BLS_VERIFY";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(3);
+
+  Ref<CellSlice> signature_cs = stack.pop_cellslice();
+  bls::Signature signature;
+  if (!signature_cs->prefetch_bytes(signature.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING()
+                                       << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
+  }
+
+  Ref<CellSlice> msg_cs = stack.pop_cellslice();
+  if (msg_cs->size() % 8 != 0) {
+    throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
+  }
+  size_t msg_size = msg_cs->size() / 8;
+  td::uint8 msg[128];
+  msg_cs->prefetch_bytes(msg, (int)msg_size);
+
+  bls::PubKey pub;
+  Ref<CellSlice> pub_cs = stack.pop_cellslice();
+  if (!pub_cs->prefetch_bytes(pub.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "pubkey slice must contain at least " << bls::PUBKEY_SIZE << " bytes"};
+  }
+
+  bool result = bls::verify(pub, td::Slice{msg, msg_size}, signature);
+  stack.push_bool(result);
+  return 0;
+}
+
+int exec_bls_aggregate(VmState* st) {
+  VM_LOG(st) << "execute BLS_AGGREGATE";
+  Stack& stack = st->get_stack();
+
+  int n = stack.pop_smallint_range(stack.depth() - 1);
+  std::vector<bls::Signature> signatures(n);
+  for (int i = n - 1; i >= 0; --i) {
+    Ref<CellSlice> signature_cs = stack.pop_cellslice();
+    if (!signature_cs->prefetch_bytes(signatures[i].as_slice())) {
+      throw VmError{Excno::cell_und,
+                    PSTRING() << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
+    }
+  }
+  bls::Signature signature = bls::aggregate(signatures);
+  CellBuilder cb;
+  stack.push_cellslice(load_cell_slice_ref(cb.store_bytes(signature.as_slice()).finalize()));
+  return 0;
+}
+
+int exec_bls_fast_aggregate_verify(VmState* st) {
+  VM_LOG(st) << "execute BLS_FASTAGGREGATEVERIFY";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(3);
+
+  Ref<CellSlice> signature_cs = stack.pop_cellslice();
+  bls::Signature signature;
+  if (!signature_cs->prefetch_bytes(signature.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING()
+                                       << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
+  }
+
+  Ref<CellSlice> msg_cs = stack.pop_cellslice();
+  if (msg_cs->size() % 8 != 0) {
+    throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
+  }
+  size_t msg_size = msg_cs->size() / 8;
+  td::uint8 msg[128];
+  msg_cs->prefetch_bytes(msg, (int)msg_size);
+
+  int pubs_size = stack.pop_smallint_range(stack.depth() - 1);
+  std::vector<bls::PubKey> pubs(pubs_size);
+  for (int i = pubs_size - 1; i >= 0; --i) {
+    Ref<CellSlice> pub_cs = stack.pop_cellslice();
+    if (!pub_cs->prefetch_bytes(pubs[i].as_slice())) {
+      throw VmError{Excno::cell_und, PSTRING()
+                                         << "pubkey slice must contain at least " << bls::PUBKEY_SIZE << " bytes"};
+    }
+  }
+  bool result = bls::fast_aggregate_verify(pubs, td::Slice{msg, msg_size}, signature);
+  stack.push_bool(result);
+  return 0;
+}
+
+int exec_bls_aggregate_verify(VmState* st) {
+  VM_LOG(st) << "execute BLS_AGGREGATEVERIFY";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+
+  Ref<CellSlice> signature_cs = stack.pop_cellslice();
+  bls::Signature signature;
+  if (!signature_cs->prefetch_bytes(signature.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING()
+                                       << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
+  }
+
+  int n = stack.pop_smallint_range(stack.depth() - 1);
+  std::vector<std::pair<bls::PubKey, td::BufferSlice>> vec(n);
+  for (int i = n - 1; i >= 0; --i) {
+    Ref<CellSlice> msg_cs = stack.pop_cellslice();
+    if (msg_cs->size() % 8 != 0) {
+      throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
+    }
+    size_t size = msg_cs->size() / 8;
+    td::uint8 msg[128];
+    msg_cs->prefetch_bytes(msg, (int)size);
+    vec[i].second = td::BufferSlice((const char*)msg, size);
+
+    Ref<CellSlice> pub_cs = stack.pop_cellslice();
+    if (!pub_cs->prefetch_bytes(vec[i].first.as_slice())) {
+      throw VmError{Excno::cell_und, PSTRING()
+                                         << "pubkey slice must contain at least " << bls::PUBKEY_SIZE << " bytes"};
+    }
+  }
+  bool result = bls::aggregate_verify(vec, signature);
+  stack.push_bool(result);
+  return 0;
+}
+
 void register_ton_crypto_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xf900, 16, "HASHCU", std::bind(exec_compute_hash, _1, 0)))
@@ -744,7 +864,12 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xb7f922, 24, "RIST255_QADD", std::bind(exec_ristretto255_add, _1, true))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xb7f923, 24, "RIST255_QSUB", std::bind(exec_ristretto255_sub, _1, true))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xb7f924, 24, "RIST255_QMUL", std::bind(exec_ristretto255_mul, _1, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))->require_version(4));
+      .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf930, 16, "BLS_VERIFY", exec_bls_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf931, 16, "BLS_AGGREGATE", exec_bls_aggregate)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf932, 16, "BLS_FASTAGGREGATEVERIFY", exec_bls_fast_aggregate_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf933, 16, "BLS_AGGREGATEVERIFY", exec_bls_aggregate_verify)->require_version(4));
 }
 
 int exec_compute_data_size(VmState* st, int mode) {
