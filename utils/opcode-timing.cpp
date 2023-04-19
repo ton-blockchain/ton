@@ -12,7 +12,15 @@
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
 
-td::Ref<vm::Cell> to_cell(const unsigned char *buff, int bits) {
+td::Ref<vm::Cell> to_cell(td::Slice s) {
+  if (s.size() >= 4 && s.substr(0, 4) == "boc:") {
+    s.remove_prefix(4);
+    auto boc = td::base64_decode(s).move_as_ok();
+    return vm::std_boc_deserialize(boc).move_as_ok();
+  }
+  unsigned char buff[128];
+  const int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), s.begin(), s.end());
+  CHECK(bits >= 0);
   return vm::CellBuilder().store_bits(buff, bits, 0).finalize();
 }
 
@@ -55,10 +63,7 @@ typedef struct {
 } runtimeStats;
 
 vm::Stack prepare_stack(td::Slice command) {
-  unsigned char buff[128];
-  const int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), command.begin(), command.end());
-  CHECK(bits >= 0);
-  const auto cell = to_cell(buff, bits);
+  const auto cell = to_cell(command);
   vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
   vm::Stack stack;
@@ -74,11 +79,7 @@ vm::Stack prepare_stack(td::Slice command) {
 }
 
 runInfo time_run_vm(td::Slice command, td::Ref<vm::Stack> stack) {
-  unsigned char buff[128];
-  const int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), command.begin(), command.end());
-  CHECK(bits >= 0);
-
-  const auto cell = to_cell(buff, bits);
+  const auto cell = to_cell(command);
   vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
   CHECK(stack.is_unique());
@@ -142,15 +143,17 @@ int main(int argc, char** argv) {
         "It can be used to discover opcodes or opcode sequences that consume an "
         "inordinate amount of computational resources relative to their gas cost.\n"
         "\n"
-        "The utility expects two command line arguments, each a hex string: \n"
+        "The utility expects two command line arguments: \n"
         "The TVM code used to set up the stack and VM state followed by the TVM code to measure.\n"
         "For example, to test the DIVMODC opcode:\n"
         "\t$ " << argv[0] << " 80FF801C A90E 2>/dev/null\n"
         "\tOPCODE,runtime mean,runtime stddev,gas mean,gas stddev\n"
         "\tA90E,0.0066416,0.00233496,26,0\n"
         "\n"
-        "Usage: " << argv[0] <<
-        " [TVM_SETUP_BYTECODE_HEX] TVM_BYTECODE_HEX" << std::endl << std::endl;
+        "Usage: " << argv[0] << " [TVM_SETUP_BYTECODE] TVM_BYTECODE\n"
+        "\tBYTECODE is either:\n"
+        "\t1. hex-encoded string (e.g. A90E for DIVMODC)\n"
+        "\t2. boc:<serialized boc in base64> (e.g. boc:te6ccgEBAgEABwABAogBAAJ7)" << std::endl << std::endl;
     return 1;
   }
   std::cout << "OPCODE,runtime mean,runtime stddev,gas mean,gas stddev,error" << std::endl;
