@@ -892,14 +892,6 @@ int exec_bls_map_to_g1(VmState* st) {
   return 0;
 }
 
-int exec_bls_g1_validate(VmState* st) {
-  VM_LOG(st) << "execute BLS_G1_VALIDATE";
-  Stack& stack = st->get_stack();
-  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
-  stack.push_bool(bls::g1_validate(a));
-  return 0;
-}
-
 int exec_bls_g1_in_group(VmState* st) {
   VM_LOG(st) << "execute BLS_G1_INGROUP";
   Stack& stack = st->get_stack();
@@ -982,14 +974,6 @@ int exec_bls_map_to_g2(VmState* st) {
   return 0;
 }
 
-int exec_bls_g2_validate(VmState* st) {
-  VM_LOG(st) << "execute BLS_G2_VALIDATE";
-  Stack& stack = st->get_stack();
-  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
-  stack.push_bool(bls::g2_validate(a));
-  return 0;
-}
-
 int exec_bls_g2_in_group(VmState* st) {
   VM_LOG(st) << "execute BLS_G2_INGROUP";
   Stack& stack = st->get_stack();
@@ -1062,9 +1046,8 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf93014, 24, "BLS_G1_MULTIEXP", exec_bls_g1_multiexp)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93015, 24, "BLS_G1_ZERO", exec_bls_g1_zero)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93016, 24, "BLS_MAP_TO_G1", exec_bls_map_to_g1)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93017, 24, "BLS_G1_VALIDATE", exec_bls_g1_validate)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93018, 24, "BLS_G1_INGROUP", exec_bls_g1_in_group)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93019, 24, "BLS_G1_ISZERO", exec_bls_g1_is_zero)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93017, 24, "BLS_G1_INGROUP", exec_bls_g1_in_group)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93018, 24, "BLS_G1_ISZERO", exec_bls_g1_is_zero)->require_version(4))
 
       .insert(OpcodeInstr::mksimple(0xf93020, 24, "BLS_G2_ADD", exec_bls_g2_add)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93021, 24, "BLS_G2_SUB", exec_bls_g2_sub)->require_version(4))
@@ -1073,9 +1056,8 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf93024, 24, "BLS_G2_MULTIEXP", exec_bls_g2_multiexp)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93025, 24, "BLS_G2_ZERO", exec_bls_g2_zero)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93026, 24, "BLS_MAP_TO_G2", exec_bls_map_to_g2)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93027, 24, "BLS_G2_VALIDATE", exec_bls_g2_validate)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93028, 24, "BLS_G2_INGROUP", exec_bls_g2_in_group)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93029, 24, "BLS_G2_ISZERO", exec_bls_g2_is_zero)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93027, 24, "BLS_G2_INGROUP", exec_bls_g2_in_group)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93028, 24, "BLS_G2_ISZERO", exec_bls_g2_is_zero)->require_version(4))
 
       .insert(OpcodeInstr::mksimple(0xf93030, 24, "BLS_PAIRING", exec_bls_pairing)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93031, 24, "BLS_PUSHR", exec_bls_push_r)->require_version(4));

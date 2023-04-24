@@ -44,7 +44,6 @@ P1 g1_mul(const P1 &p, const td::RefInt256 &x);
 P1 g1_multiexp(const std::vector<std::pair<P1, td::RefInt256>> &ps);
 P1 g1_zero();
 P1 map_to_g1(const FP &a);
-bool g1_validate(const P1 &a);
 bool g1_in_group(const P1 &a);
 bool g1_is_zero(const P1 &a);
 
@@ -55,7 +54,6 @@ P2 g2_mul(const P2 &p, const td::RefInt256 &x);
 P2 g2_multiexp(const std::vector<std::pair<P2, td::RefInt256>> &ps);
 P2 g2_zero();
 P2 map_to_g2(const FP2 &a);
-bool g2_validate(const P2 &a);
 bool g2_in_group(const P2 &a);
 bool g2_is_zero(const P2 &a);
 

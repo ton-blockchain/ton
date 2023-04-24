@@ -153,8 +153,22 @@ static P generic_neg(const P &a) {
 }
 
 template <typename P, typename blst_P>
+static P generic_zero() {
+  static P zero = []() -> P {
+    blst_P point = blst_P();
+    P result;
+    point.compress(result.data());
+    return result;
+  }();
+  return zero;
+}
+
+template <typename P, typename blst_P>
 static P generic_mul(const P &p, const td::RefInt256 &x) {
   CHECK(x.not_null() && x->is_valid());
+  if (x->sgn() == 0) {
+    return generic_zero<P, blst_P>();
+  }
   td::uint8 x_bytes[32];
   CHECK((x % get_r())->export_bytes(x_bytes, 32, false));
   try {
@@ -196,45 +210,18 @@ static P generic_multiexp(const std::vector<std::pair<P, td::RefInt256>> &ps) {
 }
 
 template <typename P, typename blst_P>
-static P generic_zero() {
+static bool generic_in_group(const P &a) {
   try {
-    blst_P point = blst_P();
-    P result;
-    point.compress(result.data());
-    return result;
-  } catch (BLST_ERROR e) {
-    throw VmError{Excno::unknown, PSTRING() << "blst error " << e};
-  }
-}
-
-template <typename P, typename blst_P>
-static bool generic_validate(const P &a) {
-  try {
-    blst_P(a.data(), a.size() / 8);
-    return true;
+    blst_P point = blst_P(a.data(), a.size() / 8);
+    return point.in_group();
   } catch (BLST_ERROR e) {
     return false;
   }
 }
 
 template <typename P, typename blst_P>
-static bool generic_in_group(const P &a) {
-  try {
-    blst_P point = blst_P(a.data(), a.size() / 8);
-    return point.in_group();
-  } catch (BLST_ERROR e) {
-    throw VmError{Excno::unknown, PSTRING() << "blst error " << e};
-  }
-}
-
-template <typename P, typename blst_P>
 static bool generic_is_zero(const P &a) {
-  try {
-    blst_P point = blst_P(a.data(), a.size() / 8);
-    return point.is_inf();
-  } catch (BLST_ERROR e) {
-    throw VmError{Excno::unknown, PSTRING() << "blst error " << e};
-  }
+  return a == generic_zero<P, blst_P>();
 }
 
 P1 g1_add(const P1 &a, const P1 &b) {
@@ -269,10 +256,6 @@ P1 map_to_g1(const FP &a) {
   P1 result;
   blst_p1_compress(result.data(), &point);
   return result;
-}
-
-bool g1_validate(const P1 &a) {
-  return generic_validate<P1, blst::P1>(a);
 }
 
 bool g1_in_group(const P1 &a) {
@@ -316,10 +299,6 @@ P2 map_to_g2(const FP2 &a) {
   P2 result;
   blst_p2_compress(result.data(), &point);
   return result;
-}
-
-bool g2_validate(const P2 &a) {
-  return generic_validate<P2, blst::P2>(a);
 }
 
 bool g2_in_group(const P2 &a) {

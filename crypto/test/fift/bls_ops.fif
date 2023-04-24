@@ -18,20 +18,17 @@ x{1473aa897a1a166ce6c1b1d11e2401ad719b9c03f3a86d8dd63158d389667d66917d3845414a23
 
 // Validate points
 a1 a2 a3 a4 a5
-<{ { BLS_G1_VALIDATE 33 THROWIFNOT } 5 times }>s 0 runvmx abort"Exitcode != 0"
-a1 a2 a3 a4 a5
 <{ { BLS_G1_INGROUP 33 THROWIFNOT } 5 times }>s 0 runvmx abort"Exitcode != 0"
 
 // Invalid point
 x{1d549908b5eb3c16f91174abe436c1a91442a57f922da813cb3dbc55de9e62bd63eac19a664eb8c3ea34b5a5c176d844}
-<{ BLS_G1_VALIDATE }>s 0 runvmx abort"Exitcode != 0" abort"0 expected"
+<{ BLS_G1_INGROUP }>s 0 runvmx abort"Exitcode != 0" abort"0 expected"
 
 // Zero
 ."Zero:" cr
 a1 a2 a3 a4 a5
 <{ { BLS_G1_ISZERO 33 THROWIF } 5 times }>s 0 runvmx abort"Exitcode != 0"
 <{ BLS_G1_ZERO }>s 0 runvmx abort"Exitcode != 0" dup csr. constant zero
-zero <{ BLS_G1_VALIDATE }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
 zero <{ BLS_G1_INGROUP }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
 zero <{ BLS_G1_ISZERO }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
 
@@ -104,20 +101,17 @@ x{a9e68db711778adb0bcee53ae4fd2d31605c1eff02ae38279eebfb45fc319964d33ca45ee32bbc
 
 // Validate points
 a1 a2 a3 a4 a5
-<{ { BLS_G2_VALIDATE 33 THROWIFNOT } 5 times }>s 0 runvmx abort"Exitcode != 0"
-a1 a2 a3 a4 a5
 <{ { BLS_G2_INGROUP 33 THROWIFNOT } 5 times }>s 0 runvmx abort"Exitcode != 0"
 
 // Invalid point
 x{090069862cb1a1ac4241c4a1ed5f98edb95413db77f534bba7e85d9cb54d953c61416c0eea5c65c6f0b494e9f59a2c9dfe8a4a9af75e1114b45ec60f6a5d2327cc05a6d9d6e76d7a9efd947302966d4f357bd48e5c3f950101c88c65a13bd5c7}
-<{ BLS_G2_VALIDATE }>s 0 runvmx abort"Exitcode != 0" abort"0 expected"
+<{ BLS_G2_INGROUP }>s 0 runvmx abort"Exitcode != 0" abort"0 expected"
 
 // Zero
 ."Zero:" cr
 a1 a2 a3 a4 a5
 <{ { BLS_G2_ISZERO 33 THROWIF } 5 times }>s 0 runvmx abort"Exitcode != 0"
 <{ BLS_G2_ZERO }>s 0 runvmx abort"Exitcode != 0" dup csr. constant zero
-zero <{ BLS_G2_VALIDATE }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
 zero <{ BLS_G2_INGROUP }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
 zero <{ BLS_G2_ISZERO }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
 
