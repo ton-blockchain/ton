@@ -39,9 +39,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
     return PrintId{incarnation_, local_id_};
   }
 
-  void add_prepared_event(td::BufferSlice data) override {
-    add_block(std::move(data), std::vector<CatChainBlockHash>());
-  }
   CatChainSessionId get_incarnation() const override {
     return incarnation_;
   }
@@ -113,6 +110,8 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   void on_blame(td::uint32 src) override {
     callback_->blame(src);
   }
+  void on_found_fork_proof(td::uint32 source_id, td::BufferSlice data) override;
+  void on_blame_processed(td::uint32 source_id) override;
   const CatChainOptions &opts() const override {
     return opts_;
   }
@@ -227,6 +226,9 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   bool started_{false};
 
   std::list<CatChainReceivedBlock *> to_run_;
+
+  std::vector<bool> blame_processed_;
+  std::map<td::uint32, td::BufferSlice> pending_fork_proofs_;
 };
 
 }  // namespace catchain

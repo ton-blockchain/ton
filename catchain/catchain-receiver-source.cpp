@@ -60,15 +60,15 @@ td::Result<std::unique_ptr<CatChainReceiverSource>> CatChainReceiverSource::crea
 
 void CatChainReceiverSourceImpl::blame(td::uint32 fork, CatChainBlockHeight height) {
   blame();
-  if (!blamed_heights_.empty()) {
-    if (blamed_heights_.size() <= fork) {
-      blamed_heights_.resize(fork + 1, 0);
-    }
-    if (blamed_heights_[fork] == 0 || blamed_heights_[fork] > height) {
-      VLOG(CATCHAIN_INFO) << this << ": blamed at " << fork << " " << height;
-      blamed_heights_[fork] = height;
-    }
+  // if (!blamed_heights_.empty()) {
+  if (blamed_heights_.size() <= fork) {
+    blamed_heights_.resize(fork + 1, 0);
   }
+  if (blamed_heights_[fork] == 0 || blamed_heights_[fork] > height) {
+    VLOG(CATCHAIN_INFO) << this << ": blamed at " << fork << " " << height;
+    blamed_heights_[fork] = height;
+  }
+  // }
 }
 
 void CatChainReceiverSourceImpl::blame() {
@@ -144,7 +144,7 @@ void CatChainReceiverSourceImpl::on_new_block(CatChainReceivedBlock *block) {
       on_found_fork_proof(create_serialize_tl_object<ton_api::catchain_block_data_fork>(block->export_tl_dep(),
                                                                                         it->second->export_tl_dep())
                               .as_slice());
-      chain_->add_prepared_event(fork_proof());
+      chain_->on_found_fork_proof(id_, fork_proof());
     }
     blame();
     return;

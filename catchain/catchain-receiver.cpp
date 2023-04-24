@@ -527,6 +527,8 @@ CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback,
   blocks_[root_block_->get_hash()] = std::move(R);
   last_sent_block_ = root_block_;
 
+  blame_processed_.resize(sources_.size(), false);
+
   choose_neighbours();
 }
 
@@ -1070,6 +1072,23 @@ static void destroy_db(const std::string& name, td::uint32 attempt) {
     if (attempt < DESTROY_DB_MAX_ATTEMPTS) {
       delay_action([name, attempt]() { destroy_db(name, attempt + 1); }, td::Timestamp::in(DESTROY_DB_DELAY));
     }
+  }
+}
+
+void CatChainReceiverImpl::on_found_fork_proof(td::uint32 source_id, td::BufferSlice data) {
+  if (blame_processed_[source_id]) {
+    add_block(std::move(data), std::vector<CatChainBlockHash>());
+  } else {
+    pending_fork_proofs_[source_id] = std::move(data);
+  }
+}
+
+void CatChainReceiverImpl::on_blame_processed(td::uint32 source_id) {
+  blame_processed_[source_id] = true;
+  auto it = pending_fork_proofs_.find(source_id);
+  if (it != pending_fork_proofs_.end()) {
+    add_block(std::move(it->second), std::vector<CatChainBlockHash>());
+    pending_fork_proofs_.erase(it);
   }
 }
 
