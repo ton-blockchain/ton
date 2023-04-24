@@ -723,53 +723,75 @@ int exec_ristretto255_push_l(VmState* st) {
   return 0;
 }
 
+static bls::P1 slice_to_bls_p1(const CellSlice& cs) {
+  bls::P1 p1;
+  if (!cs.prefetch_bytes(p1.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::P1_SIZE << " bytes"};
+  }
+  return p1;
+}
+
+static bls::P2 slice_to_bls_p2(const CellSlice& cs) {
+  bls::P2 p2;
+  if (!cs.prefetch_bytes(p2.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::P2_SIZE << " bytes"};
+  }
+  return p2;
+}
+
+static bls::FP slice_to_bls_fp(const CellSlice& cs) {
+  bls::FP fp;
+  if (!cs.prefetch_bytes(fp.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::FP_SIZE << " bytes"};
+  }
+  return fp;
+}
+
+static bls::FP2 slice_to_bls_fp2(const CellSlice& cs) {
+  bls::FP2 fp2;
+  if (!cs.prefetch_bytes(fp2.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::FP_SIZE * 2 << " bytes"};
+  }
+  return fp2;
+}
+
+static td::BufferSlice slice_to_bls_msg(const CellSlice& cs) {
+  if (cs.size() % 8 != 0) {
+    throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
+  }
+  size_t msg_size = cs.size() / 8;
+  td::BufferSlice s(msg_size);
+  cs.prefetch_bytes((td::uint8*)s.data(), (int)msg_size);
+  return s;
+}
+
+static Ref<CellSlice> bls_to_slice(td::Slice s) {
+  VmStateInterface::Guard guard{nullptr};  // Don't consume gas for finalize and load_cell_slice
+  CellBuilder cb;
+  return load_cell_slice_ref(cb.store_bytes(s).finalize());
+}
+
 int exec_bls_verify(VmState* st) {
   VM_LOG(st) << "execute BLS_VERIFY";
   Stack& stack = st->get_stack();
   stack.check_underflow(3);
-
-  Ref<CellSlice> signature_cs = stack.pop_cellslice();
-  bls::Signature signature;
-  if (!signature_cs->prefetch_bytes(signature.as_slice())) {
-    throw VmError{Excno::cell_und, PSTRING()
-                                       << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
-  }
-
-  Ref<CellSlice> msg_cs = stack.pop_cellslice();
-  if (msg_cs->size() % 8 != 0) {
-    throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
-  }
-  size_t msg_size = msg_cs->size() / 8;
-  td::uint8 msg[128];
-  msg_cs->prefetch_bytes(msg, (int)msg_size);
-
-  bls::PubKey pub;
-  Ref<CellSlice> pub_cs = stack.pop_cellslice();
-  if (!pub_cs->prefetch_bytes(pub.as_slice())) {
-    throw VmError{Excno::cell_und, PSTRING() << "pubkey slice must contain at least " << bls::PUBKEY_SIZE << " bytes"};
-  }
-
-  bool result = bls::verify(pub, td::Slice{msg, msg_size}, signature);
-  stack.push_bool(result);
+  bls::P2 sig = slice_to_bls_p2(*stack.pop_cellslice());
+  td::BufferSlice msg = slice_to_bls_msg(*stack.pop_cellslice());
+  bls::P1 pub = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::verify(pub, msg, sig));
   return 0;
 }
 
 int exec_bls_aggregate(VmState* st) {
   VM_LOG(st) << "execute BLS_AGGREGATE";
   Stack& stack = st->get_stack();
-
   int n = stack.pop_smallint_range(stack.depth() - 1);
-  std::vector<bls::Signature> signatures(n);
+  std::vector<bls::P2> sigs(n);
   for (int i = n - 1; i >= 0; --i) {
-    Ref<CellSlice> signature_cs = stack.pop_cellslice();
-    if (!signature_cs->prefetch_bytes(signatures[i].as_slice())) {
-      throw VmError{Excno::cell_und,
-                    PSTRING() << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
-    }
+    sigs[i] = slice_to_bls_p2(*stack.pop_cellslice());
   }
-  bls::Signature signature = bls::aggregate(signatures);
-  CellBuilder cb;
-  stack.push_cellslice(load_cell_slice_ref(cb.store_bytes(signature.as_slice()).finalize()));
+  bls::P2 aggregated = bls::aggregate(sigs);
+  stack.push_cellslice(bls_to_slice(aggregated.as_slice()));
   return 0;
 }
 
@@ -778,32 +800,14 @@ int exec_bls_fast_aggregate_verify(VmState* st) {
   Stack& stack = st->get_stack();
   stack.check_underflow(3);
 
-  Ref<CellSlice> signature_cs = stack.pop_cellslice();
-  bls::Signature signature;
-  if (!signature_cs->prefetch_bytes(signature.as_slice())) {
-    throw VmError{Excno::cell_und, PSTRING()
-                                       << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
-  }
-
-  Ref<CellSlice> msg_cs = stack.pop_cellslice();
-  if (msg_cs->size() % 8 != 0) {
-    throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
-  }
-  size_t msg_size = msg_cs->size() / 8;
-  td::uint8 msg[128];
-  msg_cs->prefetch_bytes(msg, (int)msg_size);
-
+  bls::P2 sig = slice_to_bls_p2(*stack.pop_cellslice());
+  td::BufferSlice msg = slice_to_bls_msg(*stack.pop_cellslice());
   int pubs_size = stack.pop_smallint_range(stack.depth() - 1);
-  std::vector<bls::PubKey> pubs(pubs_size);
+  std::vector<bls::P1> pubs(pubs_size);
   for (int i = pubs_size - 1; i >= 0; --i) {
-    Ref<CellSlice> pub_cs = stack.pop_cellslice();
-    if (!pub_cs->prefetch_bytes(pubs[i].as_slice())) {
-      throw VmError{Excno::cell_und, PSTRING()
-                                         << "pubkey slice must contain at least " << bls::PUBKEY_SIZE << " bytes"};
-    }
+    pubs[i] = slice_to_bls_p1(*stack.pop_cellslice());
   }
-  bool result = bls::fast_aggregate_verify(pubs, td::Slice{msg, msg_size}, signature);
-  stack.push_bool(result);
+  stack.push_bool(bls::fast_aggregate_verify(pubs, msg, sig));
   return 0;
 }
 
@@ -811,34 +815,214 @@ int exec_bls_aggregate_verify(VmState* st) {
   VM_LOG(st) << "execute BLS_AGGREGATEVERIFY";
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
-
-  Ref<CellSlice> signature_cs = stack.pop_cellslice();
-  bls::Signature signature;
-  if (!signature_cs->prefetch_bytes(signature.as_slice())) {
-    throw VmError{Excno::cell_und, PSTRING()
-                                       << "signature slice must contain at least " << bls::SIGNATURE_SIZE << " bytes"};
-  }
-
-  int n = stack.pop_smallint_range(stack.depth() - 1);
-  std::vector<std::pair<bls::PubKey, td::BufferSlice>> vec(n);
+  bls::P2 sig = slice_to_bls_p2(*stack.pop_cellslice());
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  std::vector<std::pair<bls::P1, td::BufferSlice>> vec(n);
   for (int i = n - 1; i >= 0; --i) {
-    Ref<CellSlice> msg_cs = stack.pop_cellslice();
-    if (msg_cs->size() % 8 != 0) {
-      throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
-    }
-    size_t size = msg_cs->size() / 8;
-    td::uint8 msg[128];
-    msg_cs->prefetch_bytes(msg, (int)size);
-    vec[i].second = td::BufferSlice((const char*)msg, size);
-
-    Ref<CellSlice> pub_cs = stack.pop_cellslice();
-    if (!pub_cs->prefetch_bytes(vec[i].first.as_slice())) {
-      throw VmError{Excno::cell_und, PSTRING()
-                                         << "pubkey slice must contain at least " << bls::PUBKEY_SIZE << " bytes"};
-    }
+    vec[i].second = slice_to_bls_msg(*stack.pop_cellslice());
+    vec[i].first = slice_to_bls_p1(*stack.pop_cellslice());
   }
-  bool result = bls::aggregate_verify(vec, signature);
-  stack.push_bool(result);
+  stack.push_bool(bls::aggregate_verify(vec, sig));
+  return 0;
+}
+
+int exec_bls_g1_add(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  bls::P1 b = slice_to_bls_p1(*stack.pop_cellslice());
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_add(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_sub(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_SUB";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  bls::P1 b = slice_to_bls_p1(*stack.pop_cellslice());
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_sub(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_neg(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_NEG";
+  Stack& stack = st->get_stack();
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_neg(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_mul(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_MUL";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  td::RefInt256 x = stack.pop_int_finite();
+  bls::P1 p = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_mul(p, x).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_multiexp(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_MULTIEXP";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  std::vector<std::pair<bls::P1, td::RefInt256>> ps(n);
+  for (int i = n - 1; i >= 0; --i) {
+    ps[i].second = stack.pop_int_finite();
+    ps[i].first = slice_to_bls_p1(*stack.pop_cellslice());
+  }
+  stack.push_cellslice(bls_to_slice(bls::g1_multiexp(ps).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_ZERO";
+  Stack& stack = st->get_stack();
+  stack.push_cellslice(bls_to_slice(bls::g1_zero().as_slice()));
+  return 0;
+}
+
+int exec_bls_map_to_g1(VmState* st) {
+  VM_LOG(st) << "execute BLS_MAP_TO_G1";
+  Stack& stack = st->get_stack();
+  bls::FP a = slice_to_bls_fp(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::map_to_g1(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_validate(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_VALIDATE";
+  Stack& stack = st->get_stack();
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::g1_validate(a));
+  return 0;
+}
+
+int exec_bls_g1_in_group(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_INGROUP";
+  Stack& stack = st->get_stack();
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::g1_in_group(a));
+  return 0;
+}
+
+int exec_bls_g1_is_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_ISZERO";
+  Stack& stack = st->get_stack();
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::g1_is_zero(a));
+  return 0;
+}
+
+int exec_bls_g2_add(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  bls::P2 b = slice_to_bls_p2(*stack.pop_cellslice());
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_add(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_sub(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_SUB";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  bls::P2 b = slice_to_bls_p2(*stack.pop_cellslice());
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_sub(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_neg(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_NEG";
+  Stack& stack = st->get_stack();
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_neg(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_mul(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_MUL";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  td::RefInt256 x = stack.pop_int_finite();
+  bls::P2 p = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_mul(p, x).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_multiexp(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_MULTIEXP";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  std::vector<std::pair<bls::P2, td::RefInt256>> ps(n);
+  for (int i = n - 1; i >= 0; --i) {
+    ps[i].second = stack.pop_int_finite();
+    ps[i].first = slice_to_bls_p2(*stack.pop_cellslice());
+  }
+  stack.push_cellslice(bls_to_slice(bls::g2_multiexp(ps).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_ZERO";
+  Stack& stack = st->get_stack();
+  stack.push_cellslice(bls_to_slice(bls::g2_zero().as_slice()));
+  return 0;
+}
+
+int exec_bls_map_to_g2(VmState* st) {
+  VM_LOG(st) << "execute BLS_MAP_TO_G2";
+  Stack& stack = st->get_stack();
+  bls::FP2 a = slice_to_bls_fp2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::map_to_g2(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_validate(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_VALIDATE";
+  Stack& stack = st->get_stack();
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_bool(bls::g2_validate(a));
+  return 0;
+}
+
+int exec_bls_g2_in_group(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_INGROUP";
+  Stack& stack = st->get_stack();
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_bool(bls::g2_in_group(a));
+  return 0;
+}
+
+int exec_bls_g2_is_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_ISZERO";
+  Stack& stack = st->get_stack();
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_bool(bls::g2_is_zero(a));
+  return 0;
+}
+
+int exec_bls_pairing(VmState* st) {
+  VM_LOG(st) << "execute BLS_PAIRING";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  std::vector<std::pair<bls::P1, bls::P2>> ps(n);
+  for (int i = n - 1; i >= 0; --i) {
+    ps[i].second = slice_to_bls_p2(*stack.pop_cellslice());
+    ps[i].first = slice_to_bls_p1(*stack.pop_cellslice());
+  }
+  stack.push_bool(bls::pairing(ps));
+  return 0;
+}
+
+int exec_bls_push_r(VmState* st) {
+  VM_LOG(st) << "execute BLS_PUSHR";
+  Stack& stack = st->get_stack();
+  stack.push_int(bls::get_r());
   return 0;
 }
 
@@ -866,10 +1050,35 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xb7f924, 24, "RIST255_QMUL", std::bind(exec_ristretto255_mul, _1, true))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))->require_version(4))
 
-      .insert(OpcodeInstr::mksimple(0xf930, 16, "BLS_VERIFY", exec_bls_verify)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf931, 16, "BLS_AGGREGATE", exec_bls_aggregate)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf932, 16, "BLS_FASTAGGREGATEVERIFY", exec_bls_fast_aggregate_verify)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf933, 16, "BLS_AGGREGATEVERIFY", exec_bls_aggregate_verify)->require_version(4));
+      .insert(OpcodeInstr::mksimple(0xf93000, 24, "BLS_VERIFY", exec_bls_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93001, 24, "BLS_AGGREGATE", exec_bls_aggregate)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93002, 24, "BLS_FASTAGGREGATEVERIFY", exec_bls_fast_aggregate_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93003, 24, "BLS_AGGREGATEVERIFY", exec_bls_aggregate_verify)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93010, 24, "BLS_G1_ADD", exec_bls_g1_add)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93011, 24, "BLS_G1_SUB", exec_bls_g1_sub)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93012, 24, "BLS_G1_NEG", exec_bls_g1_neg)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93013, 24, "BLS_G1_MUL", exec_bls_g1_mul)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93014, 24, "BLS_G1_MULTIEXP", exec_bls_g1_multiexp)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93015, 24, "BLS_G1_ZERO", exec_bls_g1_zero)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93016, 24, "BLS_MAP_TO_G1", exec_bls_map_to_g1)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93017, 24, "BLS_G1_VALIDATE", exec_bls_g1_validate)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93018, 24, "BLS_G1_INGROUP", exec_bls_g1_in_group)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93019, 24, "BLS_G1_ISZERO", exec_bls_g1_is_zero)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93020, 24, "BLS_G2_ADD", exec_bls_g2_add)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93021, 24, "BLS_G2_SUB", exec_bls_g2_sub)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93022, 24, "BLS_G2_NEG", exec_bls_g2_neg)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93023, 24, "BLS_G2_MUL", exec_bls_g2_mul)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93024, 24, "BLS_G2_MULTIEXP", exec_bls_g2_multiexp)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93025, 24, "BLS_G2_ZERO", exec_bls_g2_zero)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93026, 24, "BLS_MAP_TO_G2", exec_bls_map_to_g2)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93027, 24, "BLS_G2_VALIDATE", exec_bls_g2_validate)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93028, 24, "BLS_G2_INGROUP", exec_bls_g2_in_group)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93029, 24, "BLS_G2_ISZERO", exec_bls_g2_is_zero)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93030, 24, "BLS_PAIRING", exec_bls_pairing)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93031, 24, "BLS_PUSHR", exec_bls_push_r)->require_version(4));
 }
 
 int exec_compute_data_size(VmState* st, int mode) {
