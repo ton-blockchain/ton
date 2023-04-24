@@ -155,3 +155,7 @@ TEST(Fift, test_deep_stack_ops) {
 TEST(Fift, test_rist255) {
   run_fift("rist255.fif");
 }
+
+TEST(Fift, test_bls) {
+  run_fift("bls.fif");
+}

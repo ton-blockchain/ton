@@ -93,6 +93,6 @@ csr. csr. csr. .s
     swap
     1+
   } 1024 times
-  <{ @' hash-idx HASHEXT }>s 0 runvmx .s abort"runvmx finished with exitcode != 0" clear-stack
+  <b x{F904} s, @' hash-idx 8 u, b> <s 0 runvmx .s abort"runvmx finished with exitcode != 0" clear-stack
   @' hash-idx 1+
 } 5 times

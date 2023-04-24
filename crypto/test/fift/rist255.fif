@@ -1,10 +1,12 @@
 // Test data: https://ristretto.group/test_vectors/ristretto255.html
 "Asm.fif" include
+"FiftExt.fif" include
 
 ."Basepoint multiples:" cr
 {
   =: ans =: n
-  <{ @' n INT RIST255_MULBASE DUP RIST255_VALIDATE }>s 0 runvmx abort"Exitcode != 0"
+  @' n
+  [[ <{ RIST255_MULBASE DUP RIST255_VALIDATE }>s ]] 0 runvmx abort"Exitcode != 0"
   @' n . dup (x.) type cr
   @' ans <> abort"Invalid result"
 } : test-basepoint
@@ -30,7 +32,8 @@ cr ."Invalid points:" cr
 {
   =: x
   @' x (x.) type cr
-  <{ @' n INT RIST255_QVALIDATE }>s 0 runvmx abort"Exitcode != 0"
+  @' x
+  [[ <{ RIST255_QVALIDATE }>s ]] 0 runvmx abort"Exitcode != 0"
   abort"Invalid result"
 } : test-invalid
 // These are all bad because they're non-canonical field encodings.
@@ -71,7 +74,8 @@ cr ."Invalid points:" cr
 cr ."Hash to point:" cr
 {
   =: text =: ans
-  <{ @' text $>s SLICE 1 INT HASHEXT_SHA512 2 UNTUPLE RIST255_FROMHASH }>s 0 runvmx abort"Exitcode != 0"
+  @' text $>s
+  [[ <{ 1 INT HASHEXT_SHA512 2 UNTUPLE RIST255_FROMHASH }>s ]] 0 runvmx abort"Exitcode != 0"
   @' ans <> abort"Invalid result"
   @' ans (x.) type ." " @' text type cr
 } : test-hash
