@@ -832,6 +832,7 @@ int exec_bls_g1_add(VmState* st) {
   stack.check_underflow(2);
   bls::P1 b = slice_to_bls_p1(*stack.pop_cellslice());
   bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g1_add_sub_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g1_add(a, b).as_slice()));
   return 0;
 }
@@ -842,6 +843,7 @@ int exec_bls_g1_sub(VmState* st) {
   stack.check_underflow(2);
   bls::P1 b = slice_to_bls_p1(*stack.pop_cellslice());
   bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g1_add_sub_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g1_sub(a, b).as_slice()));
   return 0;
 }
@@ -850,6 +852,7 @@ int exec_bls_g1_neg(VmState* st) {
   VM_LOG(st) << "execute BLS_G1_NEG";
   Stack& stack = st->get_stack();
   bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g1_neg_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g1_neg(a).as_slice()));
   return 0;
 }
@@ -860,6 +863,7 @@ int exec_bls_g1_mul(VmState* st) {
   stack.check_underflow(2);
   td::RefInt256 x = stack.pop_int_finite();
   bls::P1 p = slice_to_bls_p1(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g1_mul_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g1_mul(p, x).as_slice()));
   return 0;
 }
@@ -888,6 +892,7 @@ int exec_bls_map_to_g1(VmState* st) {
   VM_LOG(st) << "execute BLS_MAP_TO_G1";
   Stack& stack = st->get_stack();
   bls::FP a = slice_to_bls_fp(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_map_to_g1_gas_price);
   stack.push_cellslice(bls_to_slice(bls::map_to_g1(a).as_slice()));
   return 0;
 }
@@ -896,6 +901,7 @@ int exec_bls_g1_in_group(VmState* st) {
   VM_LOG(st) << "execute BLS_G1_INGROUP";
   Stack& stack = st->get_stack();
   bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g1_in_group_gas_price);
   stack.push_bool(bls::g1_in_group(a));
   return 0;
 }
@@ -914,6 +920,7 @@ int exec_bls_g2_add(VmState* st) {
   stack.check_underflow(2);
   bls::P2 b = slice_to_bls_p2(*stack.pop_cellslice());
   bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g2_add_sub_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g2_add(a, b).as_slice()));
   return 0;
 }
@@ -924,6 +931,7 @@ int exec_bls_g2_sub(VmState* st) {
   stack.check_underflow(2);
   bls::P2 b = slice_to_bls_p2(*stack.pop_cellslice());
   bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g2_add_sub_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g2_sub(a, b).as_slice()));
   return 0;
 }
@@ -932,6 +940,7 @@ int exec_bls_g2_neg(VmState* st) {
   VM_LOG(st) << "execute BLS_G2_NEG";
   Stack& stack = st->get_stack();
   bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g2_neg_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g2_neg(a).as_slice()));
   return 0;
 }
@@ -942,6 +951,7 @@ int exec_bls_g2_mul(VmState* st) {
   stack.check_underflow(2);
   td::RefInt256 x = stack.pop_int_finite();
   bls::P2 p = slice_to_bls_p2(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g2_mul_gas_price);
   stack.push_cellslice(bls_to_slice(bls::g2_mul(p, x).as_slice()));
   return 0;
 }
@@ -970,6 +980,7 @@ int exec_bls_map_to_g2(VmState* st) {
   VM_LOG(st) << "execute BLS_MAP_TO_G2";
   Stack& stack = st->get_stack();
   bls::FP2 a = slice_to_bls_fp2(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_map_to_g2_gas_price);
   stack.push_cellslice(bls_to_slice(bls::map_to_g2(a).as_slice()));
   return 0;
 }
@@ -978,6 +989,7 @@ int exec_bls_g2_in_group(VmState* st) {
   VM_LOG(st) << "execute BLS_G2_INGROUP";
   Stack& stack = st->get_stack();
   bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  st->consume_gas(VmState::bls_g2_in_group_gas_price);
   stack.push_bool(bls::g2_in_group(a));
   return 0;
 }
@@ -994,6 +1006,7 @@ int exec_bls_pairing(VmState* st) {
   VM_LOG(st) << "execute BLS_PAIRING";
   Stack& stack = st->get_stack();
   int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  st->consume_gas(VmState::bls_pairing_base_gas_price + (long long)n * VmState::bls_pairing_element_gas_price);
   std::vector<std::pair<bls::P1, bls::P2>> ps(n);
   for (int i = n - 1; i >= 0; --i) {
     ps[i].second = slice_to_bls_p2(*stack.pop_cellslice());

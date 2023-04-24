@@ -125,7 +125,22 @@ class VmState final : public VmStateInterface {
 
     ecrecover_gas_price = 1500,
     chksgn_free_count = 10,
-    chksgn_gas_price = 4000
+    chksgn_gas_price = 4000,
+
+    bls_g1_add_sub_gas_price = 3925,
+    bls_g1_neg_gas_price = 765,
+    bls_g1_mul_gas_price = 5180,
+    bls_map_to_g1_gas_price = 2330,
+    bls_g1_in_group_gas_price = 2930,
+
+    bls_g2_add_sub_gas_price = 6100,
+    bls_g2_neg_gas_price = 1550,
+    bls_g2_mul_gas_price = 10530,
+    bls_map_to_g2_gas_price = 7970,
+    bls_g2_in_group_gas_price = 4255,
+
+    bls_pairing_base_gas_price = 20000,
+    bls_pairing_element_gas_price = 11770
   };
   VmState();
   VmState(Ref<CellSlice> _code);
