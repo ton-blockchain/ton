@@ -159,3 +159,7 @@ TEST(Fift, test_rist255) {
 TEST(Fift, test_bls) {
   run_fift("bls.fif");
 }
+
+TEST(Fift, test_bls_ops) {
+  run_fift("bls_ops.fif");
+}
