@@ -778,7 +778,6 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
 
   while (cur_round_ < round) {
     auto block = real_state_->get_committed_block(description(), cur_round_);
-    //CHECK(block);
     auto sigs = real_state_->get_committed_block_signatures(description(), cur_round_);
     CHECK(sigs);
     auto approve_sigs = real_state_->get_committed_block_approve_signatures(description(), cur_round_);

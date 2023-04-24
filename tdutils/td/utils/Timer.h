@@ -46,7 +46,7 @@ class Timer {
 
 class PerfWarningTimer {
  public:
-  explicit PerfWarningTimer(string name, double max_duration = 0.1, std::function<void(double)>&& callback = [] (double) {});
+  explicit PerfWarningTimer(string name, double max_duration = 0.1, std::function<void(double)>&& callback = {});
   PerfWarningTimer(const PerfWarningTimer &) = delete;
   PerfWarningTimer &operator=(const PerfWarningTimer &) = delete;
   PerfWarningTimer(PerfWarningTimer &&other);

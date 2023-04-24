@@ -1319,9 +1319,6 @@ td::Status ValidatorEngine::load_global_config() {
         }
         CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
         return true;
-        /*ton::ShardIdFull p{ton::basechainId, ((cc_seqno * 1ull % 4) << 62) + 1};
-        auto s = ton::shard_prefix(p, 2);
-        return shard.is_masterchain() || ton::shard_intersects(shard, s);*/
       });
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);

@@ -57,7 +57,6 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
     const RootObject *ptr;
   };
   std::array<std::atomic<Cached>, cache_size> cache_;
-  //std::array<std::atomic<Cached>, cache_size> temp_cache_;
 
   class MemPool {
    public:

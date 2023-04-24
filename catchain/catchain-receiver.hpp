@@ -74,7 +74,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
                      td::Promise<td::BufferSlice> promise);
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, const T &query, td::Promise<td::BufferSlice> promise) {
-    //LOG(WARNING) << this << ": unknown query from " << src;
     callback_->on_custom_query(get_source_by_adnl_id(src)->get_hash(), serialize_tl_object(&query, true),
                                std::move(promise));
   }
@@ -82,7 +81,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
 
   void receive_block(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
   void receive_block_answer(adnl::AdnlNodeIdShort src, td::BufferSlice);
-  //void send_block(const PublicKeyHash &src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
 
   CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block> block, td::SharedSlice payload) override;
   CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block_dep> block) override;
@@ -198,9 +196,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   CatChainOptions opts_;
 
   std::vector<td::uint32> neighbours_;
-
-  //std::queue<tl_object_ptr<ton_api::catchain_block_inner_Data>> events_;
-  //std::queue<td::BufferSlice> raw_events_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;

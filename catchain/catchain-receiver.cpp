@@ -168,13 +168,6 @@ void CatChainReceiverImpl::receive_message_from_overlay(adnl::AdnlNodeIdShort sr
     return;
   }
 
-  /*auto S = get_source_by_hash(src);
-  CHECK(S != nullptr);
-
-  if (S->blamed()) {
-    VLOG(CATCHAIN_INFO) << this << ": dropping block update from blamed source " << src;
-    return;
-  }*/
   if (data.size() > opts_.max_serialized_block_size) {
     VLOG(CATCHAIN_WARNING) << this << ": dropping broken block from " << src << ": too big (size="
                            << data.size() << ", limit=" << opts_.max_serialized_block_size << ")";
@@ -196,19 +189,6 @@ void CatChainReceiverImpl::receive_broadcast_from_overlay(const PublicKeyHash &s
   }
   callback_->on_broadcast(src, std::move(data));
 }
-
-/*void CatChainReceiverImpl::send_block(const PublicKeyHash &src, tl_object_ptr<ton_api::catchain_block> block,
-                                      td::BufferSlice payload) {
-  CHECK(read_db_);
-  CHECK(src == local_id_);
-
-  validate_block_sync(block, payload.as_slice()).ensure();
-  auto B = create_block(std::move(block), td::SharedSlice{payload.as_slice()});
-  CHECK(B != nullptr);
-
-  run_scheduler();
-  CHECK(B->delivered());
-}*/
 
 CatChainReceivedBlock *CatChainReceiverImpl::create_block(tl_object_ptr<ton_api::catchain_block> block,
                                                           td::SharedSlice payload) {
@@ -267,21 +247,16 @@ td::Status CatChainReceiverImpl::validate_block_sync(const tl_object_ptr<ton_api
 
 td::Status CatChainReceiverImpl::validate_block_sync(const tl_object_ptr<ton_api::catchain_block> &block,
                                                      const td::Slice &payload) const {
-  //LOG(INFO) << ton_api::to_string(block);
   TRY_STATUS_PREFIX(CatChainReceivedBlock::pre_validate_block(this, block, payload), "failed to validate block: ");
+  // After pre_validate_block, block->height_ > 0
+  auto id = CatChainReceivedBlock::block_id(this, block, payload);
+  td::BufferSlice B = serialize_tl_object(id, true);
 
-  if (block->height_ > 0) {
-    auto id = CatChainReceivedBlock::block_id(this, block, payload);
-    td::BufferSlice B = serialize_tl_object(id, true);
-
-    CatChainReceiverSource *S = get_source_by_hash(PublicKeyHash{id->src_});
-    CHECK(S != nullptr);
-    Encryptor *E = S->get_encryptor_sync();
-    CHECK(E != nullptr);
-    return E->check_signature(B.as_slice(), block->signature_.as_slice());
-  } else {
-    return td::Status::OK();
-  }
+  CatChainReceiverSource *S = get_source_by_hash(PublicKeyHash{id->src_});
+  CHECK(S != nullptr);
+  Encryptor *E = S->get_encryptor_sync();
+  CHECK(E != nullptr);
+  return E->check_signature(B.as_slice(), block->signature_.as_slice());
 }
 
 void CatChainReceiverImpl::run_scheduler() {
@@ -515,7 +490,6 @@ CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback,
   }
   CHECK(local_idx_ != static_cast<td::uint32>(ids.size()));
 
-  //std::sort(short_ids.begin(), short_ids.end());
   auto F = create_tl_object<ton_api::catchain_firstblock>(unique_hash, std::move(short_ids));
 
   overlay_full_id_ = overlay::OverlayIdFull{serialize_tl_object(F, true)};
@@ -706,7 +680,6 @@ void CatChainReceiverImpl::receive_query_from_overlay(adnl::AdnlNodeIdShort src,
   auto F = fetch_tl_object<ton_api::Function>(data.clone(), true);
   if (F.is_error()) {
     callback_->on_custom_query(get_source_by_adnl_id(src)->get_hash(), std::move(data), std::move(promise));
-    //LOG(WARNING) << this << ": unknown query from " << src;
     return;
   }
   auto f = F.move_as_ok();

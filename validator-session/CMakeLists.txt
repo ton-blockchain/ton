@@ -9,6 +9,7 @@ set(VALIDATOR_SESSION_SOURCE
   validator-session-description.cpp
   validator-session-state.cpp
   validator-session.cpp
+  validator-session-round-attempt-state.cpp
 
   persistent-vector.h
   validator-session-description.h
@@ -16,7 +17,7 @@ set(VALIDATOR_SESSION_SOURCE
   validator-session-state.h
   validator-session.h
   validator-session.hpp
-)
+  validator-session-round-attempt-state.h)
 
 add_library(validatorsession STATIC ${VALIDATOR_SESSION_SOURCE})
 
