@@ -84,6 +84,12 @@ int exec_set_gas_limit(VmState* st) {
   return exec_set_gas_generic(st, gas);
 }
 
+int exec_gas_consumed(VmState* st) {
+  VM_LOG(st) << "execute GASCONSUMED";
+  st->get_stack().push_smallint(st->gas_consumed());
+  return 0;
+}
+
 int exec_commit(VmState* st) {
   VM_LOG(st) << "execute COMMIT";
   st->force_commit();
@@ -94,6 +100,7 @@ void register_basic_gas_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xf800, 16, "ACCEPT", exec_accept))
       .insert(OpcodeInstr::mksimple(0xf801, 16, "SETGASLIMIT", exec_set_gas_limit))
+      .insert(OpcodeInstr::mksimple(0xf802, 16, "GASCONSUMED", exec_gas_consumed)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf80f, 16, "COMMIT", exec_commit));
 }
 

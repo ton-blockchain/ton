@@ -11,6 +11,7 @@ Various features are enabled depending on the global version.
 * `ECRECOVER`
 * `SENDMSG`
 * `RUNVM`, `RUNVMX`
+* `GASCONSUMED`
 * `RIST255_...` instructions
 * `BLS_...` instructions
 

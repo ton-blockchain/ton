@@ -219,3 +219,10 @@ PROGRAM{
 20
 <{ 256 RUNVM }>s 0 runvmx
 .s { drop } depth 1- times // 0 -3 0
+
+// GASCONSUMED
+<{ 10 INT 20 INT ADD DROP GASCONSUMED }>s 0 runvmx
+.s { drop } depth 1- times // 106 0
+0 <{ 10 INT 20 INT ADD DROP GASCONSUMED }>s
+<{ 100 INT 200 INT 300 INT MUL DIV DROP 0 RUNVM GASCONSUMED }>s 0 runvmx
+.s { drop } depth 1- times // 106 0 367 0
