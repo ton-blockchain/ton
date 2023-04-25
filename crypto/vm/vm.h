@@ -127,6 +127,14 @@ class VmState final : public VmStateInterface {
     chksgn_free_count = 10,
     chksgn_gas_price = 4000,
 
+    bls_verify_gas_price = 61300,
+    bls_aggregate_base_gas_price = -2645,
+    bls_aggregate_element_gas_price = 4355,
+    bls_fast_aggregate_verify_base_gas_price = 58400,
+    bls_fast_aggregate_verify_element_gas_price = 2990,
+    bls_aggregate_verify_base_gas_price = 37275,
+    bls_aggregate_verify_element_gas_price = 22290,
+
     bls_g1_add_sub_gas_price = 3925,
     bls_g1_neg_gas_price = 765,
     bls_g1_mul_gas_price = 5180,
@@ -138,6 +146,14 @@ class VmState final : public VmStateInterface {
     bls_g2_mul_gas_price = 10530,
     bls_map_to_g2_gas_price = 7970,
     bls_g2_in_group_gas_price = 4255,
+
+    // multiexp gas = base + n * coef1 + n/floor(max(log2(n), 4)) * coef2
+    bls_g1_multiexp_base_gas_price = 11375,
+    bls_g1_multiexp_coef1_gas_price = 630,
+    bls_g1_multiexp_coef2_gas_price = 8820,
+    bls_g2_multiexp_base_gas_price = 30388,
+    bls_g2_multiexp_coef1_gas_price = 1280,
+    bls_g2_multiexp_coef2_gas_price = 22840,
 
     bls_pairing_base_gas_price = 20000,
     bls_pairing_element_gas_price = 11770

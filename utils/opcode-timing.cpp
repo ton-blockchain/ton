@@ -8,9 +8,9 @@
 #include "common/bigint.hpp"
 
 #include "td/utils/base64.h"
-#include "td/utils/tests.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/Timer.h"
 
 td::Ref<vm::Cell> to_cell(td::Slice s) {
   if (s.size() >= 4 && s.substr(0, 4) == "boc:") {
@@ -68,7 +68,7 @@ vm::Stack prepare_stack(td::Slice command) {
   vm::DictionaryBase::get_empty_dictionary();
   vm::Stack stack;
   try {
-    vm::GasLimits gas_limit(1000000, 1000000);
+    vm::GasLimits gas_limit;
     int ret = vm::run_vm_code(vm::load_cell_slice_ref(cell), stack, 0 /*flags*/, nullptr /*data*/,
                               vm::VmLog{}, nullptr, &gas_limit, {}, {}, nullptr, 4);
     CHECK(ret == 0);
@@ -84,7 +84,7 @@ runInfo time_run_vm(td::Slice command, td::Ref<vm::Stack> stack) {
   vm::DictionaryBase::get_empty_dictionary();
   CHECK(stack.is_unique());
   try {
-    vm::GasLimits gas_limit(1000000, 1000000);
+    vm::GasLimits gas_limit;
     vm::VmState vm{vm::load_cell_slice_ref(cell), std::move(stack), gas_limit, 0, {}, vm::VmLog{}, {}, {}};
     vm.set_global_version(4);
     std::clock_t cStart = std::clock();
@@ -99,10 +99,11 @@ runInfo time_run_vm(td::Slice command, td::Ref<vm::Stack> stack) {
 }
 
 runtimeStats averageRuntime(td::Slice command, const vm::Stack& stack) {
-  const size_t samples = 100000;
+  size_t samples = 100000;
   runInfo total;
   std::vector<runInfo> values;
   values.reserve(samples);
+  td::Timer t0;
   for(size_t i = 0; i < samples; ++i) {
     const auto value_empty = time_run_vm(td::Slice(""), td::Ref<vm::Stack>(true, stack));
     const auto value_code = time_run_vm(command, td::Ref<vm::Stack>(true, stack));
@@ -110,6 +111,11 @@ runtimeStats averageRuntime(td::Slice command, const vm::Stack& stack) {
                   value_code.vmReturnCode};
     values.push_back(value);
     total += value;
+    if (t0.elapsed() > 2.0 && i + 1 >= 20) {
+      samples = i + 1;
+      values.resize(samples);
+      break;
+    }
   }
   const auto runtimeMean = total.runtime / static_cast<long double>(samples);
   const auto gasMean = static_cast<long double>(total.gasUsage) / static_cast<long double>(samples);
