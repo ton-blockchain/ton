@@ -441,7 +441,9 @@ int exec_blkswap_x(VmState* st) {
   int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x + y);
   if (x > 0 && y > 0) {
-    st->consume_gas(std::max(x + y - 255 * 2, 0));
+    if (st->get_global_version() >= 4) {
+      st->consume_gas(std::max(x + y - 255, 0));
+    }
     std::rotate(stack.from_top(x + y), stack.from_top(y), stack.top());
   }
   return 0;
