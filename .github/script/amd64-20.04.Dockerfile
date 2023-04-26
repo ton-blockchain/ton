@@ -8,7 +8,7 @@ WORKDIR /
 
 ARG BRANCH
 ARG REPO
-RUN git clone --recurse-submodules https://github.com/$REPO && cd ton && git checkout $BRANCH
+RUN git clone --recurse-submodules https://github.com/$REPO ton && cd ton && git checkout $BRANCH && git submodule update
 
 WORKDIR /ton
 RUN mkdir /ton/build
