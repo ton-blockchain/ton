@@ -67,7 +67,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
-    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
+    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 9.0))
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
