@@ -67,6 +67,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
+    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
@@ -1814,6 +1815,11 @@ bool Collator::out_msg_queue_cleanup() {
   auto res = out_msg_queue_->filter([&](vm::CellSlice& cs, td::ConstBitPtr key, int n) -> int {
     assert(n == 352);
     // LOG(DEBUG) << "key is " << key.to_hex(n);
+    if (queue_cleanup_timeout_.is_in_past(td::Timestamp::now())) {
+      LOG(WARNING) << "cleaning up outbound queue takes too long, ending";
+      outq_cleanup_partial_ = true;
+      return (1 << 30) + 1;  // retain all remaining outbound queue entries including this one without processing
+    }
     if (block_full_) {
       LOG(WARNING) << "BLOCK FULL while cleaning up outbound queue, cleanup completed only partially";
       outq_cleanup_partial_ = true;
