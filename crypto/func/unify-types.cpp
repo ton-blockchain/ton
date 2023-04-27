@@ -146,11 +146,8 @@ bool TypeExpr::remove_indirect(TypeExpr*& te, TypeExpr* forbidden) {
   return res;
 }
 
-bool TypeExpr::remove_forall(TypeExpr*& te) {
-  assert(te);
-  if (te->constr != te_ForAll) {
-    return false;
-  }
+std::vector<TypeExpr*> TypeExpr::remove_forall(TypeExpr*& te) {
+  assert(te && te->constr == te_ForAll);
   assert(te->args.size() >= 1);
   std::vector<TypeExpr*> new_vars;
   for (std::size_t i = 1; i < te->args.size(); i++) {
@@ -161,7 +158,7 @@ bool TypeExpr::remove_forall(TypeExpr*& te) {
   te = te->args[0];
   remove_forall_in(te, te2, new_vars);
   // std::cerr << "-> " << te << std::endl;
-  return true;
+  return new_vars;
 }
 
 bool TypeExpr::remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars) {
@@ -363,19 +360,33 @@ void unify(TypeExpr*& te1, TypeExpr*& te2) {
   }
   if (te1->constr == TypeExpr::te_ForAll) {
     TypeExpr* te = te1;
-    if (!TypeExpr::remove_forall(te)) {
-      throw UnifyError{te1, te2, "cannot remove universal type quantifier while performing type unification"};
+    std::vector<TypeExpr*> new_vars = TypeExpr::remove_forall(te);
+    for (TypeExpr* t : new_vars) {
+      t->was_forall_var = true;
     }
     unify(te, te2);
+    for (TypeExpr* t : new_vars) {
+      t->was_forall_var = false;
+    }
     return;
   }
   if (te2->constr == TypeExpr::te_ForAll) {
     TypeExpr* te = te2;
-    if (!TypeExpr::remove_forall(te)) {
-      throw UnifyError{te2, te1, "cannot remove universal type quantifier while performing type unification"};
+    std::vector<TypeExpr*> new_vars = TypeExpr::remove_forall(te);
+    for (TypeExpr* t : new_vars) {
+      t->was_forall_var = true;
     }
     unify(te1, te);
+    for (TypeExpr* t : new_vars) {
+      t->was_forall_var = false;
+    }
     return;
+  }
+  if (te1->was_forall_var && te2->constr == TypeExpr::te_Tensor) {
+    throw UnifyError{te1, te2, "cannot unify generic type and tensor"};
+  }
+  if (te2->was_forall_var && te1->constr == TypeExpr::te_Tensor) {
+    throw UnifyError{te2, te1, "cannot unify generic type and tensor"};
   }
   if (te1->constr == TypeExpr::te_Unknown) {
     if (te2->constr == TypeExpr::te_Unknown) {
