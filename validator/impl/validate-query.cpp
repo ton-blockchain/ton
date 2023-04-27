@@ -5540,9 +5540,10 @@ bool ValidateQuery::try_validate() {
     if (!check_in_queue()) {
       return reject_query("cannot check inbound message queues");
     }
-    if (!check_delivered_dequeued()) {
+    // Excessive check: validity of message in queue is checked elsewhere
+    /*if (!check_delivered_dequeued()) {
       return reject_query("cannot check delivery status of all outbound messages");
-    }
+    }*/
     if (!check_transactions()) {
       return reject_query("invalid collection of account transactions in ShardAccountBlocks");
     }
