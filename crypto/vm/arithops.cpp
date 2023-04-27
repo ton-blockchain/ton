@@ -959,7 +959,9 @@ int exec_cmp(VmState* st, int mode, bool quiet, const char* name) {
   auto y = stack.pop_int();
   auto x = stack.pop_int();
   if (!x->is_valid() || !y->is_valid()) {
-    stack.push_int_quiet(std::move(x), quiet);
+    td::RefInt256 r{true};
+    r.unique_write().invalidate();
+    stack.push_int_quiet(std::move(r), quiet);
   } else {
     int z = td::cmp(std::move(x), std::move(y));
     stack.push_smallint(((mode >> (4 + z * 4)) & 15) - 8);
