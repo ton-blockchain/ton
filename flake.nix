@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.11";
     nixpkgs-trunk.url = "github:nixos/nixpkgs";
     flake-compat = {
       url = "github:edolstra/flake-compat";
