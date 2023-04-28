@@ -28,7 +28,9 @@ public:
     args_.set_now(unixtime);
     args_.set_balance(balance);
     args_.set_rand_seed(rand_seed);
-    args_.set_config(config);
+    if (config) {
+      args_.set_config(config);
+    }
   }
 
   void set_debug_enabled(bool debug_enabled) {

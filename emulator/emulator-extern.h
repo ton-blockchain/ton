@@ -94,6 +94,8 @@ EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_em
  */
 EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc);
 
+EMULATOR_EXPORT const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator, const char *shard_account_boc, bool is_tock);
+
 /**
  * @brief Destroy TransactionEmulator object
  * @param transaction_emulator Pointer to TransactionEmulator object
@@ -129,7 +131,7 @@ EMULATOR_EXPORT bool tvm_emulator_set_libraries(void *tvm_emulator, const char *
  * @param unixtime Unix timestamp
  * @param balance Smart contract balance
  * @param rand_seed_hex Random seed as hex string of length 64
- * @param config Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
+ * @param config Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell). Optional.
  * @return true in case of success, false in case of error 
  */
 EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *rand_seed_hex, const char *config);
