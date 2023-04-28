@@ -68,7 +68,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , manager(manager)
     , timeout(timeout)
     // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
-    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 9.0))
+    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
