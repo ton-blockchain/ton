@@ -667,11 +667,17 @@ static bool export_bytes_little(const td::RefInt256& n, unsigned char* nb) {
   return true;
 }
 
+static td::RefInt256 get_ristretto256_l() {
+  static td::RefInt256 l =
+      (td::make_refint(1) << 252) + td::dec_string_to_int256(td::Slice("27742317777372353535851937790883648493"));
+  return l;
+}
+
 int exec_ristretto255_mul(VmState* st, bool quiet) {
   VM_LOG(st) << "execute RIST255_MUL";
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
-  auto n = stack.pop_int();
+  auto n = stack.pop_int() % get_ristretto256_l();
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_mul_gas_price);
   unsigned char xb[32], nb[32], rb[32];
@@ -698,7 +704,7 @@ int exec_ristretto255_mul(VmState* st, bool quiet) {
 int exec_ristretto255_mul_base(VmState* st, bool quiet) {
   VM_LOG(st) << "execute RIST255_MULBASE";
   Stack& stack = st->get_stack();
-  auto n = stack.pop_int();
+  auto n = stack.pop_int() % get_ristretto256_l();
   st->consume_gas(VmState::rist255_mulbase_gas_price);
   unsigned char nb[32], rb[32];
   memset(rb, 255, sizeof(rb));
@@ -724,9 +730,7 @@ int exec_ristretto255_mul_base(VmState* st, bool quiet) {
 int exec_ristretto255_push_l(VmState* st) {
   VM_LOG(st) << "execute RIST255_PUSHL";
   Stack& stack = st->get_stack();
-  static td::RefInt256 l =
-      (td::make_refint(1) << 252) + td::dec_string_to_int256(td::Slice("27742317777372353535851937790883648493"));
-  stack.push_int(l);
+  stack.push_int(get_ristretto256_l());
   return 0;
 }
 
