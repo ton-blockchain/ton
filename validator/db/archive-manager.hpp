@@ -93,7 +93,6 @@ class ArchiveManager : public td::actor::Actor {
     auto file_actor_id() const {
       return file.get();
     }
-    bool has_account_prefix(AccountIdPrefixFull account_id) const;
     PackageId id;
     mutable bool deleted;
 
@@ -149,6 +148,7 @@ class ArchiveManager : public td::actor::Actor {
     const FileDescription *get_file_desc_by_seqno(ShardIdFull shard, BlockSeqno seqno) const;
     const FileDescription *get_file_desc_by_lt(ShardIdFull shard, LogicalTime lt) const;
     const FileDescription *get_file_desc_by_unix_time(ShardIdFull shard, UnixTime ts) const;
+    const FileDescription *get_next_file_desc(ShardIdFull shard, const FileDescription *desc) const;
 
    private:
     std::map<PackageId, FileDescription> files_;
@@ -156,6 +156,7 @@ class ArchiveManager : public td::actor::Actor {
       std::map<BlockSeqno, const FileDescription *> seqno_index_;
       std::map<LogicalTime, const FileDescription *> lt_index_;
       std::map<UnixTime, const FileDescription *> unix_time_index_;
+      std::map<PackageId, const FileDescription *> packages_index_;
     };
     std::map<ShardIdFull, ShardIndex> shards_;
 
@@ -192,7 +193,7 @@ class ArchiveManager : public td::actor::Actor {
   const FileDescription *get_file_desc_by_seqno(AccountIdPrefixFull shard, BlockSeqno seqno, bool key_block);
   const FileDescription *get_file_desc_by_lt(AccountIdPrefixFull shard, LogicalTime lt, bool key_block);
   const FileDescription *get_file_desc_by_unix_time(AccountIdPrefixFull shard, UnixTime ts, bool key_block);
-  const FileDescription *get_next_file_desc(const FileDescription *f);
+  const FileDescription *get_next_file_desc(const FileDescription *f, AccountIdPrefixFull shard, bool key_block);
   const FileDescription *get_temp_file_desc_by_idx(PackageId idx);
   PackageId get_max_temp_file_desc_idx();
   PackageId get_prev_temp_file_desc_idx(PackageId id);
