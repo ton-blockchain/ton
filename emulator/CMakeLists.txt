@@ -29,7 +29,7 @@ include(GenerateExportHeader)
 add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
 target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope)
 
-if (BUILD_SHARED_LIBS)
+if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
   add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
 else()
   add_library(emulator STATIC ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
