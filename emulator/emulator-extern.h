@@ -80,8 +80,9 @@ EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_em
  * @return Json object with error:
  * { 
  *   "success": false, 
- *   "error": "Error description" 
- *   // and optional fields "vm_exit_code" and "vm_log" in case external message was not accepted.
+ *   "error": "Error description",
+ *   "external_not_accepted": false,
+ *   // and optional fields "vm_exit_code", "vm_log", "elapsed_time" in case external message was not accepted.
  * } 
  * Or success:
  * { 
@@ -89,11 +90,33 @@ EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_em
  *   "transaction": "Base64 encoded Transaction boc", 
  *   "shard_account": "Base64 encoded new ShardAccount boc", 
  *   "vm_log": "execute DUP...", 
- *   "actions": "Base64 encoded compute phase actions boc (OutList n)"
+ *   "actions": "Base64 encoded compute phase actions boc (OutList n)",
+ *   "elapsed_time": 0.02
  * }
  */
 EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc);
 
+/**
+ * @brief Emulate tick tock transaction
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param shard_account_boc Base64 encoded BoC serialized ShardAccount of special account
+ * @param is_tock True for tock transactions, false for tick
+ * @return Json object with error:
+ * { 
+ *   "success": false, 
+ *   "error": "Error description",
+ *   "external_not_accepted": false
+ * } 
+ * Or success:
+ * { 
+ *   "success": true, 
+ *   "transaction": "Base64 encoded Transaction boc", 
+ *   "shard_account": "Base64 encoded new ShardAccount boc", 
+ *   "vm_log": "execute DUP...", 
+ *   "actions": "Base64 encoded compute phase actions boc (OutList n)",
+ *   "elapsed_time": 0.02
+ * }
+ */
 EMULATOR_EXPORT const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator, const char *shard_account_boc, bool is_tock);
 
 /**

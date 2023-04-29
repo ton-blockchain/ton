@@ -42,6 +42,7 @@ const char *error_response(std::string&& error) {
   auto json_obj = jb.enter_object();
   json_obj("success", td::JsonFalse());
   json_obj("error", std::move(error));
+  json_obj("external_not_accepted", td::JsonFalse());
   json_obj.leave();
   return strdup(jb.string_builder().as_cslice().c_str());
 }
