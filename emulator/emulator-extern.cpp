@@ -134,6 +134,9 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
 
   auto account = block::Account(wc, addr.bits());
   ton::UnixTime now = emulator->get_unixtime();
+  if (!now) {
+    now = (unsigned)std::time(nullptr);
+  }
   bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
   if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now, is_special)) {
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
@@ -209,6 +212,9 @@ const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction
 
   auto account = block::Account(wc, addr.bits());
   ton::UnixTime now = emulator->get_unixtime();
+  if (!now) {
+    now = (unsigned)std::time(nullptr);
+  }
   bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
   if (block::gen::t_Account.get_tag(account_slice) == block::gen::Account::account_none) {
     ERROR_RESPONSE(PSTRING() <<  "Can't run tick/tock transaction on non special account");
