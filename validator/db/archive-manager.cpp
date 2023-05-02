@@ -563,6 +563,11 @@ void ArchiveManager::deleted_package(PackageId id, td::Promise<td::Unit> promise
 }
 
 void ArchiveManager::load_package(PackageId id) {
+  auto &m = get_file_map(id);
+  if (m.count(id)) {
+    LOG(WARNING) << "Duplicate id " << id.name();
+    return;
+  }
   auto key = create_serialize_tl_object<ton_api::db_files_package_key>(id.id, id.key, id.temp);
 
   std::string value;
@@ -595,7 +600,7 @@ void ArchiveManager::load_package(PackageId id) {
 
   desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_);
 
-  get_file_map(id).emplace(id, std::move(desc));
+  m.emplace(id, std::move(desc));
 }
 
 const ArchiveManager::FileDescription *ArchiveManager::get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno,
@@ -653,7 +658,6 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
     for (auto &e : temp_files_) {
       tt.push_back(e.first.id);
     }
-    (id.temp ? tt : (id.key ? tk : t)).push_back(id.id);
     index_
         ->set(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(),
               create_serialize_tl_object<ton_api::db_files_index_value>(std::move(t), std::move(tk), std::move(tt))
