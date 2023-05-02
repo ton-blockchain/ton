@@ -8,6 +8,7 @@
 #include "transaction-emulator.h"
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
+#include "crypto/vm/memo.h"
 
 td::Result<td::Ref<vm::Cell>> boc_b64_to_cell(const char *boc) {
   TRY_RESULT_PREFIX(boc_decoded, td::base64_decode(td::Slice(boc)), "Can't decode base64 boc: ");
@@ -445,6 +446,9 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
 
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto result = emulator->run_get_method(method_id, stack);
+  
+  vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
   
   vm::CellBuilder stack_cb;
   if (!result.stack->serialize(stack_cb)) {
