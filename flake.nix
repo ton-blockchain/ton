@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.11";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
     nixpkgs-trunk.url = "github:nixos/nixpkgs";
     flake-compat = {
       url = "github:edolstra/flake-compat";
@@ -35,10 +35,9 @@
               [
                 (openssl_1_1.override { static = true; }).dev
                 (zlib.override { shared = false; }).dev
-                pkgsStatic.libmicrohttpd.dev
-                pkgsStatic.libcxx.dev
-                pkgsStatic.libcxxabi.dev
-              ] ++ optional staticGlibc glibc.static;
+                (libiconv.override { enableStatic = true; enableShared = false; })
+              ] ++ (forEach [ libmicrohttpd.dev gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev lzo lzip libtasn1.dev libidn2.dev libunistring.dev unbound gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
+              ++ optional staticGlibc glibc.static;
 
           cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" "-DNIX=ON" ] ++ optionals staticMusl [
             "-DCMAKE_CROSSCOMPILING=OFF" # pkgsStatic sets cross
@@ -49,8 +48,17 @@
 
           LDFLAGS = optional staticExternalDeps (concatStringsSep " " [
             (optionalString stdenv.cc.isGNU "-static-libgcc")
+            (optionalString stdenv.isDarwin "-framework CoreFoundation")
             "-static-libstdc++"
           ]);
+
+          preFixup = optionalString stdenv.isDarwin ''
+            for fn in "$bin"/bin/*; do
+              echo Fixing libc++ in "$fn"
+              install_name_tool -change "$(otool -L "$fn" | grep libc++.1 | cut -d' ' -f1 | xargs)" libc++.1.dylib "$fn"
+              install_name_tool -change "$(otool -L "$fn" | grep libc++abi.1 | cut -d' ' -f1 | xargs)" libc++abi.dylib "$fn"
+            done
+          '';
 
           postInstall = ''
             moveToOutput bin "$bin"
