@@ -51,7 +51,6 @@
 
           LDFLAGS = optional staticExternalDeps (concatStringsSep " " [
             (optionalString stdenv.cc.isGNU "-static-libgcc")
-            (optionalString stdenv.isDarwin "-framework CoreFoundation")
             "-static-libstdc++"
           ]);
 
