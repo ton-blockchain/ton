@@ -635,14 +635,15 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       vm::CellBuilder cb;
       if (!(cs.advance(2) && block::gen::t_StateInit.fetch_to(cs, state_init) &&
             cb.append_cellslice_bool(std::move(state_init)) && cb.finalize_to(in_msg_state) &&
-            block::gen::t_StateInit.validate_ref(in_msg_state))) {
+            block::gen::t_StateInitWithLibs.validate_ref(in_msg_state))) {
         LOG(DEBUG) << "cannot parse StateInit in inbound message";
         return false;
       }
       break;
     }
     case 3: {  // (just$1 (right$1 _:^StateInit ))
-      if (!(cs.advance(2) && cs.fetch_ref_to(in_msg_state) && block::gen::t_StateInit.validate_ref(in_msg_state))) {
+      if (!(cs.advance(2) && cs.fetch_ref_to(in_msg_state) &&
+            block::gen::t_StateInitWithLibs.validate_ref(in_msg_state))) {
         LOG(DEBUG) << "cannot parse ^StateInit in inbound message";
         return false;
       }
@@ -1532,6 +1533,10 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   td::RefInt256 fwd_fee, ihr_fee;
   block::gen::MessageRelaxed::Record msg;
   if (!tlb::type_unpack_cell(act_rec.out_msg, block::gen::t_MessageRelaxed_Any, msg)) {
+    return -1;
+  }
+  if (!block::tlb::validate_message_relaxed_libs(act_rec.out_msg)) {
+    LOG(DEBUG) << "outbound message has invalid libs in StateInit";
     return -1;
   }
   if (redoing >= 1) {
