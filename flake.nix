@@ -34,11 +34,11 @@
             ] else [
                 (openssl_1_1.override { static = true; }).dev
                 (zlib.override { shared = false; }).dev
-                optional (!stdenv.isDarwin) pkgsStatic.libmicrohttpd.dev
             ]
-            ++ optional stdenv.isDarwin [ (libiconv.override { enableStatic = true; enableShared = false; }) ]
-            ++ optional stdenv.isDarwin (forEach [ libmicrohttpd.dev gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev libtasn1.dev libidn2.dev libunistring.dev gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
-            ++ optional staticGlibc glibc.static;
+            ++ optionals (!stdenv.isDarwin) [ pkgsStatic.libmicrohttpd.dev ]
+            ++ optionals stdenv.isDarwin [ (libiconv.override { enableStatic = true; enableShared = false; }) ]
+            ++ optionals stdenv.isDarwin (forEach [ libmicrohttpd.dev gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev libtasn1.dev libidn2.dev libunistring.dev gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
+            ++ optionals staticGlibc [ glibc.static ];
 
           dontAddStaticConfigureFlags = stdenv.isDarwin;
 
@@ -51,6 +51,7 @@
 
           LDFLAGS = optional staticExternalDeps (concatStringsSep " " [
             (optionalString stdenv.cc.isGNU "-static-libgcc")
+            (optionalString stdenv.isDarwin "-framework CoreFoundation")
             "-static-libstdc++"
           ]);
 
