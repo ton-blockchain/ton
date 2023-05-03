@@ -143,8 +143,13 @@ tick_tock$_ tick:Bool tock:Bool = TickTock;
 
 _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
-  library:(HashmapE 256 SimpleLib) = StateInit;
-  
+  library:(Maybe ^Cell) = StateInit;
+
+// StateInitWithLibs is used to validate sent and received messages
+_ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+  code:(Maybe ^Cell) data:(Maybe ^Cell)
+  library:(HashmapE 256 SimpleLib) = StateInitWithLibs;
+
 simple_lib$_ public:Bool root:^Cell = SimpleLib;
 
 message$_ {X:Type} info:CommonMsgInfo

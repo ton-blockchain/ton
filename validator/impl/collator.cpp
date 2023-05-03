@@ -2565,7 +2565,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
     return false;
   }
   if (!block::tlb::t_MsgEnvelope.validate_ref(msg_env)) {
-    LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to automated checks";
+    LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to hand-written checks";
     return false;
   }
   // 1. unpack MsgEnvelope
@@ -2588,6 +2588,10 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
   if (info.created_lt != lt) {
     LOG(ERROR) << "inbound internal message has an augmentation value in source OutMsgQueue distinct from the one in "
                   "its contents";
+    return false;
+  }
+  if (!block::tlb::validate_message_libs(env.msg)) {
+    LOG(ERROR) << "inbound internal message has invalid StateInit";
     return false;
   }
   // 2.0. update last_proc_int_msg
@@ -3876,7 +3880,7 @@ bool Collator::create_block() {
   }
   if (verify >= 1) {
     LOG(INFO) << "verifying new Block";
-    if (!block::gen::t_Block.validate_ref(1000000, new_block)) {
+    if (!block::gen::t_Block.validate_ref(10000000, new_block)) {
       return fatal_error("new Block failed to pass automatic validity tests");
     }
   }
@@ -4029,6 +4033,9 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
   }
   if (!block::tlb::t_Message.validate_ref(256, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
+  }
+  if (!block::tlb::validate_message_libs(ext_msg)) {
+    return td::Status::Error("external message has invalid libs in StateInit");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   if (!tlb::unpack_cell_inexact(ext_msg, info)) {
