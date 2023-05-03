@@ -36,8 +36,10 @@
                 (openssl_1_1.override { static = true; }).dev
                 (zlib.override { shared = false; }).dev
                 (libiconv.override { enableStatic = true; enableShared = false; })
-              ] ++ (forEach [ libmicrohttpd.dev gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev lzo lzip libtasn1.dev libidn2.dev libunistring.dev unbound gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
+              ] ++ (forEach [ libmicrohttpd.dev gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev libtasn1.dev libidn2.dev libunistring.dev gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
               ++ optional staticGlibc glibc.static;
+
+          dontAddStaticConfigureFlags = true;
 
           cmakeFlags = [ "-DTON_USE_ABSEIL=OFF" "-DNIX=ON" ] ++ optionals staticMusl [
             "-DCMAKE_CROSSCOMPILING=OFF" # pkgsStatic sets cross
@@ -52,16 +54,16 @@
             "-static-libstdc++"
           ]);
 
+          postInstall = ''
+            moveToOutput bin "$bin"
+          '';
+
           preFixup = optionalString stdenv.isDarwin ''
-            for fn in "$bin"/bin/*; do
+            for fn in "$bin"/bin/* "$out"/lib/*.dylib; do
               echo Fixing libc++ in "$fn"
               install_name_tool -change "$(otool -L "$fn" | grep libc++.1 | cut -d' ' -f1 | xargs)" libc++.1.dylib "$fn"
               install_name_tool -change "$(otool -L "$fn" | grep libc++abi.1 | cut -d' ' -f1 | xargs)" libc++abi.dylib "$fn"
             done
-          '';
-
-          postInstall = ''
-            moveToOutput bin "$bin"
           '';
 
           outputs = [ "bin" "out" ];
@@ -138,7 +140,7 @@
               };
               ton-staticbin-dylib = host.symlinkJoin {
                 name = "ton";
-                paths = [ ton-static.bin ton-normal.out ];
+                paths = [ ton-static.bin ton-static.out ];
               };
             };
             devShells.default =
