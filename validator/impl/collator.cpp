@@ -2961,6 +2961,7 @@ bool Collator::process_new_messages(bool enqueue_only) {
   while (!new_msgs.empty()) {
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
+    block_limit_status_->extra_out_msgs--;
     if (block_full_ && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
       enqueue_only = true;
@@ -2982,6 +2983,7 @@ void Collator::register_new_msg(block::NewOutMsg new_msg) {
     min_new_msg_lt = new_msg.lt;
   }
   new_msgs.push(std::move(new_msg));
+  block_limit_status_->extra_out_msgs++;
 }
 
 void Collator::register_new_msgs(block::transaction::Transaction& trans) {
@@ -3972,6 +3974,18 @@ bool Collator::create_block_candidate() {
       ton::BlockIdExt{ton::BlockId{shard_, new_block_seqno}, new_block->get_hash().bits(),
                       block::compute_file_hash(blk_slice.as_slice())},
       block::compute_file_hash(cdata_slice.as_slice()), blk_slice.clone(), cdata_slice.clone());
+  // 3.1 check block and collated data size
+  auto consensus_config = config_->get_consensus_config();
+  if (block_candidate->data.size() > consensus_config.max_block_size) {
+    return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
+                                 << ") exceeds the limit in consensus config (" << consensus_config.max_block_size
+                                 << ")");
+  }
+  if (block_candidate->collated_data.size() > consensus_config.max_collated_data_size) {
+    return fatal_error(PSTRING() << "collated data size (" << block_candidate->collated_data.size()
+                                 << ") exceeds the limit in consensus config ("
+                                 << consensus_config.max_collated_data_size << ")");
+  }
   // 4. save block candidate
   LOG(INFO) << "saving new BlockCandidate";
   td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
