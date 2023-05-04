@@ -4262,7 +4262,10 @@ bool is_list(vm::StackEntry entry) {
     entry = entry.as_tuple()->at(1);
   }
 };
-auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib_api::tvm_StackEntry> {
+auto to_tonlib_api(const vm::StackEntry& entry, int& limit) -> td::Result<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> {
+  if (limit <= 0) {
+    return td::Status::Error(PSLICE() << "TVM stack size exceeds limit");
+  }
   switch (entry.type()) {
     case vm::StackEntry::Type::t_int:
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryNumber>(
@@ -4279,7 +4282,8 @@ auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib
       if (is_list(entry)) {
         auto node = entry;
         while (node.type() == vm::StackEntry::Type::t_tuple) {
-          elements.push_back(to_tonlib_api(node.as_tuple()->at(0)));
+          TRY_RESULT(tl_entry, to_tonlib_api(node.as_tuple()->at(0), --limit));
+          elements.push_back(std::move(tl_entry));
           node = node.as_tuple()->at(1);
         }
         return tonlib_api::make_object<tonlib_api::tvm_stackEntryList>(
@@ -4287,7 +4291,8 @@ auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib
 
       } else {
         for (auto& element : *entry.as_tuple()) {
-          elements.push_back(to_tonlib_api(element));
+          TRY_RESULT(tl_entry, to_tonlib_api(element, --limit));
+          elements.push_back(std::move(tl_entry));
         }
         return tonlib_api::make_object<tonlib_api::tvm_stackEntryTuple>(
             tonlib_api::make_object<tonlib_api::tvm_tuple>(std::move(elements)));
@@ -4298,6 +4303,16 @@ auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryUnsupported>();
   }
 };
+
+auto to_tonlib_api(const td::Ref<vm::Stack>& stack) -> td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>>> {
+  int stack_limit = 1000;
+  std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> tl_stack;
+  for (auto& entry: stack->as_span()) {
+    TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit));
+    tl_stack.push_back(std::move(tl_entry));
+  }
+  return tl_stack;
+}
 
 td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
   // TODO: error codes
@@ -4510,10 +4525,12 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
   auto res = smc->run_get_method(args);
 
   // smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
-  std::vector<object_ptr<tonlib_api::tvm_StackEntry>> res_stack;
-  for (auto& entry : res.stack->as_span()) {
-    res_stack.push_back(to_tonlib_api(entry));
+  auto R = to_tonlib_api(res.stack);
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+    return;
   }
+  auto res_stack = R.move_as_ok();
 
   if (res.missing_library.not_null()) {
     td::Bits256 hash = res.missing_library;
