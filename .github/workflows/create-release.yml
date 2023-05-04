@@ -119,6 +119,7 @@ jobs:
       - name: Get next tag
         id: tag
         run: |
+          git fetch
           NEW_TAG=v$(date +'%Y.%m')
           FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
           if [ $FOUND -eq 0 ]; then
