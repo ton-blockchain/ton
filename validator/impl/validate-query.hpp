@@ -217,7 +217,7 @@ class ValidateQuery : public td::actor::Actor {
 
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict_, out_msg_dict_, account_blocks_dict_;
   block::ValueFlow value_flow_;
-  block::CurrencyCollection import_created_, transaction_fees_;
+  block::CurrencyCollection import_created_, transaction_fees_, fees_burned_{0};
   td::RefInt256 import_fees_;
 
   ton::LogicalTime proc_lt_{0}, claimed_proc_lt_{0}, min_enq_lt_{~0ULL};

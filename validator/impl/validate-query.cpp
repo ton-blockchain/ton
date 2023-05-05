@@ -2161,6 +2161,11 @@ bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
     return reject_query("ValueFlow of block "s + id_.to_str() +
                         " is invalid (non-zero recovered value in a non-masterchain block)");
   }
+  if (!is_masterchain() && !value_flow_.fees_burned.is_zero()) {
+    LOG(INFO) << "invalid value flow: " << os.str();
+    return reject_query("ValueFlow of block "s + id_.to_str() +
+                        " is invalid (non-zero fees_burned value in a non-masterchain block)");
+  }
   if (!value_flow_.recovered.is_zero() && recover_create_msg_.is_null()) {
     return reject_query("ValueFlow of block "s + id_.to_str() +
                         " has a non-zero recovered fees value, but there is no recovery InMsg");
@@ -2243,15 +2248,19 @@ bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
         "cannot unpack CurrencyCollection with total transaction fees from the augmentation of the ShardAccountBlocks "
         "dictionary");
   }
-  auto expected_fees = value_flow_.fees_imported + value_flow_.created + transaction_fees_ + import_fees_;
+  if (is_masterchain()) {
+    fees_burned_ += config_->get_fee_burning_config().calculate_burned_fees(transaction_fees_ + import_fees_);
+  }
+  auto expected_fees =
+      value_flow_.fees_imported + value_flow_.created + transaction_fees_ + import_fees_ - value_flow_.fees_burned;
   if (value_flow_.fees_collected != expected_fees) {
     return reject_query(PSTRING() << "ValueFlow for " << id_.to_str() << " declares fees_collected="
                                   << value_flow_.fees_collected.to_str() << " but the total message import fees are "
                                   << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
                                   << ", creation fee for this block is " << value_flow_.created.to_str()
-                                  << " and the total imported fees from shards are "
-                                  << value_flow_.fees_imported.to_str() << " with a total of "
-                                  << expected_fees.to_str());
+                                  << ", the total imported fees from shards are " << value_flow_.fees_imported.to_str()
+                                  << " and the burned fees are " << value_flow_.fees_burned.to_str()
+                                  << " with a total of " << expected_fees.to_str());
   }
   return true;
 }
@@ -5446,6 +5455,12 @@ bool ValidateQuery::check_mc_block_extra() {
   if (fees_imported != value_flow_.fees_imported) {
     return reject_query("invalid fees_imported in value flow: declared "s + value_flow_.fees_imported.to_str() +
                         ", correct value is " + fees_imported.to_str());
+  }
+  fees_burned_ += config_->get_fee_burning_config().calculate_burned_fees(fees_imported - import_created_);
+  if (fees_burned_ != value_flow_.fees_burned) {
+    return reject_query(PSTRING() << "invalid fees_burned in value flow: " << id_.to_str() << " declared "
+                                  << value_flow_.fees_burned.to_str() << ", correct value is "
+                                  << fees_burned_.to_str());
   }
   // ^[ prev_blk_signatures:(HashmapE 16 CryptoSignaturePair)
   if (prev_signatures_.not_null() && id_.seqno() == 1) {

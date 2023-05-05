@@ -504,6 +504,21 @@ class ShardConfig {
   bool set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value);
 };
 
+struct FeeBurningConfig {
+  td::uint32 burn_nom = 0, burn_denom = 1;
+
+  td::RefInt256 calculate_burned_fees(const td::RefInt256& x) const {
+    if (x.is_null()) {
+      return x;
+    }
+    return x * burn_nom / td::make_refint(burn_denom);
+  }
+
+  CurrencyCollection calculate_burned_fees(const CurrencyCollection& x) const {
+    return CurrencyCollection{calculate_burned_fees(x.grams)};
+  }
+};
+
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,
@@ -617,6 +632,7 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
   std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
+  FeeBurningConfig get_fee_burning_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,
