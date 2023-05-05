@@ -1998,7 +1998,7 @@ TypeExpr* parse_anonymous_constructor(Lexer& lex, Constructor& cs) {
       if (types[i].parent_type_idx >= 0) {
         types[i].parent_type_idx = -2;
       }
-      delete cs2;
+      cs2->~Constructor();
       return TypeExpr::mk_apply_empty(lex.cur().loc, 0, &types[i]);
     }
   }
