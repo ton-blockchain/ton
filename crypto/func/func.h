@@ -19,6 +19,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <set>
 #include <stack>
 #include <utility>
 #include <algorithm>
@@ -40,7 +41,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.4.2"};
+const std::string func_version{"0.4.4"};
 
 enum Keyword {
   _Eof = -1,
@@ -158,6 +159,7 @@ struct TypeExpr {
   int minw, maxw;
   static constexpr int w_inf = 1023;
   std::vector<TypeExpr*> args;
+  bool was_forall_var = false;
   TypeExpr(te_type _constr, int _val = 0) : constr(_constr), value(_val), minw(0), maxw(w_inf) {
   }
   TypeExpr(te_type _constr, int _val, int width) : constr(_constr), value(_val), minw(width), maxw(width) {
@@ -264,7 +266,7 @@ struct TypeExpr {
     return new TypeExpr{te_ForAll, body, std::move(list)};
   }
   static bool remove_indirect(TypeExpr*& te, TypeExpr* forbidden = nullptr);
-  static bool remove_forall(TypeExpr*& te);
+  static std::vector<TypeExpr*> remove_forall(TypeExpr*& te);
   static bool remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars);
 };
 
@@ -839,6 +841,7 @@ struct SymValConst : sym::SymValBase {
 
 extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
 extern std::vector<SymDef*> glob_func, glob_vars;
+extern std::set<std::string> prohibited_var_names;
 
 /*
  * 

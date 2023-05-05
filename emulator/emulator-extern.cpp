@@ -249,6 +249,14 @@ bool transaction_emulator_set_libs(void *transaction_emulator, const char* shard
   return true;
 }
 
+bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool debug_enabled) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+
+  emulator->set_debug_enabled(debug_enabled);
+
+  return true;
+}
+
 void transaction_emulator_destroy(void *transaction_emulator) {
   delete static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 }
@@ -334,6 +342,12 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
 bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_limit) {
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   emulator->set_gas_limit(gas_limit);
+  return true;
+}
+
+bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool debug_enabled) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  emulator->set_debug_enabled(debug_enabled);
   return true;
 }
 

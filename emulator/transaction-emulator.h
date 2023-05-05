@@ -16,11 +16,12 @@ class TransactionEmulator {
   ton::LogicalTime lt_;
   td::BitArray<256> rand_seed_;
   bool ignore_chksig_;
+  bool debug_enabled_;
 
 public:
   TransactionEmulator(block::Config&& config, int vm_log_verbosity = 0) : 
     config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),
-    unixtime_(0), lt_(0), rand_seed_(td::BitArray<256>::zero()), ignore_chksig_(false) {
+    unixtime_(0), lt_(0), rand_seed_(td::BitArray<256>::zero()), ignore_chksig_(false), debug_enabled_(false) {
   }
 
   struct EmulationResult {
@@ -70,6 +71,7 @@ public:
   void set_ignore_chksig(bool ignore_chksig);
   void set_config(block::Config &&config);
   void set_libs(vm::Dictionary &&libs);
+  void set_debug_enabled(bool debug_enabled);
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);

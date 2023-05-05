@@ -266,7 +266,9 @@ td::Result<std::string> Torrent::get_piece_data(td::uint64 piece_i) {
   if (!inited_info_) {
     return td::Status::Error("Torrent info not inited");
   }
-  CHECK(piece_i < info_.pieces_count());
+  if (piece_i >= info_.pieces_count()) {
+    return td::Status::Error("Piece idx is too big");
+  }
   if (!piece_is_ready_[piece_i]) {
     return td::Status::Error("Piece is not ready");
   }
@@ -291,7 +293,9 @@ td::Result<td::Ref<vm::Cell>> Torrent::get_piece_proof(td::uint64 piece_i) {
   if (!inited_info_) {
     return td::Status::Error("Torrent info not inited");
   }
-  CHECK(piece_i < info_.pieces_count());
+  if (piece_i >= info_.pieces_count()) {
+    return td::Status::Error("Piece idx is too big");
+  }
   return merkle_tree_.gen_proof(piece_i, piece_i);
 }
 
@@ -305,7 +309,9 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
   if (!proof.is_null()) {
     TRY_STATUS(merkle_tree_.add_proof(proof));
   }
-  CHECK(piece_i < info_.pieces_count());
+  if (piece_i >= info_.pieces_count()) {
+    return td::Status::Error("Piece idx is too big");
+  }
   if (piece_is_ready_[piece_i]) {
     return td::Status::OK();
   }

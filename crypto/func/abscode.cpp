@@ -179,7 +179,7 @@ void VarDescr::set_const_nan() {
 
 void VarDescr::operator|=(const VarDescr& y) {
   val &= y.val;
-  if (is_int_const() && cmp(int_const, y.int_const) != 0) {
+  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
     val &= ~_Const;
   }
   if (!(val & _Const)) {

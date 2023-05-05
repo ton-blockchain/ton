@@ -29,8 +29,12 @@ using namespace std::literals::string_literals;
 
 int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
 std::vector<SymDef*> glob_func, glob_vars;
+std::set<std::string> prohibited_var_names;
 
 SymDef* predefine_builtin_func(std::string name, TypeExpr* func_type) {
+  if (name.back() == '_') {
+    prohibited_var_names.insert(name);
+  }
   sym_idx_t name_idx = sym::symbols.lookup(name, 1);
   if (sym::symbols.is_keyword(name_idx)) {
     std::cerr << "fatal: global function `" << name << "` already defined as a keyword" << std::endl;

@@ -107,6 +107,29 @@ std::string size_to_str(td::uint64 size) {
   return s.as_cslice().str();
 }
 
+td::Result<td::uint64> str_to_size(std::string s) {
+  if (!s.empty() && std::tolower(s.back()) == 'b') {
+    s.pop_back();
+  }
+  int shift = 0;
+  if (!s.empty()) {
+    auto c = std::tolower(s.back());
+    static std::string suffixes = "kmgtpe";
+    for (size_t i = 0; i < suffixes.size(); ++i) {
+      if (c == suffixes[i]) {
+        shift = 10 * (int)(i + 1);
+        s.pop_back();
+        break;
+      }
+    }
+  }
+  TRY_RESULT(x, td::to_integer_safe<td::uint64>(s));
+  if (td::count_leading_zeroes64(x) < shift) {
+    return td::Status::Error("Number is too big");
+  }
+  return x << shift;
+}
+
 std::string time_to_str(td::uint32 time) {
   char time_buffer[80];
   time_t rawtime = time;
@@ -285,10 +308,13 @@ class StorageDaemonCli : public td::actor::Actor {
       }
       std::_Exit(0);
     } else if (tokens[0] == "help") {
-      if (tokens.size() != 1) {
+      std::string category;
+      if (tokens.size() == 2) {
+        category = tokens[1];
+      } else if (tokens.size() != 1) {
         return td::Status::Error("Unexpected tokens");
       }
-      return execute_help();
+      return execute_help(category);
     } else if (tokens[0] == "setverbosity") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected level");
@@ -460,6 +486,46 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected EOLN");
       }
       return execute_get_peers(hash, json);
+    } else if (tokens[0] == "get-pieces-info") {
+      td::Bits256 hash;
+      bool found_hash = false;
+      bool json = false;
+      bool files = false;
+      td::uint64 offset = 0;
+      td::optional<td::uint64> max_pieces;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--json") {
+            json = true;
+            continue;
+          }
+          if (tokens[i] == "--files") {
+            files = true;
+            continue;
+          }
+          if (tokens[i] == "--offset") {
+            TRY_RESULT_PREFIX_ASSIGN(offset, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid offset: ");
+            ++i;
+            continue;
+          }
+          if (tokens[i] == "--max-pieces") {
+            TRY_RESULT_PREFIX_ASSIGN(max_pieces, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid offset: ");
+            max_pieces.value() = std::min(max_pieces.value(), ((td::uint64)1 << 62));
+            ++i;
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        if (found_hash) {
+          return td::Status::Error("Unexpected token");
+        }
+        TRY_RESULT_ASSIGN(hash, parse_torrent(tokens[i]));
+        found_hash = true;
+      }
+      if (!found_hash) {
+        return td::Status::Error("Unexpected EOLN");
+      }
+      return execute_get_pieces_info(hash, files, offset, max_pieces, json);
     } else if (tokens[0] == "download-pause" || tokens[0] == "download-resume") {
       if (tokens.size() != 2) {
         return td::Status::Error("Expected bag");
@@ -544,6 +610,48 @@ class StorageDaemonCli : public td::actor::Actor {
         return td::Status::Error("Unexpected EOLN");
       }
       return execute_load_from(hash, std::move(meta), std::move(path));
+    } else if (tokens[0] == "get-speed-limits") {
+      bool json = false;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--json") {
+            json = true;
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        return td::Status::Error("Unexpected token");
+      }
+      return execute_get_speed_limits(json);
+    } else if (tokens[0] == "set-speed-limits") {
+      td::optional<double> download, upload;
+      for (size_t i = 1; i < tokens.size(); ++i) {
+        if (!tokens[i].empty() && tokens[i][0] == '-') {
+          if (tokens[i] == "--download") {
+            ++i;
+            if (tokens[i] == "unlimited") {
+              download = -1.0;
+            } else {
+              TRY_RESULT_PREFIX(x, str_to_size(tokens[i]), "Invalid download speed: ");
+              download = (double)x;
+            }
+            continue;
+          }
+          if (tokens[i] == "--upload") {
+            ++i;
+            if (tokens[i] == "unlimited") {
+              upload = -1.0;
+            } else {
+              TRY_RESULT_PREFIX(x, str_to_size(tokens[i]), "Invalid upload speed: ");
+              upload = (double)x;
+            }
+            continue;
+          }
+          return td::Status::Error(PSTRING() << "Unknown flag " << tokens[i]);
+        }
+        return td::Status::Error("Unexpected token");
+      }
+      return execute_set_speed_limits(download, upload);
     } else if (tokens[0] == "new-contract-message") {
       td::Bits256 hash;
       std::string file;
@@ -659,12 +767,12 @@ class StorageDaemonCli : public td::actor::Actor {
           continue;
         }
         if (tokens[i] == "--min-file-size") {
-          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --min-file-size: ");
+          TRY_RESULT_PREFIX(x, str_to_size(tokens[i + 1]), "Invalid value for --min-file-size: ");
           new_params.minimal_file_size = x;
           continue;
         }
         if (tokens[i] == "--max-file-size") {
-          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --max-file-size: ");
+          TRY_RESULT_PREFIX(x, str_to_size(tokens[i + 1]), "Invalid value for --max-file-size: ");
           new_params.maximal_file_size = x;
           continue;
         }
@@ -708,7 +816,7 @@ class StorageDaemonCli : public td::actor::Actor {
           continue;
         }
         if (tokens[i] == "--max-total-size") {
-          TRY_RESULT_PREFIX(x, td::to_integer_safe<td::uint64>(tokens[i + 1]), "Invalid value for --max-total-size: ");
+          TRY_RESULT_PREFIX(x, str_to_size(tokens[i + 1]), "Invalid value for --max-total-size: ");
           new_config.max_total_size = x;
           continue;
         }
@@ -765,93 +873,111 @@ class StorageDaemonCli : public td::actor::Actor {
     }
   }
 
-  td::Status execute_help() {
-    td::TerminalIO::out() << "help\tPrint this help\n";
-    td::TerminalIO::out()
-        << "create [-d description] [--no-upload] [--copy] [--json] <file/dir>\tCreate bag of files from <file/dir>\n";
-    td::TerminalIO::out() << "\t-d\tDescription will be stored in torrent info\n";
-    td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
-    td::TerminalIO::out() << "\t--copy\tFiles will be copied to an internal directory of storage-daemon\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "add-by-hash <bag-id> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
-                             "file2 ...]\tAdd bag with given BagID (in hex)\n";
-    td::TerminalIO::out() << "\t-d\tTarget directory, default is an internal directory of storage-daemon\n";
-    td::TerminalIO::out() << "\t--paused\tDon't start download immediately\n";
-    td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
-    td::TerminalIO::out()
-        << "\t--partial\tEverything after this flag is a list of filenames. Only these files will be downloaded.\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
-                             "file2 ...]\tLoad meta from file and add bag\n";
-    td::TerminalIO::out() << "\tFlags are the same as in add-by-hash\n";
-    td::TerminalIO::out() << "list [--hashes] [--json]\tPrint list of bags\n";
-    td::TerminalIO::out() << "\t--hashes\tPrint full BagID\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "get <bag> [--json]\tPrint information about <bag>\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "\tHere and below bags are identified by BagID (in hex) or index (see bag list)\n";
-    td::TerminalIO::out() << "get-meta <bag> <file>\tSave bag meta of <bag> to <file>\n";
-    td::TerminalIO::out() << "get-peers <bag> [--json]\tPrint a list of peers\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "download-pause <bag>\tPause download of <bag>\n";
-    td::TerminalIO::out() << "download-resume <bag>\tResume download of <bag>\n";
-    td::TerminalIO::out() << "upload-pause <bag>\tPause upload of <bag>\n";
-    td::TerminalIO::out() << "upload-resume <bag>\tResume upload of <bag>\n";
-    td::TerminalIO::out() << "priority-all <bag> <p>\tSet priority of all files in <bag> to <p>\n";
-    td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "priority-idx <bag> <idx> <p>\tSet priority of file #<idx> in <bag> to <p>\n";
-    td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "priority-name <bag> <name> <p>\tSet priority of file <name> in <bag> to <p>\n";
-    td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
-    td::TerminalIO::out() << "remove <bag> [--remove-files]\tRemove <bag>\n";
-    td::TerminalIO::out() << "\t--remove-files - also remove all files\n";
-    td::TerminalIO::out() << "load-from <bag> [--meta meta] [--files path]\tProvide meta and data for an existing "
-                             "incomplete bag.\n";
-    td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
-    td::TerminalIO::out() << "\t--files path\tdata for files will be taken from here\n";
-    td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --provider <provider>\tCreate "
-                             "\"new contract message\" for storage provider. Saves message body to <file>.\n";
-    td::TerminalIO::out() << "\t<provider>\tAddress of storage provider account to take parameters from.\n";
-    td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --rate <rate> --max-span "
-                             "<max-span>\tSame thing, but parameters are not fetched automatically.\n";
-    td::TerminalIO::out() << "exit\tExit\n";
-    td::TerminalIO::out() << "quit\tExit\n";
-    td::TerminalIO::out() << "setverbosity <level>\tSet vetbosity to <level> in [0..10]\n";
-    td::TerminalIO::out() << "\nStorage provider control:\n";
-    td::TerminalIO::out() << "import-pk <file>\tImport private key from <file>\n";
-    td::TerminalIO::out() << "deploy-provider\tInit storage provider by deploying a new provider smart contract\n";
-    td::TerminalIO::out()
-        << "init-provider <smc-addr>\tInit storage provider using the existing provider smart contract\n";
-    td::TerminalIO::out() << "remove-storage-provider\tRemove storage provider\n";
-    td::TerminalIO::out()
-        << "\tSmart contracts in blockchain and bags will remain intact, but they will not be managed anymore\n";
-    td::TerminalIO::out() << "get-provider-params [address] [--json]\tPrint parameters of the smart contract\n";
-    td::TerminalIO::out()
-        << "\taddress\tAddress of a smart contract. Default is the provider managed by this daemon.\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out() << "set-provider-params [--accept x] [--rate x] [--max-span x] [--min-file-size x] "
-                             "[--max-file-size x]\tSet parameters of the smart contract\n";
-    td::TerminalIO::out() << "\t--accept\tAccept new contracts: 0 (no) or 1 (yes)\n";
-    td::TerminalIO::out() << "\t--rate\tPrice of storage, nanoTON per MB*day\n";
-    td::TerminalIO::out() << "\t--max-span\n";
-    td::TerminalIO::out() << "\t--min-file-size\tMinimal total size of a bag of files (bytes)\n";
-    td::TerminalIO::out() << "\t--max-file-size\tMaximal total size of a bag of files (bytes)\n";
-    td::TerminalIO::out()
-        << "get-provider-info [--balances] [--contracts] [--json]\tPrint information about storage provider\n";
-    td::TerminalIO::out() << "\t--contracts\tPrint list of storage contracts\n";
-    td::TerminalIO::out() << "\t--balances\tPrint balances of the main contract and storage contracts\n";
-    td::TerminalIO::out() << "\t--json\tOutput in json\n";
-    td::TerminalIO::out()
-        << "set-provider-config [--max-contracts x] [--max-total-size x]\tSet configuration parameters\n";
-    td::TerminalIO::out() << "\t--max-contracts\tMaximal number of storage contracts\n";
-    td::TerminalIO::out() << "\t--max-total-size\tMaximal total size storage contracts (in bytes)\n";
-    td::TerminalIO::out() << "withdraw <address>\tSend bounty from storage contract <address> to the main contract\n";
-    td::TerminalIO::out() << "withdraw-all\tSend bounty from all storage contracts (where at least 1 TON is available) "
-                             "to the main contract\n";
-    td::TerminalIO::out()
-        << "send-coins <address> <amount> [--message msg]\tSend <amount> nanoTON to <address> from the main contract\n";
-    td::TerminalIO::out()
-        << "close-contract <address>\tClose storage contract <address> and delete bag (if possible)\n";
+  td::Status execute_help(std::string category) {
+    if (category == "") {
+      td::TerminalIO::out() << "create [-d description] [--no-upload] [--copy] [--json] <file/dir>\tCreate bag of "
+                               "files from <file/dir>\n";
+      td::TerminalIO::out() << "\t-d\tDescription will be stored in torrent info\n";
+      td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
+      td::TerminalIO::out() << "\t--copy\tFiles will be copied to an internal directory of storage-daemon\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out() << "add-by-hash <bag-id> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
+                               "file2 ...]\tAdd bag with given BagID (in hex)\n";
+      td::TerminalIO::out() << "\t-d\tTarget directory, default is an internal directory of storage-daemon\n";
+      td::TerminalIO::out() << "\t--paused\tDon't start download immediately\n";
+      td::TerminalIO::out() << "\t--no-upload\tDon't share bag with peers\n";
+      td::TerminalIO::out()
+          << "\t--partial\tEverything after this flag is a list of filenames. Only these files will be downloaded.\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out() << "add-by-meta <meta> [-d root_dir] [--paused] [--no-upload] [--json] [--partial file1 "
+                               "file2 ...]\tLoad meta from file and add bag\n";
+      td::TerminalIO::out() << "\tFlags are the same as in add-by-hash\n";
+      td::TerminalIO::out() << "list [--hashes] [--json]\tPrint list of bags\n";
+      td::TerminalIO::out() << "\t--hashes\tPrint full BagID\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out() << "get <bag> [--json]\tPrint information about <bag>\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out() << "\tHere and below bags are identified by BagID (in hex) or index (see bag list)\n";
+      td::TerminalIO::out() << "get-meta <bag> <file>\tSave bag meta of <bag> to <file>\n";
+      td::TerminalIO::out() << "get-peers <bag> [--json]\tPrint a list of peers\n";
+      td::TerminalIO::out() << "get-pieces-info <bag> [--files] [--offset l] [--max-pieces m] [--json]\tPrint "
+                               "information about ready pieces\n";
+      td::TerminalIO::out() << "\t--files\tShow piece ranges for each file\n";
+      td::TerminalIO::out() << "\t--offset l\tShow pieces starting from l (deafault: 0)\n";
+      td::TerminalIO::out() << "\t--max-pieces m\tShow no more than m pieces (deafault: unlimited)\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out() << "download-pause <bag>\tPause download of <bag>\n";
+      td::TerminalIO::out() << "download-resume <bag>\tResume download of <bag>\n";
+      td::TerminalIO::out() << "upload-pause <bag>\tPause upload of <bag>\n";
+      td::TerminalIO::out() << "upload-resume <bag>\tResume upload of <bag>\n";
+      td::TerminalIO::out() << "priority-all <bag> <p>\tSet priority of all files in <bag> to <p>\n";
+      td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
+      td::TerminalIO::out() << "priority-idx <bag> <idx> <p>\tSet priority of file #<idx> in <bag> to <p>\n";
+      td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
+      td::TerminalIO::out() << "priority-name <bag> <name> <p>\tSet priority of file <name> in <bag> to <p>\n";
+      td::TerminalIO::out() << "\tPriority is in [0..255], 0 - don't download\n";
+      td::TerminalIO::out() << "remove <bag> [--remove-files]\tRemove <bag>\n";
+      td::TerminalIO::out() << "\t--remove-files - also remove all files\n";
+      td::TerminalIO::out() << "load-from <bag> [--meta meta] [--files path]\tProvide meta and data for an existing "
+                               "incomplete bag.\n";
+      td::TerminalIO::out() << "\t--meta meta\ttorrent info and header will be inited (if not ready) from meta file\n";
+      td::TerminalIO::out() << "\t--files path\tdata for files will be taken from here\n";
+      td::TerminalIO::out() << "get-speed-limits [--json]\tShow global limits for download and upload speed\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out()
+          << "set-speed-limits [--download x] [--upload x]\tSet global limits for download and upload speed\n";
+      td::TerminalIO::out() << "\t--download x\tDownload speed limit in bytes/s, or \"unlimited\"\n";
+      td::TerminalIO::out() << "\t--upload x\tUpload speed limit in bytes/s, or \"unlimited\"\n";
+      td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --provider <provider>\tCreate "
+                               "\"new contract message\" for storage provider. Saves message body to <file>.\n";
+      td::TerminalIO::out() << "\t<provider>\tAddress of storage provider account to take parameters from.\n";
+      td::TerminalIO::out() << "new-contract-message <bag> <file> [--query-id id] --rate <rate> --max-span "
+                               "<max-span>\tSame thing, but parameters are not fetched automatically.\n";
+      td::TerminalIO::out() << "exit\tExit\n";
+      td::TerminalIO::out() << "quit\tExit\n";
+      td::TerminalIO::out() << "setverbosity <level>\tSet vetbosity to <level> in [0..10]\n";
+      td::TerminalIO::out() << "help\tPrint this help\n";
+      td::TerminalIO::out() << "help provider\tcommands for deploying and controling storage provider\n";
+    } else if (category == "provider") {
+      td::TerminalIO::out() << "\nStorage provider control:\n";
+      td::TerminalIO::out() << "import-pk <file>\tImport private key from <file>\n";
+      td::TerminalIO::out() << "deploy-provider\tInit storage provider by deploying a new provider smart contract\n";
+      td::TerminalIO::out()
+          << "init-provider <smc-addr>\tInit storage provider using the existing provider smart contract\n";
+      td::TerminalIO::out() << "remove-storage-provider\tRemove storage provider\n";
+      td::TerminalIO::out()
+          << "\tSmart contracts in blockchain and bags will remain intact, but they will not be managed anymore\n";
+      td::TerminalIO::out() << "get-provider-params [address] [--json]\tPrint parameters of the smart contract\n";
+      td::TerminalIO::out()
+          << "\taddress\tAddress of a smart contract. Default is the provider managed by this daemon.\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out() << "set-provider-params [--accept x] [--rate x] [--max-span x] [--min-file-size x] "
+                               "[--max-file-size x]\tSet parameters of the smart contract\n";
+      td::TerminalIO::out() << "\t--accept\tAccept new contracts: 0 (no) or 1 (yes)\n";
+      td::TerminalIO::out() << "\t--rate\tPrice of storage, nanoTON per MB*day\n";
+      td::TerminalIO::out() << "\t--max-span\n";
+      td::TerminalIO::out() << "\t--min-file-size\tMinimal total size of a bag of files (bytes)\n";
+      td::TerminalIO::out() << "\t--max-file-size\tMaximal total size of a bag of files (bytes)\n";
+      td::TerminalIO::out()
+          << "get-provider-info [--balances] [--contracts] [--json]\tPrint information about storage provider\n";
+      td::TerminalIO::out() << "\t--contracts\tPrint list of storage contracts\n";
+      td::TerminalIO::out() << "\t--balances\tPrint balances of the main contract and storage contracts\n";
+      td::TerminalIO::out() << "\t--json\tOutput in json\n";
+      td::TerminalIO::out()
+          << "set-provider-config [--max-contracts x] [--max-total-size x]\tSet configuration parameters\n";
+      td::TerminalIO::out() << "\t--max-contracts\tMaximal number of storage contracts\n";
+      td::TerminalIO::out() << "\t--max-total-size\tMaximal total size storage contracts (in bytes)\n";
+      td::TerminalIO::out() << "withdraw <address>\tSend bounty from storage contract <address> to the main contract\n";
+      td::TerminalIO::out()
+          << "withdraw-all\tSend bounty from all storage contracts (where at least 1 TON is available) "
+             "to the main contract\n";
+      td::TerminalIO::out() << "send-coins <address> <amount> [--message msg]\tSend <amount> nanoTON to <address> from "
+                               "the main contract\n";
+      td::TerminalIO::out()
+          << "close-contract <address>\tClose storage contract <address> and delete bag (if possible)\n";
+    } else {
+      td::TerminalIO::out() << "Unknown command 'help " << category << "'\n";
+    }
     command_finished(td::Status::OK());
     return td::Status::OK();
   }
@@ -871,7 +997,7 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_create(std::string path, std::string description, bool upload, bool copy, bool json) {
     TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
-    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, upload, copy);
+    auto query = create_tl_object<ton_api::storage_daemon_createTorrent>(path, description, upload, copy, 0);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -904,7 +1030,7 @@ class StorageDaemonCli : public td::actor::Actor {
       }
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByHash>(hash, std::move(root_dir), !paused, upload,
-                                                                     std::move(priorities));
+                                                                     std::move(priorities), 0);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -938,7 +1064,7 @@ class StorageDaemonCli : public td::actor::Actor {
       }
     }
     auto query = create_tl_object<ton_api::storage_daemon_addByMeta>(std::move(meta), std::move(root_dir), !paused,
-                                                                     upload, std::move(priorities));
+                                                                     upload, std::move(priorities), 0);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -957,7 +1083,7 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   td::Status execute_list(bool with_hashes, bool json) {
-    auto query = create_tl_object<ton_api::storage_daemon_getTorrents>();
+    auto query = create_tl_object<ton_api::storage_daemon_getTorrents>(0);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentList>> R) {
                  if (R.is_error()) {
@@ -975,7 +1101,7 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   td::Status execute_get(td::Bits256 hash, bool json) {
-    auto query = create_tl_object<ton_api::storage_daemon_getTorrentFull>(hash);
+    auto query = create_tl_object<ton_api::storage_daemon_getTorrentFull>(hash, 0);
     send_query(std::move(query),
                [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentFull>> R) {
                  if (R.is_error()) {
@@ -993,7 +1119,7 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   td::Status execute_get_meta(td::Bits256 hash, std::string meta_file) {
-    auto query = create_tl_object<ton_api::storage_daemon_getTorrentMeta>(hash);
+    auto query = create_tl_object<ton_api::storage_daemon_getTorrentMeta>(hash, 0);
     send_query(std::move(query),
                [SelfId = actor_id(this), meta_file](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentMeta>> R) {
                  if (R.is_error()) {
@@ -1014,7 +1140,7 @@ class StorageDaemonCli : public td::actor::Actor {
   }
 
   td::Status execute_get_peers(td::Bits256 hash, bool json) {
-    auto query = create_tl_object<ton_api::storage_daemon_getTorrentPeers>(hash);
+    auto query = create_tl_object<ton_api::storage_daemon_getTorrentPeers>(hash, 0);
     send_query(
         std::move(query), [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_peerList>> R) {
           if (R.is_error()) {
@@ -1051,6 +1177,63 @@ class StorageDaemonCli : public td::actor::Actor {
           print_table(table);
           td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
         });
+    return td::Status::OK();
+  }
+
+  td::Status execute_get_pieces_info(td::Bits256 hash, bool files, td::uint64 offset,
+                                     td::optional<td::uint64> max_pieces, bool json) {
+    auto query = create_tl_object<ton_api::storage_daemon_getTorrentPiecesInfo>(hash, files ? 1 : 0, offset,
+                                                                                max_pieces ? max_pieces.value() : -1);
+    send_query(std::move(query),
+               [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrentPiecesInfo>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 if (json) {
+                   print_json(R.ok());
+                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+                   return;
+                 }
+                 auto obj = R.move_as_ok();
+                 td::TerminalIO::out() << "BagID " << hash.to_hex() << "\n";
+                 td::TerminalIO::out() << "Total pieces: " << obj->total_pieces_ << ", piece size: " << obj->piece_size_
+                                       << "\n";
+                 if (files) {
+                   if (obj->flags_ & 1) {
+                     td::TerminalIO::out() << "Files:\n";
+                     std::vector<std::vector<std::string>> table;
+                     table.push_back({"#####", "Piece range", "Name"});
+                     size_t i = 0;
+                     for (const auto& f : obj->files_) {
+                       table.push_back({i == 0 ? "" : td::to_string(i - 1),
+                                        PSTRING() << "[" << f->range_l_ << ".." << f->range_r_ << ")",
+                                        f->name_.empty() ? "[HEADER]" : f->name_});
+                       ++i;
+                     }
+                     print_table(table, {1, 2});
+                   } else {
+                     td::TerminalIO::out() << "Cannot show files: torrent header is not available\n";
+                   }
+                 }
+                 td::uint64 l = obj->range_l_, r = obj->range_r_;
+                 td::TerminalIO::out() << "Pieces [" << l << ".." << r << ")\n";
+                 if (obj->range_l_ != obj->range_r_) {
+                   std::vector<std::vector<std::string>> table;
+                   td::uint64 i = l;
+                   while (i < r) {
+                     td::uint64 ir = std::min(i + 100, r);
+                     std::string s = "[";
+                     for (td::uint64 j = i; j < ir; ++j) {
+                       s += (obj->piece_ready_bitset_[(j - l) / 8] & (1 << ((j - l) % 8)) ? '#' : '-');
+                     }
+                     s += ']';
+                     table.push_back({std::to_string(i), s});
+                     i = ir;
+                   }
+                   print_table(table, {1});
+                 }
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+               });
     return td::Status::OK();
   }
 
@@ -1156,7 +1339,7 @@ class StorageDaemonCli : public td::actor::Actor {
     if (!path.empty()) {
       TRY_RESULT_PREFIX_ASSIGN(path, td::realpath(path), "Invalid path: ");
     }
-    auto query = create_tl_object<ton_api::storage_daemon_loadFrom>(hash, std::move(meta_data), std::move(path));
+    auto query = create_tl_object<ton_api::storage_daemon_loadFrom>(hash, std::move(meta_data), std::move(path), 0);
     send_query(std::move(query),
                [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_torrent>> R) {
                  if (R.is_error()) {
@@ -1179,6 +1362,59 @@ class StorageDaemonCli : public td::actor::Actor {
                  } else {
                    td::TerminalIO::out() << "Torrent info is not ready\n";
                  }
+               });
+    return td::Status::OK();
+  }
+
+  td::Status execute_get_speed_limits(bool json) {
+    auto query = create_tl_object<ton_api::storage_daemon_getSpeedLimits>(0);
+    send_query(std::move(query), [=, SelfId = actor_id(this)](
+                                     td::Result<tl_object_ptr<ton_api::storage_daemon_speedLimits>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      if (json) {
+        print_json(R.ok());
+        td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+        return;
+      }
+      auto obj = R.move_as_ok();
+      if (obj->download_ < 0.0) {
+        td::TerminalIO::out() << "Download speed limit: unlimited\n";
+      } else {
+        td::TerminalIO::out() << "Download speed limit: " << td::format::as_size((td::uint64)obj->download_) << "/s\n";
+      }
+      if (obj->upload_ < 0.0) {
+        td::TerminalIO::out() << "Upload speed limit:   unlimited\n";
+      } else {
+        td::TerminalIO::out() << "Upload speed limit:   " << td::format::as_size((td::uint64)obj->upload_) << "/s\n";
+      }
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
+    return td::Status::OK();
+  }
+
+  td::Status execute_set_speed_limits(td::optional<double> download, td::optional<double> upload) {
+    if (!download && !upload) {
+      return td::Status::Error("No parameters are set");
+    }
+    auto query = create_tl_object<ton_api::storage_daemon_setSpeedLimits>();
+    query->flags_ = 0;
+    if (download) {
+      query->flags_ |= 1;
+      query->download_ = download.value();
+    }
+    if (upload) {
+      query->flags_ |= 2;
+      query->upload_ = upload.value();
+    }
+    send_query(std::move(query),
+               [SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_success>> R) {
+                 if (R.is_error()) {
+                   return;
+                 }
+                 td::TerminalIO::out() << "Speed limits were set\n";
+                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
                });
     return td::Status::OK();
   }
@@ -1282,25 +1518,26 @@ class StorageDaemonCli : public td::actor::Actor {
 
   td::Status execute_get_provider_params(std::string address, bool json) {
     auto query = create_tl_object<ton_api::storage_daemon_getProviderParams>(address);
-    send_query(std::move(query),
-               [=, SelfId = actor_id(this)](td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
-                 if (R.is_error()) {
-                   return;
-                 }
-                 if (json) {
-                   print_json(R.ok());
-                   td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
-                   return;
-                 }
-                 auto params = R.move_as_ok();
-                 td::TerminalIO::out() << "Storage provider parameters:\n";
-                 td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
-                 td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << params->rate_per_mb_day_ << "\n";
-                 td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
-                 td::TerminalIO::out() << "Min file size: " << (td::uint64)params->minimal_file_size_ << "\n";
-                 td::TerminalIO::out() << "Max file size: " << (td::uint64)params->maximal_file_size_ << "\n";
-                 td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
-               });
+    send_query(std::move(query), [=, SelfId = actor_id(this)](
+                                     td::Result<tl_object_ptr<ton_api::storage_daemon_provider_params>> R) {
+      if (R.is_error()) {
+        return;
+      }
+      if (json) {
+        print_json(R.ok());
+        td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+        return;
+      }
+      auto params = R.move_as_ok();
+      td::TerminalIO::out() << "Storage provider parameters:\n";
+      td::TerminalIO::out() << "Accept new contracts: " << params->accept_new_contracts_ << "\n";
+      td::TerminalIO::out() << "Rate (nanoTON per day*MB): " << params->rate_per_mb_day_ << "\n";
+      td::TerminalIO::out() << "Max span: " << (td::uint32)params->max_span_ << "\n";
+      auto min_size = (td::uint64)params->minimal_file_size_, max_size = (td::uint64)params->maximal_file_size_;
+      td::TerminalIO::out() << "Min file size: " << td::format::as_size(min_size) << " (" << min_size << ")\n";
+      td::TerminalIO::out() << "Max file size: " << td::format::as_size(max_size) << " (" << max_size << ")\n";
+      td::actor::send_closure(SelfId, &StorageDaemonCli::command_finished, td::Status::OK());
+    });
     return td::Status::OK();
   }
 
@@ -1632,6 +1869,7 @@ class StorageDaemonCli : public td::actor::Actor {
     add_id(obj.torrent_->hash_);
     td::TerminalIO::out() << "BagID = " << obj.torrent_->hash_.to_hex() << "\n";
     td::TerminalIO::out() << "Index = " << hash_to_id_[obj.torrent_->hash_] << "\n";
+    td::TerminalIO::out() << "Added: " << time_to_str(obj.torrent_->added_at_) << "\n";
     if (obj.torrent_->flags_ & 4) {  // fatal error
       td::TerminalIO::out() << "FATAL ERROR: " << obj.torrent_->fatal_error_ << "\n";
     }

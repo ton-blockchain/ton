@@ -29,18 +29,22 @@
 #include "TorrentHeader.hpp"
 
 namespace ton {
+static bool is_dir_slash(char c) {
+  return (c == TD_DIR_SLASH) | (c == '/');
+}
+
 td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSlice raw_path) {
   TRY_RESULT(path, td::realpath(raw_path));
   TRY_RESULT(stat, td::stat(path));
   std::string root_dir = path;
-  while (!root_dir.empty() && root_dir.back() == TD_DIR_SLASH) {
+  while (!root_dir.empty() && is_dir_slash(root_dir.back())) {
     root_dir.pop_back();
   }
-  while (!root_dir.empty() && root_dir.back() != TD_DIR_SLASH) {
+  while (!root_dir.empty() && !is_dir_slash(root_dir.back())) {
     root_dir.pop_back();
   }
   if (stat.is_dir_) {
-    if (!path.empty() && path.back() != TD_DIR_SLASH) {
+    if (!path.empty() && !is_dir_slash(path.back())) {
       path += TD_DIR_SLASH;
     }
     if (!options.dir_name) {
@@ -50,7 +54,20 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
     td::Status status;
     auto walk_status = td::WalkPath::run(path, [&](td::CSlice name, td::WalkPath::Type type) {
       if (type == td::WalkPath::Type::NotDir) {
-        status = creator.add_file(td::PathView::relative(name, path), name);
+        std::string rel_name = td::PathView::relative(name, path).str();
+        td::Slice file_name = rel_name;
+        for (size_t i = 0; i < rel_name.size(); ++i) {
+          if (is_dir_slash(rel_name[i])) {
+            rel_name[i] = '/';
+            file_name = td::Slice(rel_name.c_str() + i + 1, rel_name.c_str() + rel_name.size());
+          }
+        }
+        // Exclude OS-created files that can be modified automatically and thus break some torrent pieces
+        if (file_name == ".DS_Store" || td::to_lower(file_name) == "desktop.ini" ||
+            td::to_lower(file_name) == "thumbs.db") {
+          return td::WalkPath::Action::Continue;
+        }
+        status = creator.add_file(rel_name, name);
         if (status.is_error()) {
           return td::WalkPath::Action::Abort;
         }

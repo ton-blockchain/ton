@@ -458,9 +458,9 @@ class StorageCli : public td::actor::Actor {
     }
     auto callback = td::make_unique<Callback>(actor_id(this), ptr->id, std::move(on_completed));
     auto context = PeerManager::create_callback(ptr->peer_manager.get());
-    ptr->node =
-        td::actor::create_actor<ton::NodeActor>(PSLICE() << "Node#" << self_id, self_id, ptr->torrent.unwrap(),
-                                                std::move(callback), std::move(context), nullptr, should_download);
+    ptr->node = td::actor::create_actor<ton::NodeActor>(PSLICE() << "Node#" << self_id, self_id, ptr->torrent.unwrap(),
+                                                        std::move(callback), std::move(context), nullptr,
+                                                        ton::SpeedLimiters{}, should_download);
     td::TerminalIO::out() << "Torrent #" << ptr->id << " started\n";
     promise.release().release();
     if (promise) {

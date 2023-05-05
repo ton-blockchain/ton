@@ -388,7 +388,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       for (; l_it < left.cend(); ++l_it, ++r_it) {
         if (std::find(l_it + 1, left.cend(), *l_it) == left.cend()) {
           auto p = next_var_info[*l_it];
-          new_var_info.add_var(*r_it, !p || p->is_unused());
+          new_var_info.add_var(*r_it, edit && (!p || p->is_unused()));
           new_left.push_back(*l_it);
           new_right.push_back(*r_it);
         }
@@ -500,7 +500,12 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
         }
         changes = (new_var_info.size() == n);
       } while (changes <= edit);
+      assert(left.size() == 1);
+      bool last = new_var_info.count_used(left) == 0;
       new_var_info += left;
+      if (last) {
+        new_var_info[left[0]]->flags |= VarDescr::_Last;
+      }
       return set_var_info(std::move(new_var_info));
     }
     case _Again: {

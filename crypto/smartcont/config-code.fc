@@ -1,4 +1,6 @@
 ;; Simple configuration smart contract
+;; Currently deployed config-contract in mainnet can be found
+;; on https://verifier.ton.org/Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn
 
 () set_conf_param(int index, cell value) impure {
   var cs = get_data().begin_parse();
@@ -397,6 +399,7 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
       hash = -0xcd506e6c;  ;; cannot set mandatory parameter to null
     }
   }
+  ;; Note, in config contract currently deployed in mainnet, this limit is 256
   if (param_val.cell_depth() >= 128) {
     hash = -0xc2616456;  ;; bad value
   }
@@ -601,7 +604,7 @@ _ unpack_proposal(slice pstatus) inline_ref {
       voters_list = cons(voter_id, voters_list);
     }
   } until (~ f);
-  ;; Note there is a bug in config contract currently deployed in testnet2:
+  ;; Note there is a bug in config contract currently deployed in mainnet:
   ;; wins and losses are messed up
   var (rounds_remaining, wins, losses) = (rest~load_uint(8), rest~load_uint(8), rest~load_uint(8));
   rest.end_parse();

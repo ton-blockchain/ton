@@ -261,7 +261,7 @@ struct BlockLimitStatus {
   ton::LogicalTime cur_lt;
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
-  unsigned accounts{}, transactions{};
+  unsigned accounts{}, transactions{}, extra_out_msgs{};
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
       : limits(limits_), cur_lt(std::max(limits_.start_lt, lt)) {
   }
@@ -270,6 +270,7 @@ struct BlockLimitStatus {
     st_stat.set_zero();
     transactions = accounts = 0;
     gas_used = 0;
+    extra_out_msgs = 0;
   }
   td::uint64 estimate_block_size(const vm::NewCellStorageStat::Stat* extra = nullptr) const;
   int classify() const;
