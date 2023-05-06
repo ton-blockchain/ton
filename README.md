@@ -37,11 +37,11 @@ Main TON monorepo, which includes the code of the node/validator, lite-client, t
 ## The Open Network
 
 __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
-- To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](ton.org/docs)
-- To run node, validator or lite-server check [Participate section](https://ton.org/docs/participate/nodes/run-node)
-- To develop decentralised apps check [Tutorials](https://ton.org/docs/develop/smart-contracts/), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://ton.org/docs/develop/dapps/)
+- To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](https://docs.ton.org/)
+- To run node, validator or lite-server check [Participate section](https://docs.ton.org/participate/nodes/node-types)
+- To develop decentralised apps check [Tutorials](https://docs.ton.org/develop/smart-contracts/), [FunC docs](https://docs.ton.org/develop/func/overview) and [DApp tutorials](https://docs.ton.org/develop/getting-started#web-and-dapps-development)
 - To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities)
-- To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/)
+- To interact with TON check [APIs](https://docs.ton.org/develop/dapps/apis)
 
 ## Updates flow:
 

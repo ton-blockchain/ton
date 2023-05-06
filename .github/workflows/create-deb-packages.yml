@@ -1,0 +1,49 @@
+name: Create deb packages
+
+on: [workflow_dispatch]
+
+permissions: write-all
+
+jobs:
+  create-release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Create deb packages
+        run: |
+          REPO_DIR=$PWD
+          git fetch --all --tags
+          TAG=$(gh release list |  awk '{print $(NF-1)}')
+          echo "latest TAG = $TAG"
+
+          mkdir ../work; cd ../work
+          curl -L https://github.com/ton-blockchain/ton/releases/latest/download/ton-linux-arm64.zip -o ton-linux-arm64.zip
+          curl -L https://github.com/ton-blockchain/ton/releases/latest/download/ton-linux-x86_64.zip -o ton-linux-amd64.zip
+          unzip ton-linux-arm64.zip -d ton-linux-arm64
+          unzip ton-linux-amd64.zip -d ton-linux-amd64
+          rm -rf ton-linux-arm64/lib ton-linux-arm64/smartcont
+          rm -rf ton-linux-amd64/lib ton-linux-amd64/smartcont
+
+          mkdir -p ton-linux-deb-arm64/bin ton-linux-deb-arm64/lib
+          cp ton-linux-arm64/* ton-linux-deb-arm64/bin/
+          mv ton-linux-deb-arm64/bin/libtonlibjson.so.0.5 ton-linux-deb-arm64/lib/
+
+          mkdir -p ton-linux-deb-amd64/bin ton-linux-deb-amd64/lib
+          cp ton-linux-amd64/* ton-linux-deb-amd64/bin/
+          mv ton-linux-deb-amd64/bin/libtonlibjson.so.0.5 ton-linux-deb-amd64/lib/
+
+          mkdir packages-out
+          chmod +x $REPO_DIR/packages/deb.sh
+          $REPO_DIR/packages/deb.sh packages-out $REPO_DIR/packages/deb/ton $PWD/ton-linux-deb-amd64 amd64 ${TAG:1}
+          $REPO_DIR/packages/deb.sh packages-out $REPO_DIR/packages/deb/ton $PWD/ton-linux-deb-arm64 arm64 ${TAG:1}
+          cd packages-out/deb-install
+          dpkg-scanpackages -a amd64 . > Packages
+          dpkg-scanpackages -a arm64 . >> Packages
+          apt-ftparchive release . > Release
+
+          cd $REPO_DIR
+          gh release upload --clobber $TAG ../work/packages-out/deb-install/Packages ../work/packages-out/deb-install/Release ../work/packages-out/deb-install/ton_amd64.deb ../work/packages-out/deb-install/ton_arm64.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

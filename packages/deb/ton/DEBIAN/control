@@ -1,0 +1,6 @@
+Package: ton
+Version: VERSION
+Architecture: ARCH
+Maintainer: TON Foundation
+Priority: optional
+Description: TON (The Open Network) binary artifacts
