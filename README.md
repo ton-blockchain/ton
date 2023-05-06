@@ -60,12 +60,3 @@ Usually, the response to your pull request will indicate which section it falls 
 
 * Thou shall not merge your own PRs, at least one person should review the PR and merge it (4-eyes rule)
 * Thou shall make sure that workflows are cleanly completed for your PR before considering merge
-
-## Installation of TON artifacts
-### deb (apt)
-
-```sh
-sudo bash -c 'echo "deb [trusted=yes] https://github.com/ton-blockchain/ton/releases/latest/download ./" > /etc/apt/sources.list.d/10-ton.list'
-sudo apt update
-sudo apt install ton
-```
