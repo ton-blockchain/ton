@@ -69,3 +69,10 @@ sudo bash -c 'echo "deb [trusted=yes] https://github.com/ton-blockchain/ton/rele
 sudo apt update
 sudo apt install ton
 ```
+
+### brew
+
+```sh
+brew tap ton-blockchain/ton
+brew install ton
+```
