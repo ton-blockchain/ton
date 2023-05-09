@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "vm/cells.h"
-#include "vm/cellslice.h"
-#include "vm/dict.h"
-#include "vm/boc.h"
+#включить "common/refcnt.hpp"
+#включить "vm/cells.h"
+#включить "vm/cellslice.h"
+
+#включить "vm/dict.h"
+#включить "vm/boc.h"
 #include "vm/stack.hpp"
 #include <ostream>
 #include "tl/tlblib.hpp"
