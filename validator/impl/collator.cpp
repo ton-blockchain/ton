@@ -2565,7 +2565,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
     return false;
   }
   if (!block::tlb::t_MsgEnvelope.validate_ref(msg_env)) {
-    LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to automated checks";
+    LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to hand-written checks";
     return false;
   }
   // 1. unpack MsgEnvelope
@@ -2588,6 +2588,10 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
   if (info.created_lt != lt) {
     LOG(ERROR) << "inbound internal message has an augmentation value in source OutMsgQueue distinct from the one in "
                   "its contents";
+    return false;
+  }
+  if (!block::tlb::validate_message_libs(env.msg)) {
+    LOG(ERROR) << "inbound internal message has invalid StateInit";
     return false;
   }
   // 2.0. update last_proc_int_msg
@@ -2957,6 +2961,7 @@ bool Collator::process_new_messages(bool enqueue_only) {
   while (!new_msgs.empty()) {
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
+    block_limit_status_->extra_out_msgs--;
     if (block_full_ && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
       enqueue_only = true;
@@ -2978,6 +2983,7 @@ void Collator::register_new_msg(block::NewOutMsg new_msg) {
     min_new_msg_lt = new_msg.lt;
   }
   new_msgs.push(std::move(new_msg));
+  block_limit_status_->extra_out_msgs++;
 }
 
 void Collator::register_new_msgs(block::transaction::Transaction& trans) {
@@ -3876,7 +3882,7 @@ bool Collator::create_block() {
   }
   if (verify >= 1) {
     LOG(INFO) << "verifying new Block";
-    if (!block::gen::t_Block.validate_ref(1000000, new_block)) {
+    if (!block::gen::t_Block.validate_ref(10000000, new_block)) {
       return fatal_error("new Block failed to pass automatic validity tests");
     }
   }
@@ -3968,6 +3974,18 @@ bool Collator::create_block_candidate() {
       ton::BlockIdExt{ton::BlockId{shard_, new_block_seqno}, new_block->get_hash().bits(),
                       block::compute_file_hash(blk_slice.as_slice())},
       block::compute_file_hash(cdata_slice.as_slice()), blk_slice.clone(), cdata_slice.clone());
+  // 3.1 check block and collated data size
+  auto consensus_config = config_->get_consensus_config();
+  if (block_candidate->data.size() > consensus_config.max_block_size) {
+    return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
+                                 << ") exceeds the limit in consensus config (" << consensus_config.max_block_size
+                                 << ")");
+  }
+  if (block_candidate->collated_data.size() > consensus_config.max_collated_data_size) {
+    return fatal_error(PSTRING() << "collated data size (" << block_candidate->collated_data.size()
+                                 << ") exceeds the limit in consensus config ("
+                                 << consensus_config.max_collated_data_size << ")");
+  }
   // 4. save block candidate
   LOG(INFO) << "saving new BlockCandidate";
   td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
@@ -4029,6 +4047,9 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
   }
   if (!block::tlb::t_Message.validate_ref(256, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
+  }
+  if (!block::tlb::validate_message_libs(ext_msg)) {
+    return td::Status::Error("external message has invalid libs in StateInit");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   if (!tlb::unpack_cell_inexact(ext_msg, info)) {
