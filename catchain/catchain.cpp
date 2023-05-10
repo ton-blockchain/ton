@@ -108,11 +108,12 @@ void CatChainImpl::need_new_block(td::Timestamp t) {
   if (!receiver_started_) {
     return;
   }
-  if (!force_process_) {
+  if (!force_process_ || !active_process_) {
     VLOG(CATCHAIN_INFO) << this << ": forcing creation of new block";
   }
-  force_process_ = true;
-  if (!active_process_) {
+  if (active_process_) {
+    force_process_ = true;
+  } else {
     alarm_timestamp().relax(t);
   }
 }
@@ -197,6 +198,14 @@ void CatChainImpl::on_blame(td::uint32 src_id) {
       }
     }
   }
+  for (td::uint32 i = 0; i < process_deps_.size(); ++i) {
+    if (blocks_[process_deps_[i]]->source() == src_id) {
+      process_deps_[i] = process_deps_.back();
+      process_deps_.pop_back();
+      --i;
+    }
+  }
+  td::actor::send_closure(receiver_, &CatChainReceiverInterface::on_blame_processed, src_id);
 }
 
 void CatChainImpl::on_custom_query(const PublicKeyHash &src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {

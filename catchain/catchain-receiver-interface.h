@@ -52,6 +52,7 @@ class CatChainReceiverInterface : public td::actor::Actor {
                                           td::BufferSlice query, td::uint64 max_answer_size,
                                           td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
   virtual void send_custom_message_data(const PublicKeyHash &dst, td::BufferSlice query) = 0;
+  virtual void on_blame_processed(td::uint32 source_id) = 0;
 
   virtual void destroy() = 0;
 
