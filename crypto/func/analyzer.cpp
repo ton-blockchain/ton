@@ -655,7 +655,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
         ops = std::move(op.block0);
         return false;
       }
-      reach = true;
+      reach = (op.cl != Op::_Again);
       break;
     }
     case Op::_TryCatch: {
