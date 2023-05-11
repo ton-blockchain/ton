@@ -1132,7 +1132,7 @@ blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
   expr->predefine_vars();
   expr->define_new_vars(code);
   try_catch_op.left = expr->pre_compile(code);
-  func_assert(try_catch_op.left.size() == 2);
+  func_assert(try_catch_op.left.size() == 2 || try_catch_op.left.size() == 1);
   blk_fl::val res1 = parse_block_stmt(lex, code);
   sym::close_scope(lex);
   code.close_pop_cur(lex.cur().loc);
