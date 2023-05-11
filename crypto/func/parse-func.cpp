@@ -1111,6 +1111,7 @@ blk_fl::val parse_do_stmt(Lexer& lex, CodeBlob& code) {
 }
 
 blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
+  code.require_callxargs = true;
   lex.expect(_Try);
   Op& try_catch_op = code.emplace_back(lex.cur().loc, Op::_TryCatch);
   code.push_set_cur(try_catch_op.block0);

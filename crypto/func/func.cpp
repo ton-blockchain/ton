@@ -145,6 +145,9 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     if (fv && (fv->flags & 1) && code.ops->noreturn()) {
       mode |= Stack::_InlineFunc;
     }
+    if (fv && (fv->flags & 3)) {
+      mode |= Stack::_InlineAny;
+    }
     code.generate_code(outs, mode, indent + 1);
     outs << std::string(indent * 2, ' ') << "}>\n";
     if (verbosity >= 2) {

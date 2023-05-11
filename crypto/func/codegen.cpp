@@ -476,10 +476,18 @@ bool Op::generate_code_step(Stack& stack) {
         }
         func_assert(stack.s[k + i].first == right1[i]);
       }
+      auto exec_callxargs = [&](int args, int ret) {
+        if (args <= 15 && ret <= 15) {
+          stack.o << exec_arg2_op("CALLXARGS", args, ret, args + 1, ret);
+        } else {
+          func_assert(args <= 254 && ret <= 254);
+          stack.o << AsmOp::Const(PSTRING() << args << " PUSHINT");
+          stack.o << AsmOp::Const(PSTRING() << ret << " PUSHINT");
+          stack.o << AsmOp::Custom("CALLXVARARGS", args + 3, ret);
+        }
+      };
       if (cl == _CallInd) {
-        // TODO: replace with exec_arg2_op()
-        stack.o << exec_arg2_op("CALLXARGS", (int)right.size() - 1, (int)left.size(), (int)right.size(),
-                                (int)left.size());
+        exec_callxargs((int)right.size() - 1, (int)left.size());
       } else {
         auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
         if (func) {
@@ -493,8 +501,14 @@ bool Op::generate_code_step(Stack& stack) {
           auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
           std::string name = sym::symbols.get_name(fun_ref->sym_idx);
           bool is_inline = (fv && (fv->flags & 3));
-          stack.o << AsmOp::Custom(name + (is_inline ? " INLINECALLDICT" : " CALLDICT"), (int)right.size(),
-                                   (int)left.size());
+          if (is_inline) {
+            stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
+          } else if (fv && fv->code && fv->code->require_callxargs) {
+            stack.o << AsmOp::Custom(name + (" PREPAREDICT"), 0, 2);
+            exec_callxargs((int)right.size() + 1, (int)left.size());
+          } else {
+            stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
+          }
         }
       }
       stack.s.resize(k);
@@ -878,11 +892,12 @@ void Op::generate_code_all(Stack& stack) {
 void CodeBlob::generate_code(AsmOpList& out, int mode) {
   Stack stack{out, mode};
   func_assert(ops && ops->cl == Op::_Import);
+  auto args = (int)ops->left.size();
   for (var_idx_t x : ops->left) {
     stack.push_new_var(x);
   }
   ops->generate_code_all(stack);
-  stack.apply_wrappers();
+  stack.apply_wrappers(require_callxargs && (mode & Stack::_InlineAny) ? args : -1);
   if (!(mode & Stack::_DisableOpt)) {
     optimize_code(out);
   }
