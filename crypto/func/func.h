@@ -33,6 +33,10 @@
 #include "parser/symtable.h"
 #include "td/utils/Status.h"
 
+#define func_assert(expr) \
+  (bool(expr) ? void(0)   \
+              : throw src::Fatal(PSTRING() << "Assertion failed at " << __FILE__ << ":" << __LINE__ << ": " << #expr))
+
 namespace funC {
 
 extern int verbosity;
@@ -310,6 +314,7 @@ struct TmpVar {
   int coord;
   std::unique_ptr<SrcLocation> where;
   std::vector<std::function<void(const SrcLocation &)>> on_modification;
+  bool undefined = false;
   TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
@@ -1177,7 +1182,7 @@ struct AsmOpList {
   }
   template <typename... Args>
   AsmOpList& add(Args&&... args) {
-    list_.emplace_back(std::forward<Args>(args)...);
+    append(AsmOp(std::forward<Args>(args)...));
     adjust_last();
     return *this;
   }
@@ -1612,7 +1617,7 @@ struct Stack {
     if (i > 255) {
       throw src::Fatal{"Too deep stack"};
     }
-    assert(i >= 0 && i < depth() && "invalid stack reference");
+    func_assert(i >= 0 && i < depth() && "invalid stack reference");
   }
   void modified() {
     mode &= ~_Shown;

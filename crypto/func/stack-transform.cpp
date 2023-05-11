@@ -183,7 +183,7 @@ bool StackTransform::is_permutation() const {
   if (!is_valid() || d) {
     return false;
   }
-  assert(n <= max_n);
+  func_assert(n <= max_n);
   std::array<int, max_n> X, Y;
   for (int i = 0; i < n; i++) {
     X[i] = A[i].first;

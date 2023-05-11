@@ -132,7 +132,7 @@ void TypeExpr::replace_with(TypeExpr* te2) {
 }
 
 bool TypeExpr::remove_indirect(TypeExpr*& te, TypeExpr* forbidden) {
-  assert(te);
+  func_assert(te);
   while (te->constr == te_Indirect) {
     te = te->args[0];
   }
@@ -147,8 +147,8 @@ bool TypeExpr::remove_indirect(TypeExpr*& te, TypeExpr* forbidden) {
 }
 
 std::vector<TypeExpr*> TypeExpr::remove_forall(TypeExpr*& te) {
-  assert(te && te->constr == te_ForAll);
-  assert(te->args.size() >= 1);
+  func_assert(te && te->constr == te_ForAll);
+  func_assert(te->args.size() >= 1);
   std::vector<TypeExpr*> new_vars;
   for (std::size_t i = 1; i < te->args.size(); i++) {
     new_vars.push_back(new_hole(1));
@@ -162,8 +162,8 @@ std::vector<TypeExpr*> TypeExpr::remove_forall(TypeExpr*& te) {
 }
 
 bool TypeExpr::remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars) {
-  assert(te);
-  assert(te2 && te2->constr == te_ForAll);
+  func_assert(te);
+  func_assert(te2 && te2->constr == te_ForAll);
   if (te->constr == te_Var) {
     for (std::size_t i = 0; i < new_vars.size(); i++) {
       if (te == te2->args[i + 1]) {
@@ -277,7 +277,7 @@ std::ostream& TypeExpr::print(std::ostream& os, int lex_level) {
       return os << "]";
     }
     case te_Map: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       if (lex_level > 0) {
         os << "(";
       }
@@ -290,7 +290,7 @@ std::ostream& TypeExpr::print(std::ostream& os, int lex_level) {
       return os;
     }
     case te_ForAll: {
-      assert(args.size() >= 1);
+      func_assert(args.size() >= 1);
       if (lex_level > 0) {
         os << '(';
       }
@@ -343,11 +343,11 @@ void check_update_widths(TypeExpr* te1, TypeExpr* te2) {
   check_width_compat(te1, te2);
   te1->minw = te2->minw = std::max(te1->minw, te2->minw);
   te1->maxw = te2->maxw = std::min(te1->maxw, te2->maxw);
-  assert(te1->minw <= te1->maxw);
+  func_assert(te1->minw <= te1->maxw);
 }
 
 void unify(TypeExpr*& te1, TypeExpr*& te2) {
-  assert(te1 && te2);
+  func_assert(te1 && te2);
   // std::cerr << "unify( " << te1 << " , " << te2 << " )\n";
   while (te1->constr == TypeExpr::te_Indirect) {
     te1 = te1->args[0];
@@ -390,7 +390,7 @@ void unify(TypeExpr*& te1, TypeExpr*& te2) {
   }
   if (te1->constr == TypeExpr::te_Unknown) {
     if (te2->constr == TypeExpr::te_Unknown) {
-      assert(te1->value != te2->value);
+      func_assert(te1->value != te2->value);
     }
     if (!TypeExpr::remove_indirect(te2, te1)) {
       throw UnifyError{te1, te2, "type unification results in an infinite cyclic type"};

@@ -72,7 +72,7 @@ td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* qu
 
 void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &errs) {
   SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-  assert(func_val);
+  func_assert(func_val);
   std::string name = sym::symbols.get_name(func_sym->sym_idx);
   if (verbosity >= 2) {
     errs << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
@@ -163,7 +163,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   }
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-    assert(func_val);
+    func_assert(func_val);
     std::string name = sym::symbols.get_name(func_sym->sym_idx);
     outs << std::string(indent * 2, ' ');
     if (func_val->method_id.is_null()) {
@@ -173,7 +173,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
     }
   }
   for (SymDef* gvar_sym : glob_vars) {
-    assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
+    func_assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
     std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
     outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }

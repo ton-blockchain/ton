@@ -61,9 +61,9 @@ void Optimizer::apply() {
   if (!p_ && !q_) {
     return;
   }
-  assert(p_ > 0 && p_ <= l_ && q_ >= 0 && q_ <= n && l_ <= n);
+  func_assert(p_ > 0 && p_ <= l_ && q_ >= 0 && q_ <= n && l_ <= n);
   for (int i = p_; i < l_; i++) {
-    assert(op_[i]);
+    func_assert(op_[i]);
     op_cons_[i]->car = std::move(op_[i]);
     op_cons_[i] = nullptr;
   }
@@ -71,7 +71,7 @@ void Optimizer::apply() {
     code_ = std::move(code_->cdr);
   }
   for (int j = q_ - 1; j >= 0; j--) {
-    assert(oq_[j]);
+    func_assert(oq_[j]);
     oq_[j]->indent = indent_;
     code_ = AsmOpCons::cons(std::move(oq_[j]), std::move(code_));
   }
@@ -246,7 +246,7 @@ bool Optimizer::rewrite_const_push_xchgs() {
   }
   show_left();
   auto c_op = std::move(op_[0]);
-  assert(c_op->is_gconst());
+  func_assert(c_op->is_gconst());
   StackTransform t;
   q_ = 0;
   int pos = 0;
@@ -265,31 +265,31 @@ bool Optimizer::rewrite_const_push_xchgs() {
         if (b > pos) {
           oq_[q_]->b = b - 1;
         }
-        assert(apply_op(t, *oq_[q_]));
+        func_assert(apply_op(t, *oq_[q_]));
         ++q_;
       }
     } else {
-      assert(op_[i]->is_push(&a));
-      assert(a != pos);
+      func_assert(op_[i]->is_push(&a));
+      func_assert(a != pos);
       oq_[q_] = std::move(op_[i]);
       if (a > pos) {
         oq_[q_]->a = a - 1;
       }
-      assert(apply_op(t, *oq_[q_]));
+      func_assert(apply_op(t, *oq_[q_]));
       ++q_;
       ++pos;
     }
   }
-  assert(!pos);
+  func_assert(!pos);
   t.apply_push_newconst();
-  assert(t <= tr_[p_ - 1]);
+  func_assert(t <= tr_[p_ - 1]);
   oq_[q_++] = std::move(c_op);
   show_right();
   return true;
 }
 
 bool Optimizer::rewrite(int p, AsmOp&& new_op) {
-  assert(p > 0 && p <= l_);
+  func_assert(p > 0 && p <= l_);
   p_ = p;
   q_ = 1;
   show_left();
@@ -300,7 +300,7 @@ bool Optimizer::rewrite(int p, AsmOp&& new_op) {
 }
 
 bool Optimizer::rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2) {
-  assert(p > 1 && p <= l_);
+  func_assert(p > 1 && p <= l_);
   p_ = p;
   q_ = 2;
   show_left();
@@ -313,7 +313,7 @@ bool Optimizer::rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2) {
 }
 
 bool Optimizer::rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3) {
-  assert(p > 2 && p <= l_);
+  func_assert(p > 2 && p <= l_);
   p_ = p;
   q_ = 3;
   show_left();
@@ -328,7 +328,7 @@ bool Optimizer::rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3
 }
 
 bool Optimizer::rewrite_nop() {
-  assert(p_ > 0 && p_ <= l_);
+  func_assert(p_ > 0 && p_ <= l_);
   q_ = 0;
   show_left();
   show_right();
