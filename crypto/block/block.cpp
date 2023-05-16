@@ -1364,17 +1364,17 @@ std::ostream& operator<<(std::ostream& os, const CurrencyCollection& cc) {
 bool ValueFlow::set_zero() {
   return from_prev_blk.set_zero() && to_next_blk.set_zero() && imported.set_zero() && exported.set_zero() &&
          fees_collected.set_zero() && fees_imported.set_zero() && recovered.set_zero() && created.set_zero() &&
-         minted.set_zero() && fees_burned.set_zero();
+         minted.set_zero() && burned.set_zero();
 }
 
 bool ValueFlow::validate() const {
   return is_valid() && from_prev_blk + imported + fees_imported + created + minted + recovered ==
-                           to_next_blk + exported + fees_collected + fees_burned;
+                           to_next_blk + exported + fees_collected + burned;
 }
 
 bool ValueFlow::store(vm::CellBuilder& cb) const {
   vm::CellBuilder cb2;
-  auto type = fees_burned.is_zero() ? block::gen::ValueFlow::value_flow : block::gen::ValueFlow::value_flow_v2;
+  auto type = burned.is_zero() ? block::gen::ValueFlow::value_flow : block::gen::ValueFlow::value_flow_v2;
   return cb.store_long_bool(block::gen::ValueFlow::cons_tag[type], 32)  // ^[
          && from_prev_blk.store(cb2)                                    //   from_prev_blk:CurrencyCollection
          && to_next_blk.store(cb2)                                      //   to_next_blk:CurrencyCollection
@@ -1382,7 +1382,7 @@ bool ValueFlow::store(vm::CellBuilder& cb) const {
          && exported.store(cb2)                                         //   exported:CurrencyCollection
          && cb.store_ref_bool(cb2.finalize())                           // ]
          && fees_collected.store(cb)                                    // fees_collected:CurrencyCollection
-         && (fees_burned.is_zero() || fees_burned.store(cb))            // fees_burned:CurrencyCollection
+         && (burned.is_zero() || burned.store(cb))            // fees_burned:CurrencyCollection
          && fees_imported.store(cb2)                                    // ^[ fees_imported:CurrencyCollection
          && recovered.store(cb2)                                        //    recovered:CurrencyCollection
          && created.store(cb2)                                          //    created:CurrencyCollection
@@ -1400,7 +1400,7 @@ bool ValueFlow::fetch(vm::CellSlice& cs) {
       from_prev_blk.validate_unpack(std::move(f1.r1.from_prev_blk)) &&
       to_next_blk.validate_unpack(std::move(f1.r1.to_next_blk)) &&
       imported.validate_unpack(std::move(f1.r1.imported)) && exported.validate_unpack(std::move(f1.r1.exported)) &&
-      fees_collected.validate_unpack(std::move(f1.fees_collected)) && fees_burned.set_zero() &&
+      fees_collected.validate_unpack(std::move(f1.fees_collected)) && burned.set_zero() &&
       fees_imported.validate_unpack(std::move(f1.r2.fees_imported)) &&
       recovered.validate_unpack(std::move(f1.r2.recovered)) && created.validate_unpack(std::move(f1.r2.created)) &&
       minted.validate_unpack(std::move(f1.r2.minted))) {
@@ -1412,7 +1412,7 @@ bool ValueFlow::fetch(vm::CellSlice& cs) {
       to_next_blk.validate_unpack(std::move(f2.r1.to_next_blk)) &&
       imported.validate_unpack(std::move(f2.r1.imported)) && exported.validate_unpack(std::move(f2.r1.exported)) &&
       fees_collected.validate_unpack(std::move(f2.fees_collected)) &&
-      fees_burned.validate_unpack(std::move(f2.fees_burned)) &&
+      burned.validate_unpack(std::move(f2.burned)) &&
       fees_imported.validate_unpack(std::move(f2.r2.fees_imported)) &&
       recovered.validate_unpack(std::move(f2.r2.recovered)) && created.validate_unpack(std::move(f2.r2.created)) &&
       minted.validate_unpack(std::move(f2.r2.minted))) {
@@ -1444,7 +1444,7 @@ bool ValueFlow::show(std::ostream& os) const {
           show_one(os, " exported:", exported) && show_one(os, " fees_collected:", fees_collected) &&
           show_one(os, " fees_imported:", fees_imported) && show_one(os, " recovered:", recovered) &&
           show_one(os, " created:", created) && show_one(os, " minted:", minted) &&
-          (fees_burned.is_zero() || show_one(os, " burned:", fees_burned)) && say(os, ")")) ||
+          (burned.is_zero() || show_one(os, " burned:", burned)) && say(os, ")")) ||
          (say(os, "...<invalid-value-flow>)") && false);
 }
 

@@ -1956,13 +1956,22 @@ std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime no
   return std::make_unique<vm::Dictionary>(rec.addresses->prefetch_ref(), 288);
 }
 
-FeeBurningConfig Config::get_fee_burning_config() const {
+BurningConfig Config::get_burning_config() const {
   td::Ref<vm::Cell> param = get_config_param(5);
-  gen::FeeBurningConfig::Record rec;
+  gen::BurningConfig::Record rec;
   if (param.is_null() || !tlb::unpack_cell(param, rec)) {
     return {};
   }
-  return {(td::uint32)rec.burn_nom, (td::uint32)rec.burn_denom};
+  BurningConfig c;
+  c.fee_burn_nom = rec.fee_burn_nom;
+  c.fee_burn_denom = rec.fee_burn_denom;
+  vm::CellSlice& addr = rec.blackhole_addr.write();
+  if (addr.fetch_long(1)) {
+    td::Bits256 x;
+    addr.fetch_bits_to(x.bits(), 256);
+    c.blackhole_addr = x;
+  }
+  return c;
 }
 
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {

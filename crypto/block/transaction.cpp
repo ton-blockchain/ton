@@ -672,6 +672,12 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       return false;
   }
   total_fees += in_fwd_fee;
+  if (account.workchain == ton::masterchainId && cfg->mc_blackhole_addr &&
+      cfg->mc_blackhole_addr.value() == account.addr) {
+    blackhole_burned.grams = msg_balance_remaining.grams;
+    msg_balance_remaining.grams = td::zero_refint();
+    LOG(DEBUG) << "Burning " << blackhole_burned.grams << " nanoton (blackhole address)";
+  }
   return true;
 }
 
@@ -2618,6 +2624,7 @@ td::Status FetchConfigParams::fetch_config_params(const block::Config& config,
     action_phase_cfg->workchains = &config.get_workchain_list();
     action_phase_cfg->bounce_msg_body = (config.has_capability(ton::capBounceMsgBody) ? 256 : 0);
     action_phase_cfg->size_limits = size_limits;
+    action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {
     // fetch block_grams_created
