@@ -277,14 +277,10 @@ catchain.differenceFork left:catchain.block.dep right:catchain.block.dep = catch
 catchain.blockNotFound = catchain.BlockResult;
 catchain.blockResult block:catchain.block = catchain.BlockResult;
 
-catchain.sent cnt:int = catchain.Sent;
-
 ---functions---
 
 catchain.getBlock block:int256 = catchain.BlockResult;
-catchain.getBlocks blocks:(vector int256) = catchain.Sent;
 catchain.getDifference rt:(vector int) = catchain.Difference;
-catchain.getBlockHistory block:int256 height:long stop_if:(vector int256) = catchain.Sent;
 //catchain.getForkDifference src:int fork:catchain.fork = catchain.ForkDifference;
 
 ---types---

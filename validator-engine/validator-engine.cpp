@@ -1319,9 +1319,6 @@ td::Status ValidatorEngine::load_global_config() {
         }
         CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
         return true;
-        /*ton::ShardIdFull p{ton::basechainId, ((cc_seqno * 1ull % 4) << 62) + 1};
-        auto s = ton::shard_prefix(p, 2);
-        return shard.is_masterchain() || ton::shard_intersects(shard, s);*/
       });
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
@@ -3647,34 +3644,61 @@ int main(int argc, char *argv[]) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
   });
-  p.add_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600", [&](td::Slice fname) {
+  p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600",
+                       [&](td::Slice fname) {
+                         auto v = td::to_double(fname);
+                         if (v <= 0) {
+                           return td::Status::Error("state-ttl should be positive");
+                         }
+                         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice fname) {
     auto v = td::to_double(fname);
-    acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
-  });
-  p.add_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice fname) {
-    auto v = td::to_double(fname);
+    if (v < 0) {
+      return td::Status::Error("mempool-num should be non-negative");
+    }
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
+    return td::Status::OK();
   });
-  p.add_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=7*86400",
-               [&](td::Slice fname) {
-                 auto v = td::to_double(fname);
-                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_block_ttl, v); });
-               });
-  p.add_option('A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=365*86400",
-               [&](td::Slice fname) {
-                 auto v = td::to_double(fname);
-                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_ttl, v); });
-               });
-  p.add_option('K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
-               [&](td::Slice fname) {
-                 auto v = td::to_double(fname);
-                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_key_proof_ttl, v); });
-               });
-  p.add_option('S', "sync-before", "in initial sync download all blocks for last given seconds default=3600",
-               [&](td::Slice fname) {
-                 auto v = td::to_double(fname);
-                 acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_ttl, v); });
-               });
+  p.add_checked_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=7*86400",
+                       [&](td::Slice fname) {
+                         auto v = td::to_double(fname);
+                         if (v <= 0) {
+                           return td::Status::Error("block-ttl should be positive");
+                         }
+                         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_block_ttl, v); });
+                         return td::Status::OK();
+                       });
+  p.add_checked_option(
+      'A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=365*86400",
+      [&](td::Slice fname) {
+        auto v = td::to_double(fname);
+        if (v <= 0) {
+          return td::Status::Error("archive-ttl should be positive");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_ttl, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      'K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
+      [&](td::Slice fname) {
+        auto v = td::to_double(fname);
+        if (v <= 0) {
+          return td::Status::Error("key-proof-ttl should be positive");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_key_proof_ttl, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option('S', "sync-before", "in initial sync download all blocks for last given seconds default=3600",
+                       [&](td::Slice fname) {
+                         auto v = td::to_double(fname);
+                         if (v <= 0) {
+                           return td::Status::Error("sync-before should be positive");
+                         }
+                         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_ttl, v); });
+                         return td::Status::OK();
+                       });
   p.add_option('T', "truncate-db", "truncate db (with specified seqno as new top masterchain block seqno)",
                [&](td::Slice fname) {
                  auto v = td::to_integer<ton::BlockSeqno>(fname);

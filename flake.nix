@@ -50,6 +50,9 @@
             "-static-libstdc++"
           ]);
 
+          GIT_REVISION = if self ? rev then self.rev else "dirty";
+          GIT_REVISION_DATE = (builtins.concatStringsSep "-" (builtins.match "(.{4})(.{2})(.{2}).*" self.lastModifiedDate)) + " " + (builtins.concatStringsSep ":" (builtins.match "^........(.{2})(.{2})(.{2}).*" self.lastModifiedDate));
+
           postInstall = ''
             moveToOutput bin "$bin"
           '';

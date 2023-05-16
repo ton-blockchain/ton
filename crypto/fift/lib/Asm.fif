@@ -2,7 +2,7 @@ library TVM_Asm
 // simple TVM Assembler
 namespace Asm
 Asm definitions
-"0.4.3" constant asm-fif-version
+"0.4.4" constant asm-fif-version
 
 variable @atend
 variable @was-split
@@ -578,7 +578,7 @@ x{CF3F} @Defop BCHKBITREFSQ
 x{CF40} @Defop STZEROES
 x{CF41} @Defop STONES
 x{CF42} @Defop STSAME
-{ tuck sbitrefs swap 15 + swap @havebitrefs not
+{ tuck sbitrefs swap 22 + swap @havebitrefs not
   { swap PUSHSLICE STSLICER }
   { over sbitrefs 2dup 57 3 2x<=
     { rot x{CFC_} s, swap 2 u, over 6 + 3 >> tuck 3 u, 3 roll s,
@@ -1193,6 +1193,11 @@ x{FA00} dup @Defop LDGRAMS @Defop LDVARUINT16
 x{FA01} @Defop LDVARINT16
 x{FA02} dup @Defop STGRAMS @Defop STVARUINT16
 x{FA03} @Defop STVARINT16
+
+x{FA04} @Defop LDVARUINT32 // (s -- x s')
+x{FA05} @Defop LDVARINT32  // (s -- x s')
+x{FA06} @Defop STVARUINT32 // (b x -- b')
+x{FA07} @Defop STVARINT32  // (b x -- b')
 
 x{FA40} @Defop LDMSGADDR
 x{FA41} @Defop LDMSGADDRQ

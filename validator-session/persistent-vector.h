@@ -322,7 +322,6 @@ class CntVector : public ValidatorSessionDescription::RootObject {
     CHECK(idx < size());
     return data_[idx];
   }
-  //const T& at(size_t idx) const;
 
  private:
   const td::uint32 data_size_;
@@ -546,7 +545,6 @@ class CntVector<bool> : public ValidatorSessionDescription::RootObject {
     CHECK(idx < max_size());
     return get_bit(data_, idx);
   }
-  //const T& at(size_t idx) const;
 
  private:
   const td::uint32 data_size_;
@@ -734,10 +732,6 @@ class CntSortedVector : public ValidatorSessionDescription::RootObject {
 
     return CntSortedVector::create(desc, std::move(v));
   }
-  /*static const CntSortedVector* merge(ValidatorSessionDescription& desc, const CntSortedVector* l,
-                                      const CntSortedVector* r) {
-    return merge(desc, l, r, [](T l, T r) { return l; });
-  }*/
   static const CntSortedVector* push(ValidatorSessionDescription& desc, const CntSortedVector* v, T value) {
     if (!v) {
       return create(desc, std::vector<T>{value});
@@ -795,7 +789,6 @@ class CntSortedVector : public ValidatorSessionDescription::RootObject {
     CHECK(idx < size());
     return data_[idx];
   }
-  //const T& at(size_t idx) const;
 
  private:
   const td::uint32 data_size_;

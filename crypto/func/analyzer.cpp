@@ -42,14 +42,14 @@ int CodeBlob::split_vars(bool strict) {
     }
     std::vector<TypeExpr*> comp_types;
     int k = var.v_type->extract_components(comp_types);
-    assert(k <= 254 && n <= 0x7fff00);
-    assert((unsigned)k == comp_types.size());
+    func_assert(k <= 254 && n <= 0x7fff00);
+    func_assert((unsigned)k == comp_types.size());
     if (k != 1) {
       var.coord = ~((n << 8) + k);
       for (int i = 0; i < k; i++) {
         auto v = create_var(vars[j].cls, comp_types[i], 0, vars[j].where.get());
-        assert(v == n + i);
-        assert(vars[v].idx == v);
+        func_assert(v == n + i);
+        func_assert(vars[v].idx == v);
         vars[v].name = vars[j].name;
         vars[v].coord = ((int)j << 8) + i + 1;
       }
@@ -75,9 +75,9 @@ bool CodeBlob::compute_used_code_vars() {
 }
 
 bool CodeBlob::compute_used_code_vars(std::unique_ptr<Op>& ops_ptr, const VarDescrList& var_info, bool edit) const {
-  assert(ops_ptr);
+  func_assert(ops_ptr);
   if (!ops_ptr->next) {
-    assert(ops_ptr->cl == Op::_Nop);
+    func_assert(ops_ptr->cl == Op::_Nop);
     return ops_ptr->set_var_info(var_info);
   }
   return compute_used_code_vars(ops_ptr->next, var_info, edit) | ops_ptr->compute_used_vars(*this, edit);
@@ -346,7 +346,7 @@ bool Op::std_compute_used_vars(bool disabled) {
 }
 
 bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
-  assert(next);
+  func_assert(next);
   const VarDescrList& next_var_info = next->var_info;
   if (cl == _Nop) {
     return set_var_info_except(next_var_info, left);
@@ -379,7 +379,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     case _Let: {
       // left = right
       std::size_t cnt = next_var_info.count_used(left);
-      assert(left.size() == right.size());
+      func_assert(left.size() == right.size());
       auto l_it = left.cbegin(), r_it = right.cbegin();
       VarDescrList new_var_info{next_var_info};
       new_var_info -= left;
@@ -500,7 +500,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
         }
         changes = (new_var_info.size() == n);
       } while (changes <= edit);
-      assert(left.size() == 1);
+      func_assert(left.size() == 1);
       bool last = new_var_info.count_used(left) == 0;
       new_var_info += left;
       if (last) {
@@ -655,7 +655,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
         ops = std::move(op.block0);
         return false;
       }
-      reach = true;
+      reach = (op.cl != Op::_Again);
       break;
     }
     case Op::_TryCatch: {
@@ -684,7 +684,7 @@ void CodeBlob::prune_unreachable_code() {
 
 void CodeBlob::fwd_analyze() {
   VarDescrList values;
-  assert(ops && ops->cl == Op::_Import);
+  func_assert(ops && ops->cl == Op::_Import);
   for (var_idx_t i : ops->left) {
     values += i;
     if (vars[i].v_type->is_int()) {
@@ -765,7 +765,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     case _Let: {
       std::vector<VarDescr> old_val;
-      assert(left.size() == right.size());
+      func_assert(left.size() == right.size());
       for (std::size_t i = 0; i < right.size(); i++) {
         const VarDescr* ov = values[right[i]];
         if (!ov && verbosity >= 5) {
@@ -780,7 +780,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           }
           std::cerr << std::endl;
         }
-        // assert(ov);
+        // func_assert(ov);
         if (ov) {
           old_val.push_back(*ov);
         } else {
@@ -894,7 +894,7 @@ bool Op::mark_noreturn() {
       return set_noreturn((block0->mark_noreturn() & (block1 && block1->mark_noreturn())) | next->mark_noreturn());
     case _Again:
       block0->mark_noreturn();
-      return set_noreturn(false);
+      return set_noreturn(true);
     case _Until:
       return set_noreturn(block0->mark_noreturn() | next->mark_noreturn());
     case _While:

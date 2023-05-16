@@ -166,7 +166,7 @@ AsmOp AsmOp::UnTuple(int a) {
 
 AsmOp AsmOp::IntConst(td::RefInt256 x) {
   if (x->signed_fits_bits(8)) {
-    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT", x);
+    return AsmOp::Const(dec_string(x) + " PUSHINT", x);
   }
   if (!x->is_valid()) {
     return AsmOp::Const("PUSHNAN", x);
@@ -184,9 +184,9 @@ AsmOp AsmOp::IntConst(td::RefInt256 x) {
     return AsmOp::Const(k, "PUSHNEGPOW2", x);
   }
   if (!x->mod_pow2_short(23)) {
-    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINTX", x);
+    return AsmOp::Const(dec_string(x) + " PUSHINTX", x);
   }
-  return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT", x);
+  return AsmOp::Const(dec_string(x) + " PUSHINT", x);
 }
 
 AsmOp AsmOp::BoolConst(bool f) {

@@ -38,6 +38,9 @@ TmpVar::TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, const Src
   if (!_type) {
     v_type = TypeExpr::new_hole();
   }
+  if (cls == _Named) {
+    undefined = true;
+  }
 }
 
 void TmpVar::set_location(const SrcLocation& loc) {

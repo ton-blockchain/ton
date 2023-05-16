@@ -235,7 +235,7 @@ void interpret_cmp(vm::Stack& stack, const char opt[3]) {
 }
 
 void interpret_sgn(vm::Stack& stack, const char opt[3]) {
-  auto x = stack.pop_int();
+  auto x = stack.pop_int_finite();
   int r = x->sgn();
   assert((unsigned)(r + 1) <= 2);
   stack.push_smallint(((const signed char*)opt)[r + 1]);

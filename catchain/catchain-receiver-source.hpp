@@ -111,6 +111,8 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
     return chain_;
   }
 
+  bool allow_send_block(CatChainBlockHash hash) override;
+
   CatChainReceiverSourceImpl(CatChainReceiver *chain, PublicKey source, adnl::AdnlNodeIdShort adnl_id, td::uint32 id);
 
  private:
@@ -130,6 +132,11 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
 
   CatChainBlockHeight delivered_height_ = 0;
   CatChainBlockHeight received_height_ = 0;
+
+  std::map<CatChainBlockHash, td::uint32> block_requests_count_;
+  // One block can be sent to one node up to 5 times
+
+  static const td::uint32 MAX_BLOCK_REQUESTS = 5;
 };
 
 }  // namespace catchain
