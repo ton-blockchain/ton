@@ -35,6 +35,7 @@ jobs:
 
     - name: Simple binaries test
       run: |
+        sudo mv /nix/store /nix/store2
         artifacts/validator-engine -V
         artifacts/lite-client -V
         artifacts/fift -V
