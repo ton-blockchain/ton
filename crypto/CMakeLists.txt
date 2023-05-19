@@ -93,7 +93,9 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/Hasher.cpp
 
   ellcurve/secp256k1.h
-  ellcurve/secp256k1.cpp)
+  ellcurve/secp256k1.cpp
+  ellcurve/p256.h
+  ellcurve/p256.cpp)
 
 set(TON_CRYPTO_SOURCE
   vm/stack.cpp

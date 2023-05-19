@@ -14,6 +14,7 @@ Various features are enabled depending on the global version.
 * `GASCONSUMED`
 * `RIST255_...` instructions
 * `BLS_...` instructions
+* `P256_CHKSIGNS`, `P256_CHKSIGNU`
 
 ### Division
 [Division instruction](https://ton.org/docs/learn/tvm-instructions/instructions#52-division) can add a number to the

@@ -30,6 +30,7 @@
 #include "block/block-auto.h"
 #include "block/block-parse.h"
 #include "crypto/ellcurve/secp256k1.h"
+#include "crypto/ellcurve/p256.h"
 
 #include "openssl/digest.hpp"
 #include <sodium.h>
@@ -560,6 +561,44 @@ int exec_ecrecover(VmState* st) {
   return 0;
 }
 
+int exec_p256_chksign(VmState* st, bool from_slice) {
+  VM_LOG(st) << "execute P256_CHKSIGN" << (from_slice ? 'S' : 'U');
+  Stack& stack = st->get_stack();
+  stack.check_underflow(3);
+  auto key_cs = stack.pop_cellslice();
+  auto signature_cs = stack.pop_cellslice();
+  unsigned char data[128], key[33], signature[64];
+  unsigned data_len;
+  if (from_slice) {
+    auto cs = stack.pop_cellslice();
+    if (cs->size() & 7) {
+      throw VmError{Excno::cell_und, "Slice does not consist of an integer number of bytes"};
+    }
+    data_len = (cs->size() >> 3);
+    CHECK(data_len <= sizeof(data));
+    CHECK(cs->prefetch_bytes(data, data_len));
+  } else {
+    auto hash_int = stack.pop_int();
+    data_len = 32;
+    if (!hash_int->export_bytes(data, data_len, false)) {
+      throw VmError{Excno::range_chk, "data hash must fit in an unsigned 256-bit integer"};
+    }
+  }
+  if (!signature_cs->prefetch_bytes(signature, 64)) {
+    throw VmError{Excno::cell_und, "P256 signature must contain at least 512 data bits"};
+  }
+  if (!key_cs->prefetch_bytes(key, 33)) {
+    throw VmError{Excno::cell_und, "P256 public key must contain at least 33 data bytes"};
+  }
+  st->consume_gas(VmState::p256_chksgn_gas_price);
+  auto res = td::p256_check_signature(td::Slice{data, data_len}, td::Slice{key, 33}, td::Slice{signature, 64});
+  if (res.is_error()) {
+    VM_LOG(st) << "P256_CHKSIGN: " << res.error().message();
+  }
+  stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
+  return 0;
+}
+
 static_assert(crypto_scalarmult_ristretto255_BYTES == 32, "Unexpected value of ristretto255 constant");
 static_assert(crypto_scalarmult_ristretto255_SCALARBYTES == 32, "Unexpected value of ristretto255 constant");
 static_assert(crypto_core_ristretto255_BYTES == 32, "Unexpected value of ristretto255 constant");
@@ -1063,6 +1102,8 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
 
       .insert(OpcodeInstr::mksimple(0xf920, 16, "RIST255_FROMHASH", exec_ristretto255_from_hash)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))->require_version(4))

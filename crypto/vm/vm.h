@@ -126,6 +126,7 @@ class VmState final : public VmStateInterface {
     ecrecover_gas_price = 1500,
     chksgn_free_count = 10,
     chksgn_gas_price = 4000,
+    p256_chksgn_gas_price = 3500,
 
     bls_verify_gas_price = 61300,
     bls_aggregate_base_gas_price = -2645,
