@@ -264,6 +264,7 @@ std::ostream& operator<<(std::ostream& os, const Continuation& cont) {
       os << td::buffer_to_hex(boc.move_as_ok().as_slice());
     }
   }
+  return os;
 }
 
 bool QuitCont::serialize(CellBuilder& cb) const {
