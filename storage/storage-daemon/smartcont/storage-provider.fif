@@ -143,7 +143,7 @@ PROGRAM{
     IFJMP:<{	//  msg_value sender_address op query_id in_msg_body
       s2 POP	//  msg_value sender_address in_msg_body query_id
       s0 s3 XCHG
-      50000000 PUSHINT	//  query_id sender_address in_msg_body msg_value _29=50000000
+      60000000 PUSHINT	//  query_id sender_address in_msg_body msg_value _29=60000000
       GEQ	//  query_id sender_address in_msg_body _30
       1001 THROWIFNOT
       LDREF	//  query_id sender_address torrent_info in_msg_body
