@@ -28,7 +28,7 @@ class RootDb;
 
 class ArchiveManager : public td::actor::Actor {
  public:
-  ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root);
+  ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root, td::Ref<ValidatorManagerOptions> opts);
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
@@ -164,6 +164,7 @@ class ArchiveManager : public td::actor::Actor {
     void shard_index_del(const FileDescription &desc);
   };
   FileMap files_, key_files_, temp_files_;
+  td::actor::ActorOwn<ArchiveLru> archive_lru_;
   BlockSeqno finalized_up_to_{0};
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
@@ -206,6 +207,7 @@ class ArchiveManager : public td::actor::Actor {
   void got_gc_masterchain_handle(ConstBlockHandle handle, FileHash hash);
 
   std::string db_root_;
+  td::Ref<ValidatorManagerOptions> opts_;
 
   std::shared_ptr<td::KeyValue> index_;
 

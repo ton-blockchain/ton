@@ -55,7 +55,9 @@ std::string PackageId::name() const {
   }
 }
 
-ArchiveManager::ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root) : db_root_(db_root) {
+ArchiveManager::ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root,
+                               td::Ref<ValidatorManagerOptions> opts)
+    : db_root_(db_root), opts_(opts) {
 }
 
 void ArchiveManager::add_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -598,7 +600,8 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_);
+  desc.file =
+      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get());
 
   m.emplace(id, std::move(desc));
 }
@@ -631,7 +634,8 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
   FileDescription new_desc{id, false};
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
-  new_desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_);
+  new_desc.file =
+      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get());
   const FileDescription &desc = f.emplace(id, std::move(new_desc));
   if (!id.temp) {
     update_desc(f, desc, shard, seqno, ts, lt);
@@ -820,6 +824,9 @@ void ArchiveManager::start_up() {
   td::mkdir(db_root_ + "/archive/states/").ensure();
   td::mkdir(db_root_ + "/files/").ensure();
   td::mkdir(db_root_ + "/files/packages/").ensure();
+  if (opts_->get_max_open_archive_files() > 0) {
+    archive_lru_ = td::actor::create_actor<ArchiveLru>("archive_lru", opts_->get_max_open_archive_files());
+  }
   index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex").move_as_ok());
   std::string value;
   auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);

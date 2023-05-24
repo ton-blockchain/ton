@@ -138,7 +138,6 @@ class RootDb : public Db {
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;
-
   std::string root_path_;
   td::Ref<ValidatorManagerOptions> opts_;
 
