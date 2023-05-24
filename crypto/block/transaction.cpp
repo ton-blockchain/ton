@@ -1081,7 +1081,13 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (cfg.vm_log_verbosity > 1) {
       vm_log.log_mask |= vm::VmLog::ExecLocation;
       if (cfg.vm_log_verbosity > 2) {
-        vm_log.log_mask |= vm::VmLog::DumpStack | vm::VmLog::GasRemaining;
+        vm_log.log_mask |= vm::VmLog::GasRemaining;
+        if (cfg.vm_log_verbosity > 3) {
+          vm_log.log_mask |= vm::VmLog::DumpStack;
+          if (cfg.vm_log_verbosity > 4) {
+            vm_log.log_mask |= vm::VmLog::DumpStackVerbose;
+          }
+        }
       }
     }
   }

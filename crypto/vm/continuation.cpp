@@ -22,6 +22,8 @@
 #include "vm/log.h"
 #include "vm/vm.h"
 #include "vm/vmstate.h"
+#include "vm/boc.h"
+#include "td/utils/misc.h"
 
 namespace vm {
 
@@ -254,6 +256,16 @@ bool Continuation::deserialize_to(Ref<Cell> cell, Ref<Continuation>& cont, int m
   return deserialize_to(cs, cont, mode & ~0x1000) && cs.empty_ext();
 }
 
+std::ostream& operator<<(std::ostream& os, const Continuation& cont) {
+  CellBuilder cb;
+  if (cont.serialize(cb)) {
+    auto boc = vm::std_boc_serialize(cb.finalize());
+    if (boc.is_ok()) {
+      os << td::buffer_to_hex(boc.move_as_ok().as_slice());
+    }
+  }
+}
+
 bool QuitCont::serialize(CellBuilder& cb) const {
   // vmc_quit$1000 exit_code:int32 = VmCont;
   return cb.store_long_bool(8, 4) && cb.store_long_bool(exit_code, 32);
@@ -269,6 +281,10 @@ Ref<QuitCont> QuitCont::deserialize(CellSlice& cs, int mode) {
   }
 }
 
+std::string QuitCont::type() const {
+  return "vmc_quit";
+}
+
 int ExcQuitCont::jump(VmState* st) const & {
   int n = 0;
   try {
@@ -278,6 +294,10 @@ int ExcQuitCont::jump(VmState* st) const & {
   }
   VM_LOG(st) << "default exception handler, terminating vm with exit code " << n;
   return ~n;
+}
+
+std::string ExcQuitCont::type() const {
+  return "vmc_quit_exc";
 }
 
 bool ExcQuitCont::serialize(CellBuilder& cb) const {
@@ -300,6 +320,10 @@ int PushIntCont::jump_w(VmState* st) & {
   VM_LOG(st) << "execute implicit PUSH " << push_val;
   st->get_stack().push_smallint(push_val);
   return st->jump(std::move(next));
+}
+
+std::string PushIntCont::type() const {
+  return "vmc_pushint";
 }
 
 bool PushIntCont::serialize(CellBuilder& cb) const {
@@ -353,6 +377,10 @@ Ref<ArgContExt> ArgContExt::deserialize(CellSlice& cs, int mode) {
              : Ref<ArgContExt>{};
 }
 
+std::string ArgContExt::type() const {
+  return "vmc_envelope";
+}
+
 int RepeatCont::jump(VmState* st) const & {
   VM_LOG(st) << "repeat " << count << " more times (slow)\n";
   if (count <= 0) {
@@ -401,6 +429,10 @@ Ref<RepeatCont> RepeatCont::deserialize(CellSlice& cs, int mode) {
   }
 }
 
+std::string RepeatCont::type() const {
+  return "vmc_repeat";
+}
+
 int VmState::repeat(Ref<Continuation> body, Ref<Continuation> after, long long count) {
   if (count <= 0) {
     body.clear();
@@ -442,6 +474,10 @@ Ref<AgainCont> AgainCont::deserialize(CellSlice& cs, int mode) {
   } else {
     return {};
   }
+}
+
+std::string AgainCont::type() const {
+  return "vmc_again";
 }
 
 int VmState::again(Ref<Continuation> body) {
@@ -491,6 +527,10 @@ Ref<UntilCont> UntilCont::deserialize(CellSlice& cs, int mode) {
   } else {
     return {};
   }
+}
+
+std::string UntilCont::type() const {
+  return "vmc_until";
 }
 
 int VmState::until(Ref<Continuation> body, Ref<Continuation> after) {
@@ -575,6 +615,10 @@ Ref<WhileCont> WhileCont::deserialize(CellSlice& cs, int mode) {
   }
 }
 
+std::string WhileCont::type() const {
+  return chkcond ? "vmc_while_cond" : "vmc_while_body";
+}
+
 int VmState::loop_while(Ref<Continuation> cond, Ref<Continuation> body, Ref<Continuation> after) {
   if (!cond->has_c0()) {
     set_c0(Ref<WhileCont>{true, cond, std::move(body), std::move(after), true});
@@ -608,6 +652,10 @@ Ref<OrdCont> OrdCont::deserialize(CellSlice& cs, int mode) {
                  val.is(StackEntry::t_slice)
              ? Ref<OrdCont>{true, std::move(val).as_slice(), std::move(cdata)}
              : Ref<OrdCont>{};
+}
+
+std::string OrdCont::type() const {
+  return "vmc_std";
 }
 
 }  // namespace vm

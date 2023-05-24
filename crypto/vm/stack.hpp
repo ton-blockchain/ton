@@ -292,8 +292,8 @@ class StackEntry {
   }
   bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
   void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
-  void dump(std::ostream& os) const;
-  void print_list(std::ostream& os) const;
+  void dump(std::ostream& os, bool verbose = false) const;
+  void print_list(std::ostream& os, bool verbose = false) const;
   std::string to_string() const;
   std::string to_lisp_string() const;
 
@@ -558,7 +558,7 @@ class Stack : public td::CntObject {
   }
   bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
   void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
-  // mode: +1 = add eoln, +2 = Lisp-style lists
+  // mode: +1 = add eoln, +2 = Lisp-style lists, +4 = serialized bocs
   void dump(std::ostream& os, int mode = 1) const;
   bool serialize(vm::CellBuilder& cb, int mode = 0) const;
   bool deserialize(vm::CellSlice& cs, int mode = 0);
