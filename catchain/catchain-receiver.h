@@ -56,7 +56,7 @@ class CatChainReceiver : public CatChainReceiverInterface {
   virtual void run_block(CatChainReceivedBlock *block) = 0;
   virtual void deliver_block(CatChainReceivedBlock *block) = 0;
   virtual td::uint32 add_fork() = 0;
-  virtual void add_prepared_event(td::BufferSlice data) = 0;
+  virtual void on_found_fork_proof(td::uint32 source_id, td::BufferSlice data) = 0;
   virtual void on_blame(td::uint32 source_id) = 0;
 
   virtual const CatChainOptions &opts() const = 0;

@@ -159,6 +159,7 @@ struct ActionPhaseConfig {
   const WorkchainSet* workchains{nullptr};
   bool action_fine_enabled{false};
   bool bounce_on_fail_enabled{false};
+  td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -341,6 +342,7 @@ struct Transaction {
   td::RefInt256 due_payment;
   td::RefInt256 in_fwd_fee, msg_fwd_fees;
   block::CurrencyCollection total_fees{0};
+  block::CurrencyCollection blackhole_burned{0};
   ton::UnixTime last_paid;
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;

@@ -671,6 +671,12 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       return false;
   }
   total_fees += in_fwd_fee;
+  if (account.workchain == ton::masterchainId && cfg->mc_blackhole_addr &&
+      cfg->mc_blackhole_addr.value() == account.addr) {
+    blackhole_burned.grams = msg_balance_remaining.grams;
+    msg_balance_remaining.grams = td::zero_refint();
+    LOG(DEBUG) << "Burning " << blackhole_burned.grams << " nanoton (blackhole address)";
+  }
   return true;
 }
 
@@ -1094,7 +1100,13 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (cfg.vm_log_verbosity > 1) {
       vm_log.log_mask |= vm::VmLog::ExecLocation;
       if (cfg.vm_log_verbosity > 2) {
-        vm_log.log_mask |= vm::VmLog::DumpStack | vm::VmLog::GasRemaining;
+        vm_log.log_mask |= vm::VmLog::GasRemaining;
+        if (cfg.vm_log_verbosity > 3) {
+          vm_log.log_mask |= vm::VmLog::DumpStack;
+          if (cfg.vm_log_verbosity > 4) {
+            vm_log.log_mask |= vm::VmLog::DumpStackVerbose;
+          }
+        }
       }
     }
   }
@@ -2775,6 +2787,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->size_limits = size_limits;
     action_phase_cfg->action_fine_enabled = config.get_global_version() >= 4;
     action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
+    action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {
     // fetch block_grams_created

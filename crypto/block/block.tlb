@@ -472,6 +472,19 @@ value_flow#b8e48dfb ^[ from_prev_blk:CurrencyCollection
   minted:CurrencyCollection
   ] = ValueFlow;
 
+value_flow_v2#3ebf98b7 ^[ from_prev_blk:CurrencyCollection
+  to_next_blk:CurrencyCollection
+  imported:CurrencyCollection
+  exported:CurrencyCollection ]
+  fees_collected:CurrencyCollection
+  burned:CurrencyCollection
+  ^[
+  fees_imported:CurrencyCollection
+  recovered:CurrencyCollection
+  created:CurrencyCollection
+  minted:CurrencyCollection
+  ] = ValueFlow;
+
 //
 //
 bt_leaf$0 {X:Type} leaf:X = BinTree X;
@@ -594,6 +607,11 @@ _ elector_addr:bits256 = ConfigParam 1;
 _ minter_addr:bits256 = ConfigParam 2;  // ConfigParam 0 is used if absent
 _ fee_collector_addr:bits256 = ConfigParam 3;  // ConfigParam 1 is used if absent
 _ dns_root_addr:bits256 = ConfigParam 4;  // root TON DNS resolver
+
+burning_config#01
+  blackhole_addr:(Maybe bits256)
+  fee_burn_nom:# fee_burn_denom:# { fee_burn_nom <= fee_burn_denom } { fee_burn_denom >= 1 } = BurningConfig;
+_ BurningConfig = ConfigParam 5;
 
 _ mint_new_price:Grams mint_add_price:Grams = ConfigParam 6;
 _ to_mint:ExtraCurrencyCollection = ConfigParam 7;

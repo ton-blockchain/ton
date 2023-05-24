@@ -33,6 +33,10 @@
 #include "parser/symtable.h"
 #include "td/utils/Status.h"
 
+#define func_assert(expr) \
+  (bool(expr) ? void(0)   \
+              : throw src::Fatal(PSTRING() << "Assertion failed at " << __FILE__ << ":" << __LINE__ << ": " << #expr))
+
 namespace funC {
 
 extern int verbosity;
@@ -310,6 +314,7 @@ struct TmpVar {
   int coord;
   std::unique_ptr<SrcLocation> where;
   std::vector<std::function<void(const SrcLocation &)>> on_modification;
+  bool undefined = false;
   TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
@@ -694,6 +699,7 @@ struct CodeBlob {
   std::unique_ptr<Op>* cur_ops;
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   int flags = 0;
+  bool require_callxargs = false;
   CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
   }
   template <typename... Args>
@@ -1177,7 +1183,7 @@ struct AsmOpList {
   }
   template <typename... Args>
   AsmOpList& add(Args&&... args) {
-    list_.emplace_back(std::forward<Args>(args)...);
+    append(AsmOp(std::forward<Args>(args)...));
     adjust_last();
     return *this;
   }
@@ -1564,8 +1570,8 @@ struct Stack {
   AsmOpList& o;
   enum {
     _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
-    _InlineFunc = 512, _NeedRetAlt = 1024,
-    _ModeSave = _InlineFunc | _NeedRetAlt,
+    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
+    _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
   };
   int mode;
@@ -1612,7 +1618,7 @@ struct Stack {
     if (i > 255) {
       throw src::Fatal{"Too deep stack"};
     }
-    assert(i >= 0 && i < depth() && "invalid stack reference");
+    func_assert(i >= 0 && i < depth() && "invalid stack reference");
   }
   void modified() {
     mode &= ~_Shown;
@@ -1643,14 +1649,24 @@ struct Stack {
   bool operator==(const Stack& y) const & {
     return s == y.s;
   }
-  void apply_wrappers() {
+  void apply_wrappers(int callxargs_count) {
+    bool is_inline = mode & _InlineFunc;
     if (o.retalt_) {
       o.insert(0, "SAMEALTSAVE");
       o.insert(0, "c2 SAVE");
-      if (mode & _InlineFunc) {
-        o.indent_all();
-        o.insert(0, "CONT:<{");
-        o << "}>";
+    }
+    if (callxargs_count != -1 || (is_inline && o.retalt_)) {
+      o.indent_all();
+      o.insert(0, "CONT:<{");
+      o << "}>";
+      if (callxargs_count != -1) {
+        if (callxargs_count <= 15) {
+          o << AsmOp::Custom(PSTRING() << callxargs_count << " -1 CALLXARGS");
+        } else {
+          func_assert(callxargs_count <= 254);
+          o << AsmOp::Custom(PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
+        }
+      } else {
         o << "EXECUTE";
       }
     }

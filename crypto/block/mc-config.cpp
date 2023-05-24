@@ -855,11 +855,12 @@ Ref<McShardHash> McShardHash::from_block(Ref<vm::Cell> block_root, const ton::Fi
   ton::RootHash rhash = block_root->get_hash().bits();
   CurrencyCollection fees_collected, funds_created;
   if (init_fees) {
-    block::gen::ValueFlow::Record flow;
-    if (!(tlb::unpack_cell(rec.value_flow, flow) && fees_collected.unpack(flow.fees_collected) &&
-          funds_created.unpack(flow.r2.created))) {
+    block::ValueFlow flow;
+    if (!flow.unpack(vm::load_cell_slice_ref(rec.value_flow))) {
       return {};
     }
+    fees_collected = flow.fees_collected;
+    funds_created = flow.created;
   }
   return Ref<McShardHash>(true, ton::BlockId{ton::ShardIdFull(shard), (unsigned)info.seq_no}, info.start_lt,
                           info.end_lt, info.gen_utime, rhash, fhash, fees_collected, funds_created, ~0U,
@@ -909,11 +910,12 @@ Ref<McShardDescr> McShardDescr::from_block(Ref<vm::Cell> block_root, Ref<vm::Cel
   ton::RootHash rhash = block_root->get_hash().bits();
   CurrencyCollection fees_collected, funds_created;
   if (init_fees) {
-    block::gen::ValueFlow::Record flow;
-    if (!(tlb::unpack_cell(rec.value_flow, flow) && fees_collected.unpack(flow.fees_collected) &&
-          funds_created.unpack(flow.r2.created))) {
+    block::ValueFlow flow;
+    if (!flow.unpack(vm::load_cell_slice_ref(rec.value_flow))) {
       return {};
     }
+    fees_collected = flow.fees_collected;
+    funds_created = flow.created;
   }
   auto res = Ref<McShardDescr>(true, ton::BlockId{ton::ShardIdFull(shard), (unsigned)info.seq_no}, info.start_lt,
                                info.end_lt, info.gen_utime, rhash, fhash, fees_collected, funds_created, ~0U,
@@ -1952,6 +1954,24 @@ std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime no
     return {};
   }
   return std::make_unique<vm::Dictionary>(rec.addresses->prefetch_ref(), 288);
+}
+
+BurningConfig Config::get_burning_config() const {
+  td::Ref<vm::Cell> param = get_config_param(5);
+  gen::BurningConfig::Record rec;
+  if (param.is_null() || !tlb::unpack_cell(param, rec)) {
+    return {};
+  }
+  BurningConfig c;
+  c.fee_burn_nom = rec.fee_burn_nom;
+  c.fee_burn_denom = rec.fee_burn_denom;
+  vm::CellSlice& addr = rec.blackhole_addr.write();
+  if (addr.fetch_long(1)) {
+    td::Bits256 x;
+    addr.fetch_bits_to(x.bits(), 256);
+    c.blackhole_addr = x;
+  }
+  return c;
 }
 
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {
