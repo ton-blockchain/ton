@@ -59,6 +59,10 @@ public:
     return config_;
   }
 
+  ton::UnixTime get_unixtime() {
+    return unixtime_;
+  }
+
   td::Result<std::unique_ptr<EmulationResult>> emulate_transaction(
       block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, ton::LogicalTime lt, int trans_type);
 
