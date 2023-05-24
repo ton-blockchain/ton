@@ -29,18 +29,23 @@ jobs:
         export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
         
         export ANDROID_NDK_ROOT=$(pwd)/android-ndk-r25b
+        export NDK_PLATFORM="android-21"
+        export ANDROID_PLATFORM="android-21"
         export OPENSSL_DIR=$(pwd)/example/android/third_party/crypto
         
         rm -rf example/android/src/drinkless/org/ton/TonApi.java
         cd example/android/
-        cmake -GNinja -DTON_ONLY_TONLIB=ON . 
+
+        sudo apt install -y libtool autoconf libsodium-dev libsecp256k1-dev
+             
+        cmake -GNinja -DTON_ONLY_TONLIB=ON .
+        
         ninja prepare_cross_compiling
+
+        sudo apt remove -y libsodium-dev libsecp256k1-dev
+
         rm CMakeCache.txt
         ./build-all.sh
-        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/x86/libnative-lib.so
-        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/x86_64/libnative-lib.so
-        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/armeabi-v7a/libnative-lib.so
-        ../../android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip libs/arm64-v8a/libnative-lib.so
         find . -name "*.debug" -type f -delete
 
     - name: Find & copy binaries
@@ -52,5 +57,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: Tonlib JNI libraries for Android
+        name: tonlib-android-jni
         path: artifacts

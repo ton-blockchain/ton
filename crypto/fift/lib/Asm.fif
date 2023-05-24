@@ -32,6 +32,7 @@ false @was-split !
 { 1 { <b swap s, swap 8 i, @addopb } does create } : @Defop(8i)
 { 1 { <b swap s, swap 1- 8 u, @addopb } does create } : @Defop(8u+1)
 { 1 { <b swap s, swap 4 u, @addopb } does create } : @Defop(4u)
+{ 1 { <b swap s, swap 12 u, @addopb } does create } : @Defop(12u)
 { 1 { <b swap s, rot 4 u, swap 4 u, @addopb } does create } : @Defop(4u,4u)
 { 1 { <b swap s, swap ref, @addopb } does create } : @Defop(ref)
 { 1 { <b swap s, rot ref, swap ref, @addopb } does create } : @Defop(ref*2)
@@ -338,6 +339,9 @@ x{A90A} @Defop MODC
 x{A90C} @Defop DIVMOD
 x{A90D} @Defop DIVMODR
 x{A90E} @Defop DIVMODC
+x{A900} @Defop ADDDIVMOD
+x{A901} @Defop ADDDIVMODR
+x{A902} @Defop ADDDIVMODC
 
 x{A925} @Defop RSHIFTR
 x{A926} @Defop RSHIFTC
@@ -347,6 +351,9 @@ x{A92A} @Defop MODPOW2C
 x{A92C} @Defop RSHIFTMOD
 x{A92D} @Defop RSHIFTMODR
 x{A92E} @Defop RSHIFTMODC
+x{A920} @Defop ADDRSHIFTMOD
+x{A921} @Defop ADDRSHIFTMODR
+x{A922} @Defop ADDRSHIFTMODC
 
 x{A935} @Defop(8u+1) RSHIFTR#
 x{A936} @Defop(8u+1) RSHIFTC#
@@ -356,6 +363,9 @@ x{A93A} @Defop(8u+1) MODPOW2C#
 x{A93C} @Defop(8u+1) RSHIFT#MOD
 x{A93D} @Defop(8u+1) RSHIFTR#MOD
 x{A93E} @Defop(8u+1) RSHIFTC#MOD
+x{A930} @Defop(8u+1) ADDRSHIFT#MOD
+x{A931} @Defop(8u+1) ADDRSHIFTR#MOD
+x{A932} @Defop(8u+1) ADDRSHIFTC#MOD
 
 x{A984} @Defop MULDIV
 x{A985} @Defop MULDIVR
@@ -366,6 +376,9 @@ x{A98A} @Defop MULMODC
 x{A98C} @Defop MULDIVMOD
 x{A98D} @Defop MULDIVMODR
 x{A98E} @Defop MULDIVMODC
+x{A980} @Defop MULADDDIVMOD
+x{A981} @Defop MULADDDIVMODR
+x{A982} @Defop MULADDDIVMODC
 
 x{A9A4} @Defop MULRSHIFT
 x{A9A5} @Defop MULRSHIFTR
@@ -376,6 +389,9 @@ x{A9AA} @Defop MULMODPOW2C
 x{A9AC} @Defop MULRSHIFTMOD
 x{A9AD} @Defop MULRSHIFTRMOD
 x{A9AE} @Defop MULRSHIFTCMOD
+x{A9A0} @Defop MULADDRSHIFTMOD
+x{A9A1} @Defop MULADDRSHIFTRMOD
+x{A9A2} @Defop MULADDRSHIFTCMOD
 
 x{A9B4} @Defop(8u+1) MULRSHIFT#
 x{A9B5} @Defop(8u+1) MULRSHIFTR#
@@ -386,6 +402,9 @@ x{A9BA} @Defop(8u+1) MULMODPOW2C#
 x{A9BC} @Defop(8u+1) MULRSHIFT#MOD
 x{A9BD} @Defop(8u+1) MULRSHIFTR#MOD
 x{A9BE} @Defop(8u+1) MULRSHIFTC#MOD
+x{A9B0} @Defop(8u+1) MULADDRSHIFT#MOD
+x{A9B1} @Defop(8u+1) MULADDRSHIFTR#MOD
+x{A9B2} @Defop(8u+1) MULADDRSHIFTC#MOD
 
 x{A9C4} @Defop LSHIFTDIV
 x{A9C5} @Defop LSHIFTDIVR
@@ -396,6 +415,9 @@ x{A9CA} @Defop LSHIFTMODC
 x{A9CC} @Defop LSHIFTDIVMOD
 x{A9CD} @Defop LSHIFTDIVMODR
 x{A9CE} @Defop LSHIFTDIVMODC
+x{A9C0} @Defop LSHIFTADDDIVMOD
+x{A9C1} @Defop LSHIFTADDDIVMODR
+x{A9C2} @Defop LSHIFTADDDIVMODC
 
 x{A9D4} @Defop(8u+1) LSHIFT#DIV
 x{A9D5} @Defop(8u+1) LSHIFT#DIVR
@@ -406,6 +428,9 @@ x{A9DA} @Defop(8u+1) LSHIFT#MODC
 x{A9DC} @Defop(8u+1) LSHIFT#DIVMOD
 x{A9DD} @Defop(8u+1) LSHIFT#DIVMODR
 x{A9DE} @Defop(8u+1) LSHIFT#DIVMODC
+x{A9D0} @Defop(8u+1) LSHIFT#ADDDIVMOD
+x{A9D1} @Defop(8u+1) LSHIFT#ADDDIVMODR
+x{A9D2} @Defop(8u+1) LSHIFT#ADDDIVMODC
 
 x{AA} @Defop(8u+1) LSHIFT#
 x{AB} @Defop(8u+1) RSHIFT#
@@ -443,8 +468,12 @@ x{B7A908} @Defop QMOD
 x{B7A90C} @Defop QDIVMOD
 x{B7A90D} @Defop QDIVMODR
 x{B7A90E} @Defop QDIVMODC
+x{B7A900} @Defop QADDDIVMOD
+x{B7A901} @Defop QADDDIVMODR
+x{B7A902} @Defop QADDDIVMODC
 x{B7A985} @Defop QMULDIVR
 x{B7A98C} @Defop QMULDIVMOD
+x{B7A980} @Defop QADDMULDIVMOD
 x{B7AC} @Defop QLSHIFT
 x{B7AD} @Defop QRSHIFT
 x{B7AE} @Defop QPOW2
@@ -721,6 +750,8 @@ x{DB3C} @Defop(ref) CALLREF
 x{DB3D} @Defop(ref) JMPREF
 x{DB3E} @Defop(ref) JMPREFDATA
 x{DB3F} @Defop RETDATA
+x{DB4} @Defop(12u) RUNVM
+x{DB50} @Defop RUNVMX
 // conditional and iterated execution primitives
 x{DC} @Defop IFRET
 x{DD} @Defop IFNOTRET
@@ -1154,6 +1185,7 @@ x{F4BF} @Defop DICTUGETEXECZ
 
 x{F800} @Defop ACCEPT
 x{F801} @Defop SETGASLIMIT
+x{F802} @Defop GASCONSUMED
 x{F80F} @Defop COMMIT
 
 x{F810} @Defop RANDU256
@@ -1169,9 +1201,16 @@ x{F826} @Defop RANDSEED
 x{F827} @Defop BALANCE
 x{F828} @Defop MYADDR
 x{F829} @Defop CONFIGROOT
+x{F82A} @Defop MYCODE
+x{F82B} @Defop INCOMINGVALUE
+x{F82C} @Defop STORAGEFEES
+x{F82D} @Defop PREVBLOCKSINFOTUPLE
 x{F830} @Defop CONFIGDICT
 x{F832} @Defop CONFIGPARAM
 x{F833} @Defop CONFIGOPTPARAM
+x{F83400} @Defop PREVMCBLOCKS
+x{F83401} @Defop PREVKEYBLOCK
+x{F835} @Defop GLOBALID
 
 x{F840} @Defop GETGLOBVAR
 { dup 1 31 @rangechk <b x{F85_} s, swap 5 u, @addopb } : GETGLOB
@@ -1181,8 +1220,79 @@ x{F860} @Defop SETGLOBVAR
 x{F900} @Defop HASHCU
 x{F901} @Defop HASHSU
 x{F902} @Defop SHA256U
+
+x{F904} @Defop(8u) HASHEXT
+x{F90400} @Defop HASHEXT_SHA256
+x{F90401} @Defop HASHEXT_SHA512
+x{F90402} @Defop HASHEXT_BLAKE2B
+x{F90403} @Defop HASHEXT_KECCAK256
+x{F90404} @Defop HASHEXT_KECCAK512
+x{F905} @Defop(8u) HASHEXTR
+x{F90500} @Defop HASHEXTR_SHA256
+x{F90501} @Defop HASHEXTR_SHA512
+x{F90502} @Defop HASHEXTR_BLAKE2B
+x{F90503} @Defop HASHEXTR_KECCAK256
+x{F90504} @Defop HASHEXTR_KECCAK512
+x{F906} @Defop(8u) HASHEXTA
+x{F90600} @Defop HASHEXTA_SHA256
+x{F90601} @Defop HASHEXTA_SHA512
+x{F90602} @Defop HASHEXTA_BLAKE2B
+x{F90603} @Defop HASHEXTA_KECCAK256
+x{F90604} @Defop HASHEXTA_KECCAK512
+x{F907} @Defop(8u) HASHEXTAR
+x{F90700} @Defop HASHEXTAR_SHA256
+x{F90701} @Defop HASHEXTAR_SHA512
+x{F90702} @Defop HASHEXTAR_BLAKE2B
+x{F90703} @Defop HASHEXTAR_KECCAK256
+x{F90704} @Defop HASHEXTAR_KECCAK512
+
 x{F910} @Defop CHKSIGNU
 x{F911} @Defop CHKSIGNS
+x{F912} @Defop ECRECOVER
+x{F914} @Defop P256_CHKSIGNU
+x{F915} @Defop P256_CHKSIGNS
+
+x{F920} @Defop RIST255_FROMHASH
+x{F921} @Defop RIST255_VALIDATE
+x{F922} @Defop RIST255_ADD
+x{F923} @Defop RIST255_SUB
+x{F924} @Defop RIST255_MUL
+x{F925} @Defop RIST255_MULBASE
+x{F926} @Defop RIST255_PUSHL
+
+x{B7F921} @Defop RIST255_QVALIDATE
+x{B7F922} @Defop RIST255_QADD
+x{B7F923} @Defop RIST255_QSUB
+x{B7F924} @Defop RIST255_QMUL
+x{B7F925} @Defop RIST255_QMULBASE
+
+x{F93000} @Defop BLS_VERIFY
+x{F93001} @Defop BLS_AGGREGATE
+x{F93002} @Defop BLS_FASTAGGREGATEVERIFY
+x{F93003} @Defop BLS_AGGREGATEVERIFY
+
+x{F93010} @Defop BLS_G1_ADD
+x{F93011} @Defop BLS_G1_SUB
+x{F93012} @Defop BLS_G1_NEG
+x{F93013} @Defop BLS_G1_MUL
+x{F93014} @Defop BLS_G1_MULTIEXP
+x{F93015} @Defop BLS_G1_ZERO
+x{F93016} @Defop BLS_MAP_TO_G1
+x{F93017} @Defop BLS_G1_INGROUP
+x{F93018} @Defop BLS_G1_ISZERO
+
+x{F93020} @Defop BLS_G2_ADD
+x{F93021} @Defop BLS_G2_SUB
+x{F93022} @Defop BLS_G2_NEG
+x{F93023} @Defop BLS_G2_MUL
+x{F93024} @Defop BLS_G2_MULTIEXP
+x{F93025} @Defop BLS_G2_ZERO
+x{F93026} @Defop BLS_MAP_TO_G2
+x{F93027} @Defop BLS_G2_INGROUP
+x{F93028} @Defop BLS_G2_ISZERO
+
+x{F93030} @Defop BLS_PAIRING
+x{F93031} @Defop BLS_PUSHR
 
 x{F940} @Defop CDATASIZEQ
 x{F941} @Defop CDATASIZE
@@ -1214,6 +1324,7 @@ x{FB03} @Defop RAWRESERVEX
 x{FB04} @Defop SETCODE
 x{FB06} @Defop SETLIBCODE
 x{FB07} @Defop CHANGELIB
+x{FB08} @Defop SENDMSG
 
 //
 // debug primitives
@@ -1397,7 +1508,7 @@ forget @proclist  forget @proccnt
 { dup "." $pos dup -1 =
      { drop 0 }
      { $| 1 $| nip swap (number) 1- abort"invalid version"
-       dup dup 0 < swap 999 > or abort"invalid version" 
+       dup dup 0 < swap 999 > or abort"invalid version"
      }
      cond
 } : parse-version-level

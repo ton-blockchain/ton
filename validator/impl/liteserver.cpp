@@ -1192,6 +1192,7 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
       return;
     }
     auto rconfig = config.move_as_ok();
+    rconfig->set_block_id_ext(mc_state_->get_block_id());
     acc_state_promise_.set_value(std::make_tuple(
                                   std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)
                                  ));

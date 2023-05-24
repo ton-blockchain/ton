@@ -359,7 +359,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-linux-binaries/libtonlibjson.so.0.5
+          file: artifacts/ton-x86_64-linux-binaries/libtonlibjson.so
           asset_name: tonlibjson-linux-x86_64.so
           tag: ${{ steps.tag.outputs.TAG }}
 

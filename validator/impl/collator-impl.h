@@ -32,6 +32,7 @@
 #include "vm/cells/MerkleUpdate.h"
 #include <map>
 #include <queue>
+#include "common/global-version.h"
 
 namespace ton {
 
@@ -40,7 +41,7 @@ using td::Ref;
 
 class Collator final : public td::actor::Actor {
   static constexpr int supported_version() {
-    return 3;
+    return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;

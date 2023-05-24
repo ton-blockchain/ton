@@ -679,7 +679,7 @@ bool ValidateQuery::try_unpack_mc_state() {
         mc_state_root_,
         block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
             block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
-            block::ConfigInfo::needCapabilities |
+            block::ConfigInfo::needCapabilities | block::ConfigInfo::needPrevBlocks |
             (is_masterchain() ? block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc : 0));
     if (res.is_error()) {
       return fatal_error(-666, "cannot extract configuration from reference masterchain state "s + mc_blkid_.to_str() +
@@ -782,10 +782,20 @@ bool ValidateQuery::fetch_config_params() {
                                                   storage_phase_cfg_.delete_due_limit)) {
       return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
+    storage_phase_cfg_.enable_due_payment = config_->get_global_version() >= 4;
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg_.global_config = config_->get_root_cell();
+    compute_phase_cfg_.global_version = config_->get_global_version();
+    if (compute_phase_cfg_.global_version >= 4) {
+      auto prev_blocks_info = config_->get_prev_blocks_info();
+      if (prev_blocks_info.is_error()) {
+        return fatal_error(prev_blocks_info.move_as_error_prefix(
+            "cannot fetch prev blocks info from masterchain configuration: "));
+      }
+      compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
+    }
     compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
   }
   {
@@ -808,6 +818,8 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.workchains = &config_->get_workchain_list();
     action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
     action_phase_cfg_.size_limits = size_limits;
+    action_phase_cfg_.action_fine_enabled = config_->get_global_version() >= 4;
+    action_phase_cfg_.bounce_on_fail_enabled = config_->get_global_version() >= 4;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
   }
   {
@@ -4507,7 +4519,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits) &&
+  if (trs->bounce_enabled &&
+      (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits || trs->action_phase->bounce) &&
       !trs->prepare_bounce_phase(action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());

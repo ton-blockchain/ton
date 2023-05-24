@@ -28,6 +28,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include "common/global-version.h"
 
 namespace ton {
 
@@ -108,7 +109,7 @@ inline ErrorCtxSet ErrorCtx::set_guard(std::vector<std::string> str_list) {
 
 class ValidateQuery : public td::actor::Actor {
   static constexpr int supported_version() {
-    return 3;
+    return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;

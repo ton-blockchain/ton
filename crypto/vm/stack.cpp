@@ -349,7 +349,7 @@ void StackEntry::for_each_scalar(const std::function<void(const StackEntry&)>& f
   }
 }
 
-const StackEntry& tuple_index(const Tuple& tup, unsigned idx) {
+const StackEntry& tuple_index(const Ref<Tuple>& tup, unsigned idx) {
   if (idx >= tup->size()) {
     throw VmError{Excno::range_chk, "tuple index out of range"};
   }

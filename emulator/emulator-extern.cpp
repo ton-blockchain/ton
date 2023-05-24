@@ -336,6 +336,33 @@ bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool deb
   return true;
 }
 
+bool transaction_emulator_set_prev_blocks_info(void *transaction_emulator, const char* info_boc) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+
+  if (info_boc != nullptr) {
+    auto info_cell = boc_b64_to_cell(info_boc);
+    if (info_cell.is_error()) {
+      LOG(ERROR) << "Can't deserialize previous blocks boc: " << info_cell.move_as_error();
+      return false;
+    }
+    vm::StackEntry info_value;
+    if (!info_value.deserialize(info_cell.move_as_ok())) {
+      LOG(ERROR) << "Can't deserialize previous blocks tuple";
+      return false;
+    }
+    if (info_value.is_null()) {
+      emulator->set_prev_blocks_info({});
+    } else if (info_value.is_tuple()) {
+      emulator->set_prev_blocks_info(info_value.as_tuple());
+    } else {
+      LOG(ERROR) << "Can't set previous blocks tuple: not a tuple";
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void transaction_emulator_destroy(void *transaction_emulator) {
   delete static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 }

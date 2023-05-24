@@ -305,7 +305,7 @@ inline void swap(StackEntry& se1, StackEntry& se2) {
   se1.swap(se2);
 }
 
-const StackEntry& tuple_index(const Tuple& tup, unsigned idx);
+const StackEntry& tuple_index(const Ref<Tuple>& tup, unsigned idx);
 StackEntry tuple_extend_index(const Ref<Tuple>& tup, unsigned idx);
 unsigned tuple_extend_set_index(Ref<Tuple>& tup, unsigned idx, StackEntry&& value, bool force = false);
 

@@ -31,13 +31,16 @@
               openssl_1_1
               zlib
               libmicrohttpd
-            ] else [
+              libsodium
+              secp256k1
+            ] else
+              [
                 (openssl_1_1.override { static = true; }).dev
                 (zlib.override { shared = false; }).dev
             ]
-            ++ optionals (!stdenv.isDarwin) [ pkgsStatic.libmicrohttpd.dev ]
+            ++ optionals (!stdenv.isDarwin) [ pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev secp256k1 ]
             ++ optionals stdenv.isDarwin [ (libiconv.override { enableStatic = true; enableShared = false; }) ]
-            ++ optionals stdenv.isDarwin (forEach [ libmicrohttpd.dev gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev libtasn1.dev libidn2.dev libunistring.dev gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
+            ++ optionals stdenv.isDarwin (forEach [ libmicrohttpd.dev libsodium.dev secp256k1 gmp.dev nettle.dev (gnutls.override { withP11-kit = false; }).dev libtasn1.dev libidn2.dev libunistring.dev gettext ] (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" ]; dontDisableStatic = true; })))
             ++ optionals staticGlibc [ glibc.static ];
 
           dontAddStaticConfigureFlags = stdenv.isDarwin;

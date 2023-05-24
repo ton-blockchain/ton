@@ -384,7 +384,7 @@ action_reserve_currency#36e6b809 mode:(## 8)
   currency:CurrencyCollection = OutAction;
 libref_hash$0 lib_hash:bits256 = LibRef;
 libref_ref$1 library:^Cell = LibRef;
-action_change_library#26fa1dd4 mode:(## 7) { mode <= 2 }
+action_change_library#26fa1dd4 mode:(## 7)
   libref:LibRef = OutAction;
 
 out_list_node$_ prev:^Cell action:OutAction = OutListNode;
@@ -685,6 +685,8 @@ _ min_stake:Grams max_stake:Grams min_total_stake:Grams max_stake_factor:uint32 
 _#cc utime_since:uint32 bit_price_ps:uint64 cell_price_ps:uint64 
   mc_bit_price_ps:uint64 mc_cell_price_ps:uint64 = StoragePrices;
 _ (Hashmap 32 StoragePrices) = ConfigParam 18;
+
+_ global_id:int32 = ConfigParam 19;
 
 gas_prices#dd gas_price:uint64 gas_limit:uint64 gas_credit:uint64 
   block_gas_limit:uint64 freeze_due_limit:uint64 delete_due_limit:uint64 

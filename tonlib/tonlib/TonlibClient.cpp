@@ -847,8 +847,9 @@ class Query {
           return td::Status::Error("estimate_fee: action_set_code unsupported");
         case block::gen::OutAction::action_send_msg: {
           block::gen::OutAction::Record_action_send_msg act_rec;
-          // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message, +1 = pay message fees, +2 = skip if message cannot be sent
-          if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+          // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message,
+          // +1 = pay message fees, +2 = skip if message cannot be sent, +16 = bounce if action fails
+          if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xf3) || (act_rec.mode & 0xc0) == 0xc0) {
             return td::Status::Error("estimate_fee: can't parse send_msg");
           }
           block::gen::MessageRelaxed::Record msg;
@@ -1874,12 +1875,12 @@ class RunEmulator : public td::actor::Actor {
       return;
     }
 
-    auto r_config = block::Config::extract_from_state(mc_state_root_, 0b11'11111111);
+    auto r_config = block::ConfigInfo::extract_config(mc_state_root_, 0b11'11111111);
     if (r_config.is_error()) {
       check(r_config.move_as_error());
       return;
     }
-    std::unique_ptr<block::Config> config = r_config.move_as_ok();
+    std::unique_ptr<block::ConfigInfo> config = r_config.move_as_ok();
 
     block::gen::ShardStateUnsplit::Record shard_state;
     if (!tlb::unpack_cell(mc_state_root_, shard_state)) {
@@ -1904,7 +1905,13 @@ class RunEmulator : public td::actor::Actor {
       return;
     }
 
+    auto prev_blocks_info = config->get_prev_blocks_info();
+    if (prev_blocks_info.is_error()) {
+      check(prev_blocks_info.move_as_error());
+      return;
+    }
     emulator::TransactionEmulator trans_emulator(std::move(*config));
+    trans_emulator.set_prev_blocks_info(prev_blocks_info.move_as_ok());
     trans_emulator.set_libs(std::move(libraries));
     trans_emulator.set_rand_seed(block_id_.rand_seed);
     td::Result<emulator::TransactionEmulator::EmulationChain> emulation_result = trans_emulator.emulate_transactions_chain(std::move(account), std::move(transactions_));

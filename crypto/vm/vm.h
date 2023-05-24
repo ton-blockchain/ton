@@ -80,6 +80,8 @@ struct CommittedState {
   bool committed{false};
 };
 
+struct ParentVmState;
+
 class VmState final : public VmStateInterface {
   Ref<CellSlice> code;
   Ref<Stack> stack;
@@ -93,11 +95,13 @@ class VmState final : public VmStateInterface {
   GasLimits gas;
   std::vector<Ref<Cell>> libraries;
   td::HashSet<CellHash> loaded_cells;
-  td::int64 loaded_cells_count{0};
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   td::ConstBitPtr missing_library{0};
   td::uint16 max_data_depth = 512; // Default value
+  int global_version{0};
+  size_t chksgn_counter = 0;
+  std::unique_ptr<ParentVmState> parent = nullptr;
 
  public:
   enum {
@@ -109,7 +113,51 @@ class VmState final : public VmStateInterface {
     implicit_jmpref_gas_price = 10,
     implicit_ret_gas_price = 5,
     free_stack_depth = 32,
-    stack_entry_gas_price = 1
+    stack_entry_gas_price = 1,
+    runvm_gas_price = 40,
+    hash_ext_entry_gas_price = 1,
+
+    rist255_mul_gas_price = 2000,
+    rist255_mulbase_gas_price = 750,
+    rist255_add_gas_price = 600,
+    rist255_fromhash_gas_price = 600,
+    rist255_validate_gas_price = 200,
+
+    ecrecover_gas_price = 1500,
+    chksgn_free_count = 10,
+    chksgn_gas_price = 4000,
+    p256_chksgn_gas_price = 3500,
+
+    bls_verify_gas_price = 61300,
+    bls_aggregate_base_gas_price = -2645,
+    bls_aggregate_element_gas_price = 4355,
+    bls_fast_aggregate_verify_base_gas_price = 58400,
+    bls_fast_aggregate_verify_element_gas_price = 2990,
+    bls_aggregate_verify_base_gas_price = 37275,
+    bls_aggregate_verify_element_gas_price = 22290,
+
+    bls_g1_add_sub_gas_price = 3925,
+    bls_g1_neg_gas_price = 765,
+    bls_g1_mul_gas_price = 5180,
+    bls_map_to_g1_gas_price = 2330,
+    bls_g1_in_group_gas_price = 2930,
+
+    bls_g2_add_sub_gas_price = 6100,
+    bls_g2_neg_gas_price = 1550,
+    bls_g2_mul_gas_price = 10530,
+    bls_map_to_g2_gas_price = 7970,
+    bls_g2_in_group_gas_price = 4255,
+
+    // multiexp gas = base + n * coef1 + n/floor(max(log2(n), 4)) * coef2
+    bls_g1_multiexp_base_gas_price = 11375,
+    bls_g1_multiexp_coef1_gas_price = 630,
+    bls_g1_multiexp_coef2_gas_price = 8820,
+    bls_g2_multiexp_base_gas_price = 30388,
+    bls_g2_multiexp_coef1_gas_price = 1280,
+    bls_g2_multiexp_coef2_gas_price = 22840,
+
+    bls_pairing_base_gas_price = 20000,
+    bls_pairing_element_gas_price = 11770
   };
   VmState();
   VmState(Ref<CellSlice> _code);
@@ -122,9 +170,9 @@ class VmState final : public VmStateInterface {
       : VmState(convert_code_cell(std::move(code_cell)), std::forward<Args>(args)...) {
   }
   VmState(const VmState&) = delete;
-  VmState(VmState&&) = delete;
+  VmState(VmState&&) = default;
   VmState& operator=(const VmState&) = delete;
-  VmState& operator=(VmState&&) = delete;
+  VmState& operator=(VmState&&) = default;
   bool set_gas_limits(long long _max, long long _limit, long long _credit = 0);
   bool final_gas_ok() const {
     return gas.final_ok();
@@ -138,8 +186,15 @@ class VmState final : public VmStateInterface {
   const CommittedState& get_committed_state() const {
     return cstate;
   }
+  void consume_gas_chk(long long amount) {
+    gas.consume_chk(amount);
+  }
   void consume_gas(long long amount) {
-    gas.consume(amount);
+    if (global_version >= 4) {
+      gas.consume_chk(amount);
+    } else {
+      gas.consume(amount);
+    }
   }
   void consume_tuple_gas(unsigned tuple_len) {
     consume_gas(tuple_len * tuple_entry_gas_price);
@@ -283,6 +338,12 @@ class VmState final : public VmStateInterface {
   void preclear_cr(const ControlRegs& save) {
     cr &= save;
   }
+  int get_global_version() const {
+    return global_version;
+  }
+  void set_global_version(int version) {
+    global_version = version;
+  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
@@ -328,17 +389,36 @@ class VmState final : public VmStateInterface {
   void set_max_data_depth(td::uint16 depth) {
     max_data_depth = depth;
   }
+  void run_child_vm(VmState&& new_state, bool return_data, bool return_actions, bool return_gas, bool isolate_gas,
+                    int ret_vals);
+  void restore_parent_vm(int res);
+
+  void register_chksgn_call() {
+    if (global_version >= 4) {
+      ++chksgn_counter;
+      if (chksgn_counter > chksgn_free_count) {
+        consume_gas(chksgn_gas_price);
+      }
+    }
+  }
 
  private:
   void init_cregs(bool same_c3 = false, bool push_0 = true);
+  int run_inner();
+};
+
+struct ParentVmState {
+  VmState state;
+  bool return_data, return_actions, return_gas, isolate_gas;
+  int ret_vals;
 };
 
 int run_vm_code(Ref<CellSlice> _code, Ref<Stack>& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr);
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr, int global_version = 0);
 int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* data_ptr = nullptr, VmLog log = {},
                 long long* steps = nullptr, GasLimits* gas_limits = nullptr, std::vector<Ref<Cell>> libraries = {},
-                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr);
+                Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr, int global_version = 0);
 
 Ref<vm::Cell> lookup_library_in(td::ConstBitPtr key, Ref<vm::Cell> lib_root);
 
