@@ -1688,13 +1688,23 @@ void LiteQuery::continue_getConfigParams(int mode, std::vector<int> param_list) 
     }
   }
 
-  auto res = keyblk ? block::Config::extract_from_key_block(mpb.root(), mode)
-                    : block::Config::extract_from_state(mpb.root(), mode);
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
-    return;
+  std::unique_ptr<block::Config> cfg;
+  if (keyblk || !(mode & block::ConfigInfo::needPrevBlocks)) {
+    auto res = keyblk ? block::Config::extract_from_key_block(mpb.root(), mode)
+                      : block::Config::extract_from_state(mpb.root(), mode);
+    if (res.is_error()) {
+      fatal_error(res.move_as_error());
+      return;
+    }
+    cfg = res.move_as_ok();
+  } else {
+    auto res = block::ConfigInfo::extract_config(mpb.root(), mode);
+    if (res.is_error()) {
+      fatal_error(res.move_as_error());
+      return;
+    }
+    cfg = res.move_as_ok();
   }
-  auto cfg = res.move_as_ok();
   if (!cfg) {
     fatal_error("cannot extract configuration from last mc state");
     return;
@@ -1706,6 +1716,9 @@ void LiteQuery::continue_getConfigParams(int mode, std::vector<int> param_list) 
       for (int i : param_list) {
         visit(cfg->get_config_param(i));
       }
+    }
+    if (!keyblk && mode & block::ConfigInfo::needPrevBlocks) {
+      ((block::ConfigInfo*)cfg.get())->get_prev_blocks_info();
     }
   } catch (vm::VmError& err) {
     fatal_error("error while traversing required configuration parameters: "s + err.get_msg());

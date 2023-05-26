@@ -30,6 +30,7 @@
 namespace tonlib {
 struct LastConfigState {
   std::shared_ptr<const block::Config> config;
+  td::Ref<vm::Tuple> prev_blocks_info;
 };
 
 td::StringBuilder& operator<<(td::StringBuilder& sb, const LastConfigState& state);

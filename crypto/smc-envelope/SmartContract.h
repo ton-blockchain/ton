@@ -70,6 +70,7 @@ class SmartContract : public td::CntObject {
     td::optional<block::StdAddress> address;
     td::optional<std::shared_ptr<const block::Config>> config;
     td::optional<vm::Dictionary> libraries;
+    td::optional<td::Ref<vm::Tuple>> prev_blocks_info;
 
     Args() {
     }
@@ -124,12 +125,20 @@ class SmartContract : public td::CntObject {
       this->address = address;
       return std::move(*this);
     }
-    Args&& set_config(std::shared_ptr<const block::Config>& config) {
+    Args&& set_config(const std::shared_ptr<const block::Config>& config) {
       this->config = config;
       return std::move(*this);
     }
     Args&& set_libraries(vm::Dictionary libraries) {
       this->libraries = libraries;
+      return std::move(*this);
+    }
+    Args&& set_prev_blocks_info(td::Ref<vm::Tuple> tuple) {
+      if (tuple.is_null()) {
+        this->prev_blocks_info = {};
+      } else {
+        this->prev_blocks_info = std::move(tuple);
+      }
       return std::move(*this);
     }
     Args&& set_vm_verbosity_level(int vm_log_verbosity_level) {
