@@ -33,6 +33,10 @@ public:
     }
   }
 
+  void set_prev_blocks_info(td::Ref<vm::Tuple> tuple) {
+    args_.set_prev_blocks_info(std::move(tuple));
+  }
+
   void set_debug_enabled(bool debug_enabled) {
     args_.set_debug_enabled(debug_enabled);
   }

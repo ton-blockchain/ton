@@ -120,7 +120,7 @@ td::Ref<vm::Stack> prepare_vm_stack(td::RefInt256 amount, td::Ref<vm::CellSlice>
   return stack_ref;
 }
 
-td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
+td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> code) {
   td::BitArray<256> rand_seed;
   if (args.rand_seed) {
     rand_seed = args.rand_seed.unwrap();
@@ -139,10 +139,7 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
   if (args.address) {
     td::BigInt256 dest_addr;
     dest_addr.import_bits((*args.address).addr.as_bitslice());
-    cb.store_ones(1)
-        .store_zeroes(2)
-        .store_long((*args.address).workchain, 8)
-        .store_int256(dest_addr, 256);
+    cb.store_ones(1).store_zeroes(2).store_long((*args.address).workchain, 8).store_int256(dest_addr, 256);
   }
   auto address = cb.finalize();
   auto config = td::Ref<vm::Cell>();
@@ -151,20 +148,32 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args) {
     config = (*args.config)->get_root_cell();
   }
 
-  auto tuple = vm::make_tuple_ref(
-      td::make_refint(0x076ef1ea),                           // [ magic:0x076ef1ea
-      td::make_refint(0),                                    //   actions:Integer
-      td::make_refint(0),                                    //   msgs_sent:Integer
-      td::make_refint(now),                                  //   unixtime:Integer
-      td::make_refint(0),             //TODO:                //   block_lt:Integer
-      td::make_refint(0),             //TODO:                //   trans_lt:Integer
-      std::move(rand_seed_int),                              //   rand_seed:Integer
-      block::CurrencyCollection(args.balance).as_vm_tuple(),      //   balance_remaining:[Integer (Maybe Cell)]
-      vm::load_cell_slice_ref(address),  //  myself:MsgAddressInt
-      vm::StackEntry::maybe(config)       //vm::StackEntry::maybe(td::Ref<vm::Cell>())
-  );                                                         //  global_config:(Maybe Cell) ] = SmartContractInfo;
+  std::vector<vm::StackEntry> tuple = {
+      td::make_refint(0x076ef1ea),                            // [ magic:0x076ef1ea
+      td::make_refint(0),                                     //   actions:Integer
+      td::make_refint(0),                                     //   msgs_sent:Integer
+      td::make_refint(now),                                   //   unixtime:Integer
+      td::make_refint(0),              //TODO:                //   block_lt:Integer
+      td::make_refint(0),              //TODO:                //   trans_lt:Integer
+      std::move(rand_seed_int),                               //   rand_seed:Integer
+      block::CurrencyCollection(args.balance).as_vm_tuple(),  //   balance_remaining:[Integer (Maybe Cell)]
+      vm::load_cell_slice_ref(address),                       //  myself:MsgAddressInt
+      vm::StackEntry::maybe(config)                           //vm::StackEntry::maybe(td::Ref<vm::Cell>())
+  };
+  if (args.config && args.config.value()->get_global_version() >= 4) {
+    tuple.push_back(code.not_null() ? code : vm::StackEntry{});        // code:Cell
+    tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
+    tuple.push_back(td::zero_refint());                                // storage_fees:Integer
+
+    // See crypto/block/mc-config.cpp#2115 (get_prev_blocks_info)
+    // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
+    // [ last_mc_blocks:[BlockId...]
+    //   prev_key_block:BlockId ] : PrevBlocksInfo
+    tuple.push_back(args.prev_blocks_info ? args.prev_blocks_info.value() : vm::StackEntry{});  // prev_block_info
+  }
+  auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
-  return vm::make_tuple_ref(std::move(tuple));
+  return vm::make_tuple_ref(std::move(tuple_ref));
 }
 
 SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7,
@@ -282,7 +291,7 @@ td::Ref<vm::Cell> SmartContract::get_init_state() const {
 
 SmartContract::Answer SmartContract::run_method(Args args) {
   if (!args.c7) {
-    args.c7 = prepare_vm_c7(args);
+    args.c7 = prepare_vm_c7(args, state_.code);
   }
   if (!args.limits) {
     bool is_internal = args.get_method_id().ok() == 0;
@@ -302,7 +311,7 @@ SmartContract::Answer SmartContract::run_method(Args args) {
 
 SmartContract::Answer SmartContract::run_get_method(Args args) const {
   if (!args.c7) {
-    args.c7 = prepare_vm_c7(args);
+    args.c7 = prepare_vm_c7(args, state_.code);
   }
   if (!args.limits) {
     args.limits = vm::GasLimits{1000000, 1000000};

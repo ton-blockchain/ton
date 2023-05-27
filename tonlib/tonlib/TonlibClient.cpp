@@ -890,8 +890,10 @@ class Query {
     }
     return res;
   }
-  td::Result<std::pair<Fee, std::vector<Fee>>> estimate_fees(bool ignore_chksig, std::shared_ptr<const block::Config>& cfg, vm::Dictionary& libraries) {
+  td::Result<std::pair<Fee, std::vector<Fee>>> estimate_fees(bool ignore_chksig, const LastConfigState& state,
+                                                             vm::Dictionary& libraries) {
     // gas fees
+    const auto& cfg = state.config;
     bool is_masterchain = raw_.source->get_address().workchain == ton::masterchainId;
     TRY_RESULT(gas_limits_prices, cfg->get_gas_limits_prices(is_masterchain));
     TRY_RESULT(storage_prices, cfg->get_storage_prices());
@@ -919,7 +921,9 @@ class Query {
                                                                         .set_now(raw_.source->get_sync_time())
                                                                         .set_ignore_chksig(ignore_chksig)
                                                                         .set_address(raw_.source->get_address())
-                                                                        .set_config(cfg).set_libraries(libraries));
+                                                                        .set_config(cfg)
+                                                                        .set_prev_blocks_info(state.prev_blocks_info)
+                                                                        .set_libraries(libraries));
     td::int64 fwd_fee = 0;
     if (res.success) {
       LOG(DEBUG) << "output actions:\n"
@@ -4109,7 +4113,7 @@ void TonlibClient::query_estimate_fees(td::int64 id, bool ignore_chksig, td::Res
     return;
   }
   TRY_RESULT_PROMISE(promise, state, std::move(r_state));
-  TRY_RESULT_PROMISE_PREFIX(promise, fees, TRY_VM(it->second->estimate_fees(ignore_chksig, state.config, libraries)),
+  TRY_RESULT_PROMISE_PREFIX(promise, fees, TRY_VM(it->second->estimate_fees(ignore_chksig, state, libraries)),
                             TonlibError::Internal());
   promise.set_value(tonlib_api::make_object<tonlib_api::query_fees>(
       fees.first.to_tonlib_api(), td::transform(fees.second, [](auto& x) { return x.to_tonlib_api(); })));
@@ -4474,6 +4478,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
   ](td::Result<LastConfigState> r_state) mutable {
     TRY_RESULT_PROMISE(promise, state, std::move(r_state));
     args.set_config(state.config);
+    args.set_prev_blocks_info(state.prev_blocks_info);
 
     auto code = smc->get_state().code;
     if (code.not_null()) {

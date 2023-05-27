@@ -448,6 +448,33 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
   return true;
 }
 
+bool tvm_emulator_set_prev_blocks_info(void *tvm_emulator, const char* info_boc) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+
+  if (info_boc != nullptr) {
+    auto info_cell = boc_b64_to_cell(info_boc);
+    if (info_cell.is_error()) {
+      LOG(ERROR) << "Can't deserialize previous blocks boc: " << info_cell.move_as_error();
+      return false;
+    }
+    vm::StackEntry info_value;
+    if (!info_value.deserialize(info_cell.move_as_ok())) {
+      LOG(ERROR) << "Can't deserialize previous blocks tuple";
+      return false;
+    }
+    if (info_value.is_null()) {
+      emulator->set_prev_blocks_info({});
+    } else if (info_value.is_tuple()) {
+      emulator->set_prev_blocks_info(info_value.as_tuple());
+    } else {
+      LOG(ERROR) << "Can't set previous blocks tuple: not a tuple";
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_limit) {
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   emulator->set_gas_limit(gas_limit);
