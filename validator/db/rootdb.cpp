@@ -497,8 +497,8 @@ void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
 }
 
-void RootDb::run_gc(UnixTime ts, UnixTime archive_ttl) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, ts, archive_ttl);
+void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, mc_ts, gc_ts, archive_ttl);
 }
 
 }  // namespace validator

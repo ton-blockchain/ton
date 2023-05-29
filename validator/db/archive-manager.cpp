@@ -887,8 +887,8 @@ void ArchiveManager::start_up() {
   persistent_state_gc(FileHash::zero());
 }
 
-void ArchiveManager::run_gc(UnixTime ts, UnixTime archive_ttl) {
-  auto p = get_temp_package_id_by_unixtime(ts);
+void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
+  auto p = get_temp_package_id_by_unixtime(std::max(gc_ts, mc_ts - TEMP_PACKAGES_TTL));
   std::vector<PackageId> vec;
   for (auto &x : temp_files_) {
     if (x.first < p) {
@@ -916,7 +916,7 @@ void ArchiveManager::run_gc(UnixTime ts, UnixTime archive_ttl) {
       if (it == desc.first_blocks.end()) {
         continue;
       }
-      if (it->second.ts < ts - archive_ttl) {
+      if (it->second.ts < gc_ts - archive_ttl) {
         vec.push_back(f.first);
       }
     }
