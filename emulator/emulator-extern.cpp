@@ -422,7 +422,9 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
       LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell.move_as_error();
       return false;
     }
-    global_config = std::make_shared<block::Config>(config_params_cell.move_as_ok(), td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc);
+    global_config = std::make_shared<block::Config>(
+        config_params_cell.move_as_ok(), td::Bits256::zero(),
+        block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
     auto unpack_res = global_config->unpack();
     if (unpack_res.is_error()) {
       LOG(ERROR) << "Can't unpack config params";
