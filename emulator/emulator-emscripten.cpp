@@ -61,6 +61,7 @@ struct GetMethodParams {
   std::string data;
   int verbosity;
   td::optional<std::string> libs;
+  td::optional<std::string> prev_blocks_info;
   std::string address;
   uint32_t unixtime;
   uint64_t balance;
@@ -89,6 +90,11 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
   TRY_RESULT(libs, td::get_json_object_string_field(obj, "libs", true));
   if (libs.size() > 0) {
     params.libs = libs;
+  }
+
+  TRY_RESULT(prev_blocks_info, td::get_json_object_string_field(obj, "prev_blocks_info", true));
+  if (prev_blocks_info.size() > 0) {
+    params.prev_blocks_info = prev_blocks_info;
   }
 
   TRY_RESULT(address, td::get_json_object_string_field(obj, "address", false));
@@ -187,12 +193,14 @@ const char *run_get_method(const char *params, const char* stack, const char* co
     auto tvm = tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
 
     if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
-        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime,
-          decoded_params.balance, decoded_params.rand_seed_hex.c_str(), config) ||
+        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
+                             decoded_params.rand_seed_hex.c_str(), config) ||
+        (decoded_params.prev_blocks_info &&
+         !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
         (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
         !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
-      tvm_emulator_destroy(tvm);
-      return strdup(R"({"fail":true,"message":"Can't set params"})");
+        tvm_emulator_destroy(tvm);
+        return strdup(R"({"fail":true,"message":"Can't set params"})");
     }
 
     auto res = tvm_emulator_run_get_method(tvm, decoded_params.method_id, stack);
