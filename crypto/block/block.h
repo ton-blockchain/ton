@@ -456,7 +456,7 @@ struct ShardState {
 struct ValueFlow {
   struct SetZero {};
   CurrencyCollection from_prev_blk, to_next_blk, imported, exported, fees_collected, fees_imported, recovered, created,
-      minted;
+      minted, burned;
   ValueFlow() = default;
   ValueFlow(SetZero)
       : from_prev_blk{0}
@@ -467,7 +467,8 @@ struct ValueFlow {
       , fees_imported{0}
       , recovered{0}
       , created{0}
-      , minted{0} {
+      , minted{0}
+      , burned{0} {
   }
   bool is_valid() const {
     return from_prev_blk.is_valid() && minted.is_valid();

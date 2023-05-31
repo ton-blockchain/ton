@@ -1393,7 +1393,13 @@ bool Collator::import_new_shard_top_blocks() {
   }
   LOG(INFO) << "total fees_imported = " << value_flow_.fees_imported.to_str()
             << " ; out of them, total fees_created = " << import_created_.to_str();
-  value_flow_.fees_collected += value_flow_.fees_imported;
+  block::CurrencyCollection burned =
+      config_->get_burning_config().calculate_burned_fees(value_flow_.fees_imported - import_created_);
+  if (!burned.is_valid()) {
+    return fatal_error("cannot calculate amount of burned imported fees");
+  }
+  value_flow_.burned += burned;
+  value_flow_.fees_collected += value_flow_.fees_imported - burned;
   return true;
 }
 
@@ -2208,6 +2214,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
 
   register_new_msgs(*trans);
   update_max_lt(acc->last_trans_end_lt_);
+  value_flow_.burned += trans->blackhole_burned;
   return trans_root;
 }
 
@@ -3733,7 +3740,16 @@ bool Collator::compute_total_balance() {
     LOG(ERROR) << "cannot unpack CurrencyCollection from the root of OutMsgDescr";
     return false;
   }
-  value_flow_.fees_collected += new_transaction_fees + new_import_fees;
+  block::CurrencyCollection total_fees = new_transaction_fees + new_import_fees;
+  value_flow_.fees_collected += total_fees;
+  if (is_masterchain()) {
+    block::CurrencyCollection burned = config_->get_burning_config().calculate_burned_fees(total_fees);
+    if (!burned.is_valid()) {
+      return fatal_error("cannot calculate amount of burned masterchain fees");
+    }
+    value_flow_.fees_collected -= burned;
+    value_flow_.burned += burned;
+  }
   // 3. compute total_validator_fees
   total_validator_fees_ += value_flow_.fees_collected;
   total_validator_fees_ -= value_flow_.recovered;
