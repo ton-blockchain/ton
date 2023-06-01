@@ -45,8 +45,8 @@ jobs:
 
       - name: Install pre-compiled libmicrohttpd Win64
         run: |
-          curl  -Lo libmicrohttpd-latest-w32-bin.zip https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-latest-w32-bin.zip
-          unzip libmicrohttpd-latest-w32-bin.zip
+          curl  -Lo libmicrohttpd-0.9.77-w32-bin.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/libmicrohttpd-0.9.77-w32-bin.zip
+          unzip libmicrohttpd-0.9.77-w32-bin.zip
 
       - name: Compile
         run: |
@@ -54,7 +54,7 @@ jobs:
           echo %root%
           mkdir build
           cd build
-          cmake -DPORTABLE=1 -DZLIB_FOUND=1 -DMHD_FOUND=1 -DMHD_LIBRARY=%root%\libmicrohttpd-0.9.75-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.75-w32-bin\x86_64\VS2019\Release-static -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1.1j/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1.1j/lib/libcrypto_static.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
+          cmake -DPORTABLE=1 -DZLIB_FOUND=1 -DMHD_FOUND=1 -DMHD_LIBRARY=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static -DZLIB_INCLUDE_DIR=%root%\zlib -DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=%root%/openssl-1.1.1j/include -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-1.1.1j/lib/libcrypto_static.lib -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
           cmake --build . --target storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork --config Release
 
       - name: Show executables
