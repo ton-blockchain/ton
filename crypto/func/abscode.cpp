@@ -38,6 +38,9 @@ TmpVar::TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, const Src
   if (!_type) {
     v_type = TypeExpr::new_hole();
   }
+  if (cls == _Named) {
+    undefined = true;
+  }
 }
 
 void TmpVar::set_location(const SrcLocation& loc) {
@@ -179,7 +182,7 @@ void VarDescr::set_const_nan() {
 
 void VarDescr::operator|=(const VarDescr& y) {
   val &= y.val;
-  if (is_int_const() && cmp(int_const, y.int_const) != 0) {
+  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
     val &= ~_Const;
   }
   if (!(val & _Const)) {

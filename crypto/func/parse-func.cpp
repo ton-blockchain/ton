@@ -172,6 +172,10 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
     lex.expect(_Ident, "formal parameter name");
   }
   loc = lex.cur().loc;
+  if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+    throw src::ParseError{
+        loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val) << "` cannot be redefined as a variable"};
+  }
   SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
   if (!new_sym_def) {
     lex.cur().error_at("cannot define symbol `", "`");
@@ -395,9 +399,9 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
     cur.loc.show_error(std::string{"undefined function `"} + symbols.get_name(func_name) +
                        "`, defining a global function of unknown type");
     def = sym::define_global_symbol(func_name, 0, cur.loc);
-    assert(def && "cannot define global function");
+    func_assert(def && "cannot define global function");
     ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_hole());  // was: ... ::new_func()
+    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
     return true;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
@@ -1107,6 +1111,7 @@ blk_fl::val parse_do_stmt(Lexer& lex, CodeBlob& code) {
 }
 
 blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
+  code.require_callxargs = true;
   lex.expect(_Try);
   Op& try_catch_op = code.emplace_back(lex.cur().loc, Op::_TryCatch);
   code.push_set_cur(try_catch_op.block0);
@@ -1128,7 +1133,7 @@ blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
   expr->predefine_vars();
   expr->define_new_vars(code);
   try_catch_op.left = expr->pre_compile(code);
-  assert(try_catch_op.left.size() == 2);
+  func_assert(try_catch_op.left.size() == 2 || try_catch_op.left.size() == 1);
   blk_fl::val res1 = parse_block_stmt(lex, code);
   sym::close_scope(lex);
   code.close_pop_cur(lex.cur().loc);
@@ -1291,7 +1296,7 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
         }
         lex.next();
       }
-      assert(arg_order.size() == (unsigned)tot_width);
+      func_assert(arg_order.size() == (unsigned)tot_width);
     }
     if (lex.tp() == _Mapsto) {
       lex.expect(_Mapsto);
@@ -1369,6 +1374,10 @@ std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
       throw src::ParseError{lex.cur().loc, "free type identifier expected"};
     }
     auto loc = lex.cur().loc;
+    if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+      throw src::ParseError{loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val)
+                                           << "` cannot be redefined as a variable"};
+    }
     SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
     if (!new_sym_def || new_sym_def->value) {
       lex.cur().error_at("redefined type variable `", "`");
@@ -1479,7 +1488,7 @@ void parse_func_def(Lexer& lex) {
     std::cerr << "function " << func_name.str << " : " << func_type << std::endl;
   }
   SymDef* func_sym = sym::define_global_symbol(func_name.val, 0, loc);
-  assert(func_sym);
+  func_assert(func_sym);
   SymValFunc* func_sym_val = dynamic_cast<SymValFunc*>(func_sym->value);
   if (func_sym->value) {
     if (func_sym->value->type != SymVal::_Func || !func_sym_val) {

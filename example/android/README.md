@@ -16,6 +16,10 @@ export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
 
 export ANDROID_NDK_ROOT=$(pwd)/android-ndk-r25b
 export OPENSSL_DIR=$(pwd)/example/android/third_party/crypto
+export SECP256K1_INCLUDE_DIR=$(pwd)/example/android/third_party/secp256k1/include
+export SECP256K1_LIBRARY=$(pwd)/example/android/third_party/secp256k1/.libs/libsecp256k1.a
+export SODIUM_INCLUDE_DIR=$(pwd)/example/android/third_party/libsodium/libsodium-android-westmere/include
+export SODIUM_LIBRARY=$(pwd)/example/android/third_party/libsodium/libsodium-android-westmere/lib/libsodium.a
 
 rm -rf example/android/src/drinkless/org/ton/TonApi.java
 cd example/android/

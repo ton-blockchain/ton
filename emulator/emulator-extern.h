@@ -65,6 +65,22 @@ EMULATOR_EXPORT bool transaction_emulator_set_config(void *transaction_emulator,
 EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, const char* libs_boc);
 
 /**
+ * @brief Enable or disable TVM debug primitives
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param debug_enabled Whether debug primitives should be enabled or not
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool debug_enabled);
+
+/**
+ * @brief Set tuple of previous blocks (13th element of c7)
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param info_boc Base64 encoded BoC serialized TVM tuple (VmStackValue).
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool transaction_emulator_set_prev_blocks_info(void *transaction_emulator, const char* info_boc);
+
+/**
  * @brief Emulate transaction
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
@@ -72,8 +88,9 @@ EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, c
  * @return Json object with error:
  * { 
  *   "success": false, 
- *   "error": "Error description" 
- *   // and optional fields "vm_exit_code" and "vm_log" in case external message was not accepted.
+ *   "error": "Error description",
+ *   "external_not_accepted": false,
+ *   // and optional fields "vm_exit_code", "vm_log", "elapsed_time" in case external message was not accepted.
  * } 
  * Or success:
  * { 
@@ -81,10 +98,34 @@ EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, c
  *   "transaction": "Base64 encoded Transaction boc", 
  *   "shard_account": "Base64 encoded new ShardAccount boc", 
  *   "vm_log": "execute DUP...", 
- *   "actions": "Base64 encoded compute phase actions boc (OutList n)"
+ *   "actions": "Base64 encoded compute phase actions boc (OutList n)",
+ *   "elapsed_time": 0.02
  * }
  */
 EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc);
+
+/**
+ * @brief Emulate tick tock transaction
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param shard_account_boc Base64 encoded BoC serialized ShardAccount of special account
+ * @param is_tock True for tock transactions, false for tick
+ * @return Json object with error:
+ * { 
+ *   "success": false, 
+ *   "error": "Error description",
+ *   "external_not_accepted": false
+ * } 
+ * Or success:
+ * { 
+ *   "success": true, 
+ *   "transaction": "Base64 encoded Transaction boc", 
+ *   "shard_account": "Base64 encoded new ShardAccount boc", 
+ *   "vm_log": "execute DUP...", 
+ *   "actions": "Base64 encoded compute phase actions boc (OutList n)",
+ *   "elapsed_time": 0.02
+ * }
+ */
+EMULATOR_EXPORT const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator, const char *shard_account_boc, bool is_tock);
 
 /**
  * @brief Destroy TransactionEmulator object
@@ -121,10 +162,18 @@ EMULATOR_EXPORT bool tvm_emulator_set_libraries(void *tvm_emulator, const char *
  * @param unixtime Unix timestamp
  * @param balance Smart contract balance
  * @param rand_seed_hex Random seed as hex string of length 64
- * @param config Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
+ * @param config Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell). Optional.
  * @return true in case of success, false in case of error 
  */
 EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *rand_seed_hex, const char *config);
+
+/**
+ * @brief Set tuple of previous blocks (13th element of c7)
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param info_boc Base64 encoded BoC serialized TVM tuple (VmStackValue).
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool tvm_emulator_set_prev_blocks_info(void *tvm_emulator, const char* info_boc);
 
 /**
  * @brief Set TVM gas limit
@@ -133,6 +182,14 @@ EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address
  * @return true in case of success, false in case of error
  */
 EMULATOR_EXPORT bool tvm_emulator_set_gas_limit(void *tvm_emulator, int64_t gas_limit);
+
+/**
+ * @brief Enable or disable TVM debug primitives
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param debug_enabled Whether debug primitives should be enabled or not
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool debug_enabled);
 
 /**
  * @brief Run get method

@@ -28,6 +28,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include "common/global-version.h"
 
 namespace ton {
 
@@ -108,7 +109,7 @@ inline ErrorCtxSet ErrorCtx::set_guard(std::vector<std::string> str_list) {
 
 class ValidateQuery : public td::actor::Actor {
   static constexpr int supported_version() {
-    return 3;
+    return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
@@ -217,7 +218,7 @@ class ValidateQuery : public td::actor::Actor {
 
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict_, out_msg_dict_, account_blocks_dict_;
   block::ValueFlow value_flow_;
-  block::CurrencyCollection import_created_, transaction_fees_;
+  block::CurrencyCollection import_created_, transaction_fees_, total_burned_{0}, fees_burned_{0};
   td::RefInt256 import_fees_;
 
   ton::LogicalTime proc_lt_{0}, claimed_proc_lt_{0}, min_enq_lt_{~0ULL};
@@ -362,6 +363,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::CellSlice> old_val_extra,
                                   Ref<vm::CellSlice> new_val_extra);
   bool check_mc_state_extra();
+  bool postcheck_value_flow();
   td::Status check_counter_update(const block::DiscountedCounter& oc, const block::DiscountedCounter& nc,
                                   unsigned expected_incr);
   bool check_one_block_creator_update(td::ConstBitPtr key, Ref<vm::CellSlice> old_val, Ref<vm::CellSlice> new_val);

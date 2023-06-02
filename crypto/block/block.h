@@ -261,7 +261,7 @@ struct BlockLimitStatus {
   ton::LogicalTime cur_lt;
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
-  unsigned accounts{}, transactions{};
+  unsigned accounts{}, transactions{}, extra_out_msgs{};
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
       : limits(limits_), cur_lt(std::max(limits_.start_lt, lt)) {
   }
@@ -270,6 +270,7 @@ struct BlockLimitStatus {
     st_stat.set_zero();
     transactions = accounts = 0;
     gas_used = 0;
+    extra_out_msgs = 0;
   }
   td::uint64 estimate_block_size(const vm::NewCellStorageStat::Stat* extra = nullptr) const;
   int classify() const;
@@ -455,7 +456,7 @@ struct ShardState {
 struct ValueFlow {
   struct SetZero {};
   CurrencyCollection from_prev_blk, to_next_blk, imported, exported, fees_collected, fees_imported, recovered, created,
-      minted;
+      minted, burned;
   ValueFlow() = default;
   ValueFlow(SetZero)
       : from_prev_blk{0}
@@ -466,7 +467,8 @@ struct ValueFlow {
       , fees_imported{0}
       , recovered{0}
       , created{0}
-      , minted{0} {
+      , minted{0}
+      , burned{0} {
   }
   bool is_valid() const {
     return from_prev_blk.is_valid() && minted.is_valid();

@@ -99,7 +99,7 @@ int exec_mktuple_var(VmState* st) {
 
 int exec_tuple_index_common(Stack& stack, unsigned n) {
   auto tuple = stack.pop_tuple_range(255);
-  stack.push(tuple_index(*tuple, n));
+  stack.push(tuple_index(tuple, n));
   return 0;
 }
 
@@ -322,11 +322,11 @@ int exec_tuple_index2(VmState* st, unsigned args) {
   VM_LOG(st) << "execute INDEX2 " << i << "," << j;
   Stack& stack = st->get_stack();
   auto tuple = stack.pop_tuple_range(255);
-  auto t1 = tuple_index(*tuple, i).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, i).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  stack.push(tuple_index(*t1, j));
+  stack.push(tuple_index(t1, j));
   return 0;
 }
 
@@ -342,15 +342,15 @@ int exec_tuple_index3(VmState* st, unsigned args) {
   VM_LOG(st) << "execute INDEX3 " << i << "," << j << "," << k;
   Stack& stack = st->get_stack();
   auto tuple = stack.pop_tuple_range(255);
-  auto t1 = tuple_index(*tuple, i).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, i).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  auto t2 = tuple_index(*t1, j).as_tuple_range(255);
+  auto t2 = tuple_index(t1, j).as_tuple_range(255);
   if (t2.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  stack.push(tuple_index(*t2, k));
+  stack.push(tuple_index(t2, k));
   return 0;
 }
 

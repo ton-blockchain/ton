@@ -66,6 +66,8 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
+    // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
+    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
@@ -535,6 +537,7 @@ bool Collator::unpack_last_mc_state() {
       mc_state_root,
       block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
           block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needCapabilities |
+          block::ConfigInfo::needPrevBlocks |
           (is_masterchain() ? block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc : 0));
   if (res.is_error()) {
     td::Status err = res.move_as_error();
@@ -1424,7 +1427,13 @@ bool Collator::import_new_shard_top_blocks() {
   }
   LOG(INFO) << "total fees_imported = " << value_flow_.fees_imported.to_str()
             << " ; out of them, total fees_created = " << import_created_.to_str();
-  value_flow_.fees_collected += value_flow_.fees_imported;
+  block::CurrencyCollection burned =
+      config_->get_burning_config().calculate_burned_fees(value_flow_.fees_imported - import_created_);
+  if (!burned.is_valid()) {
+    return fatal_error("cannot calculate amount of burned imported fees");
+  }
+  value_flow_.burned += burned;
+  value_flow_.fees_collected += value_flow_.fees_imported - burned;
   return true;
 }
 
@@ -1847,6 +1856,11 @@ bool Collator::out_msg_queue_cleanup() {
   auto res = out_msg_queue_->filter([&](vm::CellSlice& cs, td::ConstBitPtr key, int n) -> int {
     assert(n == 352);
     // LOG(DEBUG) << "key is " << key.to_hex(n);
+    if (queue_cleanup_timeout_.is_in_past(td::Timestamp::now())) {
+      LOG(WARNING) << "cleaning up outbound queue takes too long, ending";
+      outq_cleanup_partial_ = true;
+      return (1 << 30) + 1;  // retain all remaining outbound queue entries including this one without processing
+    }
     if (block_full_) {
       LOG(WARNING) << "BLOCK FULL while cleaning up outbound queue, cleanup completed only partially";
       outq_cleanup_partial_ = true;
@@ -2234,6 +2248,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
 
   register_new_msgs(*trans);
   update_max_lt(acc->last_trans_end_lt_);
+  value_flow_.burned += trans->blackhole_burned;
   return trans_root;
 }
 
@@ -2307,7 +2322,8 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     return td::Status::Error(
         -669, "cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
-  if (trans->bounce_enabled && (!trans->compute_phase->success || trans->action_phase->state_exceeds_limits) &&
+  if (trans->bounce_enabled &&
+      (!trans->compute_phase->success || trans->action_phase->state_exceeds_limits || trans->action_phase->bounce) &&
       !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(
         -669, "cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
@@ -2590,7 +2606,7 @@ bool Collator::precheck_inbound_message(Ref<vm::CellSlice> enq_msg, ton::Logical
     return false;
   }
   if (!block::tlb::t_MsgEnvelope.validate_ref(msg_env)) {
-    LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to automated checks";
+    LOG(ERROR) << "inbound internal MsgEnvelope is invalid according to hand-written checks";
     return false;
   }
   return true;
@@ -2620,6 +2636,10 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
   if (info.created_lt != lt) {
     LOG(ERROR) << "inbound internal message has an augmentation value in source OutMsgQueue distinct from the one in "
                   "its contents";
+    return false;
+  }
+  if (!block::tlb::validate_message_libs(env.msg)) {
+    LOG(ERROR) << "inbound internal message has invalid StateInit";
     return false;
   }
   // 2.0. update last_proc_int_msg
@@ -2997,6 +3017,7 @@ bool Collator::process_new_messages(bool enqueue_only) {
   while (!new_msgs.empty()) {
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
+    block_limit_status_->extra_out_msgs--;
     if (block_full_ && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
       enqueue_only = true;
@@ -3018,6 +3039,7 @@ void Collator::register_new_msg(block::NewOutMsg new_msg) {
     min_new_msg_lt = new_msg.lt;
   }
   new_msgs.push(std::move(new_msg));
+  block_limit_status_->extra_out_msgs++;
 }
 
 void Collator::register_new_msgs(block::transaction::Transaction& trans) {
@@ -3767,7 +3789,16 @@ bool Collator::compute_total_balance() {
     LOG(ERROR) << "cannot unpack CurrencyCollection from the root of OutMsgDescr";
     return false;
   }
-  value_flow_.fees_collected += new_transaction_fees + new_import_fees;
+  block::CurrencyCollection total_fees = new_transaction_fees + new_import_fees;
+  value_flow_.fees_collected += total_fees;
+  if (is_masterchain()) {
+    block::CurrencyCollection burned = config_->get_burning_config().calculate_burned_fees(total_fees);
+    if (!burned.is_valid()) {
+      return fatal_error("cannot calculate amount of burned masterchain fees");
+    }
+    value_flow_.fees_collected -= burned;
+    value_flow_.burned += burned;
+  }
   // 3. compute total_validator_fees
   total_validator_fees_ += value_flow_.fees_collected;
   total_validator_fees_ -= value_flow_.recovered;
@@ -3916,7 +3947,7 @@ bool Collator::create_block() {
   }
   if (verify >= 1) {
     LOG(INFO) << "verifying new Block";
-    if (!block::gen::t_Block.validate_ref(1000000, new_block)) {
+    if (!block::gen::t_Block.validate_ref(10000000, new_block)) {
       return fatal_error("new Block failed to pass automatic validity tests");
     }
   }
@@ -4077,6 +4108,18 @@ bool Collator::create_block_candidate() {
       ton::BlockIdExt{ton::BlockId{shard_, new_block_seqno}, new_block->get_hash().bits(),
                       block::compute_file_hash(blk_slice.as_slice())},
       block::compute_file_hash(cdata_slice.as_slice()), blk_slice.clone(), cdata_slice.clone());
+  // 3.1 check block and collated data size
+  auto consensus_config = config_->get_consensus_config();
+  if (block_candidate->data.size() > consensus_config.max_block_size) {
+    return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
+                                 << ") exceeds the limit in consensus config (" << consensus_config.max_block_size
+                                 << ")");
+  }
+  if (block_candidate->collated_data.size() > consensus_config.max_collated_data_size) {
+    return fatal_error(PSTRING() << "collated data size (" << block_candidate->collated_data.size()
+                                 << ") exceeds the limit in consensus config ("
+                                 << consensus_config.max_collated_data_size << ")");
+  }
   // 4. save block candidate
   LOG(INFO) << "saving new BlockCandidate";
   td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
@@ -4138,6 +4181,9 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
   }
   if (!block::tlb::t_Message.validate_ref(256, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
+  }
+  if (!block::tlb::validate_message_libs(ext_msg)) {
+    return td::Status::Error("external message has invalid libs in StateInit");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   if (!tlb::unpack_cell_inexact(ext_msg, info)) {

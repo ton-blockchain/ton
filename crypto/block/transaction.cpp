@@ -478,7 +478,7 @@ void add_partial_storage_payment(td::BigInt256& payment, ton::UnixTime delta, co
     b.mul_short(prices.bit_price);
   }
   b += c;
-  b.mul_short(delta);
+  b.mul_short(delta).normalize();
   CHECK(b.sgn() >= 0);
   payment += b;
 }
@@ -506,8 +506,7 @@ td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::
     }
     upto = valid_until;
   }
-  total.unique_write().rshift(16, 1);  // divide by 2^16 with ceil rounding to obtain nanograms
-  return total;
+  return td::rshift(total, 16, 1);  // divide by 2^16 with ceil rounding to obtain nanograms
 }
 
 td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const {
@@ -635,14 +634,15 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       vm::CellBuilder cb;
       if (!(cs.advance(2) && block::gen::t_StateInit.fetch_to(cs, state_init) &&
             cb.append_cellslice_bool(std::move(state_init)) && cb.finalize_to(in_msg_state) &&
-            block::gen::t_StateInit.validate_ref(in_msg_state))) {
+            block::gen::t_StateInitWithLibs.validate_ref(in_msg_state))) {
         LOG(DEBUG) << "cannot parse StateInit in inbound message";
         return false;
       }
       break;
     }
     case 3: {  // (just$1 (right$1 _:^StateInit ))
-      if (!(cs.advance(2) && cs.fetch_ref_to(in_msg_state) && block::gen::t_StateInit.validate_ref(in_msg_state))) {
+      if (!(cs.advance(2) && cs.fetch_ref_to(in_msg_state) &&
+            block::gen::t_StateInitWithLibs.validate_ref(in_msg_state))) {
         LOG(DEBUG) << "cannot parse ^StateInit in inbound message";
         return false;
       }
@@ -671,6 +671,12 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       return false;
   }
   total_fees += in_fwd_fee;
+  if (account.workchain == ton::masterchainId && cfg->mc_blackhole_addr &&
+      cfg->mc_blackhole_addr.value() == account.addr) {
+    blackhole_burned.grams = msg_balance_remaining.grams;
+    msg_balance_remaining.grams = td::zero_refint();
+    LOG(DEBUG) << "Burning " << blackhole_burned.grams << " nanoton (blackhole address)";
+  }
   return true;
 }
 
@@ -723,6 +729,9 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
             acc_status = Account::acc_frozen;
           }
           break;
+      }
+      if (cfg.enable_due_payment) {
+        due_payment = total_due;
       }
     }
   }
@@ -917,7 +926,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     throw CollatorError{"cannot generate valid SmartContractInfo"};
     return {};
   }
-  auto tuple = vm::make_tuple_ref(
+  std::vector<vm::StackEntry> tuple = {
       td::make_refint(0x076ef1ea),                // [ magic:0x076ef1ea
       td::zero_refint(),                          //   actions:Integer
       td::zero_refint(),                          //   msgs_sent:Integer
@@ -926,10 +935,27 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
       td::make_refint(start_lt),                  //   trans_lt:Integer
       std::move(rand_seed_int),                   //   rand_seed:Integer
       balance.as_vm_tuple(),                      //   balance_remaining:[Integer (Maybe Cell)]
-      my_addr,                                    //  myself:MsgAddressInt
-      vm::StackEntry::maybe(cfg.global_config));  //  global_config:(Maybe Cell) ] = SmartContractInfo;
-  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
-  return vm::make_tuple_ref(std::move(tuple));
+      my_addr,                                    //   myself:MsgAddressInt
+      vm::StackEntry::maybe(cfg.global_config)    //   global_config:(Maybe Cell) ] = SmartContractInfo;
+  };
+  if (cfg.global_version >= 4) {
+    tuple.push_back(new_code);                            // code:Cell
+    if (msg_balance_remaining.is_valid()) {
+      tuple.push_back(msg_balance_remaining.as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
+    } else {
+      tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());
+    }
+    tuple.push_back(storage_phase->fees_collected);       // storage_fees:Integer
+
+    // See crypto/block/mc-config.cpp#2115 (get_prev_blocks_info)
+    // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
+    // [ last_mc_blocks:[BlockId...]
+    //   prev_key_block:BlockId ] : PrevBlocksInfo
+    tuple.push_back(cfg.prev_blocks_info.not_null() ? vm::StackEntry(cfg.prev_blocks_info) : vm::StackEntry());
+  }
+  auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
+  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
+  return vm::make_tuple_ref(std::move(tuple_ref));
 }
 
 int output_actions_count(Ref<vm::Cell> list) {
@@ -1074,12 +1100,19 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (cfg.vm_log_verbosity > 1) {
       vm_log.log_mask |= vm::VmLog::ExecLocation;
       if (cfg.vm_log_verbosity > 2) {
-        vm_log.log_mask |= vm::VmLog::DumpStack | vm::VmLog::GasRemaining;
+        vm_log.log_mask |= vm::VmLog::GasRemaining;
+        if (cfg.vm_log_verbosity > 3) {
+          vm_log.log_mask |= vm::VmLog::DumpStack;
+          if (cfg.vm_log_verbosity > 4) {
+            vm_log.log_mask |= vm::VmLog::DumpStackVerbose;
+          }
+        }
       }
     }
   }
   vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.set_max_data_depth(cfg.max_vm_data_depth);
+  vm.set_global_version(cfg.global_version);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   vm.set_chksig_always_succeed(cfg.ignore_chksig);
   // vm.incr_stack_trace(1);    // enable stack dump after each step
@@ -1161,6 +1194,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.total_fwd_fees = td::zero_refint();
   ap.total_action_fees = td::zero_refint();
   ap.reserved_balance.set_zero();
+  ap.action_fine = td::zero_refint();
 
   td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
   auto enforce_state_limits = [&]() {
@@ -1227,6 +1261,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     int tag = block::gen::t_OutAction.get_tag(cs);
     CHECK(tag >= 0);
     int err_code = 34;
+    ap.need_bounce_on_fail = false;
     switch (tag) {
       case block::gen::OutAction::action_set_code:
         err_code = try_action_set_code(cs, ap, cfg);
@@ -1257,12 +1292,24 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         ap.no_funds = true;
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
-      // This is reuqired here because changes to libraries are applied even if action phase fails
+      // This is reuqired here because changes to libraries are applied even if actipn phase fails
       enforce_state_limits();
+      if (cfg.action_fine_enabled) {
+        ap.action_fine = std::min(ap.action_fine, balance.grams);
+        ap.total_action_fees = ap.action_fine;
+        balance.grams -= ap.action_fine;
+        total_fees += ap.action_fine;
+      }
+      if (ap.need_bounce_on_fail) {
+        ap.bounce = true;
+      }
       return true;
     }
   }
 
+  if (cfg.action_fine_enabled) {
+    ap.total_action_fees += ap.action_fine;
+  }
   end_lt = ap.end_lt;
   if (ap.new_code.not_null()) {
     new_code = ap.new_code;
@@ -1308,7 +1355,17 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
-  // mode: +0 = remove library, +1 = add private library, +2 = add public library
+  // mode: +0 = remove library, +1 = add private library, +2 = add public library, +16 - bounce on fail
+  if (rec.mode & 16) {
+    if (!cfg.bounce_on_fail_enabled) {
+      return -1;
+    }
+    ap.need_bounce_on_fail = true;
+    rec.mode &= ~16;
+  }
+  if (rec.mode > 2) {
+    return -1;
+  }
   Ref<vm::Cell> lib_ref = rec.libref->prefetch_ref();
   ton::Bits256 hash;
   if (lib_ref.not_null()) {
@@ -1522,9 +1579,22 @@ bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const A
 int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, const ActionPhaseConfig& cfg,
                                      int redoing) {
   block::gen::OutAction::Record_action_send_msg act_rec;
-  // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message, +32 = delete smart contract if balance becomes zero, +1 = pay message fees, +2 = skip if message cannot be sent
+  // mode:
+  // +128 = attach all remaining balance
+  // +64 = attach all remaining balance of the inbound message
+  // +32 = delete smart contract if balance becomes zero
+  // +1 = pay message fees
+  // +2 = skip if message cannot be sent
+  // +16 = bounce if action fails
   vm::CellSlice cs{cs0};
-  if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+  if (!tlb::unpack_exact(cs, act_rec)) {
+    return -1;
+  }
+  if ((act_rec.mode & 16) && cfg.bounce_on_fail_enabled) {
+    act_rec.mode &= ~16;
+    ap.need_bounce_on_fail = true;
+  }
+  if ((act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
     return -1;
   }
   bool skip_invalid = (act_rec.mode & 2);
@@ -1532,6 +1602,10 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   td::RefInt256 fwd_fee, ihr_fee;
   block::gen::MessageRelaxed::Record msg;
   if (!tlb::type_unpack_cell(act_rec.out_msg, block::gen::t_MessageRelaxed_Any, msg)) {
+    return -1;
+  }
+  if (!block::tlb::validate_message_relaxed_libs(act_rec.out_msg)) {
+    LOG(DEBUG) << "outbound message has invalid libs in StateInit";
     return -1;
   }
   if (redoing >= 1) {
@@ -1547,7 +1621,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
             && cb.store_long_bool(3, 2)                    // (just (right ... ))
             && cb.store_ref_bool(std::move(cell))          // z:^StateInit
             && cb.finalize_to(cell));
-      msg.init = vm::load_cell_slice_ref(std::move(cell));
+      msg.init = vm::load_cell_slice_ref(cell);
     } else {
       redoing = 2;
     }
@@ -1564,7 +1638,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
           && cb.store_long_bool(1, 1)                    // (right ... )
           && cb.store_ref_bool(std::move(cell))          // x:^X
           && cb.finalize_to(cell));
-    msg.body = vm::load_cell_slice_ref(std::move(cell));
+    msg.body = vm::load_cell_slice_ref(cell);
   }
 
   block::gen::CommonMsgInfoRelaxed::Record_int_msg_info info;
@@ -1612,30 +1686,84 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
   // fetch message pricing info
   const MsgPrices& msg_prices = cfg.fetch_msg_prices(to_mc || account.is_masterchain());
+  // If action fails, account is required to pay fine_per_cell for every visited cell
+  // Number of visited cells is limited depending on available funds
+  unsigned max_cells = cfg.size_limits.max_msg_cells;
+  td::uint64 fine_per_cell = 0;
+  if (cfg.action_fine_enabled && !account.is_special) {
+    fine_per_cell = (msg_prices.cell_price >> 16) / 4;
+    td::RefInt256 funds = ap.remaining_balance.grams;
+    if (!ext_msg && !(act_rec.mode & 0x80) && !(act_rec.mode & 1)) {
+      if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
+        LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
+        return skip_invalid ? 0 : 37;
+      }
+      block::CurrencyCollection value;
+      CHECK(value.unpack(info.value));
+      CHECK(value.grams.not_null());
+      td::RefInt256 new_funds = value.grams;
+      if (act_rec.mode & 0x40) {
+        if (msg_balance_remaining.is_valid()) {
+          new_funds += msg_balance_remaining.grams;
+        }
+        if (compute_phase) {
+          new_funds -= compute_phase->gas_fees;
+        }
+        new_funds -= ap.action_fine;
+        if (new_funds->sgn() < 0) {
+          LOG(DEBUG)
+              << "not enough value to transfer with the message: all of the inbound message value has been consumed";
+          return skip_invalid ? 0 : 37;
+        }
+      }
+      funds = std::min(funds, new_funds);
+    }
+    if (funds->cmp(max_cells * fine_per_cell) < 0) {
+      max_cells = static_cast<unsigned>((funds / td::make_refint(fine_per_cell))->to_long());
+    }
+  }
   // compute size of message
-  vm::CellStorageStat sstat;  // for message size
+  vm::CellStorageStat sstat(max_cells);  // for message size
   // preliminary storage estimation of the resulting message
   unsigned max_merkle_depth = 0;
-  auto add_used_storage = [&](const auto& x, unsigned skip_root_count) {
+  auto add_used_storage = [&](const auto& x, unsigned skip_root_count) -> td::Status {
     if (x.not_null()) {
-      auto res = sstat.add_used_storage(x, true, skip_root_count).move_as_ok();
+      TRY_RESULT(res, sstat.add_used_storage(x, true, skip_root_count));
       max_merkle_depth = std::max(max_merkle_depth, res.max_merkle_depth);
     }
+    return td::Status::OK();
   };
   add_used_storage(msg.init, 3);  // message init
   add_used_storage(msg.body, 3);  // message body (the root cell itself is not counted)
   if (!ext_msg) {
     add_used_storage(info.value->prefetch_ref(), 0);
   }
-  LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
-  if (sstat.bits > cfg.size_limits.max_msg_bits || sstat.cells > cfg.size_limits.max_msg_cells) {
+  auto collect_fine = [&] {
+    if (cfg.action_fine_enabled && !account.is_special) {
+      td::uint64 fine = fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells);
+      if (ap.remaining_balance.grams->cmp(fine) < 0) {
+        fine = ap.remaining_balance.grams->to_long();
+      }
+      ap.action_fine += fine;
+      ap.remaining_balance.grams -= fine;
+    }
+  };
+  if (sstat.cells > max_cells && max_cells < cfg.size_limits.max_msg_cells) {
+    LOG(DEBUG) << "not enough funds to process a message (max_cells=" << max_cells << ")";
+    collect_fine();
+    return skip_invalid ? 0 : 40;
+  }
+  if (sstat.bits > cfg.size_limits.max_msg_bits || sstat.cells > max_cells) {
     LOG(DEBUG) << "message too large, invalid";
+    collect_fine();
     return skip_invalid ? 0 : 40;
   }
   if (max_merkle_depth > max_allowed_merkle_depth) {
     LOG(DEBUG) << "message has too big merkle depth, invalid";
+    collect_fine();
     return skip_invalid ? 0 : 40;
   }
+  LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
 
   // compute forwarding fees
   auto fees_c = msg_prices.compute_fwd_ihr_fees(sstat.cells, sstat.bits, info.ihr_disabled);
@@ -1664,6 +1792,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // ...
     if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
       LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
+      collect_fine();
       return skip_invalid ? 0 : 37;
     }
     if (info.ihr_disabled) {
@@ -1682,11 +1811,15 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     } else if (act_rec.mode & 0x40) {
       // attach all remaining balance of the inbound message (in addition to the original value)
       req += msg_balance_remaining;
-      if (!(act_rec.mode & 1) && compute_phase) {
-        req -= compute_phase->gas_fees;
+      if (!(act_rec.mode & 1)) {
+        req -= ap.action_fine;
+        if (compute_phase) {
+          req -= compute_phase->gas_fees;
+        }
         if (!req.is_valid()) {
           LOG(DEBUG)
               << "not enough value to transfer with the message: all of the inbound message value has been consumed";
+          collect_fine();
           return skip_invalid ? 0 : 37;
         }
       }
@@ -1702,6 +1835,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       // receiver pays the fees (but cannot)
       LOG(DEBUG) << "not enough value attached to the message to pay forwarding fees : have " << req.grams << ", need "
                  << fees_total;
+      collect_fine();
       return skip_invalid ? 0 : 37;  // not enough grams
     } else {
       // decrease message value
@@ -1712,6 +1846,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (ap.remaining_balance.grams < req_grams_brutto) {
       LOG(DEBUG) << "not enough grams to transfer with the message : remaining balance is "
                  << ap.remaining_balance.to_str() << ", need " << req_grams_brutto << " (including forwarding fees)";
+      collect_fine();
       return skip_invalid ? 0 : 37;  // not enough grams
     }
 
@@ -1721,6 +1856,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "not enough extra currency to send with the message: "
                  << block::CurrencyCollection{0, req.extra}.to_str() << " required, only "
                  << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str() << " available";
+      collect_fine();
       return skip_invalid ? 0 : 38;  // not enough (extra) funds
     }
     if (ap.remaining_balance.extra.not_null() || req.extra.not_null()) {
@@ -1743,7 +1879,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     vm::CellBuilder cb;
     if (!tlb::type_pack(cb, block::gen::t_MessageRelaxed_Any, msg)) {
       LOG(DEBUG) << "outbound message does not fit into a cell after rewriting";
-      return redoing < 2 ? -2 : (skip_invalid ? 0 : 39);
+      if (redoing == 2) {
+        collect_fine();
+        return skip_invalid ? 0 : 39;
+      }
+      return -2;
     }
 
     new_msg_bits = cb.size();
@@ -1765,6 +1905,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // external messages also have forwarding fees
     if (ap.remaining_balance.grams < fwd_fee) {
       LOG(DEBUG) << "not enough funds to pay for an outbound external message";
+      collect_fine();
       return skip_invalid ? 0 : 37;  // not enough grams
     }
     // repack message
@@ -1778,7 +1919,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     vm::CellBuilder cb;
     if (!tlb::type_pack(cb, block::gen::t_MessageRelaxed_Any, msg)) {
       LOG(DEBUG) << "outbound message does not fit into a cell after rewriting";
-      return redoing < 2 ? -2 : (skip_invalid ? 0 : 39);
+      if (redoing == 2) {
+        collect_fine();
+        return (skip_invalid ? 0 : 39);
+      }
+      return -2;
     }
 
     new_msg_bits = cb.size();
@@ -1793,12 +1938,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
   if (!block::tlb::t_Message.validate_ref(new_msg)) {
     LOG(ERROR) << "generated outbound message is not a valid (Message Any) according to hand-written check";
+    collect_fine();
     return -1;
   }
   if (!block::gen::t_Message_Any.validate_ref(new_msg)) {
     LOG(ERROR) << "generated outbound message is not a valid (Message Any) according to automated check";
     block::gen::t_Message_Any.print_ref(std::cerr, new_msg);
     vm::load_cell_slice(new_msg).print_rec(std::cerr);
+    collect_fine();
     return -1;
   }
   if (verbosity > 2) {
@@ -1826,7 +1973,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
 int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
   block::gen::OutAction::Record_action_reserve_currency rec;
-  if (!tlb::unpack_exact(cs, rec) || (rec.mode & ~15)) {
+  if (!tlb::unpack_exact(cs, rec)) {
+    return -1;
+  }
+  if ((rec.mode & 16) && cfg.bounce_on_fail_enabled) {
+    rec.mode &= ~16;
+    ap.need_bounce_on_fail = true;
+  }
+  if (rec.mode & ~15) {
     return -1;
   }
   int mode = rec.mode;
@@ -1972,6 +2126,9 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   auto msg_balance = msg_balance_remaining;
   if (compute_phase && compute_phase->gas_fees.not_null()) {
     msg_balance.grams -= compute_phase->gas_fees;
+  }
+  if (action_phase && action_phase->action_fine.not_null()) {
+    msg_balance.grams -= action_phase->action_fine;
   }
   if ((msg_balance.grams < 0) ||
       (msg_balance.grams->signed_fits_bits(64) && msg_balance.grams->to_long() < (long long)bp.fwd_fees)) {
@@ -2553,17 +2710,27 @@ bool Account::libraries_changed() const {
   }
 }
 
-td::Status FetchConfigParams::fetch_config_params(const block::Config& config,
-                                              Ref<vm::Cell>* old_mparams,
-                                              std::vector<block::StoragePrices>* storage_prices,
-                                              block::StoragePhaseConfig* storage_phase_cfg,
-                                              td::BitArray<256>* rand_seed,
-                                              block::ComputePhaseConfig* compute_phase_cfg,
-                                              block::ActionPhaseConfig* action_phase_cfg,
-                                              td::RefInt256* masterchain_create_fee,
-                                              td::RefInt256* basechain_create_fee,
-                                              ton::WorkchainId wc, 
-                                              ton::UnixTime now) {
+td::Status FetchConfigParams::fetch_config_params(
+    const block::ConfigInfo& config, Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
+    StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg,
+    ActionPhaseConfig* action_phase_cfg, td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+    ton::WorkchainId wc, ton::UnixTime now) {
+  auto prev_blocks_info = config.get_prev_blocks_info();
+  if (prev_blocks_info.is_error()) {
+    return prev_blocks_info.move_as_error_prefix(
+        td::Status::Error(-668, "cannot fetch prev blocks info from masterchain configuration: "));
+  }
+  return fetch_config_params(config, prev_blocks_info.move_as_ok(), old_mparams, storage_prices, storage_phase_cfg,
+                             rand_seed, compute_phase_cfg, action_phase_cfg, masterchain_create_fee,
+                             basechain_create_fee, wc, now);
+}
+
+td::Status FetchConfigParams::fetch_config_params(
+    const block::Config& config, td::Ref<vm::Tuple> prev_blocks_info, Ref<vm::Cell>* old_mparams,
+    std::vector<block::StoragePrices>* storage_prices, StoragePhaseConfig* storage_phase_cfg,
+    td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
+    td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee, ton::WorkchainId wc,
+    ton::UnixTime now) {
   *old_mparams = config.get_config_param(9);
   {
     auto res = config.get_storage_prices();
@@ -2588,9 +2755,14 @@ td::Status FetchConfigParams::fetch_config_params(const block::Config& config,
                                                   storage_phase_cfg->delete_due_limit)) {
       return td::Status::Error(-668, "cannot unpack current gas prices and limits from masterchain configuration");
     }
+    storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg->global_config = config.get_root_cell();
+    compute_phase_cfg->global_version = config.get_global_version();
+    if (compute_phase_cfg->global_version >= 4) {
+      compute_phase_cfg->prev_blocks_info = std::move(prev_blocks_info);
+    }
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
   }
   {
@@ -2613,6 +2785,9 @@ td::Status FetchConfigParams::fetch_config_params(const block::Config& config,
     action_phase_cfg->workchains = &config.get_workchain_list();
     action_phase_cfg->bounce_msg_body = (config.has_capability(ton::capBounceMsgBody) ? 256 : 0);
     action_phase_cfg->size_limits = size_limits;
+    action_phase_cfg->action_fine_enabled = config.get_global_version() >= 4;
+    action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
+    action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {
     // fetch block_grams_created

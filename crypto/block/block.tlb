@@ -143,8 +143,13 @@ tick_tock$_ tick:Bool tock:Bool = TickTock;
 
 _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
-  library:(HashmapE 256 SimpleLib) = StateInit;
-  
+  library:(Maybe ^Cell) = StateInit;
+
+// StateInitWithLibs is used to validate sent and received messages
+_ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+  code:(Maybe ^Cell) data:(Maybe ^Cell)
+  library:(HashmapE 256 SimpleLib) = StateInitWithLibs;
+
 simple_lib$_ public:Bool root:^Cell = SimpleLib;
 
 message$_ {X:Type} info:CommonMsgInfo
@@ -379,7 +384,7 @@ action_reserve_currency#36e6b809 mode:(## 8)
   currency:CurrencyCollection = OutAction;
 libref_hash$0 lib_hash:bits256 = LibRef;
 libref_ref$1 library:^Cell = LibRef;
-action_change_library#26fa1dd4 mode:(## 7) { mode <= 2 }
+action_change_library#26fa1dd4 mode:(## 7)
   libref:LibRef = OutAction;
 
 out_list_node$_ prev:^Cell action:OutAction = OutListNode;
@@ -460,6 +465,19 @@ value_flow#b8e48dfb ^[ from_prev_blk:CurrencyCollection
   imported:CurrencyCollection
   exported:CurrencyCollection ]
   fees_collected:CurrencyCollection
+  ^[
+  fees_imported:CurrencyCollection
+  recovered:CurrencyCollection
+  created:CurrencyCollection
+  minted:CurrencyCollection
+  ] = ValueFlow;
+
+value_flow_v2#3ebf98b7 ^[ from_prev_blk:CurrencyCollection
+  to_next_blk:CurrencyCollection
+  imported:CurrencyCollection
+  exported:CurrencyCollection ]
+  fees_collected:CurrencyCollection
+  burned:CurrencyCollection
   ^[
   fees_imported:CurrencyCollection
   recovered:CurrencyCollection
@@ -590,6 +608,11 @@ _ minter_addr:bits256 = ConfigParam 2;  // ConfigParam 0 is used if absent
 _ fee_collector_addr:bits256 = ConfigParam 3;  // ConfigParam 1 is used if absent
 _ dns_root_addr:bits256 = ConfigParam 4;  // root TON DNS resolver
 
+burning_config#01
+  blackhole_addr:(Maybe bits256)
+  fee_burn_nom:# fee_burn_denom:# { fee_burn_nom <= fee_burn_denom } { fee_burn_denom >= 1 } = BurningConfig;
+_ BurningConfig = ConfigParam 5;
+
 _ mint_new_price:Grams mint_add_price:Grams = ConfigParam 6;
 _ to_mint:ExtraCurrencyCollection = ConfigParam 7;
 
@@ -662,6 +685,8 @@ _ min_stake:Grams max_stake:Grams min_total_stake:Grams max_stake_factor:uint32 
 _#cc utime_since:uint32 bit_price_ps:uint64 cell_price_ps:uint64 
   mc_bit_price_ps:uint64 mc_cell_price_ps:uint64 = StoragePrices;
 _ (Hashmap 32 StoragePrices) = ConfigParam 18;
+
+_ global_id:int32 = ConfigParam 19;
 
 gas_prices#dd gas_price:uint64 gas_limit:uint64 gas_credit:uint64 
   block_gas_limit:uint64 freeze_due_limit:uint64 delete_due_limit:uint64 
@@ -783,8 +808,8 @@ jetton_bridge_params_v0#00 bridge_address:bits256 oracles_address:bits256 oracle
 jetton_bridge_params_v1#01 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 prices:^JettonBridgePrices external_chain_address:bits256 = JettonBridgeParams;
 
 _ JettonBridgeParams = ConfigParam 79; // ETH->TON token bridge
-_ JettonBridgeParams = ConfigParam 80; // BNB->TON token bridge
-_ JettonBridgeParams = ConfigParam 81; // Polygon->TON token bridge
+_ JettonBridgeParams = ConfigParam 81; // BNB->TON token bridge
+_ JettonBridgeParams = ConfigParam 82; // Polygon->TON token bridge
 
 
 //

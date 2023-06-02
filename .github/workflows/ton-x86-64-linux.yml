@@ -29,12 +29,14 @@ jobs:
         mkdir artifacts
         cp $PWD/result-x86_64/bin/* artifacts/
         chmod +x artifacts/*
-        cp $PWD/result-x86_64/lib/libtonlibjson.so.0.5 artifacts/
+        cp $PWD/result-x86_64/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
+        cp $PWD/result-x86_64/lib/libemulator.so artifacts/
         cp -R crypto/smartcont artifacts/
         cp -R crypto/fift/lib artifacts/
 
     - name: Simple binaries test
       run: |
+        sudo mv /nix/store /nix/store2
         artifacts/validator-engine -V
         artifacts/lite-client -V
         artifacts/fift -V

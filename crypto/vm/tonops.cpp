@@ -26,8 +26,15 @@
 #include "vm/dict.h"
 #include "vm/boc.h"
 #include "Ed25519.h"
+#include "vm/Hasher.h"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "crypto/ellcurve/secp256k1.h"
+#include "crypto/ellcurve/p256.h"
 
 #include "openssl/digest.hpp"
+#include <sodium.h>
+#include "bls.h"
 
 namespace vm {
 
@@ -78,6 +85,12 @@ int exec_set_gas_limit(VmState* st) {
   return exec_set_gas_generic(st, gas);
 }
 
+int exec_gas_consumed(VmState* st) {
+  VM_LOG(st) << "execute GASCONSUMED";
+  st->get_stack().push_smallint(st->gas_consumed());
+  return 0;
+}
+
 int exec_commit(VmState* st) {
   VM_LOG(st) << "execute COMMIT";
   st->force_commit();
@@ -88,6 +101,7 @@ void register_basic_gas_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xf800, 16, "ACCEPT", exec_accept))
       .insert(OpcodeInstr::mksimple(0xf801, 16, "SETGASLIMIT", exec_set_gas_limit))
+      .insert(OpcodeInstr::mksimple(0xf802, 16, "GASCONSUMED", exec_gas_consumed)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf80f, 16, "COMMIT", exec_commit));
 }
 
@@ -95,17 +109,21 @@ void register_ton_gas_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
 }
 
+static const StackEntry& get_param(VmState* st, unsigned idx) {
+  auto tuple = st->get_c7();
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
+  if (t1.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  return tuple_index(t1, idx);
+}
+
 int exec_get_param(VmState* st, unsigned idx, const char* name) {
   if (name) {
     VM_LOG(st) << "execute " << name;
   }
   Stack& stack = st->get_stack();
-  auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
-  if (t1.is_null()) {
-    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
-  }
-  stack.push(tuple_index(*t1, idx));
+  stack.push(get_param(st, idx));
   return 0;
 }
 
@@ -192,6 +210,41 @@ int exec_set_global_var(VmState* st) {
   return exec_set_global_common(st, args);
 }
 
+int exec_get_prev_blocks_info(VmState* st, unsigned idx, const char* name) {
+  idx &= 3;
+  VM_LOG(st) << "execute " << name;
+  Stack& stack = st->get_stack();
+  auto tuple = st->get_c7();
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
+  if (t1.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  auto t2 = tuple_index(t1, 13).as_tuple_range(255);
+  if (t2.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  stack.push(tuple_index(t2, idx));
+  return 0;
+}
+
+int exec_get_global_id(VmState* st) {
+  Ref<Cell> config = get_param(st, 9).as_cell();
+  if (config.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a cell"};
+  }
+  Dictionary config_dict{std::move(config), 32};
+  Ref<Cell> cell = config_dict.lookup_ref(td::BitArray<32>{19});
+  if (cell.is_null()) {
+    throw VmError{Excno::unknown, "invalid global-id config"};
+  }
+  CellSlice cs = load_cell_slice(cell);
+  if (cs.size() < 32) {
+    throw VmError{Excno::unknown, "invalid global-id config"};
+  }
+  st->get_stack().push_smallint(cs.fetch_long(32));
+  return 0;
+}
+
 void register_ton_config_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mkfixedrange(0xf820, 0xf823, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
@@ -202,10 +255,17 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf827, 16, "BALANCE", std::bind(exec_get_param, _1, 7, "BALANCE")))
       .insert(OpcodeInstr::mksimple(0xf828, 16, "MYADDR", std::bind(exec_get_param, _1, 8, "MYADDR")))
       .insert(OpcodeInstr::mksimple(0xf829, 16, "CONFIGROOT", std::bind(exec_get_param, _1, 9, "CONFIGROOT")))
-      .insert(OpcodeInstr::mkfixedrange(0xf82a, 0xf830, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
+      .insert(OpcodeInstr::mksimple(0xf82a, 16, "MYCODE", std::bind(exec_get_param, _1, 10, "MYCODE")))
+      .insert(OpcodeInstr::mksimple(0xf82b, 16, "INCOMINGVALUE", std::bind(exec_get_param, _1, 11, "INCOMINGVALUE")))
+      .insert(OpcodeInstr::mksimple(0xf82c, 16, "STORAGEFEES", std::bind(exec_get_param, _1, 12, "STORAGEFEES")))
+      .insert(OpcodeInstr::mksimple(0xf82d, 16, "PREVBLOCKSINFOTUPLE", std::bind(exec_get_param, _1, 13, "PREVBLOCKSINFOTUPLE")))
+      .insert(OpcodeInstr::mkfixedrange(0xf82e, 0xf830, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
       .insert(OpcodeInstr::mksimple(0xf830, 16, "CONFIGDICT", exec_get_config_dict))
       .insert(OpcodeInstr::mksimple(0xf832, 16, "CONFIGPARAM", std::bind(exec_get_config_param, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf833, 16, "CONFIGOPTPARAM", std::bind(exec_get_config_param, _1, true)))
+      .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS", std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf835, 16, "GLOBALID", exec_get_global_id)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf840, 16, "GETGLOBVAR", exec_get_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
@@ -216,11 +276,11 @@ static constexpr int randseed_idx = 6;
 
 td::RefInt256 generate_randu256(VmState* st) {
   auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  auto seedv = tuple_index(*t1, randseed_idx).as_int();
+  auto seedv = tuple_index(t1, randseed_idx).as_int();
   if (seedv.is_null()) {
     throw VmError{Excno::type_chk, "random seed is not an integer"};
   }
@@ -276,12 +336,12 @@ int exec_set_rand(VmState* st, bool mix) {
     throw VmError{Excno::range_chk, "new random seed out of range"};
   }
   auto tuple = st->get_c7();
-  auto t1 = tuple_index(*tuple, 0).as_tuple_range(255);
+  auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
   if (mix) {
-    auto seedv = tuple_index(*t1, randseed_idx).as_int();
+    auto seedv = tuple_index(t1, randseed_idx).as_int();
     if (seedv.is_null()) {
       throw VmError{Excno::type_chk, "random seed is not an integer"};
     }
@@ -356,6 +416,77 @@ int exec_compute_sha256(VmState* st) {
   return 0;
 }
 
+int exec_hash_ext(VmState* st, unsigned args) {
+  bool rev = (args >> 8) & 1;
+  bool append = (args >> 9) & 1;
+  int hash_id = args & 255;
+  VM_LOG(st) << "execute HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << (hash_id == 255 ? -1 : hash_id);
+  Stack& stack = st->get_stack();
+  if (hash_id == 255) {
+    hash_id = stack.pop_smallint_range(254);
+  }
+  int cnt = stack.pop_smallint_range(stack.depth() - 1);
+  Hasher hasher{hash_id};
+  size_t total_bits = 0;
+  long long gas_consumed = 0;
+  for (int i = 0; i < cnt; ++i) {
+    td::ConstBitPtr data{nullptr};
+    unsigned size;
+    int idx = rev ? i : cnt - 1 - i;
+    auto slice = stack[idx].as_slice();
+    if (slice.not_null()) {
+      data = slice->data_bits();
+      size = slice->size();
+    } else {
+      auto builder = stack[idx].as_builder();
+      if (builder.not_null()) {
+        data = builder->data_bits();
+        size = builder->size();
+      } else {
+        stack.pop_many(cnt);
+        throw VmError{Excno::type_chk, "expected slice or builder"};
+      }
+    }
+    total_bits += size;
+    long long gas_total = (i + 1) * VmState::hash_ext_entry_gas_price + total_bits / 8 / hasher.bytes_per_gas_unit();
+    st->consume_gas(gas_total - gas_consumed);
+    gas_consumed = gas_total;
+    hasher.append(data, size);
+  }
+  stack.pop_many(cnt);
+  td::BufferSlice hash = hasher.finish();
+  if (append) {
+    Ref<CellBuilder> builder = stack.pop_builder();
+    if (!builder->can_extend_by(hash.size() * 8)) {
+      throw VmError{Excno::cell_ov};
+    }
+    builder.write().store_bytes(hash.as_slice());
+    stack.push_builder(std::move(builder));
+  } else {
+    if (hash.size() <= 32) {
+      td::RefInt256 res{true};
+      CHECK(res.write().import_bytes((unsigned char*)hash.data(), hash.size(), false));
+      stack.push_int(std::move(res));
+    } else {
+      std::vector<StackEntry> res;
+      for (size_t i = 0; i < hash.size(); i += 32) {
+        td::RefInt256 x{true};
+        CHECK(x.write().import_bytes((unsigned char*)hash.data() + i, std::min<size_t>(hash.size() - i, 32), false));
+        res.push_back(std::move(x));
+      }
+      stack.push_tuple(std::move(res));
+    }
+  }
+  return 0;
+}
+
+std::string dump_hash_ext(CellSlice& cs, unsigned args) {
+  bool rev = (args >> 8) & 1;
+  bool append = (args >> 9) & 1;
+  int hash_id = args & 255;
+  return PSTRING() << "HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << (hash_id == 255 ? -1 : hash_id);
+}
+
 int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   VM_LOG(st) << "execute CHKSIGN" << (from_slice ? 'S' : 'U');
   Stack& stack = st->get_stack();
@@ -385,9 +516,580 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   if (!key_int->export_bytes(key, 32, false)) {
     throw VmError{Excno::range_chk, "Ed25519 public key must fit in an unsigned 256-bit integer"};
   }
+  st->register_chksgn_call();
   td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, 32})};
   auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64});
   stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
+  return 0;
+}
+
+int exec_ecrecover(VmState* st) {
+  VM_LOG(st) << "execute ECRECOVER";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(4);
+  auto s = stack.pop_int();
+  auto r = stack.pop_int();
+  auto v = (td::uint8)stack.pop_smallint_range(255);
+  auto hash = stack.pop_int();
+
+  unsigned char signature[65];
+  if (!r->export_bytes(signature, 32, false)) {
+    throw VmError{Excno::range_chk, "r must fit in an unsigned 256-bit integer"};
+  }
+  if (!s->export_bytes(signature + 32, 32, false)) {
+    throw VmError{Excno::range_chk, "s must fit in an unsigned 256-bit integer"};
+  }
+  signature[64] = v;
+  unsigned char hash_bytes[32];
+  if (!hash->export_bytes(hash_bytes, 32, false)) {
+    throw VmError{Excno::range_chk, "data hash must fit in an unsigned 256-bit integer"};
+  }
+  st->consume_gas(VmState::ecrecover_gas_price);
+  unsigned char public_key[65];
+  if (td::ecrecover(hash_bytes, signature, public_key)) {
+    td::uint8 h = public_key[0];
+    td::RefInt256 x1{true}, x2{true};
+    CHECK(x1.write().import_bytes(public_key + 1, 32, false));
+    CHECK(x2.write().import_bytes(public_key + 33, 32, false));
+    stack.push_smallint(h);
+    stack.push_int(std::move(x1));
+    stack.push_int(std::move(x2));
+    stack.push_bool(true);
+  } else {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_p256_chksign(VmState* st, bool from_slice) {
+  VM_LOG(st) << "execute P256_CHKSIGN" << (from_slice ? 'S' : 'U');
+  Stack& stack = st->get_stack();
+  stack.check_underflow(3);
+  auto key_cs = stack.pop_cellslice();
+  auto signature_cs = stack.pop_cellslice();
+  unsigned char data[128], key[33], signature[64];
+  unsigned data_len;
+  if (from_slice) {
+    auto cs = stack.pop_cellslice();
+    if (cs->size() & 7) {
+      throw VmError{Excno::cell_und, "Slice does not consist of an integer number of bytes"};
+    }
+    data_len = (cs->size() >> 3);
+    CHECK(data_len <= sizeof(data));
+    CHECK(cs->prefetch_bytes(data, data_len));
+  } else {
+    auto hash_int = stack.pop_int();
+    data_len = 32;
+    if (!hash_int->export_bytes(data, data_len, false)) {
+      throw VmError{Excno::range_chk, "data hash must fit in an unsigned 256-bit integer"};
+    }
+  }
+  if (!signature_cs->prefetch_bytes(signature, 64)) {
+    throw VmError{Excno::cell_und, "P256 signature must contain at least 512 data bits"};
+  }
+  if (!key_cs->prefetch_bytes(key, 33)) {
+    throw VmError{Excno::cell_und, "P256 public key must contain at least 33 data bytes"};
+  }
+  st->consume_gas(VmState::p256_chksgn_gas_price);
+  auto res = td::p256_check_signature(td::Slice{data, data_len}, td::Slice{key, 33}, td::Slice{signature, 64});
+  if (res.is_error()) {
+    VM_LOG(st) << "P256_CHKSIGN: " << res.error().message();
+  }
+  stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
+  return 0;
+}
+
+static_assert(crypto_scalarmult_ristretto255_BYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_scalarmult_ristretto255_SCALARBYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_BYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_HASHBYTES == 64, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_SCALARBYTES == 32, "Unexpected value of ristretto255 constant");
+static_assert(crypto_core_ristretto255_NONREDUCEDSCALARBYTES == 64, "Unexpected value of ristretto255 constant");
+
+int exec_ristretto255_from_hash(VmState* st) {
+  VM_LOG(st) << "execute RIST255_FROMHASH";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto x2 = stack.pop_int();
+  auto x1 = stack.pop_int();
+  st->consume_gas(VmState::rist255_fromhash_gas_price);
+  unsigned char xb[64], rb[32];
+  if (!x1->export_bytes(xb, 32, false)) {
+    throw VmError{Excno::range_chk, "x1 must fit in an unsigned 256-bit integer"};
+  }
+  if (!x2->export_bytes(xb + 32, 32, false)) {
+    throw VmError{Excno::range_chk, "x2 must fit in an unsigned 256-bit integer"};
+  }
+  CHECK(sodium_init() >= 0);
+  crypto_core_ristretto255_from_hash(rb, xb);
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  return 0;
+}
+
+int exec_ristretto255_validate(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_VALIDATE";
+  Stack& stack = st->get_stack();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_validate_gas_price);
+  unsigned char xb[64];
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !crypto_core_ristretto255_is_valid_point(xb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "x is not a valid encoded element"};
+  }
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_add(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto y = stack.pop_int();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_add_gas_price);
+  unsigned char xb[32], yb[32], rb[32];
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_add(rb, xb, yb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "x and/or y are not valid encoded elements"};
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_sub(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_SUB";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto y = stack.pop_int();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_add_gas_price);
+  unsigned char xb[32], yb[32], rb[32];
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_sub(rb, xb, yb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "x and/or y are not valid encoded elements"};
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+static bool export_bytes_little(const td::RefInt256& n, unsigned char* nb) {
+  if (!n->export_bytes(nb, 32, false)) {
+    return false;
+  }
+  std::reverse(nb, nb + 32);
+  return true;
+}
+
+static td::RefInt256 get_ristretto256_l() {
+  static td::RefInt256 l =
+      (td::make_refint(1) << 252) + td::dec_string_to_int256(td::Slice("27742317777372353535851937790883648493"));
+  return l;
+}
+
+int exec_ristretto255_mul(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_MUL";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto n = stack.pop_int() % get_ristretto256_l();
+  auto x = stack.pop_int();
+  st->consume_gas(VmState::rist255_mul_gas_price);
+  unsigned char xb[32], nb[32], rb[32];
+  memset(rb, 255, sizeof(rb));
+  CHECK(sodium_init() >= 0);
+  if (!x->export_bytes(xb, 32, false) || !export_bytes_little(n, nb) || crypto_scalarmult_ristretto255(rb, nb, xb)) {
+    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      }
+      throw VmError{Excno::range_chk, "invalid x or n"};
+    }
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_mul_base(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute RIST255_MULBASE";
+  Stack& stack = st->get_stack();
+  auto n = stack.pop_int() % get_ristretto256_l();
+  st->consume_gas(VmState::rist255_mulbase_gas_price);
+  unsigned char nb[32], rb[32];
+  memset(rb, 255, sizeof(rb));
+  CHECK(sodium_init() >= 0);
+  if (!export_bytes_little(n, nb) || crypto_scalarmult_ristretto255_base(rb, nb)) {
+    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      }
+      throw VmError{Excno::range_chk, "invalid n"};
+    }
+  }
+  td::RefInt256 r{true};
+  CHECK(r.write().import_bytes(rb, 32, false));
+  stack.push_int(std::move(r));
+  if (quiet) {
+    stack.push_bool(true);
+  }
+  return 0;
+}
+
+int exec_ristretto255_push_l(VmState* st) {
+  VM_LOG(st) << "execute RIST255_PUSHL";
+  Stack& stack = st->get_stack();
+  stack.push_int(get_ristretto256_l());
+  return 0;
+}
+
+static bls::P1 slice_to_bls_p1(const CellSlice& cs) {
+  bls::P1 p1;
+  if (!cs.prefetch_bytes(p1.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::P1_SIZE << " bytes"};
+  }
+  return p1;
+}
+
+static bls::P2 slice_to_bls_p2(const CellSlice& cs) {
+  bls::P2 p2;
+  if (!cs.prefetch_bytes(p2.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::P2_SIZE << " bytes"};
+  }
+  return p2;
+}
+
+static bls::FP slice_to_bls_fp(const CellSlice& cs) {
+  bls::FP fp;
+  if (!cs.prefetch_bytes(fp.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::FP_SIZE << " bytes"};
+  }
+  return fp;
+}
+
+static bls::FP2 slice_to_bls_fp2(const CellSlice& cs) {
+  bls::FP2 fp2;
+  if (!cs.prefetch_bytes(fp2.as_slice())) {
+    throw VmError{Excno::cell_und, PSTRING() << "slice must contain at least " << bls::FP_SIZE * 2 << " bytes"};
+  }
+  return fp2;
+}
+
+static td::BufferSlice slice_to_bls_msg(const CellSlice& cs) {
+  if (cs.size() % 8 != 0) {
+    throw VmError{Excno::cell_und, "message does not consist of an integer number of bytes"};
+  }
+  size_t msg_size = cs.size() / 8;
+  td::BufferSlice s(msg_size);
+  cs.prefetch_bytes((td::uint8*)s.data(), (int)msg_size);
+  return s;
+}
+
+static Ref<CellSlice> bls_to_slice(td::Slice s) {
+  VmStateInterface::Guard guard{nullptr};  // Don't consume gas for finalize and load_cell_slice
+  CellBuilder cb;
+  return load_cell_slice_ref(cb.store_bytes(s).finalize());
+}
+
+static long long bls_calculate_multiexp_gas(int n, long long base, long long coef1, long long coef2) {
+  int l = 4;
+  while ((1LL << (l + 1)) <= n) {
+    ++l;
+  }
+  return base + n * coef1 + n * coef2 / l;
+}
+
+int exec_bls_verify(VmState* st) {
+  VM_LOG(st) << "execute BLS_VERIFY";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(3);
+  st->consume_gas(st->bls_verify_gas_price);
+  bls::P2 sig = slice_to_bls_p2(*stack.pop_cellslice());
+  td::BufferSlice msg = slice_to_bls_msg(*stack.pop_cellslice());
+  bls::P1 pub = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::verify(pub, msg, sig));
+  return 0;
+}
+
+int exec_bls_aggregate(VmState* st) {
+  VM_LOG(st) << "execute BLS_AGGREGATE";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range(stack.depth() - 1, 1);
+  st->consume_gas(
+      std::max(0LL, VmState::bls_aggregate_base_gas_price + (long long)n * VmState::bls_aggregate_element_gas_price));
+  std::vector<bls::P2> sigs(n);
+  for (int i = n - 1; i >= 0; --i) {
+    sigs[i] = slice_to_bls_p2(*stack.pop_cellslice());
+  }
+  bls::P2 aggregated = bls::aggregate(sigs);
+  stack.push_cellslice(bls_to_slice(aggregated.as_slice()));
+  return 0;
+}
+
+int exec_bls_fast_aggregate_verify(VmState* st) {
+  VM_LOG(st) << "execute BLS_FASTAGGREGATEVERIFY";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(3);
+  Ref<CellSlice> sig = stack.pop_cellslice();
+  Ref<CellSlice> msg = stack.pop_cellslice();
+  int n = stack.pop_smallint_range(stack.depth() - 1);
+  st->consume_gas(VmState::bls_fast_aggregate_verify_base_gas_price +
+                  (long long)n * VmState::bls_fast_aggregate_verify_element_gas_price);
+  std::vector<bls::P1> pubs(n);
+  for (int i = n - 1; i >= 0; --i) {
+    pubs[i] = slice_to_bls_p1(*stack.pop_cellslice());
+  }
+  stack.push_bool(bls::fast_aggregate_verify(pubs, slice_to_bls_msg(*msg), slice_to_bls_p2(*sig)));
+  return 0;
+}
+
+int exec_bls_aggregate_verify(VmState* st) {
+  VM_LOG(st) << "execute BLS_AGGREGATEVERIFY";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  Ref<CellSlice> sig = stack.pop_cellslice();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  st->consume_gas(VmState::bls_aggregate_verify_base_gas_price +
+                  (long long)n * VmState::bls_aggregate_verify_element_gas_price);
+  std::vector<std::pair<bls::P1, td::BufferSlice>> vec(n);
+  for (int i = n - 1; i >= 0; --i) {
+    vec[i].second = slice_to_bls_msg(*stack.pop_cellslice());
+    vec[i].first = slice_to_bls_p1(*stack.pop_cellslice());
+  }
+  stack.push_bool(bls::aggregate_verify(vec, slice_to_bls_p2(*sig)));
+  return 0;
+}
+
+int exec_bls_g1_add(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  st->consume_gas(VmState::bls_g1_add_sub_gas_price);
+  bls::P1 b = slice_to_bls_p1(*stack.pop_cellslice());
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_add(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_sub(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_SUB";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  st->consume_gas(VmState::bls_g1_add_sub_gas_price);
+  bls::P1 b = slice_to_bls_p1(*stack.pop_cellslice());
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_sub(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_neg(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_NEG";
+  Stack& stack = st->get_stack();
+  st->consume_gas(VmState::bls_g1_neg_gas_price);
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_neg(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_mul(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_MUL";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  st->consume_gas(VmState::bls_g1_mul_gas_price);
+  td::RefInt256 x = stack.pop_int_finite();
+  bls::P1 p = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g1_mul(p, x).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_multiexp(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_MULTIEXP";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  st->consume_gas(bls_calculate_multiexp_gas(n, VmState::bls_g1_multiexp_base_gas_price,
+                                             VmState::bls_g1_multiexp_coef1_gas_price,
+                                             VmState::bls_g1_multiexp_coef2_gas_price));
+  std::vector<std::pair<bls::P1, td::RefInt256>> ps(n);
+  for (int i = n - 1; i >= 0; --i) {
+    ps[i].second = stack.pop_int_finite();
+    ps[i].first = slice_to_bls_p1(*stack.pop_cellslice());
+  }
+  stack.push_cellslice(bls_to_slice(bls::g1_multiexp(ps).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_ZERO";
+  Stack& stack = st->get_stack();
+  stack.push_cellslice(bls_to_slice(bls::g1_zero().as_slice()));
+  return 0;
+}
+
+int exec_bls_map_to_g1(VmState* st) {
+  VM_LOG(st) << "execute BLS_MAP_TO_G1";
+  Stack& stack = st->get_stack();
+  st->consume_gas(VmState::bls_map_to_g1_gas_price);
+  bls::FP a = slice_to_bls_fp(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::map_to_g1(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g1_in_group(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_INGROUP";
+  Stack& stack = st->get_stack();
+  st->consume_gas(VmState::bls_g1_in_group_gas_price);
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::g1_in_group(a));
+  return 0;
+}
+
+int exec_bls_g1_is_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G1_ISZERO";
+  Stack& stack = st->get_stack();
+  bls::P1 a = slice_to_bls_p1(*stack.pop_cellslice());
+  stack.push_bool(bls::g1_is_zero(a));
+  return 0;
+}
+
+int exec_bls_g2_add(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  st->consume_gas(VmState::bls_g2_add_sub_gas_price);
+  bls::P2 b = slice_to_bls_p2(*stack.pop_cellslice());
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_add(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_sub(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_SUB";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  st->consume_gas(VmState::bls_g2_add_sub_gas_price);
+  bls::P2 b = slice_to_bls_p2(*stack.pop_cellslice());
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_sub(a, b).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_neg(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_NEG";
+  Stack& stack = st->get_stack();
+  st->consume_gas(VmState::bls_g2_neg_gas_price);
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_neg(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_mul(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_MUL";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  st->consume_gas(VmState::bls_g2_mul_gas_price);
+  td::RefInt256 x = stack.pop_int_finite();
+  bls::P2 p = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::g2_mul(p, x).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_multiexp(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_MULTIEXP";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  st->consume_gas(bls_calculate_multiexp_gas(n, VmState::bls_g2_multiexp_base_gas_price,
+                                             VmState::bls_g2_multiexp_coef1_gas_price,
+                                             VmState::bls_g2_multiexp_coef2_gas_price));
+  std::vector<std::pair<bls::P2, td::RefInt256>> ps(n);
+  for (int i = n - 1; i >= 0; --i) {
+    ps[i].second = stack.pop_int_finite();
+    ps[i].first = slice_to_bls_p2(*stack.pop_cellslice());
+  }
+  stack.push_cellslice(bls_to_slice(bls::g2_multiexp(ps).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_ZERO";
+  Stack& stack = st->get_stack();
+  stack.push_cellslice(bls_to_slice(bls::g2_zero().as_slice()));
+  return 0;
+}
+
+int exec_bls_map_to_g2(VmState* st) {
+  VM_LOG(st) << "execute BLS_MAP_TO_G2";
+  Stack& stack = st->get_stack();
+  st->consume_gas(VmState::bls_map_to_g2_gas_price);
+  bls::FP2 a = slice_to_bls_fp2(*stack.pop_cellslice());
+  stack.push_cellslice(bls_to_slice(bls::map_to_g2(a).as_slice()));
+  return 0;
+}
+
+int exec_bls_g2_in_group(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_INGROUP";
+  Stack& stack = st->get_stack();
+  st->consume_gas(VmState::bls_g2_in_group_gas_price);
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_bool(bls::g2_in_group(a));
+  return 0;
+}
+
+int exec_bls_g2_is_zero(VmState* st) {
+  VM_LOG(st) << "execute BLS_G2_ISZERO";
+  Stack& stack = st->get_stack();
+  bls::P2 a = slice_to_bls_p2(*stack.pop_cellslice());
+  stack.push_bool(bls::g2_is_zero(a));
+  return 0;
+}
+
+int exec_bls_pairing(VmState* st) {
+  VM_LOG(st) << "execute BLS_PAIRING";
+  Stack& stack = st->get_stack();
+  int n = stack.pop_smallint_range((stack.depth() - 1) / 2);
+  st->consume_gas(VmState::bls_pairing_base_gas_price + (long long)n * VmState::bls_pairing_element_gas_price);
+  std::vector<std::pair<bls::P1, bls::P2>> ps(n);
+  for (int i = n - 1; i >= 0; --i) {
+    ps[i].second = slice_to_bls_p2(*stack.pop_cellslice());
+    ps[i].first = slice_to_bls_p1(*stack.pop_cellslice());
+  }
+  stack.push_bool(bls::pairing(ps));
+  return 0;
+}
+
+int exec_bls_push_r(VmState* st) {
+  VM_LOG(st) << "execute BLS_PUSHR";
+  Stack& stack = st->get_stack();
+  stack.push_int(bls::get_r());
   return 0;
 }
 
@@ -396,8 +1098,54 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
   cp0.insert(OpcodeInstr::mksimple(0xf900, 16, "HASHCU", std::bind(exec_compute_hash, _1, 0)))
       .insert(OpcodeInstr::mksimple(0xf901, 16, "HASHSU", std::bind(exec_compute_hash, _1, 1)))
       .insert(OpcodeInstr::mksimple(0xf902, 16, "SHA256U", exec_compute_sha256))
+      .insert(OpcodeInstr::mkfixed(0xf904 >> 2, 14, 10, dump_hash_ext, exec_hash_ext)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
-      .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)));
+      .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
+      .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf920, 16, "RIST255_FROMHASH", exec_ristretto255_from_hash)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf922, 16, "RIST255_ADD", std::bind(exec_ristretto255_add, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf923, 16, "RIST255_SUB", std::bind(exec_ristretto255_sub, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf924, 16, "RIST255_MUL", std::bind(exec_ristretto255_mul, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf925, 16, "RIST255_MULBASE", std::bind(exec_ristretto255_mul_base, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf926, 16, "RIST255_PUSHL", exec_ristretto255_push_l)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xb7f921, 24, "RIST255_QVALIDATE", std::bind(exec_ristretto255_validate, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f922, 24, "RIST255_QADD", std::bind(exec_ristretto255_add, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f923, 24, "RIST255_QSUB", std::bind(exec_ristretto255_sub, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f924, 24, "RIST255_QMUL", std::bind(exec_ristretto255_mul, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93000, 24, "BLS_VERIFY", exec_bls_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93001, 24, "BLS_AGGREGATE", exec_bls_aggregate)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93002, 24, "BLS_FASTAGGREGATEVERIFY", exec_bls_fast_aggregate_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93003, 24, "BLS_AGGREGATEVERIFY", exec_bls_aggregate_verify)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93010, 24, "BLS_G1_ADD", exec_bls_g1_add)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93011, 24, "BLS_G1_SUB", exec_bls_g1_sub)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93012, 24, "BLS_G1_NEG", exec_bls_g1_neg)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93013, 24, "BLS_G1_MUL", exec_bls_g1_mul)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93014, 24, "BLS_G1_MULTIEXP", exec_bls_g1_multiexp)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93015, 24, "BLS_G1_ZERO", exec_bls_g1_zero)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93016, 24, "BLS_MAP_TO_G1", exec_bls_map_to_g1)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93017, 24, "BLS_G1_INGROUP", exec_bls_g1_in_group)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93018, 24, "BLS_G1_ISZERO", exec_bls_g1_is_zero)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93020, 24, "BLS_G2_ADD", exec_bls_g2_add)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93021, 24, "BLS_G2_SUB", exec_bls_g2_sub)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93022, 24, "BLS_G2_NEG", exec_bls_g2_neg)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93023, 24, "BLS_G2_MUL", exec_bls_g2_mul)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93024, 24, "BLS_G2_MULTIEXP", exec_bls_g2_multiexp)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93025, 24, "BLS_G2_ZERO", exec_bls_g2_zero)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93026, 24, "BLS_MAP_TO_G2", exec_bls_map_to_g2)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93027, 24, "BLS_G2_INGROUP", exec_bls_g2_in_group)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93028, 24, "BLS_G2_ISZERO", exec_bls_g2_is_zero)->require_version(4))
+
+      .insert(OpcodeInstr::mksimple(0xf93030, 24, "BLS_PAIRING", exec_bls_pairing)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93031, 24, "BLS_PUSHR", exec_bls_push_r)->require_version(4));
 }
 
 int exec_compute_data_size(VmState* st, int mode) {
@@ -769,6 +1517,219 @@ int exec_send_raw_message(VmState* st) {
   return install_output_action(st, cb.finalize());
 }
 
+int parse_addr_workchain(CellSlice cs) {
+  // anycast_info$_ depth:(#<= 30) { depth >= 1 } rewrite_pfx:(bits depth) = Anycast;
+  // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
+  // addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
+  if (cs.fetch_ulong(1) != 1) {
+    throw VmError{Excno::range_chk, "not an internal MsgAddress"};
+  }
+  bool is_var = cs.fetch_ulong(1);
+  if (cs.fetch_ulong(1) == 1) { // Anycast
+    unsigned depth;
+    cs.fetch_uint_leq(30, depth);
+    cs.skip_first(depth);
+  }
+
+  if (is_var) {
+    cs.skip_first(9);
+    return (int)cs.fetch_long(32);
+  } else {
+    return (int)cs.fetch_long(8);
+  }
+}
+
+int exec_send_message(VmState* st) {
+  VM_LOG(st) << "execute SENDMSG";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  int mode = stack.pop_smallint_range(2047);
+  bool send = !(mode & 1024);
+  mode &= ~1024;
+  if (mode >= 256) {
+    throw VmError{Excno::range_chk};
+  }
+  Ref<Cell> msg_cell = stack.pop_cell();
+
+  block::gen::MessageRelaxed::Record msg;
+  if (!tlb::type_unpack_cell(msg_cell, block::gen::t_MessageRelaxed_Any, msg)) {
+    throw VmError{Excno::unknown, "invalid message"};
+  }
+
+  Ref<CellSlice> my_addr = get_param(st, 8).as_slice();
+  if (my_addr.is_null()) {
+    throw VmError{Excno::type_chk, "invalid param MYADDR"};
+  }
+  bool ihr_disabled;
+  Ref<CellSlice> dest;
+  td::RefInt256 value;
+  td::RefInt256 user_fwd_fee, user_ihr_fee;
+  bool have_extra_currencies = false;
+  bool ext_msg = msg.info->prefetch_ulong(1);
+  if (ext_msg) { // External message
+    block::gen::CommonMsgInfoRelaxed::Record_ext_out_msg_info info;
+    if (!tlb::csr_unpack(msg.info, info)) {
+      throw VmError{Excno::unknown, "invalid message"};
+    }
+    ihr_disabled = true;
+    dest = std::move(info.dest);
+    value = user_fwd_fee = user_ihr_fee = td::zero_refint();
+  } else { // Internal message
+    block::gen::CommonMsgInfoRelaxed::Record_int_msg_info info;
+    if (!tlb::csr_unpack(msg.info, info)) {
+      throw VmError{Excno::unknown, "invalid message"};
+    }
+    ihr_disabled = info.ihr_disabled;
+    dest = std::move(info.dest);
+    Ref<vm::Cell> extra;
+    if (!block::tlb::t_CurrencyCollection.unpack_special(info.value.write(), value, extra)) {
+      throw VmError{Excno::unknown, "invalid message"};
+    }
+    have_extra_currencies = !extra.is_null();
+    user_fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
+    user_ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+  }
+
+  bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
+  Ref<Cell> config_dict = get_param(st, 9).as_cell();
+  Dictionary config{config_dict, 32};
+  Ref<Cell> prices_cell = config.lookup_ref(td::BitArray<32>{is_masterchain ? 24 : 25});
+  block::gen::MsgForwardPrices::Record prices;
+  if (prices_cell.is_null() || !tlb::unpack_cell(std::move(prices_cell), prices)) {
+    throw VmError{Excno::unknown, "invalid prices config"};
+  }
+
+  // msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
+  // bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
+  vm::VmStorageStat stat(1 << 13);
+  CellSlice cs = load_cell_slice(msg_cell);
+  cs.skip_first(cs.size());
+  stat.add_storage(cs);
+
+  if (!ext_msg) {
+    if (mode & 128) {  // value is balance of the contract
+      Ref<Tuple> balance = get_param(st, 7).as_tuple();
+      if (balance.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param BALANCE"};
+      }
+      value = tuple_index(balance, 0).as_int();
+      if (value.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param BALANCE"};
+      }
+      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+    } else if (mode & 64) {  // value += value of incoming message
+      Ref<Tuple> balance = get_param(st, 11).as_tuple();
+      if (balance.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param INCOMINGVALUE"};
+      }
+      td::RefInt256 balance_grams = tuple_index(balance, 0).as_int();
+      if (balance_grams.is_null()) {
+        throw VmError{Excno::type_chk, "invalid param INCOMINGVALUE"};
+      }
+      value += balance_grams;
+      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+    }
+  }
+
+  bool have_init = msg.init->bit_at(0);
+  bool init_ref = have_init && msg.init->bit_at(1);
+  bool body_ref = msg.body->bit_at(0);
+
+  td::RefInt256 fwd_fee, ihr_fee;
+  td::uint64 cells = stat.cells;
+  td::uint64 bits = stat.bits;
+  auto compute_fees = [&]() {
+    td::uint64 fwd_fee_short = prices.lump_price + td::uint128(prices.bit_price)
+                                                 .mult(bits)
+                                                 .add(td::uint128(prices.cell_price).mult(cells))
+                                                 .add(td::uint128(0xffffu))
+                                                 .shr(16)
+                                                 .lo();
+    td::uint64 ihr_fee_short;
+    if (ihr_disabled) {
+      ihr_fee_short = 0;
+    } else {
+      ihr_fee_short = td::uint128(fwd_fee_short).mult(prices.ihr_price_factor).shr(16).lo();
+    }
+    fwd_fee = td::RefInt256{true, fwd_fee_short};
+    ihr_fee = td::RefInt256{true, ihr_fee_short};
+    fwd_fee = std::max(fwd_fee, user_fwd_fee);
+    if (!ihr_disabled) {
+      ihr_fee = std::max(ihr_fee, user_ihr_fee);
+    }
+  };
+  compute_fees();
+
+  auto stored_grams_len = [](td::RefInt256 const& x) -> unsigned {
+    unsigned bits = x->bit_size(false);
+    return 4 + ((bits + 7) & ~7);
+  };
+
+  auto msg_root_bits = [&]() -> unsigned {
+    unsigned bits;
+    // CommonMsgInfo
+    if (ext_msg) {
+      bits = 2 + my_addr->size() + dest->size() + 32 + 64;
+    } else {
+      bits = 4 + my_addr->size() + dest->size() + stored_grams_len(value) + 1 + 32 + 64;
+      td::RefInt256 fwd_fee_first = (fwd_fee * prices.first_frac) >> 16;
+      bits += stored_grams_len(fwd_fee - fwd_fee_first);
+      bits += stored_grams_len(ihr_fee);
+    }
+    // init
+    bits++;
+    if (have_init) {
+      bits += 1 + (init_ref ? 0 : msg.init->size() - 2);
+    }
+    // body
+    bits++;
+    bits += (body_ref ? 0 : msg.body->size() - 1);
+    return bits;
+  };
+  auto msg_root_refs = [&]() -> unsigned {
+    unsigned refs;
+    // CommonMsgInfo
+    if (ext_msg) {
+      refs = 0;
+    } else {
+      refs = have_extra_currencies;
+    }
+    // init
+    if (have_init) {
+      refs += (init_ref ? 1 : msg.init->size_refs());
+    }
+    // body
+    refs += (body_ref ? 1 : msg.body->size_refs());
+    return refs;
+  };
+
+  if (have_init && !init_ref && (msg_root_bits() > Cell::max_bits || msg_root_refs() > Cell::max_refs)) {
+    init_ref = true;
+    cells += 1;
+    bits += msg.init->size() - 2;
+    compute_fees();
+  }
+  if (!body_ref && (msg_root_bits() > Cell::max_bits || msg_root_refs() > Cell::max_refs)) {
+    body_ref = true;
+    cells += 1;
+    bits += msg.body->size() - 1;
+    compute_fees();
+  }
+  stack.push_int(fwd_fee + ihr_fee);
+
+  if (send) {
+    CellBuilder cb;
+    if (!(cb.store_ref_bool(get_actions(st))     // out_list$_ {n:#} prev:^(OutList n)
+          && cb.store_long_bool(0x0ec3c86d, 32)  // action_send_msg#0ec3c86d
+          && cb.store_long_bool(mode, 8)         // mode:(## 8)
+          && cb.store_ref_bool(std::move(msg_cell)))) {
+      throw VmError{Excno::cell_ov, "cannot serialize raw output message into an output action cell"};
+    }
+    return install_output_action(st, cb.finalize());
+  }
+  return 0;
+}
+
 bool store_grams(CellBuilder& cb, td::RefInt256 value) {
   int k = value->bit_size(false);
   return k <= 15 * 8 && cb.store_long_bool((k + 7) >> 3, 4) && cb.store_int256_bool(*value, (k + 7) & -8, false);
@@ -778,7 +1739,7 @@ int exec_reserve_raw(VmState* st, int mode) {
   VM_LOG(st) << "execute RAWRESERVE" << (mode & 1 ? "X" : "");
   Stack& stack = st->get_stack();
   stack.check_underflow(2 + (mode & 1));
-  int f = stack.pop_smallint_range(15);
+  int f = stack.pop_smallint_range(st->get_global_version() >= 4 ? 31 : 15);
   Ref<Cell> y;
   if (mode & 1) {
     y = stack.pop_maybe_cell();
@@ -814,12 +1775,20 @@ int exec_set_lib_code(VmState* st) {
   VM_LOG(st) << "execute SETLIBCODE";
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
-  int mode = stack.pop_smallint_range(2);
+  int mode;
+  if (st->get_global_version() >= 4) {
+    mode = stack.pop_smallint_range(31);
+    if ((mode & ~16) > 2) {
+      throw VmError{Excno::range_chk};
+    }
+  } else {
+    mode = stack.pop_smallint_range(2);
+  }
   auto code = stack.pop_cell();
   CellBuilder cb;
   if (!(cb.store_ref_bool(get_actions(st))         // out_list$_ {n:#} prev:^(OutList n)
         && cb.store_long_bool(0x26fa1dd4, 32)      // action_change_library#26fa1dd4
-        && cb.store_long_bool(mode * 2 + 1, 8)     // mode:(## 7) { mode <= 2 }
+        && cb.store_long_bool(mode * 2 + 1, 8)     // mode:(## 7)
         && cb.store_ref_bool(std::move(code)))) {  // libref:LibRef = OutAction;
     throw VmError{Excno::cell_ov, "cannot serialize new library code into an output action cell"};
   }
@@ -830,7 +1799,15 @@ int exec_change_lib(VmState* st) {
   VM_LOG(st) << "execute CHANGELIB";
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
-  int mode = stack.pop_smallint_range(2);
+  int mode;
+  if (st->get_global_version() >= 4) {
+    mode = stack.pop_smallint_range(31);
+    if ((mode & ~16) > 2) {
+      throw VmError{Excno::range_chk};
+    }
+  } else {
+    mode = stack.pop_smallint_range(2);
+  }
   auto hash = stack.pop_int_finite();
   if (!hash->unsigned_fits_bits(256)) {
     throw VmError{Excno::range_chk, "library hash must be non-negative"};
@@ -852,7 +1829,8 @@ void register_ton_message_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xfb03, 16, "RAWRESERVEX", std::bind(exec_reserve_raw, _1, 1)))
       .insert(OpcodeInstr::mksimple(0xfb04, 16, "SETCODE", exec_set_code))
       .insert(OpcodeInstr::mksimple(0xfb06, 16, "SETLIBCODE", exec_set_lib_code))
-      .insert(OpcodeInstr::mksimple(0xfb07, 16, "CHANGELIB", exec_change_lib));
+      .insert(OpcodeInstr::mksimple(0xfb07, 16, "CHANGELIB", exec_change_lib))
+      .insert(OpcodeInstr::mksimple(0xfb08, 16, "SENDMSG", exec_send_message)->require_version(4));
 }
 
 void register_ton_ops(OpcodeTable& cp0) {

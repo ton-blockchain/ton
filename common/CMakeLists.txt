@@ -8,7 +8,8 @@ set(COMMON_SOURCE
 
   errorlog.h
   errorlog.cpp
-)
+
+  global-version.h)
 
 
 add_library(common STATIC ${COMMON_SOURCE})

@@ -4,7 +4,7 @@ if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
 
-set(TON_CRYPTO_SOURCE
+set(TON_CRYPTO_CORE_SOURCE
   Ed25519.cpp
   common/bigint.cpp
   common/refcnt.cpp
@@ -19,26 +19,8 @@ set(TON_CRYPTO_SOURCE
   openssl/bignum.cpp
   openssl/residue.cpp
   openssl/rand.cpp
-  vm/stack.cpp
-  vm/atom.cpp
-  vm/continuation.cpp
-  vm/dict.cpp
-  vm/memo.cpp
-  vm/dispatch.cpp
-  vm/opctable.cpp
-  vm/cp0.cpp
-  vm/stackops.cpp
-  vm/tupleops.cpp
-  vm/arithops.cpp
-  vm/cellops.cpp
-  vm/contops.cpp
-  vm/dictops.cpp
-  vm/debugops.cpp
-  vm/tonops.cpp
   vm/boc.cpp
   vm/large-boc-serializer.cpp
-  vm/utils.cpp
-  vm/vm.cpp
   tl/tlblib.cpp
 
   Ed25519.h
@@ -66,34 +48,10 @@ set(TON_CRYPTO_SOURCE
   tl/tlbc-data.h
   tl/tlblib.hpp
 
-  vm/arithops.h
-  vm/atom.h
-  vm/boc.h
-  vm/boc-writers.h
-  vm/box.hpp
-  vm/cellops.h
-  vm/continuation.h
-  vm/contops.h
-  vm/cp0.h
-  vm/debugops.h
-  vm/dict.h
-  vm/dictops.h
-  vm/excno.hpp
-  vm/fmt.hpp
-  vm/log.h
-  vm/memo.h
-  vm/opctable.h
-  vm/stack.hpp
-  vm/stackops.h
-  vm/tupleops.h
-  vm/tonops.h
-  vm/vmstate.h
-  vm/utils.h
-  vm/vm.h
+  keccak/keccak.h
+  keccak/keccak.cpp
 
-  vm/cells.h
-  vm/cellslice.h
-
+  vm/dict.cpp
   vm/cells/Cell.cpp
   vm/cells/CellBuilder.cpp
   vm/cells/CellHash.cpp
@@ -106,6 +64,7 @@ set(TON_CRYPTO_SOURCE
   vm/cells/MerkleProof.cpp
   vm/cells/MerkleUpdate.cpp
 
+  vm/dict.h
   vm/cells/Cell.h
   vm/cells/CellBuilder.h
   vm/cells/CellHash.h
@@ -124,9 +83,64 @@ set(TON_CRYPTO_SOURCE
   vm/cells/VirtualCell.h
   vm/cells/VirtualizationParameters.h
 
+  vm/cells.h
+  vm/cellslice.h
+
   vm/db/StaticBagOfCellsDb.h
   vm/db/StaticBagOfCellsDb.cpp
-)
+
+  vm/Hasher.h
+  vm/Hasher.cpp
+
+  ellcurve/secp256k1.h
+  ellcurve/secp256k1.cpp
+  ellcurve/p256.h
+  ellcurve/p256.cpp)
+
+set(TON_CRYPTO_SOURCE
+  vm/stack.cpp
+  vm/atom.cpp
+  vm/continuation.cpp
+  vm/memo.cpp
+  vm/dispatch.cpp
+  vm/opctable.cpp
+  vm/cp0.cpp
+  vm/stackops.cpp
+  vm/tupleops.cpp
+  vm/arithops.cpp
+  vm/cellops.cpp
+  vm/contops.cpp
+  vm/dictops.cpp
+  vm/debugops.cpp
+  vm/tonops.cpp
+  vm/utils.cpp
+  vm/vm.cpp
+  vm/bls.cpp
+
+  vm/arithops.h
+  vm/atom.h
+  vm/boc.h
+  vm/boc-writers.h
+  vm/box.hpp
+  vm/cellops.h
+  vm/continuation.h
+  vm/contops.h
+  vm/cp0.h
+  vm/debugops.h
+  vm/dictops.h
+  vm/excno.hpp
+  vm/fmt.hpp
+  vm/log.h
+  vm/memo.h
+  vm/opctable.h
+  vm/stack.hpp
+  vm/stackops.h
+  vm/tupleops.h
+  vm/tonops.h
+  vm/vmstate.h
+  vm/utils.h
+  vm/vm.h
+  vm/bls.h)
 
 set(TON_DB_SOURCE
   vm/db/DynamicBagOfCellsDb.cpp
@@ -271,17 +285,25 @@ set(BIGINT_TEST_SOURCE
 
 set(USE_EMSCRIPTEN ${USE_EMSCRIPTEN} PARENT_SCOPE)
 
+add_library(ton_crypto_core STATIC ${TON_CRYPTO_CORE_SOURCE})
+target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+target_link_libraries(ton_crypto_core PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
+if (NOT WIN32)
+  target_link_libraries(ton_crypto_core PUBLIC dl z)
+endif()
+target_include_directories(ton_crypto_core SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
+target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils ton_crypto_core ton_block)
 if (USE_EMSCRIPTEN)
   target_link_options(ton_crypto PRIVATE -fexceptions)
   target_compile_options(ton_crypto PRIVATE -fexceptions)
 endif()
 if (NOT WIN32)
-  find_library(DL dl) 
+  find_library(DL dl)
   if (DL)
     target_link_libraries(ton_crypto PUBLIC dl z)
   else()
@@ -289,6 +311,39 @@ if (NOT WIN32)
   endif()
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+
+add_dependencies(ton_crypto blst)
+target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
+target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
+
+if (NOT USE_EMSCRIPTEN)
+  find_package(Secp256k1 REQUIRED)
+endif()
+
+if (MSVC)
+  find_package(Sodium REQUIRED)
+  target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIRS}>)
+  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
+elseif (ANDROID)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto PUBLIC $<BUILD_INTERFACE:${SECP256K1_LIBRARY}>)
+else()
+  if (NOT USE_EMSCRIPTEN)
+    find_package(Sodium REQUIRED)
+    target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIRS}>)
+    target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
+  else()
+    target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+    target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
+  endif()
+  if (NOT APPLE AND NOT USE_EMSCRIPTEN)
+    target_link_libraries(ton_crypto_core PUBLIC secp256k1)
+  endif()
+endif()
+
+target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
+target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})
 target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -316,12 +371,12 @@ endif()
 
 add_library(src_parser ${PARSER_SOURCE})
 target_include_directories(src_parser PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(src_parser PUBLIC ton_crypto)
+target_link_libraries(src_parser PUBLIC ton_crypto_core)
 
 add_library(ton_block ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
+target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api)
 
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -347,12 +402,12 @@ if (USE_EMSCRIPTEN)
   target_link_options(funcfiftlib PRIVATE -sALLOW_TABLE_GROWTH=1)
   target_link_options(funcfiftlib PRIVATE --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/fift/lib@/fiftlib)
   target_link_options(funcfiftlib PRIVATE -fexceptions)
-  target_compile_options(funcfiftlib PRIVATE -fexceptions)
+  target_compile_options(funcfiftlib PRIVATE -fexceptions -fno-stack-protector)
 endif()
 
 add_executable(tlbc tl/tlbc.cpp)
 target_include_directories(tlbc PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(tlbc PUBLIC ton_crypto src_parser)
+target_link_libraries(tlbc PUBLIC ton_crypto_core src_parser)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
 endif()

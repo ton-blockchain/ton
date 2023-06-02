@@ -1,4 +1,4 @@
-name: TON ccpcheck
+name: TON Ccpcheck
 
 on: [push,workflow_dispatch,workflow_call]
 

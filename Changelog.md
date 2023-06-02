@@ -1,18 +1,37 @@
-## 03.2023 Update
+## 2023.05 Update
+1. Archive manager optimization
+2. A series of catchain (basic consensus protocol) security improvements
+3. Update for Fift libraries and FunC: better error-handling, fixes for `catch` stack recovery
+4. A series of out message queue handling optimization (already deployed during emergency upgrades between releases)
+5. Improvement of binaries portability
+
+Besides the work of the core team, this update is based on the efforts of @aleksej-paschenko (portability improvement), [Disintar team](https://github.com/disintar/) (archive manager optimization) and [sec3-service](https://github.com/sec3-service) security auditors (funC improvements).
+
+## 2023.04 Update
+1. CPU load optimization: previous DHT reconnect policy was too aggressive
+2. Network throughput improvements: granular control on external message broadcast, optimize celldb GC, adjust state serialization and block downloading timings, rldp2 for states and archives 
+3. Update for Fift (namespaces) and Fift libraries (list of improvements: https://github.com/ton-blockchain/ton/issues/631)
+4. Better handling of incorrect inputs in funC: fix UB and prevent crashes on some inputs, improve optimizing int consts and unused variables in FunC, fix analyzing repeat loop. FunC version is increase to 0.4.3.
+5. `listBlockTransactionsExt` in liteserver added
+6. Tvm emulator improvements
+
+Besides the work of the core team, this update is based on the efforts of @krigga (tvm emulator improvement), @ex3ndr (`PUSHSLICE` fift-asm improvement) and [sec3-service](https://github.com/sec3-service) security auditors (funC improvements).
+
+## 2023.03 Update
 1. Improvement of ADNL connection stability
 2. Transaction emulator support and getAccountStateByTransaction method
 3. Fixes of typos, undefined behavior and timer warnings
 4. Handling incorrect integer literal values in funC; funC version bumped to 0.4.2
 5. FunC Mathlib
 
-## 01.2023 Update
+## 2023.01 Update
 1. Added ConfigParam 44: `SuspendedAddressList`. Upon being set this config suspends initialisation of **uninit** addresses from the list for given time.
 2. FunC: `v0.4.1` added pragmas for precise control of computation order
 3. FunC: fixed compiler crashes for some exotic inputs
 4. FunC: added legacy tester, a collection of smart-contracts which is used to check whether compilator update change compilation result
 5. Improved archive manager: proper handling of recently garbage-collected blocks
 
-## 12.2022 Update
+## 2022.12 Update
 Node update:
 1. Improvements of ton-proxy: fixed few bugs, improved stability
 2. Improved collator/validator checks, added optimization of storage stat calculation, generation and validation of new blocks is made safer
@@ -27,7 +46,7 @@ Node update:
 
 Besides the work of the core team, this update is based on the efforts of @vtamara (help with abseil-cpp upgrade), @krigga(in-place modification of global variables) and third-party security auditors.
 
-## 10.2022 Update
+## 2022.10 Update
 * Added extended block creation and general perfomance stats gathering
 * Forbidden report data on blocks not committed to the master chain for LS
 * Improved debug in TVM
@@ -39,7 +58,7 @@ Besides the work of the core team, this update is based on the efforts of @vtama
 
 Besides the work of the core team, this update is based on the efforts of @tvorogme (debug improvements), @AlexeyFSL (WASM builds)  and third-party security auditors.
 
-## 08.2022 Update
+## 2022.08 Update
 * Blockchain state serialization now works via separate db-handler which simplfies memory clearing after serialization
 * CellDB now works asynchronously which substantially increase database access throughput
 * Abseil-cpp and crc32 updated: solve issues with compilation on recent OS distributives
@@ -54,7 +73,7 @@ Update coincided with persistent state serialization event which lead to block p
 
 Besides the work of the core team, this update is based on the efforts of @awesome-doge (help with abseil-cpp upgrade), @rec00rsiff (noted issues for exotic endianess and implemented network stats) and third-party security auditors.
 
-## 05.2022 Update
+## 2022.05 Update
 * Initial synchronization improved: adjusted timeouts for state download and the way of choosing which state to download. Nodes with low network speed and/or bad connectivity will synchronize faster and consistently.
 * Improved peer-to-peer network stability and DDoS resistance: now peers will only relay valid messages to the network. Large messages, which require splitting for relaying, will be retranslated as well, but only after the node gets all parts, and reassembles and checks them. Validators may sign certificates for network peers, which allow relaying large messages by parts without checks. It is used now by validators to faster relay new blocks. Sign and import certificate commands are exposed via `validator-engine-console`.
 * Fixed some rare edge cases in TVM arithmetic operations related to big numbers (`2**63+`)

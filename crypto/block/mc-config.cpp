@@ -855,11 +855,12 @@ Ref<McShardHash> McShardHash::from_block(Ref<vm::Cell> block_root, const ton::Fi
   ton::RootHash rhash = block_root->get_hash().bits();
   CurrencyCollection fees_collected, funds_created;
   if (init_fees) {
-    block::gen::ValueFlow::Record flow;
-    if (!(tlb::unpack_cell(rec.value_flow, flow) && fees_collected.unpack(flow.fees_collected) &&
-          funds_created.unpack(flow.r2.created))) {
+    block::ValueFlow flow;
+    if (!flow.unpack(vm::load_cell_slice_ref(rec.value_flow))) {
       return {};
     }
+    fees_collected = flow.fees_collected;
+    funds_created = flow.created;
   }
   return Ref<McShardHash>(true, ton::BlockId{ton::ShardIdFull(shard), (unsigned)info.seq_no}, info.start_lt,
                           info.end_lt, info.gen_utime, rhash, fhash, fees_collected, funds_created, ~0U,
@@ -909,11 +910,12 @@ Ref<McShardDescr> McShardDescr::from_block(Ref<vm::Cell> block_root, Ref<vm::Cel
   ton::RootHash rhash = block_root->get_hash().bits();
   CurrencyCollection fees_collected, funds_created;
   if (init_fees) {
-    block::gen::ValueFlow::Record flow;
-    if (!(tlb::unpack_cell(rec.value_flow, flow) && fees_collected.unpack(flow.fees_collected) &&
-          funds_created.unpack(flow.r2.created))) {
+    block::ValueFlow flow;
+    if (!flow.unpack(vm::load_cell_slice_ref(rec.value_flow))) {
       return {};
     }
+    fees_collected = flow.fees_collected;
+    funds_created = flow.created;
   }
   auto res = Ref<McShardDescr>(true, ton::BlockId{ton::ShardIdFull(shard), (unsigned)info.seq_no}, info.start_lt,
                                info.end_lt, info.gen_utime, rhash, fhash, fees_collected, funds_created, ~0U,
@@ -1954,6 +1956,24 @@ std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime no
   return std::make_unique<vm::Dictionary>(rec.addresses->prefetch_ref(), 288);
 }
 
+BurningConfig Config::get_burning_config() const {
+  td::Ref<vm::Cell> param = get_config_param(5);
+  gen::BurningConfig::Record rec;
+  if (param.is_null() || !tlb::unpack_cell(param, rec)) {
+    return {};
+  }
+  BurningConfig c;
+  c.fee_burn_nom = rec.fee_burn_nom;
+  c.fee_burn_denom = rec.fee_burn_denom;
+  vm::CellSlice& addr = rec.blackhole_addr.write();
+  if (addr.fetch_long(1)) {
+    td::Bits256 x;
+    addr.fetch_bits_to(x.bits(), 256);
+    c.blackhole_addr = x;
+  }
+  return c;
+}
+
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set absent");
@@ -2198,6 +2218,44 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
     return {};
   }
   return lib;
+}
+
+td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
+  // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
+  // [ last_mc_blocks:[BlockId...]
+  //   prev_key_block:BlockId ] : PrevBlocksInfo
+  auto block_id_to_tuple = [](const ton::BlockIdExt& block_id) -> vm::Ref<vm::Tuple> {
+    td::RefInt256 shard = td::make_refint(block_id.id.shard);
+    if (shard->sgn() < 0) {
+      shard &= ((td::make_refint(1) << 64) - 1);
+    }
+    return vm::make_tuple_ref(
+        td::make_refint(block_id.id.workchain),
+        std::move(shard),
+        td::make_refint(block_id.id.seqno),
+        td::bits_to_refint(block_id.root_hash.bits(), 256),
+        td::bits_to_refint(block_id.file_hash.bits(), 256));
+  };
+  std::vector<vm::StackEntry> last_mc_blocks;
+
+  last_mc_blocks.push_back(block_id_to_tuple(block_id));
+  for (ton::BlockSeqno seqno = block_id.id.seqno; seqno > 0 && last_mc_blocks.size() < 16; ) {
+    --seqno;
+    ton::BlockIdExt block_id;
+    if (!get_old_mc_block_id(seqno, block_id)) {
+      return td::Status::Error("cannot fetch old mc block");
+    }
+    last_mc_blocks.push_back(block_id_to_tuple(block_id));
+  }
+
+  ton::BlockIdExt last_key_block;
+  ton::LogicalTime last_key_block_lt;
+  if (!get_last_key_block(last_key_block, last_key_block_lt)) {
+    return td::Status::Error("cannot fetch last key block");
+  }
+  return vm::make_tuple_ref(
+      td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks)),
+      block_id_to_tuple(last_key_block));
 }
 
 CollatorConfig Config::get_collator_config(bool need_collator_nodes) const {

@@ -1,0 +1,228 @@
+"Asm.fif" include
+
+// Just run
+111 10 20 2
+<{
+  ADD // Ensure that stack was passed to runvmx
+  DEPTH // Ensure that only 2 stack entries were passed
+  c4 PUSH CTOS SBITREFS // Ensure that c4 is empty
+  c5 PUSH CTOS SBITREFS // Ensure that c5 is empty
+  c7 PUSH // Ensure that c7 is empty
+  <b x{99991111} s, b> PUSHREF c4 POP // Ensure that it does not affect c4, c5, c7 in parent vm
+  <b x{aaaabbbb} s, b> PUSHREF c5 POP
+  NIL 100 PUSHINT TPUSH 200 PUSHINT TPUSH c7 POP
+  123 PUSHINT
+}>s
+<{
+  <b x{1234} s, b> PUSHREF c4 POP
+  <b x{5678} s, b> PUSHREF c5 POP
+  NIL 5 PUSHINT TPUSH 6 PUSHINT TPUSH c7 POP
+  0 RUNVM
+  c4 PUSH CTOS c5 PUSH CTOS c7 PUSH // Ensure that c4, c5, c7 are unchanged
+}>s 1000000 8 runvmx // Show gas usage
+.s { drop } depth 1- times // 111 30 1 0 0 0 0 [] 123 0 x{1234} x{5678} [ 5 6 ] 0 1197
+
+// Exception
+111 10 20 2
+<{ 22 PUSHINT 55 PUSHINT 66 THROWARG }>s
+<{ 0 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 111 55 66 0
+
+// Mode +1 - set c3 to code
+PROGRAM{
+  22 DECLMETHOD foo
+  DECLPROC main
+  foo PROC:<{
+    MUL
+  }>
+  main PROC:<{
+    DUP
+    foo CALLDICT
+    INC
+  }>
+}END>s constant prog
+<{
+  10 PUSHINT 0 PUSHINT 2 PUSHINT prog PUSHSLICE 1 RUNVM
+  10 PUSHINT 0 PUSHINT 2 PUSHINT prog PUSHSLICE 0 RUNVM
+}>s 0 runvmx
+.s { drop } depth 1- times // 101 0 10 10 22 11 0
+
+// Mode +2 - push 0
+<{ 10 PUSHINT 1 PUSHINT prog PUSHSLICE 3 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 101 0 0
+
+// Mode +4 - load and return c4
+0
+<{
+  c4 PUSHCTR CTOS // Ensure that this is x{5678}
+  <b x{abcd} s, b> PUSHREF c4 POPCTR // This should be returned from RUNVM
+  1000 PUSHINT
+}>s
+<b x{5678} s, b>
+<{
+  <b x{1234} s, b> PUSHREF c4 POP // Ensure that this does not change
+  4 RUNVM
+  CTOS
+  c4 PUSH CTOS // x{1234}
+}>s 0 runvmx
+.s { drop } depth 1- times // x{5678} 1000 0 x{abcd} x{1234} 0
+
+// Mode +16 - load c7
+0
+<{
+  c7 PUSH // Ensure that this is [ 10 15 20 ]
+  NIL 111 PUSHINT TPUSH 222 PUSHINT TPUSH 3333 PUSHINT TPUSH c7 POP
+  1000 PUSHINT
+}>s
+10 15 20 3 tuple
+<{
+  NIL 1 PUSHINT TPUSH 2 PUSHINT TPUSH 3 PUSHINT TPUSH c7 POP // Ensure that this does not change
+  16 RUNVM
+  c7 PUSH // [ 1 2 3 ]
+}>s 0 runvmx
+.s { drop } depth 1- times // [ 10 15 20 ] 1000 0 [ 1 2 3 ] 0
+
+// Mode +32 - return c5
+0
+<{
+  c5 PUSH CTOS SBITREFS // Ensure that this is empty
+  <b x{5678} s, b> PUSHREF c5 POP // Ensure that this is returned from RUNVM
+  1000 PUSHINT
+}>s
+<{
+  <b x{1234} s, b> PUSHREF c5 POP // Ensure that this does not change
+  32 RUNVM
+  CTOS
+  c5 PUSH CTOS // x{1234}
+}>s 0 runvmx
+.s { drop } depth 1- times // 0 0 1000 0 x{5678} x{1234} 0
+
+// c4, c5 with exception
+0
+<{
+  <b x{abcdaaaa} s, b> PUSHREF c4 POP
+  <b x{abcdbbbb} s, b> PUSHREF c5 POP
+  55 THROW
+}>s
+<b x{5678} s, b> // c4 for RUNVM
+<{
+  <b x{1234aaaa} s, b> PUSHREF c4 POP // Ensure that this does not change
+  <b x{1234bbbb} s, b> PUSHREF c5 POP // Ensure that this does not change
+  32 4 + RUNVM
+  c4 PUSH CTOS // x{1234aaaa}
+  c5 PUSH CTOS // x{1234bbbb}
+}>s 0 runvmx
+.s { drop } depth 1- times // 0 55 null null x{1234aaaa} x{1234bbbb} 0
+
+// c4, c5 with exception and commit
+0
+<{
+  <b x{abcdaaaa} s, b> PUSHREF c4 POP
+  <b x{abcdbbbb} s, b> PUSHREF c5 POP
+  COMMIT
+  <b x{} s, b> PUSHREF c4 POP
+  <b x{} s, b> PUSHREF c5 POP
+  55 THROW
+}>s
+<b x{5678} s, b> // c4 for RUNVM
+<{
+  <b x{1234aaaa} s, b> PUSHREF c4 POP // Ensure that this does not change
+  <b x{1234bbbb} s, b> PUSHREF c5 POP // Ensure that this does not change
+  32 4 + RUNVM
+  CTOS SWAP CTOS SWAP
+  c4 PUSH CTOS // x{1234aaaa}
+  c5 PUSH CTOS // x{1234bbbb}
+}>s 0 runvmx
+.s { drop } depth 1- times // 0 55 x{abcdaaaa} x{abcdbbbb} x{1234aaaa} x{1234bbbb} 0
+
+// Mode +8 - gas limit
+0
+<{ AGAIN:<{ NOP }> }>s
+200
+<{ 8 RUNVM 1234 PUSHINT }>s 0 runvmx
+.s { drop } depth 1- times // 215 -14 215 1234 0
+
+// Gas limit of parent vm is too low
+0
+<{ AGAIN:<{ NOP }> }>s
+1000000
+<{ 8 RUNVM 1234 PUSHINT }>s 300 8 runvmx
+.s { drop } depth 1- times // 301 -14 301
+
+// Mode +64 - hard gas limit
+0 <{ AGAIN:<{ NOP }> }>s 200 500
+<{ 8 64 + RUNVM 1234 PUSHINT }>s 0 runvmx
+.s { drop } depth 1- times // 215 -14 215 1234 0
+0 <{ ACCEPT AGAIN:<{ NOP }> }>s 200 500
+<{ 8 64 + RUNVM 1234 PUSHINT }>s 0 runvmx
+.s { drop } depth 1- times // 517 -14 517 1234 0
+
+// 10000 nested VMs (recursively calculating 1+...+10000)
+<{
+  DUP
+  0 EQINT
+  IFJMP:<{
+    DROP DROP
+    0 PUSHINT
+  }>
+  OVER OVER DEC
+  2 PUSHINT
+  s2 PUSH
+  0 RUNVM
+  11 THROWIF
+  ADD
+  NIP
+}>s constant code1
+<{ code1 PUSHSLICE 10000 PUSHINT 2 PUSHINT code1 PUSHSLICE 0 RUNVM }>s 10000000 8 runvmx // Show gas
+.s { drop } depth 1- times // 50005000 0 0 2710286
+
+// Same thing, but out of gas
+<{ code1 PUSHSLICE 10000 PUSHINT 2 PUSHINT code1 PUSHSLICE 0 RUNVM }>s 100000 8 runvmx // Show gas
+.s { drop } depth 1- times // 100001 -14 100001
+
+// RUNVMX
+0
+<{ AGAIN:<{ NOP }> }>s
+200
+<{ 8 PUSHINT RUNVMX 1234 PUSHINT }>s 0 runvmx
+.s { drop } depth 1- times // 215 -14 215 1234 0
+
+// +128 - separate loaded_cells
+<b x{12345678} s, b> <b x{87654321} s, b>
+<{ DUP CTOS DROP 2 INT <{ CTOS DROP CTOS DROP }>s SLICE 10000 INT 8 RUNVM }>s 1000000 8 runvmx
+.s { drop } depth 1- times // 0 202 0 509
+<b x{12345678} s, b> <b x{87654321} s, b>
+<{ DUP CTOS DROP 2 INT <{ CTOS DROP CTOS DROP }>s SLICE 10000 INT 8 128 + RUNVM }>s 1000000 8 runvmx
+.s { drop } depth 1- times // 0 277 0 584
+
+// +256 - fixed number of return values
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
+3
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 3 4 5 0 0
+
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
+0
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 0 0
+
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT 77 THROW }>s
+3
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 0 77 0
+
+11 22 33 3
+<{ 1 INT 2 INT 3 INT 4 INT 5 INT }>s
+20
+<{ 256 RUNVM }>s 0 runvmx
+.s { drop } depth 1- times // 0 -3 0
+
+// GASCONSUMED
+<{ 10 INT 20 INT ADD DROP GASCONSUMED }>s 0 runvmx
+.s { drop } depth 1- times // 106 0
+0 <{ 10 INT 20 INT ADD DROP GASCONSUMED }>s
+<{ 100 INT 200 INT 300 INT MUL DIV DROP 0 RUNVM GASCONSUMED }>s 0 runvmx
+.s { drop } depth 1- times // 106 0 367 0

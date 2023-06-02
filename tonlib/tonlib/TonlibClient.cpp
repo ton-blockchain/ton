@@ -847,8 +847,9 @@ class Query {
           return td::Status::Error("estimate_fee: action_set_code unsupported");
         case block::gen::OutAction::action_send_msg: {
           block::gen::OutAction::Record_action_send_msg act_rec;
-          // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message, +1 = pay message fees, +2 = skip if message cannot be sent
-          if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+          // mode: +128 = attach all remaining balance, +64 = attach all remaining balance of the inbound message,
+          // +1 = pay message fees, +2 = skip if message cannot be sent, +16 = bounce if action fails
+          if (!tlb::unpack_exact(cs, act_rec) || (act_rec.mode & ~0xf3) || (act_rec.mode & 0xc0) == 0xc0) {
             return td::Status::Error("estimate_fee: can't parse send_msg");
           }
           block::gen::MessageRelaxed::Record msg;
@@ -889,10 +890,10 @@ class Query {
     }
     return res;
   }
-  td::Result<std::pair<Fee, std::vector<Fee>>> estimate_fees(bool ignore_chksig,
-                                                             std::shared_ptr<const block::Config>& cfg,
+  td::Result<std::pair<Fee, std::vector<Fee>>> estimate_fees(bool ignore_chksig, const LastConfigState& state,
                                                              vm::Dictionary& libraries) {
     // gas fees
+    const auto& cfg = state.config;
     bool is_masterchain = raw_.source->get_address().workchain == ton::masterchainId;
     TRY_RESULT(gas_limits_prices, cfg->get_gas_limits_prices(is_masterchain));
     TRY_RESULT(storage_prices, cfg->get_storage_prices());
@@ -921,6 +922,7 @@ class Query {
                                                                         .set_ignore_chksig(ignore_chksig)
                                                                         .set_address(raw_.source->get_address())
                                                                         .set_config(cfg)
+                                                                        .set_prev_blocks_info(state.prev_blocks_info)
                                                                         .set_libraries(libraries));
     td::int64 fwd_fee = 0;
     if (res.success) {
@@ -1878,12 +1880,12 @@ class RunEmulator : public td::actor::Actor {
       return;
     }
 
-    auto r_config = block::Config::extract_from_state(mc_state_root_, 0b11'11111111);
+    auto r_config = block::ConfigInfo::extract_config(mc_state_root_, 0b11'11111111);
     if (r_config.is_error()) {
       check(r_config.move_as_error());
       return;
     }
-    std::unique_ptr<block::Config> config = r_config.move_as_ok();
+    std::unique_ptr<block::ConfigInfo> config = r_config.move_as_ok();
 
     block::gen::ShardStateUnsplit::Record shard_state;
     if (!tlb::unpack_cell(mc_state_root_, shard_state)) {
@@ -1908,7 +1910,13 @@ class RunEmulator : public td::actor::Actor {
       return;
     }
 
+    auto prev_blocks_info = config->get_prev_blocks_info();
+    if (prev_blocks_info.is_error()) {
+      check(prev_blocks_info.move_as_error());
+      return;
+    }
     emulator::TransactionEmulator trans_emulator(std::move(*config));
+    trans_emulator.set_prev_blocks_info(prev_blocks_info.move_as_ok());
     trans_emulator.set_libs(std::move(libraries));
     trans_emulator.set_rand_seed(block_id_.rand_seed);
     td::Result<emulator::TransactionEmulator::EmulationChain> emulation_result = trans_emulator.emulate_transactions_chain(std::move(account), std::move(transactions_));
@@ -4102,7 +4110,7 @@ void TonlibClient::query_estimate_fees(td::int64 id, bool ignore_chksig, td::Res
     return;
   }
   TRY_RESULT_PROMISE(promise, state, std::move(r_state));
-  TRY_RESULT_PROMISE_PREFIX(promise, fees, TRY_VM(it->second->estimate_fees(ignore_chksig, state.config, libraries)),
+  TRY_RESULT_PROMISE_PREFIX(promise, fees, TRY_VM(it->second->estimate_fees(ignore_chksig, state, libraries)),
                             TonlibError::Internal());
   promise.set_value(tonlib_api::make_object<tonlib_api::query_fees>(
       fees.first.to_tonlib_api(), td::transform(fees.second, [](auto& x) { return x.to_tonlib_api(); })));
@@ -4262,7 +4270,10 @@ bool is_list(vm::StackEntry entry) {
     entry = entry.as_tuple()->at(1);
   }
 };
-auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib_api::tvm_StackEntry> {
+auto to_tonlib_api(const vm::StackEntry& entry, int& limit) -> td::Result<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> {
+  if (limit <= 0) {
+    return td::Status::Error(PSLICE() << "TVM stack size exceeds limit");
+  }
   switch (entry.type()) {
     case vm::StackEntry::Type::t_int:
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryNumber>(
@@ -4279,7 +4290,8 @@ auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib
       if (is_list(entry)) {
         auto node = entry;
         while (node.type() == vm::StackEntry::Type::t_tuple) {
-          elements.push_back(to_tonlib_api(node.as_tuple()->at(0)));
+          TRY_RESULT(tl_entry, to_tonlib_api(node.as_tuple()->at(0), --limit));
+          elements.push_back(std::move(tl_entry));
           node = node.as_tuple()->at(1);
         }
         return tonlib_api::make_object<tonlib_api::tvm_stackEntryList>(
@@ -4287,7 +4299,8 @@ auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib
 
       } else {
         for (auto& element : *entry.as_tuple()) {
-          elements.push_back(to_tonlib_api(element));
+          TRY_RESULT(tl_entry, to_tonlib_api(element, --limit));
+          elements.push_back(std::move(tl_entry));
         }
         return tonlib_api::make_object<tonlib_api::tvm_stackEntryTuple>(
             tonlib_api::make_object<tonlib_api::tvm_tuple>(std::move(elements)));
@@ -4298,6 +4311,16 @@ auto to_tonlib_api(const vm::StackEntry& entry) -> tonlib_api::object_ptr<tonlib
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryUnsupported>();
   }
 };
+
+auto to_tonlib_api(const td::Ref<vm::Stack>& stack) -> td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>>> {
+  int stack_limit = 1000;
+  std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> tl_stack;
+  for (auto& entry: stack->as_span()) {
+    TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit));
+    tl_stack.push_back(std::move(tl_entry));
+  }
+  return tl_stack;
+}
 
 td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
   // TODO: error codes
@@ -4454,6 +4477,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
                             promise = std::move(promise)](td::Result<LastConfigState> r_state) mutable {
     TRY_RESULT_PROMISE(promise, state, std::move(r_state));
     args.set_config(state.config);
+    args.set_prev_blocks_info(state.prev_blocks_info);
 
     auto code = smc->get_state().code;
     if (code.not_null()) {
@@ -4509,10 +4533,12 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
   auto res = smc->run_get_method(args);
 
   // smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
-  std::vector<object_ptr<tonlib_api::tvm_StackEntry>> res_stack;
-  for (auto& entry : res.stack->as_span()) {
-    res_stack.push_back(to_tonlib_api(entry));
+  auto R = to_tonlib_api(res.stack);
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error());
+    return;
   }
+  auto res_stack = R.move_as_ok();
 
   if (res.missing_library.not_null()) {
     td::Bits256 hash = res.missing_library;
