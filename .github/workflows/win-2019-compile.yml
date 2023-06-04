@@ -45,7 +45,7 @@ jobs:
 
       - name: Install pre-compiled libmicrohttpd Win64
         run: |
-          curl  -Lo libmicrohttpd-latest-w32-bin.zip https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-latest-w32-bin.zip
+          curl  -Lo libmicrohttpd-latest-w32-bin.zip https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-0.9.75-w32-bin.zip
           unzip libmicrohttpd-latest-w32-bin.zip
 
       - name: Compile
