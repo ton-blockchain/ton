@@ -610,7 +610,7 @@ _ dns_root_addr:bits256 = ConfigParam 4;  // root TON DNS resolver
 
 burning_config#01
   blackhole_addr:(Maybe bits256)
-  fee_burn_nom:# fee_burn_denom:# { fee_burn_nom <= fee_burn_denom } { fee_burn_denom >= 1 } = BurningConfig;
+  fee_burn_num:# fee_burn_denom:# { fee_burn_num <= fee_burn_denom } { fee_burn_denom >= 1 } = BurningConfig;
 _ BurningConfig = ConfigParam 5;
 
 _ mint_new_price:Grams mint_add_price:Grams = ConfigParam 6;
