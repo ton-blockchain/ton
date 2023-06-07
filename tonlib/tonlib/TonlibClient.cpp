@@ -1875,72 +1875,78 @@ class RunEmulator : public td::actor::Actor {
   }
 
   void inc() {
-    if (stopped_ || ++count_ != 4) { // 4 -- block_id + mc_state_root + account_state + transactions
+    if (stopped_ || ++count_ != 4) {  // 4 -- block_id + mc_state_root + account_state + transactions
       return;
     }
 
-    auto r_config = block::ConfigInfo::extract_config(mc_state_root_, 0b11'11111111);
-    if (r_config.is_error()) {
-      check(r_config.move_as_error());
-      return;
-    }
-    std::unique_ptr<block::ConfigInfo> config = r_config.move_as_ok();
+    try {
+      auto r_config = block::ConfigInfo::extract_config(mc_state_root_, 0b11'11111111);
+      if (r_config.is_error()) {
+        check(r_config.move_as_error());
+        return;
+      }
+      std::unique_ptr<block::ConfigInfo> config = r_config.move_as_ok();
 
-    block::gen::ShardStateUnsplit::Record shard_state;
-    if (!tlb::unpack_cell(mc_state_root_, shard_state)) {
-      check(td::Status::Error("Failed to unpack masterchain state"));
-      return;
-    }
-    vm::Dictionary libraries(shard_state.r1.libraries->prefetch_ref(), 256);
+      block::gen::ShardStateUnsplit::Record shard_state;
+      if (!tlb::unpack_cell(mc_state_root_, shard_state)) {
+        check(td::Status::Error("Failed to unpack masterchain state"));
+        return;
+      }
+      vm::Dictionary libraries(shard_state.r1.libraries->prefetch_ref(), 256);
 
-    auto r_shard_account = account_state_->to_shardAccountCellSlice();
-    if (r_shard_account.is_error()) {
-      check(r_shard_account.move_as_error());
-      return;
-    }
-    td::Ref<vm::CellSlice> shard_account = r_shard_account.move_as_ok();
+      auto r_shard_account = account_state_->to_shardAccountCellSlice();
+      if (r_shard_account.is_error()) {
+        check(r_shard_account.move_as_error());
+        return;
+      }
+      td::Ref<vm::CellSlice> shard_account = r_shard_account.move_as_ok();
 
-    const block::StdAddress& address = account_state_->get_address();
-    ton::UnixTime now = account_state_->get_sync_time();
-    bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
-    block::Account account(address.workchain, address.addr.bits());
-    if (!account.unpack(std::move(shard_account), td::Ref<vm::CellSlice>(), now, is_special)) {
-      check(td::Status::Error("Can't unpack shard account"));
-      return;
-    }
-
-    auto prev_blocks_info = config->get_prev_blocks_info();
-    if (prev_blocks_info.is_error()) {
-      check(prev_blocks_info.move_as_error());
-      return;
-    }
-    emulator::TransactionEmulator trans_emulator(std::move(*config));
-    trans_emulator.set_prev_blocks_info(prev_blocks_info.move_as_ok());
-    trans_emulator.set_libs(std::move(libraries));
-    trans_emulator.set_rand_seed(block_id_.rand_seed);
-    td::Result<emulator::TransactionEmulator::EmulationChain> emulation_result = trans_emulator.emulate_transactions_chain(std::move(account), std::move(transactions_));
-
-    if (emulation_result.is_error()) {
-      promise_.set_error(emulation_result.move_as_error());
-    } else {
-      account = std::move(emulation_result.move_as_ok().account);
-      RawAccountState raw = std::move(account_state_->raw());
-      raw.block_id = block_id_.id;
-      raw.balance = account.get_balance().grams->to_long();
-      raw.storage_last_paid = std::move(account.last_paid);
-      raw.storage_stat = std::move(account.storage_stat);
-      raw.code = std::move(account.code);
-      raw.data = std::move(account.data);
-      raw.state = std::move(account.total_state);
-      raw.info.last_trans_lt = account.last_trans_lt_;
-      raw.info.last_trans_hash = account.last_trans_hash_;
-      raw.info.gen_utime = account.now_;
-
-      if (account.status == block::Account::acc_frozen) {
-        raw.frozen_hash = (char*)account.state_hash.data();
+      const block::StdAddress& address = account_state_->get_address();
+      ton::UnixTime now = account_state_->get_sync_time();
+      bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
+      block::Account account(address.workchain, address.addr.bits());
+      if (!account.unpack(std::move(shard_account), td::Ref<vm::CellSlice>(), now, is_special)) {
+        check(td::Status::Error("Can't unpack shard account"));
+        return;
       }
 
-      promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
+      auto prev_blocks_info = config->get_prev_blocks_info();
+      if (prev_blocks_info.is_error()) {
+        check(prev_blocks_info.move_as_error());
+        return;
+      }
+      emulator::TransactionEmulator trans_emulator(std::move(*config));
+      trans_emulator.set_prev_blocks_info(prev_blocks_info.move_as_ok());
+      trans_emulator.set_libs(std::move(libraries));
+      trans_emulator.set_rand_seed(block_id_.rand_seed);
+      td::Result<emulator::TransactionEmulator::EmulationChain> emulation_result =
+          trans_emulator.emulate_transactions_chain(std::move(account), std::move(transactions_));
+
+      if (emulation_result.is_error()) {
+        promise_.set_error(emulation_result.move_as_error());
+      } else {
+        account = std::move(emulation_result.move_as_ok().account);
+        RawAccountState raw = std::move(account_state_->raw());
+        raw.block_id = block_id_.id;
+        raw.balance = account.get_balance().grams->to_long();
+        raw.storage_last_paid = std::move(account.last_paid);
+        raw.storage_stat = std::move(account.storage_stat);
+        raw.code = std::move(account.code);
+        raw.data = std::move(account.data);
+        raw.state = std::move(account.total_state);
+        raw.info.last_trans_lt = account.last_trans_lt_;
+        raw.info.last_trans_hash = account.last_trans_hash_;
+        raw.info.gen_utime = account.now_;
+
+        if (account.status == block::Account::acc_frozen) {
+          raw.frozen_hash = (char*)account.state_hash.data();
+        }
+
+        promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
+      }
+    } catch (vm::VmVirtError& err) {
+      check(td::Status::Error(PSLICE() << "virtualization error while emulating transaction: " << err.get_msg()));
+      return;
     }
     stopped_ = true;
     try_stop();
