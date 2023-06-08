@@ -256,6 +256,7 @@ class ValidatorEngine : public td::actor::Actor {
   void add_key_to_set(ton::PublicKey key) {
     keys_[key.compute_short_id()] = key;
   }
+  void schedule_shutdown(double at);
   void start_up() override;
   ValidatorEngine() {
   }
