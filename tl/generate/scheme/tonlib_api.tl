@@ -184,6 +184,10 @@ smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.
 smc.libraryEntry hash:int256 data:bytes = smc.LibraryEntry;
 smc.libraryResult result:(vector smc.libraryEntry) = smc.LibraryResult;
 
+smc.libraryQueryExt.one hash:int256 = smc.LibraryQueryExt;
+smc.libraryQueryExt.scanBoc boc:bytes max_libs:int32 = smc.LibraryQueryExt;
+smc.libraryResultExt dict_boc:bytes libs_ok:(vector int256) libs_not_found:(vector int256) = smc.LibraryResultExt;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
 
@@ -306,6 +310,7 @@ smc.getState id:int53 = tvm.Cell;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
 smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
+smc.getLibrariesExt list:(vector smc.LibraryQueryExt) = smc.LibraryResultExt;
 
 dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 

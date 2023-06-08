@@ -61,6 +61,7 @@
 #include "td/utils/port/path.h"
 
 #include "common/util.h"
+#include "td/actor/MultiPromise.h"
 
 template <class Type>
 using lite_api_ptr = ton::lite_api::object_ptr<Type>;
@@ -4383,8 +4384,8 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
 }
 
 void deep_library_search(std::set<td::Bits256>& set, std::set<vm::Cell::Hash>& visited,
-                         vm::Dictionary& libs, td::Ref<vm::Cell> cell, int depth) {
-  if (depth <= 0 || set.size() >= 16 || visited.size() >= 256) {
+                         vm::Dictionary& libs, td::Ref<vm::Cell> cell, int depth, size_t max_libs = 16) {
+  if (depth <= 0 || set.size() >= max_libs || visited.size() >= 256) {
     return;
   }
   auto ins = visited.insert(cell->get_hash());
@@ -4410,7 +4411,7 @@ void deep_library_search(std::set<td::Bits256>& set, std::set<vm::Cell::Hash>& v
     return;
   }
   for (unsigned int i=0; i<loaded_cell.data_cell->get_refs_cnt(); i++) {
-    deep_library_search(set, visited, libs, loaded_cell.data_cell->get_ref(i), depth - 1);
+    deep_library_search(set, visited, libs, loaded_cell.data_cell->get_ref(i), depth - 1, max_libs);
   }
 }
 
@@ -4463,6 +4464,72 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getLibraries& request,
       }
       return tonlib_api::make_object<tonlib_api::smc_libraryResult>(std::move(result_entries));
     }));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::smc_getLibrariesExt& request,
+                                    td::Promise<object_ptr<tonlib_api::smc_libraryResultExt>>&& promise) {
+  std::set<td::Bits256> request_libs;
+  for (auto& x : request.list_) {
+    td::Status status = td::Status::OK();
+    downcast_call(*x, td::overloaded([&](tonlib_api::smc_libraryQueryExt_one& one) { request_libs.insert(one.hash_); },
+                                     [&](tonlib_api::smc_libraryQueryExt_scanBoc& scan) {
+                                       std::set<vm::Cell::Hash> visited;
+                                       vm::Dictionary empty{256};
+                                       td::Result<td::Ref<vm::Cell>> r_cell = vm::std_boc_deserialize(scan.boc_);
+                                       if (r_cell.is_error()) {
+                                         status = r_cell.move_as_error();
+                                         return;
+                                       }
+                                       size_t max_libs = scan.max_libs_ < 0 ? (1 << 30) : (size_t)scan.max_libs_;
+                                       std::set<td::Bits256> new_libs;
+                                       deep_library_search(new_libs, visited, empty, r_cell.move_as_ok(), 1024,
+                                                           max_libs);
+                                       request_libs.insert(new_libs.begin(), new_libs.end());
+                                     }));
+    TRY_STATUS(std::move(status));
+  }
+  std::vector<td::Bits256> not_cached;
+  for (const td::Bits256& h : request_libs) {
+    if (libraries.lookup(h).is_null()) {
+      not_cached.push_back(h);
+    }
+  }
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  LOG(DEBUG) << "Requesting " << not_cached.size() << " libraries";
+  for (size_t i = 0; i < not_cached.size(); i += 16) {
+    size_t r = std::min(i + 16, not_cached.size());
+    client_.send_query(
+        ton::lite_api::liteServer_getLibraries(
+            std::vector<td::Bits256>(not_cached.begin() + i, not_cached.begin() + r)),
+        [self = this, promise = ig.get_promise()](
+            td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries) mutable {
+          self->process_new_libraries(std::move(r_libraries));
+          promise.set_result(td::Unit());
+        });
+  }
+
+  ig.add_promise(promise.wrap([self = this, libs = std::move(request_libs)](td::Unit&&) {
+    vm::Dictionary dict{256};
+    std::vector<td::Bits256> libs_ok, libs_not_found;
+    for (const auto& h : libs) {
+      auto lib = self->libraries.lookup_ref(h);
+      if (lib.is_null()) {
+        libs_not_found.push_back(h);
+      } else {
+        libs_ok.push_back(h);
+        dict.set_ref(h, lib);
+      }
+    }
+    td::BufferSlice dict_boc;
+    if (!dict.is_empty()) {
+      dict_boc = vm::std_boc_serialize(dict.get_root_cell()).move_as_ok();
+    }
+    return ton::create_tl_object<tonlib_api::smc_libraryResultExt>(dict_boc.as_slice().str(), std::move(libs_ok),
+                                                                   std::move(libs_not_found));
+  }));
+
   return td::Status::OK();
 }
 
