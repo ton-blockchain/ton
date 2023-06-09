@@ -3940,9 +3940,9 @@ class GenericCreateSendGrams : public TonlibQueryActor {
           }
         }
 
-//        if (!o_public_key) { // todo: (tolya-yanot) temporary disable msg comment encryption (The exchanges/payment services needs to read the comment of incoming messages). This will be uncommented when a general standard is developed.
-          return TonlibError::MessageEncryption("Get public key (in destination)");
-//        }
+        if (!o_public_key) {
+          return TonlibError::MessageEncryption("Cannot get public key of destination (possibly unknown wallet type)");
+        }
 
         auto addr = source_->get_address();
         addr.bounceable = true;
