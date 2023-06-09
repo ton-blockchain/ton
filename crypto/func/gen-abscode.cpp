@@ -229,7 +229,7 @@ var_idx_t Expr::new_tmp(CodeBlob& code) const {
 void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
   for (const auto& p : globs) {
     auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
-    op.flags |= Op::_Impure;
+    op.set_impure(code);
   }
 }
 
@@ -351,7 +351,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
       if (flags & _IsImpure) {
-        op.flags |= Op::_Impure;
+        op.set_impure(code);
       }
       return rvect;
     }
@@ -369,7 +369,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
         auto rvect = new_tmp_vect(code);
         auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), args[0]->sym);
         if (args[0]->flags & _IsImpure) {
-          op.flags |= Op::_Impure;
+          op.set_impure(code);
         }
         return rvect;
       } else {

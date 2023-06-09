@@ -396,13 +396,8 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
   }
   SymDef* def = sym::lookup_symbol(func_name);
   if (!def) {
-    cur.loc.show_error(std::string{"undefined function `"} + symbols.get_name(func_name) +
-                       "`, defining a global function of unknown type");
-    def = sym::define_global_symbol(func_name, 0, cur.loc);
-    func_assert(def && "cannot define global function");
-    ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
-    return true;
+    cur.error(PSTRING() << "undefined symbol `" << symbols.get_name(func_name) << "`");
+    return false;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
   if (!val) {
@@ -1216,7 +1211,7 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
   }
 }
 
-CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type) {
+CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type, bool impure) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
   if (pragma_allow_post_modification.enabled()) {
@@ -1224,6 +1219,9 @@ CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type
   }
   if (pragma_compute_asm_ltr.enabled()) {
     blob->flags |= CodeBlob::_ComputeAsmLtr;
+  }
+  if (pragma_strict_purity_check.enabled() && !impure) {
+    blob->flags |= CodeBlob::_ForbidImpure;
   }
   blob->import_params(std::move(arg_list));
   blk_fl::val res = blk_fl::init;
@@ -1522,7 +1520,7 @@ void parse_func_def(Lexer& lex) {
     if (func_sym_code->code) {
       lex.cur().error("redefinition of function `"s + func_name.str + "`");
     }
-    CodeBlob* code = parse_func_body(lex, arg_list, ret_type);
+    CodeBlob* code = parse_func_body(lex, arg_list, ret_type, impure);
     code->name = func_name.str;
     code->loc = loc;
     // code->print(std::cerr);  // !!!DEBUG!!!
@@ -1706,6 +1704,8 @@ void parse_pragma(Lexer& lex) {
     pragma_allow_post_modification.enable(lex.cur().loc);
   } else if (pragma_name == pragma_compute_asm_ltr.name()) {
     pragma_compute_asm_ltr.enable(lex.cur().loc);
+  } else if (pragma_name == pragma_strict_purity_check.name()) {
+    pragma_strict_purity_check.enable(lex.cur().loc);
   } else {
     lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
   }
