@@ -1811,6 +1811,8 @@ class RunEmulator : public TonlibQueryActor {
 
       if (bTxes->incomplete_) {
         self->check(self->get_transactions(last_lt));
+      } else {
+        self->check(td::Status::Error("Transaction not found"));
       }
     });
     return td::Status::OK();
