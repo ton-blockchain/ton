@@ -300,7 +300,7 @@ void parse_const_decl(Lexer& lex) {
     }
     code.mark_noreturn();
     AsmOpList out_list(0, &code.vars);
-    code.generate_code(out_list);
+    code.generate_code(out_list, Stack::_ConstDecl);
     if (out_list.list_.size() != 1) {
       lex.cur().error("precompiled expression must result in single operation");
     }

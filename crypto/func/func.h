@@ -1571,7 +1571,7 @@ struct Stack {
   AsmOpList& o;
   enum {
     _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
-    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
+    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048, _ConstDecl = 4096,
     _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
   };
