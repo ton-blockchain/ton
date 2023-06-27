@@ -82,12 +82,17 @@ class OverlayPeer {
   void on_ping_result(bool success) {
     if (success) {
       missed_pings_ = 0;
+      last_ping_at_ = td::Timestamp::now();
+      is_alive_ = true;
     } else {
       ++missed_pings_;
+      if (missed_pings_ >= 3 && last_ping_at_.is_in_past(td::Timestamp::in(-15.0))) {
+        is_alive_ = false;
+      }
     }
   }
   bool is_alive() const {
-    return missed_pings_ < 3;
+    return is_alive_;
   }
 
   td::uint32 throughput_out_bytes = 0;
@@ -116,6 +121,8 @@ class OverlayPeer {
 
   bool is_neighbour_ = false;
   size_t missed_pings_ = 0;
+  bool is_alive_ = true;
+  td::Timestamp last_ping_at_ = td::Timestamp::now();
 };
 
 class OverlayImpl : public Overlay {
@@ -124,7 +131,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }", bool announce_self = true);
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }", OverlayOptions opts = {});
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -295,6 +302,17 @@ class OverlayImpl : public Overlay {
   void del_peer(adnl::AdnlNodeIdShort id);
   OverlayPeer *get_random_peer(bool only_alive = false);
 
+  void finish_dht_query() {
+    if (!next_dht_store_query_) {
+      next_dht_store_query_ = td::Timestamp::in(td::Random::fast(60.0, 100.0));
+    }
+    if (frequent_dht_lookup_ && peers_.size() == bad_peers_.size()) {
+      next_dht_query_ = td::Timestamp::in(td::Random::fast(6.0, 10.0));
+    } else {
+      next_dht_query_ = next_dht_store_query_;
+    }
+  }
+
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<OverlayManager> manager_;
@@ -305,6 +323,7 @@ class OverlayImpl : public Overlay {
 
   td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
   td::Timestamp next_dht_query_ = td::Timestamp::in(1.0);
+  td::Timestamp next_dht_store_query_ = td::Timestamp::in(1.0);
   td::Timestamp update_db_at_;
   td::Timestamp update_throughput_at_;
   td::Timestamp last_throughput_update_;
@@ -367,6 +386,7 @@ class OverlayImpl : public Overlay {
   OverlayPrivacyRules rules_;
   td::string scope_;
   bool announce_self_ = true;
+  bool frequent_dht_lookup_ = false;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {
