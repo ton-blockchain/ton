@@ -4290,7 +4290,7 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit) -> td::Result<tonlib
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryNumber>(
           tonlib_api::make_object<tonlib_api::tvm_numberDecimal>(dec_string(entry.as_int())));
     case vm::StackEntry::Type::t_slice:
-      return tonlib_api::make_object<tonlib_api::tvm_stackEntryCell>(tonlib_api::make_object<tonlib_api::tvm_cell>(
+      return tonlib_api::make_object<tonlib_api::tvm_stackEntrySlice>(tonlib_api::make_object<tonlib_api::tvm_slice>(
           to_bytes(vm::CellBuilder().append_cellslice(entry.as_slice()).finalize())));
     case vm::StackEntry::Type::t_cell:
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryCell>(
