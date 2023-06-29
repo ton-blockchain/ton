@@ -73,6 +73,8 @@ class WalletInterface : public SmartContract {
                                                  td::uint32 valid_until = std::numeric_limits<td::uint32>::max()) const;
 
   static td::Ref<vm::Cell> create_int_message(const Gift &gift);
+
+ private:
   static void store_gift_message(vm::CellBuilder &cb, const Gift &gift);
 };
 
