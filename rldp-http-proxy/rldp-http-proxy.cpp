@@ -54,6 +54,7 @@
 #include "git.h"
 #include "td/utils/BufferedFd.h"
 #include "common/delay.h"
+#include "td/utils/port/path.h"
 
 #include "tonlib/tonlib/TonlibClientWrapper.h"
 #include "DNSResolver.h"
@@ -920,6 +921,12 @@ class RldpHttpProxy : public td::actor::Actor {
   }
 
   void run() {
+    if (!db_root_.empty()) {
+      td::mkpath(db_root_ + "/").ensure();
+    } else if (!is_client_) {
+      LOG(ERROR) << "DB root is required for server proxy";
+      std::_Exit(2);
+    }
     keyring_ = ton::keyring::Keyring::create(is_client_ ? std::string("") : (db_root_ + "/keyring"));
     {
       auto S = load_global_config();
@@ -955,9 +962,16 @@ class RldpHttpProxy : public td::actor::Actor {
     auto conf_dataR = td::read_file(global_config_);
     conf_dataR.ensure();
 
+    ton::tl_object_ptr<tonlib_api::KeyStoreType> key_store;
+    if (db_root_.empty()) {
+      key_store = tonlib_api::make_object<tonlib_api::keyStoreTypeInMemory>();
+    } else {
+      td::mkpath(db_root_ + "/tonlib-cache/").ensure();
+      key_store = tonlib_api::make_object<tonlib_api::keyStoreTypeDirectory>(db_root_ + "/tonlib-cache/");
+    }
     auto tonlib_options = tonlib_api::make_object<tonlib_api::options>(
         tonlib_api::make_object<tonlib_api::config>(conf_dataR.move_as_ok().as_slice().str(), "", false, false),
-        tonlib_api::make_object<tonlib_api::keyStoreTypeInMemory>());
+        std::move(key_store));
     tonlib_client_ = td::actor::create_actor<tonlib::TonlibClientWrapper>("tonlibclient", std::move(tonlib_options));
     dns_resolver_ = td::actor::create_actor<DNSResolver>("dnsresolver", tonlib_client_.get());
   }

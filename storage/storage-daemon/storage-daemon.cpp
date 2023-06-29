@@ -927,9 +927,11 @@ class StorageDaemon : public td::actor::Actor {
     }
     auto r_conf_data = td::read_file(global_config_);
     r_conf_data.ensure();
+    std::string key_store = db_root_ + "/tonlib/";
+    td::mkpath(key_store).ensure();
     auto tonlib_options = tonlib_api::make_object<tonlib_api::options>(
         tonlib_api::make_object<tonlib_api::config>(r_conf_data.move_as_ok().as_slice().str(), "", false, false),
-        tonlib_api::make_object<tonlib_api::keyStoreTypeInMemory>());
+        tonlib_api::make_object<tonlib_api::keyStoreTypeDirectory>(key_store));
     tonlib_client_ = td::actor::create_actor<tonlib::TonlibClientWrapper>("tonlibclient", std::move(tonlib_options));
   }
 
