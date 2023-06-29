@@ -604,6 +604,7 @@ void ArchiveManager::load_package(PackageId id) {
       td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get());
 
   m.emplace(id, std::move(desc));
+  update_permanent_slices();
 }
 
 const ArchiveManager::FileDescription *ArchiveManager::get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno,
@@ -677,6 +678,7 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
         .ensure();
   }
   index_->commit_transaction().ensure();
+  update_permanent_slices();
   return &desc;
 }
 
@@ -1207,6 +1209,7 @@ void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle han
       }
     }
   }
+  update_permanent_slices();
 }
 
 void ArchiveManager::FileMap::shard_index_add(const FileDescription &desc) {
@@ -1303,6 +1306,23 @@ const ArchiveManager::FileDescription *ArchiveManager::FileMap::get_next_file_de
     return nullptr;
   }
   return it2->second->deleted ? nullptr : it2->second;
+}
+
+void ArchiveManager::update_permanent_slices() {
+  if (archive_lru_.empty()) {
+    return;
+  }
+  std::vector<PackageId> ids;
+  if (!files_.empty()) {
+    ids.push_back(files_.rbegin()->first);
+  }
+  if (!key_files_.empty()) {
+    ids.push_back(key_files_.rbegin()->first);
+  }
+  if (!temp_files_.empty()) {
+    ids.push_back(temp_files_.rbegin()->first);
+  }
+  td::actor::send_closure(archive_lru_, &ArchiveLru::set_permanent_slices, std::move(ids));
 }
 
 }  // namespace validator

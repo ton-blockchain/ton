@@ -196,17 +196,22 @@ class ArchiveLru : public td::actor::Actor {
     CHECK(max_total_files_ > 0);
   }
   void on_query(td::actor::ActorId<ArchiveSlice> slice, PackageId id, size_t files_count);
+  void set_permanent_slices(std::vector<PackageId> ids);
  private:
   size_t current_idx_ = 1;
   struct SliceInfo {
     td::actor::ActorId<ArchiveSlice> actor;
     size_t files_count = 0;
-    size_t lru_idx = 0;
+    size_t opened_idx = 0;  // 0 - not opened
+    bool is_permanent = false;
   };
-  std::map<PackageId, SliceInfo> open_slices_;
+  std::map<std::tuple<td::uint32, bool, bool>, SliceInfo> slices_;
   std::map<size_t, PackageId> lru_;
   size_t total_files_ = 0;
   size_t max_total_files_ = 0;
+  std::vector<PackageId> permanent_slices_;
+
+  void enforce_limit();
 };
 
 }  // namespace validator

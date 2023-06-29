@@ -900,23 +900,58 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handl
   promise.set_value(td::Unit());
 }
 
+static std::tuple<td::uint32, bool, bool> to_tuple(const PackageId &id) {
+  return {id.id, id.temp, id.key};
+}
+
 void ArchiveLru::on_query(td::actor::ActorId<ArchiveSlice> slice, PackageId id, size_t files_count) {
-  SliceInfo &info = open_slices_[id];
-  if (info.lru_idx != 0) {
+  SliceInfo &info = slices_[to_tuple(id)];
+  if (info.opened_idx != 0) {
     total_files_ -= info.files_count;
-    lru_.erase(info.lru_idx);
+    lru_.erase(info.opened_idx);
   }
   info.actor = std::move(slice);
   total_files_ += (info.files_count = files_count);
-  lru_.emplace(info.lru_idx = current_idx_++, id);
+  info.opened_idx = current_idx_++;
+  if (!info.is_permanent) {
+    lru_.emplace(info.opened_idx, id);
+  }
+  enforce_limit();
+}
 
+void ArchiveLru::set_permanent_slices(std::vector<PackageId> ids) {
+  for (auto id : permanent_slices_) {
+    SliceInfo &info = slices_[to_tuple(id)];
+    if (!info.is_permanent) {
+      continue;
+    }
+    info.is_permanent = false;
+    if (info.opened_idx) {
+      lru_.emplace(info.opened_idx, id);
+    }
+  }
+  permanent_slices_ = std::move(ids);
+  for (auto id : permanent_slices_) {
+    SliceInfo &info = slices_[to_tuple(id)];
+    if (info.is_permanent) {
+      continue;
+    }
+    info.is_permanent = true;
+    if (info.opened_idx) {
+      lru_.erase(info.opened_idx);
+    }
+  }
+  enforce_limit();
+}
+
+void ArchiveLru::enforce_limit() {
   while (total_files_ > max_total_files_ && lru_.size() > 1) {
     auto it = lru_.begin();
-    auto it2 = open_slices_.find(it->second);
+    auto it2 = slices_.find(to_tuple(it->second));
     lru_.erase(it);
     total_files_ -= it2->second.files_count;
     td::actor::send_closure(it2->second.actor, &ArchiveSlice::close_files);
-    open_slices_.erase(it2);
+    it2->second.opened_idx = 0;
   }
 }
 

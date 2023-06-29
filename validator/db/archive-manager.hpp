@@ -123,6 +123,9 @@ class ArchiveManager : public td::actor::Actor {
     size_t size() const {
       return files_.size();
     }
+    bool empty() const {
+      return files_.empty();
+    }
     std::map<PackageId, FileDescription>::const_iterator lower_bound(const PackageId &x) const {
       return files_.lower_bound(x);
     }
@@ -217,6 +220,8 @@ class ArchiveManager : public td::actor::Actor {
   PackageId get_temp_package_id() const;
   PackageId get_key_package_id(BlockSeqno seqno) const;
   PackageId get_temp_package_id_by_unixtime(UnixTime ts) const;
+
+  void update_permanent_slices();
 };
 
 }  // namespace validator
