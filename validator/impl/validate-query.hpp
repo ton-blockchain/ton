@@ -206,6 +206,7 @@ class ValidateQuery : public td::actor::Actor {
   block::ActionPhaseConfig action_phase_cfg_;
   td::RefInt256 masterchain_create_fee_, basechain_create_fee_;
 
+  vm::Dictionary neighbor_msg_queues_limits_{32 + 64};
   std::vector<block::McShardDescr> neighbors_;
   std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states_;
 

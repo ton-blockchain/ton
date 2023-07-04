@@ -77,7 +77,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
 }
 
 void Collator::start_up() {
-  LOG(DEBUG) << "Collator for shard " << shard_.to_str() << " started";
+  LOG(INFO) << "Collator for shard " << shard_.to_str() << " started";
   LOG(DEBUG) << "Previous block #1 is " << prev_blocks.at(0).to_str();
   if (prev_blocks.size() > 1) {
     LOG(DEBUG) << "Previous block #2 is " << prev_blocks.at(1).to_str();
@@ -690,7 +690,15 @@ void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProo
     fatal_error("cannot unpack neighbor output queue info");
     return;
   }
-  descr.set_queue_root(qinfo.out_queue->prefetch_ref(0));
+  auto queue_root = qinfo.out_queue->prefetch_ref(0);
+  descr.set_queue_root(queue_root);
+  neighbor_queues_.emplace_back(descr.top_block_id(), queue_root, descr.is_disabled(), res->msg_count_);
+  if (res->msg_count_ != -1) {
+    td::BitArray<96> key;
+    key.bits().store_int(block_id.id.workchain, 32);
+    (key.bits() + 32).store_uint(block_id.id.shard, 64);
+    neighbor_msg_queues_limits_.set_builder(key, vm::CellBuilder().store_long(res->msg_count_, 32));
+  }
   // comment the next two lines in the future when the output queues become huge
   //  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
   //  CHECK(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
@@ -1723,7 +1731,7 @@ bool Collator::do_collate() {
   // 1.3. create OutputQueueMerger from adjusted neighbors
   CHECK(!nb_out_msgs_);
   LOG(DEBUG) << "creating OutputQueueMerger";
-  nb_out_msgs_ = std::make_unique<block::OutputQueueMerger>(shard_, neighbors_);
+  nb_out_msgs_ = std::make_unique<block::OutputQueueMerger>(shard_, neighbor_queues_);
   // 1.4. compute created / minted / recovered
   if (!init_value_create()) {
     return fatal_error("cannot compute the value to be created / minted / recovered");
@@ -4013,18 +4021,25 @@ bool Collator::create_collated_data() {
     auto cell = collate_shard_block_descr_set();
     if (cell.is_null()) {
       return true;
-      return fatal_error("cannot collate the collection of used shard block descriptions");
+      // return fatal_error("cannot collate the collection of used shard block descriptions");
     }
     collated_roots_.push_back(std::move(cell));
+  }
+  // 2. Message count for neighbors' out queues
+  if (!neighbor_msg_queues_limits_.is_empty()) {
+    vm::CellBuilder cb;
+    cb.store_long(block::gen::t_NeighborMsgQueueLimits.cons_tag[0], 32);
+    cb.store_maybe_ref(neighbor_msg_queues_limits_.get_root_cell());
+    collated_roots_.push_back(cb.finalize_novm());
   }
   if (!full_collated_data_) {
     return true;
   }
-  // 2. Proofs for hashes of states: previous states + neighbors
+  // 3. Proofs for hashes of states: previous states + neighbors
   for (const auto& p : block_state_proofs_) {
     collated_roots_.push_back(p.second);
   }
-  // 3. Previous state proof (only shadchains)
+  // 4. Previous state proof (only shadchains)
   std::map<td::Bits256, Ref<vm::Cell>> proofs;
   if (!is_masterchain()) {
     if (!prepare_msg_queue_proof()) {
@@ -4038,7 +4053,7 @@ bool Collator::create_collated_data() {
     }
     proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
   }
-  // 4. Proofs for message queues
+  // 5. Proofs for message queues
   for (vm::MerkleProofBuilder &mpb : neighbor_proof_builders_) {
     auto r_proof = mpb.extract_proof();
     if (r_proof.is_error()) {

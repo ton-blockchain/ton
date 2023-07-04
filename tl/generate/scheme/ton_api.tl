@@ -415,7 +415,7 @@ tonNode.success = tonNode.Success;
 tonNode.archiveNotFound = tonNode.ArchiveInfo;
 tonNode.archiveInfo id:long = tonNode.ArchiveInfo;
 
-tonNode.outMsgQueueProof queue_proof:bytes block_state_proof:bytes = tonNode.OutMsgQueueProof;
+tonNode.outMsgQueueProof queue_proof:bytes block_state_proof:bytes msg_count:int = tonNode.OutMsgQueueProof;
 tonNode.outMsgQueueProofEmpty = tonNode.OutMsgQueueProof;
 
 tonNode.forgetPeer = tonNode.ForgetPeer;

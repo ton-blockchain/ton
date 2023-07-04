@@ -52,12 +52,20 @@ struct OutputQueueMerger {
     bool split(MsgKeyValue& second);
   };
   //
-  ton::ShardIdFull queue_for;
   std::vector<std::unique_ptr<MsgKeyValue>> msg_list;
-  std::vector<block::McShardDescr> neighbors;
 
  public:
-  OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<block::McShardDescr> _neighbors);
+  struct Neighbor {
+    ton::BlockIdExt block_id_;
+    td::Ref<vm::Cell> outmsg_root_;
+    bool disabled_;
+    td::int32 msg_limit_;  // -1 - unlimited
+    Neighbor(ton::BlockIdExt block_id, td::Ref<vm::Cell> outmsg_root, bool disabled = false, td::int32 msg_limit = -1)
+        : block_id_(block_id), outmsg_root_(std::move(outmsg_root)), disabled_(disabled), msg_limit_(msg_limit) {
+    }
+  };
+
+  OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Neighbor> neighbors);
   bool is_eof() const {
     return eof;
   }
@@ -70,10 +78,10 @@ struct OutputQueueMerger {
   int common_pfx_len;
   std::vector<std::unique_ptr<MsgKeyValue>> heap;
   std::size_t pos{0};
+  std::vector<td::int32> src_remaining_msgs_;
   bool eof;
   bool failed;
-  void init();
-  bool add_root(int src, Ref<vm::Cell> outmsg_root);
+  void add_root(int src, Ref<vm::Cell> outmsg_root, td::int32 msg_limit);
   bool load();
 };
 

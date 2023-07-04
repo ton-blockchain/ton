@@ -62,7 +62,6 @@ class WaitOutMsgQueueProof : public td::actor::Actor {
 
   void run_net();
 
-
  private:
   BlockIdExt block_id_;
   ShardIdFull dst_shard_;
@@ -80,12 +79,9 @@ class WaitOutMsgQueueProof : public td::actor::Actor {
 class BuildOutMsgQueueProof : public td::actor::Actor {
  public:
   BuildOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard,
-      td::actor::ActorId<ValidatorManagerInterface> manager,
-      td::Promise<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> promise)
-      : block_id_(std::move(block_id))
-      , dst_shard_(dst_shard)
-      , manager_(manager)
-      , promise_(std::move(promise)) {
+                        td::actor::ActorId<ValidatorManagerInterface> manager,
+                        td::Promise<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> promise)
+      : block_id_(std::move(block_id)), dst_shard_(dst_shard), manager_(manager), promise_(std::move(promise)) {
   }
 
   void abort_query(td::Status reason);

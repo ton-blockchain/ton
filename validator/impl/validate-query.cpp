@@ -522,6 +522,13 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     top_shard_descr_dict_ = std::make_unique<vm::Dictionary>(cs.prefetch_ref(), 96);
     return true;
   }
+  if (block::gen::t_NeighborMsgQueueLimits.has_valid_tag(cs)) {
+    LOG(DEBUG) << "collated datum # " << idx << " is a NeighborMsgQueueLimits";
+    if (!block::gen::t_NeighborMsgQueueLimits.validate_upto(10000, cs)) {
+      return reject_query("invalid NeighborMsgQueueLimits");
+    }
+    neighbor_msg_queues_limits_ = vm::Dictionary{cs.prefetch_ref(0), 32 + 64};
+  }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
   return true;
 }
@@ -4106,7 +4113,19 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
 }
 
 bool ValidateQuery::check_in_queue() {
-  block::OutputQueueMerger nb_out_msgs(shard_, neighbors_);
+  std::vector<block::OutputQueueMerger::Neighbor> neighbor_queues;
+  for (const auto& descr : neighbors_) {
+    td::BitArray<96> key;
+    key.bits().store_int(descr.workchain(), 32);
+    (key.bits() + 32).store_uint(descr.shard().shard, 64);
+    auto r = neighbor_msg_queues_limits_.lookup(key);
+    td::int32 msg_limit = r.is_null() ? -1 : (td::int32)r->prefetch_long(32);
+    if (msg_limit < -1) {
+      return reject_query("invalid value in NeighborMsgQueueLimits");
+    }
+    neighbor_queues.emplace_back(descr.top_block_id(), descr.outmsg_root, descr.disabled_, msg_limit);
+  }
+  block::OutputQueueMerger nb_out_msgs(shard_, std::move(neighbor_queues));
   while (!nb_out_msgs.is_eof()) {
     auto kv = nb_out_msgs.extract_cur();
     CHECK(kv && kv->msg.not_null());
