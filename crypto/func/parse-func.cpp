@@ -852,7 +852,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse E { ( << | >> | >>~ | >>^ ) E }
+// parse E { ( << | >> | ~>> | ^>> ) E }
 Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr20(lex, code, nv);
   while (lex.tp() == _Lshift || lex.tp() == _Rshift || lex.tp() == _RshiftC || lex.tp() == _RshiftR) {
