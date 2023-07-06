@@ -229,7 +229,7 @@ bool OutputQueueMerger::load() {
     }
   }
   msg_list.resize(j);
-  return true;
+  return msg_list.size() > orig_size;
 }
 
 }  // namespace block

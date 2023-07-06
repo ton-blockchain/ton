@@ -528,6 +528,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
       return reject_query("invalid NeighborMsgQueueLimits");
     }
     neighbor_msg_queues_limits_ = vm::Dictionary{cs.prefetch_ref(0), 32 + 64};
+    return true;
   }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
   return true;
@@ -4123,7 +4124,14 @@ bool ValidateQuery::check_in_queue() {
     if (msg_limit < -1) {
       return reject_query("invalid value in NeighborMsgQueueLimits");
     }
+    LOG(DEBUG) << "Neighbor " << descr.shard().to_str() << " has msg_limit=" << msg_limit;
     neighbor_queues.emplace_back(descr.top_block_id(), descr.outmsg_root, descr.disabled_, msg_limit);
+    if (msg_limit != -1 && descr.shard().is_masterchain()) {
+      return reject_query("masterchain out message queue cannot be limited");
+    }
+    if (msg_limit != -1 && shard_intersects(descr.shard(), shard_)) {
+      return reject_query("prev block out message queue cannot be limited");
+    }
   }
   block::OutputQueueMerger nb_out_msgs(shard_, std::move(neighbor_queues));
   while (!nb_out_msgs.is_eof()) {

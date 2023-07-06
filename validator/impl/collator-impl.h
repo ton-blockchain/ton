@@ -133,8 +133,8 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<block::ConfigInfo> config_;
   std::unique_ptr<block::ShardConfig> shard_conf_;
   std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states_;
-  std::vector<block::OutputQueueMerger::Neighbor> neighbor_queues_;
-  vm::Dictionary neighbor_msg_queues_limits_{32 + 64};
+  std::map<ShardIdFull, td::int32> neighbor_msg_queues_limits_;
+  vm::Dictionary neighbor_msg_queues_limits_dict_{32 + 64};
   std::vector<block::McShardDescr> neighbors_;
   std::unique_ptr<block::OutputQueueMerger> nb_out_msgs_;
   std::vector<ton::StdSmcAddress> special_smcs;
@@ -241,6 +241,7 @@ class Collator final : public td::actor::Actor {
   bool register_shard_block_creators(std::vector<td::Bits256> creator_list);
   bool init_block_limits();
   bool compute_minted_amount(block::CurrencyCollection& to_mint);
+  bool create_output_queue_merger();
   bool init_value_create();
   bool try_collate();
   bool do_preinit();

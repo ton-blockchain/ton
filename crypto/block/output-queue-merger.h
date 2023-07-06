@@ -60,6 +60,7 @@ struct OutputQueueMerger {
     td::Ref<vm::Cell> outmsg_root_;
     bool disabled_;
     td::int32 msg_limit_;  // -1 - unlimited
+    Neighbor() = default;
     Neighbor(ton::BlockIdExt block_id, td::Ref<vm::Cell> outmsg_root, bool disabled = false, td::int32 msg_limit = -1)
         : block_id_(block_id), outmsg_root_(std::move(outmsg_root)), disabled_(disabled), msg_limit_(msg_limit) {
     }
