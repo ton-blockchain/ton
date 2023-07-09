@@ -312,12 +312,13 @@ if (NOT WIN32)
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
-add_dependencies(ton_crypto blst secp256k1)
+add_dependencies(ton_crypto secp256k1 blst)
+
+target_include_directories(ton_crypto_core PRIVATE ${SECP256K1_INCLUDE_DIR})
+target_link_libraries(ton_crypto PRIVATE ${SECP256K1_LIB})
+
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
 target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
-
-target_include_directories(ton_crypto PRIVATE ${SECP256K1_INCLUDE_DIR})
-target_link_libraries(ton_crypto PRIVATE ${SECP256K1_LIB})
 
 if (MSVC)
   find_package(Sodium REQUIRED)
