@@ -6,7 +6,7 @@ if (NOT SECP256K1_LIB)
     if (WIN32)
       set(SECP256K1_LIB ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.lib)
     else()
-      set(SECP256K1_LIB ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
+      set(SECP256K1_LIB ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.so)
     endif()
 
     file(MAKE_DIRECTORY ${SECP256K1_BINARY_DIR})
