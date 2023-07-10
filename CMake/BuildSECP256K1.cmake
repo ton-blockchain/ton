@@ -17,7 +17,7 @@ if (NOT SECP256K1_LIB)
         OUTPUT ${SECP256K1_LIB}
       )
     else()
-      set(SECP256K1_LIB ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.so)
+      set(SECP256K1_LIB ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
       add_custom_command(
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
           COMMAND ./autogen.sh

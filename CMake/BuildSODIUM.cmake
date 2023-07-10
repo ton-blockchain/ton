@@ -15,7 +15,7 @@ if (NOT SODIUM_LIBRARY_RELEASE)
         OUTPUT ${SODIUM_LIBRARY_RELEASE}
       )
     else()
-      set(SODIUM_LIBRARY_RELEASE ${SODIUM_BINARY_DIR}/lib/libsodium.so)
+      set(SODIUM_LIBRARY_RELEASE ${SODIUM_BINARY_DIR}/lib/libsodium.a)
       add_custom_command(
         WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
         COMMAND export LIBSODIUM_FULL_BUILD=1

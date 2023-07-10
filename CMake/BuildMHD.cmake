@@ -6,7 +6,7 @@ if (NOT MHD_LIBRARY)
     if (WIN32)
       set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.lib)
     else()
-      set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.so)
+      set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.a)
     endif()
 
     file(MAKE_DIRECTORY ${MHD_BINARY_DIR})
