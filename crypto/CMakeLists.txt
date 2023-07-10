@@ -349,11 +349,12 @@ if (NIX)
 
 else()
 
-  target_include_directories(ton_crypto_core PRIVATE ${SECP256K1_INCLUDE_DIR})
-  target_link_libraries(ton_crypto PRIVATE ${SECP256K1_LIB})
-
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
-  target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
+  target_link_libraries(ton_crypto_core PUBLIC ${SODIUM_LIBRARY_RELEASE})
+
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto_core PUBLIC ${SECP256K1_LIB})
+
 
 endif()
 add_library(ton_db STATIC ${TON_DB_SOURCE})
