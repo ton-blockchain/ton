@@ -320,7 +320,7 @@ target_link_libraries(ton_crypto PRIVATE ${SECP256K1_LIB})
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
 target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
 
-target_include_directories(ton_crypto_core PUBLIC ${SODIUM_INCLUDE_DIR})
+target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
 target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})
