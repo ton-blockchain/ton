@@ -21,7 +21,7 @@ if (NOT SECP256K1_LIB)
       add_custom_command(
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
           COMMAND ./autogen.sh
-          COMMAND ./configure --disable-option-checking --enable-module-recovery --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-shared --disable-tests --disable-benchmark
+          COMMAND ./configure --disable-option-checking --enable-module-recovery --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
           COMMAND make
           COMMAND make install
           COMMENT "Build secp256k1"

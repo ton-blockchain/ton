@@ -18,7 +18,7 @@ if (NIX)
   target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIRS} ${MHD_STATIC_INCLUDE_DIRS})
   target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARIES} ${MHD_STATIC_LIBRARIES})
 else()
-  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
+  target_include_directories(blockchain-explorer PUBLIC $<BUILD_INTERFACE:${MHD_INCLUDE_DIR}>)
   target_link_libraries(blockchain-explorer PUBLIC tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARY})
 endif()
 

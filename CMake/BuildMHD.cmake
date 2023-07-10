@@ -14,7 +14,7 @@ if (NOT MHD_LIBRARY)
     add_custom_command(
       WORKING_DIRECTORY ${MHD_SOURCE_DIR}
       COMMAND ./autogen.sh
-      COMMAND ./configure --prefix ${MHD_BINARY_DIR}
+      COMMAND ./configure --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static
       COMMAND make
       COMMAND make install
       COMMENT "Build mhd"
