@@ -4,9 +4,9 @@ set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/include)
 
 if (NOT MHD_LIBRARY)
     if (WIN32)
-      set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/mhd.lib)
+      set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.lib)
     else()
-      set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/mhd.so)
+      set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.so)
     endif()
 
     file(MAKE_DIRECTORY ${MHD_BINARY_DIR})
