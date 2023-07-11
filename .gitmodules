@@ -21,4 +21,4 @@
 	url = https://github.com/jedisct1/libsodium.git
 [submodule "third-party/mhd"]
 	path = third-party/mhd
-	url = https://git.gnunet.org/libmicrohttpd.git
+	url = https://github.com/Karlson2k/libmicrohttpd.git
