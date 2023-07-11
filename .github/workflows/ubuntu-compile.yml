@@ -27,6 +27,9 @@ jobs:
 
     - name: Configure & Build
       run: |
+        git submodule sync --recursive
+        git submodule update
+
         export CC=$(which clang)
         export CXX=$(which clang++)
         export CCACHE_DISABLE=1

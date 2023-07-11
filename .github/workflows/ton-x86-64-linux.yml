@@ -21,7 +21,10 @@ jobs:
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
     - name: Compile
-      run: nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs --system x86_64-linux -o result-x86_64
+      run: |
+        git submodule sync --recursive
+        git submodule update
+        nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs --system x86_64-linux -o result-x86_64
 
     - name: Copy binaries
       run: |

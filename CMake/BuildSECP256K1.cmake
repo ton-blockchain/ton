@@ -2,22 +2,22 @@ set(SECP256K1_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/secp256k1)
 set(SECP256K1_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/secp256k1)
 set(SECP256K1_INCLUDE_DIR ${SECP256K1_BINARY_DIR}/include)
 
-if (NOT SECP256K1_LIB)
+if (NOT SECP256K1_LIBRARY)
 
     file(MAKE_DIRECTORY ${SECP256K1_BINARY_DIR})
 
     if (WIN32)
-      set(SECP256K1_LIB ${SECP256K1_SOURCE_DIR}/bin/x64/Release/v142/static/secp256k1.lib)
+      set(SECP256K1_LIBRARY ${SECP256K1_SOURCE_DIR}/bin/x64/Release/v142/static/secp256k1.lib)
       add_custom_command(
         WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
         COMMAND cd builds\msvc\vs2017
         COMMAND msbuild /p:Configuration=StaticRelease -p:PlatformToolset=v142 -p:Platform=x64
         COMMENT "Build secp256k1"
         DEPENDS ${SECP256K1_SOURCE_DIR}
-        OUTPUT ${SECP256K1_LIB}
+        OUTPUT ${SECP256K1_LIBRARY}
       )
     else()
-      set(SECP256K1_LIB ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
+      set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
       add_custom_command(
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
           COMMAND ./autogen.sh
@@ -26,11 +26,11 @@ if (NOT SECP256K1_LIB)
           COMMAND make install
           COMMENT "Build secp256k1"
           DEPENDS ${SECP256K1_SOURCE_DIR}
-          OUTPUT ${SECP256K1_LIB}
+          OUTPUT ${SECP256K1_LIBRARY}
       )
     endif()
 else()
-   message(STATUS "Use secp256k1: ${SECP256K1_LIB}")
+   message(STATUS "Use secp256k1: ${SECP256K1_LIBRARY}")
 endif()
 
-add_custom_target(secp256k1 DEPENDS ${SECP256K1_LIB})
+add_custom_target(secp256k1 DEPENDS ${SECP256K1_LIBRARY})
