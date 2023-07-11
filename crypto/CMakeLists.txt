@@ -313,7 +313,6 @@ endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
 add_dependencies(ton_crypto blst)
-add_dependencies(ton_crypto_core secp256k1 sodium)
 
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
 target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
@@ -341,7 +340,7 @@ if (NIX)
      target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
    endif()
    if (NOT APPLE AND NOT USE_EMSCRIPTEN)
-     target_link_libraries(ton_crypto_core PUBLIC secp256k1)
+     target_link_libraries(ton_crypto_core PUBLIC ${SECP256K1_LIB})
    endif()
  endif()
 
@@ -350,6 +349,7 @@ if (NIX)
 
 else()
 
+  add_dependencies(ton_crypto_core secp256k1 sodium)
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
   target_link_libraries(ton_crypto_core PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
