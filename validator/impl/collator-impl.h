@@ -129,7 +129,7 @@ class Collator final : public td::actor::Actor {
   BlockIdExt mc_block_id_;
   Ref<vm::Cell> mc_state_root;
   Ref<vm::Cell> mc_block_root;
-  td::BitArray<256> rand_seed_;
+  td::BitArray<256> rand_seed_ = td::Bits256::zero();
   std::unique_ptr<block::ConfigInfo> config_;
   std::unique_ptr<block::ShardConfig> shard_conf_;
   std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states_;
