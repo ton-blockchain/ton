@@ -17,6 +17,8 @@
 #include "collator-node.hpp"
 #include "ton/ton-tl.hpp"
 #include "fabric.h"
+#include "block-auto.h"
+#include "block-db.h"
 
 namespace ton {
 
@@ -69,33 +71,35 @@ void CollatorNode::del_shard(ShardIdFull shard) {
 }
 
 void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> state) {
-  std::vector<BlockIdExt> top_blocks = {state->get_block_id()};
+  last_masterchain_block_ = state->get_block_id();
+  last_top_blocks_.clear();
+  last_top_blocks_[ShardIdFull{masterchainId, shardIdAll}] = last_masterchain_block_;
   std::vector<ShardIdFull> next_shards;
-  if (collate_shard(ShardIdFull(masterchainId))) {
+  if (can_collate_shard(ShardIdFull(masterchainId))) {
     next_shards.push_back(ShardIdFull(masterchainId));
   }
   for (const auto& desc : state->get_shards()) {
-    top_blocks.push_back(desc->top_block_id());
+    last_top_blocks_[desc->shard()] = desc->top_block_id();
     ShardIdFull shard = desc->shard();
     if (desc->before_split()) {
-      if (collate_shard(shard_child(shard, true))) {
+      if (can_collate_shard(shard_child(shard, true))) {
         next_shards.push_back(shard_child(shard, true));
       }
-      if (collate_shard(shard_child(shard, false))) {
+      if (can_collate_shard(shard_child(shard, false))) {
         next_shards.push_back(shard_child(shard, false));
       }
     } else if (desc->before_merge()) {
-      if (is_left_child(shard) && collate_shard(shard_parent(shard))) {
+      if (is_left_child(shard) && can_collate_shard(shard_parent(shard))) {
         next_shards.push_back(shard_parent(shard));
       }
-    } else if (collate_shard(shard)) {
+    } else if (can_collate_shard(shard)) {
       next_shards.push_back(shard);
     }
   }
   for (const ShardIdFull& shard : next_shards) {
-    for (const BlockIdExt& neighbor : top_blocks) {
-      if (neighbor.shard_full() != shard && block::ShardConfig::is_neighbor(shard, neighbor.shard_full())) {
-        td::actor::send_closure(manager_, &ValidatorManager::wait_out_msg_queue_proof, neighbor, shard, 0,
+    for (const auto& neighbor : last_top_blocks_) {
+      if (neighbor.first != shard && block::ShardConfig::is_neighbor(shard, neighbor.first)) {
+        td::actor::send_closure(manager_, &ValidatorManager::wait_out_msg_queue_proof, neighbor.second, shard, 0,
                                 td::Timestamp::in(10.0), [](td::Ref<OutMsgQueueProof>) {});
       }
     }
@@ -116,88 +120,173 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
       }
     }
   }
+  // Remove old cache entries
+  auto it = cache_.begin();
+  while (it != cache_.end()) {
+    auto prev_block_id = std::get<2>(it->first)[0];
+    auto top_block = get_shard_top_block(prev_block_id.shard_full());
+    if (top_block && top_block.value().seqno() > prev_block_id.seqno()) {
+      it = cache_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 static td::BufferSlice serialize_error(td::Status error) {
   return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
 }
 
-void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
-                                 td::Promise<td::BufferSlice> promise) {
-  auto SelfId = actor_id(this);
-  auto status = [&]() -> td::Status {
-    if (!validators_.count(src)) {
-      return td::Status::Error("src is not a validator");
-    }
-    TRY_RESULT(f, fetch_tl_object<ton_api::collatorNode_generateBlock>(std::move(data), true));
-    ShardIdFull shard(f->workchain_, f->shard_);
-    if (!shard.is_valid_ext()) {
-      return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
-    }
-    if (!collate_shard(shard)) {
-      return td::Status::Error(PSTRING() << "this node doesn't collate shard " << shard.to_str());
-    }
-    if (f->prev_blocks_.size() != 1 && f->prev_blocks_.size() != 2) {
-      return td::Status::Error(PSTRING() << "invalid size of prev_blocks: " << f->prev_blocks_.size());
-    }
-    std::vector<BlockIdExt> prev_blocks;
-    for (const auto& b : f->prev_blocks_) {
-      prev_blocks.push_back(create_block_id(b));
-    }
-    BlockIdExt min_mc_id = create_block_id(f->min_mc_id_);
-    Ed25519_PublicKey creator(f->creator_);
-
-    LOG(INFO) << "Query from " << src << ": shard=" << shard.to_str() << ", min_mc_id=" << min_mc_id.to_str();
-
-    auto P = td::PromiseCreator::lambda([=, prev_blocks = std::move(prev_blocks),
-                                         promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable {
-      if (R.is_error()) {
-        LOG(WARNING) << "Query from " << src << ", error: " << R.error();
-        promise.set_result(serialize_error(R.move_as_error_prefix("failed to get masterchain state: ")));
-      } else {
-        td::Ref<MasterchainState> state(R.move_as_ok());
-        if (state.is_null()) {
-          LOG(WARNING) << "Query from " << src << ", error: failed to get masterchain state";
-          promise.set_result(serialize_error(R.move_as_error_prefix("failed to get masterchain state: ")));
-          return;
-        }
-        td::actor::send_closure(SelfId, &CollatorNode::receive_query_cont, src, shard, std::move(state),
-                                std::move(prev_blocks), creator, std::move(promise));
-      }
-    });
-    td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, min_mc_id, 1, td::Timestamp::in(5.0),
-                            std::move(P));
-    return td::Status::OK();
-  }();
-  if (status.is_error()) {
-    LOG(WARNING) << "Query from " << src << ", error: " << status;
-    promise.set_result(serialize_error(std::move(status)));
-  }
+static td::BufferSlice serialize_response(BlockCandidate block) {
+  return create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(create_tl_object<ton_api::db_candidate>(
+      PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), std::move(block.data),
+      std::move(block.collated_data)));
 }
 
-void CollatorNode::receive_query_cont(adnl::AdnlNodeIdShort src, ShardIdFull shard,
-                                      td::Ref<MasterchainState> min_mc_state, std::vector<BlockIdExt> prev_blocks,
-                                      Ed25519_PublicKey creator, td::Promise<td::BufferSlice> promise) {
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise), src](td::Result<BlockCandidate> R) mutable {
+static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator) {
+  CHECK(!block.id.is_masterchain());
+  if (block.pubkey == creator) {
+    return block;
+  }
+  auto root = vm::std_boc_deserialize(block.data).move_as_ok();
+  block::gen::Block::Record blk;
+  block::gen::BlockExtra::Record extra;
+  CHECK(tlb::unpack_cell(root, blk));
+  CHECK(tlb::unpack_cell(blk.extra, extra));
+  extra.created_by = creator.as_bits256();
+  CHECK(tlb::pack_cell(blk.extra, extra));
+  CHECK(tlb::pack_cell(root, blk));
+  block.data = vm::std_boc_serialize(root, 31).move_as_ok();
+
+  block.id.root_hash = root->get_hash().bits();
+  block.id.file_hash = block::compute_file_hash(block.data.as_slice());
+  block.pubkey = creator;
+  return block;
+}
+
+void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
+                                 td::Promise<td::BufferSlice> promise) {
+  td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src](td::Result<BlockCandidate> R) mutable {
     if (R.is_error()) {
       LOG(WARNING) << "Query from " << src << ", error: " << R.error();
       promise.set_result(serialize_error(R.move_as_error()));
     } else {
       LOG(INFO) << "Query from " << src << ", success";
-      auto block = R.move_as_ok();
-      auto result = create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(
-          create_tl_object<ton_api::db_candidate>(PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(),
-                                                  create_tl_block_id(block.id), std::move(block.data),
-                                                  std::move(block.collated_data)));
-      promise.set_result(std::move(result));
+      promise.set_result(serialize_response(R.move_as_ok()));
+    }
+  };
+  if (!last_masterchain_block_.is_valid()) {
+    new_promise.set_error(td::Status::Error("not ready"));
+    return;
+  }
+  if (!validators_.count(src)) {
+    new_promise.set_error(td::Status::Error("src is not a validator"));
+  }
+  TRY_RESULT_PROMISE(new_promise, f, fetch_tl_object<ton_api::collatorNode_generateBlock>(std::move(data), true));
+  ShardIdFull shard(f->workchain_, f->shard_);
+  BlockIdExt min_mc_id = create_block_id(f->min_mc_id_);
+  LOG(INFO) << "Got query from " << src << ": shard=" << shard.to_str() << ", min_mc_seqno=" << min_mc_id.seqno();
+  if (!shard.is_valid_ext()) {
+    new_promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard.to_str()));
+    return;
+  }
+  if (!can_collate_shard(shard)) {
+    new_promise.set_error(td::Status::Error(PSTRING() << "this node doesn't collate shard " << shard.to_str()));
+    return;
+  }
+  if (f->prev_blocks_.size() != 1 && f->prev_blocks_.size() != 2) {
+    new_promise.set_error(td::Status::Error(PSTRING() << "invalid size of prev_blocks: " << f->prev_blocks_.size()));
+    return;
+  }
+  if (!min_mc_id.is_masterchain_ext()) {
+    new_promise.set_error(td::Status::Error("min_mc_id is not form masterchain"));
+    return;
+  }
+  std::vector<BlockIdExt> prev_blocks;
+  for (const auto& b : f->prev_blocks_) {
+    auto id = create_block_id(b);
+    if (!id.is_valid_full()) {
+      new_promise.set_error(td::Status::Error("invalid prev_block"));
+      return;
+    }
+    auto top_block = get_shard_top_block(id.shard_full());
+    if (top_block && top_block.value().seqno() > id.seqno()) {
+      new_promise.set_error(td::Status::Error("cannot collate block: already exists in blockchain"));
+      return;
+    }
+    prev_blocks.push_back(id);
+  }
+  Ed25519_PublicKey creator(f->creator_);
+  if (!shard.is_masterchain()) {
+    // Collation of masterchain cannot be cached because changing "created_by" in masterchain is hard
+    // It does not really matter because validators can collate masterchain themselves
+    new_promise = [promise = std::move(new_promise), creator](td::Result<BlockCandidate> R) mutable {
+      if (R.is_error()) {
+        promise.set_error(R.move_as_error());
+      } else {
+        promise.set_result(change_creator(R.move_as_ok(), creator));
+      }
+    };
+    auto cache_key = std::make_tuple(min_mc_id.seqno(), shard, prev_blocks);
+    auto cache_entry = cache_[cache_key];
+    if (cache_entry == nullptr) {
+      cache_entry = cache_[cache_key] = std::make_shared<CacheEntry>();
+    }
+    if (cache_entry->result) {
+      new_promise.set_result(cache_entry->result.value().clone());
+      return;
+    }
+    cache_entry->promises.push_back(std::move(new_promise));
+    if (cache_entry->started) {
+      return;
+    }
+    cache_entry->started = true;
+    new_promise = [SelfId = actor_id(this), cache_entry](td::Result<BlockCandidate> R) mutable {
+      td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
+    };
+  }
+
+  auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this), prev_blocks = std::move(prev_blocks),
+                                       promise = std::move(new_promise)](td::Result<td::Ref<ShardState>> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error_prefix("failed to get masterchain state: "));
+    } else {
+      td::Ref<MasterchainState> state(R.move_as_ok());
+      if (state.is_null()) {
+        promise.set_error(R.move_as_error_prefix("failed to get masterchain state: "));
+        return;
+      }
+      td::actor::send_closure(SelfId, &CollatorNode::receive_query_cont, shard, std::move(state),
+                              std::move(prev_blocks), creator, std::move(promise));
     }
   });
-
-  run_collate_query(shard, min_mc_state->get_block_id(), std::move(prev_blocks), creator,
-                    min_mc_state->get_validator_set(shard), manager_, td::Timestamp::in(10.0), std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, min_mc_id, 1, td::Timestamp::in(5.0),
+                          std::move(P));
 }
 
-bool CollatorNode::collate_shard(ShardIdFull shard) const {
+void CollatorNode::receive_query_cont(ShardIdFull shard, td::Ref<MasterchainState> min_mc_state,
+                                      std::vector<BlockIdExt> prev_blocks, Ed25519_PublicKey creator,
+                                      td::Promise<BlockCandidate> promise) {
+  run_collate_query(shard, min_mc_state->get_block_id(), std::move(prev_blocks), creator,
+                    min_mc_state->get_validator_set(shard), manager_, td::Timestamp::in(10.0), std::move(promise));
+}
+
+void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R) {
+  if (R.is_error()) {
+    cache_entry->started = false;
+    for (auto& p : cache_entry->promises) {
+      p.set_error(R.error().clone());
+    }
+  } else {
+    cache_entry->result = R.move_as_ok();
+    for (auto& p : cache_entry->promises) {
+      p.set_result(cache_entry->result.value().clone());
+    }
+  }
+  cache_entry->promises.clear();
+}
+
+bool CollatorNode::can_collate_shard(ShardIdFull shard) const {
   for (ShardIdFull our_shard : shards_) {
     if (shard_intersects(shard, our_shard)) {
       return true;
