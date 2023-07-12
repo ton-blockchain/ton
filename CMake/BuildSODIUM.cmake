@@ -1,9 +1,11 @@
-set(SODIUM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
-set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/sodium)
-set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/include)
-
 if (NOT SODIUM_LIBRARY_RELEASE)
+
+    set(SODIUM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
+    set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/sodium)
+    set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/include)
+
     file(MAKE_DIRECTORY ${SODIUM_BINARY_DIR})
+
     if (WIN32)
       set(SODIUM_LIBRARY_RELEASE ${SODIUM_BINARY_DIR}/lib/libsodium.lib)
       add_custom_command(
@@ -20,7 +22,7 @@ if (NOT SODIUM_LIBRARY_RELEASE)
         WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
         COMMAND export LIBSODIUM_FULL_BUILD=1
         COMMAND ./autogen.sh
-        COMMAND ./configure --prefix ${SODIUM_BINARY_DIR}
+        COMMAND ./configure --prefix ${SODIUM_BINARY_DIR} --disable-ssp
         COMMAND make
         COMMAND make install
         COMMENT "Build sodium"
@@ -28,6 +30,7 @@ if (NOT SODIUM_LIBRARY_RELEASE)
         OUTPUT ${SODIUM_LIBRARY_RELEASE}
       )
     endif()
+
 else()
    message(STATUS "Use sodium: ${SODIUM_LIBRARY_RELEASE}")
 endif()

@@ -8,6 +8,10 @@ export CXX=$(which clang++)
 export CCACHE_DISABLE=1
 
 cd ../..
+
+cd third-party/secp256k1; make clean; cd ../..
+cd third-party/sodium; make clean; cd ../..
+
 rm -rf openssl zlib emsdk secp256k1 libsodium build
 echo `pwd`
 
@@ -37,7 +41,7 @@ cd ..
 
 mkdir build
 cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.so -DTON_USE_ABSEIL=OFF ..
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_USE_ABSEIL=OFF ..
 
 test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
 
@@ -63,7 +67,7 @@ export CCACHE_DISABLE=1
 cd ../openssl
 
 make clean
-emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-ui
+emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-ui no-tests
 sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
 sed -i 's/-ldl//g' Makefile
 sed -i 's/-O3/-Os/g' Makefile
@@ -80,7 +84,7 @@ ZLIB_DIR=`pwd`
 
 cd ../secp256k1
 
-emconfigure ./configure --enable-module-recovery
+emconfigure ./configure --enable-module-recovery --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
 emmake make -j16
 test $? -eq 0 || { echo "Can't compile secp256k1 with emmake "; exit 1; }
 
