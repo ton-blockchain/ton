@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+
 set(BLST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/blst)
 set(BLST_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/blst)
 set(BLST_INCLUDE_DIR ${BLST_SOURCE_DIR}/bindings)
