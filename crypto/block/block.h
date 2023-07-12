@@ -252,8 +252,9 @@ struct BlockLimits {
   int classify_size(td::uint64 size) const;
   int classify_gas(td::uint64 gas) const;
   int classify_lt(ton::LogicalTime lt) const;
-  int classify(td::uint64 size, td::uint64 gas, ton::LogicalTime lt) const;
-  bool fits(unsigned cls, td::uint64 size, td::uint64 gas, ton::LogicalTime lt) const;
+  int classify_collated_data_size(td::uint64 size) const;
+  int classify(td::uint64 size, td::uint64 gas, ton::LogicalTime lt, td::uint64 collated_size) const;
+  bool fits(unsigned cls, td::uint64 size, td::uint64 gas, ton::LogicalTime lt, td::uint64 collated_size) const;
 };
 
 struct BlockLimitStatus {
@@ -262,6 +263,7 @@ struct BlockLimitStatus {
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
+  vm::ProofStorageStat collated_data_stat;
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
       : limits(limits_), cur_lt(std::max(limits_.start_lt, lt)) {
   }
@@ -271,6 +273,7 @@ struct BlockLimitStatus {
     transactions = accounts = 0;
     gas_used = 0;
     extra_out_msgs = 0;
+    collated_data_stat = {};
   }
   td::uint64 estimate_block_size(const vm::NewCellStorageStat::Stat* extra = nullptr) const;
   int classify() const;

@@ -701,12 +701,19 @@ int BlockLimits::classify_lt(ton::LogicalTime lt) const {
   return lt_delta.classify(lt - start_lt);
 }
 
-int BlockLimits::classify(td::uint64 size, td::uint64 gas, ton::LogicalTime lt) const {
-  return std::max(std::max(classify_size(size), classify_gas(gas)), classify_lt(lt));
+int BlockLimits::classify_collated_data_size(td::uint64 size) const {
+  return bytes.classify(size);  // TODO: Maybe separate limits in config
 }
 
-bool BlockLimits::fits(unsigned cls, td::uint64 size, td::uint64 gas_value, ton::LogicalTime lt) const {
-  return bytes.fits(cls, size) && gas.fits(cls, gas_value) && lt_delta.fits(cls, lt - start_lt);
+int BlockLimits::classify(td::uint64 size, td::uint64 gas, ton::LogicalTime lt, td::uint64 collated_size) const {
+  return std::max(
+      {classify_size(size), classify_gas(gas), classify_lt(lt), classify_collated_data_size(collated_size)});
+}
+
+bool BlockLimits::fits(unsigned cls, td::uint64 size, td::uint64 gas_value, ton::LogicalTime lt,
+                       td::uint64 collated_size) const {
+  return bytes.fits(cls, size) && gas.fits(cls, gas_value) && lt_delta.fits(cls, lt - start_lt) &&
+         bytes.fits(cls, collated_size);
 }
 
 td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::Stat* extra) const {
@@ -719,20 +726,22 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
 }
 
 int BlockLimitStatus::classify() const {
-  return limits.classify(estimate_block_size(), gas_used, cur_lt);
+  return limits.classify(estimate_block_size(), gas_used, cur_lt, collated_data_stat.estimate_proof_size());
 }
 
 bool BlockLimitStatus::fits(unsigned cls) const {
   return cls >= ParamLimits::limits_cnt ||
          (limits.gas.fits(cls, gas_used) && limits.lt_delta.fits(cls, cur_lt - limits.start_lt) &&
-          limits.bytes.fits(cls, estimate_block_size()));
+          limits.bytes.fits(cls, estimate_block_size()) &&
+          limits.bytes.fits(cls, collated_data_stat.estimate_proof_size()));
 }
 
 bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint64 more_gas,
                                  const vm::NewCellStorageStat::Stat* extra) const {
   return cls >= ParamLimits::limits_cnt || (limits.gas.fits(cls, gas_used + more_gas) &&
                                             limits.lt_delta.fits(cls, std::max(cur_lt, end_lt) - limits.start_lt) &&
-                                            limits.bytes.fits(cls, estimate_block_size(extra)));
+                                            limits.bytes.fits(cls, estimate_block_size(extra)) &&
+                                            limits.bytes.fits(cls, collated_data_stat.estimate_proof_size()));
 }
 
 // SETS: account_dict, shard_libraries_, mc_state_extra

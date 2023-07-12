@@ -661,6 +661,13 @@ void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProo
   } else {
     neighbor_proof_builders_.push_back(vm::MerkleProofBuilder{res->state_root_});
     state_root = neighbor_proof_builders_.back().root();
+    if (full_collated_data_ && !block_id.is_masterchain()) {
+      neighbor_proof_builders_.back().set_cell_load_callback([&](const td::Ref<vm::DataCell>& cell) {
+        if (block_limit_status_) {
+          block_limit_status_->collated_data_stat.add_cell(cell);
+        }
+      });
+    }
   }
   auto state = ShardStateQ::fetch(block_id, {}, state_root);
   if (state.is_error()) {
@@ -745,6 +752,13 @@ bool Collator::unpack_merge_last_state() {
   }
   // 1. prepare for creating a MerkleUpdate based on previous state
   state_usage_tree_ = std::make_shared<vm::CellUsageTree>();
+  if (full_collated_data_ && !is_masterchain()) {
+    state_usage_tree_->set_cell_load_callback([&](const td::Ref<vm::DataCell>& cell) {
+      if (block_limit_status_) {
+        block_limit_status_->collated_data_stat.add_cell(cell);
+      }
+    });
+  }
   prev_state_root_ = vm::UsageCell::create(prev_state_root_pure_, state_usage_tree_->root_ptr());
   // 2. extract back slightly virtualized roots of the two original states
   Ref<vm::Cell> root0, root1;
@@ -783,6 +797,13 @@ bool Collator::unpack_last_state() {
   prev_state_root_pure_ = prev_states.at(0)->root_cell();
   // prepare for creating a MerkleUpdate based on previous state
   state_usage_tree_ = std::make_shared<vm::CellUsageTree>();
+  if (full_collated_data_ && !is_masterchain()) {
+    state_usage_tree_->set_cell_load_callback([&](const td::Ref<vm::DataCell>& cell) {
+      if (block_limit_status_) {
+        block_limit_status_->collated_data_stat.add_cell(cell);
+      }
+    });
+  }
   prev_state_root_ = vm::UsageCell::create(prev_state_root_pure_, state_usage_tree_->root_ptr());
   // unpack previous state
   block::ShardState ss;
@@ -3547,7 +3568,8 @@ bool Collator::check_block_overload() {
   block_size_estimate_ = block_limit_status_->estimate_block_size();
   LOG(INFO) << "block load statistics: gas=" << block_limit_status_->gas_used
             << " lt_delta=" << block_limit_status_->cur_lt - block_limit_status_->limits.start_lt
-            << " size_estimate=" << block_size_estimate_;
+            << " size_estimate=" << block_size_estimate_
+            << " collated_size_estimate=" << block_limit_status_->collated_data_stat.estimate_proof_size();
   auto cl = block_limit_status_->classify();
   if (cl <= block::ParamLimits::cl_underload) {
     underload_history_ |= 1;
@@ -4153,11 +4175,13 @@ bool Collator::create_block_candidate() {
     cdata_slice = cdata_res.move_as_ok();
   }
   LOG(INFO) << "serialized block size " << blk_slice.size() << " bytes (preliminary estimate was "
-            << block_size_estimate_ << "), collated data " << cdata_slice.size() << " bytes";
+            << block_size_estimate_ << ")";
   auto st = block_limit_status_->st_stat.get_total_stat();
   LOG(INFO) << "size regression stats: " << blk_slice.size() << " " << st.cells << " " << st.bits << " "
             << st.internal_refs << " " << st.external_refs << " " << block_limit_status_->accounts << " "
             << block_limit_status_->transactions;
+  LOG(INFO) << "serialized collated data size " << cdata_slice.size() << " bytes (preliminary estimate was "
+            << block_limit_status_->collated_data_stat.estimate_proof_size() << ")";
   // 3. create a BlockCandidate
   block_candidate = std::make_unique<BlockCandidate>(
       created_by_,

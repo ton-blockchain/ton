@@ -41,6 +41,7 @@ class NewCellStorageStat {
     Stat(td::uint64 cells_, td::uint64 bits_, td::uint64 internal_refs_ = 0, td::uint64 external_refs_ = 0)
         : cells(cells_), bits(bits_), internal_refs(internal_refs_), external_refs(external_refs_) {
     }
+    Stat(const Stat&) = default;
     td::uint64 cells{0};
     td::uint64 bits{0};
     td::uint64 internal_refs{0};
@@ -158,6 +159,18 @@ struct VmStorageStat {
   bool check_visited(const Ref<Cell>& cell) {
     return check_visited(cell->get_hash());
   }
+};
+
+class ProofStorageStat {
+ public:
+  void add_cell(const Ref<DataCell>& cell);
+  td::uint64 estimate_proof_size() const;
+ private:
+  enum CellStatus {
+    c_none = 0, c_prunned = 1, c_loaded = 2
+  };
+  std::map<vm::Cell::Hash, CellStatus> cells_;
+  td::uint64 proof_size_ = 0;
 };
 
 struct CellSerializationInfo {
