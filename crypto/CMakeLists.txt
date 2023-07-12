@@ -331,12 +331,16 @@ if (NIX)
 
 else()
 
-  add_dependencies(ton_crypto_core secp256k1 sodium)
+  if (ANDROID)
+   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+   target_link_libraries(ton_crypto PUBLIC $<BUILD_INTERFACE:${SECP256K1_LIBRARY}>)
+  else()
+    add_dependencies(ton_crypto_core secp256k1 sodium)
+    target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+    target_link_libraries(ton_crypto_core PUBLIC ${SECP256K1_LIBRARY})
+  endif()
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
   target_link_libraries(ton_crypto_core PUBLIC ${SODIUM_LIBRARY_RELEASE})
-
-  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
-  target_link_libraries(ton_crypto_core PUBLIC ${SECP256K1_LIBRARY})
 
 endif()
 
