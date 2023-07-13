@@ -360,7 +360,6 @@ if (USE_EMSCRIPTEN)
   target_link_options(fift-lib PRIVATE -fexceptions)
   target_compile_options(fift-lib PRIVATE -fexceptions)
 endif()
-set_target_properties(fift-lib PROPERTIES OUTPUT_NAME fift)
 
 add_executable(fift fift/fift-main.cpp)
 target_link_libraries(fift PUBLIC fift-lib git)
