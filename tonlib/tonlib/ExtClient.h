@@ -28,10 +28,10 @@
 #include "td/utils/Container.h"
 #include "td/utils/Random.h"
 
-#include "ExtClientLazy.h"
+#include "lite-client/ext-client.h"
 #include "TonlibError.h"
 #include "utils.h"
-#include "QueryTraits.h"
+#include "lite-client/QueryTraits.h"
 
 namespace tonlib {
 class LastBlock;
@@ -39,7 +39,7 @@ class LastConfig;
 struct LastBlockState;
 struct LastConfigState;
 struct ExtClientRef {
-  td::actor::ActorId<ExtClientLazy> adnl_ext_client_;
+  td::actor::ActorId<liteclient::ExtClient> adnl_ext_client_;
   td::actor::ActorId<LastBlock> last_block_actor_;
   td::actor::ActorId<LastConfig> last_config_actor_;
 };
@@ -65,7 +65,7 @@ class ExtClient {
 
   template <class QueryT>
   void send_query(QueryT query, td::Promise<typename QueryT::ReturnType> promise, td::int32 seq_no = -1) {
-    ton::ShardIdFull shard = QueryTraits<QueryT>::get_shard(query);
+    ton::ShardIdFull shard = liteclient::QueryTraits<QueryT>::get_shard(query);
     auto raw_query = ton::serialize_tl_object(&query, true);
     td::uint32 tag = td::Random::fast_uint32();
     VLOG(lite_server) << "send query to liteserver: " << tag << " " << to_string(query);
@@ -99,7 +99,7 @@ class ExtClient {
 
   void force_change_liteserver() {
     if (!client_.adnl_ext_client_.empty()) {
-      td::actor::send_closure(client_.adnl_ext_client_, &ExtClientLazy::force_change_liteserver);
+      td::actor::send_closure(client_.adnl_ext_client_, &liteclient::ExtClient::force_change_liteserver);
     }
   }
 

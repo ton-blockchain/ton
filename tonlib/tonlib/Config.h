@@ -20,15 +20,11 @@
 #include "adnl/adnl-node-id.hpp"
 #include "td/utils/port/IPAddress.h"
 #include "ton/ton-types.h"
+#include "lite-client/ext-client.h"
 
 namespace tonlib {
 struct Config {
-  struct LiteServer {
-    ton::adnl::AdnlNodeIdFull adnl_id;
-    td::IPAddress address;
-    bool is_full = true;
-    std::vector<ton::ShardIdFull> shards;
-  };
+  using LiteServer = liteclient::ExtClient::LiteServer;
   ton::BlockIdExt zero_state_id;
   ton::BlockIdExt init_block_id;
   std::vector<ton::BlockIdExt> hardforks;

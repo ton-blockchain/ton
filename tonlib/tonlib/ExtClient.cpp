@@ -65,7 +65,7 @@ void ExtClient::send_raw_query(td::BufferSlice query, ton::ShardIdFull shard, td
   if (client_.adnl_ext_client_.empty()) {
     return P.set_error(TonlibError::NoLiteServers());
   }
-  td::actor::send_closure(client_.adnl_ext_client_, &ExtClientLazy::send_query, "query", std::move(query),
+  td::actor::send_closure(client_.adnl_ext_client_, &liteclient::ExtClient::send_query, "query", std::move(query),
                           shard, td::Timestamp::in(10.0), std::move(P));
 }
 }  // namespace tonlib

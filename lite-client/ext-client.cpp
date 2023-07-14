@@ -13,20 +13,17 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
-#include "ExtClientLazy.h"
-#include "TonlibError.h"
+#include "ext-client.h"
 #include "td/utils/Random.h"
 #include "ton/ton-shard.h"
 #include <map>
 
-namespace tonlib {
+namespace liteclient {
 
-class ExtClientLazyImpl : public ExtClientLazy {
+class ExtClientImpl : public ExtClient {
  public:
-  ExtClientLazyImpl(std::vector<Config::LiteServer> servers, td::unique_ptr<ExtClientLazy::Callback> callback)
+  ExtClientImpl(std::vector<LiteServer> servers, td::unique_ptr<ExtClient::Callback> callback)
       : callback_(std::move(callback)) {
     CHECK(!servers.empty());
     servers_.resize(servers.size());
@@ -53,10 +50,10 @@ class ExtClientLazyImpl : public ExtClientLazy {
     CHECK(!server.client.empty());
     alarm_timestamp().relax(server.timeout = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT));
     td::Promise<td::BufferSlice> P = [SelfId = actor_id(this), server_idx,
-                                      promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
       if (R.is_error() &&
           (R.error().code() == ton::ErrorCode::timeout || R.error().code() == ton::ErrorCode::cancelled)) {
-        td::actor::send_closure(SelfId, &ExtClientLazyImpl::set_server_bad, server_idx);
+        td::actor::send_closure(SelfId, &ExtClientImpl::set_server_bad, server_idx);
       }
       promise.set_result(std::move(R));
     };
@@ -128,17 +125,17 @@ class ExtClientLazyImpl : public ExtClientLazy {
 
     class Callback : public ton::adnl::AdnlExtClient::Callback {
      public:
-      explicit Callback(td::actor::ActorShared<ExtClientLazyImpl> parent, size_t idx)
+      explicit Callback(td::actor::ActorShared<ExtClientImpl> parent, size_t idx)
           : parent_(std::move(parent)), idx_(idx) {
       }
       void on_ready() override {
       }
       void on_stop_ready() override {
-        td::actor::send_closure(parent_, &ExtClientLazyImpl::set_server_bad, idx_);
+        td::actor::send_closure(parent_, &ExtClientImpl::set_server_bad, idx_);
       }
 
      private:
-      td::actor::ActorShared<ExtClientLazyImpl> parent_;
+      td::actor::ActorShared<ExtClientImpl> parent_;
       size_t idx_;
     };
     ref_cnt_++;
@@ -154,7 +151,7 @@ class ExtClientLazyImpl : public ExtClientLazy {
   }
 
   struct Server {
-    Config::LiteServer s;
+    LiteServer s;
     td::actor::ActorOwn<ton::adnl::AdnlExtClient> client;
     td::Timestamp timeout = td::Timestamp::never();
     td::Timestamp ignore_until = td::Timestamp::never();
@@ -169,7 +166,7 @@ class ExtClientLazyImpl : public ExtClientLazy {
   std::map<ton::ShardIdFull, size_t> shard_to_server_;
   int max_server_shard_depth_ = 0;
 
-  td::unique_ptr<ExtClientLazy::Callback> callback_;
+  td::unique_ptr<ExtClient::Callback> callback_;
   static constexpr double MAX_NO_QUERIES_TIMEOUT = 100;
 
   bool is_closing_{false};
@@ -206,13 +203,13 @@ class ExtClientLazyImpl : public ExtClientLazy {
   }
 };
 
-td::actor::ActorOwn<ExtClientLazy> ExtClientLazy::create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
+td::actor::ActorOwn<ExtClient> ExtClient::create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
                                                          td::unique_ptr<Callback> callback) {
-  return create({Config::LiteServer{dst, dst_addr, true, {}}}, std::move(callback));
+  return create({LiteServer{dst, dst_addr, true, {}}}, std::move(callback));
 }
 
-td::actor::ActorOwn<ExtClientLazy> ExtClientLazy::create(std::vector<Config::LiteServer> servers,
+td::actor::ActorOwn<ExtClient> ExtClient::create(std::vector<LiteServer> servers,
                                                          td::unique_ptr<Callback> callback) {
-  return td::actor::create_actor<ExtClientLazyImpl>("ExtClientLazy", std::move(servers), std::move(callback));
+  return td::actor::create_actor<ExtClientImpl>("ExtClient", std::move(servers), std::move(callback));
 }
-}  // namespace tonlib
+}  // namespace liteclient

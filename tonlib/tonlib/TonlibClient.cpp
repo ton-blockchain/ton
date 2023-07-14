@@ -18,7 +18,6 @@
 */
 #include "TonlibClient.h"
 
-#include "tonlib/ExtClientLazy.h"
 #include "tonlib/ExtClientOutbound.h"
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
@@ -2022,7 +2021,7 @@ void TonlibClient::init_ext_client() {
     ext_client_outbound_ = client.get();
     raw_client_ = std::move(client);
   } else {
-    class Callback : public ExtClientLazy::Callback {
+    class Callback : public liteclient::ExtClient::Callback {
      public:
       explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
       }
@@ -2032,7 +2031,7 @@ void TonlibClient::init_ext_client() {
     };
     ext_client_outbound_ = {};
     ref_cnt_++;
-    raw_client_ = ExtClientLazy::create(config_.lite_servers, td::make_unique<Callback>(td::actor::actor_shared()));
+    raw_client_ = liteclient::ExtClient::create(config_.lite_servers, td::make_unique<Callback>(td::actor::actor_shared()));
   }
 }
 

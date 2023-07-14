@@ -10,7 +10,6 @@ set(TONLIB_SOURCE
   tonlib/Client.cpp
   tonlib/Config.cpp
   tonlib/ExtClient.cpp
-  tonlib/ExtClientLazy.cpp
   tonlib/ExtClientOutbound.cpp
   tonlib/KeyStorage.cpp
   tonlib/KeyValue.cpp
@@ -25,7 +24,6 @@ set(TONLIB_SOURCE
   tonlib/Client.h
   tonlib/Config.h
   tonlib/ExtClient.h
-  tonlib/ExtClientLazy.h
   tonlib/ExtClientOutbound.h
   tonlib/KeyStorage.h
   tonlib/KeyValue.h

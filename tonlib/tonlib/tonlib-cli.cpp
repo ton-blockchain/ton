@@ -47,8 +47,6 @@
 #include "tonlib/TonlibClient.h"
 #include "tonlib/TonlibCallback.h"
 
-#include "tonlib/ExtClientLazy.h"
-
 #include "smc-envelope/ManualDns.h"
 #include "smc-envelope/PaymentChannel.h"
 
@@ -57,6 +55,7 @@
 #include "crypto/util/Miner.h"
 #include "vm/boc.h"
 #include "vm/cells/CellBuilder.h"
+#include "lite-client/ext-client.h"
 
 #include <cinttypes>
 #include <iostream>
@@ -174,7 +173,7 @@ class TonlibCli : public td::actor::Actor {
 
   std::map<std::uint64_t, td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>> query_handlers_;
 
-  td::actor::ActorOwn<tonlib::ExtClientLazy> raw_client_;
+  td::actor::ActorOwn<liteclient::ExtClient> raw_client_;
 
   bool is_closing_{false};
   td::uint32 ref_cnt_{1};
@@ -223,7 +222,7 @@ class TonlibCli : public td::actor::Actor {
 
     if (options_.use_callbacks_for_network) {
       auto config = tonlib::Config::parse(options_.config).move_as_ok();
-      class Callback : public tonlib::ExtClientLazy::Callback {
+      class Callback : public liteclient::ExtClient::Callback {
        public:
         explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
         }
@@ -232,7 +231,7 @@ class TonlibCli : public td::actor::Actor {
         td::actor::ActorShared<> parent_;
       };
       ref_cnt_++;
-      raw_client_ = tonlib::ExtClientLazy::create(config.lite_servers,
+      raw_client_ = liteclient::ExtClient::create(config.lite_servers,
                                                   td::make_unique<Callback>(td::actor::actor_shared()));
     }
 
@@ -1533,7 +1532,7 @@ class TonlibCli : public td::actor::Actor {
           auto update = tonlib_api::move_object_as<tonlib_api::updateSendLiteServerQuery>(std::move(result));
           CHECK(!raw_client_.empty());
           snd_bytes_ += update->data_.size();
-          send_closure(raw_client_, &tonlib::ExtClientLazy::send_query, "query", td::BufferSlice(update->data_),
+          send_closure(raw_client_, &liteclient::ExtClient::send_query, "query", td::BufferSlice(update->data_),
                        ton::ShardIdFull(update->workchain_, update->shard_), td::Timestamp::in(5),
                        [actor_id = actor_id(this), id = update->id_](td::Result<td::BufferSlice> res) {
                          send_closure(actor_id, &TonlibCli::on_adnl_result, id, std::move(res));

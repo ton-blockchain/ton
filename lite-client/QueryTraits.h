@@ -17,12 +17,14 @@
 #pragma once
 #include "ton/ton-types.h"
 #include "auto/tl/lite_api.h"
+#include "auto/tl/lite_api.hpp"
 #include "vm/boc.h"
 #include "vm/cellslice.h"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "auto/tl/lite_api.hpp"
 
-namespace tonlib {
+namespace liteclient {
 
 template <typename Query>
 struct QueryTraits {
@@ -212,5 +214,9 @@ struct QueryTraits<ton::lite_api::liteServer_getShardBlockProof> {
   }
 };
 
+template<typename Query>
+inline ton::ShardIdFull get_query_shard(const Query& q) {
+  return QueryTraits<Query>::get_shard(q);
+}
 
 }  // namespace tonlib
