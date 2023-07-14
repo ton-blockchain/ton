@@ -246,10 +246,10 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     LOG(DEBUG) << "VM accepted: " << res.accepted;
     LOG(DEBUG) << "VM success: " << res.success;
   }
-  td::ConstBitPtr mlib = vm.get_missing_library();
-  if (!mlib.is_null()) {
-    LOG(DEBUG) << "Missing library: " << mlib.to_hex(256);
-    res.missing_library = mlib;
+  auto mlib = vm.get_missing_library();
+  if (mlib) {
+    LOG(DEBUG) << "Missing library: " << mlib.value().to_hex();
+    res.missing_library = mlib.value();
   }
   if (res.success) {
     res.new_state.data = vm.get_c4();
@@ -257,7 +257,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     LOG(DEBUG) << "output actions:\n"
                << block::gen::OutList{res.output_actions_count(res.actions)}.as_string_ref(res.actions);
   }
-  LOG_IF(ERROR, gas_credit != 0 && (res.accepted && !res.success) && mlib.is_null())
+  LOG_IF(ERROR, gas_credit != 0 && (res.accepted && !res.success) && !mlib)
       << "Accepted but failed with code " << res.code << "\n"
       << res.gas_used << "\n";
   return res;

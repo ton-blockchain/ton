@@ -25,6 +25,7 @@
 #include "vm/log.h"
 #include "vm/continuation.h"
 #include "td/utils/HashSet.h"
+#include "td/utils/optional.h"
 
 namespace vm {
 
@@ -97,7 +98,7 @@ class VmState final : public VmStateInterface {
   td::HashSet<CellHash> loaded_cells;
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
-  td::ConstBitPtr missing_library{0};
+  td::optional<td::Bits256> missing_library;
   td::uint16 max_data_depth = 512; // Default value
   int global_version{0};
   size_t chksgn_counter = 0;
@@ -383,7 +384,7 @@ class VmState final : public VmStateInterface {
   Ref<OrdCont> ref_to_cont(Ref<Cell> cell) const {
     return td::make_ref<OrdCont>(load_cell_slice_ref(std::move(cell)), get_cp());
   }
-  td::ConstBitPtr get_missing_library() const {
+  td::optional<td::Bits256> get_missing_library() const {
     return missing_library;
   }
   void set_max_data_depth(td::uint16 depth) {

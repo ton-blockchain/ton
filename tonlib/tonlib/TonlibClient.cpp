@@ -4552,12 +4552,12 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
   }
   auto res_stack = R.move_as_ok();
 
-  if (res.missing_library.not_null()) {
-    td::Bits256 hash = res.missing_library;
+  if (res.missing_library) {
+    td::Bits256 hash = res.missing_library.value();
     LOG(DEBUG) << "Requesting missing library: " << hash.to_hex();
-    std::vector<td::Bits256> req = {std::move(hash)};
+    std::vector<td::Bits256> req = {hash};
     client_.send_query(ton::lite_api::liteServer_getLibraries(std::move(req)),
-                [self = this, res = std::move(res), res_stack = std::move(res_stack), hash = std::move(hash),
+                [self = this, res = std::move(res), res_stack = std::move(res_stack), hash,
                  smc = std::move(smc), args = std::move(args), promise = std::move(promise)]
                 (td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries) mutable
     {
