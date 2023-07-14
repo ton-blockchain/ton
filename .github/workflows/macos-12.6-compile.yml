@@ -12,6 +12,8 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: 'recursive'
+          fetch-depth: 0
+
       - name: Compile OpenSSL
         run: |
           export NONINTERACTIVE=1
@@ -22,17 +24,10 @@ jobs:
           ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=12.6
           make build_libs -j4
 
-      - name: Compile Secp256k1
-        run: |
-          git clone https://github.com/libbitcoin/secp256k1.git
-          cd secp256k1
-          ./autogen.sh
-          ./configure --enable-module-recovery
-          make
-          make install
-
       - name: Build all
         run: |
+          git submodule sync --recursive
+          git submodule update
           export NONINTERACTIVE=1
           brew install ninja libmicrohttpd pkg-config
           rootPath=`pwd`

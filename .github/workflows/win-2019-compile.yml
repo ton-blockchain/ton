@@ -20,13 +20,13 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: 'recursive'
+          fetch-depth: 0
 
       - name: Setup msbuild.exe
         uses: microsoft/setup-msbuild@v1.1
 
       - name: Install Pkg-config Lite
         run: choco install pkgconfiglite
-
 
       - name: Install pre-compiled OpenSSL Win64
         run: |
@@ -40,6 +40,8 @@ jobs:
 
       - name: Compile
         run: |
+          git submodule sync --recursive
+          git submodule update
           set root=%cd%
           set SODIUM_DIR=%root%\libsodium
           echo %root%

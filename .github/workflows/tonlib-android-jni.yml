@@ -12,9 +12,12 @@ jobs:
       uses: actions/checkout@v3
       with:      
         submodules: 'recursive'
+        fetch-depth: 0
 
     - name: Install libraries
       run: |
+        git submodule sync --recursive
+        git submodule update
         sudo apt update
         sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
 
