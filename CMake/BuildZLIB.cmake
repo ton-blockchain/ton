@@ -11,7 +11,7 @@ if (NOT ZLIB_LIBRARY)
     if (MSVC)
       set(ZLIB_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/zlib)
       set(ZLIB_LIBRARY ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc14/x64/ZlibStatReleaseWithoutAsm/zlibstat.lib)
-      set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR}/include)
+      set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR})
       add_custom_command(
         WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
         COMMAND cd contrib/vstudio/vc14

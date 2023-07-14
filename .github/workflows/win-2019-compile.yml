@@ -21,12 +21,6 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Check out zlib repository
-        uses: actions/checkout@v3
-        with:
-          repository: desktop-app/zlib
-          path: zlib
-
       - name: Setup msbuild.exe
         uses: microsoft/setup-msbuild@v1.1
 
