@@ -27,8 +27,7 @@ jobs:
 
     - name: Configure & Build
       run: |
-        git submodule sync --recursive
-        git submodule update
+        git submodule update --init --depth 16
 
         export CC=$(which clang)
         export CXX=$(which clang++)
