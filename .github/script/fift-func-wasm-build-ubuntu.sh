@@ -20,11 +20,6 @@ make -j16
 OPENSSL_DIR=`pwd`
 cd ..
 
-git clone https://github.com/madler/zlib.git
-cd zlib
-ZLIB_DIR=`pwd`
-cd ..
-
 mkdir build
 cd build
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_USE_ABSEIL=OFF ..
@@ -65,16 +60,9 @@ emmake make depend
 emmake make -j16
 test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
 
-cd ../zlib
-
-emconfigure ./configure --static
-emmake make -j16
-test $? -eq 0 || { echo "Can't compile zlib with emmake "; exit 1; }
-ZLIB_DIR=`pwd`
-
 cd ../build
 
-emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DZLIB_LIBRARY=$ZLIB_DIR/libz.a -DZLIB_INCLUDE_DIR=$ZLIB_DIR -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.a -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" ..
+emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR=$OPENSSL_DIR -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.a -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake ..
 test $? -eq 0 || { echo "Can't configure TON with with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 

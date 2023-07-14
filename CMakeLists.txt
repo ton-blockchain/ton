@@ -188,6 +188,7 @@ if (NOT (NIX OR ANDROID))
   include(BuildSECP256K1)
   include(BuildSODIUM)
   include(BuildMHD)
+  include(BuildZLIB)
 endif()
 
 # Configure CCache if available
@@ -217,7 +218,6 @@ set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
-find_package(ZLIB REQUIRED)
 
 if (TON_ARCH AND NOT MSVC)
   CHECK_CXX_COMPILER_FLAG( "-march=${TON_ARCH}" COMPILER_OPT_ARCH_SUPPORTED )

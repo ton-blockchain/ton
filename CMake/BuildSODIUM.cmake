@@ -17,7 +17,7 @@ if (NOT SODIUM_LIBRARY_RELEASE)
         COMMAND set LIBSODIUM_FULL_BUILD=1
         COMMAND cd builds/msvc/vs2017
         COMMAND msbuild /m /v:n /p:Configuration=StaticRelease -p:PlatformToolset=v142 -p:Platform=x64
-        COMMENT "Build sodium with vs2017"
+        COMMENT "Build sodium with MSVC"
         DEPENDS ${SODIUM_SOURCE_DIR}
         OUTPUT ${SODIUM_LIBRARY_RELEASE}
       )

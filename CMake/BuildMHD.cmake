@@ -16,7 +16,7 @@ set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/include)
         WORKING_DIRECTORY ${MHD_SOURCE_DIR}
         COMMAND cd w32/VS2017
         COMMAND msbuild /m /v:n /p:Configuration=Release-static -p:PlatformToolset=v142 -p:Platform=x64 libmicrohttpd.sln
-        COMMENT "Build mhd with vs2017"
+        COMMENT "Build mhd with MSVC"
         DEPENDS ${MHD_SOURCE_DIR}
         OUTPUT ${MHD_LIBRARY}
       )
