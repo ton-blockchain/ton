@@ -1,10 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
-
 set(STORAGE_SOURCE
   LoadSpeed.cpp
   MerkleTree.cpp
@@ -40,14 +35,16 @@ set(STORAGE_CLI_SOURCE
 )
 
 add_library(storage STATIC ${STORAGE_SOURCE})
-target_link_libraries(storage tdutils tdactor tddb ton_crypto tl_api ${JEMALLOC_LIBRARIES})
+add_dependencies(storage openssl)
+
+target_link_libraries(storage tdutils tdactor tddb ton_crypto tl_api ${JEMALLOC_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARY})
 target_include_directories(storage PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 )
 
 add_executable(storage-cli ${STORAGE_CLI_SOURCE})
 target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dht
-  rldp rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
+  rldp rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARY})
 
 set(STORAGE_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/storage.cpp

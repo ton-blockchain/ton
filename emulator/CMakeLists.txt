@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
 option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(EMULATOR_STATIC_SOURCE
   transaction-emulator.cpp
   tvm-emulator.hpp
@@ -27,7 +23,8 @@ set(EMULATOR_EMSCRIPTEN_SOURCE
 include(GenerateExportHeader)
 
 add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
-target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope)
+add_dependencies(emulator_static openssl)
+target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope ${OPENSSL_CRYPTO_LIBRARY})
 
 if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
   add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})

@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(CATCHAIN_SOURCE
   catchain-received-block.cpp
   #catchain-receiver-fork.cpp
@@ -28,12 +24,12 @@ set(CATCHAIN_SOURCE
 )
 
 add_library(catchain STATIC ${CATCHAIN_SOURCE})
+add_dependencies(catchain openssl)
 
 target_include_directories(overlay PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(catchain PRIVATE tdutils tdactor adnl tl_api dht tdfec
-  overlay)
+target_link_libraries(catchain PRIVATE tdutils tdactor adnl tl_api dht tdfec overlay ${OPENSSL_CRYPTO_LIBRARY})
 

@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 if (NOT GSL_FOUND)
   find_package(GSL)
 endif()
@@ -47,6 +43,7 @@ set(RLDP_SOURCE
 )
 
 add_library(rldp2 STATIC ${RLDP_SOURCE})
+add_dependencies(rldp2 openssl)
 
 target_include_directories(rldp PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
@@ -57,5 +54,5 @@ if (GSL_FOUND AND BLAS_FOUND)
   target_link_libraries(rldp2 PRIVATE gsl blas)
   target_compile_definitions(rldp2 PRIVATE -DTON_HAVE_GSL=1)
 endif()
-target_link_libraries(rldp2 PUBLIC tdutils tdactor fec adnl tl_api)
+target_link_libraries(rldp2 PUBLIC tdutils tdactor fec adnl tl_api ${OPENSSL_CRYPTO_LIBRARY})
 

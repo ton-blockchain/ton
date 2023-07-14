@@ -66,7 +66,8 @@ if (NOT CMAKE_CROSSCOMPILING)
 
   set(GENERATE_COMMON_CMD generate_common)
   add_executable(generate_common ${TL_GENERATE_COMMON_SOURCE})
-  target_link_libraries(generate_common PRIVATE tdtl tdutils)
+  add_dependencies(generate_common zlib openssl)
+  target_link_libraries(generate_common PRIVATE tdtl tdutils ${OPENSSL_CRYPTO_LIBRARY})
   add_custom_command(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMAND ${GENERATE_COMMON_CMD}

@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(DHT_SOURCE
   dht.cpp
   dht-remote-node.cpp
@@ -22,16 +18,17 @@ set(DHT_SOURCE
 )
 
 add_library(dht STATIC ${DHT_SOURCE})
+add_dependencies(dht openssl)
 
 target_include_directories(dht PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(dht PRIVATE tdutils tdactor adnl tl_api)
+target_link_libraries(dht PRIVATE tdutils tdactor adnl tl_api ${OPENSSL_CRYPTO_LIBRARY})
 
 add_executable(dht-ping-servers utils/dht-ping-servers.cpp)
-target_link_libraries(dht-ping-servers PRIVATE tdutils tdactor adnl dht terminal)
+target_link_libraries(dht-ping-servers PRIVATE tdutils tdactor adnl dht terminal ${OPENSSL_CRYPTO_LIBRARY})
 
 add_executable(dht-resolve utils/dht-resolve.cpp)
-target_link_libraries(dht-resolve PRIVATE tdutils tdactor adnl dht terminal)
+target_link_libraries(dht-resolve PRIVATE tdutils tdactor adnl dht terminal ${OPENSSL_CRYPTO_LIBRARY})

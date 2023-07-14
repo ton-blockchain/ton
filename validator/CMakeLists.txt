@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 #add_subdirectory(dummy0)
 add_subdirectory(impl)
 
@@ -160,6 +156,10 @@ add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
+add_dependencies(validator openssl)
+add_dependencies(validator-disk  openssl)
+add_dependencies(validator-hardfork openssl)
+add_dependencies(full-node openssl)
 
 target_include_directories(validator PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
@@ -190,13 +190,13 @@ target_include_directories(full-node PUBLIC
   )
 
 target_link_libraries(validator PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
-  overlay catchain validatorsession ton_crypto ton_block ton_db)
+  overlay catchain validatorsession ton_crypto ton_block ton_db ${OPENSSL_CRYPTO_LIBRARY})
 
 target_link_libraries(validator-disk PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
-  overlay catchain validatorsession ton_crypto ton_block ton_db)
+  overlay catchain validatorsession ton_crypto ton_block ton_db ${OPENSSL_CRYPTO_LIBRARY})
 
 target_link_libraries(validator-hardfork PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
-  overlay catchain validatorsession ton_crypto ton_block ton_db)
+  overlay catchain validatorsession ton_crypto ton_block ton_db ${OPENSSL_CRYPTO_LIBRARY})
 
 target_link_libraries(full-node PRIVATE tdutils tdactor adnl rldp rldp2 tl_api dht tdfec
-  overlay catchain validatorsession ton_crypto ton_block ton_db)
+  overlay catchain validatorsession ton_crypto ton_block ton_db ${OPENSSL_CRYPTO_LIBRARY})

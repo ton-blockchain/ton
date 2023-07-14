@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(VALIDATOR_SESSION_SOURCE
   persistent-vector.cpp
   validator-session-description.cpp
@@ -20,6 +16,7 @@ set(VALIDATOR_SESSION_SOURCE
   validator-session-round-attempt-state.h)
 
 add_library(validatorsession STATIC ${VALIDATOR_SESSION_SOURCE})
+add_dependencies(validatorsession openssl)
 
 target_include_directories(validatorsession PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
@@ -27,4 +24,4 @@ target_include_directories(validatorsession PUBLIC
   ${OPENSSL_INCLUDE_DIR}
 )
 target_link_libraries(validatorsession PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
-  overlay catchain)
+  overlay catchain ${OPENSSL_CRYPTO_LIBRARY})

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-#set(OPENSSL_USE_STATIC_LIBS TRUE)
 
 # Define the two required variables before including the source code for watching a git repository.
 set(PRE_CONFIGURE_FILE "git.cc.in")
@@ -189,6 +188,7 @@ if (NOT (NIX OR ANDROID))
   include(BuildSODIUM)
   include(BuildMHD)
   include(BuildZLIB)
+  include(BuildOPENSSL)
 else()
   find_package(ZLIB REQUIRED)
 endif()

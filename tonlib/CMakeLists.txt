@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
 option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TONLIB_SOURCE
   tonlib/Client.cpp
   tonlib/Config.cpp
@@ -56,13 +52,14 @@ set(TONLIB_ONLINE_TEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/test/online.cpp PARENT
 set(USE_EMSCRIPTEN ${USE_EMSCRIPTEN} PARENT_SCOPE)
 
 add_library(tonlib STATIC ${TONLIB_SOURCE})
+add_dependencies(tonlib openssl)
 
 target_include_directories(tonlib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>
 )
-target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_crypto_core ton_block lite-client-common smc-envelope emulator_static)
+target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_crypto_core ton_block lite-client-common smc-envelope emulator_static ${OPENSSL_CRYPTO_LIBRARY})
 target_link_libraries(tonlib PUBLIC tdutils tl_tonlib_api)
 
 if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android

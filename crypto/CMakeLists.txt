@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TON_CRYPTO_CORE_SOURCE
   Ed25519.cpp
   common/bigint.cpp
@@ -322,6 +318,7 @@ if (NIX)
  find_package(Secp256k1 REQUIRED)
  find_package(Sodium REQUIRED)
  find_package(ZLIB REQUIRED)
+ find_package(OpenSSL REQUIRED)
 
  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
@@ -330,11 +327,14 @@ if (NIX)
  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
  target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
+
 else()
 
   if (MSVC)
     target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
-    add_dependencies(ton_crypto_core secp256k1 sodium zlib)
+    add_dependencies(ton_crypto_core secp256k1 sodium zlib openssl)
     target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
     target_link_libraries(ton_crypto PUBLIC $<BUILD_INTERFACE:${SECP256K1_LIBRARY}>)
   elseif (ANDROID)
@@ -345,10 +345,13 @@ else()
     target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
     target_link_libraries(ton_crypto_core PUBLIC ${SECP256K1_LIBRARY})
   endif()
+
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
   target_link_libraries(ton_crypto_core PUBLIC ${SODIUM_LIBRARY_RELEASE})
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${ZLIB_INCLUDE_DIR}>)
   target_link_libraries(ton_crypto_core PUBLIC ${ZLIB_LIBRARY})
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto_core PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
 
 endif()
 
@@ -377,12 +380,12 @@ endif()
 
 add_library(src_parser ${PARSER_SOURCE})
 target_include_directories(src_parser PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(src_parser PUBLIC ton_crypto_core)
+target_link_libraries(src_parser PUBLIC ton_crypto_core ${OPENSSL_CRYPTO_LIBRARY})
 
 add_library(ton_block ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api)
+target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api ${OPENSSL_CRYPTO_LIBRARY})
 
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
