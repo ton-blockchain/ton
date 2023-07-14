@@ -17,7 +17,7 @@ jobs:
       - name: Compile OpenSSL
         run: |
           export NONINTERACTIVE=1
-          brew install ninja libsodium automake
+          brew install ninja libsodium automake pkg-config libtool autoconf
           git clone https://github.com/openssl/openssl openssl_1_1_1
           cd openssl_1_1_1
           git checkout OpenSSL_1_1_1-stable
@@ -29,7 +29,6 @@ jobs:
           git submodule sync --recursive
           git submodule update
           export NONINTERACTIVE=1
-          brew install ninja libmicrohttpd pkg-config
           rootPath=`pwd`
           mkdir build
           cd build
