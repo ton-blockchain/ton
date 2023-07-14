@@ -319,14 +319,12 @@ endif()
 target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
 
 if (OPENSSL_FOUND)
-  target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
+  target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARY})
   target_include_directories(tdutils SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
 endif()
 
-if (ZLIB_FOUND)
-  target_link_libraries(tdutils PRIVATE ${ZLIB_LIBRARIES})
-  target_include_directories(tdutils SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})
-endif()
+target_link_libraries(tdutils PRIVATE ${ZLIB_LIBRARY})
+target_include_directories(tdutils SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})
 
 if (CRC32C_FOUND)
   target_link_libraries(tdutils PRIVATE crc32c)
