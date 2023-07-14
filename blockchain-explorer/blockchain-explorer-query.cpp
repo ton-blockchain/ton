@@ -43,6 +43,7 @@
 #include "block/block-auto.h"
 #include "crypto/vm/utils.h"
 #include "td/utils/crypto.h"
+#include "lite-client/QueryTraits.h"
 
 #include "vm/boc.h"
 #include "vm/cellops.h"
@@ -237,8 +238,7 @@ void HttpQueryBlockData::finish_query() {
 }
 
 void HttpQueryBlockData::start_up() {
-  auto query = ton::serialize_tl_object(
-      ton::create_tl_object<ton::lite_api::liteServer_getBlock>(ton::create_tl_lite_block_id(block_id_)), true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getBlock>(ton::create_tl_lite_block_id(block_id_));
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
@@ -249,7 +249,7 @@ void HttpQueryBlockData::start_up() {
   });
 
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryBlockData::got_block_data(td::BufferSlice data) {
@@ -300,8 +300,7 @@ void HttpQueryBlockView::finish_query() {
 }
 
 void HttpQueryBlockView::start_up_query() {
-  auto query = ton::serialize_tl_object(
-      ton::create_tl_object<ton::lite_api::liteServer_getBlock>(ton::create_tl_lite_block_id(block_id_)), true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getBlock>(ton::create_tl_lite_block_id(block_id_));
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
@@ -312,7 +311,7 @@ void HttpQueryBlockView::start_up_query() {
   });
 
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryBlockView::got_block_data(td::BufferSlice data) {
@@ -348,11 +347,10 @@ void HttpQueryBlockInfo::start_up_query() {
       td::actor::send_closure(SelfId, &HttpQueryBlockInfo::got_block_header, R.move_as_ok());
     }
   });
-  auto query = ton::serialize_tl_object(
-      ton::create_tl_object<ton::lite_api::liteServer_getBlockHeader>(ton::create_tl_lite_block_id(block_id_), 0),
-      true);
+  auto query =
+      ton::create_tl_object<ton::lite_api::liteServer_getBlockHeader>(ton::create_tl_lite_block_id(block_id_), 0);
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
   pending_queries_ = 1;
 
   if (block_id_.is_masterchain()) {
@@ -364,16 +362,15 @@ void HttpQueryBlockInfo::start_up_query() {
         td::actor::send_closure(SelfId, &HttpQueryBlockInfo::got_shard_info, R.move_as_ok());
       }
     });
-    auto query_2 = ton::serialize_tl_object(
-        ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(block_id_)),
-        true);
+    auto query_2 =
+        ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(block_id_));
     td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                            std::move(query_2), std::move(P_2));
+                            ton::serialize_tl_object(query_2, true), liteclient::get_query_shard(*query_2),
+                            std::move(P_2));
     pending_queries_++;
   }
-  auto query_3 = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
-                                              ton::create_tl_lite_block_id(block_id_), 7, 1024, nullptr, false, false),
-                                          true);
+  auto query_3 = ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
+      ton::create_tl_lite_block_id(block_id_), 7, 1024, nullptr, false, false);
   auto P_3 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &HttpQueryBlockInfo::abort_query, R.move_as_error_prefix("litequery failed: "));
@@ -382,7 +379,8 @@ void HttpQueryBlockInfo::start_up_query() {
     }
   });
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query_3), std::move(P_3));
+                          ton::serialize_tl_object(query_3, true), liteclient::get_query_shard(*query_3),
+                          std::move(P_3));
   pending_queries_++;
 }
 
@@ -435,11 +433,9 @@ void HttpQueryBlockInfo::got_transactions(td::BufferSlice data) {
 
   if (f->incomplete_ && transactions_.size() > 0) {
     const auto &T = *transactions_.rbegin();
-    auto query_3 = ton::serialize_tl_object(
-        ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
-            ton::create_tl_lite_block_id(block_id_), 7 + 128, 1024,
-            ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(T.addr.addr, T.lt), false, false),
-        true);
+    auto query_3 = ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
+        ton::create_tl_lite_block_id(block_id_), 7 + 128, 1024,
+        ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(T.addr.addr, T.lt), false, false);
     auto P_3 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &HttpQueryBlockInfo::abort_query, R.move_as_error_prefix("litequery failed: "));
@@ -448,7 +444,8 @@ void HttpQueryBlockInfo::got_transactions(td::BufferSlice data) {
       }
     });
     td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                            std::move(query_3), std::move(P_3));
+                            ton::serialize_tl_object(query_3, true), liteclient::get_query_shard(*query_3),
+                            std::move(P_3));
   } else {
     if (!--pending_queries_) {
       finish_query();
@@ -568,14 +565,13 @@ void HttpQueryBlockSearch::start_up_query() {
       td::actor::send_closure(SelfId, &HttpQueryBlockSearch::got_block_header, R.move_as_ok());
     }
   });
-  auto query = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_lookupBlock>(
-                                            mode_,
-                                            ton::create_tl_lite_block_id_simple(ton::BlockId{
-                                                account_prefix_.workchain, account_prefix_.account_id_prefix, seqno_}),
-                                            lt_, utime_),
-                                        true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_lookupBlock>(
+      mode_,
+      ton::create_tl_lite_block_id_simple(
+          ton::BlockId{account_prefix_.workchain, account_prefix_.account_id_prefix, seqno_}),
+      lt_, utime_);
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryBlockSearch::got_block_header(td::BufferSlice data) {
@@ -597,17 +593,16 @@ void HttpQueryBlockSearch::got_block_header(td::BufferSlice data) {
         td::actor::send_closure(SelfId, &HttpQueryBlockSearch::got_shard_info, R.move_as_ok());
       }
     });
-    auto query_2 = ton::serialize_tl_object(
-        ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(block_id_)),
-        true);
+    auto query_2 =
+        ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(block_id_));
     td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                            std::move(query_2), std::move(P_2));
+                            ton::serialize_tl_object(query_2, true), liteclient::get_query_shard(*query_2),
+                            std::move(P_2));
     pending_queries_++;
   }
 
-  auto query_3 = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
-                                              ton::create_tl_lite_block_id(block_id_), 7, 1024, nullptr, false, false),
-                                          true);
+  auto query_3 = ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
+      ton::create_tl_lite_block_id(block_id_), 7, 1024, nullptr, false, false);
   auto P_3 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &HttpQueryBlockSearch::abort_query, R.move_as_error_prefix("litequery failed: "));
@@ -616,7 +611,8 @@ void HttpQueryBlockSearch::got_block_header(td::BufferSlice data) {
     }
   });
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query_3), std::move(P_3));
+                          ton::serialize_tl_object(query_3, true), liteclient::get_query_shard(*query_3),
+                          std::move(P_3));
   pending_queries_++;
 }
 
@@ -656,11 +652,9 @@ void HttpQueryBlockSearch::got_transactions(td::BufferSlice data) {
 
   if (f->incomplete_ && transactions_.size() > 0) {
     const auto &T = *transactions_.rbegin();
-    auto query_3 = ton::serialize_tl_object(
-        ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
-            ton::create_tl_lite_block_id(block_id_), 7 + 128, 1024,
-            ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(T.addr.addr, T.lt), false, false),
-        true);
+    auto query_3 = ton::create_tl_object<ton::lite_api::liteServer_listBlockTransactions>(
+        ton::create_tl_lite_block_id(block_id_), 7 + 128, 1024,
+        ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(T.addr.addr, T.lt), false, false);
     auto P_3 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &HttpQueryBlockSearch::abort_query,
@@ -670,7 +664,8 @@ void HttpQueryBlockSearch::got_transactions(td::BufferSlice data) {
       }
     });
     td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                            std::move(query_3), std::move(P_3));
+                            ton::serialize_tl_object(query_3, true), liteclient::get_query_shard(*query_3),
+                            std::move(P_3));
   } else {
     if (!--pending_queries_) {
       finish_query();
@@ -758,11 +753,10 @@ void HttpQueryViewAccount::start_up_query() {
     }
   });
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(addr_.workchain, addr_.addr);
-  auto query = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
-                                            ton::create_tl_lite_block_id(block_id_), std::move(a)),
-                                        true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(ton::create_tl_lite_block_id(block_id_),
+                                                                                std::move(a));
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryViewAccount::got_account(td::BufferSlice data) {
@@ -855,10 +849,9 @@ void HttpQueryViewTransaction::start_up_query() {
     }
   });
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(addr_.workchain, addr_.addr);
-  auto query = ton::serialize_tl_object(
-      ton::create_tl_object<ton::lite_api::liteServer_getTransactions>(1, std::move(a), lt_, hash_), true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getTransactions>(1, std::move(a), lt_, hash_);
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryViewTransaction::got_transaction(td::BufferSlice data) {
@@ -946,11 +939,10 @@ void HttpQueryViewTransaction2::start_up_query() {
     }
   });
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(addr_.workchain, addr_.addr);
-  auto query = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getOneTransaction>(
-                                            ton::create_tl_lite_block_id(block_id_), std::move(a), lt_),
-                                        true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getOneTransaction>(
+      ton::create_tl_lite_block_id(block_id_), std::move(a), lt_);
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryViewTransaction2::got_transaction(td::BufferSlice data) {
@@ -1009,9 +1001,9 @@ void HttpQueryViewLastBlock::start_up() {
     }
   });
 
-  auto query = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>();
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryViewLastBlock::got_result(td::BufferSlice data) {
@@ -1075,9 +1067,9 @@ void HttpQueryConfig::start_up() {
       }
     });
 
-    auto query = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
+    auto query = ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>();
     td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                            std::move(query), std::move(P));
+                            ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
   }
 }
 
@@ -1101,16 +1093,17 @@ void HttpQueryConfig::send_main_query() {
       td::actor::send_closure(SelfId, &HttpQueryConfig::got_result, R.move_as_ok());
     }
   });
-  auto query =
-      params_.size() > 0
-          ? ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getConfigParams>(
-                                         0, ton::create_tl_lite_block_id(block_id_), std::vector<int>(params_)),
-                                     true)
-          : ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getConfigAll>(
-                                         0, ton::create_tl_lite_block_id(block_id_)),
-                                     true);
-  td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+  if (params_.size() > 0) {
+    auto query = ton::create_tl_object<ton::lite_api::liteServer_getConfigParams>(
+        0, ton::create_tl_lite_block_id(block_id_), std::vector<int>(params_));
+    td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
+                            ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
+  } else {
+    auto query =
+        ton::create_tl_object<ton::lite_api::liteServer_getConfigAll>(0, ton::create_tl_lite_block_id(block_id_));
+    td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
+                            ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
+  }
 }
 
 void HttpQueryConfig::got_result(td::BufferSlice data) {
@@ -1252,10 +1245,9 @@ void HttpQuerySend::start_up() {
       td::actor::send_closure(SelfId, &HttpQuerySend::got_result, R.move_as_ok());
     }
   });
-  auto query =
-      ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_sendMessage>(std::move(data_)), true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_sendMessage>(std::move(data_));
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQuerySend::got_result(td::BufferSlice data) {
@@ -1347,11 +1339,10 @@ void HttpQueryRunMethod::start_up_query() {
     }
   });
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(addr_.workchain, addr_.addr);
-  auto query = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
-                                            ton::create_tl_lite_block_id(block_id_), std::move(a)),
-                                        true);
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(ton::create_tl_lite_block_id(block_id_),
+                                                                                std::move(a));
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
-                          std::move(query), std::move(P));
+                          ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
 void HttpQueryRunMethod::got_account(td::BufferSlice data) {

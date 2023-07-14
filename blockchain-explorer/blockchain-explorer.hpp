@@ -64,7 +64,7 @@ class CoreActorInterface : public td::actor::Actor {
   };
   virtual ~CoreActorInterface() = default;
 
-  virtual void send_lite_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void send_lite_query(td::BufferSlice data, ton::ShardIdFull shard, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_last_result(td::Promise<std::shared_ptr<RemoteNodeStatus>> promise) = 0;
   virtual void get_results(td::uint32 max, td::Promise<RemoteNodeStatusList> promise) = 0;
 
