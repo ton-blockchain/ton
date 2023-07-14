@@ -142,28 +142,57 @@ td::Ref<vm::Cell> CellText::do_store(td::BitSlice slice) {
 }
 
 template <class F>
-void CellText::for_each(F &&f, CellSlice cs) {
+td::Status CellText::for_each(F &&f, CellSlice cs) {
+  if (!cs.have(8)) {
+    return td::Status::Error("Cell underflow");
+  }
   auto depth = cs.fetch_ulong(8);
+  if (depth > max_chain_length) {
+    return td::Status::Error("Too deep string");
+  }
 
   for (td::uint32 i = 0; i < depth; i++) {
-    auto size = cs.fetch_ulong(8);
-    f(cs.fetch_bits(td::narrow_cast<int>(size) * 8));
+    if (!cs.have(8)) {
+      return td::Status::Error("Cell underflow");
+    }
+    auto size = td::narrow_cast<int>(cs.fetch_ulong(8));
+    if (!cs.have(size * 8)) {
+      return td::Status::Error("Cell underflow");
+    }
+    TRY_STATUS(f(cs.fetch_bits(size * 8)));
     if (i + 1 < depth) {
+      if (!cs.have_refs()) {
+        return td::Status::Error("Cell underflow");
+      }
       cs = vm::load_cell_slice(cs.prefetch_ref());
     }
   }
+  return td::Status::OK();
 }
 
 td::Result<td::string> CellText::load(CellSlice &cs) {
   unsigned int size = 0;
-  for_each([&](auto slice) { size += slice.size(); }, cs);
+  TRY_STATUS(for_each(
+      [&](auto slice) {
+        size += slice.size();
+        if (size > max_bytes * 8) {
+          return td::Status::Error("String is too long");
+        }
+        return td::Status::OK();
+      },
+      cs));
   if (size % 8 != 0) {
     return td::Status::Error("Size is not divisible by 8");
   }
   std::string res(size / 8, 0);
 
   td::BitPtr to(td::MutableSlice(res).ubegin());
-  for_each([&](auto slice) { to.concat(slice); }, cs);
+  TRY_STATUS(for_each(
+      [&](auto slice) {
+        to.concat(slice);
+        return td::Status::OK();
+      },
+      cs));
   CHECK(to.offs == (int)size);
   return res;
 }

@@ -25,6 +25,7 @@
 #include "vm/log.h"
 #include "vm/continuation.h"
 #include "td/utils/HashSet.h"
+#include "td/utils/optional.h"
 
 namespace vm {
 
@@ -97,7 +98,7 @@ class VmState final : public VmStateInterface {
   td::HashSet<CellHash> loaded_cells;
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
-  td::ConstBitPtr missing_library{0};
+  td::optional<td::Bits256> missing_library;
   td::uint16 max_data_depth = 512; // Default value
   int global_version{0};
   size_t chksgn_counter = 0;
@@ -128,25 +129,25 @@ class VmState final : public VmStateInterface {
     chksgn_gas_price = 4000,
     p256_chksgn_gas_price = 3500,
 
-    bls_verify_gas_price = 61300,
-    bls_aggregate_base_gas_price = -2645,
-    bls_aggregate_element_gas_price = 4355,
-    bls_fast_aggregate_verify_base_gas_price = 58400,
-    bls_fast_aggregate_verify_element_gas_price = 2990,
-    bls_aggregate_verify_base_gas_price = 37275,
-    bls_aggregate_verify_element_gas_price = 22290,
+    bls_verify_gas_price = 61000,
+    bls_aggregate_base_gas_price = -2650,
+    bls_aggregate_element_gas_price = 4350,
+    bls_fast_aggregate_verify_base_gas_price = 58000,
+    bls_fast_aggregate_verify_element_gas_price = 3000,
+    bls_aggregate_verify_base_gas_price = 38500,
+    bls_aggregate_verify_element_gas_price = 22500,
 
-    bls_g1_add_sub_gas_price = 3925,
-    bls_g1_neg_gas_price = 765,
-    bls_g1_mul_gas_price = 5180,
-    bls_map_to_g1_gas_price = 2330,
-    bls_g1_in_group_gas_price = 2930,
+    bls_g1_add_sub_gas_price = 3900,
+    bls_g1_neg_gas_price = 750,
+    bls_g1_mul_gas_price = 5200,
+    bls_map_to_g1_gas_price = 2350,
+    bls_g1_in_group_gas_price = 2950,
 
     bls_g2_add_sub_gas_price = 6100,
     bls_g2_neg_gas_price = 1550,
-    bls_g2_mul_gas_price = 10530,
-    bls_map_to_g2_gas_price = 7970,
-    bls_g2_in_group_gas_price = 4255,
+    bls_g2_mul_gas_price = 10550,
+    bls_map_to_g2_gas_price = 7950,
+    bls_g2_in_group_gas_price = 4250,
 
     // multiexp gas = base + n * coef1 + n/floor(max(log2(n), 4)) * coef2
     bls_g1_multiexp_base_gas_price = 11375,
@@ -157,7 +158,7 @@ class VmState final : public VmStateInterface {
     bls_g2_multiexp_coef2_gas_price = 22840,
 
     bls_pairing_base_gas_price = 20000,
-    bls_pairing_element_gas_price = 11770
+    bls_pairing_element_gas_price = 11800
   };
   VmState();
   VmState(Ref<CellSlice> _code);
@@ -383,7 +384,7 @@ class VmState final : public VmStateInterface {
   Ref<OrdCont> ref_to_cont(Ref<Cell> cell) const {
     return td::make_ref<OrdCont>(load_cell_slice_ref(std::move(cell)), get_cp());
   }
-  td::ConstBitPtr get_missing_library() const {
+  td::optional<td::Bits256> get_missing_library() const {
     return missing_library;
   }
   void set_max_data_depth(td::uint16 depth) {

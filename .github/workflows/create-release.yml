@@ -27,22 +27,6 @@ jobs:
           workflow_conclusion: success
           skip_unpack: false
 
-      #      - name: Download Linux arm64 artifacts
-      #        uses: dawidd6/action-download-artifact@v2
-      #        with:
-      #          workflow: ton-aarch64-linux.yml
-      #          path: artifacts
-      #          workflow_conclusion: success
-      #          skip_unpack: true
-      #
-      #      - name: Download and unzip Linux arm64 artifacts
-      #        uses: dawidd6/action-download-artifact@v2
-      #        with:
-      #          workflow: ton-aarch64-linux.yml
-      #          path: artifacts
-      #          workflow_conclusion: success
-      #          skip_unpack: false
-
       - name: Download Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
@@ -58,22 +42,6 @@ jobs:
           path: artifacts
           workflow_conclusion: success
           skip_unpack: false
-
-      #      - name: Download Mac arm64 artifacts
-      #        uses: dawidd6/action-download-artifact@v2
-      #        with:
-      #          workflow: ton-aarch64-macos.yml
-      #          path: artifacts
-      #          workflow_conclusion: success
-      #          skip_unpack: true
-      #
-      #      - name: Download and unzip Mac arm64 artifacts
-      #        uses: dawidd6/action-download-artifact@v2
-      #        with:
-      #          workflow: ton-aarch64-macos.yml
-      #          path: artifacts
-      #          workflow_conclusion: success
-      #          skip_unpack: false
 
       - name: Download Windows artifacts
         uses: dawidd6/action-download-artifact@v2
@@ -207,6 +175,14 @@ jobs:
           asset_name: storage-daemon-cli.exe
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Windows 2019 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/storage-daemon.exe
+          asset_name: storage-daemon.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Windows 2019 single artifact - tonlibjson
         uses: svenstaro/upload-release-action@v2
         with:
@@ -279,6 +255,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos-binaries/storage-daemon-cli
           asset_name: storage-daemon-cli-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/storage-daemon
+          asset_name: storage-daemon-mac-x86-64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Mac x86-64 single artifact - tonlibjson
@@ -355,6 +339,14 @@ jobs:
           asset_name: storage-daemon-cli-linux-x86_64
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Linux x86-64 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/storage-daemon
+          asset_name: storage-daemon-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Linux x86-64 single artifact - tonlibjson
         uses: svenstaro/upload-release-action@v2
         with:
@@ -370,22 +362,6 @@ jobs:
           file: artifacts/ton-x86_64-linux-binaries/tonlib-cli
           asset_name: tonlib-cli-linux-x86_64
           tag: ${{ steps.tag.outputs.TAG }}
-
-      #      - name: Upload Linux arm64 artifacts
-      #        uses: svenstaro/upload-release-action@v2
-      #        with:
-      #          repo_token: ${{ secrets.GITHUB_TOKEN }}
-      #          file: artifacts/ton-aarch64-linux-binaries.zip
-      #          asset_name: ton-linux-arm64.zip
-      #          tag: ${{ steps.tag.outputs.TAG }}
-      #
-      #      - name: Upload Mac arm64 artifacts
-      #        uses: svenstaro/upload-release-action@v2
-      #        with:
-      #          repo_token: ${{ secrets.GITHUB_TOKEN }}
-      #          file: artifacts/ton-aarch64-macos-binaries
-      #          asset_name: ton-mac-arm64.zip
-      #          tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload WASM artifacts
         uses: svenstaro/upload-release-action@v2

@@ -1963,7 +1963,7 @@ BurningConfig Config::get_burning_config() const {
     return {};
   }
   BurningConfig c;
-  c.fee_burn_nom = rec.fee_burn_nom;
+  c.fee_burn_num = rec.fee_burn_num;
   c.fee_burn_denom = rec.fee_burn_denom;
   vm::CellSlice& addr = rec.blackhole_addr.write();
   if (addr.fetch_long(1)) {

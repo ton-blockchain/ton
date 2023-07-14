@@ -46,6 +46,7 @@ struct GetDnsResolver;
 struct SendMessage;
 struct RemoteRunSmcMethod;
 struct RemoteRunSmcMethodReturnType;
+struct ScanAndLoadGlobalLibs;
 
 inline std::string to_string(const int_api::SendMessage&) {
   return "Send message";
@@ -331,6 +332,9 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::smc_getLibraries& request,
                         td::Promise<object_ptr<tonlib_api::smc_libraryResult>>&& promise);
 
+  td::Status do_request(const tonlib_api::smc_getLibrariesExt& request,
+                        td::Promise<object_ptr<tonlib_api::smc_libraryResultExt>>&& promise);
+
   td::Status do_request(const tonlib_api::dns_resolve& request,
                         td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
@@ -342,6 +346,8 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(tonlib_api::pchan_unpackPromise& request,
                         td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise);
 
+  void process_new_libraries(
+      td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries);
   void perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,
                              td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise);
 
@@ -409,5 +415,7 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status guess_revisions(std::vector<Target> targets,
                              td::Promise<object_ptr<tonlib_api::accountRevisionList>>&& promise);
+
+  td::Status do_request(const int_api::ScanAndLoadGlobalLibs& request, td::Promise<vm::Dictionary> promise);
 };
 }  // namespace tonlib

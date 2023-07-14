@@ -522,10 +522,10 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   json_obj("gas_used", std::to_string(result.gas_used));
   json_obj("vm_exit_code", result.code);
   json_obj("vm_log", result.vm_log);
-  if (result.missing_library.is_null()) {
+  if (!result.missing_library) {
     json_obj("missing_library", td::JsonNull());
   } else {
-    json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
+    json_obj("missing_library", result.missing_library.value().to_hex());
   }
   json_obj.leave();
 
@@ -548,10 +548,10 @@ const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *m
   json_obj("vm_exit_code", result.code);
   json_obj("accepted", td::JsonBool(result.accepted));
   json_obj("vm_log", result.vm_log);
-  if (result.missing_library.is_null()) {
+  if (!result.missing_library) {
     json_obj("missing_library", td::JsonNull());
   } else {
-    json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
+    json_obj("missing_library", result.missing_library.value().to_hex());
   }
   if (result.actions.is_null()) {
     json_obj("actions", td::JsonNull());
@@ -581,10 +581,10 @@ const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *m
   json_obj("vm_exit_code", result.code);
   json_obj("accepted", td::JsonBool(result.accepted));
   json_obj("vm_log", result.vm_log);
-  if (result.missing_library.is_null()) {
+  if (!result.missing_library) {
     json_obj("missing_library", td::JsonNull());
   } else {
-    json_obj("missing_library", td::Bits256(result.missing_library).to_hex());
+    json_obj("missing_library", result.missing_library.value().to_hex());
   }
   if (result.actions.is_null()) {
     json_obj("actions", td::JsonNull());

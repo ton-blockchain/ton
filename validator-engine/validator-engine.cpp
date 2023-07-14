@@ -71,6 +71,7 @@
 #include "git.h"
 #include "block-auto.h"
 #include "block-parse.h"
+#include "common/delay.h"
 
 Config::Config() {
   out_port = 3278;
@@ -1242,6 +1243,18 @@ void ValidatorEngine::set_global_config(std::string str) {
 }
 void ValidatorEngine::set_db_root(std::string db_root) {
   db_root_ = db_root;
+}
+void ValidatorEngine::schedule_shutdown(double at) {
+  td::Timestamp ts = td::Timestamp::at_unix(at);
+  if (ts.is_in_past()) {
+    LOG(DEBUG) << "Scheduled shutdown is in past (" << at << ")";
+  } else {
+    LOG(INFO) << "Schedule shutdown for " << at << " (in " << ts.in() << "s)";
+    ton::delay_action([]() {
+      LOG(WARNING) << "Shutting down as scheduled";
+      std::_Exit(0);
+    }, ts);
+  }
 }
 void ValidatorEngine::start_up() {
   alarm_timestamp() = td::Timestamp::in(1.0 + td::Random::fast(0, 100) * 0.01);
@@ -4040,6 +4053,11 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
+  p.add_checked_option('\0', "shutdown-at", "stop validator at the given time (unix timestamp)", [&](td::Slice arg) {
+    TRY_RESULT(at, td::to_integer_safe<td::uint32>(arg));
+    acts.push_back([&x, at]() { td::actor::send_closure(x, &ValidatorEngine::schedule_shutdown, (double)at); });
+    return td::Status::OK();
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
