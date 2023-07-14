@@ -173,6 +173,13 @@ struct QueryTraits<ton::lite_api::liteServer_listBlockTransactions> {
 };
 
 template<>
+struct QueryTraits<ton::lite_api::liteServer_listBlockTransactionsExt> {
+  static ton::ShardIdFull get_shard(const ton::lite_api::liteServer_listBlockTransactionsExt& q) {
+    return ton::ShardIdFull(q.id_->workchain_, q.id_->shard_);
+  }
+};
+
+template<>
 struct QueryTraits<ton::lite_api::liteServer_getBlockProof> {
   static ton::ShardIdFull get_shard(const ton::lite_api::liteServer_getBlockProof& q) {
     return ton::ShardIdFull(ton::masterchainId, ton::shardIdAll);
