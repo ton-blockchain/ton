@@ -189,6 +189,8 @@ if (NOT (NIX OR ANDROID))
   include(BuildSODIUM)
   include(BuildMHD)
   include(BuildZLIB)
+else()
+  find_package(ZLIB REQUIRED)
 endif()
 
 # Configure CCache if available

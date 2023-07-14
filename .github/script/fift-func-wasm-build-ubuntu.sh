@@ -1,4 +1,4 @@
-#sudo apt-get install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libevent-dev
+#sudo apt-get install -y build-essential git make cmake clang libgflags-dev libssl-dev libreadline-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libevent-dev
 
 export CC=$(which clang)
 export CXX=$(which clang++)
@@ -8,8 +8,9 @@ cd ../..
 
 cd third-party/secp256k1; make clean; cd ../..
 cd third-party/sodium; make clean; cd ../..
+cd third-party/zlib; make clean; cd ../..
 
-rm -rf openssl zlib emsdk secp256k1 libsodium build
+rm -rf openssl emsdk build
 echo `pwd`
 
 git clone https://github.com/openssl/openssl.git
@@ -37,6 +38,7 @@ cd ..
 # guarantee next clean build
 cd third-party/secp256k1; make clean; cd ../..
 cd third-party/sodium; make clean; cd ../..
+cd third-party/zlib; make clean; cd ../..
 
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk

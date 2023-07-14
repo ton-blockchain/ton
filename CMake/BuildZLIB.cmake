@@ -23,7 +23,7 @@ if (NOT ZLIB_LIBRARY)
     elseif (EMSCRIPTEN)
       set(ZLIB_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/zlib)
       set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/libz.a)
-      set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR}/include)
+      set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR})
       add_custom_command(
           WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
           COMMAND emconfigure ./configure --static
