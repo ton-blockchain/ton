@@ -39,7 +39,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.a)
       add_custom_command(
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND ./config --prefix=${SECP256K1_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-ui no-tests
+          COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-ui no-tests
           COMMAND make -j16
           COMMAND make install_sw
           COMMENT "Build openssl"
