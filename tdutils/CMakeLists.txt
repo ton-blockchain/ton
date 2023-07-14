@@ -15,7 +15,6 @@ if (NOT DEFINED CMAKE_INSTALL_LIBDIR)
 endif()
 
 set(TD_HAVE_ZLIB 1)
-message(STATUS "Found ZLIB: ${ZLIB_INCLUDE_DIR} ${ZLIB_LIBRARIES}")
 
 # OpenSSL internally depends on zlib
 if (NOT OPENSSL_FOUND)
