@@ -27,7 +27,7 @@ namespace validator {
 
 namespace fullnode {
 
-static const double INACTIVE_SHARD_TTL = 120.0;
+static const double INACTIVE_SHARD_TTL = (double)overlay::Overlays::overlay_peer_ttl() + 60.0;
 
 void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) {
   if (local_keys_.count(key)) {

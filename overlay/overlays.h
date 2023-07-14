@@ -187,6 +187,10 @@ class Overlays : public td::actor::Actor {
     return 1;
   }
 
+  static constexpr td::uint32 overlay_peer_ttl() {
+    return 600;
+  }
+
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
 
