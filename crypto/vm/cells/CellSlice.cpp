@@ -264,7 +264,7 @@ bool CellSlice::advance_ext(unsigned bits, unsigned refs) {
 }
 
 bool CellSlice::advance_ext(unsigned bits_refs) {
-  return advance_ext(bits_refs >> 16, bits_refs & 0xffff);
+  return advance_ext(bits_refs & 0xffff, bits_refs >> 16);
 }
 
 // (PRIVATE)
