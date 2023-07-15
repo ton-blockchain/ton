@@ -30,6 +30,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           COMMAND sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
           COMMAND sed -i 's/-ldl//g' Makefile
           COMMAND sed -i 's/-O3/-Os/g' Makefile
+          COMMAND emmake make clean
           COMMAND emmake make depend
           COMMENT "Build openssl with emscripten"
           DEPENDS ${OPENSSL_SOURCE_DIR}
@@ -40,6 +41,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       add_custom_command(
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
           COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-ui no-tests
+          COMMAND make clean
           COMMAND make -j16
           COMMAND make install_sw
           COMMENT "Build openssl"

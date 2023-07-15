@@ -28,6 +28,7 @@ if (NOT SECP256K1_LIBRARY)
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
           COMMAND ./autogen.sh
           COMMAND emconfigure ./configure --disable-option-checking --enable-module-recovery --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
+          COMMAND emmake make clean
           COMMAND emmake make
           COMMENT "Build secp256k1 with emscripten"
           DEPENDS ${SECP256K1_SOURCE_DIR}
@@ -39,7 +40,8 @@ if (NOT SECP256K1_LIBRARY)
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
           COMMAND ./autogen.sh
           COMMAND ./configure --disable-option-checking --enable-module-recovery --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
-          COMMAND make
+          COMMAND make clean
+          COMMAND make -j16
           COMMAND make install
           COMMENT "Build secp256k1"
           DEPENDS ${SECP256K1_SOURCE_DIR}

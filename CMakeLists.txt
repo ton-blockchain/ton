@@ -183,15 +183,15 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 include(BuildBLST)
 
-if (NOT NIX)
+if (NIX OR ANDROID)
+  find_package(OpenSSL REQUIRED)
+  find_package(ZLIB REQUIRED)
+else()
   include(BuildSECP256K1)
   include(BuildSODIUM)
   include(BuildMHD)
   include(BuildZLIB)
   include(BuildOPENSSL)
-else()
-  find_package(OpenSSL REQUIRED)
-  find_package(ZLIB REQUIRED)
 endif()
 
 # Configure CCache if available

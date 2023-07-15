@@ -3,6 +3,7 @@
 pushd .
 
 SECP256K1_INCLUDE_DIR=$(pwd)/third_party/secp256k1/include
+ZLIB_INCLUDE_DIR=$(pwd)/third_party/zlib/include
 OPENSSL_DIR=$(pwd)/third_party/crypto/
 
 if [ $ARCH == "arm" ]
@@ -12,6 +13,7 @@ then
   SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-armv7-a/lib/libsodium.a
   SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/armv7/libsecp256k1.a
   BLST_LIBRARY=$(pwd)/third_party/blst/armv7/libblst.a
+  ZLIB_LIBRARY=$(pwd)/third_party/zlib/armv7/libz.a
 elif [ $ARCH == "x86" ]
 then
   ABI=$ARCH
@@ -19,6 +21,7 @@ then
   SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-i686/lib/libsodium.a
   SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/i686/libsecp256k1.a
   BLST_LIBRARY=$(pwd)/third_party/blst/i686/libblst.a
+  ZLIB_LIBRARY=$(pwd)/third_party/zlib/i686/libz.a
   TARGET=i686-linux-android21
 elif [ $ARCH == "x86_64" ]
 then
@@ -27,6 +30,7 @@ then
   SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-westmere/lib/libsodium.a
   SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/x86-64/libsecp256k1.a
   BLST_LIBRARY=$(pwd)/third_party/blst/x86-64/libblst.a
+  ZLIB_LIBRARY=$(pwd)/third_party/zlib/x86-64/libz.a
 elif [ $ARCH == "arm64" ]
 then
   ABI="arm64-v8a"
@@ -34,6 +38,7 @@ then
   SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-armv8-a/lib/libsodium.a
   SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/armv8/libsecp256k1.a
   BLST_LIBRARY=$(pwd)/third_party/blst/armv8/libblst.a
+  ZLIB_LIBRARY=$(pwd)/third_party/zlib/armv8/libz.a
 fi
 
 
@@ -53,6 +58,8 @@ cmake .. -GNinja -DPORTABLE=1 \
 -DTON_ONLY_TONLIB=ON  \
 -DSECP256K1_INCLUDE_DIR=${SECP256K1_INCLUDE_DIR} \
 -DSECP256K1_LIBRARY=${SECP256K1_LIBRARY} \
+-DZLIB_INCLUDE_DIR=${ZLIB_INCLUDE_DIR} \
+-DZLIB_LIBRARY=${SECP256K1_LIBRARY} \
 -DSODIUM_INCLUDE_DIR=${SODIUM_INCLUDE_DIR} \
 -DSODIUM_LIBRARY_RELEASE=${SODIUM_LIBRARY_RELEASE} \
 -DSODIUM_USE_STATIC_LIBS=1 \

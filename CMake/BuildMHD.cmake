@@ -26,7 +26,8 @@ set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/include)
         WORKING_DIRECTORY ${MHD_SOURCE_DIR}
         COMMAND ./autogen.sh
         COMMAND ./configure --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static --without-gnutls
-        COMMAND make
+        COMMAND make clean
+        COMMAND make -j16
         COMMAND make install
         COMMENT "Build mhd"
         DEPENDS ${MHD_SOURCE_DIR}

@@ -29,7 +29,8 @@ if (NOT SODIUM_LIBRARY_RELEASE)
         WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
         COMMAND export LIBSODIUM_FULL_BUILD=1
         COMMAND ./autogen.sh
-        COMMAND emconfigure ./configure --disable-ssp
+        COMMAND emconfigure ./configure --disable-ssp --disable-shared --without-pthreads --disable-asm --disable-pie
+        COMMAND emmake make clean
         COMMAND emmake make
         COMMENT "Build sodium with emscripten"
         DEPENDS ${SODIUM_SOURCE_DIR}
@@ -42,7 +43,8 @@ if (NOT SODIUM_LIBRARY_RELEASE)
         COMMAND export LIBSODIUM_FULL_BUILD=1
         COMMAND ./autogen.sh
         COMMAND ./configure --prefix ${SODIUM_BINARY_DIR} --disable-ssp
-        COMMAND make
+        COMMAND make clean
+        COMMAND make -j16
         COMMAND make install
         COMMENT "Build sodium"
         DEPENDS ${SODIUM_SOURCE_DIR}
