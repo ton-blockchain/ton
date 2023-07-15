@@ -4,7 +4,7 @@ pushd .
 
 SECP256K1_INCLUDE_DIR=$(pwd)/third_party/secp256k1/include
 ZLIB_INCLUDE_DIR=$(pwd)/third_party/zlib/include
-OPENSSL_DIR=$(pwd)/third_party/crypto/
+OPENSSL_DIR=$(pwd)/third_party/crypto/$ARCH
 
 if [ $ARCH == "arm" ]
 then
@@ -52,8 +52,8 @@ cmake .. -GNinja -DPORTABLE=1 \
 -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake  \
 -DCMAKE_BUILD_TYPE=Release \
 -DANDROID_ABI=${ABI} \
--DOPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/${ARCH}/include \
--DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_DIR}/${ARCH}/lib/libcrypto.a \
+-DOPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include \
+-DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_DIR}/lib/libcrypto.a \
 -DTON_ARCH="" \
 -DTON_ONLY_TONLIB=ON  \
 -DSECP256K1_INCLUDE_DIR=${SECP256K1_INCLUDE_DIR} \

@@ -27,6 +27,7 @@ if (NOT ZLIB_LIBRARY)
       add_custom_command(
           WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
           COMMAND emconfigure ./configure --static
+          COMMAND emmake make clean
           COMMAND emmake make
           COMMENT "Build zlib with emscripten"
           DEPENDS ${ZLIB_SOURCE_DIR}
@@ -37,7 +38,8 @@ if (NOT ZLIB_LIBRARY)
       add_custom_command(
           WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
           COMMAND ./configure --static --prefix ${ZLIB_BINARY_DIR}
-          COMMAND make
+          COMMAND make clean
+          COMMAND make -j16
           COMMAND make install
           COMMENT "Build zlib"
           DEPENDS ${ZLIB_SOURCE_DIR}
