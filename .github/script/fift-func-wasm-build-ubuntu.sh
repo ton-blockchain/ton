@@ -9,6 +9,8 @@ cd ../..
 cd third-party/secp256k1; make clean; cd ../..
 cd third-party/sodium; make clean; cd ../..
 cd third-party/zlib; make clean; cd ../..
+cd third-party/openssl; make clean; cd ../..
+cd third-party/mhd; make clean; cd ../..
 
 rm -rf openssl emsdk build
 echo `pwd`
@@ -31,6 +33,8 @@ cd ..
 cd third-party/secp256k1; make clean; cd ../..
 cd third-party/sodium; make clean; cd ../..
 cd third-party/zlib; make clean; cd ../..
+cd third-party/openssl; make clean; cd ../..
+cd third-party/mhd; make clean; cd ../..
 
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk

@@ -183,13 +183,14 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 include(BuildBLST)
 
-if (NOT (NIX OR ANDROID))
+if (NOT NIX)
   include(BuildSECP256K1)
   include(BuildSODIUM)
   include(BuildMHD)
   include(BuildZLIB)
   include(BuildOPENSSL)
 else()
+  find_package(OpenSSL REQUIRED)
   find_package(ZLIB REQUIRED)
 endif()
 
@@ -463,13 +464,9 @@ target_link_libraries(test-fift PRIVATE fift-lib)
 
 add_executable(test-tdutils test/test-td-main.cpp ${TDUTILS_TEST_SOURCE})
 target_link_libraries(test-tdutils PRIVATE tdutils ${CMAKE_THREAD_LIBS_INIT} memprof ${JEMALLOC_LIBRARIES})
-#target_link_libraries_system(test-tdutils absl::base absl::container absl::hash )
-#target_link_libraries_system(test-tdutils libcuckoo)
-#target_include_directories(test-tdutils PRIVATE SYSTEM ${JUNCTION_ALL_INCLUDE_DIRS})
-#target_link_libraries(test-tdutils PRIVATE ${JUNCTION_ALL_LIBRARIES})
 
 add_executable(test-tdactor test/test-td-main.cpp ${TDACTOR_TEST_SOURCE})
-target_link_libraries(test-tdactor PRIVATE tdactor ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(test-tdactor PRIVATE tdactor ${CMAKE_THREAD_LIBS_INIT} ${OPENSSL_CRYPTO_LIBRARY})
 
 add_executable(test-net test/test-td-main.cpp ${NET_TEST_SOURCE})
 target_link_libraries(test-net PRIVATE tdnet tdutils ${CMAKE_THREAD_LIBS_INIT})

@@ -19,12 +19,12 @@ jobs:
         git submodule sync --recursive
         git submodule update
         sudo apt update
-        sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
+        sudo apt install -y build-essential git make cmake clang libgflags-dev pkg-config libgsl-dev python3 python3-dev ninja-build
 
     - name: Configure & Build
       run: |        
         wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-        unzip android-ndk-r25b-linux.zip
+        unzip -q android-ndk-r25b-linux.zip
         export JAVA_AWT_LIBRARY=NotNeeded
         export JAVA_JVM_LIBRARY=NotNeeded
         export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
@@ -39,13 +39,11 @@ jobs:
         rm -rf example/android/src/drinkless/org/ton/TonApi.java
         cd example/android/
 
-        sudo apt install -y libtool autoconf libsodium-dev libsecp256k1-dev
+        sudo apt install -y libtool autoconf
              
         cmake -GNinja -DTON_ONLY_TONLIB=ON .
         
         ninja prepare_cross_compiling
-
-        sudo apt remove -y libsodium-dev libsecp256k1-dev
 
         rm CMakeCache.txt
         ./build-all.sh
