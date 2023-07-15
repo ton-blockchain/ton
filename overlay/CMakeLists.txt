@@ -18,12 +18,12 @@ set(OVERLAY_SOURCE
 )
 
 add_library(overlay STATIC ${OVERLAY_SOURCE})
-add_dependencies(overlay openssl)
+add_dependencies(overlay)
 
 target_include_directories(overlay PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(overlay PRIVATE tdutils tdactor adnl tl_api dht fec ${OPENSSL_CRYPTO_LIBRARY})
+target_link_libraries(overlay PRIVATE tdutils tdactor adnl tl_api dht fec)
 

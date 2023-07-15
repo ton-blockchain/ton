@@ -24,12 +24,11 @@ set(CATCHAIN_SOURCE
 )
 
 add_library(catchain STATIC ${CATCHAIN_SOURCE})
-add_dependencies(catchain openssl)
 
 target_include_directories(overlay PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(catchain PRIVATE tdutils tdactor adnl tl_api dht tdfec overlay ${OPENSSL_CRYPTO_LIBRARY})
+target_link_libraries(catchain PRIVATE tdutils tdactor adnl tl_api dht tdfec overlay)
 

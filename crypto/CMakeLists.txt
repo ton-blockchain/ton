@@ -353,6 +353,9 @@ else()
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
   target_link_libraries(ton_crypto_core PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
 
+  target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
+
 endif()
 
 add_library(ton_db STATIC ${TON_DB_SOURCE})

@@ -16,9 +16,7 @@ endif()
 
 set(TD_HAVE_ZLIB 1)
 
-if (OPENSSL_FOUND)
-  set(TD_HAVE_OPENSSL 1)
-endif()
+set(TD_HAVE_OPENSSL 1)
 
 if (CRC32C_FOUND)
   set(TD_HAVE_CRC32C 1)
@@ -299,13 +297,12 @@ set(TDUTILS_TEST_SOURCE
 #RULES
 #LIBRARIES
 add_library(tdutils STATIC ${TDUTILS_SOURCE})
-add_dependencies(tdutils openssl)
 
 if (WIN32)
   # find_library(WS2_32_LIBRARY ws2_32)
   # find_library(MSWSOCK_LIBRARY Mswsock)
   # target_link_libraries(tdutils PRIVATE ${WS2_32_LIBRARY} ${MSWSOCK_LIBRARY})
-  target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz psapi ${OPENSSL_CRYPTO_LIBRARY})
+  target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz psapi)
 endif()
 if (NOT CMAKE_CROSSCOMPILING AND TDUTILS_MIME_TYPE)
   add_dependencies(tdutils tdmime_auto)
@@ -316,8 +313,6 @@ if (DEFINED CMAKE_THREAD_LIBS_INIT)
 endif()
 target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
 
-target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARY})
-target_include_directories(tdutils SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
 
 target_link_libraries(tdutils PRIVATE ${ZLIB_LIBRARY})
 target_include_directories(tdutils SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})

@@ -23,8 +23,7 @@ set(EMULATOR_EMSCRIPTEN_SOURCE
 include(GenerateExportHeader)
 
 add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
-add_dependencies(emulator_static openssl)
-target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope ${OPENSSL_CRYPTO_LIBRARY})
+target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope)
 
 if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
   add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
