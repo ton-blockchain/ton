@@ -313,6 +313,8 @@ if (DEFINED CMAKE_THREAD_LIBS_INIT)
 endif()
 target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
 
+target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARY})
+target_include_directories(tdutils SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
 
 target_link_libraries(tdutils PRIVATE ${ZLIB_LIBRARY})
 target_include_directories(tdutils SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})
