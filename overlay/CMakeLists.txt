@@ -18,7 +18,6 @@ set(OVERLAY_SOURCE
 )
 
 add_library(overlay STATIC ${OVERLAY_SOURCE})
-add_dependencies(overlay)
 
 target_include_directories(overlay PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
