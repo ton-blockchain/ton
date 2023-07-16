@@ -26,12 +26,11 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
       add_custom_command(
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-ui no-tests
+          COMMAND emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests
           COMMAND sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
           COMMAND sed -i 's/-ldl//g' Makefile
           COMMAND sed -i 's/-O3/-Os/g' Makefile
-          COMMAND emmake make clean
-          COMMAND emmake make depend
+          COMMAND emmake make
           COMMENT "Build openssl with emscripten"
           DEPENDS ${OPENSSL_SOURCE_DIR}
           OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
@@ -40,8 +39,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.a)
       add_custom_command(
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-ui no-tests
-          COMMAND make clean
+          COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests
           COMMAND make -j16
           COMMAND make install_sw
           COMMENT "Build openssl"

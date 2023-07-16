@@ -6,35 +6,33 @@ export CCACHE_DISABLE=1
 
 cd ../..
 
-cd third-party/secp256k1; make clean; cd ../..
-cd third-party/sodium; make clean; cd ../..
-cd third-party/zlib; make clean; cd ../..
-cd third-party/openssl; make clean; cd ../..
-cd third-party/mhd; make clean; cd ../..
+cd third-party/secp256k1; make clean; git restore .; cd ../..
+cd third-party/sodium; make clean; git restore .; cd ../..
+cd third-party/zlib; make clean; git restore .; cd ../..
+cd third-party/openssl; make clean; git restore .; cd ../..
+cd third-party/mhd; make clean; git restore .; cd ../..
 
-rm -rf openssl emsdk build
+rm -rf emsdk build
 echo `pwd`
 
 mkdir build
 cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_USE_ABSEIL=OFF ..
 
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DTON_USE_ABSEIL=OFF ..
 test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
 
 ninja fift smc-envelope
-
 test $? -eq 0 || { echo "Can't compile fift "; exit 1; }
 
 rm -rf *
-
 cd ..
 
 # guarantee next clean build
-cd third-party/secp256k1; make clean; cd ../..
-cd third-party/sodium; make clean; cd ../..
-cd third-party/zlib; make clean; cd ../..
-cd third-party/openssl; make clean; cd ../..
-cd third-party/mhd; make clean; cd ../..
+cd third-party/secp256k1; make clean; git restore .; cd ../..
+cd third-party/sodium; make clean; git restore .; cd ../..
+cd third-party/zlib; make clean; git restore .; cd ../..
+cd third-party/openssl; make clean; git restore .; cd ../..
+cd third-party/mhd; make clean; git restore .; cd ../..
 
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk

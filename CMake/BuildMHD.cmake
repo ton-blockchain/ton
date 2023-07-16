@@ -25,7 +25,7 @@ set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/include)
       add_custom_command(
         WORKING_DIRECTORY ${MHD_SOURCE_DIR}
         COMMAND ./autogen.sh
-        COMMAND ./configure --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static --without-gnutls
+        COMMAND ./configure -q --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static --without-gnutls
         COMMAND make clean
         COMMAND make -j16
         COMMAND make install
