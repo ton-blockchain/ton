@@ -297,6 +297,7 @@ set(TDUTILS_TEST_SOURCE
 #RULES
 #LIBRARIES
 add_library(tdutils STATIC ${TDUTILS_SOURCE})
+add_dependencies(tdutils openssl)
 
 if (WIN32)
   # find_library(WS2_32_LIBRARY ws2_32)
@@ -315,8 +316,8 @@ target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 
 target_link_libraries(tdutils PRIVATE  ${CMAKE_DL_LIBS})
 
-target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY})
-target_include_directories(tdutils SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+target_link_libraries(tdutils PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
+target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
 target_link_libraries(tdutils PRIVATE ${ZLIB_LIBRARY})
 target_include_directories(tdutils SYSTEM PRIVATE ${ZLIB_INCLUDE_DIR})
