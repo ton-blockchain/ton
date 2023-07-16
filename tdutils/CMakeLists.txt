@@ -297,12 +297,11 @@ set(TDUTILS_TEST_SOURCE
 #RULES
 #LIBRARIES
 add_library(tdutils STATIC ${TDUTILS_SOURCE})
-add_dependencies(tdutils openssl)
+if (EMSCRIPTEN)
+  add_dependencies(tdutils openssl)
+endif()
 
 if (WIN32)
-  # find_library(WS2_32_LIBRARY ws2_32)
-  # find_library(MSWSOCK_LIBRARY Mswsock)
-  # target_link_libraries(tdutils PRIVATE ${WS2_32_LIBRARY} ${MSWSOCK_LIBRARY})
   target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz psapi)
 endif()
 if (NOT CMAKE_CROSSCOMPILING AND TDUTILS_MIME_TYPE)
