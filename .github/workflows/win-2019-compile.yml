@@ -16,6 +16,9 @@ jobs:
         run: |
           systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 
+      - name: Enable NASM
+        uses: ilammy/setup-nasm@v1
+
       - name: Check out current repository
         uses: actions/checkout@v3
         with:
