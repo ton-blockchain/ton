@@ -13,9 +13,6 @@
 [submodule "third-party/blst"]
 	path = third-party/blst
 	url = https://github.com/supranational/blst.git
-[submodule "third-party/secp256k1"]
-	path = third-party/secp256k1
-	url = https://github.com/libbitcoin/secp256k1.git
 [submodule "third-party/sodium"]
 	path = third-party/sodium
 	url = https://github.com/jedisct1/libsodium.git
