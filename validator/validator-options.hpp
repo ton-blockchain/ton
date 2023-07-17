@@ -33,7 +33,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return init_block_id_;
   }
   bool need_monitor(ShardIdFull shard, const td::Ref<MasterchainState>& state) const override {
-    td::uint32 min_split = state->min_split_depth(shard.workchain);
+    td::uint32 min_split = state->monitor_min_split_depth(shard.workchain);
     return check_shard_((td::uint32)shard.pfx_len() <= min_split ? shard : shard_prefix(shard, min_split));
   }
   bool allow_blockchain_init() const override {

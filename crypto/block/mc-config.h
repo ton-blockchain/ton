@@ -407,7 +407,7 @@ struct CatchainValidatorsConfig {
 struct WorkchainInfo : public td::CntObject {
   ton::WorkchainId workchain{ton::workchainInvalid};
   ton::UnixTime enabled_since;
-  td::uint32 actual_min_split;
+  td::uint32 monitor_min_split;
   td::uint32 min_split, max_split;
   bool basic;
   bool active;

@@ -147,7 +147,7 @@ void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, s
   new_shards.insert(ShardIdFull(masterchainId));
   std::set<WorkchainId> workchains;
   auto cut_shard = [&](ShardIdFull shard) -> ShardIdFull {
-    int min_split = state->min_split_depth(shard.workchain);
+    int min_split = state->monitor_min_split_depth(shard.workchain);
     return min_split < shard.pfx_len() ? shard_prefix(shard, min_split) : shard;
   };
   auto set_active = [&](ShardIdFull shard, FullNodeShardMode mode) {
