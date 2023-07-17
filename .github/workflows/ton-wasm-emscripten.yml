@@ -18,7 +18,7 @@ jobs:
         git submodule sync --recursive
         git submodule update
         sudo apt update
-        sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libsecp256k1-dev libsodium-dev
+        sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs automake autogen libtool texinfo
 
     - name: Configure & Build
       run: |

@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 RUN apt update
 RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
-RUN apt install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev ninja-build libsecp256k1-dev libsodium-dev pkg-config
+RUN apt install -y build-essential git make cmake clang libgflags-dev libreadline-dev pkg-config libgsl-dev python3 python3-dev ninja-build automake autogen libtool texinfo
 
 WORKDIR /
 

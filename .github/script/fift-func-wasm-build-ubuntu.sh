@@ -1,4 +1,4 @@
-#sudo apt-get install -y build-essential git make cmake clang libgflags-dev libssl-dev libreadline-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libevent-dev
+#sudo apt install -y build-essential git make cmake clang libgflags-dev libreadline-dev pkg-config libgsl-dev python3 python3-dev ninja-build automake autogen libtool texinfo
 
 export CC=$(which clang)
 export CXX=$(which clang++)

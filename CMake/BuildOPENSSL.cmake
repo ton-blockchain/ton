@@ -14,7 +14,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
       add_custom_command(
         WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-        COMMAND perl Configure VC-WIN64A no-shared no-unit-test no-tests
+        COMMAND C:/Strawberry/perl/bin/perl.exe Configure VC-WIN64A no-shared no-unit-test no-tests
         COMMAND nmake
         COMMENT "Build openssl with vs2017"
         DEPENDS ${OPENSSL_SOURCE_DIR}
