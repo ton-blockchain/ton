@@ -25,3 +25,6 @@
 [submodule "third-party/openssl"]
 	path = third-party/openssl
 	url = https://github.com/openssl/openssl.git
+[submodule "third-party/secp256k1"]
+	path = third-party/secp256k1
+	url = https://github.com/bitcoin-core/secp256k1
