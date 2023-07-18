@@ -88,6 +88,7 @@ bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
     errorlog::ErrorLog::log_file(block_candidate.data.clone());
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
+    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise.set_result(CandidateReject{std::move(error), std::move(reason)});
   }
   stop();
@@ -108,6 +109,7 @@ bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason)
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
     errorlog::ErrorLog::log_file(block_candidate.data.clone());
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
+    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise.set_result(CandidateReject{std::move(error), std::move(reason)});
   }
   stop();
@@ -126,6 +128,7 @@ bool ValidateQuery::fatal_error(td::Status error) {
       errorlog::ErrorLog::log_file(block_candidate.data.clone());
       errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
     }
+    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise(std::move(error));
   }
   stop();
@@ -147,6 +150,7 @@ bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
 
 void ValidateQuery::finish_query() {
   if (main_promise) {
+    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise.set_result(now_);
   }
   stop();

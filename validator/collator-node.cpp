@@ -233,11 +233,13 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
       cache_entry = cache_[cache_key] = std::make_shared<CacheEntry>();
     }
     if (cache_entry->result) {
+      LOG(INFO) << "Using cached result";
       new_promise.set_result(cache_entry->result.value().clone());
       return;
     }
     cache_entry->promises.push_back(std::move(new_promise));
     if (cache_entry->started) {
+      LOG(INFO) << "Collating of this block is already in progress, waiting";
       return;
     }
     cache_entry->started = true;

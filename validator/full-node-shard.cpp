@@ -927,7 +927,6 @@ void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, std::stri
 void FullNodeShardImpl::download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
                                                      td::Promise<td::Ref<OutMsgQueueProof>> promise) {
   // TODO: maybe more complex download (like other requests here)
-  // TODO: estimate max size
   auto &b = choose_neighbour(true);
   if (b.adnl_id == adnl::AdnlNodeIdShort::zero()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "no nodes"));

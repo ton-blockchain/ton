@@ -279,6 +279,7 @@ bool Collator::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
+    LOG(INFO) << "collation took " << perf_timer_.elapsed() << " s";
     main_promise(std::move(error));
     busy_ = false;
   }
@@ -4226,6 +4227,7 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved) {
   } else {
     CHECK(block_candidate);
     LOG(INFO) << "sending new BlockCandidate to Promise";
+    LOG(INFO) << "collation took " << perf_timer_.elapsed() << " s";
     main_promise(block_candidate->clone());
     busy_ = false;
     stop();
