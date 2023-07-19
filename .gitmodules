@@ -13,9 +13,6 @@
 [submodule "third-party/blst"]
 	path = third-party/blst
 	url = https://github.com/supranational/blst.git
-[submodule "third-party/openssl"]
-	path = third-party/openssl
-	url = https://git.launchpad.net/ubuntu/+source/openssl
 [submodule "third-party/secp256k1"]
 	path = third-party/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1
@@ -28,3 +25,6 @@
 [submodule "third-party/zlib"]
 	path = third-party/zlib
 	url = https://github.com/madler/zlib
+[submodule "third-party/openssl"]
+	path = third-party/openssl
+	url = https://github.com/openssl/openssl.git
