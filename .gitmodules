@@ -13,9 +13,6 @@
 [submodule "third-party/blst"]
 	path = third-party/blst
 	url = https://github.com/supranational/blst.git
-[submodule "third-party/mhd"]
-	path = third-party/mhd
-	url = https://github.com/Karlson2k/libmicrohttpd.git
 [submodule "third-party/openssl"]
 	path = third-party/openssl
 	url = https://git.launchpad.net/ubuntu/+source/openssl
@@ -28,3 +25,6 @@
 [submodule "third-party/zlib"]
 	path = third-party/zlib
 	url = https://git.launchpad.net/ubuntu/+source/zlib
+[submodule "third-party/mhd"]
+	path = third-party/mhd
+	url = https://git.launchpad.net/ubuntu/+source/libmicrohttpd
