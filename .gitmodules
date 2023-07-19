@@ -27,4 +27,4 @@
 	url = https://git.launchpad.net/ubuntu/+source/zlib
 [submodule "third-party/mhd"]
 	path = third-party/mhd
-	url = https://git.launchpad.net/ubuntu/+source/libmicrohttpd
+	url = https://git.gnunet.org/libmicrohttpd.git

@@ -6,6 +6,12 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
     set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl)
     set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
 
+    if (APPLE)
+      set(CMD ./Configure darwin64-x86_64-cc --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests))
+    else
+      set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests)
+    endif()
+
     file(MAKE_DIRECTORY ${OPENSSL_BINARY_DIR})
 
     if (MSVC)
@@ -39,7 +45,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.a)
       add_custom_command(
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests
+          COMMAND ${CMD}
           COMMAND make -j16
           COMMAND make install_sw
           COMMENT "Build openssl"
