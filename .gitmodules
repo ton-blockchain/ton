@@ -22,9 +22,9 @@
 [submodule "third-party/sodium"]
 	path = third-party/sodium
 	url = https://git.launchpad.net/ubuntu/+source/libsodium
-[submodule "third-party/zlib"]
-	path = third-party/zlib
-	url = https://git.launchpad.net/ubuntu/+source/zlib
 [submodule "third-party/mhd"]
 	path = third-party/mhd
 	url = https://git.gnunet.org/libmicrohttpd.git
+[submodule "third-party/zlib"]
+	path = third-party/zlib
+	url = https://github.com/madler/zlib
