@@ -3983,14 +3983,6 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
                                                     td::ConstBitPtr key, const block::McShardDescr& nb,
                                                     bool& unprocessed) {
   unprocessed = false;
-  if (!block::gen::t_EnqueuedMsg.validate_csr(enq_msg)) {
-    return reject_query("EnqueuedMsg with key "s + key.to_hex(352) + " in outbound queue of our neighbor " +
-                        nb.blk_.to_str() + " failed to pass automated validity tests");
-  }
-  if (!block::tlb::t_EnqueuedMsg.validate_csr(enq_msg)) {
-    return reject_query("EnqueuedMsg with key "s + key.to_hex(352) + " in outbound queue of our neighbor " +
-                        nb.blk_.to_str() + " failed to pass hand-written validity tests");
-  }
   block::EnqueuedMsgDescr enq;
   if (!enq.unpack(enq_msg.write())) {  // unpack EnqueuedMsg
     return reject_query("cannot unpack EnqueuedMsg with key "s + key.to_hex(352) +
