@@ -16,9 +16,6 @@
 [submodule "third-party/mhd"]
 	path = third-party/mhd
 	url = https://github.com/Karlson2k/libmicrohttpd.git
-[submodule "third-party/zlib"]
-	path = third-party/zlib
-	url = https://github.com/madler/zlib.git
 [submodule "third-party/openssl"]
 	path = third-party/openssl
 	url = https://github.com/openssl/openssl.git
@@ -28,3 +25,6 @@
 [submodule "third-party/sodium"]
 	path = third-party/sodium
 	url = https://git.launchpad.net/ubuntu/+source/libsodium
+[submodule "third-party/zlib"]
+	path = third-party/zlib
+	url = https://git.launchpad.net/ubuntu/+source/zlib
