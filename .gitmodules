@@ -18,7 +18,7 @@
 	url = https://github.com/Karlson2k/libmicrohttpd.git
 [submodule "third-party/openssl"]
 	path = third-party/openssl
-	url = https://github.com/openssl/openssl.git
+	url = https://git.launchpad.net/ubuntu/+source/openssl
 [submodule "third-party/secp256k1"]
 	path = third-party/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1
