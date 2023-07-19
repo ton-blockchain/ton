@@ -24,6 +24,7 @@ set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/include)
       set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.a)
       add_custom_command(
         WORKING_DIRECTORY ${MHD_SOURCE_DIR}
+        COMMAND ./autogen.sh
         COMMAND ./configure -q --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static --without-gnutls
         COMMAND make -j16
         COMMAND make install
