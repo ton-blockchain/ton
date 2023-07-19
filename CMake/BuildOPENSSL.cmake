@@ -7,7 +7,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
     set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
 
     if (APPLE)
-      set(CMD ./Configure darwin64-x86_64-cc --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests))
+      set(CMD ./Configure darwin64-x86_64-cc --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests)
     else
       set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests)
     endif()
