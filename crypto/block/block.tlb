@@ -829,7 +829,6 @@ top_block_descr#d5 proof_for:BlockIdExt signatures:(Maybe ^BlockSignatures)
 //  COLLATED DATA
 //
 top_block_descr_set#4ac789f3 collection:(HashmapE 96 ^TopBlockDescr) = TopBlockDescrSet;
-neighbor_msg_queue_limits#7e549333 neighbors:(HashmapE 96 int32) = NeighborMsgQueueLimits;
 
 //
 //  VALIDATOR MISBEHAVIOR COMPLAINTS

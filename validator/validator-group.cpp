@@ -417,7 +417,7 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
   promise = td::PromiseCreator::lambda([=, SelfId = actor_id(this), promise = std::move(promise),
                                         timer = td::Timer()](td::Result<BlockCandidate> R) mutable {
     if (R.is_ok()) {
-      LOG(WARNING) << "collate query for " << next_block_id.to_str() << ": success, time=" << timer.elapsed() << "s";
+      LOG(INFO) << "collate query for " << next_block_id.to_str() << ": success, time=" << timer.elapsed() << "s";
       promise.set_result(R.move_as_ok());
       return;
     }

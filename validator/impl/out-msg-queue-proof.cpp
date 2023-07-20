@@ -52,7 +52,7 @@ static td::Result<td::int32> process_queue(BlockIdExt block_id, ShardIdFull dst_
 
   td::HashSet<vm::Cell::Hash> visited;
   std::function<void(const vm::CellSlice&)> dfs_cs;
-  auto dfs = [&](Ref<vm::Cell> cell) {
+  auto dfs = [&](const Ref<vm::Cell>& cell) {
     if (cell.is_null() || !visited.insert(cell->get_hash()).second) {
       return;
     }
@@ -65,6 +65,8 @@ static td::Result<td::int32> process_queue(BlockIdExt block_id, ShardIdFull dst_
       dfs(cs.prefetch_ref(i));
     }
   };
+  TRY_STATUS_PREFIX(check_no_prunned(*qinfo.proc_info), "invalid proc_info proof: ")
+  TRY_STATUS_PREFIX(check_no_prunned(*qinfo.ihr_pending), "invalid ihr_pending proof: ")
   dfs_cs(*qinfo.proc_info);
   dfs_cs(*qinfo.ihr_pending);
 
@@ -76,6 +78,14 @@ static td::Result<td::int32> process_queue(BlockIdExt block_id, ShardIdFull dst_
   while (!queue_merger.is_eof()) {
     auto kv = queue_merger.extract_cur();
     queue_merger.next();
+    block::EnqueuedMsgDescr enq;
+    auto msg = kv->msg;
+    if (!enq.unpack(msg.write())) {
+      return td::Status::Error("cannot unpack EnqueuedMsgDescr");
+    }
+    if (limit_reached) {
+      break;
+    }
     ++msg_count;
 
     // TODO: Get processed_upto from destination shard (in request?)
@@ -105,7 +115,6 @@ static td::Result<td::int32> process_queue(BlockIdExt block_id, ShardIdFull dst_
     TRY_STATUS_PREFIX(check_no_prunned(*kv->msg), "invalid message proof: ")
     if (estimated_proof_size > OutMsgQueueProof::QUEUE_SIZE_THRESHOLD) {
       limit_reached = true;
-      break;
     }
   }
   return limit_reached ? msg_count : -1;

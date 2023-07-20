@@ -134,7 +134,6 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<block::ShardConfig> shard_conf_;
   std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states_;
   std::map<ShardIdFull, td::int32> neighbor_msg_queues_limits_;
-  vm::Dictionary neighbor_msg_queues_limits_dict_{32 + 64};
   std::vector<block::McShardDescr> neighbors_;
   std::unique_ptr<block::OutputQueueMerger> nb_out_msgs_;
   std::vector<ton::StdSmcAddress> special_smcs;

@@ -701,11 +701,7 @@ void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProo
   auto queue_root = qinfo.out_queue->prefetch_ref(0);
   descr.set_queue_root(queue_root);
   if (res->msg_count_ != -1) {
-    LOG(DEBUG) << "Neighbor " << descr.shard().to_str() << " has msg_limit=" << res->msg_count_;
-    td::BitArray<96> key;
-    key.bits().store_int(block_id.id.workchain, 32);
-    (key.bits() + 32).store_uint(block_id.id.shard, 64);
-    neighbor_msg_queues_limits_dict_.set_builder(key, vm::CellBuilder().store_long(res->msg_count_, 32));
+    LOG(INFO) << "neighbor " << descr.shard().to_str() << " has msg_limit=" << res->msg_count_;
     neighbor_msg_queues_limits_[block_id.shard_full()] = res->msg_count_;
   }
   // comment the next two lines in the future when the output queues become huge
@@ -2833,6 +2829,12 @@ bool Collator::process_inbound_internal_messages() {
     block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
     auto kv = nb_out_msgs_->extract_cur();
     CHECK(kv && kv->msg.not_null());
+    if (kv->limit_exceeded) {
+      LOG(INFO) << "limit for imported messages is reached, stop processing inbound internal messages";
+      block::EnqueuedMsgDescr enq;
+      enq.unpack(kv->msg.write());  // Visit cells to include it in proof
+      break;
+    }
     if (!precheck_inbound_message(kv->msg, kv->lt)) {
       if (verbosity > 1) {
         std::cerr << "invalid inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex()
@@ -4089,21 +4091,14 @@ bool Collator::create_collated_data() {
     }
     collated_roots_.push_back(std::move(cell));
   }
-  // 2. Message count for neighbors' out queues
-  if (!neighbor_msg_queues_limits_dict_.is_empty()) {
-    vm::CellBuilder cb;
-    cb.store_long(block::gen::t_NeighborMsgQueueLimits.cons_tag[0], 32);
-    cb.store_maybe_ref(neighbor_msg_queues_limits_dict_.get_root_cell());
-    collated_roots_.push_back(cb.finalize_novm());
-  }
   if (!full_collated_data_) {
     return true;
   }
-  // 3. Proofs for hashes of states: previous states + neighbors
+  // 2. Proofs for hashes of states: previous states + neighbors
   for (const auto& p : block_state_proofs_) {
     collated_roots_.push_back(p.second);
   }
-  // 4. Previous state proof (only shadchains)
+  // 3. Previous state proof (only shadchains)
   std::map<td::Bits256, Ref<vm::Cell>> proofs;
   if (!is_masterchain()) {
     if (!prepare_msg_queue_proof()) {
@@ -4117,7 +4112,7 @@ bool Collator::create_collated_data() {
     }
     proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
   }
-  // 5. Proofs for message queues
+  // 4. Proofs for message queues
   for (vm::MerkleProofBuilder &mpb : neighbor_proof_builders_) {
     auto r_proof = mpb.extract_proof();
     if (r_proof.is_error()) {

@@ -32,6 +32,7 @@ struct OutputQueueMerger {
     int source;
     int key_len{0};
     td::BitArray<max_key_len> key;
+    bool limit_exceeded{false};
     MsgKeyValue() = default;
     MsgKeyValue(int src, Ref<vm::Cell> node);
     MsgKeyValue(td::ConstBitPtr key_pfx, int key_pfx_len, int src, Ref<vm::Cell> node);
@@ -82,6 +83,7 @@ struct OutputQueueMerger {
   std::vector<td::int32> src_remaining_msgs_;
   bool eof;
   bool failed;
+  bool limit_exceeded{false};
   void add_root(int src, Ref<vm::Cell> outmsg_root, td::int32 msg_limit);
   bool load();
 };

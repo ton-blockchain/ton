@@ -199,10 +199,6 @@ bool OutputQueueMerger::load() {
   unsigned long long lt = heap[0]->lt;
   std::size_t orig_size = msg_list.size();
   do {
-    if (src_remaining_msgs_[heap[0]->source] == 0) {
-      std::pop_heap(heap.begin(), heap.end(), MsgKeyValue::greater);
-      continue;
-    }
     while (heap[0]->is_fork()) {
       auto other = std::make_unique<MsgKeyValue>();
       if (!heap[0]->split(*other)) {
@@ -218,17 +214,17 @@ bool OutputQueueMerger::load() {
     heap.pop_back();
   } while (!heap.empty() && heap[0]->lt <= lt);
   std::sort(msg_list.begin() + orig_size, msg_list.end(), MsgKeyValue::less);
-  size_t j = orig_size;
   for (size_t i = orig_size; i < msg_list.size(); ++i) {
     td::int32 &remaining = src_remaining_msgs_[msg_list[i]->source];
-    if (remaining != 0) {
-      if (remaining > 0) {
+    if (remaining != -1) {
+      if (remaining == 0) {
+        limit_exceeded = true;
+      } else {
         --remaining;
       }
-      msg_list[j++] = std::move(msg_list[i]);
     }
+    msg_list[i]->limit_exceeded = limit_exceeded;
   }
-  msg_list.resize(j);
   return msg_list.size() > orig_size;
 }
 
