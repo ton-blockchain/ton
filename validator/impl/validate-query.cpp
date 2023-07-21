@@ -3927,6 +3927,7 @@ bool ValidateQuery::check_processed_upto() {
   if (!ok) {
     return reject_query("new ProcessedInfo is not obtained from old ProcessedInfo by adding at most one new entry");
   }
+  processed_upto_updated_ = upd;
   if (upd) {
     if (upd->shard != shard_.shard) {
       return reject_query("newly-added ProcessedInfo entry refers to shard "s +
@@ -4007,37 +4008,8 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
                           key.to_hex(352) + " of neighbor " + nb.blk_.to_str());
     }
     if (shard_contains(shard_, enq.cur_prefix_)) {
-      // if this message comes from our own outbound queue, we must have dequeued it
-      if (out_entry.is_null()) {
-        return reject_query("our old outbound queue contains EnqueuedMsg with key "s + key.to_hex(352) +
-                            " already processed by this shard, but there is no ext_message_deq OutMsg record for this "
-                            "message in this block");
-      }
-      int tag = block::gen::t_OutMsg.get_tag(*out_entry);
-      if (tag == block::gen::OutMsg::msg_export_deq_short) {
-        block::gen::OutMsg::Record_msg_export_deq_short deq;
-        if (!tlb::csr_unpack(std::move(out_entry), deq)) {
-          return reject_query(
-              "cannot unpack msg_export_deq_short OutMsg record for already processed EnqueuedMsg with key "s +
-              key.to_hex(352) + " of old outbound queue");
-        }
-        if (deq.msg_env_hash != enq.msg_env_->get_hash().bits()) {
-          return reject_query("unpack ext_message_deq OutMsg record for already processed EnqueuedMsg with key "s +
-                              key.to_hex(352) + " of old outbound queue refers to MsgEnvelope with different hash " +
-                              deq.msg_env_hash.to_hex());
-        }
-      } else {
-        block::gen::OutMsg::Record_msg_export_deq deq;
-        if (!tlb::csr_unpack(std::move(out_entry), deq)) {
-          return reject_query(
-              "cannot unpack msg_export_deq OutMsg record for already processed EnqueuedMsg with key "s +
-              key.to_hex(352) + " of old outbound queue");
-        }
-        if (deq.out_msg->get_hash() != enq.msg_env_->get_hash()) {
-          return reject_query("unpack ext_message_deq OutMsg record for already processed EnqueuedMsg with key "s +
-                              key.to_hex(352) + " of old outbound queue contains a different MsgEnvelope");
-        }
-      }
+      // this message couldn't come from our own outbound queue because processed messages from our queue don't stay here
+      return fatal_error("have an already processed EnqueuedMsg from our shard: "s + key.to_hex(352));
     }
     // next check is incorrect after a merge, when ns_.processed_upto has > 1 entries
     // we effectively comment it out
@@ -4110,6 +4082,13 @@ bool ValidateQuery::check_in_queue() {
     neighbor_queues.emplace_back(descr.top_block_id(), descr.outmsg_root, descr.disabled_);
   }
   block::OutputQueueMerger nb_out_msgs(shard_, std::move(neighbor_queues));
+  if (in_msg_dict_->is_empty()) {
+    LOG(DEBUG) << "in_msg_dict is empty, skip checking neighbors' message queues";
+    if (processed_upto_updated_) {
+      return reject_query("processed_upto was updated, but no messages were processed");
+    }
+    return true;
+  }
   while (!nb_out_msgs.is_eof()) {
     auto kv = nb_out_msgs.extract_cur();
     CHECK(kv && kv->msg.not_null());
@@ -4130,12 +4109,10 @@ bool ValidateQuery::check_in_queue() {
                           neighbors_.at(kv->source).blk_.to_str());
     }
     if (unprocessed) {
-      inbound_queues_empty_ = false;
       return true;
     }
     nb_out_msgs.next();
   }
-  inbound_queues_empty_ = true;
   return true;
 }
 
