@@ -31,11 +31,12 @@ class ValidatorManagerInterface;
 
 class WaitOutMsgQueueProof : public td::actor::Actor {
  public:
-  WaitOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard, bool local, td::uint32 priority,
-                       td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+  WaitOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits, bool local,
+                       td::uint32 priority, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                        td::Promise<Ref<OutMsgQueueProof>> promise)
       : block_id_(std::move(block_id))
       , dst_shard_(dst_shard)
+      , limits_(limits)
       , local_(local)
       , priority_(priority)
       , manager_(manager)
@@ -65,6 +66,7 @@ class WaitOutMsgQueueProof : public td::actor::Actor {
  private:
   BlockIdExt block_id_;
   ShardIdFull dst_shard_;
+  block::ImportedMsgQueueLimits limits_;
   bool local_;
   td::uint32 priority_;
 
@@ -78,10 +80,14 @@ class WaitOutMsgQueueProof : public td::actor::Actor {
 
 class BuildOutMsgQueueProof : public td::actor::Actor {
  public:
-  BuildOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard,
+  BuildOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
                         td::actor::ActorId<ValidatorManagerInterface> manager,
                         td::Promise<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> promise)
-      : block_id_(std::move(block_id)), dst_shard_(dst_shard), manager_(manager), promise_(std::move(promise)) {
+      : block_id_(std::move(block_id))
+      , dst_shard_(dst_shard)
+      , limits_(limits)
+      , manager_(manager)
+      , promise_(std::move(promise)) {
   }
 
   void abort_query(td::Status reason);
@@ -93,6 +99,7 @@ class BuildOutMsgQueueProof : public td::actor::Actor {
  private:
   BlockIdExt block_id_;
   ShardIdFull dst_shard_;
+  block::ImportedMsgQueueLimits limits_;
 
   td::actor::ActorId<ValidatorManagerInterface> manager_;
   td::Promise<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> promise_;

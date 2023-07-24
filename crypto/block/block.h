@@ -216,6 +216,13 @@ static inline std::ostream& operator<<(std::ostream& os, const MsgProcessedUptoC
   return proc_coll.print(os);
 }
 
+struct ImportedMsgQueueLimits {
+  // Default values
+  td::uint32 max_bytes = 1 << 18;
+  td::uint32 max_msgs = 40;
+  bool deserialize(vm::CellSlice& cs);
+};
+
 struct ParamLimits {
   enum { limits_cnt = 4 };
   enum { cl_underload = 0, cl_normal = 1, cl_soft = 2, cl_medium = 3, cl_hard = 4 };
@@ -247,6 +254,7 @@ struct ParamLimits {
 struct BlockLimits {
   ParamLimits bytes, gas, lt_delta;
   ton::LogicalTime start_lt{0};
+  ImportedMsgQueueLimits imported_msg_queue;
   const vm::CellUsageTree* usage_tree{nullptr};
   bool deserialize(vm::CellSlice& cs);
   int classify_size(td::uint64 size) const;

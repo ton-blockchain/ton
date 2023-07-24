@@ -70,7 +70,8 @@ class FullNodeShard : public td::actor::Actor {
                                    td::Promise<std::vector<BlockIdExt>> promise) = 0;
   virtual void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                                 td::Promise<std::string> promise) = 0;
-  virtual void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
+  virtual void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard,
+                                            block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                             td::Promise<td::Ref<OutMsgQueueProof>> promise) = 0;
 
   virtual void set_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;

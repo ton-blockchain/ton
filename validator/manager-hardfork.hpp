@@ -321,7 +321,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_block_broadcast(BlockBroadcast broadcast) override {
   }
-  void send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard, td::uint32 priority,
+  void send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
+                                            td::uint32 priority,
                                             td::Promise<td::Ref<OutMsgQueueProof>> promise) override {
     UNREACHABLE();
   }

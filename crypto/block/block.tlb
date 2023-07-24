@@ -704,9 +704,13 @@ config_gas_prices#_ GasLimitsPrices = ConfigParam 21;
 
 param_limits#c3 underload:# soft_limit:# { underload <= soft_limit }
   hard_limit:# { soft_limit <= hard_limit } = ParamLimits;
+imported_msg_queue_limits#d3 max_bytes:# max_msgs:# = ImportedMsgQueueLimits;
 block_limits#5d bytes:ParamLimits gas:ParamLimits lt_delta:ParamLimits
   = BlockLimits;
-  
+block_limits_v2#5e bytes:ParamLimits gas:ParamLimits lt_delta:ParamLimits
+  imported_msg_queue:ImportedMsgQueueLimits
+  = BlockLimits;
+
 config_mc_block_limits#_ BlockLimits = ConfigParam 22;
 config_block_limits#_ BlockLimits = ConfigParam 23;
 

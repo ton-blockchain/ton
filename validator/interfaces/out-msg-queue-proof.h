@@ -35,12 +35,13 @@ struct OutMsgQueueProof : public td::CntObject {
   td::int32 msg_count_;  // -1 - up to end of queue
 
   static td::Result<td::Ref<OutMsgQueueProof>> fetch(BlockIdExt block_id, ShardIdFull dst_shard,
+                                                     block::ImportedMsgQueueLimits limits,
                                                      const ton_api::tonNode_outMsgQueueProof &f);
   static td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> build(BlockIdExt block_id, ShardIdFull dst_shard,
+                                                                            block::ImportedMsgQueueLimits limits,
                                                                             Ref<vm::Cell> state_root,
                                                                             Ref<vm::Cell> block_root);
 
-  static const td::uint64 QUEUE_SIZE_THRESHOLD = 128 * 1024;
 };
 
 }  // namespace validator

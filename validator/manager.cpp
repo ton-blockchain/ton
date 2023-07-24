@@ -630,16 +630,18 @@ void ValidatorManagerImpl::wait_out_msg_queue_proof(BlockIdExt block_id, ShardId
                                   std::move(R));
         });
     auto id = td::actor::create_actor<WaitOutMsgQueueProof>(
-                  "waitmsgqueue", block_id, dst_shard, need_monitor(block_id.shard_full()), priority, actor_id(this),
-                  td::Timestamp::at(timeout.at() + 10.0), std::move(P))
+                  "waitmsgqueue", block_id, dst_shard,
+                  last_masterchain_state_->get_imported_msg_queue_limits(block_id.is_masterchain()),
+                  need_monitor(block_id.shard_full()), priority, actor_id(this), td::Timestamp::at(timeout.at() + 10.0),
+                  std::move(P))
                   .release();
     wait_out_msg_queue_proof_[key].actor_ = id;
     it = wait_out_msg_queue_proof_.find(key);
   } else if (it->second.done_) {
     promise.set_result(it->second.result_);
     it->second.remove_at_ = td::Timestamp::in(30.0);
+    return;
   }
-
   it->second.waiting_.emplace_back(timeout, priority, std::move(promise));
   auto X = it->second.get_timeout();
   td::actor::send_closure(it->second.actor_, &WaitOutMsgQueueProof::update_timeout, X.first, X.second);
@@ -1097,9 +1099,10 @@ void ValidatorManagerImpl::finished_wait_msg_queue(BlockIdExt block_id, ShardIdF
               td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_msg_queue, block_id, dst_shard,
                                       std::move(R));
             });
-        auto id = td::actor::create_actor<WaitOutMsgQueueProof>("waitmsgqueue", block_id, dst_shard,
-                                                                need_monitor(block_id.shard_full()), X.second,
-                                                                actor_id(this), X.first, std::move(P))
+        auto id = td::actor::create_actor<WaitOutMsgQueueProof>(
+                      "waitmsgqueue", block_id, dst_shard,
+                      last_masterchain_state_->get_imported_msg_queue_limits(block_id.is_masterchain()),
+                      need_monitor(block_id.shard_full()), X.second, actor_id(this), X.first, std::move(P))
                       .release();
         it->second.actor_ = id;
         return;
@@ -1511,9 +1514,10 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast) {
 }
 
 void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard,
+                                                                block::ImportedMsgQueueLimits limits,
                                                                 td::uint32 priority,
                                                                 td::Promise<td::Ref<OutMsgQueueProof>> promise) {
-  callback_->download_out_msg_queue_proof(id, dst_shard, td::Timestamp::in(10.0), std::move(promise));
+  callback_->download_out_msg_queue_proof(id, dst_shard, limits, td::Timestamp::in(10.0), std::move(promise));
 }
 
 void ValidatorManagerImpl::start_up() {
@@ -1839,7 +1843,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
     // Prepare neighboours' queues for collating masterchain
     for (const auto &desc : last_masterchain_state_->get_shards()) {
       wait_out_msg_queue_proof(desc->top_block_id(), ShardIdFull(masterchainId), 0, td::Timestamp::in(10.0),
-                               [](td::Ref<OutMsgQueueProof>) {});
+                               [](td::Result<td::Ref<OutMsgQueueProof>>) {});
     }
   }
 

@@ -47,6 +47,7 @@ static td::Status check_no_prunned(const vm::CellSlice& cs) {
 }
 
 static td::Result<td::int32> process_queue(BlockIdExt block_id, ShardIdFull dst_shard,
+                                           block::ImportedMsgQueueLimits limits,
                                            const block::gen::OutMsgQueueInfo::Record& qinfo) {
   td::uint64 estimated_proof_size = 0;
 
@@ -113,17 +114,16 @@ static td::Result<td::int32> process_queue(BlockIdExt block_id, ShardIdFull dst_
 
     dfs_cs(*kv->msg);
     TRY_STATUS_PREFIX(check_no_prunned(*kv->msg), "invalid message proof: ")
-    if (estimated_proof_size > OutMsgQueueProof::QUEUE_SIZE_THRESHOLD) {
+    if (estimated_proof_size >= limits.max_bytes || msg_count >= (long long)limits.max_msgs) {
       limit_reached = true;
     }
   }
   return limit_reached ? msg_count : -1;
 }
 
-td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::build(BlockIdExt block_id,
-                                                                                     ShardIdFull dst_shard,
-                                                                                     Ref<vm::Cell> state_root,
-                                                                                     Ref<vm::Cell> block_root) {
+td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::build(
+    BlockIdExt block_id, ShardIdFull dst_shard,
+    block::ImportedMsgQueueLimits limits, Ref<vm::Cell> state_root, Ref<vm::Cell> block_root) {
   if (!dst_shard.is_valid_ext()) {
     return td::Status::Error("invalid shard");
   }
@@ -135,7 +135,7 @@ td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::b
   if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
     return td::Status::Error("invalid message queue");
   }
-  TRY_RESULT(cnt, process_queue(block_id, dst_shard, qinfo));
+  TRY_RESULT(cnt, process_queue(block_id, dst_shard, limits, qinfo));
 
   TRY_RESULT(queue_proof, mpb.extract_proof_boc());
   td::BufferSlice block_state_proof;
@@ -148,6 +148,7 @@ td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> OutMsgQueueProof::b
 }
 
 td::Result<td::Ref<OutMsgQueueProof>> OutMsgQueueProof::fetch(BlockIdExt block_id, ShardIdFull dst_shard,
+                                                              block::ImportedMsgQueueLimits limits,
                                                               const ton_api::tonNode_outMsgQueueProof& f) {
   try {
     Ref<vm::Cell> block_state_proof;
@@ -181,7 +182,7 @@ td::Result<td::Ref<OutMsgQueueProof>> OutMsgQueueProof::fetch(BlockIdExt block_i
     }
     TRY_STATUS_PREFIX(check_no_prunned(qinfo.proc_info->prefetch_ref(0)), "invalid proc_info: ")
     TRY_STATUS_PREFIX(check_no_prunned(qinfo.ihr_pending->prefetch_ref(0)), "invalid ihr_pending: ")
-    TRY_RESULT(cnt, process_queue(block_id, dst_shard, qinfo));
+    TRY_RESULT(cnt, process_queue(block_id, dst_shard, limits, qinfo));
     if (cnt != f.msg_count_) {
       return td::Status::Error(PSTRING() << "invalid msg_count: expected=" << f.msg_count_ << ", found=" << cnt);
     }
@@ -295,7 +296,7 @@ void WaitOutMsgQueueProof::run_net() {
       });
 
   td::actor::send_closure(manager_, &ValidatorManager::send_get_out_msg_queue_proof_request, block_id_, dst_shard_,
-                          priority_, std::move(P));
+                          limits_, priority_, std::move(P));
 }
 
 void BuildOutMsgQueueProof::abort_query(td::Status reason) {
@@ -349,7 +350,7 @@ void BuildOutMsgQueueProof::got_block_root(Ref<vm::Cell> root) {
 }
 
 void BuildOutMsgQueueProof::build_proof() {
-  auto result = OutMsgQueueProof::build(block_id_, dst_shard_, std::move(state_root_), std::move(block_root_));
+  auto result = OutMsgQueueProof::build(block_id_, dst_shard_, limits_, std::move(state_root_), std::move(block_root_));
   if (result.is_error()) {
     LOG(ERROR) << "Failed to build msg queue proof: " << result.error();
   }

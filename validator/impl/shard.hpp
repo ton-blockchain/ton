@@ -130,6 +130,13 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
     auto R = config_->get_size_limits_config();
     return R.is_error() ? block::SizeLimitsConfig::ExtMsgLimits() : R.ok_ref().ext_msg_limits;
   }
+  block::ImportedMsgQueueLimits get_imported_msg_queue_limits(bool is_masterchain) const override {
+    auto R = config_->get_block_limits(is_masterchain);
+    if (R.is_ok() && R.ok()) {
+      return R.ok()->imported_msg_queue;
+    }
+    return {};
+  }
   BlockIdExt last_key_block_id() const override;
   BlockIdExt next_key_block_id(BlockSeqno seqno) const override;
   BlockIdExt prev_key_block_id(BlockSeqno seqno) const override;

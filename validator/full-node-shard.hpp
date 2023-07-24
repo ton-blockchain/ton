@@ -186,8 +186,8 @@ class FullNodeShardImpl : public FullNodeShard {
                            td::Promise<std::vector<BlockIdExt>> promise) override;
   void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                         td::Promise<std::string> promise) override;
-  void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::Timestamp timeout,
-                                    td::Promise<td::Ref<OutMsgQueueProof>> promise) override;
+  void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
+                                    td::Timestamp timeout, td::Promise<td::Ref<OutMsgQueueProof>> promise) override;
 
   void set_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
