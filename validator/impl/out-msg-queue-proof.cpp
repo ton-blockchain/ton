@@ -280,20 +280,20 @@ void WaitOutMsgQueueProof::run_local_cont() {
 }
 
 void WaitOutMsgQueueProof::run_net() {
-  auto P =
-      td::PromiseCreator::lambda([SelfId = actor_id(this), block_id = block_id_](td::Result<Ref<OutMsgQueueProof>> R) {
-        if (R.is_error()) {
-          if (R.error().code() == ErrorCode::notready) {
-            LOG(DEBUG) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
-          } else {
-            LOG(WARNING) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
-          }
-          delay_action([SelfId]() mutable { td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::run_net); },
-                       td::Timestamp::in(0.1));
-        } else {
-          td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::finish_query, R.move_as_ok());
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id = block_id_,
+                                       retry_after = td::Timestamp::in(0.5)](td::Result<Ref<OutMsgQueueProof>> R) {
+    if (R.is_error()) {
+      if (R.error().code() == ErrorCode::notready) {
+        LOG(DEBUG) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
+      } else {
+        LOG(WARNING) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
+      }
+      delay_action([SelfId]() mutable { td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::run_net); },
+                   retry_after);
+    } else {
+      td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::finish_query, R.move_as_ok());
+    }
+  });
 
   td::actor::send_closure(manager_, &ValidatorManager::send_get_out_msg_queue_proof_request, block_id_, dst_shard_,
                           limits_, priority_, std::move(P));

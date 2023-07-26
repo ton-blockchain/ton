@@ -1839,7 +1839,8 @@ void ValidatorManagerImpl::new_masterchain_block() {
   for (auto &c : collator_nodes_) {
     td::actor::send_closure(c.second.actor, &CollatorNode::new_masterchain_block_notification, last_masterchain_state_);
   }
-  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_shards && validating_masterchain()) {
+  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_shards && validating_masterchain() &&
+      last_masterchain_state_->get_unix_time() > (td::uint32)td::Clocks::system() - 20) {
     // Prepare neighboours' queues for collating masterchain
     for (const auto &desc : last_masterchain_state_->get_shards()) {
       wait_out_msg_queue_proof(desc->top_block_id(), ShardIdFull(masterchainId), 0, td::Timestamp::in(10.0),
