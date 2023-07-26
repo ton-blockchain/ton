@@ -661,7 +661,12 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   res->stats_.push_back(
       create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_.size()));
 
-  promise.set_value(std::move(res));
+  callback_->get_stats_extra([promise = std::move(promise), res = std::move(res)](td::Result<std::string> R) mutable {
+    if (R.is_ok()) {
+      res->extra_ = R.move_as_ok();
+    }
+    promise.set_value(std::move(res));
+  });
 }
 
 }  // namespace overlay

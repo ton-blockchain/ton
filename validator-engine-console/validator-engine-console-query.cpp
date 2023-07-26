@@ -934,8 +934,18 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
       
       sb << "   \"" << t->key_ << "\": \"" << t->value_ << "\"";
     }
-    sb << "\n  }\n";
-    sb << "}\n";
+    sb << "\n  }";
+    if (!s->extra_.empty()) {
+      sb << ",\n  \"extra\": ";
+      for (char c : s->extra_) {
+        if (c == '\n') {
+          sb << "\n  ";
+        } else {
+          sb << c;
+        }
+      }
+    }
+    sb << "\n}\n";
   }
   sb << "]\n";
   sb << std::flush;

@@ -39,6 +39,9 @@
 #include "td/utils/Random.h"
 
 #include "common/delay.h"
+#include "td/utils/JsonBuilder.h"
+#include "tl/tl_json.h"
+#include "auto/tl/ton_api_json.h"
 
 namespace ton {
 
@@ -98,6 +101,9 @@ void FullNodeShardImpl::create_overlay() {
     void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                          td::Promise<td::Unit> promise) override {
       td::actor::send_closure(node_, &FullNodeShardImpl::check_broadcast, src, std::move(data), std::move(promise));
+    }
+    void get_stats_extra(td::Promise<std::string> promise) override {
+      td::actor::send_closure(node_, &FullNodeShardImpl::get_stats_extra, std::move(promise));
     }
     Callback(td::actor::ActorId<FullNodeShardImpl> node) : node_(node) {
     }
@@ -1288,6 +1294,34 @@ void FullNodeShardImpl::ping_neighbours() {
     it++;
     max_cnt--;
   }
+}
+
+void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
+  auto res = create_tl_object<ton_api::engine_validator_shardOverlayStats>();
+  res->shard_ = shard_.to_str();
+  switch (mode_) {
+    case active:
+      res->mode_ = "active";
+      break;
+    case active_temp:
+      res->mode_ = "active_temp";
+      break;
+    case inactive:
+      res->mode_ = "inactive";
+      break;
+  }
+  for (const auto &p : neighbours_) {
+    const auto &n = p.second;
+    auto f = create_tl_object<ton_api::engine_validator_shardOverlayStats_neighbour>();
+    f->id_ = n.adnl_id.bits256_value().to_hex();
+    f->proto_verison_ = n.proto_version;
+    f->capabilities_ = n.capabilities;
+    f->roundtrip_ = n.roundtrip;
+    f->unreliability_ = n.unreliability;
+    f->has_state_ = (n.has_state_known ? (n.has_state ? "true" : "false") : "undefined");
+    res->neighbours_.push_back(std::move(f));
+  }
+  promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 
 FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,

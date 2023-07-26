@@ -170,6 +170,9 @@ class Overlays : public td::actor::Actor {
                                  td::Promise<td::Unit> promise) {
       promise.set_value(td::Unit());
     }
+    virtual void get_stats_extra(td::Promise<std::string> promise) {
+      promise.set_result("");
+    }
     virtual ~Callback() = default;
   };
 
