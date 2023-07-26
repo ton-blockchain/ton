@@ -19,6 +19,8 @@
 #include "fabric.h"
 #include "block-auto.h"
 #include "block-db.h"
+#include "td/utils/lz4.h"
+#include "checksum.h"
 
 namespace ton {
 
@@ -71,13 +73,15 @@ void CollatorNode::del_shard(ShardIdFull shard) {
 }
 
 void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> state) {
+  bool init = !last_masterchain_block_.is_valid();
   last_masterchain_block_ = state->get_block_id();
   last_top_blocks_.clear();
   last_top_blocks_[ShardIdFull{masterchainId, shardIdAll}] = last_masterchain_block_;
   for (const auto& desc : state->get_shards()) {
     last_top_blocks_[desc->shard()] = desc->top_block_id();
   }
-  if (validators_.empty() || state->is_key_state()) {
+
+  if (init || state->is_key_state()) {
     validators_.clear();
     for (int next : {-1, 0, 1}) {
       td::Ref<ValidatorSet> vals = state->get_total_validator_set(next);
@@ -92,7 +96,9 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
         }
       }
     }
+    use_compression_ = state->get_consensus_config().proto_version >= 3;  // As in ValidatorSessionImpl
   }
+
   // Remove old cache entries
   auto it = cache_.begin();
   while (it != cache_.end()) {
@@ -108,12 +114,6 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
 
 static td::BufferSlice serialize_error(td::Status error) {
   return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
-}
-
-static td::BufferSlice serialize_response(BlockCandidate block) {
-  return create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(create_tl_object<ton_api::db_candidate>(
-      PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), std::move(block.data),
-      std::move(block.collated_data)));
 }
 
 static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator) {
@@ -139,13 +139,15 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
 
 void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                  td::Promise<td::BufferSlice> promise) {
-  td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src](td::Result<BlockCandidate> R) mutable {
+  td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src,
+                                             compress = use_compression_](td::Result<BlockCandidate> R) mutable {
     if (R.is_error()) {
       LOG(WARNING) << "Query from " << src << ", error: " << R.error();
       promise.set_result(serialize_error(R.move_as_error()));
     } else {
       LOG(INFO) << "Query from " << src << ", success";
-      promise.set_result(serialize_response(R.move_as_ok()));
+      promise.set_result(create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(
+          serialize_candidate(R.move_as_ok(), compress)));
     }
   };
   if (!last_masterchain_block_.is_valid()) {
@@ -269,6 +271,77 @@ bool CollatorNode::can_collate_shard(ShardIdFull shard) const {
     }
   }
   return false;
+}
+
+tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate(const BlockCandidate& block,
+                                                                                 bool compress) {
+  if (!compress) {
+    return create_tl_object<ton_api::collatorNode_candidate>(
+        PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), block.data.clone(),
+        block.collated_data.clone());
+  }
+  vm::BagOfCells boc1, boc2;
+  boc1.deserialize(block.data).ensure();
+  std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
+  boc2.deserialize(block.collated_data).ensure();
+  for (int i = 0; i < boc2.get_root_count(); ++i) {
+    roots.push_back(boc2.get_root_cell(i));
+  }
+  auto data = vm::std_boc_serialize_multi(std::move(roots), 2).move_as_ok();
+  td::BufferSlice compressed = td::lz4_compress(data);
+  LOG(DEBUG) << "Compressing candidate: " << block.data.size() + block.collated_data.size() << " -> "
+             << compressed.size();
+  return create_tl_object<ton_api::collatorNode_compressedCandidate>(
+      0, PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), (int)data.size(),
+      std::move(compressed));
+}
+
+td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
+                                                               int max_decompressed_data_size) {
+  td::Result<BlockCandidate> res;
+  ton_api::downcast_call(*f, td::overloaded(
+                                 [&](ton_api::collatorNode_candidate& c) {
+                                   res = [&]() -> td::Result<BlockCandidate> {
+                                     auto hash = td::sha256_bits256(c.collated_data_);
+                                     auto key = ton::PublicKey{c.source_};
+                                     if (!key.is_ed25519()) {
+                                       return td::Status::Error("invalid pubkey");
+                                     }
+                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                                     return BlockCandidate{e_key, create_block_id(c.id_), hash, std::move(c.data_),
+                                                           std::move(c.collated_data_)};
+                                   }();
+                                 },
+                                 [&](ton_api::collatorNode_compressedCandidate& c) {
+                                   res = [&]() -> td::Result<BlockCandidate> {
+                                     if (c.decompressed_size_ <= 0) {
+                                       return td::Status::Error("invalid decompressed size");
+                                     }
+                                     if (c.decompressed_size_ > max_decompressed_data_size) {
+                                       return td::Status::Error("decompressed size is too big");
+                                     }
+                                     TRY_RESULT(decompressed, td::lz4_decompress(c.data_, c.decompressed_size_));
+                                     if (decompressed.size() != (size_t)c.decompressed_size_) {
+                                       return td::Status::Error("decompressed size mismatch");
+                                     }
+                                     TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
+                                     if (roots.empty()) {
+                                       return td::Status::Error("boc is empty");
+                                     }
+                                     TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
+                                     roots.erase(roots.begin());
+                                     TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), 31));
+                                     auto hash = td::sha256_bits256(collated_data);
+                                     auto key = ton::PublicKey{c.source_};
+                                     if (!key.is_ed25519()) {
+                                       return td::Status::Error("invalid pubkey");
+                                     }
+                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                                     return BlockCandidate{e_key, create_block_id(c.id_), hash, std::move(block_data),
+                                                           std::move(collated_data)};
+                                   }();
+                                 }));
+  return res;
 }
 
 }  // namespace validator

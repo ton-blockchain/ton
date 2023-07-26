@@ -156,6 +156,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   bool started_ = false;
   bool catchain_started_ = false;
   bool allow_unsafe_self_blocks_resync_;
+  bool compress_block_candidates_ = false;
 
   ValidatorSessionStats cur_stats_;
   void stats_init();

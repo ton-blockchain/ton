@@ -311,6 +311,7 @@ validatorSession.candidateId src:int256 root_hash:int256 file_hash:int256 collat
 
 validatorSession.blockUpdate ts:long actions:(vector validatorSession.round.Message) state:int = validatorSession.BlockUpdate;
 validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes collated_data:bytes = validatorSession.Candidate;
+validatorSession.compressedCandidate flags:# src:int256 round:int root_hash:int256 decompressed_size:int data:bytes = validatorSession.Candidate;
 
 validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
@@ -789,7 +790,9 @@ validatorSession.stats id:tonNode.blockId timestamp:long self:int256 creator:int
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
 
-collatorNode.generateBlockSuccess candidate:db.Candidate = collatorNode.GenerateBlockResult;
+collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
+collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
+collatorNode.generateBlockSuccess candidate:collatorNode.Candidate = collatorNode.GenerateBlockResult;
 collatorNode.generateBlockError code:int message:string = collatorNode.GenerateBlockResult;
 
 ---functions---
