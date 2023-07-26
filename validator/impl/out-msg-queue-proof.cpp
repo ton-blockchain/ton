@@ -198,13 +198,8 @@ void WaitOutMsgQueueProof::alarm() {
 
 void WaitOutMsgQueueProof::abort_query(td::Status reason) {
   if (promise_) {
-    if (priority_ > 0 || (reason.code() != ErrorCode::timeout && reason.code() != ErrorCode::notready)) {
-      LOG(WARNING) << "aborting wait msg queue query for " << block_id_.to_str() << " priority=" << priority_ << ": "
-                   << reason;
-    } else {
-      LOG(DEBUG) << "aborting wait msg queue query for " << block_id_.to_str() << " priority=" << priority_ << ": "
-                 << reason;
-    }
+    LOG(DEBUG) << "aborting wait msg queue query for " << block_id_.to_str() << " priority=" << priority_ << ": "
+               << reason;
     promise_.set_error(
         reason.move_as_error_prefix(PSTRING() << "failed to get msg queue for " << block_id_.to_str() << ": "));
   }
@@ -283,11 +278,7 @@ void WaitOutMsgQueueProof::run_net() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id = block_id_,
                                        retry_after = td::Timestamp::in(0.5)](td::Result<Ref<OutMsgQueueProof>> R) {
     if (R.is_error()) {
-      if (R.error().code() == ErrorCode::notready) {
-        LOG(DEBUG) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
-      } else {
-        LOG(WARNING) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
-      }
+      LOG(DEBUG) << "failed to get msg queue for " << block_id.to_str() << " from net: " << R.move_as_error();
       delay_action([SelfId]() mutable { td::actor::send_closure(SelfId, &WaitOutMsgQueueProof::run_net); },
                    retry_after);
     } else {
