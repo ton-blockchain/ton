@@ -417,9 +417,32 @@ void LiteQuery::continue_getBlockHeader(BlockIdExt blkid, int mode, Ref<ton::val
     fatal_error(proof_data.move_as_error());
     return;
   }
+  int tx_cnt = 0;
+  if (mode & (1 << 30)) {
+    block::gen::Block::Record blk;
+    block::gen::BlockInfo::Record info;
+    CHECK(tlb::unpack_cell(block_root, blk) && tlb::unpack_cell(blk.info, info));
+    block::gen::BlockExtra::Record extra;
+    CHECK(tlb::unpack_cell(std::move(blk.extra), extra));
+    vm::AugmentedDictionary acc_dict{vm::load_cell_slice_ref(extra.account_blocks), 256,
+                                     block::tlb::aug_ShardAccountBlocks};
+    acc_dict.check_for_each([&](td::Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
+      block::gen::CurrencyCollection::Record skip;
+      block::gen::csr_unpack_skip(value, skip);
+      block::gen::AccountBlock::Record acc_blk;
+      CHECK(tlb::csr_unpack(std::move(value), acc_blk));
+      vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
+                                         block::tlb::aug_AccountTransactions};
+      trans_dict.check_for_each([&](td::Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
+        ++tx_cnt;
+        return true;
+      });
+      return true;
+    });
+  }
   // send answer
-  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockHeader>(ton::create_tl_lite_block_id(blkid),
-                                                                                  mode, proof_data.move_as_ok());
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockHeader>(
+      ton::create_tl_lite_block_id(blkid), mode, proof_data.move_as_ok(), tx_cnt);
   finish_query(std::move(b));
 }
 
