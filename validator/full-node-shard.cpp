@@ -1194,6 +1194,10 @@ const Neighbour &FullNodeShardImpl::choose_neighbour(bool require_state) const {
     return Neighbour::zero;
   }
 
+  double min_unreliability = 1e9;
+  for (auto &x : neighbours_) {
+    min_unreliability = std::min(min_unreliability, x.second.unreliability);
+  }
   for (int attempt = 0; attempt < (require_state ? 2 : 1); ++attempt) {
     const Neighbour *best = nullptr;
     td::uint32 sum = 0;
@@ -1207,7 +1211,7 @@ const Neighbour &FullNodeShardImpl::choose_neighbour(bool require_state) const {
           continue;
         }
       }
-      auto unr = static_cast<td::uint32>(x.second.unreliability);
+      auto unr = static_cast<td::uint32>(x.second.unreliability - min_unreliability);
 
       if (x.second.proto_version < proto_version()) {
         unr += 4;
