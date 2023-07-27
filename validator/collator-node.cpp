@@ -272,7 +272,8 @@ void CollatorNode::receive_query_cont(ShardIdFull shard, td::Ref<MasterchainStat
                                       std::vector<BlockIdExt> prev_blocks, Ed25519_PublicKey creator,
                                       td::Promise<BlockCandidate> promise) {
   run_collate_query(shard, min_mc_state->get_block_id(), std::move(prev_blocks), creator,
-                    min_mc_state->get_validator_set(shard), manager_, td::Timestamp::in(10.0), std::move(promise));
+                    min_mc_state->get_validator_set(shard), manager_, td::Timestamp::in(10.0), std::move(promise),
+                    CollateMode::skip_store_candidate);
 }
 
 void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R) {

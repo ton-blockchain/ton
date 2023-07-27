@@ -57,7 +57,7 @@ static inline bool dbg(int c) {
 Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                   td::Promise<BlockCandidate> promise)
+                   td::Promise<BlockCandidate> promise, unsigned mode)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
     , min_mc_block_id{min_masterchain_block_id}
@@ -71,6 +71,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
+    , mode_(mode)
     , perf_timer_("collate", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
     }) {
@@ -4200,13 +4201,17 @@ bool Collator::create_block_candidate() {
                                  << consensus_config.max_collated_data_size << ")");
   }
   // 4. save block candidate
-  LOG(INFO) << "saving new BlockCandidate";
-  td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
-                                block_candidate->clone(), [self = get_self()](td::Result<td::Unit> saved) -> void {
-                                  LOG(DEBUG) << "got answer to set_block_candidate";
-                                  td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
-                                                                std::move(saved));
-                                });
+  if (mode_ & CollateMode::skip_store_candidate) {
+    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit());
+  } else {
+    LOG(INFO) << "saving new BlockCandidate";
+    td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
+                                  block_candidate->clone(), [self = get_self()](td::Result<td::Unit> saved) -> void {
+                                    LOG(DEBUG) << "got answer to set_block_candidate";
+                                    td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
+                                                                  std::move(saved));
+                                  });
+  }
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
     LOG(INFO) << "sending complete_external_messages() to Manager";

@@ -271,7 +271,8 @@ class HardforkCreator : public td::actor::Actor {
 
                             td::Promise<std::string> promise) override {
       }
-      void download_out_msg_queue_proof(ton::BlockIdExt block_id, ton::ShardIdFull dst_shard, td::Timestamp timeout,
+      void download_out_msg_queue_proof(ton::BlockIdExt block_id, ton::ShardIdFull dst_shard,
+                                        block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                         td::Promise<td::Ref<ton::validator::OutMsgQueueProof>> promise) override {
       }
 

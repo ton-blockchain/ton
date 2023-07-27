@@ -26,6 +26,7 @@ namespace ton {
 namespace validator {
 
 enum ValidateMode { fake = 1, full_collated_data = 2 };
+enum CollateMode { skip_store_candidate = 1 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_);
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
@@ -83,9 +84,9 @@ void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id, 
                         td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                         td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
 void run_collate_query(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                       Ed25519_PublicKey local_id, td::Ref<ValidatorSet> validator_set,
+                       Ed25519_PublicKey creator, td::Ref<ValidatorSet> validator_set,
                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                       td::Promise<BlockCandidate> promise);
+                       td::Promise<BlockCandidate> promise, unsigned mode = 0);
 void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,
                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                           td::Promise<BlockCandidate> promise);
