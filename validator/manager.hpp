@@ -189,14 +189,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   std::map<BlockIdExt, WaitList<WaitBlockState, td::Ref<ShardState>>> wait_state_;
   std::map<BlockIdExt, WaitList<WaitBlockData, td::Ref<BlockData>>> wait_block_data_;
-  std::map<std::pair<BlockIdExt, ShardIdFull>, WaitListCaching<WaitOutMsgQueueProof, td::Ref<OutMsgQueueProof>>>
-      wait_out_msg_queue_proof_;
-  td::Timestamp cleanup_wait_caches_at_ = td::Timestamp::now();
 
   struct WaitBlockHandle {
     std::vector<td::Promise<BlockHandle>> waiting_;
   };
   std::map<BlockIdExt, WaitBlockHandle> wait_block_handle_;
+
+  td::actor::ActorOwn<OutMsgQueueImporter> out_msg_queue_importer_;
 
  private:
   // HANDLES CACHE
@@ -372,8 +371,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                         td::Promise<td::Ref<ShardState>> promise) override;
   void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<td::Ref<OutMsgQueueProof>> promise) override;
+  void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
+                                      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override;
 
   void set_block_data(BlockHandle handle, td::Ref<BlockData> data, td::Promise<td::Unit> promise) override;
   void wait_block_data(BlockHandle handle, td::uint32 priority, td::Timestamp,
@@ -462,9 +461,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast) override;
-  void send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
-                                            td::uint32 priority,
-                                            td::Promise<td::Ref<OutMsgQueueProof>> promise) override;
+  void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                            block::ImportedMsgQueueLimits limits,
+                                            td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
@@ -499,7 +498,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void finished_wait_state(BlockHandle handle, td::Result<td::Ref<ShardState>> R);
   void finished_wait_data(BlockHandle handle, td::Result<td::Ref<BlockData>> R);
-  void finished_wait_msg_queue(BlockIdExt block_id, ShardIdFull dst_shard, td::Result<td::Ref<OutMsgQueueProof>> R);
 
   void start_up() override;
   void started(ValidatorManagerInitResult result);

@@ -20,6 +20,8 @@
 #include "auto/tl/ton_api.h"
 #include "interfaces/out-msg-queue-proof.h"
 #include "td/actor/actor.h"
+#include "interfaces/shard.h"
+#include "validator.h"
 
 namespace ton {
 
@@ -29,83 +31,77 @@ using td::Ref;
 class ValidatorManager;
 class ValidatorManagerInterface;
 
-class WaitOutMsgQueueProof : public td::actor::Actor {
+class OutMsgQueueImporter : public td::actor::Actor {
  public:
-  WaitOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits, bool local,
-                       td::uint32 priority, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                       td::Promise<Ref<OutMsgQueueProof>> promise)
-      : block_id_(std::move(block_id))
-      , dst_shard_(dst_shard)
-      , limits_(limits)
-      , local_(local)
-      , priority_(priority)
-      , manager_(manager)
-      , timeout_(timeout)
-      , promise_(std::move(promise)) {
+  OutMsgQueueImporter(td::actor::ActorId<ValidatorManager> manager, td::Ref<ValidatorManagerOptions> opts,
+                      td::Ref<MasterchainState> last_masterchain_state)
+      : manager_(manager), opts_(opts), last_masterchain_state_(last_masterchain_state) {
   }
 
-  void update_timeout(td::Timestamp timeout, td::uint32 priority) {
-    timeout_ = timeout;
-    alarm_timestamp() = timeout_;
-    priority_ = priority;
+  void new_masterchain_block_notification(td::Ref<MasterchainState> state, std::set<ShardIdFull> collating_shards);
+  void get_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
+                                     td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise);
+
+  void update_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
   }
 
-  void abort_query(td::Status reason);
-  void finish_query(Ref<OutMsgQueueProof> result);
   void alarm() override;
 
-  void start_up() override;
-
-  void run_local();
-  void got_state_root(Ref<vm::Cell> root);
-  void got_block_root(Ref<vm::Cell> root);
-  void run_local_cont();
-
-  void run_net();
-
  private:
-  BlockIdExt block_id_;
-  ShardIdFull dst_shard_;
-  block::ImportedMsgQueueLimits limits_;
-  bool local_;
-  td::uint32 priority_;
-
   td::actor::ActorId<ValidatorManager> manager_;
-  td::Timestamp timeout_;
-  td::Promise<Ref<OutMsgQueueProof>> promise_;
+  td::Ref<ValidatorManagerOptions> opts_;
+  td::Ref<MasterchainState> last_masterchain_state_;
 
-  Ref<vm::Cell> state_root_, block_root_;
-  unsigned pending = 0;
+  struct CacheEntry {
+    ShardIdFull dst_shard;
+    std::vector<BlockIdExt> blocks;
+    bool done = false;
+    std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> result;
+    std::vector<std::pair<td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>>, td::Timestamp>> promises;
+    td::Timestamp timeout = td::Timestamp::never();
+    td::Timer timer;
+    size_t pending = 0;
+  };
+  std::map<std::pair<ShardIdFull, std::vector<BlockIdExt>>, std::shared_ptr<CacheEntry>> cache_;
+
+  void get_proof_local(std::shared_ptr<CacheEntry> entry, BlockIdExt block);
+  void get_proof_import(std::shared_ptr<CacheEntry> entry, std::vector<BlockIdExt> blocks,
+                        block::ImportedMsgQueueLimits limits);
+  void got_proof(std::shared_ptr<CacheEntry> entry, std::vector<td::Ref<OutMsgQueueProof>> proofs);
+  void finish_query(std::shared_ptr<CacheEntry> entry);
+  bool check_timeout(std::shared_ptr<CacheEntry> entry);
+
+  constexpr static const double CACHE_TTL = 30.0;
 };
 
 class BuildOutMsgQueueProof : public td::actor::Actor {
  public:
-  BuildOutMsgQueueProof(BlockIdExt block_id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
+  BuildOutMsgQueueProof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
                         td::actor::ActorId<ValidatorManagerInterface> manager,
                         td::Promise<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> promise)
-      : block_id_(std::move(block_id))
-      , dst_shard_(dst_shard)
-      , limits_(limits)
-      , manager_(manager)
-      , promise_(std::move(promise)) {
+      : dst_shard_(dst_shard), limits_(limits), manager_(manager), promise_(std::move(promise)) {
+    blocks_.resize(blocks.size());
+    for (size_t i = 0; i < blocks_.size(); ++i) {
+      blocks_[i].id = blocks[i];
+    }
   }
 
   void abort_query(td::Status reason);
   void start_up() override;
-  void got_state_root(Ref<vm::Cell> root);
-  void got_block_root(Ref<vm::Cell> root);
+  void got_state_root(size_t i, Ref<vm::Cell> root);
+  void got_block_root(size_t i, Ref<vm::Cell> root);
   void build_proof();
 
  private:
-  BlockIdExt block_id_;
   ShardIdFull dst_shard_;
+  std::vector<OutMsgQueueProof::OneBlock> blocks_;
   block::ImportedMsgQueueLimits limits_;
 
   td::actor::ActorId<ValidatorManagerInterface> manager_;
   td::Promise<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> promise_;
 
-  Ref<vm::Cell> state_root_, block_root_;
-  unsigned pending = 0;
+  size_t pending = 0;
 };
 
 }  // namespace validator

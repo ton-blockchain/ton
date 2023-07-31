@@ -26,22 +26,31 @@ namespace validator {
 using td::Ref;
 
 struct OutMsgQueueProof : public td::CntObject {
-  OutMsgQueueProof(Ref<vm::Cell> state_root, Ref<vm::Cell> block_state_proof, td::int32 msg_count = -1)
-      : state_root_(std::move(state_root)), block_state_proof_(std::move(block_state_proof)), msg_count_(msg_count) {
+  OutMsgQueueProof(BlockIdExt block_id, Ref<vm::Cell> state_root, Ref<vm::Cell> block_state_proof,
+                   td::int32 msg_count = -1)
+      : block_id_(block_id)
+      , state_root_(std::move(state_root))
+      , block_state_proof_(std::move(block_state_proof))
+      , msg_count_(msg_count) {
   }
 
+  BlockIdExt block_id_;
   Ref<vm::Cell> state_root_;
   Ref<vm::Cell> block_state_proof_;
-  td::int32 msg_count_;  // -1 - up to end of queue
+  td::int32 msg_count_;  // -1 - no limit
 
-  static td::Result<td::Ref<OutMsgQueueProof>> fetch(BlockIdExt block_id, ShardIdFull dst_shard,
-                                                     block::ImportedMsgQueueLimits limits,
-                                                     const ton_api::tonNode_outMsgQueueProof &f);
-  static td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> build(BlockIdExt block_id, ShardIdFull dst_shard,
-                                                                            block::ImportedMsgQueueLimits limits,
-                                                                            Ref<vm::Cell> state_root,
-                                                                            Ref<vm::Cell> block_root);
+  static td::Result<std::vector<td::Ref<OutMsgQueueProof>>> fetch(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                                                  block::ImportedMsgQueueLimits limits,
+                                                                  const ton_api::tonNode_outMsgQueueProof &f);
 
+  struct OneBlock {
+    BlockIdExt id;
+    Ref<vm::Cell> state_root;
+    Ref<vm::Cell> block_root;
+  };
+  static td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> build(ShardIdFull dst_shard,
+                                                                            std::vector<OneBlock> blocks,
+                                                                            block::ImportedMsgQueueLimits limits);
 };
 
 }  // namespace validator

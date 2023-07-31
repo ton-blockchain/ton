@@ -74,37 +74,8 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
   last_masterchain_block_ = state->get_block_id();
   last_top_blocks_.clear();
   last_top_blocks_[ShardIdFull{masterchainId, shardIdAll}] = last_masterchain_block_;
-  if (state->get_unix_time() > (td::uint32)td::Clocks::system() - 20) {
-    std::vector<ShardIdFull> next_shards;
-    if (can_collate_shard(ShardIdFull(masterchainId))) {
-      next_shards.push_back(ShardIdFull(masterchainId));
-    }
-    for (const auto& desc : state->get_shards()) {
-      last_top_blocks_[desc->shard()] = desc->top_block_id();
-      ShardIdFull shard = desc->shard();
-      if (desc->before_split()) {
-        if (can_collate_shard(shard_child(shard, true))) {
-          next_shards.push_back(shard_child(shard, true));
-        }
-        if (can_collate_shard(shard_child(shard, false))) {
-          next_shards.push_back(shard_child(shard, false));
-        }
-      } else if (desc->before_merge()) {
-        if (is_left_child(shard) && can_collate_shard(shard_parent(shard))) {
-          next_shards.push_back(shard_parent(shard));
-        }
-      } else if (can_collate_shard(shard)) {
-        next_shards.push_back(shard);
-      }
-    }
-    for (const ShardIdFull& shard : next_shards) {
-      for (const auto& neighbor : last_top_blocks_) {
-        if (neighbor.first != shard && block::ShardConfig::is_neighbor(shard, neighbor.first)) {
-          td::actor::send_closure(manager_, &ValidatorManager::wait_out_msg_queue_proof, neighbor.second, shard, 0,
-                                  td::Timestamp::in(10.0), [](td::Ref<OutMsgQueueProof>) {});
-        }
-      }
-    }
+  for (const auto& desc : state->get_shards()) {
+    last_top_blocks_[desc->shard()] = desc->top_block_id();
   }
   if (validators_.empty() || state->is_key_state()) {
     validators_.clear();

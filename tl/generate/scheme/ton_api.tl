@@ -416,7 +416,7 @@ tonNode.archiveNotFound = tonNode.ArchiveInfo;
 tonNode.archiveInfo id:long = tonNode.ArchiveInfo;
 
 tonNode.importedMsgQueueLimits max_bytes:int max_msgs:int = ImportedMsgQueueLimits;
-tonNode.outMsgQueueProof queue_proof:bytes block_state_proof:bytes msg_count:int = tonNode.OutMsgQueueProof;
+tonNode.outMsgQueueProof queue_proofs:bytes block_state_proofs:bytes msg_counts:(vector int) = tonNode.OutMsgQueueProof;
 tonNode.outMsgQueueProofEmpty = tonNode.OutMsgQueueProof;
 
 tonNode.forgetPeer = tonNode.ForgetPeer;
@@ -452,7 +452,7 @@ tonNode.downloadBlockProofLinks blocks:(vector tonNode.blockIdExt) = tonNode.Dat
 tonNode.downloadKeyBlockProofLinks blocks:(vector tonNode.blockIdExt) = tonNode.DataList;
 tonNode.getArchiveInfo masterchain_seqno:int = tonNode.ArchiveInfo;
 tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
-tonNode.getOutMsgQueueProof block_id:tonNode.blockIdExt dst_workchain:int dst_shard:long
+tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blockIdExt)
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
 
 tonNode.getCapabilities = tonNode.Capabilities;

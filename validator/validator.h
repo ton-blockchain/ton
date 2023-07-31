@@ -140,9 +140,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                      td::Promise<std::vector<BlockIdExt>> promise) = 0;
     virtual void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                                   td::Promise<std::string> promise) = 0;
-    virtual void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard,
+    virtual void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                               block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
-                                              td::Promise<td::Ref<OutMsgQueueProof>> promise) = 0;
+                                              td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
   };
@@ -226,9 +226,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<ShardState>> promise) = 0;
 
-  virtual void wait_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::uint32 priority,
-                                        td::Timestamp timeout,
-                                        td::Promise<td::Ref<OutMsgQueueProof>> promise) = 0;
+  virtual void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                              td::Timestamp timeout,
+                                              td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) = 0;
 
   virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
   virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,

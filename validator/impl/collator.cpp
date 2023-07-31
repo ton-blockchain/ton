@@ -632,27 +632,45 @@ bool Collator::request_neighbor_msg_queues() {
     }
     neighbors_.emplace_back(*shard_ptr);
   }
+  std::vector<BlockIdExt> top_blocks;
   unsigned i = 0;
   for (block::McShardDescr& descr : neighbors_) {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
-    ++pending;
-    send_closure_later(manager, &ValidatorManager::wait_out_msg_queue_proof, descr.blk_, shard_, priority(), timeout,
-                       [self = get_self(), i](td::Result<Ref<OutMsgQueueProof>> res) {
-                         LOG(DEBUG) << "got msg queue for neighbor #" << i;
-                         send_closure_later(std::move(self), &Collator::got_neighbor_msg_queue, i, std::move(res));
-                       });
+    top_blocks.push_back(descr.blk_);
     ++i;
   }
+  ++pending;
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::wait_neighbor_msg_queue_proofs, shard_, std::move(top_blocks), timeout,
+      [self = get_self()](td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> res) {
+        td::actor::send_closure_later(std::move(self), &Collator::got_neighbor_msg_queues, std::move(res));
+      });
   return true;
 }
 
-void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProof>> R) {
+void Collator::got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R) {
   --pending;
   if (R.is_error()) {
-    fatal_error(R.move_as_error());
+    fatal_error(R.move_as_error_prefix("failed to get neighbor msg queues: "));
     return;
   }
+  LOG(INFO) << "neighbor output queues fetched";
   auto res = R.move_as_ok();
+  unsigned i = 0;
+  for (block::McShardDescr& descr : neighbors_) {
+    LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
+    auto it = res.find(descr.blk_);
+    if (it == res.end()) {
+      fatal_error(PSTRING() << "no msg queue from neighbor #" << i);
+      return;
+    }
+    got_neighbor_msg_queue(i, it->second);
+    ++i;
+  }
+  check_pending();
+}
+
+void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
   BlockIdExt block_id = neighbors_.at(i).blk_;
   if (res->block_state_proof_.not_null() && !block_id.is_masterchain()) {
     block_state_proofs_.emplace(block_id.root_hash, res->block_state_proof_);
@@ -732,10 +750,6 @@ void Collator::got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProo
       }
     }
   } while (false);
-  if (!pending) {
-    LOG(INFO) << "all neighbor output queues fetched";
-  }
-  check_pending();
 }
 
 bool Collator::unpack_merge_last_state() {

@@ -218,8 +218,8 @@ static inline std::ostream& operator<<(std::ostream& os, const MsgProcessedUptoC
 
 struct ImportedMsgQueueLimits {
   // Default values
-  td::uint32 max_bytes = 1 << 18;
-  td::uint32 max_msgs = 40;
+  td::uint32 max_bytes = 1 << 19;
+  td::uint32 max_msgs = 500;
   bool deserialize(vm::CellSlice& cs);
 };
 

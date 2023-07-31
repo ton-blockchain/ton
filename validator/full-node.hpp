@@ -74,8 +74,9 @@ class FullNodeImpl : public FullNode {
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout, td::Promise<std::vector<BlockIdExt>> promise);
   void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                         td::Promise<std::string> promise);
-  void download_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
-                                    td::Timestamp timeout, td::Promise<td::Ref<OutMsgQueueProof>> promise);
+  void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                    block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
+                                    td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise);
 
   void got_key_block_proof(td::Ref<ProofLink> proof);
   void got_zero_block_state(td::Ref<ShardState> state);

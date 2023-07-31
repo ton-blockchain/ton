@@ -372,9 +372,9 @@ class TestNode : public td::actor::Actor {
 
                             td::Promise<std::string> promise) override {
       }
-      void download_out_msg_queue_proof(ton::BlockIdExt block_id, ton::ShardIdFull dst_shard,
-                                        block::ImportedMsgQueueLimits, td::Timestamp timeout,
-                                        td::Promise<td::Ref<ton::validator::OutMsgQueueProof>> promise) override {
+      void download_out_msg_queue_proof(
+          ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
+          td::Timestamp timeout, td::Promise<std::vector<td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
       }
 
       void new_key_block(ton::validator::BlockHandle handle) override {

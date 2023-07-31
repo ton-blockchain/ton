@@ -233,7 +233,8 @@ class Collator final : public td::actor::Actor {
   void after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res);
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, const ton::ShardIdFull& owner);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto);
-  void got_neighbor_msg_queue(unsigned i, td::Result<Ref<OutMsgQueueProof>> R);
+  void got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R);
+  void got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);

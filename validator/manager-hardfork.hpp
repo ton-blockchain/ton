@@ -182,8 +182,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                         td::Promise<td::Ref<ShardState>> promise) override;
   void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_out_msg_queue_proof(BlockIdExt block_id, ShardIdFull dst_shard, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<td::Ref<OutMsgQueueProof>> promise) override {
+  void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
+                                      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {
     UNREACHABLE();
   }
 
@@ -321,9 +321,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_block_broadcast(BlockBroadcast broadcast) override {
   }
-  void send_get_out_msg_queue_proof_request(BlockIdExt id, ShardIdFull dst_shard, block::ImportedMsgQueueLimits limits,
-                                            td::uint32 priority,
-                                            td::Promise<td::Ref<OutMsgQueueProof>> promise) override {
+  void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                            block::ImportedMsgQueueLimits limits,
+                                            td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {
     UNREACHABLE();
   }
 
