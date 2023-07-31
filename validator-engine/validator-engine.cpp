@@ -1850,6 +1850,8 @@ void ValidatorEngine::started_dht() {
 void ValidatorEngine::start_rldp() {
   rldp_ = ton::rldp::Rldp::create(adnl_.get());
   rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
+  td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 2048);
+  td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
   started_rldp();
 }
 

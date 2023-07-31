@@ -324,7 +324,10 @@ void OutMsgQueueImporter::get_neighbor_msg_queue_proofs(
   auto limits = last_masterchain_state_->get_imported_msg_queue_limits(dst_shard.workchain);
   for (auto& p : new_queries) {
     ++entry->pending;
-    get_proof_import(entry, std::move(p.second), limits);
+    for (size_t i = 0; i < p.second.size(); i += 16) {
+      size_t j = std::min(i + 16, p.second.size());
+      get_proof_import(entry, std::vector<BlockIdExt>(p.second.begin() + i, p.second.begin() + j), limits);
+    }
   }
   if (entry->pending == 0) {
     finish_query(entry);
