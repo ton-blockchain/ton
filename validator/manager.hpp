@@ -506,6 +506,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_validator();
   bool is_collator();
   bool validating_masterchain();
+  bool collating_masterchain();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
@@ -650,6 +651,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     std::set<ShardIdFull> shards;
   };
   std::map<adnl::AdnlNodeIdShort, Collator> collator_nodes_;
+  size_t masterchain_collators_ = 0;
 
   std::set<ShardIdFull> extra_active_shards_;
   std::map<ShardIdFull, BlockSeqno> last_validated_blocks_;

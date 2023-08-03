@@ -478,6 +478,10 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
       });
       wait_block_state_short(desc->block_id(), 0, td::Timestamp::in(60.0), std::move(P));
     }
+    if (collating_masterchain() && desc->generated_at() > td::Clocks::system() - 20) {
+      wait_neighbor_msg_queue_proofs(ShardIdFull{masterchainId}, {desc->block_id()}, td::Timestamp::in(15.0),
+                                     [](td::Result<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>>) {});
+    }
   }
 }
 
@@ -2525,6 +2529,16 @@ bool ValidatorManagerImpl::validating_masterchain() {
               .is_zero();
 }
 
+bool ValidatorManagerImpl::collating_masterchain() {
+  if (masterchain_collators_) {
+    return true;
+  }
+  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_all) {
+    return false;
+  }
+  return validating_masterchain();
+}
+
 PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {
   for (auto &key : temp_keys_) {
     if (val_set->is_validator(key.bits256_value())) {
@@ -2726,7 +2740,12 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
     it = collator_nodes_.emplace(id, Collator()).first;
     it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp_);
   }
-  it->second.shards.insert(shard);
+  if (!it->second.shards.insert(shard).second) {
+    return;
+  }
+  if (shard.is_masterchain()) {
+    ++masterchain_collators_;
+  }
   td::actor::send_closure(it->second.actor, &CollatorNode::add_shard, shard);
 }
 
@@ -2735,10 +2754,16 @@ void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   if (it == collator_nodes_.end()) {
     return;
   }
-  td::actor::send_closure(it->second.actor, &CollatorNode::del_shard, shard);
-  it->second.shards.erase(shard);
+  if (!it->second.shards.erase(shard)) {
+    return;
+  }
+  if (shard.is_masterchain()) {
+    --masterchain_collators_;
+  }
   if (it->second.shards.empty()) {
     collator_nodes_.erase(it);
+  } else {
+    td::actor::send_closure(it->second.actor, &CollatorNode::del_shard, shard);
   }
 }
 

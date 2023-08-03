@@ -960,26 +960,26 @@ void FullNodeShardImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std:
       create_tl_shard_id(dst_shard), std::move(blocks_tl),
       create_tl_object<ton_api::tonNode_importedMsgQueueLimits>(limits.max_bytes, limits.max_msgs));
 
-  auto P = td::PromiseCreator::lambda([=, promise = create_neighbour_promise(b, std::move(promise), true),
-                                       blocks = std::move(blocks)](td::Result<td::BufferSlice> R) mutable {
-    if (R.is_error()) {
-      promise.set_result(R.move_as_error());
-      return;
-    }
-    TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::tonNode_OutMsgQueueProof>(R.move_as_ok(), true));
-    ton_api::downcast_call(
-        *f, td::overloaded(
-                [&](ton_api::tonNode_outMsgQueueProofEmpty &x) {
-                  promise.set_error(td::Status::Error("node doesn't have this block"));
-                },
-                [&](ton_api::tonNode_outMsgQueueProof &x) {
-                  delay_action(
-                      [=, promise = std::move(promise), blocks = std::move(blocks), x = std::move(x)]() mutable {
-                        promise.set_result(OutMsgQueueProof::fetch(dst_shard, blocks, limits, x));
-                      },
-                      td::Timestamp::now());
-                }));
-  });
+  auto P = td::PromiseCreator::lambda(
+      [=, promise = std::move(promise), blocks = std::move(blocks)](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(R.move_as_error());
+          return;
+        }
+        TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::tonNode_OutMsgQueueProof>(R.move_as_ok(), true));
+        ton_api::downcast_call(
+            *f, td::overloaded(
+                    [&](ton_api::tonNode_outMsgQueueProofEmpty &x) {
+                      promise.set_error(td::Status::Error("node doesn't have this block"));
+                    },
+                    [&](ton_api::tonNode_outMsgQueueProof &x) {
+                      delay_action(
+                          [=, promise = std::move(promise), blocks = std::move(blocks), x = std::move(x)]() mutable {
+                            promise.set_result(OutMsgQueueProof::fetch(dst_shard, blocks, limits, x));
+                          },
+                          td::Timestamp::now());
+                    }));
+      });
   td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, b.adnl_id, adnl_id_, overlay_id_,
                           "get_msg_queue", std::move(P), timeout, std::move(query), 1 << 22, rldp_);
 }
