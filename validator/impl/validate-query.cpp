@@ -4783,27 +4783,27 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
   // shared_lib_descr$00 lib:^Cell publishers:(Hashmap 256 True) = LibDescr;
   std::unique_ptr<vm::Dictionary> old_publishers, new_publishers;
   if (new_value.not_null()) {
-    if (!block::gen::t_LibDescr.validate_csr(new_value)) {
-      return reject_query("LibDescr with key "s + key.to_hex(256) +
-                          " in the libraries dictionary of the new state failed to pass automatic validity tests");
+    block::gen::LibDescr::Record rec;
+    if (!block::gen::csr_unpack(std::move(new_value), rec)) {
+      return reject_query("failed to unpack LibDescr with key "s + key.to_hex(256) +
+                          " in the libraries dictionary of the new state");
     }
-    auto lib_ref = new_value->prefetch_ref();
-    CHECK(lib_ref.not_null());
-    if (lib_ref->get_hash().as_bitslice() != key) {
+    if (rec.lib->get_hash().as_bitslice() != key) {
       return reject_query("LibDescr with key "s + key.to_hex(256) +
                           " in the libraries dictionary of the new state contains a library with different root hash " +
-                          lib_ref->get_hash().to_hex());
+                          rec.lib->get_hash().to_hex());
     }
-    CHECK(new_value.write().advance_ext(2, 1));
-    new_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(new_value), 256);
+    new_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(rec.publishers), 256);
   } else {
     new_publishers = std::make_unique<vm::Dictionary>(256);
   }
-  if (old_value.not_null() && !block::gen::t_LibDescr.validate_csr(old_value)) {
-    return reject_query("LibDescr with key "s + key.to_hex(256) +
-                        " in the libraries dictionary of the old state failed to pass automatic validity tests");
-    CHECK(old_value.write().advance_ext(2, 1));
-    old_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(old_value), 256);
+  if (old_value.not_null()) {
+    block::gen::LibDescr::Record rec;
+    if (!block::gen::csr_unpack(std::move(old_value), rec)) {
+      return reject_query("failed to unpack LibDescr with key "s + key.to_hex(256) +
+                          " in the libraries dictionary of the old state");
+    }
+    old_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(rec.publishers), 256);
   } else {
     old_publishers = std::make_unique<vm::Dictionary>(256);
   }
