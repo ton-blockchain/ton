@@ -3820,9 +3820,6 @@ bool Collator::store_master_ref(vm::CellBuilder& cb) {
 bool Collator::update_processed_upto() {
   auto ref_mc_seqno = is_masterchain() ? new_block_seqno : prev_mc_block_seqno;
   update_min_mc_seqno(ref_mc_seqno);
-  if (in_msg_dict->is_empty()) {
-    return true;
-  }
   if (last_proc_int_msg_.first) {
     if (!processed_upto_->insert(ref_mc_seqno, last_proc_int_msg_.first, last_proc_int_msg_.second.cbits())) {
       return fatal_error("cannot update our ProcessedUpto to reflect processed inbound message");

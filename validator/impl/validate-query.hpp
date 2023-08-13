@@ -340,7 +340,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_out_msg_descr();
   bool check_processed_upto();
   bool check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
-                                       const block::McShardDescr& src_nb, bool& unprocessed);
+                                       const block::McShardDescr& src_nb, bool& unprocessed, bool& processed_here,
+                                       td::Bits256& msg_hash);
   bool check_in_queue();
   bool check_delivered_dequeued();
   std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
