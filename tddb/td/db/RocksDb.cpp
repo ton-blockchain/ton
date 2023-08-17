@@ -24,6 +24,8 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
+#include "rocksdb/filter_policy.h"
+#include <cstdlib>
 
 namespace td {
 namespace {
@@ -68,8 +70,19 @@ Result<RocksDb> RocksDb::open(std::string path) {
     static auto cache = rocksdb::NewLRUCache(1 << 30);
 
     rocksdb::BlockBasedTableOptions table_options;
-    table_options.block_cache = cache;
-    options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+    const char* env = getenv("TON_INMEM_DB");
+    if (env && !strcmp(env, "1")) {
+      options.allow_mmap_reads = true;
+      table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, true));
+      table_options.no_block_cache = true;
+      table_options.block_restart_interval = 4;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      options.compression = rocksdb::CompressionType::kNoCompression;
+      options.max_open_files = -1;
+    } else {
+      table_options.block_cache = cache;
+      options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+    }
 
     options.manual_wal_flush = true;
     options.create_if_missing = true;

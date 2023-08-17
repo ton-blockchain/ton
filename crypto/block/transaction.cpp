@@ -1135,10 +1135,10 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     was_activated = true;
     acc_status = Account::acc_active;
   }
-  LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
-            << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
-  LOG(INFO) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success
-            << ", time=" << elapsed << "s";
+  LOG(DEBUG) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
+             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
+  LOG(DEBUG) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success
+             << ", time=" << elapsed << "s";
   if (logger != nullptr) {
     cp.vm_log = logger->get_log();
   }
@@ -1984,7 +1984,7 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     return -1;
   }
   int mode = rec.mode;
-  LOG(INFO) << "in try_action_reserve_currency(" << mode << ")";
+  LOG(DEBUG) << "in try_action_reserve_currency(" << mode << ")";
   CurrencyCollection reserve, newc;
   if (!reserve.validate_unpack(std::move(rec.currency))) {
     LOG(DEBUG) << "cannot parse currency field in action_reserve_currency";
@@ -2035,7 +2035,7 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
   ap.reserved_balance += std::move(reserve);
   CHECK(ap.reserved_balance.is_valid());
   CHECK(ap.remaining_balance.is_valid());
-  LOG(INFO) << "changed remaining balance to " << ap.remaining_balance.to_str() << ", reserved balance to "
+  LOG(DEBUG) << "changed remaining balance to " << ap.remaining_balance.to_str() << ", reserved balance to "
             << ap.reserved_balance.to_str();
   ap.spec_actions++;
   return 0;
@@ -2072,7 +2072,7 @@ td::Status Transaction::check_state_limits(const ActionPhaseConfig& cfg) {
   TRY_STATUS(add_used_storage(new_data));
   TRY_STATUS(add_used_storage(new_library));
   if (timer.elapsed() > 0.1) {
-    LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
+    LOG(DEBUG) << "Compute used storage took " << timer.elapsed() << "s";
   }
   if (acc_status == Account::acc_active) {
     new_storage_stat.clear_limit();
@@ -2175,7 +2175,7 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   }
   CHECK(cb.finalize_to(bp.out_msg));
   if (verbosity > 2) {
-    LOG(INFO) << "generated bounced message: ";
+    LOG(DEBUG) << "generated bounced message: ";
     block::gen::t_Message_Any.print_ref(std::cerr, bp.out_msg);
   }
   out_msgs.push_back(bp.out_msg);
@@ -2316,7 +2316,7 @@ bool Transaction::compute_state() {
     td::Timer timer;
     stats.add_used_storage(Ref<vm::Cell>(storage)).ensure();
     if (timer.elapsed() > 0.1) {
-      LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
+      LOG(DEBUG) << "Compute used storage took " << timer.elapsed() << "s";
     }
   }
   CHECK(cb.store_long_bool(1, 1)                       // account$1

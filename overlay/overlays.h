@@ -183,7 +183,7 @@ class Overlays : public td::actor::Actor {
     return adnl::Adnl::get_mtu() - 36;
   }
   static constexpr td::uint32 max_fec_broadcast_size() {
-    return 16 << 20;
+    return 128 << 20;
   }
 
   static constexpr td::uint32 BroadcastFlagAnySender() {

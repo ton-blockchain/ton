@@ -2067,13 +2067,13 @@ bool Collator::combine_account_transactions() {
         block::gen::t_AccountBlock.print_ref(std::cerr, cell);
         csr->print_rec(std::cerr);
       }
-      if (!block::gen::t_AccountBlock.validate_ref(100000, cell)) {
+      if (!block::gen::t_AccountBlock.validate_ref(100000000, cell)) {
         block::gen::t_AccountBlock.print_ref(std::cerr, cell);
         csr->print_rec(std::cerr);
         return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
                            " failed to pass automatic validation tests");
       }
-      if (!block::tlb::t_AccountBlock.validate_ref(100000, cell)) {
+      if (!block::tlb::t_AccountBlock.validate_ref(100000000, cell)) {
         block::gen::t_AccountBlock.print_ref(std::cerr, cell);
         csr->print_rec(std::cerr);
         return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
@@ -2137,10 +2137,10 @@ bool Collator::combine_account_transactions() {
     block::gen::t_ShardAccountBlocks.print_ref(std::cerr, shard_account_blocks_);
     vm::load_cell_slice(shard_account_blocks_).print_rec(std::cerr);
   }
-  if (!block::gen::t_ShardAccountBlocks.validate_ref(100000, shard_account_blocks_)) {
+  if (!block::gen::t_ShardAccountBlocks.validate_ref(100000000, shard_account_blocks_)) {
     return fatal_error("new ShardAccountBlocks failed to pass automatic validity tests");
   }
-  if (!block::tlb::t_ShardAccountBlocks.validate_ref(100000, shard_account_blocks_)) {
+  if (!block::tlb::t_ShardAccountBlocks.validate_ref(100000000, shard_account_blocks_)) {
     return fatal_error("new ShardAccountBlocks failed to pass handwritten validity tests");
   }
   auto shard_accounts = account_dict->get_root();
@@ -2151,10 +2151,10 @@ bool Collator::combine_account_transactions() {
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new ShardAccounts";
-    if (!block::gen::t_ShardAccounts.validate_upto(100000, *shard_accounts)) {
+    if (!block::gen::t_ShardAccounts.validate_upto(100000000, *shard_accounts)) {
       return fatal_error("new ShardAccounts failed to pass automatic validity tests");
     }
-    if (!block::tlb::t_ShardAccounts.validate_upto(100000, *shard_accounts)) {
+    if (!block::tlb::t_ShardAccounts.validate_upto(100000000, *shard_accounts)) {
       return fatal_error("new ShardAccounts failed to pass handwritten validity tests");
     }
   }
@@ -3337,7 +3337,7 @@ bool Collator::create_mc_state_extra() {
     std::cerr << "updated shard configuration to ";
     block::gen::t_ShardHashes.print(std::cerr, *state_extra.shard_hashes);
   }
-  if (!block::gen::t_ShardHashes.validate_upto(10000, *state_extra.shard_hashes)) {
+  if (!block::gen::t_ShardHashes.validate_upto(10000000, *state_extra.shard_hashes)) {
     return fatal_error("new ShardHashes is invalid");
   }
   // 4. check extension flags
@@ -3435,7 +3435,7 @@ bool Collator::create_mc_state_extra() {
     state_extra.r1.block_create_stats = cs;
     if (verify >= 2) {
       LOG(INFO) << "verifying new BlockCreateStats";
-      if (!block::gen::t_BlockCreateStats.validate_csr(100000, cs)) {
+      if (!block::gen::t_BlockCreateStats.validate_csr(100000000, cs)) {
         cs->print_rec(std::cerr);
         block::gen::t_BlockCreateStats.print(std::cerr, *cs);
         return fatal_error("BlockCreateStats in the new masterchain state failed to pass automated validity checks");
@@ -3453,8 +3453,8 @@ bool Collator::create_mc_state_extra() {
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new McStateExtra";
-    CHECK(block::gen::t_McStateExtra.validate_ref(1000000, mc_state_extra_));
-    CHECK(block::tlb::t_McStateExtra.validate_ref(1000000, mc_state_extra_));
+    CHECK(block::gen::t_McStateExtra.validate_ref(1000000000, mc_state_extra_));
+    CHECK(block::tlb::t_McStateExtra.validate_ref(1000000000, mc_state_extra_));
   }
   LOG(INFO) << "McStateExtra created";
   return true;
@@ -3793,8 +3793,8 @@ bool Collator::create_shard_state() {
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new ShardState";
-    CHECK(block::gen::t_ShardState.validate_ref(1000000, state_root));
-    CHECK(block::tlb::t_ShardState.validate_ref(1000000, state_root));
+    CHECK(block::gen::t_ShardState.validate_ref(1000000000, state_root));
+    CHECK(block::tlb::t_ShardState.validate_ref(1000000000, state_root));
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
   state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
@@ -4036,7 +4036,7 @@ bool Collator::create_block() {
   }
   if (verify >= 1) {
     LOG(INFO) << "verifying new Block";
-    if (!block::gen::t_Block.validate_ref(10000000, new_block)) {
+    if (!block::gen::t_Block.validate_ref(1000000000, new_block)) {
       return fatal_error("new Block failed to pass automatic validity tests");
     }
   }
