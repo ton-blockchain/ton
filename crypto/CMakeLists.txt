@@ -374,6 +374,7 @@ if (USE_EMSCRIPTEN)
   target_link_options(fift-lib PRIVATE -fexceptions)
   target_compile_options(fift-lib PRIVATE -fexceptions)
 endif()
+set_target_properties(fift-lib PROPERTIES OUTPUT_NAME fift)
 
 add_executable(fift fift/fift-main.cpp)
 target_link_libraries(fift PUBLIC fift-lib git)
@@ -385,7 +386,7 @@ add_library(src_parser ${PARSER_SOURCE})
 target_include_directories(src_parser PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(src_parser PUBLIC ton_crypto_core ${OPENSSL_CRYPTO_LIBRARY})
 
-add_library(ton_block ${BLOCK_SOURCE})
+add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api ${OPENSSL_CRYPTO_LIBRARY})

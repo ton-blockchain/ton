@@ -596,7 +596,7 @@ long parse_bitstring_hex_literal(unsigned char* buff, std::size_t buff_size, con
   unsigned char* ptr = buff;
   const char* rptr = str;
   while (rptr < str_end) {
-    int c = *rptr++;
+    char c = *rptr++;
     if (c == ' ' || c == '\t') {
       continue;
     }
@@ -627,14 +627,14 @@ long parse_bitstring_hex_literal(unsigned char* buff, std::size_t buff_size, con
   if (cmpl && bits) {
     int t = (hex_digits_count & 1) ? (0x100 + *ptr) >> 4 : (0x100 + *--ptr);
     while (bits > 0) {
+      if (t == 1) {
+        t = 0x100 + *--ptr;
+      }
       --bits;
       if (t & 1) {
         break;
       }
       t >>= 1;
-      if (t == 1) {
-        t = 0x100 + *--ptr;
-      }
     }
   }
   return bits;
