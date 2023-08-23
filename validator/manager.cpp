@@ -2140,7 +2140,7 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
     CHECK(!validator_id.is_zero());
     auto G = td::actor::create_actor<ValidatorGroup>(
         "validatorgroup", shard, validator_id, session_id, validator_set,
-        last_masterchain_state_->get_collator_config(true), opts, keyring_, adnl_, rldp_, overlays_, db_root_,
+        last_masterchain_state_->get_collator_config(true), opts, keyring_, adnl_, rldp2_, overlays_, db_root_,
         actor_id(this), init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()),
         opts_->validator_mode());
     return G;
@@ -2830,10 +2830,10 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp, overlays);
+                                                                  rldp, rldp2, overlays);
 }
 
 }  // namespace validator

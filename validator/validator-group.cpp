@@ -336,7 +336,7 @@ void ValidatorGroup::create_session() {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
 
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
+  td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, local_adnl_id_);
 }
 
 void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) {

@@ -74,7 +74,7 @@ class FullNode : public td::actor::Actor {
   virtual void set_config(FullNodeConfig config) = 0;
 
   static constexpr td::uint32 max_block_size() {
-    return 4 << 20;
+    return 40 << 20;
   }
   static constexpr td::uint32 max_proof_size() {
     return 4 << 20;

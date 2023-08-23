@@ -23,6 +23,7 @@
 #include "validator-session/validator-session.h"
 
 #include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 
 #include <list>
 
@@ -65,7 +66,7 @@ class ValidatorGroup : public td::actor::Actor {
                  td::Ref<ValidatorSet> validator_set, block::CollatorConfig collator_config,
                  validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                 td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                 td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                  std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
                  bool allow_unsafe_self_blocks_resync,
                  ValidatorManagerOptions::ValidatorMode mode = ValidatorManagerOptions::validator_normal)
@@ -118,7 +119,7 @@ class ValidatorGroup : public td::actor::Actor {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   std::string db_root_;
   td::actor::ActorId<ValidatorManager> manager_;

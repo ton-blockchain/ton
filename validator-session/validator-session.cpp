@@ -887,7 +887,7 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
                                            PublicKeyHash local_id, std::vector<ValidatorSessionNode> nodes,
                                            std::unique_ptr<Callback> callback,
                                            td::actor::ActorId<keyring::Keyring> keyring,
-                                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+                                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp,
                                            td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
                                            std::string db_suffix, bool allow_unsafe_self_blocks_resync)
     : unique_hash_(session_id)
@@ -934,7 +934,7 @@ void ValidatorSessionImpl::start_up() {
   virtual_state_ = real_state_;
 
   check_all();
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, description().get_source_adnl_id(local_idx()));
+  td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, description().get_source_adnl_id(local_idx()));
 
   stats_init();
 }
@@ -994,7 +994,7 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
     catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
     std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+    td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
     std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
   return td::actor::create_actor<ValidatorSessionImpl>("session", session_id, std::move(opts), local_id,
                                                        std::move(nodes), std::move(callback), keyring, adnl, rldp,
