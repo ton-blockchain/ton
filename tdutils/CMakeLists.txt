@@ -297,9 +297,7 @@ set(TDUTILS_TEST_SOURCE
 #RULES
 #LIBRARIES
 add_library(tdutils STATIC ${TDUTILS_SOURCE})
-if (EMSCRIPTEN OR WIN32)
-  add_dependencies(tdutils openssl)
-endif()
+add_dependencies(tdutils openssl)
 
 if (WIN32)
   target_link_libraries(tdutils PRIVATE ws2_32 crypt32 Mswsock Normaliz psapi)

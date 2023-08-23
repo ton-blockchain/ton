@@ -393,7 +393,7 @@ target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api ${
 
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(func PUBLIC ton_crypto src_parser git ton_block)
+target_link_libraries(func PUBLIC ton_crypto tdutils src_parser git ton_block)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(func wingetopt)
 endif()
