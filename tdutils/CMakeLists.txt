@@ -297,7 +297,9 @@ set(TDUTILS_TEST_SOURCE
 #RULES
 #LIBRARIES
 add_library(tdutils STATIC ${TDUTILS_SOURCE})
-add_dependencies(tdutils openssl)
+if (NOT NIX AND NOT ANDROID)
+  add_dependencies(tdutils openssl)
+endif()
 
 if (WIN32)
   target_link_libraries(tdutils PRIVATE ws2_32 crypt32 Mswsock Normaliz psapi)
