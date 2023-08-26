@@ -34,7 +34,7 @@ DownloadProof::DownloadProof(BlockIdExt block_id, bool allow_partial_proof, bool
                              adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
                              adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                             td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                             td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                              td::Promise<td::BufferSlice> promise)
     : block_id_(block_id)

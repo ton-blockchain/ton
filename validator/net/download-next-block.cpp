@@ -32,7 +32,7 @@ DownloadNextBlock::DownloadNextBlock(adnl::AdnlNodeIdShort local_id, overlay::Ov
                                      BlockHandle prev, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                                      td::Timestamp timeout,
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                     td::actor::ActorId<rldp::Rldp> rldp,
+                                     td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
                                      td::actor::ActorId<overlay::Overlays> overlays,
                                      td::actor::ActorId<adnl::Adnl> adnl,
                                      td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise)

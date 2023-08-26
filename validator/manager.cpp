@@ -2739,7 +2739,7 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   auto it = collator_nodes_.find(id);
   if (it == collator_nodes_.end()) {
     it = collator_nodes_.emplace(id, Collator()).first;
-    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp_);
+    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp2_);
   }
   if (!it->second.shards.insert(shard).second) {
     return;

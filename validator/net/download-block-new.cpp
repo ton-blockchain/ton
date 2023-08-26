@@ -34,7 +34,7 @@ DownloadBlockNew::DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort lo
                                    overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from,
                                    td::uint32 priority, td::Timestamp timeout,
                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                   td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                                    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                                    td::Promise<ReceivedBlock> promise)
     : block_id_(block_id)
@@ -57,7 +57,7 @@ DownloadBlockNew::DownloadBlockNew(adnl::AdnlNodeIdShort local_id, overlay::Over
                                    BlockIdExt prev_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                                    td::Timestamp timeout,
                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                   td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                                    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                                    td::Promise<ReceivedBlock> promise)
     : local_id_(local_id)

@@ -17,7 +17,7 @@
 #pragma once
 
 #include "interfaces/validator-manager.h"
-#include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 #include <map>
 
 namespace ton {
@@ -29,7 +29,7 @@ class ValidatorManager;
 class CollatorNode : public td::actor::Actor {
  public:
   CollatorNode(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<ValidatorManager> manager,
-               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp);
+               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp);
   void start_up() override;
   void tear_down() override;
   void add_shard(ShardIdFull shard);
@@ -48,7 +48,7 @@ class CollatorNode : public td::actor::Actor {
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp_;
   std::vector<ShardIdFull> shards_;
   std::set<adnl::AdnlNodeIdShort> validators_;
 
