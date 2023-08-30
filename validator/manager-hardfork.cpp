@@ -366,8 +366,8 @@ void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::
   promise.set_result(ihr_messages_);
 }
 
-void ValidatorManagerImpl::get_shard_blocks(BlockIdExt masterchain_block_id,
-                                            td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
+void ValidatorManagerImpl::get_shard_blocks_for_collator(
+    BlockIdExt masterchain_block_id, td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
 }
 
 void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {

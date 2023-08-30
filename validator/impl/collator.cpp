@@ -236,12 +236,12 @@ void Collator::start_up() {
   }
   if (is_masterchain() && !is_hardfork_) {
     // 5. load shard block info messages
-    LOG(DEBUG) << "sending get_shard_blocks() query to Manager";
+    LOG(DEBUG) << "sending get_shard_blocks_for_collator() query to Manager";
     ++pending;
     td::actor::send_closure_later(
-        manager, &ValidatorManager::get_shard_blocks, prev_blocks[0],
+        manager, &ValidatorManager::get_shard_blocks_for_collator, prev_blocks[0],
         [self = get_self()](td::Result<std::vector<Ref<ShardTopBlockDescription>>> res) -> void {
-          LOG(DEBUG) << "got answer to get_shard_blocks() query";
+          LOG(DEBUG) << "got answer to get_shard_blocks_for_collator() query";
           td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_blocks, std::move(res));
         });
   }
@@ -1405,8 +1405,8 @@ bool Collator::import_new_shard_top_blocks() {
           prev_descr.clear();
           descr.clear();
         } else {
-          LOG(INFO) << "updated top shard block information with " << sh_bd->block_id().to_str() << " and "
-                    << prev_bd->block_id().to_str();
+          LOG(DEBUG) << "updated top shard block information with " << sh_bd->block_id().to_str() << " and "
+                     << prev_bd->block_id().to_str();
           CHECK(ures.move_as_ok());
           store_shard_fees(std::move(prev_descr));
           store_shard_fees(std::move(descr));
@@ -1448,7 +1448,7 @@ bool Collator::import_new_shard_top_blocks() {
     store_shard_fees(std::move(descr));
     register_shard_block_creators(sh_bd->get_creator_list(chain_len));
     shards_max_end_lt_ = std::max(shards_max_end_lt_, end_lt);
-    LOG(INFO) << "updated top shard block information with " << sh_bd->block_id().to_str();
+    LOG(DEBUG) << "updated top shard block information with " << sh_bd->block_id().to_str();
     CHECK(ures.move_as_ok());
     ++tb_act;
     used_shard_block_descr_.emplace_back(sh_bd);
@@ -1456,10 +1456,13 @@ bool Collator::import_new_shard_top_blocks() {
   if (tb_act) {
     shard_conf_adjusted_ = true;
   }
-  if (tb_act && verbosity >= 0) {  // DEBUG
-    LOG(INFO) << "updated shard block configuration to ";
-    auto csr = shard_conf_->get_root_csr();
-    block::gen::t_ShardHashes.print(std::cerr, csr.write());
+  if (tb_act) {
+    LOG(INFO) << "updated shard block configuration: " << tb_act << " new top shard blocks";
+    if (verbosity >= 1) {
+      LOG(INFO) << "updated shard block configuration to ";
+      auto csr = shard_conf_->get_root_csr();
+      block::gen::t_ShardHashes.print(std::cerr, csr.write());
+    }
   }
   block::gen::ShardFeeCreated::Record fc;
   if (!(tlb::csr_unpack(fees_import_dict_->get_root_extra(),
