@@ -72,7 +72,7 @@ class OutMsgQueueImporter : public td::actor::Actor {
   void finish_query(std::shared_ptr<CacheEntry> entry);
   bool check_timeout(std::shared_ptr<CacheEntry> entry);
 
-  constexpr static const double CACHE_TTL = 30.0;
+  constexpr static const double CACHE_TTL = 60.0;
 };
 
 class BuildOutMsgQueueProof : public td::actor::Actor {

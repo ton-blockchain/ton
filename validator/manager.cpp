@@ -441,7 +441,7 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
     return;
   }
   auto it = shard_blocks_.find(ShardTopBlockDescriptionId{block_id.shard_full(), cc_seqno});
-  if (it != shard_blocks_.end() && block_id.id.seqno <= it->second->block_id().id.seqno) {
+  if (it != shard_blocks_.end() && block_id.id.seqno <= it->second.latest_desc->block_id().id.seqno) {
     VLOG(VALIDATOR_DEBUG) << "dropping duplicate shard block broadcast";
     return;
   }
@@ -459,11 +459,11 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
 void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
   if (desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
     auto it = shard_blocks_.find(ShardTopBlockDescriptionId{desc->shard(), desc->catchain_seqno()});
-    if (it != shard_blocks_.end() && desc->block_id().id.seqno <= it->second->block_id().id.seqno) {
+    if (it != shard_blocks_.end() && desc->block_id().id.seqno <= it->second.latest_desc->block_id().id.seqno) {
       VLOG(VALIDATOR_DEBUG) << "dropping duplicate shard block broadcast";
       return;
     }
-    shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}] = desc;
+    shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}].latest_desc = desc;
     VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id();
     if (need_monitor(desc->block_id().shard_full())) {
       auto P = td::PromiseCreator::lambda([](td::Result<td::Ref<ShardState>> R) {
@@ -478,10 +478,50 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
       });
       wait_block_state_short(desc->block_id(), 0, td::Timestamp::in(60.0), std::move(P));
     }
-    if (collating_masterchain() && desc->generated_at() > td::Clocks::system() - 20) {
-      wait_neighbor_msg_queue_proofs(ShardIdFull{masterchainId}, {desc->block_id()}, td::Timestamp::in(15.0),
-                                     [](td::Result<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>>) {});
+    if (collating_masterchain()) {
+      preload_msg_queue_to_masterchain(desc);
     }
+  }
+}
+
+void ValidatorManagerImpl::preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc) {
+  auto id = ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()};
+  auto it = shard_blocks_.find(id);
+  if (!collating_masterchain() || it == shard_blocks_.end() || it->second.latest_desc->block_id() != desc->block_id()) {
+    return;
+  }
+  wait_neighbor_msg_queue_proofs(
+      ShardIdFull{masterchainId}, {desc->block_id()}, td::Timestamp::in(10.0),
+      [=, SelfId = actor_id(this),
+       retry_at = td::Timestamp::in(1.0)](td::Result<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> R) {
+        if (R.is_error()) {
+          delay_action(
+              [=]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::preload_msg_queue_to_masterchain, desc); },
+              retry_at);
+          return;
+        }
+        auto res = R.move_as_ok();
+        auto &queue = res[desc->block_id()];
+        CHECK(queue.not_null());
+        td::actor::send_closure(SelfId, &ValidatorManagerImpl::loaded_msg_queue_to_masterchain, desc, std::move(queue));
+      });
+}
+
+void ValidatorManagerImpl::loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc,
+                                                           td::Ref<OutMsgQueueProof> res) {
+  auto id = ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()};
+  auto it = shard_blocks_.find(id);
+  if (it == shard_blocks_.end()) {
+    return;
+  }
+  auto &info = it->second;
+  if (info.ready_desc.is_null() || info.ready_desc->block_id().seqno() < desc->block_id().seqno()) {
+    VLOG(VALIDATOR_DEBUG) << "loaded out msg queue to masterchain from " << desc->block_id();
+    if (info.ready_desc.not_null()) {
+      cached_msg_queue_to_masterchain_.erase(info.ready_desc->block_id());
+    }
+    info.ready_desc = desc;
+    cached_msg_queue_to_masterchain_[desc->block_id()] = std::move(res);
   }
 }
 
@@ -628,6 +668,56 @@ void ValidatorManagerImpl::wait_neighbor_msg_queue_proofs(
   if (out_msg_queue_importer_.empty()) {
     out_msg_queue_importer_ = td::actor::create_actor<OutMsgQueueImporter>("outmsgqueueimporter", actor_id(this), opts_,
                                                                            last_masterchain_state_);
+  }
+  if (dst_shard.is_masterchain()) {
+    // We spit queries for masterchain {dst_shard, {block_1, ..., block_n}} into separate queries
+    // {dst_shard, {block_1}}, ..., {dst_shard, {block_n}}
+    // Also, use cache
+    class Worker : public td::actor::Actor {
+     public:
+      Worker(size_t pending, td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise)
+          : pending_(pending), promise_(std::move(promise)) {
+        CHECK(pending_ > 0);
+      }
+
+      void on_result(td::Ref<OutMsgQueueProof> res) {
+        result_[res->block_id_] = res;
+        if (--pending_ == 0) {
+          promise_.set_result(std::move(result_));
+          stop();
+        }
+      }
+
+      void on_error(td::Status error) {
+        promise_.set_error(std::move(error));
+        stop();
+      }
+
+     private:
+      size_t pending_;
+      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise_;
+      std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> result_;
+    };
+    auto worker = td::actor::create_actor<Worker>("queueworker", blocks.size(), std::move(promise)).release();
+    for (const BlockIdExt &block : blocks) {
+      auto it = cached_msg_queue_to_masterchain_.find(block);
+      if (it != cached_msg_queue_to_masterchain_.end()) {
+        td::actor::send_closure(worker, &Worker::on_result, it->second);
+        continue;
+      }
+      td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::get_neighbor_msg_queue_proofs, dst_shard,
+                              std::vector<BlockIdExt>{1, block}, timeout,
+                              [=](td::Result<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> R) {
+                                if (R.is_error()) {
+                                  td::actor::send_closure(worker, &Worker::on_error, R.move_as_error());
+                                } else {
+                                  auto res = R.move_as_ok();
+                                  CHECK(res.size() == 1);
+                                  td::actor::send_closure(worker, &Worker::on_result, res.begin()->second);
+                                }
+                              });
+    }
+    return;
   }
   td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::get_neighbor_msg_queue_proofs, dst_shard,
                           std::move(blocks), timeout, std::move(promise));
@@ -843,11 +933,14 @@ void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::
   promise.set_value(std::move(res));
 }
 
-void ValidatorManagerImpl::get_shard_blocks(BlockIdExt masterchain_block_id,
-                                            td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
+void ValidatorManagerImpl::get_shard_blocks_for_collator(
+    BlockIdExt masterchain_block_id, td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
   std::vector<td::Ref<ShardTopBlockDescription>> v;
   for (auto &b : shard_blocks_) {
-    v.push_back(b.second);
+    if (b.second.ready_desc.is_null()) {
+      continue;
+    }
+    v.push_back(b.second.ready_desc);
   }
   promise.set_value(std::move(v));
 }
@@ -1786,7 +1879,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
   }
   if (is_collator()) {
     std::set<ShardIdFull> collating_shards;
-    if (validating_masterchain()) {
+    if (collating_masterchain()) {
       collating_shards.emplace(masterchainId);
     }
     for (const auto &collator : collator_nodes_) {
@@ -2080,12 +2173,19 @@ void ValidatorManagerImpl::update_shard_blocks() {
     auto it = shard_blocks_.begin();
     while (it != shard_blocks_.end()) {
       auto &B = it->second;
-      if (!B->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
-        auto it2 = it++;
-        shard_blocks_.erase(it2);
-      } else {
-        ++it;
+      if (!B.latest_desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
+        if (B.ready_desc.not_null()) {
+          cached_msg_queue_to_masterchain_.erase(B.ready_desc->block_id());
+        }
+        it = shard_blocks_.erase(it);
+        continue;
       }
+      if (B.ready_desc.not_null() &&
+          !B.ready_desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
+        cached_msg_queue_to_masterchain_.erase(B.ready_desc->block_id());
+        B.ready_desc = {};
+      }
+      ++it;
     }
   }
 

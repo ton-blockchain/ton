@@ -220,7 +220,15 @@ class ValidatorManagerImpl : public ValidatorManager {
     }
   };
   // DATA FOR COLLATOR
-  std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
+  // Shard block will not be used until queue is ready (to avoid too long masterchain collation)
+  // latest_desc - latest known block
+  // ready_desc - block with ready msg queue (may be null)
+  struct ShardTopBlock {
+    td::Ref<ShardTopBlockDescription> latest_desc;
+    td::Ref<ShardTopBlockDescription> ready_desc;
+  };
+  std::map<ShardTopBlockDescriptionId, ShardTopBlock> shard_blocks_;
+  std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> cached_msg_queue_to_masterchain_;
   std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
   std::map<std::pair<ton::WorkchainId,ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>> ext_addr_messages_;
   std::map<ExtMessage::Hash, MessageId<ExtMessage>> ext_messages_hashes_;
@@ -410,8 +418,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
   void get_external_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<ExtMessage>>> promise) override;
   void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
-  void get_shard_blocks(BlockIdExt masterchain_block_id,
-                        td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
+  void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
+                                     td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                   std::vector<ExtMessage::Hash> to_delete) override;
   void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay, std::vector<IhrMessage::Hash> to_delete) override;
@@ -493,6 +501,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
+  void preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc);
+  void loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Ref<OutMsgQueueProof> res);
 
   void register_block_handle(BlockHandle handle);
 

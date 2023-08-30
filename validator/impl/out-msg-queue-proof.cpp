@@ -289,50 +289,6 @@ void OutMsgQueueImporter::get_neighbor_msg_queue_proofs(
     promise.set_value({});
     return;
   }
-  if (dst_shard.is_masterchain() && blocks.size() != 1) {
-    // We spit queries for masterchain {dst_shard, {block_1, ..., block_n}} into separate queries
-    // {dst_shard, {block_1}}, ..., {dst_shard, {block_n}}
-    class Worker : public td::actor::Actor {
-     public:
-      Worker(size_t pending, td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise)
-          : pending_(pending), promise_(std::move(promise)) {
-        CHECK(pending_ > 0);
-      }
-
-      void on_result(td::Ref<OutMsgQueueProof> res) {
-        result_[res->block_id_] = res;
-        if (--pending_ == 0) {
-          promise_.set_result(std::move(result_));
-          stop();
-        }
-      }
-
-      void on_error(td::Status error) {
-        promise_.set_error(std::move(error));
-        stop();
-      }
-
-     private:
-      size_t pending_;
-      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise_;
-      std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> result_;
-    };
-    auto worker = td::actor::create_actor<Worker>("queueworker", blocks.size(), std::move(promise)).release();
-    for (const BlockIdExt& block : blocks) {
-      get_neighbor_msg_queue_proofs(dst_shard, {block}, timeout,
-                                    [=](td::Result<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> R) {
-                                      if (R.is_error()) {
-                                        td::actor::send_closure(worker, &Worker::on_error, R.move_as_error());
-                                      } else {
-                                        auto res = R.move_as_ok();
-                                        CHECK(res.size() == 1);
-                                        td::actor::send_closure(worker, &Worker::on_result, res.begin()->second);
-                                      }
-                                    });
-    }
-    return;
-  }
-
   std::sort(blocks.begin(), blocks.end());
   auto entry = cache_[{dst_shard, blocks}];
   if (entry) {
