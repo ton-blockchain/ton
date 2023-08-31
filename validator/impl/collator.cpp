@@ -1458,7 +1458,7 @@ bool Collator::import_new_shard_top_blocks() {
   }
   if (tb_act) {
     LOG(INFO) << "updated shard block configuration: " << tb_act << " new top shard blocks";
-    if (verbosity >= 1) {
+    if (verbosity >= 3) {
       LOG(INFO) << "updated shard block configuration to ";
       auto csr = shard_conf_->get_root_csr();
       block::gen::t_ShardHashes.print(std::cerr, csr.write());
@@ -3336,7 +3336,7 @@ bool Collator::create_mc_state_extra() {
   }
   // 3. save new shard_hashes
   state_extra.shard_hashes = shard_conf_->get_root_csr();
-  if (verbosity >= 3 * 0) {  // DEBUG
+  if (verbosity >= 3) {
     std::cerr << "updated shard configuration to ";
     block::gen::t_ShardHashes.print(std::cerr, *state_extra.shard_hashes);
   }
@@ -3734,7 +3734,7 @@ bool Collator::update_public_libraries() {
       }
     }
   }
-  if (libraries_changed_ && verbosity >= 2 * 0) {
+  if (libraries_changed_ && verbosity >= 2) {
     std::cerr << "New public libraries: ";
     block::gen::t_HashmapE_256_LibDescr.print(std::cerr, shard_libraries_->get_root());
     shard_libraries_->get_root()->print_rec(std::cerr);
