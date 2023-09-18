@@ -250,6 +250,9 @@ void OutMsgQueueImporter::new_masterchain_block_notification(td::Ref<Masterchain
   if (collating_shards.empty() || state->get_unix_time() < (td::uint32)td::Clocks::system() - 20) {
     return;
   }
+  if (state->is_msg_queue_import_disabled()) {
+    return;
+  }
   auto can_collate_shard = [&](const ShardIdFull& shard) -> bool {
     return std::any_of(collating_shards.begin(), collating_shards.end(),
                        [&](ShardIdFull our_shard) { return shard_intersects(shard, our_shard); });

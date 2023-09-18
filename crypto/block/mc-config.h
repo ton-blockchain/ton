@@ -661,6 +661,14 @@ class Config {
   static td::Result<std::vector<int>> unpack_param_dict(vm::Dictionary& dict);
   static td::Result<std::vector<int>> unpack_param_dict(Ref<vm::Cell> dict_root);
 
+  bool is_msg_queue_import_disabled() const {
+    auto c = get_config_param(-100);
+    if (c.is_null()) {
+      return false;
+    }
+    return vm::CellSlice(vm::NoVm(), c).prefetch_long(8);
+  }
+
   Config(int _mode) : mode(_mode) {
     config_addr.set_zero();
   }
