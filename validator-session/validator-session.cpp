@@ -21,7 +21,6 @@
 #include "td/utils/crypto.h"
 #include "ton/ton-tl.hpp"
 #include "candidate-serializer.h"
-#include <cstdlib>
 
 namespace ton {
 
@@ -747,15 +746,7 @@ void ValidatorSessionImpl::request_new_block(bool now) {
     return;
   }
   requested_new_block_ = true;
-  static bool faster_cc_blocks = []() -> bool{
-    const char* env = getenv("TON_FASTER_CC_BLOCKS");
-    bool x = env && !strcmp(env, "1");
-    if (x) {
-      LOG(ERROR) << "Enabled TON_FASTER_CC_BLOCKS";
-    }
-    return x;
-  }();
-  if (now || faster_cc_blocks) {
+  if (now) {
     requested_new_block_now_ = true;
     td::actor::send_closure(catchain_, &catchain::CatChain::need_new_block, td::Timestamp::now());
   } else {
