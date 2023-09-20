@@ -746,7 +746,7 @@ void ValidatorSessionImpl::request_new_block(bool now) {
     return;
   }
   requested_new_block_ = true;
-  if (now) {
+  if (now || fast_cc_blocks_) {
     requested_new_block_now_ = true;
     td::actor::send_closure(catchain_, &catchain::CatChain::need_new_block, td::Timestamp::now());
   } else {

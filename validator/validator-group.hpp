@@ -149,6 +149,8 @@ class ValidatorGroup : public td::actor::Actor {
   static CacheKey block_to_cache_key(const BlockCandidate& block) {
     return std::make_tuple(block.pubkey.as_bits256(), block.id, sha256_bits256(block.data), block.collated_file_hash);
   }
+
+  void update_fast_cc_blocks(td::Ref<BlockData> new_block);
 };
 
 }  // namespace validator

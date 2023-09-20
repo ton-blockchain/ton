@@ -24,6 +24,7 @@
 #include "ton/ton-tl.hpp"
 #include "td/utils/Random.h"
 #include "collator-node.hpp"
+#include "block-auto.h"
 
 namespace ton {
 
@@ -171,6 +172,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
   td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id, std::move(stats));
   auto block =
       block_data.size() > 0 ? create_block(next_block_id, std::move(block_data)).move_as_ok() : td::Ref<BlockData>{};
+  update_fast_cc_blocks(block);
   accept_block_query(next_block_id, std::move(block), std::move(prev_block_ids_), std::move(sig_set),
                      std::move(approve_sig_set), src == local_id_, std::move(promise));
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
@@ -357,6 +359,7 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
 
     auto block =
         p.block.size() > 0 ? create_block(next_block_id, std::move(p.block)).move_as_ok() : td::Ref<BlockData>{};
+    update_fast_cc_blocks(block);
     accept_block_query(next_block_id, std::move(block), std::move(prev_block_ids_), std::move(p.sigs),
                        std::move(p.approve_sigs), false, std::move(p.promise));
     prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
@@ -495,6 +498,17 @@ void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::Buf
         promise.set_result(std::move(candidate));
       });
   validate_block_candidate(round_id, std::move(candidate), std::move(P));
+}
+
+void ValidatorGroup::update_fast_cc_blocks(td::Ref<BlockData> new_block) {
+  if (new_block.is_null() || session_.empty()) {
+    return;
+  }
+  block::gen::Block::Record blk;
+  block::gen::BlockInfo::Record info;
+  CHECK(tlb::unpack_cell(new_block->root_cell(), blk));
+  CHECK(tlb::unpack_cell(blk.info, info));
+  td::actor::send_closure(session_, &validatorsession::ValidatorSession::set_fast_cc_blocks, info.want_split);
 }
 
 }  // namespace validator
