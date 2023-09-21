@@ -25,4 +25,7 @@ target_link_libraries(opcode-timing ton_crypto)
 target_include_directories(pack-viewer PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..)
 
+add_executable(proxy-liteserver proxy-liteserver.cpp)
+target_link_libraries(proxy-liteserver tdutils tdactor adnl dht tl_api ton_crypto git lite-client-common)
+
 install(TARGETS generate-random-id RUNTIME DESTINATION bin)
