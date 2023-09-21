@@ -931,3 +931,6 @@ storage.daemon.withdraw contract:string = storage.daemon.Success;
 storage.daemon.sendCoins address:string amount:string message:string = storage.daemon.Success;
 storage.daemon.closeStorageContract address:string = storage.daemon.Success;
 storage.daemon.removeStorageProvider = storage.daemon.Success;
+
+---types---
+proxyLiteserver.config port:int id:PublicKey = proxyLiteserver.Config;
