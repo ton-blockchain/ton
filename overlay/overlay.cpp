@@ -287,7 +287,11 @@ void OverlayImpl::alarm() {
       if (peers_.size() > 0) {
         std::vector<OverlayNode> vec;
         for (td::uint32 i = 0; i < 20; i++) {
-          vec.push_back(get_random_peer()->get());
+          auto P = get_random_peer();
+          if (!P) {
+            break;
+          }
+          vec.push_back(P->get());
         }
         td::actor::send_closure(manager_, &OverlayManager::save_to_db, local_id_, overlay_id_, std::move(vec));
       }
