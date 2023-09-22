@@ -424,6 +424,7 @@ add_subdirectory(dht-server)
 add_subdirectory(utils)
 add_subdirectory(http)
 add_subdirectory(rldp-http-proxy)
+add_subdirectory(tps-counter)
 endif()
 #END internal
 
