@@ -12,37 +12,49 @@ if (NOT ZLIB_LIBRARY)
       set(ZLIB_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/zlib)
       set(ZLIB_LIBRARY ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc14/x64/ZlibStatReleaseWithoutAsm/zlibstat.lib)
       set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR})
-      add_custom_command(
-        WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
-        COMMAND cd contrib/vstudio/vc14
-        COMMAND msbuild /m /v:n zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
-        COMMENT "Build zlib with MSVC"
-        DEPENDS ${ZLIB_SOURCE_DIR}
-        OUTPUT ${ZLIB_LIBRARY}
-      )
+      if(NOT EXISTS "${ZLIB_LIBRARY}")
+          add_custom_command(
+            WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
+            COMMAND cd contrib/vstudio/vc14
+            COMMAND msbuild /m /v:n zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
+            COMMENT "Build zlib with MSVC"
+            DEPENDS ${ZLIB_SOURCE_DIR}
+            OUTPUT ${ZLIB_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built zlib: ${ZLIB_LIBRARY}")
+      endif()
     elseif (EMSCRIPTEN)
       set(ZLIB_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/zlib)
       set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/libz.a)
       set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR})
-      add_custom_command(
-          WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
-          COMMAND emconfigure ./configure --static
-          COMMAND emmake make
-          COMMENT "Build zlib with emscripten"
-          DEPENDS ${ZLIB_SOURCE_DIR}
-          OUTPUT ${ZLIB_LIBRARY}
-      )
+      if(NOT EXISTS "${ZLIB_LIBRARY}")
+          add_custom_command(
+              WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
+              COMMAND emconfigure ./configure --static
+              COMMAND emmake make
+              COMMENT "Build zlib with emscripten"
+              DEPENDS ${ZLIB_SOURCE_DIR}
+              OUTPUT ${ZLIB_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built zlib: ${ZLIB_LIBRARY}")
+      endif()
     else()
       set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/libz.a)
-      add_custom_command(
-          WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
-          COMMAND ./configure --static --prefix ${ZLIB_BINARY_DIR}
-          COMMAND make -j16
-          COMMAND make install
-          COMMENT "Build zlib"
-          DEPENDS ${ZLIB_SOURCE_DIR}
-          OUTPUT ${ZLIB_LIBRARY}
-      )
+      if(NOT EXISTS "${ZLIB_LIBRARY}")
+          add_custom_command(
+              WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
+              COMMAND ./configure --static --prefix ${ZLIB_BINARY_DIR}
+              COMMAND make -j16
+              COMMAND make install
+              COMMENT "Build zlib"
+              DEPENDS ${ZLIB_SOURCE_DIR}
+              OUTPUT ${ZLIB_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built zlib: ${ZLIB_LIBRARY}")
+      endif()
     endif()
 
 else()

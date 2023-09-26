@@ -17,14 +17,18 @@ if (NOT BLST_LIB)
       endif()
     endif()
 
-    file(MAKE_DIRECTORY ${BLST_BINARY_DIR})
-    add_custom_command(
-      WORKING_DIRECTORY ${BLST_BINARY_DIR}
-      COMMAND ${BLST_BUILD_COMMAND}
-      COMMENT "Build blst"
-      DEPENDS ${BLST_SOURCE_DIR}
-      OUTPUT ${BLST_LIB}
-    )
+    if(NOT EXISTS "${BLST_LIB}")
+        file(MAKE_DIRECTORY ${BLST_BINARY_DIR})
+        add_custom_command(
+          WORKING_DIRECTORY ${BLST_BINARY_DIR}
+          COMMAND ${BLST_BUILD_COMMAND}
+          COMMENT "Build blst"
+          DEPENDS ${BLST_SOURCE_DIR}
+          OUTPUT ${BLST_LIB}
+        )
+    else()
+      message(STATUS "Use built BLST: ${BLST_LIB}")
+    endif()
 else()
    message(STATUS "Use BLST: ${BLST_LIB}")
 endif()

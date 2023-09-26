@@ -12,40 +12,52 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_SOURCE_DIR}/libcrypto.lib)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
-      add_custom_command(
-        WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-        COMMAND perl Configure VC-WIN64A no-shared no-unit-test no-tests
-        COMMAND nmake
-        COMMENT "Build openssl with vs2017"
-        DEPENDS ${OPENSSL_SOURCE_DIR}
-        OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
-      )
+      if(NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}")
+        add_custom_command(
+          WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+          COMMAND perl Configure VC-WIN64A no-shared no-unit-test no-tests
+          COMMAND nmake
+          COMMENT "Build openssl with vs2017"
+          DEPENDS ${OPENSSL_SOURCE_DIR}
+          OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
+        )
+      else()
+        message(STATUS "Use built openssl: ${OPENSSL_CRYPTO_LIBRARY}")
+      endif()
     elseif (EMSCRIPTEN)
       set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/libcrypto.a)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
-      add_custom_command(
-          WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests
-          COMMAND sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
-          COMMAND sed -i 's/-ldl//g' Makefile
-          COMMAND sed -i 's/-O3/-Os/g' Makefile
-          COMMAND emmake make
-          COMMENT "Build openssl with emscripten"
-          DEPENDS ${OPENSSL_SOURCE_DIR}
-          OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
-      )
+      if(NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}")
+          add_custom_command(
+              WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+              COMMAND emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests
+              COMMAND sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
+              COMMAND sed -i 's/-ldl//g' Makefile
+              COMMAND sed -i 's/-O3/-Os/g' Makefile
+              COMMAND emmake make
+              COMMENT "Build openssl with emscripten"
+              DEPENDS ${OPENSSL_SOURCE_DIR}
+              OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built openssl: ${OPENSSL_CRYPTO_LIBRARY}")
+      endif()
     else()
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.a)
-      add_custom_command(
-          WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests
-          COMMAND make -j16
-          COMMAND make install_sw
-          COMMENT "Build openssl"
-          DEPENDS ${OPENSSL_SOURCE_DIR}
-          OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
-      )
+      if(NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}")
+          add_custom_command(
+              WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+              COMMAND ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests
+              COMMAND make -j16
+              COMMAND make install_sw
+              COMMENT "Build openssl"
+              DEPENDS ${OPENSSL_SOURCE_DIR}
+              OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built openssl: ${OPENSSL_CRYPTO_LIBRARY}")
+      endif()
     endif()
 
 else()

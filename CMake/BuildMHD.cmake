@@ -12,26 +12,34 @@ set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/include)
       set(MHD_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/mhd)
       set(MHD_LIBRARY ${MHD_SOURCE_DIR}/w32/VS2017/Output/x64/libmicrohttpd.lib)
       set(MHD_INCLUDE_DIR ${MHD_BINARY_DIR}/src/include)
-      add_custom_command(
-        WORKING_DIRECTORY ${MHD_SOURCE_DIR}
-        COMMAND cd w32/VS2017
-        COMMAND msbuild /m /v:n /p:Configuration=Release-static -p:PlatformToolset=v142 -p:Platform=x64 libmicrohttpd.sln
-        COMMENT "Build mhd with MSVC"
-        DEPENDS ${MHD_SOURCE_DIR}
-        OUTPUT ${MHD_LIBRARY}
-      )
+      if(NOT EXISTS "${MHD_LIBRARY}")
+          add_custom_command(
+            WORKING_DIRECTORY ${MHD_SOURCE_DIR}
+            COMMAND cd w32/VS2017
+            COMMAND msbuild /m /v:n /p:Configuration=Release-static -p:PlatformToolset=v142 -p:Platform=x64 libmicrohttpd.sln
+            COMMENT "Build mhd with MSVC"
+            DEPENDS ${MHD_SOURCE_DIR}
+            OUTPUT ${MHD_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built MHD: ${MHD_LIBRARY}")
+      endif()
     else()
       set(MHD_LIBRARY ${MHD_BINARY_DIR}/lib/libmicrohttpd.a)
-      add_custom_command(
-        WORKING_DIRECTORY ${MHD_SOURCE_DIR}
-        COMMAND ./autogen.sh
-        COMMAND ./configure -q --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static --without-gnutls
-        COMMAND make -j16
-        COMMAND make install
-        COMMENT "Build mhd"
-        DEPENDS ${MHD_SOURCE_DIR}
-        OUTPUT ${MHD_LIBRARY}
-      )
+      if(NOT EXISTS "${MHD_LIBRARY}")
+          add_custom_command(
+            WORKING_DIRECTORY ${MHD_SOURCE_DIR}
+            COMMAND ./autogen.sh
+            COMMAND ./configure -q --disable-option-checking --prefix ${MHD_BINARY_DIR} --with-pic --disable-shared --enable-static --without-gnutls
+            COMMAND make -j16
+            COMMAND make install
+            COMMENT "Build mhd"
+            DEPENDS ${MHD_SOURCE_DIR}
+            OUTPUT ${MHD_LIBRARY}
+          )
+      else()
+        message(STATUS "Use built MHD: ${MHD_LIBRARY}")
+      endif()
     endif()
 else()
    message(STATUS "Use mhd: ${MHD_LIBRARY}")
