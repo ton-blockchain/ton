@@ -40,6 +40,34 @@ namespace transaction {
 struct Transaction;
 }  // namespace transaction
 
+// Message sends the entire remaining balance of the contract,
+// forwarding fees are subtracted from that amount.
+const int SendModeRemainingBalance = 128;
+
+// Message also sends the remaining value from the incoming message.
+const int SendModeAddInboundValue = 64;
+
+// Account is destroyed when remaining balance is zero.
+// Has no effect if used without SendModeRemainingBalance.
+// See SendModeRemainingBalanceAndDestroy.
+const int SendModeDestroyWhenEmpty = 32;
+
+// Sends remaining balance and destroys contract.
+const int SendModeRemainingBalanceAndDestroy = 128+32;
+
+// Ignores the errors in the action phase (due to invalid address, insufficient funds etc.)
+const int SendModeIgnoreErrors = 2;
+
+// Pays message fwd/ihr fees separately.
+// If the flag is not set, those fees are subtracted from the message value.
+const int SendModePayMsgFees = 1;
+
+// Bits 2,3,4 are not used and must be set to zero.
+const int SendModeInvalidFlags = 4+8+16;
+
+// Flags "inbound value" and "remaining balance" cannot be used simultaneously.
+const int SendModeConflictingValue = 128+64;
+
 struct CollatorError {
   std::string msg;
   CollatorError(std::string _msg) : msg(_msg) {
