@@ -1295,10 +1295,6 @@ bool ValidateQuery::request_neighbor_queues() {
       return reject_query("invalid block id "s + shard_ptr->blk_.to_str() + " returned in information for neighbor " +
                           blk_id.to_str());
     }
-    if (config_->is_msg_queue_import_disabled() && !blk_id.is_masterchain() &&
-        !shard_intersects(blk_id.shard_full(), shard_)) {
-      continue;
-    }
     neighbors_.emplace_back(*shard_ptr);
   }
   int i = 0;

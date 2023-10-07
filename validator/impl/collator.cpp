@@ -630,14 +630,7 @@ bool Collator::request_neighbor_msg_queues() {
       return fatal_error(-667, "invalid block id "s + shard_ptr->blk_.to_str() +
                                    " returned in information for neighbor " + blk_id.to_str());
     }
-    if (config_->is_msg_queue_import_disabled() && !blk_id.is_masterchain() &&
-        !shard_intersects(blk_id.shard_full(), shard_)) {
-      continue;
-    }
     neighbors_.emplace_back(*shard_ptr);
-  }
-  if (config_->is_msg_queue_import_disabled()) {
-    LOG(INFO) << "Msg queue import is disabled";
   }
   std::vector<BlockIdExt> top_blocks;
   unsigned i = 0;

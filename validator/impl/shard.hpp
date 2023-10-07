@@ -166,10 +166,6 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
     return config_ ? config_->get_collator_config(need_collator_nodes) : block::CollatorConfig();
   }
 
-  bool is_msg_queue_import_disabled() const override {
-    return config_->is_msg_queue_import_disabled();
-  }
-
  private:
   ZeroStateIdExt zerostate_id_;
   std::shared_ptr<block::ConfigInfo> config_;

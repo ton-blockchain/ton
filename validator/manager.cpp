@@ -485,10 +485,6 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
 }
 
 void ValidatorManagerImpl::preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc) {
-  if (last_masterchain_state_->is_msg_queue_import_disabled()) {
-    loaded_msg_queue_to_masterchain(desc, {});
-    return;
-  }
   auto id = ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()};
   auto it = shard_blocks_.find(id);
   if (!collating_masterchain() || it == shard_blocks_.end() || it->second.latest_desc->block_id() != desc->block_id()) {
@@ -525,9 +521,7 @@ void ValidatorManagerImpl::loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlock
       cached_msg_queue_to_masterchain_.erase(info.ready_desc->block_id());
     }
     info.ready_desc = desc;
-    if (res.not_null()) {
-      cached_msg_queue_to_masterchain_[desc->block_id()] = std::move(res);
-    }
+    cached_msg_queue_to_masterchain_[desc->block_id()] = std::move(res);
   }
 }
 
