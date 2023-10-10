@@ -195,12 +195,14 @@ class ProxyLiteserver : public td::actor::Actor {
         auto G = fetch_tl_prefix<lite_api::liteServer_queryPrefix>(data, true);
         if (G.is_error()) {
           fatal_error(G.move_as_error());
+          return;
         }
       }
       fetch_tl_prefix<lite_api::liteServer_waitMasterchainSeqno>(data, true).ignore();
       auto F2 = fetch_tl_object<ton::lite_api::Function>(std::move(data), true);
       if (F2.is_error()) {
         fatal_error(F2.move_as_error());
+        return;
       }
       auto query = F2.move_as_ok();
       lite_api::downcast_call(*query, [&](auto& obj) { shard_ = liteclient::get_query_shard(obj); });
