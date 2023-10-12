@@ -962,7 +962,12 @@ int output_actions_count(Ref<vm::Cell> list) {
   int i = -1;
   do {
     ++i;
-    list = load_cell_slice(std::move(list)).prefetch_ref();
+    bool special = true;
+    auto cs = load_cell_slice_special(std::move(list), special);
+    if (special) {
+      break;
+    }
+    list = cs.prefetch_ref();
   } while (list.not_null());
   return i;
 }
@@ -1148,7 +1153,8 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     int out_act_num = output_actions_count(cp.actions);
     if (verbosity > 2) {
       std::cerr << "new smart contract data: ";
-      load_cell_slice(cp.new_data).print_rec(std::cerr);
+      bool can_be_special = true;
+      load_cell_slice_special(cp.new_data, can_be_special).print_rec(std::cerr);
       std::cerr << "output actions: ";
       block::gen::OutList{out_act_num}.print_ref(std::cerr, cp.actions);
     }
@@ -1219,7 +1225,15 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   int n = 0;
   while (true) {
     ap.action_list.push_back(list);
-    auto cs = load_cell_slice(std::move(list));
+    bool special = true;
+    auto cs = load_cell_slice_special(std::move(list), special);
+    if (special) {
+      ap.result_code = 32;  // action list invalid
+      ap.result_arg = n;
+      ap.action_list_invalid = true;
+      LOG(DEBUG) << "action list invalid: special cell";
+      return true;
+    }
     if (!cs.size_ext()) {
       break;
     }
