@@ -1065,6 +1065,11 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   } else if (in_msg_state.not_null()) {
     unpack_msg_state(true);  // use only libraries
   }
+  if (in_msg_extern && in_msg_state.not_null() && account.addr != in_msg_state->get_hash().bits()) {
+    LOG(DEBUG) << "in_msg_state hash mismatch in external message";
+    cp.skip_reason = ComputePhase::sk_bad_state;
+    return true;
+  }
   // initialize VM
   Ref<vm::Stack> stack = prepare_vm_stack(cp);
   if (stack.is_null()) {
