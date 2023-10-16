@@ -4010,8 +4010,37 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
                           key.to_hex(352) + " of neighbor " + nb.blk_.to_str());
     }
     if (shard_contains(shard_, enq.cur_prefix_)) {
-      // this message couldn't come from our own outbound queue because processed messages from our queue don't stay here
-      return fatal_error("have an already processed EnqueuedMsg from our shard: "s + key.to_hex(352));
+      // if this message comes from our own outbound queue, we must have dequeued it
+      if (out_entry.is_null()) {
+        return reject_query("our old outbound queue contains EnqueuedMsg with key "s + key.to_hex(352) +
+                            " already processed by this shard, but there is no ext_message_deq OutMsg record for this "
+                            "message in this block");
+      }
+      int tag = block::gen::t_OutMsg.get_tag(*out_entry);
+      if (tag == block::gen::OutMsg::msg_export_deq_short) {
+        block::gen::OutMsg::Record_msg_export_deq_short deq;
+        if (!tlb::csr_unpack(std::move(out_entry), deq)) {
+          return reject_query(
+              "cannot unpack msg_export_deq_short OutMsg record for already processed EnqueuedMsg with key "s +
+              key.to_hex(352) + " of old outbound queue");
+        }
+        if (deq.msg_env_hash != enq.msg_env_->get_hash().bits()) {
+          return reject_query("unpack ext_message_deq OutMsg record for already processed EnqueuedMsg with key "s +
+                              key.to_hex(352) + " of old outbound queue refers to MsgEnvelope with different hash " +
+                              deq.msg_env_hash.to_hex());
+        }
+      } else {
+        block::gen::OutMsg::Record_msg_export_deq deq;
+        if (!tlb::csr_unpack(std::move(out_entry), deq)) {
+          return reject_query(
+              "cannot unpack msg_export_deq OutMsg record for already processed EnqueuedMsg with key "s +
+              key.to_hex(352) + " of old outbound queue");
+        }
+        if (deq.out_msg->get_hash() != enq.msg_env_->get_hash()) {
+          return reject_query("unpack ext_message_deq OutMsg record for already processed EnqueuedMsg with key "s +
+                              key.to_hex(352) + " of old outbound queue contains a different MsgEnvelope");
+        }
+      }
     }
     // next check is incorrect after a merge, when ns_.processed_upto has > 1 entries
     // we effectively comment it out
@@ -4875,27 +4904,27 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
   // shared_lib_descr$00 lib:^Cell publishers:(Hashmap 256 True) = LibDescr;
   std::unique_ptr<vm::Dictionary> old_publishers, new_publishers;
   if (new_value.not_null()) {
-    if (!block::gen::t_LibDescr.validate_csr(new_value)) {
-      return reject_query("LibDescr with key "s + key.to_hex(256) +
-                          " in the libraries dictionary of the new state failed to pass automatic validity tests");
+    block::gen::LibDescr::Record rec;
+    if (!block::gen::csr_unpack(std::move(new_value), rec)) {
+      return reject_query("failed to unpack LibDescr with key "s + key.to_hex(256) +
+                          " in the libraries dictionary of the new state");
     }
-    auto lib_ref = new_value->prefetch_ref();
-    CHECK(lib_ref.not_null());
-    if (lib_ref->get_hash().as_bitslice() != key) {
+    if (rec.lib->get_hash().as_bitslice() != key) {
       return reject_query("LibDescr with key "s + key.to_hex(256) +
                           " in the libraries dictionary of the new state contains a library with different root hash " +
-                          lib_ref->get_hash().to_hex());
+                          rec.lib->get_hash().to_hex());
     }
-    CHECK(new_value.write().advance_ext(2, 1));
-    new_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(new_value), 256);
+    new_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(rec.publishers), 256);
   } else {
     new_publishers = std::make_unique<vm::Dictionary>(256);
   }
-  if (old_value.not_null() && !block::gen::t_LibDescr.validate_csr(old_value)) {
-    return reject_query("LibDescr with key "s + key.to_hex(256) +
-                        " in the libraries dictionary of the old state failed to pass automatic validity tests");
-    CHECK(old_value.write().advance_ext(2, 1));
-    old_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(old_value), 256);
+  if (old_value.not_null()) {
+    block::gen::LibDescr::Record rec;
+    if (!block::gen::csr_unpack(std::move(old_value), rec)) {
+      return reject_query("failed to unpack LibDescr with key "s + key.to_hex(256) +
+                          " in the libraries dictionary of the old state");
+    }
+    old_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(rec.publishers), 256);
   } else {
     old_publishers = std::make_unique<vm::Dictionary>(256);
   }
