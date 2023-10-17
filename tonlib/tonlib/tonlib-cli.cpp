@@ -390,6 +390,7 @@ class TonlibCli : public td::actor::Actor {
                                "<addr> with specified parameters\n";
       td::TerminalIO::out() << "getstate <key_id>\tget state of wallet with requested key\n";
       td::TerminalIO::out() << "getstatebytransaction <key_id> <lt> <hash>\tget state of wallet with requested key after transaction with local time <lt> and hash <hash> (base64url)\n";
+      td::TerminalIO::out() << "getconfig <param>\tshow specified configuration parameter from the latest masterchain state\n";
       td::TerminalIO::out() << "guessrevision <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "guessaccount <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "getaddress <key_id>\tget address of wallet with requested key\n";
@@ -492,6 +493,8 @@ class TonlibCli : public td::actor::Actor {
       get_state(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "getstatebytransaction") {
       get_state_by_transaction(parser, std::move(cmd_promise));
+    } else if (cmd == "getconfig") {
+      get_config_param(parser, std::move(cmd_promise));
     } else if (cmd == "getaddress") {
       get_address(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "importkeypem") {
@@ -2090,6 +2093,26 @@ class TonlibCli : public td::actor::Actor {
                  td::TerminalIO::out() << "transaction.Hash: " << td::base64_encode(state->last_transaction_id_->hash_)
                                        << "\n";
                  td::TerminalIO::out() << to_string(state->account_state_);
+                 return td::Unit();
+               }));
+  }
+
+  void get_config_param(td::ConstParser& parser, td::Promise<td::Unit> promise) {
+    TRY_RESULT_PROMISE(promise, param, td::to_integer_safe<td::int32>(parser.read_word()));
+    send_query(make_object<tonlib_api::getConfigParam>(0, param),
+               promise.wrap([param](auto&& result) -> td::Result<td::Unit> {
+                 TRY_RESULT(cell, vm::std_boc_deserialize(result->config_->bytes_, true));
+                 if (cell.is_null()) {
+                   td::TerminalIO::out() << "ConfigParam(" << param << ") = (null)\n";
+                   return td::Unit();
+                 }
+                 std::ostringstream os;
+                 if (param >= 0) {
+                   block::gen::ConfigParam{param}.print_ref(4096, os, cell);
+                   os << "\n";
+                 }
+                 vm::load_cell_slice(cell).print_rec(4096, os);
+                 td::TerminalIO::out() << "ConfigParam(" << param << ") = " << os.str() << "\n";
                  return td::Unit();
                }));
   }
