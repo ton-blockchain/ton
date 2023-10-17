@@ -44,6 +44,7 @@ std::string global_config;
 int msplit = 0;
 int duration = 16;
 int start_delay = 30;
+int max_shards = 1000000000;
 
 td::Bits256 to_bits256(const std::string& s) {
   td::Bits256 x;
@@ -153,9 +154,14 @@ class TpsCounter : public td::actor::Actor {
     block::ShardConfig sh_conf;
     CHECK(sh_conf.unpack(vm::load_cell_slice_ref(root)));
     auto ids = sh_conf.get_shard_hash_ids(true);
+    int rem = max_shards;
     for (auto id : ids) {
+      if (rem == 0) {
+        break;
+      }
       auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
       if (ref.not_null()) {
+        --rem;
         auto block = ref->top_block_id();
         LOG(INFO) << "  " << block.id.to_str();
         add_id(block);
@@ -194,7 +200,12 @@ class TpsCounter : public td::actor::Actor {
           }
           auto R2 = fetch_tl_object<lite_api::liteServer_blockHeader>(R.ok(), true);
           if (R2.is_error()) {
-            LOG(WARNING) << R2.error();
+            auto R3 = fetch_tl_object<lite_api::liteServer_error>(R.ok(), true);
+            if (R3.is_ok()) {
+              LOG(WARNING) << shard.to_str() << " Liteserver error: " << R3.ok()->code_ << " " << R3.ok()->message_;
+            } else {
+              LOG(WARNING) << shard.to_str() << " " << R2.error();
+            }
             td::actor::send_closure(SelfId, &TpsCounter::send_query_retr, std::move(q2), shard, std::move(promise));
             return;
           }
@@ -321,7 +332,8 @@ class TpsCounter : public td::actor::Actor {
     OneStat qrt[4];
     Stat() {
       int s = msplit;
-      for (int i = 0; i < (1 << s); ++i) {
+      int rem = max_shards;
+      for (int i = 0; i < (1 << s) && rem > 0; ++i, --rem) {
         shards[ShardIdFull(0, (td::uint64)(i * 2 + 1) << (64 - s - 1))];
       }
     }
@@ -382,6 +394,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('\0', "delay", "starting moment is X seconds ago (default=30)", [&](td::Slice arg) {
     start_delay = td::to_integer_safe<int>(arg).move_as_ok();
+    CHECK(start_delay >= 0);
+  });
+  p.add_option('M', "max-shards", "use only first X shards (default=unlimited)", [&](td::Slice arg) {
+    max_shards = td::to_integer_safe<int>(arg).move_as_ok();
     CHECK(start_delay >= 0);
   });
   p.add_option('h', "help", "prints a help message", [&]() {
