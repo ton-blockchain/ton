@@ -44,12 +44,12 @@ jobs:
         buildPath=`pwd`
 
         cmake -GNinja -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$buildPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$buildPath/openssl_1_1_1/libcrypto.a -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DCMAKE_CXX_FLAGS="-mavx2" ..
-        ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator
+        ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator proxy-liteserver
 
     - name: Find & copy binaries
       run: |
         mkdir artifacts-${{ matrix.os }}
-        cp build-${{ matrix.os }}/storage/storage-daemon/storage-daemon build-${{ matrix.os }}/storage/storage-daemon/storage-daemon-cli build-${{ matrix.os }}/crypto/fift build-${{ matrix.os }}/crypto/tlbc build-${{ matrix.os }}/crypto/func build-${{ matrix.os }}/crypto/create-state build-${{ matrix.os }}/validator-engine-console/validator-engine-console build-${{ matrix.os }}/tonlib/tonlib-cli build-${{ matrix.os }}/tonlib/libtonlibjson.so.0.5 build-${{ matrix.os }}/http/http-proxy build-${{ matrix.os }}/rldp-http-proxy/rldp-http-proxy build-${{ matrix.os }}/dht-server/dht-server build-${{ matrix.os }}/lite-client/lite-client build-${{ matrix.os }}/validator-engine/validator-engine build-${{ matrix.os }}/utils/generate-random-id build-${{ matrix.os }}/utils/json2tlo build-${{ matrix.os }}/adnl/adnl-proxy build-${{ matrix.os }}/emulator/libemulator.* artifacts-${{ matrix.os }}
+        cp build-${{ matrix.os }}/storage/storage-daemon/storage-daemon build-${{ matrix.os }}/storage/storage-daemon/storage-daemon-cli build-${{ matrix.os }}/crypto/fift build-${{ matrix.os }}/crypto/tlbc build-${{ matrix.os }}/crypto/func build-${{ matrix.os }}/crypto/create-state build-${{ matrix.os }}/validator-engine-console/validator-engine-console build-${{ matrix.os }}/tonlib/tonlib-cli build-${{ matrix.os }}/tonlib/libtonlibjson.so.0.5 build-${{ matrix.os }}/http/http-proxy build-${{ matrix.os }}/rldp-http-proxy/rldp-http-proxy build-${{ matrix.os }}/dht-server/dht-server build-${{ matrix.os }}/lite-client/lite-client build-${{ matrix.os }}/validator-engine/validator-engine build-${{ matrix.os }}/utils/generate-random-id build-${{ matrix.os }}/utils/json2tlo build-${{ matrix.os }}/adnl/adnl-proxy build-${{ matrix.os }}/emulator/libemulator.* build-${{ matrix.os }}/utils/proxy-liteserver artifacts-${{ matrix.os }}
         chmod +x artifacts-${{ matrix.os }}/*
         cp -R crypto/smartcont artifacts-${{ matrix.os }}
         cp -R crypto/fift/lib artifacts-${{ matrix.os }}

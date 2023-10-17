@@ -28,7 +28,7 @@ jobs:
           mkdir build
           cd build
           cmake -GNinja -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=11.7 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
-          ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator
+          ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
 
       - name: Find & copy binaries
         run: |
@@ -52,6 +52,7 @@ jobs:
           cp build/utils/json2tlo artifacts/
           cp build/adnl/adnl-proxy artifacts/
           cp build/emulator/*emulator.* artifacts/
+          cp build/utils/proxy-liteserver artifacts/
           chmod +x artifacts/*
           rsync -r crypto/smartcont artifacts/
           rsync -r crypto/fift/lib artifacts/
