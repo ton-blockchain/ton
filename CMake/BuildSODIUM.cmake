@@ -12,54 +12,42 @@ if (NOT SODIUM_LIBRARY_RELEASE)
       set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
       set(SODIUM_LIBRARY_RELEASE ${SODIUM_SOURCE_DIR}/bin/x64/Release/v142/static/libsodium.lib)
       set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/src/libsodium/include)
-      if(NOT EXISTS "${SODIUM_LIBRARY_RELEASE}")
-          add_custom_command(
-            WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
-            COMMAND set LIBSODIUM_FULL_BUILD=1
-            COMMAND cd builds/msvc/vs2017
-            COMMAND msbuild /m /v:n /p:Configuration=StaticRelease -p:PlatformToolset=v142 -p:Platform=x64
-            COMMENT "Build sodium with MSVC"
-            DEPENDS ${SODIUM_SOURCE_DIR}
-            OUTPUT ${SODIUM_LIBRARY_RELEASE}
-          )
-      else()
-        message(STATUS "Use built sodium: ${SODIUM_LIBRARY_RELEASE}")
-      endif()
+      add_custom_command(
+        WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
+        COMMAND set LIBSODIUM_FULL_BUILD=1
+        COMMAND cd builds/msvc/vs2017
+        COMMAND msbuild /m /v:n /p:Configuration=StaticRelease -p:PlatformToolset=v142 -p:Platform=x64
+        COMMENT "Build sodium with MSVC"
+        DEPENDS ${SODIUM_SOURCE_DIR}
+        OUTPUT ${SODIUM_LIBRARY_RELEASE}
+      )
     elseif (EMSCRIPTEN)
       set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
       set(SODIUM_LIBRARY_RELEASE ${SODIUM_BINARY_DIR}/src/libsodium/.libs/libsodium.a)
       set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/src/libsodium/include)
-      if(NOT EXISTS "${SODIUM_LIBRARY_RELEASE}")
-          add_custom_command(
-            WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
-            COMMAND export LIBSODIUM_FULL_BUILD=1
-            COMMAND ./autogen.sh
-            COMMAND emconfigure ./configure --disable-ssp --disable-shared --without-pthreads --disable-asm --disable-pie
-            COMMAND emmake make
-            COMMENT "Build sodium with emscripten"
-            DEPENDS ${SODIUM_SOURCE_DIR}
-            OUTPUT ${SODIUM_LIBRARY_RELEASE}
-          )
-      else()
-        message(STATUS "Use built sodium: ${SODIUM_LIBRARY_RELEASE}")
-      endif()
+      add_custom_command(
+        WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
+        COMMAND export LIBSODIUM_FULL_BUILD=1
+        COMMAND ./autogen.sh
+        COMMAND emconfigure ./configure --disable-ssp --disable-shared --without-pthreads --disable-asm --disable-pie
+        COMMAND emmake make
+        COMMENT "Build sodium with emscripten"
+        DEPENDS ${SODIUM_SOURCE_DIR}
+        OUTPUT ${SODIUM_LIBRARY_RELEASE}
+      )
     else()
       set(SODIUM_LIBRARY_RELEASE ${SODIUM_BINARY_DIR}/lib/libsodium.a)
-      if(NOT EXISTS "${SODIUM_LIBRARY_RELEASE}")
-          add_custom_command(
-            WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
-            COMMAND export LIBSODIUM_FULL_BUILD=1
-            COMMAND ./autogen.sh
-            COMMAND ./configure -q --prefix ${SODIUM_BINARY_DIR} --disable-ssp
-            COMMAND make -j16
-            COMMAND make install
-            COMMENT "Build sodium"
-            DEPENDS ${SODIUM_SOURCE_DIR}
-            OUTPUT ${SODIUM_LIBRARY_RELEASE}
-          )
-      else()
-        message(STATUS "Use built sodium: ${SODIUM_LIBRARY_RELEASE}")
-      endif()
+      add_custom_command(
+        WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
+        COMMAND export LIBSODIUM_FULL_BUILD=1
+        COMMAND ./autogen.sh
+        COMMAND ./configure -q --prefix ${SODIUM_BINARY_DIR} --disable-ssp
+        COMMAND make -j16
+        COMMAND make install
+        COMMENT "Build sodium"
+        DEPENDS ${SODIUM_SOURCE_DIR}
+        OUTPUT ${SODIUM_LIBRARY_RELEASE}
+      )
     endif()
 
 else()
