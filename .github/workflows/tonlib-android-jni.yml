@@ -19,9 +19,9 @@ jobs:
         sudo apt install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev ninja-build
 
     - name: Configure & Build
-      run: |        
-        wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-        unzip android-ndk-r25b-linux.zip
+      run: |
+        wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+        unzip -q android-ndk-r25b-linux.zip
         export JAVA_AWT_LIBRARY=NotNeeded
         export JAVA_JVM_LIBRARY=NotNeeded
         export JAVA_INCLUDE_PATH=${JAVA_HOME}/include

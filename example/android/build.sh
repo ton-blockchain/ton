@@ -25,7 +25,7 @@ elif [ $ARCH == "arm64" ]
 then
   ABI="arm64-v8a"
 fi
-
+ORIG_ARCH=$ARCH
 ARCH=$ABI
 echo $ABI
 
@@ -33,7 +33,7 @@ mkdir -p build-$ARCH
 cd build-$ARCH
 
 
-cmake .. -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DANDROID_ABI=${ABI} -DOPENSSL_ROOT_DIR=${OPENSSL_DIR}/${ARCH} -DTON_ARCH="" -DTON_ONLY_TONLIB=ON -DBUILD_SHARED_LIBS=OFF || exit 1
+cmake .. -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DANDROID_ABI=${ABI} -DOPENSSL_ROOT_DIR=${OPENSSL_DIR}/${ORIG_ARCH} -DTON_ARCH="" -DTON_ONLY_TONLIB=ON -DBUILD_SHARED_LIBS=OFF || exit 1
 ninja native-lib || exit 1
 popd
 
