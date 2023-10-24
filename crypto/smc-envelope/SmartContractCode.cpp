@@ -28,6 +28,7 @@ namespace {
 // WALLET_REVISION = 2;
 // WALLET2_REVISION = 2;
 // WALLET3_REVISION = 2;
+// WALLET4_REVISION = 2;
 // HIGHLOAD_WALLET_REVISION = 2;
 // HIGHLOAD_WALLET2_REVISION = 2;
 // DNS_REVISION = 1;
@@ -92,6 +93,20 @@ const auto& get_map() {
         "AAXrc52omhpn5jrhf/AABesePaiaGmPmOuFj8ABDbbYHwR7Z5AOAQm1B1tnkA4BTu1E0IEBQNch0x/"
         "0BNEC2zz4J28QAoAg9HtvpTGX+gAwoXC2CZEw4g8AOiGOETGA8/gzIG6SMHCU0NcLH+IB3yGSAaGSW3/iAAzTB9QC+wAAHssfFMsfEsv/yx/"
         "0AMntVA==");
+    with_tvm_code(
+        "wallet-v4-r2",
+        "te6cckECFAEAAtQAART/APSkE/S88sgLAQIBIAIDAgFIBAUE+PKDCNcYINMf0x/THwL4I7vyZO1E0NMf0x/T//"
+        "QE0VFDuvKhUVG68qIF+QFUEGT5EPKj+AAkpMjLH1JAyx9SMMv/"
+        "UhD0AMntVPgPAdMHIcAAn2xRkyDXSpbTB9QC+wDoMOAhwAHjACHAAuMAAcADkTDjDQOkyMsfEssfy/"
+        "8QERITAubQAdDTAyFxsJJfBOAi10nBIJJfBOAC0x8hghBwbHVnvSKCEGRzdHK9sJJfBeAD+kAwIPpEAcjKB8v/"
+        "ydDtRNCBAUDXIfQEMFyBAQj0Cm+hMbOSXwfgBdM/"
+        "yCWCEHBsdWe6kjgw4w0DghBkc3RyupJfBuMNBgcCASAICQB4AfoA9AQw+CdvIjBQCqEhvvLgUIIQcGx1Z4MesXCAGFAEywUmzxZY+"
+        "gIZ9ADLaRfLH1Jgyz8gyYBA+wAGAIpQBIEBCPRZMO1E0IEBQNcgyAHPFvQAye1UAXKwjiOCEGRzdHKDHrFwgBhQBcsFUAPPFiP6AhPLassfyz/"
+        "JgED7AJJfA+ICASAKCwBZvSQrb2omhAgKBrkPoCGEcNQICEekk30pkQzmkD6f+YN4EoAbeBAUiYcVnzGEAgFYDA0AEbjJftRNDXCx+"
+        "AA9sp37UTQgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYAIBIA4PABmtznaiaEAga5Drhf/AABmvHfaiaEAQa5DrhY/AAG7SB/"
+        "oA1NQi+QAFyMoHFcv/ydB3dIAYyMsFywIizxZQBfoCFMtrEszMyXP7AMhAFIEBCPRR8qcCAHCBAQjXGPoA0z/"
+        "IVCBHgQEI9FHyp4IQbm90ZXB0gBjIywXLAlAGzxZQBPoCFMtqEssfyz/Jc/sAAgBsgQEI1xj6ANM/"
+        "MFIkgQEI9Fnyp4IQZHN0cnB0gBjIywXLAlAFzxZQA/oCE8tqyx8Syz/Jc/sAAAr0AMntVGliJeU=");
     return map;
   }();
   return map;
@@ -137,9 +152,12 @@ td::Span<int> SmartContractCode::get_revisions(Type type) {
       static int res[] = {1};
       return res;
     }
+    case Type::WalletV4: {
+      static int res[] = {2};
+      return res;
+    }
   }
   UNREACHABLE();
-  return {};
 }
 
 td::Result<int> SmartContractCode::validate_revision(Type type, int revision) {
@@ -179,9 +197,10 @@ td::Ref<vm::Cell> SmartContractCode::get_code(Type type, int ext_revision) {
         return "payment-channel";
       case Type::RestrictedWallet:
         return "restricted-wallet3";
+      case Type::WalletV4:
+        return "wallet-v4";
     }
     UNREACHABLE();
-    return "";
   }(type);
   if (revision == -1) {
     return load(basename).move_as_ok();

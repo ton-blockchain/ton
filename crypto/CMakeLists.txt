@@ -236,6 +236,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/SmartContractCode.cpp
   smc-envelope/WalletInterface.cpp
   smc-envelope/WalletV3.cpp
+  smc-envelope/WalletV4.cpp
 
   smc-envelope/GenericAccount.h
   smc-envelope/HighloadWallet.h
@@ -246,6 +247,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/SmartContractCode.h
   smc-envelope/WalletInterface.h
   smc-envelope/WalletV3.h
+  smc-envelope/WalletV4.h
 )
 
 set(ED25519_TEST_SOURCE

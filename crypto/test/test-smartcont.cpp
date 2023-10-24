@@ -35,6 +35,7 @@
 #include "smc-envelope/SmartContract.h"
 #include "smc-envelope/SmartContractCode.h"
 #include "smc-envelope/WalletV3.h"
+#include "smc-envelope/WalletV4.h"
 #include "smc-envelope/HighloadWallet.h"
 #include "smc-envelope/HighloadWalletV2.h"
 #include "smc-envelope/PaymentChannel.h"
@@ -526,6 +527,7 @@ void do_test_wallet() {
 
 TEST(Tonlib, Wallet) {
   do_test_wallet<ton::WalletV3>();
+  do_test_wallet<ton::WalletV4>();
   do_test_wallet<ton::HighloadWallet>();
   do_test_wallet<ton::HighloadWalletV2>();
   do_test_wallet<ton::RestrictedWallet>();
