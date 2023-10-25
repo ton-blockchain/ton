@@ -33,6 +33,8 @@ jobs:
 
       - name: Build all
         run: |
+          brew unlink openssl@3
+          brew link openssl@1.1
           export NONINTERACTIVE=1
           brew install ninja libmicrohttpd pkg-config
           rootPath=`pwd`
