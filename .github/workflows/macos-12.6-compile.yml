@@ -19,7 +19,7 @@ jobs:
           git clone https://github.com/openssl/openssl openssl_1_1_1
           cd openssl_1_1_1
           git checkout OpenSSL_1_1_1-stable
-          ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=12.6
+          ./Configure darwin64-x86_64-cc -static -mmacosx-version-min=12.6
           make build_libs -j4
 
       - name: Compile Secp256k1
@@ -34,7 +34,6 @@ jobs:
       - name: Build all
         run: |
           brew unlink openssl@3
-          brew link openssl@1.1
           export NONINTERACTIVE=1
           brew install ninja libmicrohttpd pkg-config
           rootPath=`pwd`
