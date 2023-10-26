@@ -66,8 +66,8 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
-      }) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
+    }) {
   proc_hash_.zero();
 }
 
@@ -734,6 +734,8 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error(limits.move_as_error());
     }
     block_limits_ = limits.move_as_ok();
+    block_limits_->start_lt = start_lt_;
+    block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
     if (!fetch_config_params()) {
       return false;
     }
@@ -762,6 +764,14 @@ bool ValidateQuery::fetch_config_params() {
     // recover (not generate) rand seed from block header
     CHECK(!rand_seed_.is_zero());
   }
+  block::SizeLimitsConfig size_limits;
+  {
+    auto res = config_->get_size_limits_config();
+    if (res.is_error()) {
+      return fatal_error(res.move_as_error());
+    }
+    size_limits = res.move_as_ok();
+  }
   {
     // compute compute_phase_cfg / storage_phase_cfg
     auto cell = config_->get_config_param(is_masterchain() ? 20 : 21);
@@ -774,7 +784,9 @@ bool ValidateQuery::fetch_config_params() {
     }
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
+    compute_phase_cfg_.max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg_.global_config = config_->get_root_cell();
+    compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
   }
   {
     // compute action_phase_cfg
@@ -795,6 +807,8 @@ bool ValidateQuery::fetch_config_params() {
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
     action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
+    action_phase_cfg_.size_limits = size_limits;
+    action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
   }
   {
     // fetch block_grams_created
@@ -992,6 +1006,16 @@ bool ValidateQuery::check_this_shard_mc_info() {
 
 bool ValidateQuery::compute_prev_state() {
   CHECK(prev_states.size() == 1u + after_merge_);
+  // Extend validator timeout if previous block is too old
+  UnixTime prev_ts = prev_states[0]->get_unix_time();
+  if (after_merge_) {
+    prev_ts = std::max(prev_ts, prev_states[1]->get_unix_time());
+  }
+  td::Timestamp new_timeout = td::Timestamp::in(std::min(60.0, (td::Clocks::system() - (double)prev_ts) / 2));
+  if (timeout < new_timeout) {
+    alarm_timestamp() = timeout = new_timeout;
+  }
+
   prev_state_root_ = prev_states[0]->root_cell();
   CHECK(prev_state_root_.not_null());
   if (after_merge_) {
@@ -1608,8 +1632,8 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                     (sibling->want_merge_ || depth > wc_info->max_split);
   if (!fsm_inherited && !info.is_fsm_none()) {
     if (info.fsm_utime() < now_ || info.fsm_utime_end() <= info.fsm_utime() ||
-        info.fsm_utime_end() < info.fsm_utime() + ton::min_split_merge_interval ||
-        info.fsm_utime_end() > now_ + ton::max_split_merge_delay) {
+        info.fsm_utime_end() < info.fsm_utime() + wc_info->min_split_merge_interval ||
+        info.fsm_utime_end() > now_ + wc_info->max_split_merge_delay) {
       return reject_query(PSTRING() << "incorrect future split/merge interval " << info.fsm_utime() << " .. "
                                     << info.fsm_utime_end() << " set for shard " << shard.to_str()
                                     << " in new shard configuration (it is " << now_ << " now)");
@@ -2088,13 +2112,13 @@ bool ValidateQuery::unpack_block_data() {
   auto outmsg_cs = vm::load_cell_slice_ref(std::move(extra.out_msg_descr));
   // run some hand-written checks from block::tlb::
   // (automatic tests from block::gen:: have been already run for the entire block)
-  if (!block::tlb::t_InMsgDescr.validate_upto(1000000, *inmsg_cs)) {
+  if (!block::tlb::t_InMsgDescr.validate_upto(10000000, *inmsg_cs)) {
     return reject_query("InMsgDescr of the new block failed to pass handwritten validity tests");
   }
-  if (!block::tlb::t_OutMsgDescr.validate_upto(1000000, *outmsg_cs)) {
+  if (!block::tlb::t_OutMsgDescr.validate_upto(10000000, *outmsg_cs)) {
     return reject_query("OutMsgDescr of the new block failed to pass handwritten validity tests");
   }
-  if (!block::tlb::t_ShardAccountBlocks.validate_ref(1000000, extra.account_blocks)) {
+  if (!block::tlb::t_ShardAccountBlocks.validate_ref(10000000, extra.account_blocks)) {
     return reject_query("ShardAccountBlocks of the new block failed to pass handwritten validity tests");
   }
   in_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(inmsg_cs), 256, block::tlb::aug_InMsgDescr);
@@ -2137,6 +2161,11 @@ bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
     LOG(INFO) << "invalid value flow: " << os.str();
     return reject_query("ValueFlow of block "s + id_.to_str() +
                         " is invalid (non-zero recovered value in a non-masterchain block)");
+  }
+  if (!is_masterchain() && !value_flow_.burned.is_zero()) {
+    LOG(INFO) << "invalid value flow: " << os.str();
+    return reject_query("ValueFlow of block "s + id_.to_str() +
+                        " is invalid (non-zero burned value in a non-masterchain block)");
   }
   if (!value_flow_.recovered.is_zero() && recover_create_msg_.is_null()) {
     return reject_query("ValueFlow of block "s + id_.to_str() +
@@ -2220,15 +2249,10 @@ bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
         "cannot unpack CurrencyCollection with total transaction fees from the augmentation of the ShardAccountBlocks "
         "dictionary");
   }
-  auto expected_fees = value_flow_.fees_imported + value_flow_.created + transaction_fees_ + import_fees_;
-  if (value_flow_.fees_collected != expected_fees) {
-    return reject_query(PSTRING() << "ValueFlow for " << id_.to_str() << " declares fees_collected="
-                                  << value_flow_.fees_collected.to_str() << " but the total message import fees are "
-                                  << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
-                                  << ", creation fee for this block is " << value_flow_.created.to_str()
-                                  << " and the total imported fees from shards are "
-                                  << value_flow_.fees_imported.to_str() << " with a total of "
-                                  << expected_fees.to_str());
+  if (is_masterchain()) {
+    auto x = config_->get_burning_config().calculate_burned_fees(transaction_fees_ + import_fees_);
+    fees_burned_ += x;
+    total_burned_ += x;
   }
   return true;
 }
@@ -4101,6 +4125,9 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
 
 bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
                                           bool is_first, bool is_last) {
+  if (!check_timeout()) {
+    return false;
+  }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
   const StdSmcAddress& addr = account.addr;
   block::gen::Transaction::Record trans;
@@ -4306,7 +4333,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
   }
   if (is_first && is_masterchain() && account.is_special && account.tick &&
-      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) && account.orig_status == block::Account::acc_active) {
+      (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) &&
+      account.orig_status == block::Account::acc_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                   << " is the first transaction for this special tick account in this block, but the "
                                      "transaction is not a tick transaction");
@@ -4332,10 +4360,17 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                   << account.total_state->get_hash().to_hex());
   }
   // some type-specific checks
-  int trans_type = block::Transaction::tr_none;
+  int trans_type = block::transaction::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
-      trans_type = block::Transaction::tr_ord;
+      if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
+        return reject_query(PSTRING() << "cannod add ordinary transaction because hard block limits are exceeded: "
+                                      << "gas_used=" << block_limit_status_->gas_used
+                                      << "(limit=" << block_limits_->gas.hard() << "), "
+                                      << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
+                                      << "(limit=" << block_limits_->lt_delta.hard() << ")");
+      }
+      trans_type = block::transaction::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
                                       << " has no inbound message");
@@ -4344,7 +4379,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_storage: {
-      trans_type = block::Transaction::tr_storage;
+      trans_type = block::transaction::Transaction::tr_storage;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "storage transaction " << lt << " of account " << addr.to_hex()
                                       << " has an inbound message");
@@ -4360,7 +4395,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
     case block::gen::TransactionDescr::trans_tick_tock: {
       bool is_tock = (td_cs.prefetch_ulong(4) & 1);
-      trans_type = is_tock ? block::Transaction::tr_tock : block::Transaction::tr_tick;
+      trans_type = is_tock ? block::transaction::Transaction::tr_tock : block::transaction::Transaction::tr_tick;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << (is_tock ? "tock" : "tick") << " transaction " << lt << " of account "
                                       << addr.to_hex() << " has an inbound message");
@@ -4368,7 +4403,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_merge_prepare: {
-      trans_type = block::Transaction::tr_merge_prepare;
+      trans_type = block::transaction::Transaction::tr_merge_prepare;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "merge prepare transaction " << lt << " of account " << addr.to_hex()
                                       << " has an inbound message");
@@ -4383,7 +4418,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_merge_install: {
-      trans_type = block::Transaction::tr_merge_install;
+      trans_type = block::transaction::Transaction::tr_merge_install;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "merge install transaction " << lt << " of account " << addr.to_hex()
                                       << " has no inbound message");
@@ -4395,7 +4430,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_split_prepare: {
-      trans_type = block::Transaction::tr_split_prepare;
+      trans_type = block::transaction::Transaction::tr_split_prepare;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "split prepare transaction " << lt << " of account " << addr.to_hex()
                                       << " has an inbound message");
@@ -4410,7 +4445,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       break;
     }
     case block::gen::TransactionDescr::trans_split_install: {
-      trans_type = block::Transaction::tr_split_install;
+      trans_type = block::transaction::Transaction::tr_split_install;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "split install transaction " << lt << " of account " << addr.to_hex()
                                       << " has no inbound message");
@@ -4425,8 +4460,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   // check transaction computation by re-doing it
   // similar to Collator::create_ordinary_transaction() and Collator::create_ticktock_transaction()
   // ....
-  std::unique_ptr<block::Transaction> trs =
-      std::make_unique<block::Transaction>(account, trans_type, lt, now_, in_msg_root);
+  std::unique_ptr<block::transaction::Transaction> trs =
+      std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
   if (in_msg_root.not_null()) {
     if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
       // inbound external message was not accepted
@@ -4472,7 +4507,8 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (trs->bounce_enabled && !trs->compute_phase->success && !trs->prepare_bounce_phase(action_phase_cfg_)) {
+  if (trs->bounce_enabled && (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits) &&
+      !trs->prepare_bounce_phase(action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
@@ -4480,7 +4516,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (block_limit_status_ && !trs->update_limits(*block_limit_status_)) {
+  if (!trs->update_limits(*block_limit_status_, false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
   }
@@ -4529,6 +4565,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
         << "transaction " << lt << " of " << addr.to_hex()
         << " is invalid: it has produced a set of outbound messages different from that listed in the transaction");
   }
+  total_burned_ += trs->blackhole_burned;
   // check new balance and value flow
   auto new_balance = account.get_balance();
   block::CurrencyCollection total_fees;
@@ -4536,12 +4573,14 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "transaction " << lt << " of " << addr.to_hex()
                                   << " has an invalid total_fees value");
   }
-  if (old_balance + money_imported != new_balance + money_exported + total_fees) {
-    return reject_query(PSTRING() << "transaction " << lt << " of " << addr.to_hex()
-                                  << " violates the currency flow condition: old balance=" << old_balance.to_str()
-                                  << " + imported=" << money_imported.to_str() << " does not equal new balance="
-                                  << new_balance.to_str() << " + exported=" << money_exported.to_str()
-                                  << " + total_fees=" << total_fees.to_str());
+  if (old_balance + money_imported != new_balance + money_exported + total_fees + trs->blackhole_burned) {
+    return reject_query(
+        PSTRING() << "transaction " << lt << " of " << addr.to_hex()
+                  << " violates the currency flow condition: old balance=" << old_balance.to_str()
+                  << " + imported=" << money_imported.to_str() << " does not equal new balance=" << new_balance.to_str()
+                  << " + exported=" << money_exported.to_str() << " + total_fees=" << total_fees.to_str()
+                  << (trs->blackhole_burned.is_zero() ? ""
+                                                      : PSTRING() << " burned=" << trs->blackhole_burned.to_str()));
   }
   return true;
 }
@@ -4744,27 +4783,27 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
   // shared_lib_descr$00 lib:^Cell publishers:(Hashmap 256 True) = LibDescr;
   std::unique_ptr<vm::Dictionary> old_publishers, new_publishers;
   if (new_value.not_null()) {
-    if (!block::gen::t_LibDescr.validate_csr(new_value)) {
-      return reject_query("LibDescr with key "s + key.to_hex(256) +
-                          " in the libraries dictionary of the new state failed to pass automatic validity tests");
+    block::gen::LibDescr::Record rec;
+    if (!block::gen::csr_unpack(std::move(new_value), rec)) {
+      return reject_query("failed to unpack LibDescr with key "s + key.to_hex(256) +
+                          " in the libraries dictionary of the new state");
     }
-    auto lib_ref = new_value->prefetch_ref();
-    CHECK(lib_ref.not_null());
-    if (lib_ref->get_hash().as_bitslice() != key) {
+    if (rec.lib->get_hash().as_bitslice() != key) {
       return reject_query("LibDescr with key "s + key.to_hex(256) +
                           " in the libraries dictionary of the new state contains a library with different root hash " +
-                          lib_ref->get_hash().to_hex());
+                          rec.lib->get_hash().to_hex());
     }
-    CHECK(new_value.write().advance_ext(2, 1));
-    new_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(new_value), 256);
+    new_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(rec.publishers), 256);
   } else {
     new_publishers = std::make_unique<vm::Dictionary>(256);
   }
-  if (old_value.not_null() && !block::gen::t_LibDescr.validate_csr(old_value)) {
-    return reject_query("LibDescr with key "s + key.to_hex(256) +
-                        " in the libraries dictionary of the old state failed to pass automatic validity tests");
-    CHECK(old_value.write().advance_ext(2, 1));
-    old_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(old_value), 256);
+  if (old_value.not_null()) {
+    block::gen::LibDescr::Record rec;
+    if (!block::gen::csr_unpack(std::move(old_value), rec)) {
+      return reject_query("failed to unpack LibDescr with key "s + key.to_hex(256) +
+                          " in the libraries dictionary of the old state");
+    }
+    old_publishers = std::make_unique<vm::Dictionary>(vm::DictNonEmpty(), std::move(rec.publishers), 256);
   } else {
     old_publishers = std::make_unique<vm::Dictionary>(256);
   }
@@ -4955,7 +4994,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return reject_query("no important parameters have been changed, but the block is marked as a key block");
   }
   vm::Dictionary dict1{ocfg_root, 32};
-  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long) 0});
+  auto param0 = dict1.lookup_ref(td::BitArray<32>{(long long)0});
   if (param0.is_null()) {
     if (cfg_acc_changed) {
       return reject_query("new state of old configuration smart contract "s + old_cfg_addr.to_hex() +
@@ -5412,6 +5451,9 @@ bool ValidateQuery::check_mc_block_extra() {
     return reject_query("invalid fees_imported in value flow: declared "s + value_flow_.fees_imported.to_str() +
                         ", correct value is " + fees_imported.to_str());
   }
+  auto x = config_->get_burning_config().calculate_burned_fees(fees_imported - import_created_);
+  total_burned_ += x;
+  fees_burned_ += x;
   // ^[ prev_blk_signatures:(HashmapE 16 CryptoSignaturePair)
   if (prev_signatures_.not_null() && id_.seqno() == 1) {
     return reject_query("block contains non-empty signature set for the zero state of the masterchain");
@@ -5426,6 +5468,26 @@ bool ValidateQuery::check_mc_block_extra() {
   //   recover_create_msg:(Maybe ^InMsg)
   //   mint_msg:(Maybe ^InMsg) ]
   // config:key_block?ConfigParams -> checked in compute_next_state() and ???
+  return true;
+}
+
+bool ValidateQuery::postcheck_value_flow() {
+  auto expected_fees =
+      value_flow_.fees_imported + value_flow_.created + transaction_fees_ + import_fees_ - fees_burned_;
+  if (value_flow_.fees_collected != expected_fees) {
+    return reject_query(PSTRING() << "ValueFlow for " << id_.to_str() << " declares fees_collected="
+                                  << value_flow_.fees_collected.to_str() << " but the total message import fees are "
+                                  << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
+                                  << ", creation fee for this block is " << value_flow_.created.to_str()
+                                  << ", the total imported fees from shards are " << value_flow_.fees_imported.to_str()
+                                  << " and the burned fees are " << fees_burned_.to_str()
+                                  << " with a total of " << expected_fees.to_str());
+  }
+  if (total_burned_ != value_flow_.burned) {
+    return reject_query(PSTRING() << "invalid burned in value flow: " << id_.to_str() << " declared "
+                                  << value_flow_.burned.to_str() << ", correct value is "
+                                  << total_burned_.to_str());
+  }
   return true;
 }
 
@@ -5472,7 +5534,7 @@ bool ValidateQuery::try_validate() {
       }
     }
     LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
-    if (!block::gen::t_Block.validate_ref(1000000, block_root_)) {
+    if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
       return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
     }
     if (!fix_all_processed_upto()) {
@@ -5505,9 +5567,10 @@ bool ValidateQuery::try_validate() {
     if (!check_in_queue()) {
       return reject_query("cannot check inbound message queues");
     }
-    if (!check_delivered_dequeued()) {
+    // Excessive check: validity of message in queue is checked elsewhere
+    /*if (!check_delivered_dequeued()) {
       return reject_query("cannot check delivery status of all outbound messages");
-    }
+    }*/
     if (!check_transactions()) {
       return reject_query("invalid collection of account transactions in ShardAccountBlocks");
     }
@@ -5528,6 +5591,9 @@ bool ValidateQuery::try_validate() {
     }
     if (!check_mc_state_extra()) {
       return reject_query("new McStateExtra is invalid");
+    }
+    if (!postcheck_value_flow()) {
+      return reject_query("new ValueFlow is invalid");
     }
   } catch (vm::VmError& err) {
     return fatal_error(-666, err.get_msg());

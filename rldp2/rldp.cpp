@@ -44,6 +44,9 @@ class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback 
     connection_.receive_raw(std::move(data));
     yield();
   }
+  void set_default_mtu(td::uint64 mtu) {
+    connection_.set_default_mtu(mtu);
+  }
 
  private:
   td::actor::ActorId<RldpIn> rldp_;
@@ -129,6 +132,9 @@ td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNode
     return it->second.get();
   }
   auto connection = td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), src, dst, adnl_);
+  if (custom_default_mtu_) {
+    td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, custom_default_mtu_.value());
+  }
   auto res = connection.get();
   connections_[std::make_pair(src, dst)] = std::move(connection);
   return res;
@@ -219,6 +225,13 @@ void RldpIn::add_id(adnl::AdnlNodeIdShort local_id) {
 
 void RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) {
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::get_conn_ip_str, l_id, p_id, std::move(promise));
+}
+
+void RldpIn::set_default_mtu(td::uint64 mtu) {
+  custom_default_mtu_ = mtu;
+  for (auto &connection : connections_) {
+    td::actor::send_closure(connection.second, &RldpConnectionActor::set_default_mtu, mtu);
+  }
 }
 
 std::unique_ptr<adnl::Adnl::Callback> RldpIn::make_adnl_callback() {

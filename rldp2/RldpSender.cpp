@@ -49,7 +49,6 @@ SenderPackets::Update RldpSender::on_ack(const Ack &ack, double ack_delay, td::T
   //LOG(ERROR) << "ON ACK " << ack.max_seqno << " " << ack.received_mask << " " << ack.received_count;
   auto update = packets_.on_ack(ack);
   if (!update.was_max_updated) {
-    CHECK(!update.new_received);
     return update;
   }
 

@@ -21,6 +21,7 @@
 #include "Dictionary.h"
 #include "IntCtx.h"
 #include "SourceLookup.h"
+#include "HashMap.h"
 
 #include "common/refcnt.hpp"
 #include "common/bigint.hpp"
@@ -42,6 +43,8 @@
 #include "vm/box.hpp"
 #include "vm/atom.h"
 
+#include "vm/db/TonDb.h"  // only for interpret_db_run_vm{,_parallel}
+
 #include "block/block.h"
 
 #include "td/utils/filesystem.h"
@@ -58,12 +61,31 @@
 
 namespace fift {
 
-void show_total_cells(std::ostream& stream) {
-  stream << "total cells = " << vm::DataCell::get_total_data_cells() << std::endl;
+const Ref<FiftCont> nop_word_def = Ref<NopWord>{true};
+
+//
+// functions for wordef
+//
+Ref<FiftCont> pop_exec_token(vm::Stack& stack) {
+  auto wd_ref = stack.pop_chk().as_object<FiftCont>();
+  if (wd_ref.is_null()) {
+    throw IntError{"execution token expected"};
+  }
+  return wd_ref;
 }
 
-void do_compile(vm::Stack& stack, Ref<FiftCont> word_def);
-void do_compile_literals(vm::Stack& stack, int count);
+Ref<WordList> pop_word_list(vm::Stack& stack) {
+  auto wl_ref = stack.pop_chk().as_object<WordList>();
+  if (wl_ref.is_null()) {
+    throw IntError{"word list expected"};
+  }
+  return wl_ref;
+}
+
+void push_argcount(vm::Stack& stack, int args) {
+  stack.push_smallint(args);
+  stack.push_object(nop_word_def);
+}
 
 void interpret_dot(IntCtx& ctx, bool space_after) {
   *ctx.output_stream << dec_string2(ctx.stack.pop_int()) << (space_after ? " " : "");
@@ -121,7 +143,7 @@ void interpret_print_list(IntCtx& ctx) {
 }
 
 void interpret_dottc(IntCtx& ctx) {
-  show_total_cells(*ctx.output_stream);
+  *ctx.output_stream << "total cells = " << vm::DataCell::get_total_data_cells() << std::endl;
 }
 
 void interpret_dot_internal(vm::Stack& stack) {
@@ -213,7 +235,7 @@ void interpret_cmp(vm::Stack& stack, const char opt[3]) {
 }
 
 void interpret_sgn(vm::Stack& stack, const char opt[3]) {
-  auto x = stack.pop_int();
+  auto x = stack.pop_int_finite();
   int r = x->sgn();
   assert((unsigned)(r + 1) <= 2);
   stack.push_smallint(((const signed char*)opt)[r + 1]);
@@ -461,7 +483,7 @@ void interpret_make_xchg(vm::Stack& stack) {
   if (x) {
     stack.push_object(td::Ref<StackWord>{true, std::bind(interpret_xchg, _1, x, y)});
   } else if (y <= 1) {
-    stack.push_object(y ? swap_word_def : Dictionary::nop_word_def);
+    stack.push_object(y ? swap_word_def : nop_word_def);
   } else {
     stack.push_object(td::Ref<StackWord>{true, std::bind(interpret_xchg0, _1, y)});
   }
@@ -486,7 +508,7 @@ void interpret_make_pop(vm::Stack& stack) {
 }
 
 void interpret_is_string(vm::Stack& stack) {
-  stack.push_bool(stack.pop().type() == vm::StackEntry::t_string);
+  stack.push_bool(stack.pop_chk().type() == vm::StackEntry::t_string);
 }
 
 int make_utf8_char(char buffer[4], int x) {
@@ -1080,6 +1102,31 @@ void interpret_fetch_bytes(vm::Stack& stack, int mode) {
   }
 }
 
+void interpret_fetch_slice(vm::Stack& stack, int mode) {
+  unsigned refs = ((mode & 1) ? stack.pop_smallint_range(4) : 0);
+  unsigned bits = stack.pop_smallint_range(1023);
+  auto cs = stack.pop_cellslice();
+  if (!cs->have(bits, refs)) {
+    if (mode & 2) {
+      stack.push(std::move(cs));
+    }
+    stack.push_bool(false);
+    if (!(mode & 4)) {
+      throw IntError{"end of data while fetching subslice from cell"};
+    }
+  } else {
+    if (mode & 2) {
+      stack.push(cs.write().fetch_subslice(bits, refs));
+      stack.push(std::move(cs));
+    } else {
+      stack.push(cs->prefetch_subslice(bits, refs));
+    }
+    if (mode & 4) {
+      stack.push_bool(true);
+    }
+  }
+}
+
 void interpret_cell_empty(vm::Stack& stack) {
   auto cs = stack.pop_cellslice();
   stack.push_bool(cs->empty_ext());
@@ -1285,7 +1332,7 @@ void interpret_atom_anon(vm::Stack& stack) {
 }
 
 void interpret_is_atom(vm::Stack& stack) {
-  stack.push_bool(stack.pop().is_atom());
+  stack.push_bool(stack.pop_chk().is_atom());
 }
 
 bool are_eqv(vm::StackEntry x, vm::StackEntry y) {
@@ -1307,11 +1354,13 @@ bool are_eqv(vm::StackEntry x, vm::StackEntry y) {
 }
 
 void interpret_is_eqv(vm::Stack& stack) {
+  stack.check_underflow(2);
   auto y = stack.pop(), x = stack.pop();
   stack.push_bool(are_eqv(std::move(x), std::move(y)));
 }
 
 void interpret_is_eq(vm::Stack& stack) {
+  stack.check_underflow(2);
   auto y = stack.pop(), x = stack.pop();
   stack.push_bool(x == y);
 }
@@ -1479,6 +1528,150 @@ void interpret_crc32(vm::Stack& stack) {
 void interpret_crc32c(vm::Stack& stack) {
   std::string str = stack.pop_bytes();
   stack.push_smallint(td::crc32c(td::Slice{str}));
+}
+
+// Fift hashmaps
+
+void push_hmap(vm::Stack& stack, Ref<Hashmap> hmap) {
+  if (hmap.not_null()) {
+    stack.push_object(std::move(hmap));
+  } else {
+    stack.push({});
+  }
+}
+
+void push_hmap(vm::Stack& stack, HashmapKeeper hmap_keep) {
+  push_hmap(stack, hmap_keep.extract());
+}
+
+Ref<Hashmap> pop_hmap(vm::Stack& stack) {
+  stack.check_underflow(1);
+  auto se = stack.pop();
+  if (se.is_null()) {
+    return {};
+  }
+  auto hmap_ref = std::move(se).as_object<Hashmap>();
+  if (hmap_ref.is_null()) {
+    throw IntError{"hashmap expected"};
+  }
+  return hmap_ref;
+}
+
+HashmapKeeper pop_hmap_keeper(vm::Stack& stack) {
+  return HashmapKeeper{pop_hmap(stack)};
+}
+
+void interpret_hmap_new(vm::Stack& stack) {
+  stack.push({});
+}
+
+void interpret_hmap_fetch(vm::Stack& stack, int mode) {
+  auto hmap = pop_hmap(stack);
+  auto value = Hashmap::get(std::move(hmap), stack.pop_chk());
+  bool found = !value.is_null();
+  if ((mode & 8) && !found) {
+    throw IntError{"hashmap key not found"};
+  }
+  if (mode & (2 << (int)found)) {
+    stack.push(std::move(value));
+  }
+  if (mode & 1) {
+    stack.push_bool(found);
+  }
+}
+
+void interpret_hmap_delete(vm::Stack& stack, int mode) {
+  auto hmap = pop_hmap(stack);
+  auto res = Hashmap::get_remove(std::move(hmap), stack.pop_chk());
+  push_hmap(stack, std::move(res.first));
+  bool found = !res.second.is_null();
+  if ((mode & 8) && !found) {
+    throw IntError{"hashmap key not found"};
+  }
+  if (mode & (2 << (int)found)) {
+    stack.push(std::move(res.second));
+  }
+  if (mode & 1) {
+    stack.push_bool(found);
+  }
+}
+
+void interpret_hmap_store(vm::Stack& stack, int mode) {
+  stack.check_underflow(3);
+  auto hmap = pop_hmap_keeper(stack);
+  auto key = stack.pop(), value = stack.pop();
+  bool ok = true;
+  if (mode & 1) {
+    hmap.set(std::move(key), std::move(value));
+  } else {
+    ok = hmap.replace(std::move(key), std::move(value));
+  }
+  push_hmap(stack, std::move(hmap));
+  if (mode & 2) {
+    stack.push_bool(ok);
+  }
+}
+
+void interpret_hmap_is_empty(vm::Stack& stack) {
+  stack.push_bool(pop_hmap(stack).is_null());
+}
+
+void interpret_hmap_decompose(vm::Stack& stack, int mode) {
+  auto hmap = pop_hmap(stack);
+  if (hmap.is_null()) {
+    if (mode & 1) {
+      stack.push_bool(false);
+    } else {
+      throw IntError{"empty hmap"};
+    }
+    return;
+  }
+  stack.push(hmap->key());
+  stack.push(hmap->value());
+  push_hmap(stack, hmap->left());
+  push_hmap(stack, hmap->right());
+  if (mode & 1) {
+    stack.push_bool(true);
+  }
+}
+
+class HmapIterCont : public LoopCont {
+  HashmapIterator it;
+  bool ok;
+
+ public:
+  HmapIterCont(Ref<FiftCont> _func, Ref<FiftCont> _after, HashmapIterator _it)
+      : LoopCont(std::move(_func), std::move(_after)), it(std::move(_it)), ok(true) {
+  }
+  HmapIterCont(const HmapIterCont&) = default;
+  HmapIterCont* make_copy() const override {
+    return new HmapIterCont(*this);
+  }
+  bool init(IntCtx& ctx) override {
+    return true;
+  }
+  bool pre_exec(IntCtx& ctx) override {
+    if (it.eof()) {
+      return false;
+    } else {
+      ctx.stack.push(it->key());
+      ctx.stack.push(it->value());
+      return true;
+    }
+  }
+  bool post_exec(IntCtx& ctx) override {
+    ok = ctx.stack.pop_bool();
+    return ok && it.next();
+  }
+  bool finalize(IntCtx& ctx) override {
+    ctx.stack.push_bool(ok);
+    return true;
+  }
+};
+
+Ref<FiftCont> interpret_hmap_foreach(IntCtx& ctx, int mode) {
+  auto func = pop_exec_token(ctx);
+  return td::make_ref<HmapIterCont>(std::move(func), std::move(ctx.next), pop_hmap_keeper(ctx).begin(mode & 1));
 }
 
 // vm dictionaries
@@ -1880,7 +2073,7 @@ void interpret_pfx_dict_get(vm::Stack& stack) {
 }
 
 void interpret_bitstring_hex_literal(IntCtx& ctx) {
-  auto s = ctx.scan_word_to('}');
+  auto s = ctx.parser->scan_word_to('}');
   unsigned char buff[128];
   int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), s.begin(), s.end());
   if (bits < 0) {
@@ -1888,11 +2081,11 @@ void interpret_bitstring_hex_literal(IntCtx& ctx) {
   }
   auto cs = Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()};
   ctx.stack.push(std::move(cs));
-  push_argcount(ctx.stack, 1);
+  push_argcount(ctx, 1);
 }
 
 void interpret_bitstring_binary_literal(IntCtx& ctx) {
-  auto s = ctx.scan_word_to('}');
+  auto s = ctx.parser->scan_word_to('}');
   unsigned char buff[128];
   int bits = (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff), s.begin(), s.end());
   if (bits < 0) {
@@ -1900,12 +2093,12 @@ void interpret_bitstring_binary_literal(IntCtx& ctx) {
   }
   auto cs = Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()};
   ctx.stack.push(std::move(cs));
-  push_argcount(ctx.stack, 1);
+  push_argcount(ctx, 1);
 }
 
 void interpret_word(IntCtx& ctx) {
   char sep = (char)ctx.stack.pop_smallint_range(127);
-  auto word = (sep != ' ' ? ctx.scan_word_to(sep, true) : ctx.scan_word());
+  auto word = (sep != ' ' ? ctx.parser->scan_word_to(sep, true) : ctx.parser->scan_word());
   ctx.stack.push_string(word);
 }
 
@@ -1913,17 +2106,17 @@ void interpret_word_ext(IntCtx& ctx) {
   int mode = ctx.stack.pop_smallint_range(11);
   auto delims = ctx.stack.pop_string();
   if (mode & 8) {
-    ctx.skipspc(mode & 4);
+    ctx.parser->skipspc(mode & 4);
   }
-  ctx.stack.push_string(ctx.scan_word_ext(CharClassifier{delims, mode & 3}));
+  ctx.stack.push_string(ctx.parser->scan_word_ext(CharClassifier{delims, mode & 3}));
 }
 
 void interpret_skipspc(IntCtx& ctx) {
-  ctx.skipspc();
+  ctx.parser->skipspc();
 }
 
 void interpret_wordlist_begin_aux(vm::Stack& stack) {
-  stack.push({vm::from_object, Ref<WordList>{true}});
+  stack.push_make_object<WordList>();
 }
 
 void interpret_wordlist_begin(IntCtx& ctx) {
@@ -1936,7 +2129,7 @@ void interpret_wordlist_begin(IntCtx& ctx) {
 void interpret_wordlist_end_aux(vm::Stack& stack) {
   Ref<WordList> wordlist_ref = pop_word_list(stack);
   wordlist_ref.write().close();
-  stack.push({vm::from_object, Ref<FiftCont>{wordlist_ref}});
+  stack.push_object(std::move(wordlist_ref));
 }
 
 void interpret_wordlist_end(IntCtx& ctx) {
@@ -1955,7 +2148,7 @@ void interpret_internal_interpret_begin(IntCtx& ctx) {
 void interpret_internal_interpret_end(IntCtx& ctx) {
   ctx.check_int_exec();
   ctx.state = -ctx.state;
-  ctx.stack.push({vm::from_object, Dictionary::nop_word_def});
+  ctx.stack.push_object(nop_word_def);
 }
 
 // (create)
@@ -1972,18 +2165,12 @@ void interpret_create_aux(IntCtx& ctx, int mode) {
   if (!(mode & 2)) {
     word += ' ';
   }
-  bool active = (mode & 1);
-  auto entry = ctx.dictionary->lookup(word);
-  if (entry) {
-    *entry = DictEntry{std::move(wd_ref), active};  // redefine word
-  } else {
-    ctx.dictionary->def_word(std::move(word), {std::move(wd_ref), active});
-  }
+  ctx.dictionary.def_word(std::move(word), {std::move(wd_ref), (bool)(mode & 1)});
 }
 
 // { bl word 0 (create) } : create
 void interpret_create(IntCtx& ctx) {
-  auto word = ctx.scan_word();
+  auto word = ctx.parser->scan_word();
   if (!word.size()) {
     throw IntError{"non-empty word name expected"};
   }
@@ -1995,10 +2182,10 @@ Ref<FiftCont> create_aux_wd{Ref<CtxWord>{true, std::bind(interpret_create_aux, s
 
 // { bl word <mode> 2 ' (create) } :: :
 void interpret_colon(IntCtx& ctx, int mode) {
-  ctx.stack.push_string(ctx.scan_word());
+  ctx.stack.push_string(ctx.parser->scan_word());
   ctx.stack.push_smallint(mode);
   ctx.stack.push_smallint(2);
-  ctx.stack.push({vm::from_object, create_aux_wd});
+  ctx.stack.push_object(create_aux_wd);
   //push_argcount(ctx, 2, create_wd);
 }
 
@@ -2006,27 +2193,27 @@ void interpret_colon(IntCtx& ctx, int mode) {
 void interpret_forget_aux(IntCtx& ctx) {
   std::string s = ctx.stack.pop_string();
   auto s_copy = s;
-  auto entry = ctx.dictionary->lookup(s);
+  auto entry = ctx.dictionary.lookup(s);
   if (!entry) {
     s += " ";
-    entry = ctx.dictionary->lookup(s);
+    entry = ctx.dictionary.lookup(s);
   }
   if (!entry) {
     throw IntError{"`" + s_copy + "` not found"};
   } else {
-    ctx.dictionary->undef_word(s);
+    ctx.dictionary.undef_word(s);
   }
 }
 
 // { bl word (forget) } : forget
 void interpret_forget(IntCtx& ctx) {
-  ctx.stack.push_string(ctx.scan_word());
+  ctx.stack.push_string(ctx.parser->scan_word());
   interpret_forget_aux(ctx);
 }
 
 void interpret_quote_str(IntCtx& ctx) {
-  ctx.stack.push_string(ctx.scan_word_to('"'));
-  push_argcount(ctx.stack, 1);
+  ctx.stack.push_string(ctx.parser->scan_word_to('"'));
+  push_argcount(ctx, 1);
 }
 
 int str_utf8_code(const char* str, int& len) {
@@ -2054,7 +2241,7 @@ int str_utf8_code(const char* str, int& len) {
 }
 
 void interpret_char(IntCtx& ctx) {
-  auto s = ctx.scan_word();
+  auto s = ctx.parser->scan_word();
   int len = (s.size() < 10 ? (int)s.size() : 10);
   int code = str_utf8_code(s.data(), len);
   if (code < 0 || s.size() != (unsigned)len) {
@@ -2195,6 +2382,12 @@ Ref<FiftCont> interpret_execute(IntCtx& ctx) {
   return pop_exec_token(ctx);
 }
 
+Ref<FiftCont> interpret_call_cc(IntCtx& ctx) {
+  auto next = pop_exec_token(ctx);
+  ctx.stack.push_object(std::move(ctx.next));
+  return next;
+}
+
 Ref<FiftCont> interpret_execute_times(IntCtx& ctx) {
   int count = ctx.stack.pop_smallint_range(1000000000);
   auto body = pop_exec_token(ctx);
@@ -2249,30 +2442,46 @@ Ref<FiftCont> interpret_until(IntCtx& ctx) {
   return body;
 }
 
-void interpret_tick(IntCtx& ctx) {
-  std::string word = ctx.scan_word().str();
-  auto entry = ctx.dictionary->lookup(word);
-  if (!entry) {
-    entry = ctx.dictionary->lookup(word + ' ');
+DictEntry context_lookup(IntCtx& ctx, std::string word, bool append_space = true) {
+  if (append_space) {
+    auto entry = context_lookup(ctx, word, false);
     if (!entry) {
-      throw IntError{"word `" + word + "` undefined"};
+      entry = context_lookup(ctx, word + ' ', false);
     }
+    return entry;
   }
-  ctx.stack.push({vm::from_object, entry->get_def()});
+  auto entry = ctx.context.lookup(word);
+  if (!entry && ctx.context != ctx.dictionary) {
+    entry = ctx.dictionary.lookup(word);
+  }
+  if (!entry && ctx.main_dictionary != ctx.context && ctx.main_dictionary != ctx.dictionary) {
+    entry = ctx.main_dictionary.lookup(word);
+  }
+  return entry;
+}
+
+void interpret_tick(IntCtx& ctx) {
+  std::string word = ctx.parser->scan_word().str();
+  auto entry = context_lookup(ctx, word);
+  if (!entry) {
+    throw IntError{"word `" + word + "` undefined"};
+  }
+  ctx.stack.push_object(entry.get_def());
   push_argcount(ctx, 1);
 }
 
-void interpret_find(IntCtx& ctx) {
+void interpret_find(IntCtx& ctx, int mode) {
   std::string word = ctx.stack.pop_string();
-  auto entry = ctx.dictionary->lookup(word);
-  if (!entry) {
-    entry = ctx.dictionary->lookup(word + ' ');
-  }
+  auto entry = context_lookup(ctx, word, !(mode & 2));
   if (!entry) {
     ctx.stack.push_bool(false);
   } else {
-    ctx.stack.push({vm::from_object, entry->get_def()});
-    ctx.stack.push_bool(true);
+    ctx.stack.push_object(entry.get_def());
+    if (!(mode & 1) || !entry.is_active()) {
+      ctx.stack.push_bool(true);
+    } else {
+      ctx.stack.push_smallint(1);
+    }
   }
 }
 
@@ -2282,9 +2491,13 @@ void interpret_leave_source(IntCtx& ctx) {
   }
 }
 
+void interpret_include_depth(IntCtx& ctx) {
+  ctx.stack.push_smallint(ctx.include_depth());
+}
+
 Ref<FiftCont> interpret_include(IntCtx& ctx) {
   auto fname = ctx.stack.pop_string();
-  auto r_file = ctx.source_lookup->lookup_source(fname, ctx.currentd_dir);
+  auto r_file = ctx.source_lookup->lookup_source(fname, ctx.parser->currentd_dir);
   if (r_file.is_error()) {
     throw IntError{"cannot locate file `" + fname + "`"};
   }
@@ -2312,10 +2525,30 @@ Ref<FiftCont> interpret_skip_source(IntCtx& ctx) {
 }
 
 void interpret_words(IntCtx& ctx) {
-  for (const auto& x : *ctx.dictionary) {
-    *ctx.output_stream << x.first << " ";
+  for (const auto& x : ctx.dictionary) {
+    *ctx.output_stream << vm::StackEntry(x.key()).as_string() << " ";
   }
   *ctx.output_stream << std::endl;
+}
+
+void interpret_get_current(IntCtx& ctx) {
+  ctx.stack.push(ctx.dictionary.get_box());
+}
+
+void interpret_set_current(IntCtx& ctx) {
+  ctx.dictionary = ctx.stack.pop_box();
+}
+
+void interpret_get_context(IntCtx& ctx) {
+  ctx.stack.push(ctx.context.get_box());
+}
+
+void interpret_set_context(IntCtx& ctx) {
+  ctx.context = ctx.stack.pop_box();
+}
+
+void interpret_set_context_to(IntCtx& ctx, Ref<vm::Box> box) {
+  ctx.context = std::move(box);
 }
 
 void interpret_print_backtrace(IntCtx& ctx) {
@@ -2461,6 +2694,28 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
   if (mode & 8) {
     ctx.stack.push_smallint(gas.gas_consumed());
   }
+}
+
+void interpret_vmop_len(vm::Stack& stack) {
+  int cp = stack.pop_smallint_range(0x7fffffff, -0x80000000);
+  auto cs = stack.pop_cellslice();
+  auto dispatch = vm::DispatchTable::get_table(cp);
+  if (!dispatch) {
+    throw IntError{"unknown vm codepage"};
+  }
+  stack.push_smallint(dispatch->instr_len(*cs));
+}
+
+void interpret_vmop_dump(vm::Stack& stack) {
+  int cp = stack.pop_smallint_range(0x7fffffff, -0x80000000);
+  auto cs = stack.pop_cellslice();
+  auto dispatch = vm::DispatchTable::get_table(cp);
+  if (!dispatch) {
+    throw IntError{"unknown vm codepage"};
+  }
+  auto dump = dispatch->dump_instr(cs.write());
+  stack.push_cellslice(std::move(cs));
+  stack.push_string(std::move(dump));
 }
 
 void do_interpret_db_run_vm_parallel(std::ostream* stream, vm::Stack& stack, vm::TonDb* ton_db_ptr, int threads_n,
@@ -2621,11 +2876,11 @@ Ref<FiftCont> interpret_get_cmdline_arg(IntCtx& ctx) {
     interpret_get_fixed_cmdline_arg(ctx.stack, n);
     return {};
   }
-  auto entry = ctx.dictionary->lookup("$0 ");
+  auto entry = ctx.dictionary.lookup("$0 ");
   if (!entry) {
     throw IntError{"-?"};
   } else {
-    return entry->get_def();
+    return entry.get_def();
   }
 }
 
@@ -2665,29 +2920,19 @@ Ref<FiftCont> interpret_execute_internal(IntCtx& ctx) {
   return word_def;
 }
 
-// wl x1 .. xn n 'w --> wl'
-void interpret_compile_internal(vm::Stack& stack) {
-  Ref<FiftCont> word_def = pop_exec_token(stack);
-  int count = stack.pop_smallint_range(255);
-  do_compile_literals(stack, count);
-  if (word_def != Dictionary::nop_word_def) {
-    do_compile(stack, word_def);
-  }
-}
-
 void do_compile(vm::Stack& stack, Ref<FiftCont> word_def) {
   Ref<WordList> wl_ref = pop_word_list(stack);
-  if (word_def != Dictionary::nop_word_def) {
+  if (word_def != nop_word_def) {
     auto list_size = word_def->list_size();
-    if ((td::uint64)list_size <= 1) {
-      // inline short definitions
+    if (list_size >= 0 && (list_size <= 2 || word_def.is_unique())) {
+      // inline short and unique definitions
       auto list = word_def->get_list();
       wl_ref.write().append(list, list + list_size);
     } else {
-      wl_ref.write().push_back(word_def);
+      wl_ref.write().push_back(std::move(word_def));
     }
   }
-  stack.push({vm::from_object, wl_ref});
+  stack.push_object(std::move(wl_ref));
 }
 
 void compile_one_literal(WordList& wlist, vm::StackEntry val) {
@@ -2715,12 +2960,146 @@ void do_compile_literals(vm::Stack& stack, int count) {
     }
   }
   stack.pop_many(count + 1);
-  stack.push({vm::from_object, wl_ref});
+  stack.push_object(std::move(wl_ref));
+}
+
+// wl x1 .. xn n 'w --> wl'
+void interpret_compile_internal(vm::Stack& stack) {
+  Ref<FiftCont> word_def = pop_exec_token(stack);
+  int count = stack.pop_smallint_range(255);
+  do_compile_literals(stack, count);
+  if (word_def != nop_word_def) {
+    do_compile(stack, std::move(word_def));
+  }
+}
+
+Ref<FiftCont> interpret_compile_execute(IntCtx& ctx) {
+  if (ctx.state > 0) {
+    interpret_compile_internal(ctx.stack);
+    return {};
+  } else {
+    return interpret_execute_internal(ctx);
+  }
+}
+
+void interpret_seekeof(IntCtx& ctx, int mode) {
+  if (mode == -1) {
+    mode = ctx.stack.pop_smallint_range(3, -1);
+  }
+  bool eof = true;
+  if (ctx.parser && (ctx.parser->get_input() || ctx.parser->load_next_line())) {
+    while (true) {
+      if (!ctx.parser->is_sb()) {
+        ctx.parser->skipspc();
+        if (*ctx.parser->get_input()) {
+          eof = false;
+          break;
+        }
+      }
+      if (mode & 1) {
+        *ctx.output_stream << " ok" << std::endl;
+      }
+      if (!ctx.parser->load_next_line()) {
+        break;
+      }
+    }
+  }
+  ctx.stack.push_bool(eof);
+}
+
+void interpret_word_prefix_find(IntCtx& ctx, int mode) {
+  const char *ptr = ctx.parser->get_input(), *start = ptr;
+  if (!ptr) {
+    ctx.stack.push_string(std::string{});
+    ctx.stack.push_bool(false);
+    return;
+  }
+  while (*ptr && *ptr != ' ' && *ptr != '\t') {
+    ptr++;
+  }
+  std::string Word{start, ptr};
+  Word.push_back(' ');
+  auto entry = context_lookup(ctx, Word, false);
+  Word.pop_back();
+  if (entry) {
+    ctx.parser->set_input(ptr);
+    ctx.parser->skipspc();
+  } else {
+    const char* ptr_end = ptr;
+    while (true) {
+      entry = context_lookup(ctx, Word, false);
+      if (entry) {
+        ctx.parser->set_input(ptr);
+        break;
+      }
+      if (ptr == start) {
+        Word = std::string{start, ptr_end};
+        ctx.parser->set_input(ptr_end);
+        ctx.parser->skipspc();
+        break;
+      }
+      Word.pop_back();
+      --ptr;
+    }
+  }
+  ctx.parser->word = Word;
+  if (!(mode & 2) || !entry) {
+    ctx.stack.push_string(std::move(Word));
+  }
+  if (mode & 1) {
+    if (!entry) {
+      ctx.stack.push_bool(false);
+    } else {
+      ctx.stack.push_object(entry.get_def());
+      ctx.stack.push_smallint(entry.is_active() ? 1 : -1);
+    }
+  }
+}
+
+// equivalent to
+// { ?dup { 1+ { execute } { 0 swap } cond } { (number) ?dup 0= abort"-?" 'nop } cond
+// } : (interpret-prepare)
+Ref<FiftCont> interpret_prepare(IntCtx& ctx) {
+  int found = ctx.stack.pop_smallint_range(1, -1);
+  if (!found) {
+    // numbers
+    interpret_parse_number(ctx);     // (number)
+    interpret_cond_dup(ctx);         // ?dup
+    auto res = ctx.stack.pop_int();  // 0= abort"-?"
+    if (res == 0) {
+      throw IntError{"-?"};
+    }
+    ctx.stack.push_object(nop_word_def);  // 'nop
+    return {};
+  } else if (found == -1) {
+    // ordinary word
+    ctx.stack.push_smallint(0);  // 0
+    interpret_swap(ctx);         // swap
+    return {};
+  } else {
+    // active word
+    return pop_exec_token(ctx);  // execute
+  }
+}
+
+Ref<FiftCont> InterpretCont::run_tail(IntCtx& ctx) const {
+  static Ref<FiftCont> interpret_prepare_ref = td::make_ref<CtxTailWord>(interpret_prepare);
+  static Ref<FiftCont> compile_exec_ref = td::make_ref<CtxTailWord>(interpret_compile_execute);
+  interpret_seekeof(ctx, !ctx.state && !ctx.include_depth());  // seekeof
+  if (ctx.stack.pop_bool()) {
+    exit_interpret->clear();
+    return {};  // exit loop
+  }
+  exit_interpret->set({vm::from_object, ctx.next});  // set 'exit-interpret to current continuation
+  interpret_word_prefix_find(ctx, 3);                // (word-prefix-find)
+  // (interpet-prepare) (compile-execute) and schedule next loop iteration
+  ctx.next = SeqCont::seq(compile_exec_ref, SeqCont::seq(self(), std::move(ctx.next)));
+  return interpret_prepare_ref;  // (interpret-prepare)
 }
 
 void init_words_common(Dictionary& d) {
   using namespace std::placeholders;
-  d.def_word("nop ", Dictionary::nop_word_def);
+  d.def_word("nop ", nop_word_def);
   // stack print/dump words
   d.def_ctx_word(". ", std::bind(interpret_dot, _1, true));
   d.def_ctx_word("._ ", std::bind(interpret_dot, _1, false));
@@ -2940,6 +3319,14 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("ref@+ ", std::bind(interpret_fetch_ref, _1, 2));
   d.def_stack_word("ref@? ", std::bind(interpret_fetch_ref, _1, 4));
   d.def_stack_word("ref@?+ ", std::bind(interpret_fetch_ref, _1, 6));
+  d.def_stack_word("s@ ", std::bind(interpret_fetch_slice, _1, 0));
+  d.def_stack_word("sr@ ", std::bind(interpret_fetch_slice, _1, 1));
+  d.def_stack_word("s@+ ", std::bind(interpret_fetch_slice, _1, 2));
+  d.def_stack_word("sr@+ ", std::bind(interpret_fetch_slice, _1, 3));
+  d.def_stack_word("s@? ", std::bind(interpret_fetch_slice, _1, 4));
+  d.def_stack_word("sr@? ", std::bind(interpret_fetch_slice, _1, 5));
+  d.def_stack_word("s@?+ ", std::bind(interpret_fetch_slice, _1, 6));
+  d.def_stack_word("sr@?+ ", std::bind(interpret_fetch_slice, _1, 7));
   d.def_stack_word("s> ", interpret_cell_check_empty);
   d.def_stack_word("empty? ", interpret_cell_empty);
   d.def_stack_word("remaining ", interpret_cell_remaining);
@@ -2968,6 +3355,18 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("crc16 ", interpret_crc16);
   d.def_stack_word("crc32 ", interpret_crc32);
   d.def_stack_word("crc32c ", interpret_crc32c);
+  // hashmaps
+  d.def_stack_word("hmapnew ", interpret_hmap_new);
+  d.def_stack_word("hmap@ ", std::bind(interpret_hmap_fetch, _1, 6));
+  d.def_stack_word("hmap@? ", std::bind(interpret_hmap_fetch, _1, 5));
+  d.def_stack_word("hmap- ", std::bind(interpret_hmap_delete, _1, 0));
+  d.def_stack_word("hmap-? ", std::bind(interpret_hmap_delete, _1, 1));
+  d.def_stack_word("hmap@- ", std::bind(interpret_hmap_delete, _1, 6));
+  d.def_stack_word("hmap! ", std::bind(interpret_hmap_store, _1, 0));
+  d.def_stack_word("hmap!+ ", std::bind(interpret_hmap_store, _1, 1));
+  d.def_stack_word("hmapempty? ", interpret_hmap_is_empty);
+  d.def_stack_word("hmapunpack ", std::bind(interpret_hmap_decompose, _1, 1));
+  d.def_ctx_tail_word("hmapforeach ", std::bind(interpret_hmap_foreach, _1, 0));
   // vm dictionaries
   d.def_stack_word("dictnew ", interpret_dict_new);
   d.def_stack_word("dict>s ", interpret_dict_to_slice);
@@ -3039,6 +3438,7 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("atom? ", interpret_is_atom);
   // execution control
   d.def_ctx_tail_word("execute ", interpret_execute);
+  d.def_ctx_tail_word("call/cc ", interpret_call_cc);
   d.def_ctx_tail_word("times ", interpret_execute_times);
   d.def_ctx_tail_word("if ", interpret_if);
   d.def_ctx_tail_word("ifnot ", interpret_ifnot);
@@ -3054,10 +3454,12 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("(}) ", interpret_wordlist_end_aux);
   d.def_stack_word("(compile) ", interpret_compile_internal);
   d.def_ctx_tail_word("(execute) ", interpret_execute_internal);
+  d.def_ctx_tail_word("(interpret-prepare) ", interpret_prepare);
   d.def_active_word("' ", interpret_tick);
-  d.def_word("'nop ", LitCont::literal({vm::from_object, Dictionary::nop_word_def}));
+  d.def_word("'nop ", LitCont::literal({vm::from_object, nop_word_def}));
   // dictionary manipulation
-  d.def_ctx_word("find ", interpret_find);
+  d.def_ctx_word("find ", std::bind(interpret_find, _1, 1));
+  d.def_ctx_word("(word-prefix-find) ", std::bind(interpret_word_prefix_find, _1, 3));
   d.def_ctx_word("create ", interpret_create);
   d.def_ctx_word("(create) ", std::bind(interpret_create_aux, _1, -1));
   d.def_active_word(": ", std::bind(interpret_colon, _1, 0));
@@ -3067,12 +3469,21 @@ void init_words_common(Dictionary& d) {
   d.def_ctx_word("(forget) ", interpret_forget_aux);
   d.def_ctx_word("forget ", interpret_forget);
   d.def_ctx_word("words ", interpret_words);
+  d.def_word("Fift-wordlist ", LitCont::literal(d.get_box()));
+  d.def_ctx_word("Fift ", std::bind(interpret_set_context_to, _1, d.get_box()));
+  d.def_ctx_word("current@ ", interpret_get_current);
+  d.def_ctx_word("current! ", interpret_set_current);
+  d.def_ctx_word("context@ ", interpret_get_context);
+  d.def_ctx_word("context! ", interpret_set_context);
   d.def_ctx_word(".bt ", interpret_print_backtrace);
   d.def_ctx_word("cont. ", interpret_print_continuation);
   // input parse
   d.def_ctx_word("word ", interpret_word);
   d.def_ctx_word("(word) ", interpret_word_ext);
   d.def_ctx_word("skipspc ", interpret_skipspc);
+  d.def_ctx_word("seekeof? ", std::bind(interpret_seekeof, _1, 1));
+  d.def_ctx_word("(seekeof?) ", std::bind(interpret_seekeof, _1, -1));
+  d.def_ctx_word("include-depth ", interpret_include_depth);
   d.def_ctx_tail_word("include ", interpret_include);
   d.def_ctx_tail_word("skip-to-eof ", interpret_skip_source);
   d.def_word("'exit-interpret ", LitCont::literal(exit_interpret));
@@ -3108,6 +3519,8 @@ void init_words_vm(Dictionary& d, bool enable_debug) {
   d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
   d.def_stack_word("vmcont, ", interpret_store_vm_cont);
   d.def_stack_word("vmcont@ ", interpret_fetch_vm_cont);
+  d.def_stack_word("(vmoplen) ", interpret_vmop_len);
+  d.def_stack_word("(vmopdump) ", interpret_vmop_dump);
 }
 
 void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* const argv[]) {
@@ -3124,101 +3537,6 @@ void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* con
     sprintf(buffer, "$%d ", i);
     d.def_stack_word(buffer, std::bind(interpret_get_fixed_cmdline_arg, _1, i));
   }
-}
-
-std::pair<td::RefInt256, td::RefInt256> numeric_value_ext(std::string s, bool allow_frac = true) {
-  td::RefInt256 num, denom;
-  int res = parse_number(s, num, denom, allow_frac);
-  if (res <= 0) {
-    throw IntError{"-?"};
-  }
-  return std::make_pair(std::move(num), res == 2 ? std::move(denom) : td::RefInt256{});
-}
-
-td::RefInt256 numeric_value(std::string s) {
-  td::RefInt256 num, denom;
-  int res = parse_number(s, num, denom, false);
-  if (res != 1) {
-    throw IntError{"-?"};
-  }
-  return num;
-}
-
-Ref<FiftCont> interpret_compile_execute(IntCtx& ctx) {
-  if (ctx.state > 0) {
-    interpret_compile_internal(ctx.stack);
-    return {};
-  } else {
-    return interpret_execute_internal(ctx);
-  }
-}
-
-Ref<FiftCont> InterpretCont::run_tail(IntCtx& ctx) const {
-  if (!ctx.get_input() && !ctx.load_next_line()) {
-    return {};
-  }
-  while (true) {
-    if (!ctx.is_sb()) {
-      ctx.skipspc();
-      if (*ctx.get_input()) {
-        break;
-      }
-    }
-    if (!ctx.state && !ctx.include_depth) {
-      *ctx.output_stream << " ok" << std::endl;
-    }
-    if (!ctx.load_next_line()) {
-      return {};
-    }
-  }
-  const char* ptr = ctx.get_input();
-  std::string Word;
-  Word.reserve(128);
-  auto entry = ctx.dictionary->lookup("");
-  std::string entry_word;
-  const char* ptr_end = ptr;
-  while (*ptr && *ptr != ' ' && *ptr != '\t') {
-    Word += *ptr++;
-    auto cur = ctx.dictionary->lookup(Word);
-    if (cur) {
-      entry = cur;
-      entry_word = Word;
-      ptr_end = ptr;
-    }
-  }
-  auto cur = ctx.dictionary->lookup(Word + " ");
-  if (cur || !entry) {
-    entry = std::move(cur);
-    ctx.set_input(ptr);
-    ctx.skipspc();
-  } else {
-    Word = entry_word;
-    ctx.set_input(ptr_end);
-  }
-  ctx.word = Word;
-  static Ref<FiftCont> compile_exec_ref = td::make_ref<CtxTailWord>(interpret_compile_execute);
-  if (!entry) {
-    // numbers
-    auto res = numeric_value_ext(Word);
-    ctx.stack.push(std::move(res.first));
-    if (res.second.not_null()) {
-      ctx.stack.push(std::move(res.second));
-      push_argcount(ctx, 2);
-    } else {
-      push_argcount(ctx, 1);
-    }
-  } else if (!entry->is_active()) {
-    // ordinary word
-    ctx.stack.push_smallint(0);
-    ctx.stack.push({vm::from_object, entry->get_def()});
-  } else {
-    // active word
-    ctx.next = SeqCont::seq(compile_exec_ref, SeqCont::seq(self(), std::move(ctx.next)));
-    return entry->get_def();
-  }
-  exit_interpret->set({vm::from_object, ctx.next});
-  ctx.next = SeqCont::seq(self(), std::move(ctx.next));
-  return compile_exec_ref;
 }
 
 }  // namespace fift

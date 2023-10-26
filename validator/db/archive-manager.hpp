@@ -71,7 +71,6 @@ class ArchiveManager : public td::actor::Actor {
 
   void start_up() override;
 
-  void begin_transaction();
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
 
@@ -94,25 +93,83 @@ class ArchiveManager : public td::actor::Actor {
     auto file_actor_id() const {
       return file.get();
     }
-    void clear_actor_id() {
-      file.reset();
-    }
     PackageId id;
-    bool deleted;
+    mutable bool deleted;
 
     std::map<ShardIdFull, Desc> first_blocks;
-    td::actor::ActorOwn<ArchiveSlice> file;
+    mutable td::actor::ActorOwn<ArchiveSlice> file;
   };
 
-  std::map<PackageId, FileDescription> files_;
-  std::map<PackageId, FileDescription> key_files_;
-  std::map<PackageId, FileDescription> temp_files_;
+  class FileMap {
+   public:
+    std::map<PackageId, FileDescription>::const_iterator begin() const {
+      return files_.cbegin();
+    }
+    std::map<PackageId, FileDescription>::const_iterator end() const {
+      return files_.cend();
+    }
+    std::map<PackageId, FileDescription>::const_reverse_iterator rbegin() const {
+      return files_.crbegin();
+    }
+    std::map<PackageId, FileDescription>::const_reverse_iterator rend() const {
+      return files_.crend();
+    }
+    std::map<PackageId, FileDescription>::const_iterator find(PackageId x) const {
+      return files_.find(x);
+    }
+    size_t count(const PackageId &x) const {
+      return files_.count(x);
+    }
+    size_t size() const {
+      return files_.size();
+    }
+    std::map<PackageId, FileDescription>::const_iterator lower_bound(const PackageId &x) const {
+      return files_.lower_bound(x);
+    }
+    std::map<PackageId, FileDescription>::const_iterator upper_bound(const PackageId &x) const {
+      return files_.upper_bound(x);
+    }
+    void clear() {
+      files_.clear();
+      shards_.clear();
+    }
+    const FileDescription &emplace(const PackageId &id, FileDescription desc) {
+      auto it = files_.emplace(id, std::move(desc));
+      if (it.second) {
+        shard_index_add(it.first->second);
+      }
+      return it.first->second;
+    }
+    void erase(std::map<PackageId, FileDescription>::const_iterator it) {
+      shard_index_del(it->second);
+      files_.erase(it);
+    }
+    void set_shard_first_block(const FileDescription &desc, ShardIdFull shard, FileDescription::Desc v);
+    const FileDescription *get_file_desc_by_seqno(ShardIdFull shard, BlockSeqno seqno) const;
+    const FileDescription *get_file_desc_by_lt(ShardIdFull shard, LogicalTime lt) const;
+    const FileDescription *get_file_desc_by_unix_time(ShardIdFull shard, UnixTime ts) const;
+    const FileDescription *get_next_file_desc(ShardIdFull shard, const FileDescription *desc) const;
+
+   private:
+    std::map<PackageId, FileDescription> files_;
+    struct ShardIndex {
+      std::map<BlockSeqno, const FileDescription *> seqno_index_;
+      std::map<LogicalTime, const FileDescription *> lt_index_;
+      std::map<UnixTime, const FileDescription *> unix_time_index_;
+      std::map<PackageId, const FileDescription *> packages_index_;
+    };
+    std::map<ShardIdFull, ShardIndex> shards_;
+
+    void shard_index_add(const FileDescription &desc);
+    void shard_index_del(const FileDescription &desc);
+  };
+  FileMap files_, key_files_, temp_files_;
   BlockSeqno finalized_up_to_{0};
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;
 
-  auto &get_file_map(const PackageId &p) {
+  FileMap &get_file_map(const PackageId &p) {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
   }
 
@@ -125,18 +182,19 @@ class ArchiveManager : public td::actor::Actor {
   void get_handle_finish(BlockHandle handle, td::Promise<BlockHandle> promise);
   void get_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise);
 
-  FileDescription *get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt,
-                                 bool force);
-  FileDescription *add_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt);
-  void update_desc(FileDescription &desc, ShardIdFull shard, BlockSeqno seqno, UnixTime ts, LogicalTime lt);
-  FileDescription *get_file_desc_by_seqno(ShardIdFull shard, BlockSeqno seqno, bool key_block);
-  FileDescription *get_file_desc_by_lt(ShardIdFull shard, LogicalTime lt, bool key_block);
-  FileDescription *get_file_desc_by_unix_time(ShardIdFull shard, UnixTime ts, bool key_block);
-  FileDescription *get_file_desc_by_seqno(AccountIdPrefixFull shard, BlockSeqno seqno, bool key_block);
-  FileDescription *get_file_desc_by_lt(AccountIdPrefixFull shard, LogicalTime lt, bool key_block);
-  FileDescription *get_file_desc_by_unix_time(AccountIdPrefixFull shard, UnixTime ts, bool key_block);
-  FileDescription *get_next_file_desc(FileDescription *f);
-  FileDescription *get_temp_file_desc_by_idx(PackageId idx);
+  const FileDescription *get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt,
+                                       bool force);
+  const FileDescription *add_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt);
+  void update_desc(FileMap &f, const FileDescription &desc, ShardIdFull shard, BlockSeqno seqno, UnixTime ts,
+                   LogicalTime lt);
+  const FileDescription *get_file_desc_by_seqno(ShardIdFull shard, BlockSeqno seqno, bool key_block);
+  const FileDescription *get_file_desc_by_lt(ShardIdFull shard, LogicalTime lt, bool key_block);
+  const FileDescription *get_file_desc_by_unix_time(ShardIdFull shard, UnixTime ts, bool key_block);
+  const FileDescription *get_file_desc_by_seqno(AccountIdPrefixFull shard, BlockSeqno seqno, bool key_block);
+  const FileDescription *get_file_desc_by_lt(AccountIdPrefixFull shard, LogicalTime lt, bool key_block);
+  const FileDescription *get_file_desc_by_unix_time(AccountIdPrefixFull shard, UnixTime ts, bool key_block);
+  const FileDescription *get_next_file_desc(const FileDescription *f, AccountIdPrefixFull shard, bool key_block);
+  const FileDescription *get_temp_file_desc_by_idx(PackageId idx);
   PackageId get_max_temp_file_desc_idx();
   PackageId get_prev_temp_file_desc_idx(PackageId id);
 

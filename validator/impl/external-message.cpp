@@ -38,8 +38,9 @@ ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountId
   hash_ = block::compute_file_hash(data_);
 }
 
-td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice data) {
-  if (data.size() > max_ext_msg_size) {
+td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice data,
+                                                             block::SizeLimitsConfig::ExtMsgLimits limits) {
+  if (data.size() > limits.max_size) {
     return td::Status::Error("external message too large, rejecting");
   }
   vm::BagOfCells boc;
@@ -54,7 +55,7 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   if (ext_msg->get_level() != 0) {
     return td::Status::Error("external message must have zero level");
   }
-  if (ext_msg->get_depth() >= max_ext_msg_depth) {
+  if (ext_msg->get_depth() >= limits.max_depth) {
     return td::Status::Error("external message is too deep");
   }
   vm::CellSlice cs{vm::NoVmOrd{}, ext_msg};
@@ -85,21 +86,25 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr};
 }
 
-void ExtMessageQ::run_message(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-                              td::Promise<td::Unit> promise) {
-  auto R = create_ext_message(std::move(data));
+void ExtMessageQ::run_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                              td::actor::ActorId<ton::validator::ValidatorManager> manager,
+                              td::Promise<td::Ref<ExtMessage>> promise) {
+  auto R = create_ext_message(std::move(data), limits);
   if (R.is_error()) {
     return promise.set_error(R.move_as_error_prefix("failed to parse external message "));
   }
   auto M = R.move_as_ok();
   auto root = M->root_cell();
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
-  tlb::unpack_cell_inexact(root, info); // checked in create message
+  tlb::unpack_cell_inexact(root, info);  // checked in create message
   ton::StdSmcAddress addr = M->addr();
   ton::WorkchainId wc = M->wc();
 
-  run_fetch_account_state(wc, addr, manager,
-      [promise = std::move(promise), msg_root = root, wc = wc](td::Result<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> res) mutable {
+  run_fetch_account_state(
+      wc, addr, manager,
+      [promise = std::move(promise), msg_root = root, wc,
+       M](td::Result<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+              res) mutable {
         if (res.is_error()) {
           promise.set_error(td::Status::Error(PSLICE() << "Failed to get account state"));
         } else {
@@ -109,20 +114,19 @@ void ExtMessageQ::run_message(td::BufferSlice data, td::actor::ActorId<ton::vali
           auto utime = std::get<1>(tuple);
           auto lt = std::get<2>(tuple);
           auto config = std::move(std::get<3>(tuple));
-          if(!acc.unpack(shard_acc, {}, utime, false)) {
+          if (!acc.unpack(shard_acc, {}, utime, false)) {
             promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
           } else {
             auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));
             if (status.is_ok()) {
-              promise.set_value(td::Unit());
+              promise.set_value(std::move(M));
             } else {
-              promise.set_error(td::Status::Error(
-                  PSLICE() << "External message was not accepted\n" << status.message()));
+              promise.set_error(td::Status::Error(PSLICE() << "External message was not accepted\n"
+                                                           << status.message()));
             }
           }
         }
-      }
-  );
+      });
 }
 
 td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
@@ -139,16 +143,17 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
    block::ActionPhaseConfig action_phase_cfg_;
    td::RefInt256 masterchain_create_fee, basechain_create_fee;
 
-   auto fetch_res = Collator::impl_fetch_config_params(std::move(config), &old_mparams,
-                                                 &storage_prices_, &storage_phase_cfg_,
-                                                 &rand_seed_, &compute_phase_cfg_,
-                                                 &action_phase_cfg_, &masterchain_create_fee,
-                                                 &basechain_create_fee, wc);
+   auto fetch_res = block::FetchConfigParams::fetch_config_params(*config, &old_mparams,
+                                                                  &storage_prices_, &storage_phase_cfg_,
+                                                                  &rand_seed_, &compute_phase_cfg_,
+                                                                  &action_phase_cfg_, &masterchain_create_fee,
+                                                                  &basechain_create_fee, wc, utime);
    if(fetch_res.is_error()) {
      auto error = fetch_res.move_as_error();
      LOG(DEBUG) << "Cannot fetch config params: " << error.message();
      return error.move_as_error_prefix("Cannot fetch config params: ");
    }
+   compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
    compute_phase_cfg_.with_vm_log = true;
 
    auto res = Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt,
@@ -160,7 +165,7 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
      LOG(DEBUG) << "Cannot run message on account: " << error.message();
      return error.move_as_error_prefix("Cannot run message on account: ");
    }
-   std::unique_ptr<block::Transaction> trans = res.move_as_ok();
+   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
    auto trans_root = trans->commit(*acc);
    if (trans_root.is_null()) {

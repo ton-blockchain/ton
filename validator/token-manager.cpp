@@ -67,11 +67,10 @@ void TokenManager::download_token_cleared(size_t download_size, td::uint32 prior
 }
 
 void TokenManager::alarm() {
-  for (auto it = pending_.begin(); it != pending_.end(); it++) {
+  for (auto it = pending_.begin(); it != pending_.end();) {
     if (it->second.timeout.is_in_past()) {
       it->second.promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout in wait download token"));
-      auto it2 = it++;
-      pending_.erase(it2);
+      it = pending_.erase(it);
     } else {
       it++;
     }

@@ -1,0 +1,46 @@
+name: "TON aarch64 macOS binaries"
+
+on: [workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: macos-12
+
+    steps:
+    - run: brew install qemu
+
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - uses: cachix/install-nix-action@v18
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+    - name: Compile
+      run: nix build .?submodules=1#packages.aarch64-darwin.ton-staticbin-dylib --print-build-logs -o result-aarch64-darwin
+
+    - name: Copy binaries
+      run: |
+        ls -lart
+        mkdir artifacts
+        cp $PWD/result-aarch64-darwin/bin/* artifacts/
+        chmod +x artifacts/*
+        cp $PWD/result-aarch64-darwin/lib/libtonlibjson* artifacts/
+        cp -R crypto/smartcont artifacts/
+        cp -R crypto/fift/lib artifacts/
+
+    - name: Simple binaries test
+      run: |
+        sudo mv /nix/store /nix/store2
+        artifacts/validator-engine -V
+        artifacts/lite-client -V
+        artifacts/fift -V
+        artifacts/func -V
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-aarch64-macos-binaries
+        path: artifacts

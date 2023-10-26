@@ -76,6 +76,8 @@ variable base
 { def? ' skip-to-eof if } : skip-ifdef
 { bl word dup (def?) { drop skip-to-eof } { 'nop swap 0 (create) } cond } : library
 { bl word dup (def?) { 2drop skip-to-eof } { swap 1 'nop does swap 0 (create) } cond } : library-version
+{ hole dup 1 'nop does swap 1 { context! } does bl word tuck 0 (create) +"-wordlist" 0 (create) } : namespace
+{ context@ current! } : definitions
 { char ) word "$" swap $+ 1 { find 0= abort"undefined parameter" execute } } ::_ $(
 // b s -- ?
 { sbitrefs rot brembitrefs rot >= -rot <= and } : s-fits?

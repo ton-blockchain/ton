@@ -35,7 +35,10 @@ using td::Ref;
 using LtCellRef = std::pair<ton::LogicalTime, Ref<vm::Cell>>;
 
 struct Account;
+
+namespace transaction {
 struct Transaction;
+}  // namespace transaction
 
 struct CollatorError {
   std::string msg;
@@ -106,7 +109,11 @@ struct ComputePhaseConfig {
   std::unique_ptr<vm::Dictionary> libraries;
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
+  bool ignore_chksig{false};
   bool with_vm_log{false};
+  td::uint16 max_vm_data_depth = 512;
+  std::unique_ptr<vm::Dictionary> suspended_addresses;
+  int vm_log_verbosity = 0;
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();
@@ -131,6 +138,7 @@ struct ComputePhaseConfig {
   }
   bool parse_GasLimitsPrices(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
   bool parse_GasLimitsPrices(Ref<vm::Cell> cell, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
+  bool is_address_suspended(ton::WorkchainId wc, td::Bits256 addr) const;
 
  private:
   bool parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit,
@@ -143,7 +151,9 @@ struct ActionPhaseConfig {
   int bounce_msg_body{0};  // usually 0 or 256 bits
   MsgPrices fwd_std;
   MsgPrices fwd_mc;  // from/to masterchain
+  SizeLimitsConfig size_limits;
   const WorkchainSet* workchains{nullptr};
+  td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -155,7 +165,7 @@ struct CreditPhase {
 };
 
 struct ComputePhase {
-  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas };
+  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas, sk_suspended };
   int skip_reason{sk_none};
   bool success{false};
   bool msg_state_used{false};
@@ -182,6 +192,7 @@ struct ActionPhase {
   bool code_changed{false};
   bool action_list_invalid{false};
   bool acc_delete_req{false};
+  bool state_exceeds_limits{false};
   enum { acst_unchanged = 0, acst_frozen = 2, acst_deleted = 3 };
   int acc_status_change{acst_unchanged};
   td::RefInt256 total_fwd_fees;     // all fees debited from the account
@@ -235,6 +246,7 @@ struct Account {
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
   Ref<vm::Cell> total_state;       // ^Account
+  Ref<vm::CellSlice> storage;      // AccountStorage
   Ref<vm::CellSlice> inner_state;  // StateInit
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
   Ref<vm::Cell> code, data, library, orig_library;
@@ -267,7 +279,7 @@ struct Account {
   bool create_account_block(vm::CellBuilder& cb);  // stores an AccountBlock with all transactions
 
  protected:
-  friend struct Transaction;
+  friend struct transaction::Transaction;
   bool set_split_depth(int split_depth);
   bool check_split_depth(int split_depth) const;
   bool forget_split_depth();
@@ -282,8 +294,9 @@ struct Account {
   bool compute_my_addr(bool force = false);
 };
 
+namespace transaction {
 struct Transaction {
-  static constexpr unsigned max_msg_bits = (1 << 21), max_msg_cells = (1 << 13);
+  static constexpr unsigned max_allowed_merkle_depth = 2;
   enum {
     tr_none,
     tr_ord,
@@ -320,9 +333,11 @@ struct Transaction {
   td::RefInt256 due_payment;
   td::RefInt256 in_fwd_fee, msg_fwd_fees;
   block::CurrencyCollection total_fees{0};
+  block::CurrencyCollection blackhole_burned{0};
   ton::UnixTime last_paid;
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;
+  Ref<vm::CellSlice> new_storage;
   Ref<vm::CellSlice> new_inner_state;
   Ref<vm::Cell> new_code, new_data, new_library;
   Ref<vm::Cell> in_msg, in_msg_state;
@@ -348,6 +363,7 @@ struct Transaction {
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
+  td::Status check_state_limits(const ActionPhaseConfig& cfg);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state();
   bool serialize();
@@ -359,7 +375,7 @@ struct Transaction {
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
   bool update_block_storage_profile(vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
   bool would_fit(unsigned cls, const block::BlockLimitStatus& blk_lim_st) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);
@@ -382,6 +398,21 @@ struct Transaction {
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
   bool unpack_msg_state(bool lib_only = false);
+};
+}  // namespace transaction
+
+struct FetchConfigParams {
+static td::Status fetch_config_params(const block::Config& config,
+                                      Ref<vm::Cell>* old_mparams,
+                                      std::vector<block::StoragePrices>* storage_prices,
+                                      StoragePhaseConfig* storage_phase_cfg,
+                                      td::BitArray<256>* rand_seed,
+                                      ComputePhaseConfig* compute_phase_cfg,
+                                      ActionPhaseConfig* action_phase_cfg,
+                                      td::RefInt256* masterchain_create_fee,
+                                      td::RefInt256* basechain_create_fee,
+                                      ton::WorkchainId wc,
+                                      ton::UnixTime now);
 };
 
 }  // namespace block

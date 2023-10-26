@@ -30,13 +30,39 @@
 #include "parser/lexer.h"
 #include <getopt.h>
 #include "git.h"
+#include <fstream>
+#include "td/utils/port/path.h"
 
 namespace funC {
 
 int verbosity, indent, opt_level = 2;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
+GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
+GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
 std::string generated_from, boc_output_filename;
+ReadCallback::Callback read_callback;
+
+td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
+  switch (kind) {
+    case ReadCallback::Kind::ReadFile: {
+      std::ifstream ifs{query};
+      if (ifs.fail()) {
+        auto msg = std::string{"cannot open source file `"} + query + "`";
+        return td::Status::Error(msg);
+      }
+      std::stringstream ss;
+      ss << ifs.rdbuf();
+      return ss.str();
+    }
+    case ReadCallback::Kind::Realpath: {
+      return td::realpath(td::CSlice(query));
+    }
+    default: {
+      return td::Status::Error("Unknown query kind");
+    }
+  }
+}
 
 /*
  *
@@ -46,7 +72,7 @@ std::string generated_from, boc_output_filename;
 
 void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &errs) {
   SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-  assert(func_val);
+  func_assert(func_val);
   std::string name = sym::symbols.get_name(func_sym->sym_idx);
   if (verbosity >= 2) {
     errs << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
@@ -119,6 +145,9 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     if (fv && (fv->flags & 1) && code.ops->noreturn()) {
       mode |= Stack::_InlineFunc;
     }
+    if (fv && (fv->flags & 3)) {
+      mode |= Stack::_InlineAny;
+    }
     code.generate_code(outs, mode, indent + 1);
     outs << std::string(indent * 2, ' ') << "}>\n";
     if (verbosity >= 2) {
@@ -137,7 +166,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   }
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-    assert(func_val);
+    func_assert(func_val);
     std::string name = sym::symbols.get_name(func_sym->sym_idx);
     outs << std::string(indent * 2, ' ');
     if (func_val->method_id.is_null()) {
@@ -147,7 +176,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
     }
   }
   for (SymDef* gvar_sym : glob_vars) {
-    assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
+    func_assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
     std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
     outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
@@ -194,7 +223,7 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
   int ok = 0, proc = 0;
   try {
     for (auto src : sources) {
-      ok += funC::parse_source_file(src.c_str());
+      ok += funC::parse_source_file(src.c_str(), {}, true);
       proc++;
     }
     if (funC::interactive) {
@@ -208,6 +237,8 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
     if (!proc) {
       throw src::Fatal{"no source files, no output"};
     }
+    pragma_allow_post_modification.check_enable_in_libs();
+    pragma_compute_asm_ltr.check_enable_in_libs();
     return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
     errs << "fatal: " << fatal << std::endl;

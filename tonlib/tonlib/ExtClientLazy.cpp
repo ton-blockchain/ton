@@ -18,13 +18,20 @@
 */
 #include "ExtClientLazy.h"
 #include "TonlibError.h"
+#include "td/utils/Random.h"
 namespace tonlib {
 
-class ExtClientLazyImp : public ton::adnl::AdnlExtClient {
+class ExtClientLazyImp : public ExtClientLazy {
  public:
-  ExtClientLazyImp(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
+  ExtClientLazyImp(std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers,
                    td::unique_ptr<ExtClientLazy::Callback> callback)
-      : dst_(std::move(dst)), dst_addr_(std::move(dst_addr)), callback_(std::move(callback)) {
+      : servers_(std::move(servers)), callback_(std::move(callback)) {
+    CHECK(!servers_.empty());
+  }
+
+  void start_up() override {
+    td::Random::Fast rnd;
+    td::random_shuffle(td::as_mutable_span(servers_), rnd);
   }
 
   void check_ready(td::Promise<td::Unit> promise) override {
@@ -41,37 +48,66 @@ class ExtClientLazyImp : public ton::adnl::AdnlExtClient {
     if (client_.empty()) {
       return promise.set_error(TonlibError::Cancelled());
     }
+    td::Promise<td::BufferSlice> P = [SelfId = actor_id(this), idx = cur_server_idx_,
+                                      promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+      if (R.is_error() &&
+          (R.error().code() == ton::ErrorCode::timeout || R.error().code() == ton::ErrorCode::cancelled)) {
+        td::actor::send_closure(SelfId, &ExtClientLazyImp::set_server_bad, idx, true);
+      }
+      promise.set_result(std::move(R));
+    };
     send_closure(client_, &ton::adnl::AdnlExtClient::send_query, std::move(name), std::move(data), timeout,
-                 std::move(promise));
+                 std::move(P));
   }
 
+  void force_change_liteserver() override {
+    if (servers_.size() == 1) {
+      return;
+    }
+    cur_server_bad_ = cur_server_bad_force_ = true;
+  }
+
+ private:
   void before_query() {
     if (is_closing_) {
       return;
     }
-    if (!client_.empty()) {
-      alarm_timestamp() = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT);
+    alarm_timestamp() = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT);
+    if (cur_server_bad_) {
+      ++cur_server_idx_;
+    } else if (!client_.empty()) {
       return;
     }
     class Callback : public ton::adnl::AdnlExtClient::Callback {
      public:
-      explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
+      explicit Callback(td::actor::ActorShared<ExtClientLazyImp> parent, size_t idx)
+          : parent_(std::move(parent)), idx_(idx) {
       }
       void on_ready() override {
+        td::actor::send_closure(parent_, &ExtClientLazyImp::set_server_bad, idx_, false);
       }
       void on_stop_ready() override {
+        td::actor::send_closure(parent_, &ExtClientLazyImp::set_server_bad, idx_, true);
       }
 
      private:
-      td::actor::ActorShared<> parent_;
+      td::actor::ActorShared<ExtClientLazyImp> parent_;
+      size_t idx_;
     };
     ref_cnt_++;
-    client_ = ton::adnl::AdnlExtClient::create(dst_, dst_addr_, std::make_unique<Callback>(td::actor::actor_shared()));
+    cur_server_bad_ = false;
+    cur_server_bad_force_ = false;
+    const auto& s = servers_[cur_server_idx_ % servers_.size()];
+    LOG(INFO) << "Connecting to liteserver " << s.second;
+    client_ = ton::adnl::AdnlExtClient::create(
+        s.first, s.second, std::make_unique<Callback>(td::actor::actor_shared(this), cur_server_idx_));
   }
 
- private:
-  ton::adnl::AdnlNodeIdFull dst_;
-  td::IPAddress dst_addr_;
+  std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers_;
+  size_t cur_server_idx_ = 0;
+  bool cur_server_bad_ = false;
+  bool cur_server_bad_force_ = false;
+
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> client_;
   td::unique_ptr<ExtClientLazy::Callback> callback_;
   static constexpr double MAX_NO_QUERIES_TIMEOUT = 100;
@@ -79,6 +115,11 @@ class ExtClientLazyImp : public ton::adnl::AdnlExtClient {
   bool is_closing_{false};
   td::uint32 ref_cnt_{1};
 
+  void set_server_bad(size_t idx, bool bad) {
+    if (idx == cur_server_idx_ && servers_.size() > 1 && !cur_server_bad_force_) {
+      cur_server_bad_ = bad;
+    }
+  }
   void alarm() override {
     client_.reset();
   }
@@ -99,9 +140,13 @@ class ExtClientLazyImp : public ton::adnl::AdnlExtClient {
   }
 };
 
-td::actor::ActorOwn<ton::adnl::AdnlExtClient> ExtClientLazy::create(ton::adnl::AdnlNodeIdFull dst,
-                                                                    td::IPAddress dst_addr,
-                                                                    td::unique_ptr<Callback> callback) {
-  return td::actor::create_actor<ExtClientLazyImp>("ExtClientLazy", dst, dst_addr, std::move(callback));
+td::actor::ActorOwn<ExtClientLazy> ExtClientLazy::create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
+                                                         td::unique_ptr<Callback> callback) {
+  return create({std::make_pair(dst, dst_addr)}, std::move(callback));
+}
+
+td::actor::ActorOwn<ExtClientLazy> ExtClientLazy::create(
+    std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers, td::unique_ptr<Callback> callback) {
+  return td::actor::create_actor<ExtClientLazyImp>("ExtClientLazy", std::move(servers), std::move(callback));
 }
 }  // namespace tonlib

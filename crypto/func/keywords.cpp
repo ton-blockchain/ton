@@ -97,6 +97,8 @@ void define_keywords() {
       .add_keyword("do", Kw::_Do)
       .add_keyword("while", Kw::_While)
       .add_keyword("until", Kw::_Until)
+      .add_keyword("try", Kw::_Try)
+      .add_keyword("catch", Kw::_Catch)
       .add_keyword("if", Kw::_If)
       .add_keyword("ifnot", Kw::_Ifnot)
       .add_keyword("then", Kw::_Then)

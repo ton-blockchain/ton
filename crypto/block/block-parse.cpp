@@ -1000,7 +1000,7 @@ bool Account::skip_copy_depth_balance(vm::CellBuilder& cb, vm::CellSlice& cs) co
 }
 
 const Account t_Account, t_AccountE{true};
-const RefTo<Account> t_Ref_Account;
+const RefTo<Account> t_Ref_AccountE{true};
 
 bool ShardAccount::extract_account_state(Ref<vm::CellSlice> cs_ref, Ref<vm::Cell>& acc_state) {
   if (cs_ref.is_null()) {
@@ -2291,6 +2291,38 @@ bool Aug_ShardFees::eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const {
 };
 
 const Aug_ShardFees aug_ShardFees;
+
+bool validate_message_libs(const td::Ref<vm::Cell> &cell) {
+  gen::Message::Record rec;
+  if (!type_unpack_cell(cell, gen::t_Message_Any, rec)) {
+    return false;
+  }
+  vm::CellSlice& state_init = rec.init.write();
+  if (!state_init.fetch_long(1)) {
+    return true;
+  }
+  if (state_init.fetch_long(1)) {
+    return gen::t_StateInitWithLibs.validate_ref(state_init.prefetch_ref());
+  } else {
+    return gen::t_StateInitWithLibs.validate_csr(rec.init);
+  }
+}
+
+bool validate_message_relaxed_libs(const td::Ref<vm::Cell> &cell) {
+  gen::MessageRelaxed::Record rec;
+  if (!type_unpack_cell(cell, gen::t_MessageRelaxed_Any, rec)) {
+    return false;
+  }
+  vm::CellSlice& state_init = rec.init.write();
+  if (!state_init.fetch_long(1)) {
+    return true;
+  }
+  if (state_init.fetch_long(1)) {
+    return gen::t_StateInitWithLibs.validate_ref(state_init.prefetch_ref());
+  } else {
+    return gen::t_StateInitWithLibs.validate_csr(rec.init);
+  }
+}
 
 }  // namespace tlb
 }  // namespace block

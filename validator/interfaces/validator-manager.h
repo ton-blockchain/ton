@@ -161,7 +161,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void update_last_known_key_block(BlockHandle handle, bool send_request) = 0;
   virtual void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
-  virtual void update_shard_client_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
+  virtual void update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
+                                                td::Promise<td::Unit> promise) = 0;
 
   virtual void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) = 0;
 

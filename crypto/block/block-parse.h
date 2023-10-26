@@ -536,7 +536,7 @@ struct Account final : TLB_Complex {
 };
 
 extern const Account t_Account, t_AccountE;
-extern const RefTo<Account> t_Ref_Account;
+extern const RefTo<Account> t_Ref_AccountE;
 
 struct AccountStatus final : TLB {
   enum { acc_state_uninit, acc_state_frozen, acc_state_active, acc_state_nonexist };
@@ -572,7 +572,7 @@ struct ShardAccount final : TLB_Complex {
     return cs.advance_ext(0x140, 1);
   }
   bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override {
-    return cs.advance(0x140) && t_Ref_Account.validate_skip(ops, cs, weak);
+    return cs.advance(0x140) && t_Ref_AccountE.validate_skip(ops, cs, weak);
   }
   static bool unpack(vm::CellSlice& cs, Record& info) {
     return info.unpack(cs);
@@ -653,16 +653,20 @@ struct TrComputeInternal1 final : TLB_Complex {
 };
 
 struct ComputeSkipReason final : TLB {
-  enum { cskip_no_state = 0, cskip_bad_state = 1, cskip_no_gas = 2 };
+  enum { cskip_no_state = 0, cskip_bad_state = 1, cskip_no_gas = 2, cskip_suspended = 3 };
   int get_size(const vm::CellSlice& cs) const override {
-    return 2;
+    return cs.prefetch_ulong(2) == 3 ? 3 : 2;
   }
   bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override {
-    return get_tag(cs) >= 0 && cs.advance(2);
+    int tag = get_tag(cs);
+    return tag >= 0 && cs.advance(tag == 3 ? 3 : 2);
   }
   int get_tag(const vm::CellSlice& cs) const override {
     int t = (int)cs.prefetch_ulong(2);
-    return t < 3 ? t : -1;
+    if (t == 3 && cs.prefetch_ulong(3) != 0b110) {
+      return -1;
+    }
+    return t;
   }
 };
 
@@ -1108,6 +1112,10 @@ struct Aug_ShardFees final : AugmentationCheckData {
 };
 
 extern const Aug_ShardFees aug_ShardFees;
+
+// Validate dict of libraries in message: used when sending and receiving message
+bool validate_message_libs(const td::Ref<vm::Cell> &cell);
+bool validate_message_relaxed_libs(const td::Ref<vm::Cell> &cell);
 
 }  // namespace tlb
 }  // namespace block

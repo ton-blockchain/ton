@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <numeric>
 #include "func.h"
 
 using namespace std::literals::string_literals;
@@ -91,7 +92,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _VarApply: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       TypeExpr* fun_type = TypeExpr::new_map(args[1]->e_type, TypeExpr::new_hole());
       try {
         unify(fun_type, args[0]->e_type);
@@ -106,7 +107,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _Letop: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       try {
         // std::cerr << "in assignment: " << args[0]->e_type << " from " << args[1]->e_type << std::endl;
         unify(args[0]->e_type, args[1]->e_type);
@@ -121,7 +122,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _LetFirst: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       TypeExpr* rhs_type = TypeExpr::new_tensor({args[0]->e_type, TypeExpr::new_hole()});
       try {
         // std::cerr << "in implicit assignment of a modifying method: " << rhs_type << " and " << args[1]->e_type << std::endl;
@@ -139,7 +140,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _CondExpr: {
-      assert(args.size() == 3);
+      func_assert(args.size() == 3);
       auto flag_type = TypeExpr::new_atomic(_Int);
       try {
         unify(args[0]->e_type, flag_type);
@@ -203,7 +204,11 @@ int Expr::predefine_vars() {
     }
     case _Var:
       if (!sym) {
-        assert(val < 0 && here.defined());
+        func_assert(val < 0 && here.defined());
+        if (prohibited_var_names.count(sym::symbols.get_name(~val))) {
+          throw src::ParseError{
+              here, PSTRING() << "symbol `" << sym::symbols.get_name(~val) << "` cannot be redefined as a variable"};
+        }
         sym = sym::define_symbol(~val, false, here);
         // std::cerr << "predefining variable " << sym::symbols.get_name(~val) << std::endl;
         if (!sym) {
@@ -219,6 +224,13 @@ int Expr::predefine_vars() {
 
 var_idx_t Expr::new_tmp(CodeBlob& code) const {
   return code.create_tmp_var(e_type, &here);
+}
+
+void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
+  for (const auto& p : globs) {
+    auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
+    op.flags |= Op::_Impure;
+  }
 }
 
 std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
@@ -245,49 +257,96 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
     return tmp;
   }
   auto right = rhs->pre_compile(code);
-  if (lhs->cls == Expr::_GlobVar) {
-    assert(lhs->sym);
-    auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, right, lhs->sym);
-    op.flags |= Op::_Impure;
-  } else {
-    auto left = lhs->pre_compile(code, true);
-    code.emplace_back(here, Op::_Let, std::move(left), right);
+  std::vector<std::pair<SymDef*, var_idx_t>> globs;
+  auto left = lhs->pre_compile(code, &globs);
+  for (var_idx_t v : left) {
+    code.on_var_modification(v, here);
   }
+  code.emplace_back(here, Op::_Let, std::move(left), right);
+  add_set_globs(code, globs, here);
   return right;
 }
 
-std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
-  if (lval && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _TypeApply)) {
+std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBlob &code,
+                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs,
+                                          std::vector<int> arg_order) {
+  if (arg_order.empty()) {
+    arg_order.resize(args.size());
+    std::iota(arg_order.begin(), arg_order.end(), 0);
+  }
+  func_assert(args.size() == arg_order.size());
+  std::vector<std::vector<var_idx_t>> res_lists(args.size());
+
+  struct ModifiedVar {
+    size_t i, j;
+    Op* op;
+  };
+  auto modified_vars = std::make_shared<std::vector<ModifiedVar>>();
+  for (size_t i : arg_order) {
+    res_lists[i] = args[i]->pre_compile(code, lval_globs);
+    for (size_t j = 0; j < res_lists[i].size(); ++j) {
+      TmpVar& var = code.vars.at(res_lists[i][j]);
+      if (code.flags & CodeBlob::_AllowPostModification) {
+        if (!lval_globs && (var.cls & TmpVar::_Named)) {
+          Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
+          op->flags |= Op::_Disabled;
+          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
+            if (!done) {
+              done = true;
+              modified_vars->push_back({i, j, op});
+            }
+          });
+        } else {
+          var.on_modification.push_back([](const SrcLocation &) {
+          });
+        }
+      } else {
+        var.on_modification.push_back([name = var.to_string()](const SrcLocation &here) {
+            throw src::ParseError{here, PSTRING() << "Modifying local variable " << name
+                                                  << " after using it in the same expression"};
+        });
+      }
+    }
+  }
+  for (const auto& list : res_lists) {
+    for (var_idx_t v : list) {
+      func_assert(!code.vars.at(v).on_modification.empty());
+      code.vars.at(v).on_modification.pop_back();
+    }
+  }
+  for (const ModifiedVar &m : *modified_vars) {
+    var_idx_t& v = res_lists[m.i][m.j];
+    var_idx_t v2 = code.create_tmp_var(code.vars[v].v_type, code.vars[v].where.get());
+    m.op->left = {v2};
+    m.op->right = {v};
+    m.op->flags &= ~Op::_Disabled;
+    v = v2;
+  }
+  std::vector<var_idx_t> res;
+  for (const auto& list : res_lists) {
+    res.insert(res.end(), list.cbegin(), list.cend());
+  }
+  return res;
+}
+
+std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs) const {
+  if (lval_globs && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _TypeApply || cls == _GlobVar)) {
     std::cerr << "lvalue expression constructor is " << cls << std::endl;
     throw src::Fatal{"cannot compile lvalue expression with unknown constructor"};
   }
   switch (cls) {
     case _Tensor: {
-      std::vector<var_idx_t> res;
-      for (const auto& x : args) {
-        auto add = x->pre_compile(code, lval);
-        res.insert(res.end(), add.cbegin(), add.cend());
-      }
-      return res;
+      return pre_compile_tensor(args, code, lval_globs, {});
     }
     case _Apply: {
-      assert(sym);
-      std::vector<var_idx_t> res;
+      func_assert(sym);
       auto func = dynamic_cast<SymValFunc*>(sym->value);
-      if (func && func->arg_order.size() == args.size()) {
+      std::vector<var_idx_t> res;
+      if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
         //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
-        std::vector<std::vector<var_idx_t>> add_list(args.size());
-        for (int i : func->arg_order) {
-          add_list[i] = args[i]->pre_compile(code);
-        }
-        for (const auto& add : add_list) {
-          res.insert(res.end(), add.cbegin(), add.cend());
-        }
+        res = pre_compile_tensor(args, code, lval_globs, func->arg_order);
       } else {
-        for (const auto& x : args) {
-          auto add = x->pre_compile(code);
-          res.insert(res.end(), add.cbegin(), add.cend());
-        }
+        res = pre_compile_tensor(args, code, lval_globs, {});
       }
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
@@ -297,9 +356,12 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
       return rvect;
     }
     case _TypeApply:
-      return args[0]->pre_compile(code, lval);
+      return args[0]->pre_compile(code, lval_globs);
     case _Var:
     case _Hole:
+      if (val < 0) {
+        throw src::ParseError{here, "unexpected variable definition"};
+      }
       return {val};
     case _VarApply:
       if (args[0]->cls == _Glob) {
@@ -329,8 +391,13 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
     case _Glob:
     case _GlobVar: {
       auto rvect = new_tmp_vect(code);
-      code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);
-      return rvect;
+      if (lval_globs) {
+        lval_globs->push_back({ sym, rvect[0] });
+        return rvect;
+      } else {
+        code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);
+        return rvect;
+      }
     }
     case _Letop: {
       return pre_compile_let(code, args.at(0), args.at(1), here);
@@ -338,9 +405,17 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
     case _LetFirst: {
       auto rvect = new_tmp_vect(code);
       auto right = args[1]->pre_compile(code);
-      auto left = args[0]->pre_compile(code, true);
+      std::vector<std::pair<SymDef*, var_idx_t>> local_globs;
+      if (!lval_globs) {
+        lval_globs = &local_globs;
+      }
+      auto left = args[0]->pre_compile(code, lval_globs);
       left.push_back(rvect[0]);
+      for (var_idx_t v : left) {
+        code.on_var_modification(v, here);
+      }
       code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
+      add_set_globs(code, local_globs, here);
       return rvect;
     }
     case _MkTuple: {
@@ -351,7 +426,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
     }
     case _CondExpr: {
       auto cond = args[0]->pre_compile(code);
-      assert(cond.size() == 1);
+      func_assert(cond.size() == 1);
       auto rvect = new_tmp_vect(code);
       Op& if_op = code.emplace_back(here, Op::_If, cond);
       code.push_set_cur(if_op.block0);

@@ -1,0 +1,939 @@
+{-
+ -
+ - FunC fixed-point mathematical library
+ -
+ -}
+
+{-
+    This file is part of TON FunC Standard Library.
+
+    FunC Standard Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    FunC Standard Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+-}
+
+#include "stdlib.fc";
+#pragma version >=0.4.2;
+
+{---------------- HIGH-LEVEL FUNCTION DECLARATIONS -----------------}
+{-
+ Most functions declared here work either with integers or with fixed-point numbers of type `fixed248`.
+ `fixedNNN` informally denotes an alias for type `int` used to represent fixed-point numbers with scale 2^NNN.
+ Prefix `fixedNNN::` is prepended to the names of high-level functions that accept arguments and return values of type `fixedNNN`.
+-}
+
+{- function declarations have been commented out, otherwise they are not inlined by the current FunC compiler
+
+;; nearest integer to sqrt(a*b) for non-negative integers or fixed-point numbers a and b
+int geom_mean(int a, int b) inline_ref;
+;; integer square root
+int sqrt(int a) inline;
+;; fixed-point square root
+;; fixed248 sqrt(fixed248 x)
+int fixed248::sqrt(int x) inline;
+
+int fixed248::sqr(int x) inline;
+const int fixed248::One;
+
+;; log(2) as fixed248
+int fixed248::log2_const() inline;
+;; Pi as fixed248
+int fixed248::Pi_const() inline;
+
+;; fixed248 exp(fixed248 x)
+int fixed248::exp(int x) inline_ref;
+;; fixed248 exp2(fixed248 x)
+int fixed248::exp2(int x) inline_ref;
+
+;; fixed248 log(fixed248 x)
+int fixed248::log(int x) inline_ref;
+;; fixed248 log2(fixed248 x)
+int fixed248::log2(int x) inline;
+
+;; fixed248 pow(fixed248 x, fixed248 y)
+int fixed248::pow(int x, int y) inline_ref;
+
+;; (fixed248, fixed248) sincos(fixed248 x);
+(int, int) fixed248::sincos(int x) inline_ref;
+;; fixed248 sin(fixed248 x);
+int fixed248::sin(int x) inline;
+;; fixed248 cos(fixed248 x);
+int fixed248::cos(int x) inline;
+;; fixed248 tan(fixed248 x);
+int fixed248::tan(int x) inline_ref;
+;; fixed248 cot(fixed248 x);
+int fixed248::cot(int x) inline_ref;
+
+
+;; fixed248 asin(fixed248 x);
+int fixed248::asin(int x) inline;
+;; fixed248 acos(fixed248 x);
+int fixed248::acos(int x) inline;
+;; fixed248 atan(fixed248 x);
+int fixed248::atan(int x) inline_ref;
+;; fixed248 acot(fixed248 x);
+int fixed248::acot(int x) inline_ref;
+
+;; random number uniformly distributed in [0..1)
+;; fixed248 random();
+int fixed248::random() impure inline;
+;; random number with standard normal distribution (2100 gas on average)
+;; fixed248 nrand();
+int fixed248::nrand() impure inline;
+;; generates a random number approximately distributed according to the standard normal distribution (1200 gas)
+;; (fails chi-squared test, but it is shorter and faster than fixed248::nrand())
+;; fixed248 nrand_fast();
+int fixed248::nrand_fast() impure inline;
+
+-}  ;; end (declarations)
+
+{-------------------- INTERMEDIATE FUNCTIONS -----------------------}
+
+{-
+  Intermediate functions are used in the implementations of high-level `fixedNNN::...` functions
+  if necessary, they can be used to define additional high-level functions for other fixed-point types, such as fixed128, outside this library. They can be also used in a hypothetical floating-point FunC library.
+  For these reasons, the declarations of these functions are collected here.
+-}
+
+{- function declarations have been commented out, otherwise they are not inlined by the current FunC compiler
+
+;; fixed258 tanh(fixed258 x, int steps);
+int tanh_f258(int x, int n);
+
+;; computes exp(x)-1 for |x| <= log(2)/2.
+;; fixed257 expm1(fixed257 x);
+int expm1_f257(int x);
+
+;; computes (sin(x+xe),-cos(x+xe)) for |x| <= Pi/4, xe very small 
+;; this function is very accurate, error less than 0.7 ulp (consumes ~ 5500 gas)
+;; (fixed256, fixed256) sincosn(fixed256 x, fixed259 xe)
+(int, int) sincosn_f256(int x, int xe);
+
+;; compute (sin(x),1-cos(x)) in fixed256 for |x| < 16*atan(1/16) = 0.9987
+;; (fixed256, fixed257) sincosm1_f256(fixed256 x);
+;; slightly less accurate than sincosn_f256() (error up to 3/2^256), but faster (~ 4k gas) and shorter
+(int, int) sincosm1_f256(int x);
+
+;; compute (p, q) such that p/q = tan(x) for |x|<2*atan(1/2)=1899/2048=0.927
+;; (int, int) tan_aux(fixed256 x);
+(int, int) tan_aux_f256(int x);
+
+;; returns (y, s) such that log(x) = y/2^256 + s*log(2) for positive integer x
+;; this function is very precise (error less than 0.6 ulp) and consumes < 7k gas
+;; (fixed256, int) log_aux_f256(int x);
+(int, int) log_aux_f256(int x);
+
+;; returns (y, s) such that log2(x) = y/2^256 + s for positive integer x
+;; this function is very precise (error less than 0.6 ulp) and consumes < 7k gas
+;; (fixed256, int) log2_aux_f256(int x);
+(int, int) log2_aux_f256(int x);
+
+;; compute (q, z) such that atan(x)=q*atan(1/32)+z for -1 <= x < 1
+;; this function is reasonably accurate (error < 7 ulp with ulp = 2^-261), but it consumes >7k gas
+;; this is sufficient for most purposes
+;; (int, fixed261) atan_aux(fixed256 x)
+(int, int) atan_aux_f256(int x);
+
+;; fixed255 atan(fixed255 x);
+int atan_f255(int x);
+
+;; for -1 <= x < 1 only
+;; fixed256 atan_small(fixed256 x);
+int atan_f256_small(int x);
+
+;; fixed255 asin(fixed255 x);
+int asin_f255(int x);
+
+;; fixed254 acos(fixed255 x);
+int acos_f255(int x);
+
+;; generates normally distributed pseudo-random number
+;; fixed252 nrand();
+int nrand_f252(int x);
+
+;; a faster and shorter variant of nrand_f252() that fails chi-squared test
+;; (should suffice for most purposes)
+;; fixed252 nrand_fast();
+int nrand_fast_f252(int x);
+
+-}  ;; end (declarations)
+
+{---------------- MISSING OPERATIONS AND BUILT-INS -----------------}
+
+int sgn(int x) asm "SGN";
+
+;; compute floor(log2(x))+1
+int log2_floor_p1(int x) asm "UBITSIZE";
+
+int mulrshiftr(int x, int y, int s) asm "MULRSHIFTR";
+int mulrshiftr256(int x, int y) asm "256 MULRSHIFTR#";
+(int, int) mulrshift256mod(int x, int y) asm "256 MULRSHIFT#MOD";
+(int, int) mulrshiftr256mod(int x, int y) asm "256 MULRSHIFTR#MOD";
+(int, int) mulrshiftr255mod(int x, int y) asm "255 MULRSHIFTR#MOD";
+(int, int) mulrshiftr248mod(int x, int y) asm "248 MULRSHIFTR#MOD";
+(int, int) mulrshiftr5mod(int x, int y) asm "5 MULRSHIFTR#MOD";
+(int, int) mulrshiftr6mod(int x, int y) asm "6 MULRSHIFTR#MOD";
+(int, int) mulrshiftr7mod(int x, int y) asm "7 MULRSHIFTR#MOD";
+
+int lshift256divr(int x, int y) asm "256 LSHIFT#DIVR";
+(int, int) lshift256divmodr(int x, int y) asm "256 LSHIFT#DIVMODR";
+(int, int) lshift255divmodr(int x, int y) asm "255 LSHIFT#DIVMODR";
+(int, int) lshift2divmodr(int x, int y) asm "2 LSHIFT#DIVMODR";
+(int, int) lshift7divmodr(int x, int y) asm "7 LSHIFT#DIVMODR";
+(int, int) lshiftdivmodr(int x, int y, int s) asm "LSHIFTDIVMODR";
+
+(int, int) rshiftr256mod(int x) asm "256 RSHIFTR#MOD";
+(int, int) rshiftr248mod(int x) asm "248 RSHIFTR#MOD";
+(int, int) rshiftr4mod(int x) asm "4 RSHIFTR#MOD";
+(int, int) rshift3mod(int x) asm "3 RSHIFT#MOD";
+
+;; computes y - x (FunC compiler does not try to use this by itself) 
+int sub_rev(int x, int y) asm "SUBR";
+
+int nan() asm "PUSHNAN";
+int is_nan(int x) asm "ISNAN";
+
+{------------------------ SQUARE ROOTS ----------------------------}
+
+;; computes sqrt(a*b) exactly rounded to the nearest integer
+;; for all 0 <= a, b <= 2^256-1
+;; may be used with b=1 or b=scale of fixed-point numbers
+int geom_mean(int a, int b) inline_ref {
+  ifnot (min(a, b)) {
+    return 0;
+  }
+  int s = log2_floor_p1(a);   ;; throws out of range error if a < 0 or b < 0
+  int t = log2_floor_p1(b);
+  ;; NB: (a-b)/2+b == (a+b)/2, but without overflow for large a and b
+  int x = (s == t ? (a - b) / 2 + b : 1 << ((s + t) / 2));
+  do {
+    ;; if always used with b=2^const, may be optimized to "const LSHIFTDIVC#"
+    ;; it is important to use `muldivc` here, not `muldiv` or `muldivr`
+    int q = (muldivc(a, b, x) - x) / 2;
+    x += q;
+  } until (q == 0);
+  return x;
+}
+
+;; integer square root, computes round(sqrt(a)) for all a>=0.
+;; note: `inline` is better than `inline_ref` for such simple functions
+int sqrt(int a) inline {
+  return geom_mean(a, 1);
+}
+
+;; version for fixed248 = fixed-point numbers with scale 2^248
+;; fixed248 sqrt(fixed248 x)
+int fixed248::sqrt(int x) inline {
+  return geom_mean(x, 1 << 248);
+}
+
+;; fixed255 sqrt(fixed255 x)
+int fixed255::sqrt(int x) inline {
+  return geom_mean(x, 1 << 255);
+}
+
+;; fixed248 sqr(fixed248 x);
+int fixed248::sqr(int x) inline {
+  return muldivr(x, x, 1 << 248);
+}
+
+;; fixed255 sqr(fixed255 x);
+int fixed255::sqr(int x) inline {
+  return muldivr(x, x, 1 << 255);
+}
+
+const int fixed248::One = (1 << 248);
+const int fixed255::One = (1 << 255);
+
+{-------------------- USEFUL CONSTANTS --------------------}
+
+;; store huge constants in inline_ref functions for reuse
+;; (y,z) where y=round(log(2)*2^256), z=round((log(2)*2^256-y)*2^128)
+;; then log(2) = y/2^256 + z/2^384
+(int, int) log2_xconst_f256() inline_ref {
+  return (80260960185991308862233904206310070533990667611589946606122867505419956976172, -32272921378999278490133606779486332143);
+}
+
+;; (y,z) where Pi = y/2^254 + z/2^382
+(int, int) Pi_xconst_f254() inline_ref {
+  return (90942894222941581070058735694432465663348344332098107489693037779484723616546, 108051869516004014909778934258921521947);
+}
+
+;; atan(1/16) as fixed260
+int Atan1_16_f260() inline_ref {
+  return 115641670674223639132965820642403718536242645001775371762318060545014644837101;  ;; true value is ...101.0089...
+}
+
+;; atan(1/8) as fixed259
+int Atan1_8_f259() inline_ref {
+  return 115194597005316551477397594802136977648153890007566736408151129975021336532841;  ;; correction -0.1687...
+}
+
+;; atan(1/32) as fixed261
+int Atan1_32_f261() inline_ref {
+  return 115754418570128574501879331591757054405465733718902755858991306434399246026247;  ;; correction 0.395...
+}
+
+;; inline is better than inline_ref for such very small functions
+int log2_const_f256() inline {
+  (int c, _) = log2_xconst_f256();
+  return c;
+}
+
+int fixed248::log2_const() inline {
+  return log2_const_f256() ~>> 8;
+}
+
+int Pi_const_f254() inline {
+  (int c, _) = Pi_xconst_f254();
+  return c;
+}
+
+int fixed248::Pi_const() inline {
+  return Pi_const_f254() ~>> 6;
+}
+
+{--------------- HYPERBOLIC TANGENT AND EXPONENT -------------------}
+
+;; hyperbolic tangent of small x via n+2 terms of Lambert's continued fraction
+;; n=17: good for |x| < log(2)/4 = 0.173
+;; fixed258 tanh_f258(fixed258 x, int n)
+int tanh_f258(int x, int n) inline_ref {
+  int x2 = muldivr(x, x, 1 << 255);     ;; x^2 as fixed261
+  int c = int a = (2 * n + 5) << 250;   ;; a=2n+5 as fixed250
+  int Two = (1 << 251);   ;; 2. as fixed250
+  repeat (n) {
+    a = (c -= Two) + muldivr(x2, 1 << 239, a);      ;; a := 2k+1+x^2/a as fixed250, k=n+1,n,...,2
+  }
+  a = (touch(3) << 254) + muldivr(x2, 1 << 243, a);    ;; a := 3+x^2/a as fixed254
+  ;; y = x/(1+a') = x - x*a'/(1+a') = x - x*x^2/(a+x^2)  where a' = x^2/a
+  return x - (muldivr(x, x2, a + (x2 ~>> 7)) ~>> 7); 
+}
+
+;; fixed257 expm1_f257(fixed257 x)
+;; computes exp(x)-1 for small x via 19 terms of Lambert's continued fraction for tanh(x/2)
+;; good for |x| < log(2)/2 = 0.347 (n=17); consumes ~3500 gas
+int expm1_f257(int x) inline_ref {
+  ;; (almost) compute tanh(x/2) first; x/2 as fixed258 = x as fixed257
+  int x2 = muldivr(x, x, 1 << 255);     ;; x^2 as fixed261
+  int Two = (1 << 251);   ;; 2. as fixed250
+  int c = int a = touch(39) << 250;   ;; a=2n+5 as fixed250
+  repeat (17) {
+    a = (c -= Two) + muldivr(x2, 1 << 239, a);      ;; a := 2k+1+x^2/a as fixed250, k=n+1,n,...,2
+  }
+  a = (touch(3) << 254) + muldivr(x2, 1 << 243, a);    ;; a := 3+x^2/a as fixed254
+  ;; now tanh(x/2) = x/(1+a') where a'=x^2/a ; apply exp(x)-1=2*tanh(x/2)/(1-tanh(x/2))
+  int t = (x ~>> 4) - a;   ;; t:=x-a as fixed254
+  return x - muldivr(x2, t / 2, a + mulrshiftr256(x, t) ~/ 4) ~/ 4;  ;; x - x^2 * (x-a) / (a + x*(x-a))
+}
+
+;; expm1_f257() may be used to implement specific fixed-point exponentials
+;; example:
+;; fixed248 exp(fixed248 x)
+int fixed248::exp(int x) inline_ref {
+  var (l2c, l2d) = log2_xconst_f256();
+  ;; divide x by log(2) and convert to fixed257
+  ;; (int q, x) = muldivmodr(x, 256, l2c);  ;; unfortunately, no such built-in
+  (int q, x) = lshiftdivmodr(x, l2c, 8);
+  x = 2 * x - muldivr(q, l2d, 1 << 127);
+  int y = expm1_f257(x);
+  ;; result is (1 + y) * (2^q) --> ((1 << 257) + y) >> (9 - q)
+  return (y ~>> (9 - q)) - (-1 << (248 + q));
+  ;; note that (y ~>> (9 - q)) + (1 << (248 + q)) leads to overflow when q=8
+}
+
+;; compute 2^x in fixed248
+;; fixed248 exp2(fixed248 x)
+int fixed248::exp2(int x) inline_ref {
+  ;; (int q, x) = divmodr(x, 1 << 248);   ;; no such built-in
+  (int q, x) = rshiftr248mod(x);
+  x = muldivr(x, log2_const_f256(), 1 << 247);
+  int y = expm1_f257(x);
+  return (y ~>> (9 - q)) - (-1 << (248 + q));
+}
+
+{--------------------- TRIGONOMETRIC FUNCTIONS -----------------------}
+
+;; fixed260 tan(fixed260 x);
+;; computes tan(x) for small |x|<atan(1/16) via 16 terms of Lambert's continued fraction
+int tan_f260_inlined(int x) inline {
+  int x2 = mulrshiftr256(x, x);     ;; x^2 as fixed264
+  int Two = (1 << 251);   ;; 2. as fixed250
+  int c = int a = touch(33) << 250;   ;; a=2n+5 as fixed250
+  repeat (14) {
+    a = (c -= Two) - muldivr(x2, 1 << 236, a);      ;; a := 2k+1-x^2/a as fixed250, k=n+1,n,...,2
+  }
+  a = (touch(3) << 254) - muldivr(x2, 1 << 240, a);    ;; a := 3-x^2/a as fixed254
+  ;; y = x/(1-a') = x + x*a'/(1-a') = x + x*x^2/(a-x^2)  where a' = x^2/a
+  return x + (muldivr(x / 2, x2, a - (x2 ~>> 10)) ~>> 9); 
+}
+
+;; fixed260 tan(fixed260 x);
+int tan_f260(int x) inline_ref {
+  return tan_f260_inlined(x);
+}
+
+;; fixed258 tan(fixed258 x);
+;; computes tan(x) for small |x|<atan(1/4) via 20 terms of Lambert's continued fraction
+int tan_f258_inlined(int x) inline {
+  int x2 = mulrshiftr256(x, x);     ;; x^2 as fixed260
+  int Two = (1 << 251);   ;; 2. as fixed250
+  int c = int a = touch(41) << 250;   ;; a=2n+5 as fixed250
+  repeat (18) {
+    a = (c -= Two) - muldivr(x2, 1 << 240, a);      ;; a := 2k+1-x^2/a as fixed250, k=n+1,n,...,2
+  }
+  a = (touch(3) << 254) - muldivr(x2, 1 << 244, a);    ;; a := 3-x^2/a as fixed254
+  ;; y = x/(1-a') = x + x*a'/(1-a') = x + x*x^2/(a-x^2)  where a' = x^2/a
+  return x + (muldivr(x / 2, x2, a - (x2 ~>> 6)) ~>> 5); 
+}
+
+;; fixed258 tan(fixed258 x);
+int tan_f258(int x) inline_ref {
+  return tan_f258_inlined(x);
+}
+
+;; (fixed259, fixed263) sincosm1(fixed259 x)
+;; computes (sin(x), 1-cos(x)) for small |x|<2*atan(1/16)
+(int, int) sincosm1_f259_inlined(int x) inline {
+  int t = tan_f260_inlined(x);   ;; t=tan(x/2) as fixed260
+  int tt = mulrshiftr256(t, t);  ;; t^2 as fixed264
+  int y = tt ~/ 512 + (1 << 255);   ;; 1+t^2 as fixed255
+  ;; 2*t/(1+t^2) as fixed259 and 2*t^2/(1+t^2) as fixed263
+  ;; return (muldivr(t, 1 << 255, y), muldivr(tt, 1 << 255, y));
+  return (t - muldivr(t / 2, tt, y) ~/ 256, tt - muldivr(tt / 2, tt, y) ~/ 256);
+}
+
+(int, int) sincosm1_f259(int x) inline_ref {
+  return sincosm1_f259_inlined(x);
+}
+
+;; computes (sin(x+xe),-cos(x+xe)) for |x| <= Pi/4, xe very small 
+;; this function is very accurate, error less than 0.7 ulp (consumes ~ 5500 gas)
+;; (fixed256, fixed256) sincosn(fixed256 x, fixed259 xe)
+(int, int) sincosn_f256(int x, int xe) inline_ref {
+  ;; var (q, x1) = muldivmodr(x, 8, Atan1_8_f259());  ;; no muldivmodr() builtin
+  var (q, x1) = lshift2divmodr(abs(x), Atan1_8_f259());  ;; reduce mod theta where theta=2*atan(1/8)
+  var (si, co) = sincosm1_f259(x1 * 2 + xe);
+  var (a, b, c) = (-1, 0, 1);
+  repeat (q) {  ;; (a+b*I) *= (8+I)^2 = 63+16*I
+    (a, b, c) = (63 * a - 16 * b, 16 * a + 63 * b, 65 * c);
+  }
+  ;; now a/c = cos(q*theta), b/c = sin(q*theta) exactly(!)
+  ;; compute (a+b*I)*(1-co+si*I)/c
+  ;; (b, a) = (lshift256divr(b, c), lshift256divr(a, c));
+  (b, int br) = lshift256divmodr(b, c);  br = muldivr(br, 128, c);
+  (a, int ar) = lshift256divmodr(a, c);  ar = muldivr(ar, 128, c);
+  return (sgn(x) * (((mulrshiftr256(b, co) - br) ~/ 16 - mulrshiftr256(a, si)) ~/ 8 - b), 
+          a - ((mulrshiftr256(a, co) - ar) ~/ 16 + mulrshiftr256(b, si)) ~/ 8);
+}
+
+;; compute (sin(x),1-cos(x)) in fixed256 for |x| < 16*atan(1/16) = 0.9987
+;; (fixed256, fixed257) sincosm1_f256(fixed256 x);
+;; slightly less accurate than sincosn_f256() (error up to 3/2^256), but faster (~ 4k gas) and shorter
+(int, int) sincosm1_f256(int x) inline_ref {
+  var (si, co) = sincosm1_f259_inlined(x);   ;; compute (sin,1-cos)(x/8) in (fixed259,fixed263)
+  int r = 7;
+  repeat (r / 2) {
+    ;; 1-cos(2*x) = 2*sin(x)^2, sin(2*x) = 2*sin(x)*cos(x)
+    (co, si) = (mulrshiftr256(si, si), si - (mulrshiftr256(si, co) ~>> r));
+    r -= 2;
+  }
+  return (si, co);
+}
+
+;; compute (p, q) such that p/q = tan(x) for |x|<2*atan(1/2)=1899/2048=0.927
+;; (int, int) tan_aux(fixed256 x);
+(int, int) tan_aux_f256(int x) inline_ref {
+  int t = tan_f258_inlined(x);   ;; t=tan(x/4) as fixed258
+  ;; t:=2*t/(1-t^2)=2*(t-t^3/(t^2-1))
+  int tt = mulrshiftr256(t, t);  ;; t^2 as fixed260
+  t = muldivr(t, tt, tt ~/ 16 + (-1 << 256)) ~/ 16 - t;   ;; now t=-tan(x/2) as fixed259
+  return (t, mulrshiftr256(t, t) ~/ 4 + (-1 << 256));  ;; return (2*t, t^2-1) as fixed256
+}
+
+;; sincosm1_f256() and sincosn_f256() may be used to implement trigonometric functions for different fixed-point types
+;; example:
+;; (fixed248, fixed248) sincos(fixed248 x);
+(int, int) fixed248::sincos(int x) inline_ref {
+  var (Pic, Pid) = Pi_xconst_f254();
+  ;; (int q, x) = muldivmodr(x, 128, Pic);  ;; no muldivmodr() builtin
+  (int q, x) = lshift7divmodr(x, Pic);  ;; reduce mod Pi/2
+  x = 2 * x - muldivr(q, Pid, 1 << 127);
+  (int si, int co) = sincosm1_f256(x);   ;; doesn't make sense to use more accurate sincosn_f256()
+  co = (1 << 248) - (co ~>> 9);
+  si ~>>= 8;
+  repeat (q & 3) {
+    (si, co) = (co, - si);
+  }
+  return (si, co);
+}
+
+;; fixed248 sin(fixed248 x);
+;; inline is better than inline_ref for such simple functions
+int fixed248::sin(int x) inline {
+  (int si, _) = fixed248::sincos(x);
+  return si;
+}
+
+;; fixed248 cos(fixed248 x);
+int fixed248::cos(int x) inline {
+  (_, int co) = fixed248::sincos(x);
+  return co;
+}
+
+;; similarly, tan_aux_f256() may be used to implement tan() and cot() for specific fixed-point formats
+;; fixed248 tan(fixed248 x);
+;; not very accurate when |tan(x)| is very large (difficult to do better without floating-point numbers)
+;; however, the relative accuracy is approximately 2^-247 in all cases, which is good enough for arguments given up to 2^-249
+int fixed248::tan(int x) inline_ref {
+  var (Pic, Pid) = Pi_xconst_f254();
+  ;; (int q, x) = muldivmodr(x, 128, Pic);  ;; no muldivmodr() builtin
+  (int q, x) = lshift7divmodr(x, Pic);  ;; reduce mod Pi/2
+  x = 2 * x - muldivr(q, Pid, 1 << 127);
+  var (a, b) = tan_aux_f256(x);  ;; now a/b = tan(x')
+  if (q & 1) {
+    (a, b) = (b, - a);
+  }
+  return muldivr(a, 1 << 248, b);   ;; either -b/a or a/b as fixed248
+}
+
+;; fixed248 cot(fixed248 x);
+int fixed248::cot(int x) inline_ref {
+  var (Pic, Pid) = Pi_xconst_f254();
+  (int q, x) = lshift7divmodr(x, Pic);  ;; reduce mod Pi/2
+  x = 2 * x - muldivr(q, Pid, 1 << 127);
+  var (b, a) = tan_aux_f256(x);  ;; now b/a = tan(x')
+  if (q & 1) {
+    (a, b) = (b, - a);
+  }
+  return muldivr(a, 1 << 248, b);   ;; either -b/a or a/b as fixed248
+}
+
+{----------------- INVERSE HYPERBOLIC TANGENT AND LOGARITHMS -----------------}
+
+;; inverse hyperbolic tangent of small x, evaluated by means of n terms of the continued fraction
+;; valid for |x| < 2^-2.5 ~ 0.18 if n=37 (slightly less accurate with n=36)
+;; |x| < 1/8 if n=32;  |x| < 2^-3.5 if n=28;  |x| < 1/16 if n=25
+;; |x| < 2^-4.5 if n=23;  |x| < 1/32 if n=21;  |x| < 1/64 if n=18
+;; fixed258 atanh(fixed258 x);
+int atanh_f258(int x, int n) inline_ref {
+  int x2 = mulrshiftr256(x, x);  ;; x^2 as fixed260
+  int One = (1 << 254);
+  int a = One ~/ n + (1 << 255);  ;; a := 2 + 1/n as fixed254
+  repeat (n - 1) {
+    ;; a := 1 + (1 - x^2 / a)(1 + 1/n) as fixed254
+    int t = One - muldivr(x2, 1 << 248, a);    ;; t := 1 - x^2 / a
+    a = muldivr(t, n, (int n1 = n - 1)) + One;
+    n = n1;
+  }
+  ;; x / (1 - x^2 / a) = x / (1 - d) = x + x * d / (1 - d) for d = x^2 / a
+  ;; int d = muldivr(x2, 1 << 255, a - (x2 ~>> 6));  ;; d/(1-d) = x^2/(a-x^2) as fixed261
+  ;; return x + (mulrshiftr256(x, d) ~>> 5);
+  return x + muldivr(x, x2 / 2, a - x2 ~/ 64) ~/ 32;
+}
+
+;; number of terms n should be chosen as for atanh_f258()
+;; fixed261 atanh(fixed261 x);
+int atanh_f261_inlined(int x, int n) inline {
+  int x2 = mulrshiftr256(x, x);  ;; x^2 as fixed266
+  int One = (1 << 254);
+  int a = One ~/ n + (1 << 255);  ;; a := 2 + 1/n as fixed254
+  repeat (n - 1) {
+    ;; a := 1 + (1 - x^2 / a)(1 + 1/n) as fixed254
+    int t = One - muldivr(x2, 1 << 242, a);    ;; t := 1 - x^2 / a
+    a = muldivr(t, n, (int n1 = n - 1)) + One;
+    n = n1;
+  }
+  ;; x / (1 - x^2 / a) = x / (1 - d) = x + x * d / (1 - d) for d = x^2 / a
+  ;; int d = muldivr(x2, 1 << 255, a - (x2 ~>> 12));  ;; d/(1-d) = x^2/(a-x^2) as fixed267
+  ;; return x + (mulrshiftr256(x, d) ~>> 11);
+  return x + muldivr(x, x2, a - x2 ~/ 4096) ~/ 4096;
+}
+
+;; fixed261 atanh(fixed261 x);
+int atanh_f261(int x, int n) inline_ref {
+  return atanh_f261_inlined(x, n);
+}
+
+;; returns (y, s) such that log(x) = y/2^257 + s*log(2) for positive integer x
+;; (fixed257, int) log_aux(int x)
+(int, int) log_aux_f257(int x) inline_ref {
+  int s = log2_floor_p1(x);
+  x <<= 256 - s;
+  int t = touch(-1 << 256);
+  if ((x >> 249) <= 90) {
+    ;; t~touch();
+    t >>= 1;
+    s -= 1;
+  }
+  x += t;
+  int 2x = 2 * x;
+  int y = lshift256divr(2x, (x >> 1) - t);
+  ;; y = 2x - (mulrshiftr256(2x, y) ~>> 2);  ;; this line could improve precision on very rare occasions
+  return (atanh_f258(y, 36), s);
+}
+
+;; computes 33^m for small m
+int pow33(int m) inline {
+  int t = 1;
+  repeat (m) { t *= 33; }
+  return t;
+}
+
+;; computes 33^m for small 0<=m<=22
+;; slightly faster than pow33()
+int pow33b(int m) inline {
+  (int mh, int ml) = m /% 5;
+  int t = 1;
+  repeat (ml) { t *= 33; }
+  repeat (mh) { t *= 33 * 33 * 33 * 33 * 33; }
+  return t;
+}
+
+;; returns (s, q, y) such that log(x) = s*log(2) + q*log(33/32) + y/2^260 for positive integer x
+;; (int, int, fixed260) log_auxx_f260(int x);
+(int, int, int) log_auxx_f260(int x) inline_ref {
+  int s = log2_floor_p1(x) - 1;
+  x <<= 255 - s;   ;; rescale to 1 <= x < 2 as fixed255
+  int t = touch(2873) << 244;   ;; ~ (33/32)^11 ~ sqrt(2) as fixed255
+  int x1 = (x - t) >> 1;
+  int q = muldivr(x1, 65, x1 + t) + 11;   ;; crude approximation to round(log(x)/log(33/32))
+  ;; t = 1;  repeat (q) { t *= 33; }  ;; t:=33^q, 0<=q<=22
+  t = pow33b(q);
+  t <<= (51 - q) * 5;   ;; t:=(33/32)^q as fixed255, nearest power of 33/32 to x
+  x -= t;
+  int y = lshift256divr(x << 4, (x >> 1) + t);    ;; y = (x-t)/(x+t) as fixed261
+  y = atanh_f261(y, 18);   ;; atanh((x-t)/(x+t)) as fixed261, or log(x/t) as fixed260
+  return (s, q, y);
+}
+
+;; returns (y, s) such that log(x) = y/2^256 + s*log(2) for positive integer x
+;; this function is very precise (error less than 0.6 ulp) and consumes < 7k gas
+;; (fixed256, int) log_aux_f256(int x);
+(int, int) log_aux_f256(int x) inline_ref {
+  var (s, q, y) = log_auxx_f260(x);
+  var (yh, yl) = rshiftr4mod(y);   ;; y ~/% 16 , but FunC does not optimize this to RSHIFTR#MOD
+  ;; int Log33_32 = 3563114646320977386603103333812068872452913448227778071188132859183498739150;  ;; log(33/32) as fixed256
+  ;; int Log33_32_l = -3769;   ;; log(33/32) = Log33_32 / 2^256 + Log33_32_l / 2^269
+  yh += (yl * 512 + q * -3769) ~>> 13;   ;; compensation, may be removed if slightly worse accuracy is acceptable
+  int Log33_32 = 3563114646320977386603103333812068872452913448227778071188132859183498739150;  ;; log(33/32) as fixed256
+  return (yh + q * Log33_32, s); 
+}
+
+;; returns (y, s) such that log2(x) = y/2^256 + s for positive integer x
+;; this function is very precise (error less than 0.6 ulp) and consumes < 7k gas
+;; (fixed256, int) log2_aux_f256(int x);
+(int, int) log2_aux_f256(int x) inline_ref {
+  var (s, q, y) = log_auxx_f260(x);
+  y = lshift256divr(y, log2_const_f256()) ~>> 4;  ;; y/log(2) as fixed256
+  int Log33_32 = 5140487830366106860412008603913034462883915832139695448455767612111363481357;  ;; log_2(33/32) as fixed256
+  ;; Log33_32/2^256 happens to be a very precise approximation to log_2(33/32), no compensation required
+  return (y + q * Log33_32, s); 
+}
+
+;; functions log_aux_f256() and log2_aux_f256() may be used to implement specific fixed-point instances of log() and log2()
+
+;; fixed248 log(fixed248 x)
+int fixed248::log(int x) inline_ref {
+  var (y, s) = log_aux_f256(x);
+  return muldivr(s - 248, log2_const_f256(), 1 << 8) + (y ~>> 8);
+  ;; return muldivr(s - 248, 80260960185991308862233904206310070533990667611589946606122867505419956976172, 1 << 8) + (y ~>> 8);
+}
+
+;; fixed248 log2(fixed248 x)
+int fixed248::log2(int x) inline {
+  var (y, s) = log2_aux_f256(x);
+  return ((s - 248) << 248) + (y ~>> 8);
+}
+
+;; computes x^y as exp(y*log(x)), x >= 0
+;; fixed248 pow(fixed248 x, fixed248 y);
+int fixed248::pow(int x, int y) inline_ref {
+  ifnot (y) {
+    return 1 << 248;   ;; x^0 = 1
+  }
+  if (x <= 0) {
+    int bad = (x | y) < 0;
+    return 0 >> bad;          ;; 0^y = 0 if x=0 and y>=0; "out of range" exception otherwise
+  }
+  var (l, s) = log2_aux_f256(x);
+  s -= 248;   ;; log_2(x) = s+l, l is fixed256, 0<=l<1
+  ;; compute (s+l)*y = q+ll
+  var (q1, r1) = mulrshiftr248mod(s, y);   ;; muldivmodr(s, y, 1 << 248)
+  var (q2, r2) = mulrshift256mod(l, y);
+  r2 >>= 247;
+  var (q3, r3) = rshiftr248mod(q2);        ;; divmodr(q2, 1 << 248);
+  var (q, ll) = rshiftr248mod(r1 + r3);
+  ll = 512 * ll + r2;
+  q += q1 + q3;
+  ;; now log_2(x^y) = y*log_2(x) = q + ll, ss integer, ll fixed257, -1/2<=ll<1/2
+  int sq = q + 248;
+  if (sq <= 0) {
+    return - (sq == 0);   ;; underflow
+  }
+  int y = expm1_f257(mulrshiftr256(ll, log2_const_f256()));
+  return (y ~>> (9 - q)) - (-1 << sq);
+}
+
+{--------------------- INVERSE TRIGONOMETRIC FUNCTIONS -------------------}
+
+;; number of terms n should be chosen as for atanh_f258()
+;; fixed259 atan(fixed259 x);
+int atan_f259(int x, int n) inline_ref {
+  int x2 = mulrshiftr256(x, x);  ;; x^2 as fixed262
+  int One = (1 << 254);
+  int a = One ~/ n + (1 << 255);  ;; a := 2 + 1/n as fixed254
+  repeat (n - 1) {
+    ;; a := 1 + (1 + x^2 / a)(1 + 1/n) as fixed254
+    int t = One + muldivr(x2, 1 << 246, a);    ;; t := 1 + x^2 / a
+    a = muldivr(t, n, (int n1 = n - 1)) + One;
+    n = n1;
+  }
+  ;; x / (1 + x^2 / a) = x / (1 + d) = x - x * d / (1 + d) = x - x * x^2/(a+x^2) for d = x^2 / a
+  return x - muldivr(x, x2, a + x2 ~/ 256) ~/ 256;
+}
+
+;; number of terms n should be chosen as for atanh_f261()
+;; fixed261 atan(fixed261 x);
+int atan_f261_inlined(int x, int n) inline {
+  int x2 = mulrshiftr256(x, x);  ;; x^2 as fixed266
+  int One = (1 << 254);
+  int a = One ~/ n + (1 << 255);  ;; a := 2 + 1/n as fixed254
+  repeat (n - 1) {
+    ;; a := 1 + (1 + x^2 / a)(1 + 1/n) as fixed254
+    int t = One + muldivr(x2, 1 << 242, a);    ;; t := 1 + x^2 / a
+    a = muldivr(t, n, (int n1 = n - 1)) + One;
+    n = n1;
+  }
+  ;; x / (1 + x^2 / a) = x / (1 + d) = x - x * d / (1 + d) = x - x * x^2/(a+x^2) for d = x^2 / a
+  return x - muldivr(x, x2, a + x2 ~/ 4096) ~/ 4096;
+}
+
+;; fixed261 atan(fixed261 x);
+int atan_f261(int x, int n) inline_ref {
+  return atan_f261_inlined(x, n);
+}
+
+;; computes (q,a,b) such that q is approximately atan(x)/atan(1/32) and a+b*I=(1+I/32)^q as fixed255
+;; then b/a=atan(q*atan(1/32)) exactly, and (a,b) is almost a unit vector pointing in the direction of (1,x)
+;; must have |x|<1.1, x is fixed24
+;; (int, fixed255, fixed255) atan_aux_prereduce(fixed24 x);
+(int, int, int) atan_aux_prereduce(int x) inline_ref {
+  int xu = abs(x);
+  int tc = 7214596;  ;; tan(13*theta) as fixed24 where theta=atan(1/32)
+  int t1 = muldivr(xu - tc, 1 << 88, xu * tc + (1 << 48));   ;; tan(x') as fixed64 where x'=atan(x)-13*theta
+  ;; t1/(3+t1^2) * 3073/32 = x'/3 * 3072/32 = x' / (96/3072) = x' / theta
+  int q = muldivr(t1 * 3073, 1 << 59, t1 * t1 + (touch(3) << 128)) + 13;   ;; approximately round(atan(x)/theta), 0<=q<=25
+  var (pa, pb) = (33226912, 5232641);  ;; (32+I)^5 
+  var (qh, ql) = q /% 5;
+  var (a, b) = (1 << (5 * (51 - q)), 0);    ;; (1/32^q, 0) as fixed255
+  repeat (ql) {   ;; a+b*I *= 32+I
+    (a, b) = (sub_rev(touch(b), 32 * a), a + 32 * b);   ;; same as (32 * a - b, 32 * b + a), but more efficient
+  }
+  repeat (qh) {   ;; a+b*I *= (32+I)^5 = pa + pb*I
+    (a, b) = (a * pa - b * pb, a * pb + b * pa);
+  }
+  int xs = sgn(x);
+  return (xs * q, a, xs * b);
+}
+
+;; compute (q, z) such that atan(x)=q*atan(1/32)+z for -1 <= x < 1
+;; this function is reasonably accurate (error < 7 ulp with ulp = 2^-261), but it consumes >7k gas
+;; this is sufficient for most purposes
+;; (int, fixed261) atan_aux(fixed256 x)
+(int, int) atan_aux_f256(int x) inline_ref {
+  var (q, a, b) = atan_aux_prereduce(x ~>> 232);   ;; convert x to fixed24
+  ;; now b/a = tan(q*atan(1/32)) exactly, where q is near atan(x)/atan(1/32); so b/a is near x
+  ;; compute y = u/v = (a*x-b)/(a+b*x) as fixed261 ; then |y|<0.0167 = 1.07/64 and atan(x)=atan(y)+q*atan(1/32)
+  var (u, ul) = mulrshiftr256mod(a, x);
+  u = (ul ~>> 250) + ((u - b) << 6);  ;; |u| < 1/32, convert fixed255 -> fixed261
+  int v = a + mulrshiftr256(b, x);    ;; v is scalar product of (a,b) and (1,x), it is approximately in [1..sqrt(2)] as fixed255
+  int y = muldivr(u, 1 << 255, v);    ;; y = u/v as fixed261
+  int z = atan_f261_inlined(y, 18);   ;; z = atan(x)-q*atan(1/32)
+  return (q, z);
+}
+
+;; compute (q, z) such that atan(x)=q*atan(1/32)+z for -1 <= x < 1
+;; this function is very accurate (error < 2 ulp), but it consumes >7k gas
+;; in most cases, faster function atan_aux_f256() should be used
+;; (int, fixed261) atan_auxx(fixed256 x)
+(int, int) atan_auxx_f256(int x) inline_ref {
+  var (q, a, b) = atan_aux_prereduce(x ~>> 232);   ;; convert x to fixed24
+  ;; now b/a = tan(q*atan(1/32)) exactly, where q is near atan(x)/atan(1/32); so b/a is near x
+  ;; compute y = (a*x-b)/(a+b*x) as fixed261 ; then |y|<0.0167 = 1.07/64 and atan(x)=atan(y)+q*atan(1/32)
+  ;; use sort of double precision arithmetic for this
+  var (u, ul) = mulrshiftr256mod(a, x);
+  ul /= 2;
+  u -= b;    ;; |u| < 1/32 as fixed255
+  var (v, vl) = mulrshiftr256mod(b, x);
+  vl /= 2;
+  v += a;    ;; v is scalar product of (a,b) and (1,x), it is approximately in [1..sqrt(2)] as fixed255
+  ;; y = (u + ul*eps) / (v + vl*eps) = u/v + (ul - vl * u/v)/v * eps where eps=1/2^255
+  var (y, r) = lshift255divmodr(u, v);    ;; y = u/v as fixed255
+  int yl = muldivr(ul + r, 1 << 255, v) - muldivr(vl, y, v);   ;; y/2^255 + yl/2^510 represent u/v
+  y = (yl ~>> 249) + (y << 6);   ;; convert y to fixed261
+  int z = atan_f261_inlined(y, 18);   ;; z = atan(x)-q*atan(1/32)
+  return (q, z);
+}
+
+;; consumes ~ 8k gas
+;; fixed255 atan(fixed255 x);
+int atan_f255(int x) inline_ref {
+  int s = (x ~>> 256);
+  touch(x);
+  if (s) {
+    x = lshift256divr(-1 << 255, x);   ;; x:=-1/x as fixed256
+  } else {
+    x *= 2;   ;; convert to fixed256
+  }
+  var (q, z) = atan_aux_f256(x);
+  ;; now atan(x) = z + q*atan(1/32) + s*(Pi/2), z is fixed261
+  var (Pi_h, Pi_l) = Pi_xconst_f254();   ;; Pi/2 as fixed255 + fixed383
+  var (qh, ql) = mulrshiftr6mod (q, Atan1_32_f261());
+  return qh + s * Pi_h + (z + ql + muldivr(s, Pi_l, 1 << 122)) ~/ 64;
+}
+
+;; computes atan(x) for -1 <= x < 1 only
+;; fixed256 atan_small(fixed256 x);
+int atan_f256_small(int x) inline_ref {
+  var (q, z) = atan_aux_f256(x);
+  ;; now atan(x) = z + q*atan(1/32), z is fixed261
+  var (qh, ql) = mulrshiftr5mod (q, Atan1_32_f261());
+  return qh + (z + ql) ~/ 32;
+}
+
+;; fixed255 asin(fixed255 x);
+int asin_f255(int x) inline_ref {
+  int a = fixed255::One - fixed255::sqr(x);  ;; a:=1-x^2
+  ifnot (a) {
+    return sgn(x) * Pi_const_f254();   ;; Pi/2 or -Pi/2
+  }
+  int y = fixed255::sqrt(a);   ;; sqrt(1-x^2)
+  int t = - lshift256divr(x, (-1 << 255) - y);   ;; t = x/(1+sqrt(1-x^2)) avoiding overflow
+  return atan_f256_small(t);   ;; asin(x)=2*atan(t)
+}
+
+;; fixed254 acos(fixed255 x);
+int acos_f255(int x) inline_ref {
+  int Pi = Pi_const_f254();
+  if (x == (-1 << 255)) {
+    return Pi;   ;; acos(-1) = Pi
+  }
+  Pi /= 2;
+  int y = fixed255::sqrt(fixed255::One - fixed255::sqr(x));   ;; sqrt(1-x^2)
+  int t = lshift256divr(x, (-1 << 255) - y);   ;; t = -x/(1+sqrt(1-x^2)) avoiding overflow
+  return Pi + atan_f256_small(t) ~/ 2;   ;; acos(x)=Pi/2 + 2*atan(t)
+}
+
+;; consumes ~ 10k gas
+;; fixed248 asin(fixed248 x)
+int fixed248::asin(int x) inline {
+  return asin_f255(x << 7) ~>> 7;
+}
+
+;; consumes ~ 10k gas
+;; fixed248 acos(fixed248 x)
+int fixed248::acos(int x) inline {
+  return acos_f255(x << 7) ~>> 6;
+}
+
+;; consumes ~ 7500 gas
+;; fixed248 atan(fixed248 x);
+int fixed248::atan(int x) inline_ref {
+  int s = (x ~>> 249);
+  touch(x);
+  if (s) {
+    s = sgn(s);
+    x = lshift256divr(-1 << 248, x);   ;; x:=-1/x as fixed256
+  } else {
+    x <<= 8;   ;; convert to fixed256
+  }
+  var (q, z) = atan_aux_f256(x);
+  ;; now atan(x) = z + q*atan(1/32) + s*(Pi/2), z is fixed261
+  return (z ~/ 64 + s * Pi_const_f254() + muldivr(q, Atan1_32_f261(), 64)) ~/ 128;   ;; compute in fixed255, then convert 
+}
+
+;; fixed248 acot(fixed248 x);
+int fixed248::acot(int x) inline_ref {
+  int s = (x ~>> 249);
+  touch(x);
+  if (s) {
+    x = lshift256divr(-1 << 248, x);   ;; x:=-1/x as fixed256
+    s = 0;
+  } else {
+    x <<= 8;   ;; convert to fixed256
+    s = sgn(x);
+  }
+  var (q, z) = atan_aux_f256(x);
+  ;; now acot(x) = - z - q*atan(1/32) + s*(Pi/2), z is fixed261
+  return (s * Pi_const_f254() - z ~/ 64 - muldivr(q, Atan1_32_f261(), 64)) ~/ 128;   ;; compute in fixed255, then convert 
+}
+
+{--------------------- PSEUDO-RANDOM NUMBERS -------------------}
+
+;; random number with standard normal distribution N(0,1)
+;; generated by Kinderman--Monahan ratio method modified by J.Leva
+;; spends ~ 2k..3k gas on average
+;; fixed252 nrand();
+int nrand_f252() impure inline_ref {
+  var (x, s, t, A, B, r0) = (nan(), touch(29483) << 236, touch(-3167) << 239, 12845, 16693, 9043);
+  ;; 4/sqrt(e*Pi) = 1.369 loop iterations on average
+  do {
+    var (u, v) = (random() / 16 + 1, muldivr(random() - (1 << 255), 7027, 1 << 16));   ;; fixed252; 7027=ceil(sqrt(8/e)*2^12)
+    int va = abs(v);
+    var (u1, v1) = (u - s, va - t);   ;; (u - 29483/2^16, abs(v) + 3167/2^13) as fixed252
+    ;; Q := u1^2 + v1 * (A*v1 - B*u1) as fixed252 where A=12845/2^16, B=16693/2^16
+    int Q = muldivr(u1, u1, 1 << 252) + muldivr(v1, muldivr(v1, A, 1 << 16) - muldivr(u1, B, 1 << 16), 1 << 252);
+    ;; must have 9043 / 2^15 < Q < 9125 / 2^15, otherwise accept if smaller, reject if larger
+    int Qd = (Q >> 237) - r0;
+    if ((Qd < 9125 - 9043) & (va / u < 16)) {
+      x = muldivr(v, 1 << 252, u);    ;; x:=v/u as fixed252; reject immediately if |v/u| >= 16
+      if (Qd >= 0) {   ;; immediately accept if Qd < 0
+        ;; rarely taken branch - 0.012 times per call on average
+        ;; check condition v^2 < -4*u^2*log(u), or equivalent condition u < exp(-x^2/4) for x=v/u
+        int xx = mulrshiftr256(x, x) ~/ 4;   ;; x^2/4 as fixed248
+        int ex = fixed248::exp(- xx) * 16;   ;; exp(-x^2/4) as fixed252
+        if (u > ex) {
+          x = nan();      ;; condition false, reject
+        }
+      }
+    }
+  } until (~ is_nan(x));
+  return x;
+}
+
+;; generates a random number approximately distributed according to the standard normal distribution
+;; much faster than nrand_f252(), should be suitable for most purposes when only several random numbers are needed
+;; fixed252 nrand_fast();
+int nrand_fast_f252() impure inline_ref {
+  int t = touch(-3) << 253;   ;; -6. as fixed252
+  repeat (12) {
+    t += random() / 16;         ;; add together 12 uniformly random numbers
+  }
+  return t;
+}
+
+;; random number uniformly distributed in [0..1)
+;; fixed248 random();
+int fixed248::random() impure inline {
+  return random() >> 8;
+}
+
+;; random number with standard normal distribution
+;; fixed248 nrand();
+int fixed248::nrand() impure inline {
+  return nrand_f252() ~>> 4;
+}
+
+;; generates a random number approximately distributed according to the standard normal distribution
+;; fixed248 nrand_fast();
+int fixed248::nrand_fast() impure inline {
+  return nrand_fast_f252() ~>> 4;
+}

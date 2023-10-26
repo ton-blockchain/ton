@@ -92,6 +92,8 @@ class RldpIn : public RldpImpl {
 
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) override;
 
+  void set_default_mtu(td::uint64 mtu) override;
+
   RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
 
@@ -106,6 +108,8 @@ class RldpIn : public RldpImpl {
   std::map<TransferId, td::Promise<td::BufferSlice>> queries_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
+
+  td::optional<td::uint64> custom_default_mtu_;
 
   td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
 };

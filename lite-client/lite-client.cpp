@@ -1005,11 +1005,12 @@ bool TestNode::do_parse_line() {
     return eoln() && get_server_mc_block_id();
   } else if (word == "sendfile") {
     return !eoln() && set_error(send_ext_msg_from_filename(get_line_tail()));
-  } else if (word == "getaccount") {
+  } else if (word == "getaccount" || word == "getaccountprunned") {
+    bool prunned = word == "getaccountprunned";
     return parse_account_addr_ext(workchain, addr, addr_ext) &&
-           (seekeoln()
-                ? get_account_state(workchain, addr, mc_last_id_, addr_ext)
-                : parse_block_id_ext(blkid) && seekeoln() && get_account_state(workchain, addr, blkid, addr_ext));
+           (seekeoln() ? get_account_state(workchain, addr, mc_last_id_, addr_ext, "", -1, prunned)
+                       : parse_block_id_ext(blkid) && seekeoln() &&
+                             get_account_state(workchain, addr, blkid, addr_ext, "", -1, prunned));
   } else if (word == "saveaccount" || word == "saveaccountcode" || word == "saveaccountdata") {
     std::string filename;
     int mode = ((word.c_str()[11] >> 1) & 3);
@@ -1173,7 +1174,7 @@ td::Status TestNode::send_ext_msg_from_filename(std::string filename) {
 }
 
 bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt ref_blkid,
-                                 int addr_ext, std::string filename, int mode) {
+                                 int addr_ext, std::string filename, int mode, bool prunned) {
   if (!ref_blkid.is_valid()) {
     return set_error("must obtain last block information before making other queries");
   }
@@ -1181,35 +1182,44 @@ bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress 
     return set_error("server connection not ready");
   }
   if (addr_ext) {
-    return get_special_smc_addr(addr_ext, [this, ref_blkid, filename, mode](td::Result<ton::StdSmcAddress> res) {
-      if (res.is_error()) {
-        LOG(ERROR) << "cannot resolve special smart contract address: " << res.move_as_error();
-      } else {
-        get_account_state(ton::masterchainId, res.move_as_ok(), ref_blkid, 0, filename, mode);
-      }
-    });
+    return get_special_smc_addr(
+        addr_ext, [this, ref_blkid, filename, mode, prunned](td::Result<ton::StdSmcAddress> res) {
+          if (res.is_error()) {
+            LOG(ERROR) << "cannot resolve special smart contract address: " << res.move_as_error();
+          } else {
+            get_account_state(ton::masterchainId, res.move_as_ok(), ref_blkid, 0, filename, mode, prunned);
+          }
+        });
   }
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(workchain, addr);
-  auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
-                                        ton::create_tl_lite_block_id(ref_blkid), std::move(a)),
-                                    true);
-  LOG(INFO) << "requesting account state for " << workchain << ":" << addr.to_hex() << " with respect to "
-            << ref_blkid.to_str() << " with savefile `" << filename << "` and mode " << mode;
-  return envelope_send_query(
-      std::move(b), [Self = actor_id(this), workchain, addr, ref_blkid, filename, mode](td::Result<td::BufferSlice> R) {
-        if (R.is_error()) {
-          return;
-        }
-        auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
-        if (F.is_error()) {
-          LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
-        } else {
-          auto f = F.move_as_ok();
-          td::actor::send_closure_later(Self, &TestNode::got_account_state, ref_blkid, ton::create_block_id(f->id_),
-                                        ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
-                                        std::move(f->proof_), std::move(f->state_), workchain, addr, filename, mode);
-        }
-      });
+  td::BufferSlice b;
+  if (prunned) {
+    b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountStatePrunned>(
+                                     ton::create_tl_lite_block_id(ref_blkid), std::move(a)),
+                                 true);
+  } else {
+    b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(
+                                     ton::create_tl_lite_block_id(ref_blkid), std::move(a)),
+                                 true);
+  }
+  LOG(INFO) << "requesting " << (prunned ? "prunned " : "") << "account state for " << workchain << ":" << addr.to_hex()
+            << " with respect to " << ref_blkid.to_str() << " with savefile `" << filename << "` and mode " << mode;
+  return envelope_send_query(std::move(b), [Self = actor_id(this), workchain, addr, ref_blkid, filename, mode,
+                                            prunned](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(R.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getAccountState";
+    } else {
+      auto f = F.move_as_ok();
+      td::actor::send_closure_later(Self, &TestNode::got_account_state, ref_blkid, ton::create_block_id(f->id_),
+                                    ton::create_block_id(f->shardblk_), std::move(f->shard_proof_),
+                                    std::move(f->proof_), std::move(f->state_), workchain, addr, filename, mode,
+                                    prunned);
+    }
+  });
 }
 
 td::int64 TestNode::compute_method_id(std::string method) {
@@ -1739,6 +1749,13 @@ bool TestNode::show_dns_record(std::ostream& os, td::Bits256 cat, Ref<vm::CellSl
       }
       break;
     }
+    case block::gen::DNSRecord::dns_storage_address: {
+      block::gen::DNSRecord::Record_dns_storage_address rec;
+      if (tlb::unpack_exact(cs, rec)) {
+        os << "\tstorage address " << rec.bag_id.to_hex();
+      }
+      break;
+    }
     case block::gen::DNSRecord::dns_next_resolver: {
       block::gen::DNSRecord::Record_dns_next_resolver rec;
       if (tlb::unpack_exact(cs, rec) && block::tlb::t_MsgAddressInt.extract_std_address(rec.resolver, wc, addr)) {
@@ -1901,15 +1918,18 @@ bool TestNode::get_last_transactions(ton::WorkchainId workchain, ton::StdSmcAddr
 
 void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, ton::BlockIdExt shard_blk,
                                  td::BufferSlice shard_proof, td::BufferSlice proof, td::BufferSlice state,
-                                 ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string filename, int mode) {
-  LOG(INFO) << "got account state for " << workchain << ":" << addr.to_hex() << " with respect to blocks "
-            << blk.to_str() << (shard_blk == blk ? "" : std::string{" and "} + shard_blk.to_str());
+                                 ton::WorkchainId workchain, ton::StdSmcAddress addr, std::string filename, int mode,
+                                 bool prunned) {
+  LOG(INFO) << "got " << (prunned ? "prunned " : "") << "account state for " << workchain << ":" << addr.to_hex()
+            << " with respect to blocks " << blk.to_str()
+            << (shard_blk == blk ? "" : std::string{" and "} + shard_blk.to_str());
   block::AccountState account_state;
   account_state.blk = blk;
   account_state.shard_blk = shard_blk;
   account_state.shard_proof = std::move(shard_proof);
   account_state.proof = std::move(proof);
   account_state.state = std::move(state);
+  account_state.is_virtualized = prunned;
   auto r_info = account_state.validate(ref_blk, block::StdAddress(workchain, addr));
   if (r_info.is_error()) {
     LOG(ERROR) << r_info.error().message();

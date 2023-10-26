@@ -185,7 +185,8 @@ td::Ref<AdnlAddressImpl> AdnlAddressImpl::create(const tl_object_ptr<ton_api::ad
       *const_cast<ton_api::adnl_Address *>(addr.get()),
       td::overloaded([&](const ton_api::adnl_address_udp &obj) { res = td::make_ref<AdnlAddressUdp>(obj); },
                      [&](const ton_api::adnl_address_udp6 &obj) { res = td::make_ref<AdnlAddressUdp6>(obj); },
-                     [&](const ton_api::adnl_address_tunnel &obj) { res = td::make_ref<AdnlAddressTunnel>(obj); }));
+                     [&](const ton_api::adnl_address_tunnel &obj) { res = td::make_ref<AdnlAddressTunnel>(obj); },
+                     [&](const ton_api::adnl_address_reverse &obj) { res = td::make_ref<AdnlAddressReverse>(); }));
   return res;
 }
 
@@ -202,7 +203,12 @@ AdnlAddressList::AdnlAddressList(const tl_object_ptr<ton_api::adnl_addressList> 
   version_ = static_cast<td::uint32>(addrs->version_);
   std::vector<td::Ref<AdnlAddressImpl>> vec;
   for (auto &addr : addrs->addrs_) {
-    vec.push_back(AdnlAddressImpl::create(addr));
+    auto obj = AdnlAddressImpl::create(addr);
+    if (obj->is_reverse()) {
+      has_reverse_ = true;
+    } else {
+      vec.push_back(std::move(obj));
+    }
   }
   addrs_ = std::move(vec);
   reinit_date_ = addrs->reinit_date_;
@@ -214,6 +220,9 @@ tl_object_ptr<ton_api::adnl_addressList> AdnlAddressList::tl() const {
   std::vector<tl_object_ptr<ton_api::adnl_Address>> addrs;
   for (auto &v : addrs_) {
     addrs.emplace_back(v->tl());
+  }
+  if (has_reverse_) {
+    addrs.push_back(create_tl_object<ton_api::adnl_address_reverse>());
   }
   return create_tl_object<ton_api::adnl_addressList>(std::move(addrs), version_, reinit_date_, priority_, expire_at_);
 }

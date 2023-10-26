@@ -47,6 +47,8 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const ManualDns::EntryData&
                        .move_as_ok();
     case ManualDns::EntryData::Type::SmcAddress:
       return sb << "SMC:" << data.data.get<ManualDns::EntryDataSmcAddress>().smc_address.rserialize();
+    case ManualDns::EntryData::Type::StorageAddress:
+      return sb << "STORAGE:" << data.data.get<ManualDns::EntryDataStorageAddress>().bag_id.to_hex();
   }
   return sb << "<unknown>";
 }
@@ -92,6 +94,11 @@ td::Result<td::Ref<vm::Cell>> DnsInterface::EntryData::as_cell() const {
         block::tlb::t_MsgAddressInt.store_std_address(cb, smc_address.smc_address.workchain,
                                                       smc_address.smc_address.addr);
         dns.smc_addr = vm::load_cell_slice_ref(cb.finalize());
+        tlb::pack_cell(res, dns);
+      },
+      [&](const EntryDataStorageAddress& storage_address) {
+        block::gen::DNSRecord::Record_dns_storage_address dns;
+        dns.bag_id = storage_address.bag_id;
         tlb::pack_cell(res, dns);
       }));
   if (error.is_error()) {
@@ -141,6 +148,11 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
         return td::Status::Error("Invalid address");
       }
       return EntryData::smc_address(block::StdAddress(wc, addr));
+    }
+    case block::gen::DNSRecord::dns_storage_address: {
+      block::gen::DNSRecord::Record_dns_storage_address dns;
+      tlb::unpack(cs, dns);
+      return EntryData::storage_address(dns.bag_id);
     }
   }
   return td::Status::Error("Unknown entry data");
@@ -536,10 +548,12 @@ std::string DnsInterface::decode_name(td::Slice name) {
 
 std::string ManualDns::serialize_data(const EntryData& data) {
   std::string res;
-  data.data.visit(td::overloaded([&](const ton::ManualDns::EntryDataText& text) { res = "UNSUPPORTED"; },
-                                 [&](const ton::ManualDns::EntryDataNextResolver& resolver) { res = "UNSUPPORTED"; },
-                                 [&](const ton::ManualDns::EntryDataAdnlAddress& adnl_address) { res = "UNSUPPORTED"; },
-                                 [&](const ton::ManualDns::EntryDataSmcAddress& text) { res = "UNSUPPORTED"; }));
+  data.data.visit(
+      td::overloaded([&](const ton::ManualDns::EntryDataText& text) { res = "UNSUPPORTED"; },
+                     [&](const ton::ManualDns::EntryDataNextResolver& resolver) { res = "UNSUPPORTED"; },
+                     [&](const ton::ManualDns::EntryDataAdnlAddress& adnl_address) { res = "UNSUPPORTED"; },
+                     [&](const ton::ManualDns::EntryDataSmcAddress& text) { res = "UNSUPPORTED"; },
+                     [&](const ton::ManualDns::EntryDataStorageAddress& storage_address) { res = "UNSUPPORTED"; }));
   return res;
 }
 
@@ -559,6 +573,12 @@ td::Result<td::optional<ManualDns::EntryData>> ManualDns::parse_data(td::Slice c
   } else if (type == "NEXT") {
     TRY_RESULT(address, block::StdAddress::parse(parser.read_all()));
     return ManualDns::EntryData::next_resolver(address);
+  } else if (type == "STORAGE") {
+    td::Bits256 bag_id;
+    if (bag_id.from_hex(parser.read_all(), false) != 256) {
+      return td::Status::Error("failed to parse bag id");
+    }
+    return ManualDns::EntryData::storage_address(bag_id);
   } else if (parser.data() == "DELETED") {
     return {};
   }

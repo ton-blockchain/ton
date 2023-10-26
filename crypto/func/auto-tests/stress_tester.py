@@ -13,7 +13,7 @@ def getenv(name, default=None):
     print("Environemnt variable", name, "is not set", file=sys.stderr)
     exit(1)
 
-VAR_CNT = 5
+VAR_CNT = 10
 TMP_DIR = tempfile.mkdtemp()
 FUNC_EXECUTABLE = getenv("FUNC_EXECUTABLE", "func")
 FIFT_EXECUTABLE = getenv("FIFT_EXECUTABLE", "fift")
@@ -30,6 +30,15 @@ class State:
     def __init__(self, x):
         self.x = x
         self.vs = [0] * VAR_CNT
+
+    def copy(self):
+        s = State(self.x)
+        s.vs = self.vs.copy()
+        return s
+
+    def copy_from(self, s):
+        self.x = s.x
+        self.vs = s.vs.copy()
 
 class Code:
     pass
@@ -128,13 +137,51 @@ class CodeRepeat(Code):
             self.c.write(f, indent + 1)
             print("  " * (indent + 1) + "%s += 1;" % var, file=f)
             print("  " * indent + "}", file=f)
-        else:
+        elif self.loop_type == 2:
             var = gen_var_name()
             print("  " * indent + "int %s = 0;" % var, file=f)
             print("  " * indent + "do {", file=f)
             self.c.write(f, indent + 1)
             print("  " * (indent + 1) + "%s += 1;" % var, file=f)
             print("  " * indent + "} until (%s >= %d);" % (var, self.n), file=f)
+        else:
+            var = gen_var_name()
+            print("  " * indent + "int %s = %d;" % (var, self.n - 1), file=f)
+            print("  " * indent + "while (%s >= 0) {" % var, file=f)
+            self.c.write(f, indent + 1)
+            print("  " * (indent + 1) + "%s -= 1;" % var, file=f)
+            print("  " * indent + "}", file=f)
+
+class CodeThrow(Code):
+    def __init__(self):
+        pass
+
+    def execute(self, state):
+        return "EXCEPTION"
+
+    def write(self, f, indent=0):
+        print("  " * indent + "throw(42);", file=f)
+
+class CodeTryCatch(Code):
+    def __init__(self, c1, c2):
+        self.c1 = c1
+        self.c2 = c2
+
+    def execute(self, state):
+        state0 = state.copy()
+        res = self.c1.execute(state)
+        if res == "EXCEPTION":
+            state.copy_from(state0)
+            return self.c2.execute(state)
+        else:
+            return res
+
+    def write(self, f, indent=0):
+        print("  " * indent + "try {", file=f)
+        self.c1.write(f, indent + 1)
+        print("  " * indent + "} catch (_, _) {", file=f)
+        self.c2.write(f, indent + 1)
+        print("  " * indent + "}", file=f)
 
 def write_function(f, name, body, inline=False, inline_ref=False, method_id=None):
     print("_ %s(int x)" % name, file=f, end="")
@@ -147,31 +194,37 @@ def write_function(f, name, body, inline=False, inline_ref=False, method_id=None
     print(" {", file=f)
     for i in range(VAR_CNT):
         print("  int v%d = 0;" % i, file=f)
-    body.write(f, 1);
+    body.write(f, 1)
     print("}", file=f)
 
-def gen_code(xl, xr, with_return, loop_depth=0):
+def gen_code(xl, xr, with_return, loop_depth=0, try_catch_depth=0, can_throw=False):
+    if try_catch_depth < 3 and random.randint(0, 5) == 0:
+        c1 = gen_code(xl, xr, with_return, loop_depth, try_catch_depth + 1, random.randint(0, 1) == 0)
+        c2 = gen_code(xl, xr, with_return, loop_depth, try_catch_depth + 1, can_throw)
+        return CodeTryCatch(c1, c2)
     code = []
     for _ in range(random.randint(0, 2)):
         if random.randint(0, 3) == 0 and loop_depth < 3:
-            c = gen_code(xl, xr, False, loop_depth + 1)
-            code.append(CodeRepeat(random.randint(0, 3), c, random.randint(0, 2)))
+            c = gen_code(xl, xr, False, loop_depth + 1, try_catch_depth, can_throw)
+            code.append(CodeRepeat(random.randint(0, 3), c, random.randint(0, 3)))
         elif xr - xl > 1:
             xmid = random.randrange(xl + 1, xr)
             ret = random.choice((0, 0, 0, 0, 0, 1, 2))
-            c1 = gen_code(xl, xmid, ret == 1, loop_depth)
+            c1 = gen_code(xl, xmid, ret == 1, loop_depth, try_catch_depth, can_throw)
             if random.randrange(5) == 0:
                 c2 = CodeEmpty()
             else:
-                c2 = gen_code(xmid, xr, ret == 2, loop_depth)
+                c2 = gen_code(xmid, xr, ret == 2, loop_depth, try_catch_depth, can_throw)
             code.append(CodeIfRange(xl, xmid, c1, c2))
+    if xr - xl == 1 and can_throw and random.randint(0, 5) == 0:
+        code.append(CodeThrow())
     if with_return:
         if xr - xl == 1:
             code.append(CodeReturn(random.randrange(10**9)))
         else:
             xmid = random.randrange(xl + 1, xr)
-            c1 = gen_code(xl, xmid, True, loop_depth)
-            c2 = gen_code(xmid, xr, True, loop_depth)
+            c1 = gen_code(xl, xmid, True, loop_depth, try_catch_depth, can_throw)
+            c2 = gen_code(xmid, xr, True, loop_depth, try_catch_depth, can_throw)
             code.append(CodeIfRange(xl, xmid, c1, c2))
     for _ in range(random.randint(0, 3)):
         pos = random.randint(0, len(code))
@@ -202,6 +255,7 @@ def runvm(compiled_fif, xl, xr):
         if s.strip() != "":
             output.append(list(map(int, s.split())))
     return output
+
 
 cnt_ok = 0
 cnt_fail = 0
