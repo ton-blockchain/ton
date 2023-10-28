@@ -38,6 +38,7 @@ cd ..
 mkdir build
 cd build
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
+-DCMAKE_CXX_STANDARD=17 \
 -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
 -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \

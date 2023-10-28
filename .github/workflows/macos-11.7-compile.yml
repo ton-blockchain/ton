@@ -50,7 +50,6 @@ jobs:
           strip build/utils/generate-random-id
           strip build/utils/json2tlo
           strip build/adnl/adnl-proxy
-          strip build/emulator/*emulator.*
 
       - name: Find & copy binaries
         run: |
