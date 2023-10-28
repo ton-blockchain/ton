@@ -3,8 +3,8 @@
 # dependencies:
 #sudo apt-get install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libevent-dev
 
-export CC=$(which clang)
-export CXX=$(which clang++)
+export CC=$(which clang-16)
+export CXX=$(which clang++-16)
 export CCACHE_DISABLE=1
 
 cd ../..
