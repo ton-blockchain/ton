@@ -15,11 +15,11 @@ jobs:
       - name: Compile OpenSSL
         run: |
           export NONINTERACTIVE=1
-          brew install ninja libsodium automake
+          brew install ninja secp256k1 libsodium libmicrohttpd pkg-config automake libtool
           git clone https://github.com/openssl/openssl openssl_1_1_1
           cd openssl_1_1_1
           git checkout OpenSSL_1_1_1-stable
-          ./Configure --prefix=/usr/local/macos darwin64-x86_64-cc -static -mmacosx-version-min=12.6
+          ./Configure darwin64-x86_64-cc -static -mmacosx-version-min=12.6
           make build_libs -j4
 
       - name: Compile Secp256k1
@@ -33,13 +33,32 @@ jobs:
 
       - name: Build all
         run: |
-          export NONINTERACTIVE=1
-          brew install ninja libmicrohttpd pkg-config
+          brew unlink openssl@3
           rootPath=`pwd`
           mkdir build
           cd build
           cmake -GNinja -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=12.6 -DCMAKE_CXX_FLAGS="-stdlib=libc++" -DCMAKE_BUILD_TYPE=Release ..
           ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator
+
+      - name: Strip binaries
+        run: |          
+          strip build/storage/storage-daemon/storage-daemon
+          strip build/storage/storage-daemon/storage-daemon-cli
+          strip build/blockchain-explorer/blockchain-explorer
+          strip build/crypto/fift
+          strip build/crypto/func
+          strip build/crypto/create-state
+          strip build/crypto/tlbc
+          strip build/validator-engine-console/validator-engine-console 
+          strip build/tonlib/tonlib-cli
+          strip build/http/http-proxy
+          strip build/rldp-http-proxy/rldp-http-proxy
+          strip build/dht-server/dht-server
+          strip build/lite-client/lite-client
+          strip build/validator-engine/validator-engine
+          strip build/utils/generate-random-id
+          strip build/utils/json2tlo
+          strip build/adnl/adnl-proxy
 
       - name: Find & copy binaries
         run: |
