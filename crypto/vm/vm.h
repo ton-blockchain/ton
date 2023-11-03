@@ -423,4 +423,6 @@ int run_vm_code(Ref<CellSlice> _code, Stack& _stack, int flags = 0, Ref<Cell>* d
 
 Ref<vm::Cell> lookup_library_in(td::ConstBitPtr key, Ref<vm::Cell> lib_root);
 
+td::Status init_vm(bool enable_debug = false);
+
 }  // namespace vm

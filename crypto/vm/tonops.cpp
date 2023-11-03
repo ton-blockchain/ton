@@ -101,7 +101,7 @@ void register_basic_gas_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xf800, 16, "ACCEPT", exec_accept))
       .insert(OpcodeInstr::mksimple(0xf801, 16, "SETGASLIMIT", exec_set_gas_limit))
-      .insert(OpcodeInstr::mksimple(0xf802, 16, "GASCONSUMED", exec_gas_consumed)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf806, 16, "GASCONSUMED", exec_gas_consumed)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf80f, 16, "COMMIT", exec_commit));
 }
 
@@ -620,7 +620,6 @@ int exec_ristretto255_from_hash(VmState* st) {
   if (!x2->export_bytes(xb + 32, 32, false)) {
     throw VmError{Excno::range_chk, "x2 must fit in an unsigned 256-bit integer"};
   }
-  CHECK(sodium_init() >= 0);
   crypto_core_ristretto255_from_hash(rb, xb);
   td::RefInt256 r{true};
   CHECK(r.write().import_bytes(rb, 32, false));
@@ -633,8 +632,7 @@ int exec_ristretto255_validate(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_validate_gas_price);
-  unsigned char xb[64];
-  CHECK(sodium_init() >= 0);
+  unsigned char xb[32];
   if (!x->export_bytes(xb, 32, false) || !crypto_core_ristretto255_is_valid_point(xb)) {
     if (quiet) {
       stack.push_bool(false);
@@ -656,7 +654,6 @@ int exec_ristretto255_add(VmState* st, bool quiet) {
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_add_gas_price);
   unsigned char xb[32], yb[32], rb[32];
-  CHECK(sodium_init() >= 0);
   if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_add(rb, xb, yb)) {
     if (quiet) {
       stack.push_bool(false);
@@ -681,7 +678,6 @@ int exec_ristretto255_sub(VmState* st, bool quiet) {
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_add_gas_price);
   unsigned char xb[32], yb[32], rb[32];
-  CHECK(sodium_init() >= 0);
   if (!x->export_bytes(xb, 32, false) || !y->export_bytes(yb, 32, false) || crypto_core_ristretto255_sub(rb, xb, yb)) {
     if (quiet) {
       stack.push_bool(false);
@@ -719,17 +715,20 @@ int exec_ristretto255_mul(VmState* st, bool quiet) {
   auto n = stack.pop_int() % get_ristretto256_l();
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_mul_gas_price);
-  unsigned char xb[32], nb[32], rb[32];
-  memset(rb, 255, sizeof(rb));
-  CHECK(sodium_init() >= 0);
-  if (!x->export_bytes(xb, 32, false) || !export_bytes_little(n, nb) || crypto_scalarmult_ristretto255(rb, nb, xb)) {
-    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
-      if (quiet) {
-        stack.push_bool(false);
-        return 0;
-      }
-      throw VmError{Excno::range_chk, "invalid x or n"};
+  if (n->sgn() == 0) {
+    stack.push_smallint(0);
+    if (quiet) {
+      stack.push_bool(true);
     }
+    return 0;
+  }
+  unsigned char xb[32], nb[32], rb[32];
+  if (!x->export_bytes(xb, 32, false) || !export_bytes_little(n, nb) || crypto_scalarmult_ristretto255(rb, nb, xb)) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "invalid x or n"};
   }
   td::RefInt256 r{true};
   CHECK(r.write().import_bytes(rb, 32, false));
@@ -747,7 +746,6 @@ int exec_ristretto255_mul_base(VmState* st, bool quiet) {
   st->consume_gas(VmState::rist255_mulbase_gas_price);
   unsigned char nb[32], rb[32];
   memset(rb, 255, sizeof(rb));
-  CHECK(sodium_init() >= 0);
   if (!export_bytes_little(n, nb) || crypto_scalarmult_ristretto255_base(rb, nb)) {
     if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
       if (quiet) {
@@ -833,7 +831,7 @@ int exec_bls_verify(VmState* st) {
   VM_LOG(st) << "execute BLS_VERIFY";
   Stack& stack = st->get_stack();
   stack.check_underflow(3);
-  st->consume_gas(st->bls_verify_gas_price);
+  st->consume_gas(VmState::bls_verify_gas_price);
   bls::P2 sig = slice_to_bls_p2(*stack.pop_cellslice());
   td::BufferSlice msg = slice_to_bls_msg(*stack.pop_cellslice());
   bls::P1 pub = slice_to_bls_p1(*stack.pop_cellslice());
@@ -845,8 +843,7 @@ int exec_bls_aggregate(VmState* st) {
   VM_LOG(st) << "execute BLS_AGGREGATE";
   Stack& stack = st->get_stack();
   int n = stack.pop_smallint_range(stack.depth() - 1, 1);
-  st->consume_gas(
-      std::max(0LL, VmState::bls_aggregate_base_gas_price + (long long)n * VmState::bls_aggregate_element_gas_price));
+  st->consume_gas(VmState::bls_aggregate_base_gas_price + (long long)n * VmState::bls_aggregate_element_gas_price);
   std::vector<bls::P2> sigs(n);
   for (int i = n - 1; i >= 0; --i) {
     sigs[i] = slice_to_bls_p2(*stack.pop_cellslice());

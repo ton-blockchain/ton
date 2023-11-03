@@ -33,7 +33,7 @@ std::string load_test(std::string name) {
   return td::read_file_str(current_dir() + "fift/" + name).move_as_ok();
 }
 
-td::Status run_fift(std::string name, bool expect_error = false, bool preload_fift = true) {
+td::Status run_fift(std::string name, bool expect_error = false) {
   auto res = fift::mem_run_fift(load_test(name));
   if (expect_error) {
     res.ensure_error();

@@ -202,7 +202,7 @@ class Collator final : public td::actor::Actor {
   //
   block::Account* lookup_account(td::ConstBitPtr addr) const;
   std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
-                                                    Ref<vm::CellSlice> extra, bool force_create = false);
+                                                    bool force_create);
   td::Result<block::Account*> make_account(td::ConstBitPtr addr, bool force_create = false);
   td::actor::ActorId<Collator> get_self() {
     return actor_id(this);
@@ -269,10 +269,6 @@ class Collator final : public td::actor::Actor {
   void after_get_external_messages(td::Result<std::vector<Ref<ExtMessage>>> res);
   td::Result<bool> register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash);
   // td::Result<bool> register_external_message(td::Slice ext_msg_boc);
-  td::Result<bool> register_ihr_message_cell(Ref<vm::Cell> ihr_msg);
-  td::Result<bool> register_ihr_message(td::Slice ihr_msg_boc);
-  td::Result<bool> register_shard_signatures_cell(Ref<vm::Cell> shard_blk_signatures);
-  td::Result<bool> register_shard_signatures(td::Slice shard_blk_signatures_boc);
   void register_new_msg(block::NewOutMsg msg);
   void register_new_msgs(block::transaction::Transaction& trans);
   bool process_new_messages(bool enqueue_only = false);
@@ -285,7 +281,7 @@ class Collator final : public td::actor::Actor {
   bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, ton::LogicalTime enqueued_lt);
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
-                               td::RefInt256 fwd_fee_remaining, ton::LogicalTime enqueued_lt);
+                               td::RefInt256 fwd_fee_remaining);
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);

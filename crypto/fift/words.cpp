@@ -3512,7 +3512,7 @@ void init_words_ton(Dictionary& d) {
 
 void init_words_vm(Dictionary& d, bool enable_debug) {
   using namespace std::placeholders;
-  vm::init_op_cp0(enable_debug);
+  vm::init_vm(enable_debug).ensure();
   // vm run
   d.def_word("vmlibs ", LitCont::literal(vm_libraries));
   // d.def_ctx_word("runvmcode ", std::bind(interpret_run_vm, _1, 0x40));

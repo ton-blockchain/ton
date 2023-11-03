@@ -335,7 +335,7 @@ const Bignum sqr(const Bignum& x);
 std::ostream& operator<<(std::ostream& os, const Bignum& x);
 std::istream& operator>>(std::istream& is, Bignum& x);
 
-bool is_prime(const Bignum& p, int nchecks = 64, bool trial_div = true);
+bool is_prime(const Bignum& p);
 
 inline int cmp(const Bignum& x, const Bignum& y) {
   return BN_cmp(x.bn_ptr(), y.bn_ptr());

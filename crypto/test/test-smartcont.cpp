@@ -958,7 +958,7 @@ class MapDns {
       }
       return;
     }
-    if (!actions.category.is_zero()) {
+    if (actions.category.is_zero()) {
       entries_.erase(actions.name);
       LOG(ERROR) << "CLEAR " << actions.name;
       if (!actions.actions) {
@@ -1003,7 +1003,7 @@ class CheckedDns {
   explicit CheckedDns(bool check_smc = true, bool check_combine = true) {
     if (check_smc) {
       key_ = td::Ed25519::generate_private_key().move_as_ok();
-      dns_ = ManualDns::create(ManualDns::create_init_data_fast(key_.value().get_public_key().move_as_ok(), 123));
+      dns_ = ManualDns::create(ManualDns::create_init_data_fast(key_.value().get_public_key().move_as_ok(), 123), -1);
     }
     if (check_combine) {
       combined_map_dns_ = MapDns();
@@ -1094,9 +1094,10 @@ class CheckedDns {
   }
 };
 
-static td::Bits256 intToCat(int x) {
-  td::Bits256 cat = td::Bits256::zero();
-  cat.as_slice().copy_from(td::Slice((char*)&x, sizeof(x)));
+static td::Bits256 intToCat(td::uint32 x) {
+  auto y = td::make_refint(x);
+  td::Bits256 cat;
+  y->export_bytes(cat.data(), 32, false);
   return cat;
 }
 
@@ -1182,7 +1183,7 @@ TEST(Smartcont, DnsManual) {
 
   auto key = td::Ed25519::generate_private_key().move_as_ok();
 
-  auto manual = ManualDns::create(ManualDns::create_init_data_fast(key.get_public_key().move_as_ok(), 123));
+  auto manual = ManualDns::create(ManualDns::create_init_data_fast(key.get_public_key().move_as_ok(), 123), -1);
   CHECK(manual->get_wallet_id().move_as_ok() == 123);
   auto init_query = manual->create_init_query(key).move_as_ok();
   LOG(ERROR) << "A";

@@ -39,6 +39,11 @@ namespace validator {
 using td::Ref;
 using namespace std::literals::string_literals;
 
+/**
+ * Converts the error context to a string representation to show it in case of validation error.
+ *
+ * @returns The error context as a string.
+ */
 std::string ErrorCtx::as_string() const {
   std::string a;
   for (const auto& s : entries_) {
@@ -48,6 +53,20 @@ std::string ErrorCtx::as_string() const {
   return a;
 }
 
+/**
+ * Constructs a ValidateQuery object.
+ *
+ * @param shard The shard of the block being validated.
+ * @param min_ts The minimum allowed UnixTime for the block.
+ * @param min_masterchain_block_id The minimum allowed masterchain block reference for the block.
+ * @param prev A vector of BlockIdExt representing the previous blocks.
+ * @param candidate The BlockCandidate to be validated.
+ * @param validator_set A reference to the ValidatorSet.
+ * @param manager The ActorId of the ValidatorManager.
+ * @param timeout The timeout for the validation.
+ * @param promise The Promise to return the ValidateCandidateResult to.
+ * @param is_fake A boolean indicating if the validation is fake (performed when creating a hardfork).
+ */
 ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
                              std::vector<BlockIdExt> prev, BlockCandidate candidate, Ref<ValidatorSet> validator_set,
                              td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
@@ -71,14 +90,30 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
   proc_hash_.zero();
 }
 
+/**
+ * Raises an error when timeout is reached.
+ */
 void ValidateQuery::alarm() {
   abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
 }
 
+/**
+ * Aborts the validation with the given error.
+ *
+ * @param error The error encountered.
+ */
 void ValidateQuery::abort_query(td::Status error) {
   (void)fatal_error(std::move(error));
 }
 
+/**
+ * Rejects the validation and logs an error message.
+ *
+ * @param error The error message to be logged.
+ * @param reason The reason for rejecting the validation.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
   error = error_ctx() + error;
   LOG(ERROR) << "REJECT: aborting validation of block candidate for " << shard_.to_str() << " : " << error;
@@ -94,11 +129,28 @@ bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
   return false;
 }
 
+/**
+ * Rejects the validation and logs an error message.
+ *
+ * @param err_msg The error message to be displayed.
+ * @param error The error status.
+ * @param reason The reason for rejecting the query.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::reject_query(std::string err_msg, td::Status error, td::BufferSlice reason) {
   error.ensure_error();
   return reject_query(err_msg + " : " + error.to_string(), std::move(reason));
 }
 
+/**
+ * Rejects the validation and logs an error message.
+ *
+ * @param error The error message to be logged.
+ * @param reason The reason for rejecting the validation.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason) {
   error = error_ctx() + error;
   LOG(ERROR) << "SOFT REJECT: aborting validation of block candidate for " << shard_.to_str() << " : " << error;
@@ -114,6 +166,13 @@ bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason)
   return false;
 }
 
+/**
+ * Handles a fatal error during validation.
+ *
+ * @param error The error status.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "aborting validation of block candidate for " << shard_.to_str() << " : " << error.to_string();
@@ -132,19 +191,47 @@ bool ValidateQuery::fatal_error(td::Status error) {
   return false;
 }
 
+/**
+ * Handles a fatal error during validation.
+ *
+ * @param err_code Error code.
+ * @param error Error message.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::fatal_error(int err_code, std::string err_msg) {
   return fatal_error(td::Status::Error(err_code, error_ctx() + err_msg));
 }
 
+/**
+ * Handles a fatal error during validation.
+ *
+ * @param err_code Error code.
+ * @param err_msg Error message.
+ * @param error Error status.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::fatal_error(int err_code, std::string err_msg, td::Status error) {
   error.ensure_error();
   return fatal_error(err_code, err_msg + " : " + error.to_string());
 }
 
+/**
+ * Handles a fatal error during validation.
+ *
+ * @param error Error message.
+ * @param err_code Error code.
+ *
+ * @returns False indicating that the validation failed.
+ */
 bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
   return fatal_error(td::Status::Error(err_code, error_ctx() + err_msg));
 }
 
+/**
+ * Finishes the query and sends the result to the promise.
+ */
 void ValidateQuery::finish_query() {
   if (main_promise) {
     main_promise.set_result(now_);
@@ -158,6 +245,12 @@ void ValidateQuery::finish_query() {
  *
  */
 
+/**
+ * Starts the validation process.
+ *
+ * This function performs various checks on the validation parameters and the block candidate.
+ * Then the function also sends requests to the ValidatorManager to fetch blocks and shard stated.
+ */
 void ValidateQuery::start_up() {
   LOG(INFO) << "validate query for " << block_candidate.id.to_str() << " started";
   alarm_timestamp() = timeout;
@@ -307,7 +400,16 @@ void ValidateQuery::start_up() {
   CHECK(pending);
 }
 
-// unpack block candidate, and check root hash and file hash
+/**
+ * Unpacks and validates a block candidate.
+ *
+ * This function unpacks the block candidate data and performs various validation checks to ensure its integrity.
+ * It checks the file hash and root hash of the block candidate against the expected values.
+ * It then parses the block header and checks its validity.
+ * Finally, it deserializes the collated data and extracts the collated roots.
+ *
+ * @returns True if the block candidate was successfully unpacked, false otherwise.
+ */
 bool ValidateQuery::unpack_block_candidate() {
   vm::BagOfCells boc1, boc2;
   // 1. deserialize block itself
@@ -359,6 +461,11 @@ bool ValidateQuery::unpack_block_candidate() {
   return extract_collated_data();
 }
 
+/**
+ * Initializes the validation by parsing and checking the block header.
+ *
+ * @returns True if the initialization is successful, false otherwise.
+ */
 bool ValidateQuery::init_parse() {
   CHECK(block_root_.not_null());
   std::vector<BlockIdExt> prev_blks;
@@ -486,6 +593,14 @@ bool ValidateQuery::init_parse() {
   return true;
 }
 
+/**
+ * Extracts collated data from a cell.
+ *
+ * @param croot The root cell containing the collated data.
+ * @param idx The index of the root.
+ *
+ * @returns True if the extraction is successful, false otherwise.
+ */
 bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
   bool is_special = false;
   auto cs = vm::load_cell_slice_special(croot, is_special);
@@ -523,7 +638,11 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
   return true;
 }
 
-// processes further and sorts data in collated_roots_
+/**
+ * Extracts collated data from a list of collated roots.
+ *
+ * @returns True if the extraction is successful, False otherwise.
+ */
 bool ValidateQuery::extract_collated_data() {
   int i = -1;
   for (auto croot : collated_roots_) {
@@ -542,6 +661,11 @@ bool ValidateQuery::extract_collated_data() {
   return true;
 }
 
+/**
+ * Callback function called after retrieving the latest masterchain state.
+ *
+ * @param res The result of the retrieval of the latest masterchain state.
+ */
 void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
   LOG(DEBUG) << "in ValidateQuery::after_get_latest_mc_state()";
   --pending;
@@ -578,6 +702,11 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
   }
 }
 
+/**
+ * Callback function called after retrieving the masterchain state referenced int the block.
+ * 
+ * @param res The result of the masterchain state retrieval.
+ */
 void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
   LOG(DEBUG) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
   --pending;
@@ -596,6 +725,11 @@ void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
   }
 }
 
+/**
+ * Callback function for handling the result of retrieving a masterchain block handle referenced in the block.
+ *
+ * @param res The result of retrieving the masterchain block handle.
+ */
 void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
   LOG(DEBUG) << "in ValidateQuery::got_mc_handle() for " << mc_blkid_.to_str();
   --pending;
@@ -611,6 +745,12 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
   }
 }
 
+/**
+ * Callback function called after retrieving the shard state for a previous block.
+ *
+ * @param idx The index of the previous block (0 or 1).
+ * @param res The result of the shard state retrieval.
+ */
 void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
   LOG(DEBUG) << "in ValidateQuery::after_get_shard_state(" << idx << ")";
   --pending;
@@ -643,6 +783,13 @@ void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> r
   }
 }
 
+/**
+ * Processes the retreived masterchain state.
+ *
+ * @param mc_state The reference to the masterchain state.
+ *
+ * @returns True if the masterchain state is successfully processed, false otherwise.
+ */
 bool ValidateQuery::process_mc_state(Ref<MasterchainState> mc_state) {
   if (mc_state.is_null()) {
     return fatal_error("could not obtain reference masterchain state "s + mc_blkid_.to_str());
@@ -664,6 +811,11 @@ bool ValidateQuery::process_mc_state(Ref<MasterchainState> mc_state) {
   return register_mc_state(mc_state_);
 }
 
+/**
+ * Tries to unpack the masterchain state and perform necessary checks.
+ *
+ * @returns True if the unpacking and checks are successful, false otherwise.
+ */
 bool ValidateQuery::try_unpack_mc_state() {
   LOG(DEBUG) << "unpacking reference masterchain state";
   auto guard = error_ctx_add_guard("unpack last mc state");
@@ -750,7 +902,12 @@ bool ValidateQuery::try_unpack_mc_state() {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Fetches and validates configuration parameters from the masterchain configuration.
+ * Almost the same as in Collator.
+ *
+ * @returns True if all configuration parameters were successfully fetched and validated, false otherwise.
+ */
 bool ValidateQuery::fetch_config_params() {
   old_mparams_ = config_->get_config_param(9);
   {
@@ -839,7 +996,16 @@ bool ValidateQuery::fetch_config_params() {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Checks the previous block against the block registered in the masterchain.
+ * Almost the same as in Collator.
+ *
+ * @param listed The BlockIdExt of the top block of this shard registered in the masterchain.
+ * @param prev The BlockIdExt of the previous block.
+ * @param chk_chain_len Flag indicating whether to check the chain length.
+ *
+ * @returns True if the previous block is valid, false otherwise.
+ */
 bool ValidateQuery::check_prev_block(const BlockIdExt& listed, const BlockIdExt& prev, bool chk_chain_len) {
   if (listed.seqno() > prev.seqno()) {
     return reject_query(PSTRING() << "cannot generate a shardchain block after previous block " << prev.to_str()
@@ -859,7 +1025,15 @@ bool ValidateQuery::check_prev_block(const BlockIdExt& listed, const BlockIdExt&
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Checks the previous block against the block registered in the masterchain.
+ * Almost the same as in Collator
+ *
+ * @param listed The BlockIdExt of the top block of this shard registered in the masterchain.
+ * @param prev The BlockIdExt of the previous block.
+ *
+ * @returns True if the previous block is equal to the one registered in the masterchain, false otherwise.
+ */
 bool ValidateQuery::check_prev_block_exact(const BlockIdExt& listed, const BlockIdExt& prev) {
   if (listed != prev) {
     return reject_query(PSTRING() << "cannot generate shardchain block for shard " << shard_.to_str()
@@ -870,8 +1044,12 @@ bool ValidateQuery::check_prev_block_exact(const BlockIdExt& listed, const Block
   return true;
 }
 
-// almost the same as in Collator
-// (main change: fatal_error -> reject_query)
+/**
+ * Checks the validity of the shard configuration of the current shard.
+ * Almost the same as in Collator (main change: fatal_error -> reject_query).
+ *
+ * @returns True if the shard's configuration is valid, False otherwise.
+ */
 bool ValidateQuery::check_this_shard_mc_info() {
   wc_info_ = config_->get_workchain_info(workchain());
   if (wc_info_.is_null()) {
@@ -1016,6 +1194,11 @@ bool ValidateQuery::check_this_shard_mc_info() {
  *
  */
 
+/**
+ * Computes the previous shard state.
+ *
+ * @returns True if the previous state is computed successfully, false otherwise.
+ */
 bool ValidateQuery::compute_prev_state() {
   CHECK(prev_states.size() == 1u + after_merge_);
   // Extend validator timeout if previous block is too old
@@ -1045,6 +1228,9 @@ bool ValidateQuery::compute_prev_state() {
   return true;
 }
 
+/**
+ * Computes the next shard state using the previous state and the block's Merkle update.
+ */
 bool ValidateQuery::compute_next_state() {
   LOG(DEBUG) << "computing next state";
   auto res = vm::MerkleUpdate::validate(state_update_);
@@ -1120,7 +1306,13 @@ bool ValidateQuery::compute_next_state() {
   return true;
 }
 
-// similar to Collator::unpack_merge_last_state()
+/**
+ * Unpacks and merges the states of two previous blocks.
+ * Used if the block is after_merge.
+ * Similar to Collator::unpack_merge_last_state()
+ * 
+ * @returns True if the unpacking and merging was successful, false otherwise.
+ */
 bool ValidateQuery::unpack_merge_prev_state() {
   LOG(DEBUG) << "unpack/merge previous states";
   CHECK(prev_states.size() == 2);
@@ -1148,7 +1340,13 @@ bool ValidateQuery::unpack_merge_prev_state() {
   return true;
 }
 
-// similar to Collator::unpack_last_state()
+/**
+ * Unpacks the state of the previous block.
+ * Used if the block is not after_merge.
+ * Similar to Collator::unpack_last_state()
+ *
+ * @returns True if the unpacking is successful, false otherwise.
+ */
 bool ValidateQuery::unpack_prev_state() {
   LOG(DEBUG) << "unpacking previous state(s)";
   CHECK(prev_state_root_.not_null());
@@ -1163,7 +1361,16 @@ bool ValidateQuery::unpack_prev_state() {
   return unpack_one_prev_state(ps_, prev_blocks.at(0), prev_state_root_) && (!after_split_ || split_prev_state(ps_));
 }
 
-// similar to Collator::unpack_one_last_state()
+/**
+ * Unpacks the state of a previous block and performs necessary checks.
+ * Similar to Collator::unpack_one_last_state()
+ *
+ * @param ss The ShardState object to unpack the state into.
+ * @param blkid The BlockIdExt of the previous block.
+ * @param prev_state_root The root of the state.
+ *
+ * @returns True if the unpacking and checks are successful, false otherwise.
+ */
 bool ValidateQuery::unpack_one_prev_state(block::ShardState& ss, BlockIdExt blkid, Ref<vm::Cell> prev_state_root) {
   auto res = ss.unpack_state_ext(blkid, std::move(prev_state_root), global_id_, mc_seqno_, after_split_,
                                  after_split_ | after_merge_, [this](ton::BlockSeqno mc_seqno) {
@@ -1180,7 +1387,15 @@ bool ValidateQuery::unpack_one_prev_state(block::ShardState& ss, BlockIdExt blki
   return true;
 }
 
-// similar to Collator::split_last_state()
+/**
+ * Splits the state of previous block.
+ * Used if the block is after_split.
+ * Similar to Collator::split_last_state()
+ *
+ * @param ss The ShardState object representing the previous state. The result is stored here.
+ *
+ * @returns True if the split operation is successful, false otherwise.
+ */
 bool ValidateQuery::split_prev_state(block::ShardState& ss) {
   LOG(INFO) << "Splitting previous state " << ss.id_.to_str() << " to subshard " << shard_.to_str();
   CHECK(after_split_);
@@ -1202,6 +1417,11 @@ bool ValidateQuery::split_prev_state(block::ShardState& ss) {
   return true;
 }
 
+/**
+ * Unpacks the next state (obtained by applying the Merkle update) and performs checks.
+ *
+ * @returns True if the next state is successfully unpacked and passes all checks, false otherwise.
+ */
 bool ValidateQuery::unpack_next_state() {
   LOG(DEBUG) << "unpacking new state";
   CHECK(state_root_.not_null());
@@ -1231,7 +1451,12 @@ bool ValidateQuery::unpack_next_state() {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Requests the message queues of neighboring shards.
+ * Almost the same as in Collator.
+ *
+ * @returns True if the request for neighbor message queues was successful, false otherwise.
+ */
 bool ValidateQuery::request_neighbor_queues() {
   CHECK(new_shard_conf_);
   auto neighbor_list = new_shard_conf_->get_neighbor_shard_hash_ids(shard_);
@@ -1261,7 +1486,13 @@ bool ValidateQuery::request_neighbor_queues() {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Handles the result of obtaining the outbound queue for a neighbor.
+ * Almost the same as in Collator.
+ *
+ * @param i The index of the neighbor.
+ * @param res The obtained outbound queue.
+ */
 void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res) {
   LOG(DEBUG) << "obtained outbound queue for neighbor #" << i;
   --pending;
@@ -1323,7 +1554,14 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
   }
 }
 
-// almost the same as in Collator
+/**
+ * Registers a masterchain state.
+ * Almost the same as in Collator.
+ *
+ * @param other_mc_state The masterchain state to register.
+ *
+ * @returns True if the registration is successful, false otherwise.
+ */
 bool ValidateQuery::register_mc_state(Ref<MasterchainStateQ> other_mc_state) {
   if (other_mc_state.is_null() || mc_state_.is_null()) {
     return false;
@@ -1349,7 +1587,15 @@ bool ValidateQuery::register_mc_state(Ref<MasterchainStateQ> other_mc_state) {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Requests the auxiliary masterchain state.
+ * Almost the same as in Collator
+ *
+ * @param seqno The seqno of the block.
+ * @param state A reference to the auxiliary masterchain state.
+ *
+ * @returns True if the auxiliary masterchain state is successfully requested, false otherwise.
+ */
 bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& state) {
   if (mc_state_.is_null()) {
     return fatal_error(PSTRING() << "cannot find masterchain block with seqno " << seqno
@@ -1383,7 +1629,14 @@ bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Retrieves the auxiliary masterchain state for a given block sequence number.
+ * Almost the same as in Collator.
+ *
+ * @param seqno The sequence number of the block.
+ *
+ * @returns A reference to the auxiliary masterchain state if found, otherwise an empty reference.
+ */
 Ref<MasterchainStateQ> ValidateQuery::get_aux_mc_state(BlockSeqno seqno) const {
   auto it = aux_mc_states_.find(seqno);
   if (it != aux_mc_states_.end()) {
@@ -1393,7 +1646,14 @@ Ref<MasterchainStateQ> ValidateQuery::get_aux_mc_state(BlockSeqno seqno) const {
   }
 }
 
-// almost the same as in Collator
+/**
+ * Callback function called after retrieving the auxiliary shard state.
+ * Handles the retrieved shard state and performs necessary checks and registrations.
+ * Almost the same as in Collator.
+ *
+ * @param blkid The BlockIdExt of the shard state.
+ * @param res The result of retrieving the shard state.
+ */
 void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res) {
   LOG(DEBUG) << "in ValidateQuery::after_get_aux_shard_state(" << blkid.to_str() << ")";
   --pending;
@@ -1420,6 +1680,17 @@ void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<
 }
 
 // similar to Collator::update_one_shard()
+/**
+ * Checks one shard description in the masterchain shard configuration.
+ * Used in masterchain validation.
+ *
+ * @param info The shard information to be updated.
+ * @param sibling The sibling shard information.
+ * @param wc_info The workchain information.
+ * @param ccvc The Catchain validators configuration.
+ *
+ * @returns True if the validation wasa successful, false othewise.
+ */
 bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
                                     const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc) {
   auto shard = info.shard();
@@ -1706,8 +1977,14 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
   return true;
 }
 
-// checks old_shard_conf_ -> new_shard_conf_ transition using top_shard_descr_dict_ from collated data
-// similar to Collator::update_shard_config()
+/**
+ * Checks the shard configuration in the masterchain.
+ * Used in masterchain collator.
+ * Checks old_shard_conf_ -> new_shard_conf_ transition using top_shard_descr_dict_ from collated data.
+ * Similar to Collator::update_shard_config()
+ *
+ * @returns True if the shard layout is valid, false otherwise.
+ */
 bool ValidateQuery::check_shard_layout() {
   prev_now_ = config_->utime;
   if (prev_now_ > now_) {
@@ -1761,7 +2038,14 @@ bool ValidateQuery::check_shard_layout() {
   return check_mc_validator_info(is_key_block_ || (now_ / ccvc.mc_cc_lifetime > prev_now_ / ccvc.mc_cc_lifetime));
 }
 
-// similar to Collator::register_shard_block_creators
+/**
+ * Registers the shard block creators to block_create_count_
+ * Similar to Collator::register_shard_block_creators
+ *
+ * @param creator_list A vector of Bits256 representing the shard block creators.
+ *
+ * @returns True if the registration was successful, False otherwise.
+ */
 bool ValidateQuery::register_shard_block_creators(std::vector<td::Bits256> creator_list) {
   for (const auto& x : creator_list) {
     LOG(DEBUG) << "registering block creator " << x.to_hex();
@@ -1776,7 +2060,12 @@ bool ValidateQuery::register_shard_block_creators(std::vector<td::Bits256> creat
   return true;
 }
 
-// similar to Collator::check_cur_validator_set()
+/**
+ * Checks that the current validator set is entitled to create blocks in this shard and has a correct catchain seqno.
+ * Similar to Collator::check_cur_validator_set()
+ *
+ * @returns True if the current validator set is valid, false otherwise.
+ */
 bool ValidateQuery::check_cur_validator_set() {
   CatchainSeqno cc_seqno = 0;
   auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
@@ -1799,8 +2088,14 @@ bool ValidateQuery::check_cur_validator_set() {
   return true;
 }
 
-// parallel to 4. of Collator::create_mc_state_extra()
-// checks validator_info in mc_state_extra
+/**
+ * Checks validator_info in mc_state_extra.
+ * NB: could be run in parallel to 4. of Collator::create_mc_state_extra()
+ *
+ * @param update_mc_cc Flag indicating whether the masterchain catchain seqno should be updated.
+ *
+ * @returns True if the validator information is valid, false otherwise.
+ */
 bool ValidateQuery::check_mc_validator_info(bool update_mc_cc) {
   block::gen::McStateExtra::Record old_state_extra;
   block::gen::ValidatorInfo::Record old_val_info;
@@ -1842,6 +2137,11 @@ bool ValidateQuery::check_mc_validator_info(bool update_mc_cc) {
   return true;
 }
 
+/**
+ * Checks if the Unix time and logical time of the block are valid.
+ *
+ * @returns True if the utime and logical time pass checks, False otherwise.
+ */
 bool ValidateQuery::check_utime_lt() {
   if (start_lt_ <= ps_.lt_) {
     return reject_query(PSTRING() << "block has start_lt " << start_lt_ << " less than or equal to lt " << ps_.lt_
@@ -1888,8 +2188,16 @@ bool ValidateQuery::check_utime_lt() {
  *
  */
 
-// almost the same as in Collator
-// (but it can take into account the new state of the masterchain)
+/**
+ * Adjusts one entry from the processed up to information using the masterchain state that is referenced in the entry.
+ * Almost the same as in Collator (but it can take into account the new state of the masterchain).
+ *
+ * @param proc The MsgProcessedUpto object.
+ * @param owner The shard that the MsgProcessesUpto information is taken from.
+ * @param allow_cur Allow using the new state of the msaterchain.
+ *
+ * @returns True if the processed up to information was successfully adjusted, false otherwise.
+ */
 bool ValidateQuery::fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur) {
   if (proc.compute_shard_end_lt) {
     return true;
@@ -1912,7 +2220,15 @@ bool ValidateQuery::fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::S
   return (bool)proc.compute_shard_end_lt;
 }
 
-// almost the same as in Collator
+/**
+ * Adjusts the processed up to collection using the using the auxilliary masterchain states.
+ * Almost the same as in Collator.
+ *
+ * @param upto The MsgProcessedUptoCollection to be adjusted.
+ * @param allow_cur Allow using the new state of the msaterchain.
+ *
+ * @returns True if all entries were successfully adjusted, False otherwise.
+ */
 bool ValidateQuery::fix_processed_upto(block::MsgProcessedUptoCollection& upto, bool allow_cur) {
   for (auto& entry : upto.list) {
     if (!fix_one_processed_upto(entry, upto.owner, allow_cur)) {
@@ -1922,6 +2238,11 @@ bool ValidateQuery::fix_processed_upto(block::MsgProcessedUptoCollection& upto, 
   return true;
 }
 
+/**
+ * Adjusts the processed_upto values for all shard states, including neighbors.
+ *
+ * @returns True if all processed_upto values were successfully adjusted, false otherwise.
+ */
 bool ValidateQuery::fix_all_processed_upto() {
   CHECK(ps_.processed_upto_);
   if (!fix_processed_upto(*ps_.processed_upto_)) {
@@ -1942,7 +2263,13 @@ bool ValidateQuery::fix_all_processed_upto() {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Adds trivials neighbor after merging two shards.
+ * Trivial neighbors are the two previous blocks.
+ * Almost the same as in Collator.
+ * 
+ * @returns True if the operation is successful, false otherwise.
+ */
 bool ValidateQuery::add_trivial_neighbor_after_merge() {
   LOG(DEBUG) << "in add_trivial_neighbor_after_merge()";
   CHECK(prev_blocks.size() == 2);
@@ -1977,7 +2304,13 @@ bool ValidateQuery::add_trivial_neighbor_after_merge() {
   return true;
 }
 
-// almost the same as in Collator
+/**
+ * Adds a trivial neighbor.
+ * A trivial neighbor is the previous block.
+ * Almost the same as in Collator.
+ *
+ * @returns True if the operation is successful, false otherwise.
+ */
 bool ValidateQuery::add_trivial_neighbor() {
   LOG(DEBUG) << "in add_trivial_neighbor()";
   if (after_merge_) {
@@ -2113,6 +2446,11 @@ bool ValidateQuery::add_trivial_neighbor() {
   return true;
 }
 
+/**
+ * Unpacks block data and performs validation checks.
+ *
+ * @returns True if the block data is successfully unpacked and passes all validation checks, false otherwise.
+ */
 bool ValidateQuery::unpack_block_data() {
   LOG(DEBUG) << "unpacking block structures";
   block::gen::Block::Record blk;
@@ -2152,6 +2490,13 @@ bool ValidateQuery::unpack_block_data() {
   return unpack_precheck_value_flow(std::move(blk.value_flow));
 }
 
+/**
+ * Validates and unpacks the value flow of a new block.
+ *
+ * @param value_flow_root The root of the value flow to be unpacked and validated.
+ *
+ * @returns True if the value flow is valid and unpacked successfully, false otherwise.
+ */
 bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
   vm::CellSlice cs{vm::NoVmOrd(), value_flow_root};
   if (!(cs.is_valid() && value_flow_.fetch(cs) && cs.empty_ext())) {
@@ -2269,7 +2614,14 @@ bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
   return true;
 }
 
-// similar to Collator::compute_minted_amount()
+/**
+ * Computes the amount of extra currencies to be minted.
+ * Similar to Collator::compute_minted_amount()
+ *
+ * @param to_mint A reference to the CurrencyCollection object to store the minted amount.
+ *
+ * @returns True if the computation is successful, false otherwise.
+ */
 bool ValidateQuery::compute_minted_amount(block::CurrencyCollection& to_mint) {
   if (!is_masterchain()) {
     return to_mint.set_zero();
@@ -2321,6 +2673,15 @@ bool ValidateQuery::compute_minted_amount(block::CurrencyCollection& to_mint) {
   return true;
 }
 
+/**
+ * Pre-validates the update of an account in a query.
+ *
+ * @param acc_id The 256-bit account address.
+ * @param old_value The old value of the account serialized as ShardAccount. Can be null.
+ * @param new_value The new value of the account serialized as ShardAccount. Can be null.
+ *
+ * @returns True if the accounts passes preliminary checks, false otherwise.
+ */
 bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::CellSlice> old_value,
                                                 Ref<vm::CellSlice> new_value) {
   LOG(DEBUG) << "checking update of account " << acc_id.to_hex(256);
@@ -2380,6 +2741,11 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
   return true;
 }
 
+/**
+ * Pre-validates all account updates between the old and new state.
+ * 
+ * @returns True if the pre-check is successful, False otherwise.
+ */
 bool ValidateQuery::precheck_account_updates() {
   LOG(INFO) << "pre-checking all Account updates between the old and the new state";
   try {
@@ -2401,6 +2767,19 @@ bool ValidateQuery::precheck_account_updates() {
   return true;
 }
 
+/**
+ * Pre-validates a single transaction (without actually running it).
+ *
+ * @param acc_id The 256-bit account address.
+ * @param trans_lt The logical time of the transaction.
+ * @param trans_csr The cell slice containing the serialized Transaction.
+ * @param prev_trans_hash The hash of the previous transaction.
+ * @param prev_trans_lt The logical time of the previous transaction.
+ * @param prev_trans_lt_len The logical time length of the previous transaction.
+ * @param acc_state_hash The hash of the account state before the transaction. Will be set to the hash of the new state.
+ *
+ * @returns True if the transaction passes pre-checks, false otherwise.
+ */
 bool ValidateQuery::precheck_one_transaction(td::ConstBitPtr acc_id, ton::LogicalTime trans_lt,
                                              Ref<vm::CellSlice> trans_csr, ton::Bits256& prev_trans_hash,
                                              ton::LogicalTime& prev_trans_lt, unsigned& prev_trans_lt_len,
@@ -2467,6 +2846,14 @@ bool ValidateQuery::precheck_one_transaction(td::ConstBitPtr acc_id, ton::Logica
 }
 
 // NB: could be run in parallel for different accounts
+/**
+ * Pre-validates an AccountBlock and all transactions in it.
+ *
+ * @param acc_id The 256-bit account address.
+ * @param acc_blk_root The root of the AccountBlock.
+ *
+ * @returns True if the AccountBlock passes pre-checks, false otherwise.
+ */
 bool ValidateQuery::precheck_one_account_block(td::ConstBitPtr acc_id, Ref<vm::CellSlice> acc_blk_root) {
   LOG(DEBUG) << "checking AccountBlock for " << acc_id.to_hex(256);
   if (!acc_id.equals(shard_pfx_.bits(), shard_pfx_len_)) {
@@ -2548,6 +2935,11 @@ bool ValidateQuery::precheck_one_account_block(td::ConstBitPtr acc_id, Ref<vm::C
   return true;
 }
 
+/**
+ * Pre-validates all account blocks.
+ *
+ * @returns True if the pre-checking is successful, otherwise false.
+ */
 bool ValidateQuery::precheck_account_transactions() {
   LOG(INFO) << "pre-checking all AccountBlocks, and all transactions of all accounts";
   try {
@@ -2567,6 +2959,14 @@ bool ValidateQuery::precheck_account_transactions() {
   return true;
 }
 
+/**
+ * Looks up a transaction in the account blocks dictionary for a given account address and logical time.
+ *
+ * @param addr The address of the account.
+ * @param lt The logical time of the transaction.
+ *
+ * @returns A reference to the transaction if found, null otherwise.
+ */
 Ref<vm::Cell> ValidateQuery::lookup_transaction(const ton::StdSmcAddress& addr, ton::LogicalTime lt) const {
   CHECK(account_blocks_dict_);
   block::gen::AccountBlock::Record ab_rec;
@@ -2578,7 +2978,13 @@ Ref<vm::Cell> ValidateQuery::lookup_transaction(const ton::StdSmcAddress& addr, 
   return trans_dict.lookup_ref(td::BitArray<64>{(long long)lt});
 }
 
-// checks that a ^Transaction refers to a transaction present in the ShardAccountBlocks
+/**
+ * Checks that a Transaction cell refers to a transaction present in the ShardAccountBlocks.
+ *
+ * @param trans_ref The reference to the serialized transaction root.
+ *
+ * @returns True if the transaction reference is valid, False otherwise.
+ */
 bool ValidateQuery::is_valid_transaction_ref(Ref<vm::Cell> trans_ref) const {
   ton::StdSmcAddress addr;
   ton::LogicalTime lt;
@@ -2598,8 +3004,16 @@ bool ValidateQuery::is_valid_transaction_ref(Ref<vm::Cell> trans_ref) const {
   return true;
 }
 
-// checks that any change in OutMsgQueue in the state is accompanied by an OutMsgDescr record in the block
-// also checks that the keys are correct
+/**
+ * Checks that any change in OutMsgQueue in the state is accompanied by an OutMsgDescr record in the block.
+ * Also checks that the keys are correct.
+ *
+ * @param out_msg_id The 32+64+256-bit ID of the outbound message.
+ * @param old_value The old value of the message queue entry.
+ * @param new_value The new value of the message queue entry.
+ *
+ * @returns True if the update is valid, false otherwise.
+ */
 bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id, Ref<vm::CellSlice> old_value,
                                                       Ref<vm::CellSlice> new_value) {
   LOG(DEBUG) << "checking update of enqueued outbound message " << out_msg_id.get_int(32) << ":"
@@ -2765,6 +3179,11 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   return true;
 }
 
+/**
+ * Performs a pre-check on the difference between the old and new outbound message queues.
+ * 
+ * @returns True if the pre-check is successful, false otherwise.
+ */
 bool ValidateQuery::precheck_message_queue_update() {
   LOG(INFO) << "pre-checking the difference between the old and the new outbound message queues";
   try {
@@ -2787,6 +3206,14 @@ bool ValidateQuery::precheck_message_queue_update() {
   return true;
 }
 
+/**
+ * Updates the maximum processed logical time and hash value.
+ *
+ * @param lt The logical time to compare against the current maximum processed logical time.
+ * @param hash The hash value to compare against the current maximum processed hash value.
+ *
+ * @returns True if the update was successful, false otherwise.
+ */
 bool ValidateQuery::update_max_processed_lt_hash(ton::LogicalTime lt, const ton::Bits256& hash) {
   if (proc_lt_ < lt || (proc_lt_ == lt && proc_hash_ < hash)) {
     proc_lt_ = lt;
@@ -2795,6 +3222,14 @@ bool ValidateQuery::update_max_processed_lt_hash(ton::LogicalTime lt, const ton:
   return true;
 }
 
+/**
+ * Updates the minimum enqueued logical time and hash values.
+ *
+ * @param lt The logical time to compare.
+ * @param hash The hash value to compare.
+ *
+ * @returns True if the update was successful, false otherwise.
+ */
 bool ValidateQuery::update_min_enqueued_lt_hash(ton::LogicalTime lt, const ton::Bits256& hash) {
   if (lt < min_enq_lt_ || (lt == min_enq_lt_ && hash < min_enq_hash_)) {
     min_enq_lt_ = lt;
@@ -2803,7 +3238,13 @@ bool ValidateQuery::update_min_enqueued_lt_hash(ton::LogicalTime lt, const ton::
   return true;
 }
 
-// check that the enveloped message (MsgEnvelope) was present in the output queue of a neighbor, and that it has not been processed before
+/**
+ * Checks that the MsgEnvelope was present in the output queue of a neighbor, and that it has not been processed before.
+ *
+ * @param msg_env The message envelope of the imported message.
+ *
+ * @returns True if the imported internal message passes checks, false otherwise.
+ */
 bool ValidateQuery::check_imported_message(Ref<vm::Cell> msg_env) {
   block::tlb::MsgEnvelope::Record_std env;
   block::gen::CommonMsgInfo::Record_int_msg_info info;
@@ -2863,11 +3304,27 @@ bool ValidateQuery::check_imported_message(Ref<vm::Cell> msg_env) {
                       " has previous address not belonging to any neighbor");
 }
 
+/**
+ * Checks if the given input message is a special message.
+ * A message is considered special if it recovers fees or mints extra currencies.
+ *
+ * @param in_msg The input message to be checked.
+ *
+ * @returns True if the input message is special, False otherwise.
+ */
 bool ValidateQuery::is_special_in_msg(const vm::CellSlice& in_msg) const {
   return (recover_create_msg_.not_null() && vm::load_cell_slice(recover_create_msg_).contents_equal(in_msg)) ||
          (mint_msg_.not_null() && vm::load_cell_slice(mint_msg_).contents_equal(in_msg));
 }
 
+/**
+ * Checks the validity of an inbound message listed in InMsgDescr.
+ *
+ * @param key The 256-bit key of the inbound message.
+ * @param in_msg The inbound message to be checked serialized using InMsg TLB-scheme.
+ *
+ * @returns True if the inbound message is valid, false otherwise.
+ */
 bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg) {
   LOG(DEBUG) << "checking InMsg with key " << key.to_hex(256);
   CHECK(in_msg.not_null());
@@ -3274,6 +3731,11 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
   return true;
 }
 
+/**
+ * Checks the validity of the inbound messages listed in the InMsgDescr dictionary.
+ *
+ * @returns True if the inbound messages dictionary is valid, false otherwise.
+ */
 bool ValidateQuery::check_in_msg_descr() {
   LOG(INFO) << "checking inbound messages listed in InMsgDescr";
   try {
@@ -3293,6 +3755,14 @@ bool ValidateQuery::check_in_msg_descr() {
   return true;
 }
 
+/**
+ * Checks the validity of an outbound message listed in OutMsgDescr.
+ *
+ * @param key The 256-bit key of the outbound message.
+ * @param in_msg The outbound message to be checked serialized using OutMsg TLB-scheme.
+ *
+ * @returns True if the outbound message is valid, false otherwise.
+ */
 bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_msg) {
   LOG(DEBUG) << "checking OutMsg with key " << key.to_hex(256);
   CHECK(out_msg.not_null());
@@ -3810,6 +4280,11 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
   return true;
 }
 
+/**
+ * Checks the validity of the outbound messages listed in the OutMsgDescr dictionary.
+ *
+ * @returns True if the outbound messages dictionary is valid, false otherwise.
+ */
 bool ValidateQuery::check_out_msg_descr() {
   LOG(INFO) << "checking outbound messages listed in OutMsgDescr";
   try {
@@ -3828,7 +4303,12 @@ bool ValidateQuery::check_out_msg_descr() {
   return true;
 }
 
-// compare to Collator::update_processed_upto()
+/**
+ * Checks if the processed up to information is valid and consistent.
+ * Compare to Collator::update_processed_upto()
+ *
+ * @returns True if the processed up to information is valid and consistent, false otherwise.
+ */
 bool ValidateQuery::check_processed_upto() {
   LOG(INFO) << "checking ProcessedInfo";
   CHECK(ps_.processed_upto_);
@@ -3884,7 +4364,18 @@ bool ValidateQuery::check_processed_upto() {
   return true;
 }
 
-// similar to Collator::process_inbound_message
+/**
+ * Checks the validity of an outbound message in the neighbor's queue.
+ * Similar to Collator::process_inbound_message.
+ *
+ * @param enq_msg The enqueued message to validate.
+ * @param lt The logical time of the message.
+ * @param key The 32+64+256-bit key of the message.
+ * @param nb The neighbor's description.
+ * @param unprocessed A boolean flag that will be set to true if the message is unprocessed, false otherwise.
+ *
+ * @returns True if the message is valid, false otherwise.
+ */
 bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt,
                                                     td::ConstBitPtr key, const block::McShardDescr& nb,
                                                     bool& unprocessed) {
@@ -4023,6 +4514,11 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
   return true;
 }
 
+/**
+ * Checks messages from the outbound queues of the neighbors.
+ *
+ * @returns True if the messages are valid, false otherwise.
+ */
 bool ValidateQuery::check_in_queue() {
   block::OutputQueueMerger nb_out_msgs(shard_, neighbors_);
   while (!nb_out_msgs.is_eof()) {
@@ -4054,9 +4550,12 @@ bool ValidateQuery::check_in_queue() {
   return true;
 }
 
-// checks that all messages imported from our outbound queue into neighbor shards have been dequeued
-// similar to Collator::out_msg_queue_cleanup()
-// (but scans new outbound queue instead of the old)
+/**
+ * Checks that all messages imported from our outbound queue into neighbor shards have been dequeued
+ * Similar to Collator::out_msg_queue_cleanup() (but scans the new outbound queue instead of the old).
+ *
+ * @returns True if the delivery status of all messages has been checked successfully, false otherwise.
+ */
 bool ValidateQuery::check_delivered_dequeued() {
   LOG(INFO) << "scanning new outbound queue and checking delivery status of all messages";
   bool ok = false;
@@ -4103,26 +4602,42 @@ bool ValidateQuery::check_delivered_dequeued() {
   }) || ok;
 }
 
-// similar to Collator::make_account_from()
-std::unique_ptr<block::Account> ValidateQuery::make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
-                                                                 Ref<vm::CellSlice> extra) {
+/**
+ * Creates a new Account object from the given address and serialized account data.
+ * Creates a new Account if not found.
+ * Similar to Collator::make_account_from()
+ *
+ * @param addr A pointer to the 256-bit address of the account.
+ * @param account A cell slice with an account serialized using ShardAccount TLB-scheme.
+ *
+ * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
+ */
+std::unique_ptr<block::Account> ValidateQuery::make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account) {
   auto ptr = std::make_unique<block::Account>(workchain(), addr);
   if (account.is_null()) {
     if (!ptr->init_new(now_)) {
       return nullptr;
     }
-  } else if (!ptr->unpack(std::move(account), std::move(extra), now_,
-                          is_masterchain() && config_->is_special_smartcontract(addr))) {
+  } else if (!ptr->unpack(std::move(account), now_, is_masterchain() && config_->is_special_smartcontract(addr))) {
     return nullptr;
   }
   ptr->block_lt = start_lt_;
   return ptr;
 }
 
-// similar to Collator::make_account()
+/**
+ * Retreives an Account object from the data in the shard state.
+ * Accounts are cached in the ValidatorQuery's map.
+ * Similar to Collator::make_account()
+ *
+ * @param addr The 256-bit address of the account.
+ *
+ * @returns Pointer to the account if found or created successfully.
+ *          Returns nullptr if an error occured.
+ */
 std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr addr) {
   auto dict_entry = ps_.account_dict_->lookup_extra(addr, 256);
-  auto new_acc = make_account_from(addr, std::move(dict_entry.first), std::move(dict_entry.second));
+  auto new_acc = make_account_from(addr, std::move(dict_entry.first));
   if (!new_acc) {
     reject_query("cannot load state of account "s + addr.to_hex(256) + " from previous shardchain state");
     return {};
@@ -4135,6 +4650,18 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
   return new_acc;
 }
 
+/**
+ * Checks the validity of a single transaction for a given account.
+ * Performs transaction execution.
+ *
+ * @param account The account of the transaction.
+ * @param lt The logical time of the transaction.
+ * @param trans_root The root of the transaction.
+ * @param is_first Flag indicating if this is the first transaction of the account.
+ * @param is_last Flag indicating if this is the last transaction of the account.
+ *
+ * @returns True if the transaction is valid, false otherwise.
+ */
 bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
                                           bool is_first, bool is_last) {
   if (!check_timeout()) {
@@ -4598,7 +5125,15 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   return true;
 }
 
-// NB: may be run in parallel for different accounts
+/**
+ * Checks the validity of transactions for a given account block.
+ * NB: may be run in parallel for different accounts
+ *
+ * @param acc_addr The address of the account.
+ * @param acc_blk_root The root of the AccountBlock.
+ *
+ * @returns True if the account transactions are valid, false otherwise.
+ */
 bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root) {
   block::gen::AccountBlock::Record acc_blk;
   CHECK(tlb::csr_unpack(std::move(acc_blk_root), acc_blk) && acc_blk.account_addr == acc_addr);
@@ -4630,6 +5165,11 @@ bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Re
   }
 }
 
+/**
+ * Checks all transactions in the account blocks.
+ *
+ * @returns True if all transactions pass the check, False otherwise.
+ */
 bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
   return account_blocks_dict_->check_for_each_extra(
@@ -4639,7 +5179,17 @@ bool ValidateQuery::check_transactions() {
       });
 }
 
-// similar to Collator::update_account_public_libraries()
+/**
+ * Processes changes in libraries of an account.
+ * Used in masterchain validation.
+ * Similar to Collator::update_account_public_libraries()
+ *
+ * @param orig_libs The original libraries of the account.
+ * @param final_libs The final libraries of the account.
+ * @param addr The address of the account.
+ *
+ * @returns True if the update was successful, false otherwise.
+ */
 bool ValidateQuery::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr) {
   vm::Dictionary dict1{std::move(orig_libs), 256}, dict2{std::move(final_libs), 256};
   return dict1.scan_diff(
@@ -4657,6 +5207,12 @@ bool ValidateQuery::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell
          reject_query("error scanning old and new libraries of account "s + addr.to_hex());
 }
 
+/**
+ * Checks if all necessary tick-tock smart contracts have been created.
+ * Used in masterchain validation.
+ * 
+ * @returns True if all necessary tick-tock transactions have been created, false otherwise.
+ */
 bool ValidateQuery::check_all_ticktock_processed() {
   if (!is_masterchain()) {
     return true;
@@ -4680,6 +5236,11 @@ bool ValidateQuery::check_all_ticktock_processed() {
   return true;
 }
 
+/**
+ * Checks the processing order of messages in a block.
+ *
+ * @returns True if the processing order of messages is valid, false otherwise.
+ */
 bool ValidateQuery::check_message_processing_order() {
   std::sort(msg_proc_lt_.begin(), msg_proc_lt_.end());
   for (std::size_t i = 1; i < msg_proc_lt_.size(); i++) {
@@ -4695,6 +5256,16 @@ bool ValidateQuery::check_message_processing_order() {
   return true;
 }
 
+/**
+ * Checks if a special message is valid and exists in the incoming messages dictionary.
+ * A message is special if it recovers fees or mints extra currencies.
+ *
+ * @param in_msg_root The root of the message.
+ * @param amount The amount of currency recovered/minted.
+ * @param addr_cell The cell containing the destination address.
+ *
+ * @returns True if the special message is valid, false otherwise.
+ */
 bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block::CurrencyCollection& amount,
                                           Ref<vm::Cell> addr_cell) {
   if (in_msg_root.is_null()) {
@@ -4786,11 +5357,28 @@ bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block
   return true;
 }
 
+/**
+ * Checks if all necessary special messages are valid and exist in the incoming messages dictionary.
+ * Used in masterchain validation.
+ *
+ * @returns True if special messages are valid, false otherwise.
+ */
 bool ValidateQuery::check_special_messages() {
   return check_special_message(recover_create_msg_, value_flow_.recovered, config_->get_config_param(3, 1)) &&
          check_special_message(mint_msg_, value_flow_.minted, config_->get_config_param(2, 0));
 }
 
+/**
+ * Checks if an update of LibDescr of as single library update is valid.
+ * Compares updates in LibDescr against updates of account states.
+ * Used in masterchain validation.
+ *
+ * @param key The 256-bit key of the library.
+ * @param old_value The old value of the LibDescr
+ * @param new_value The new value of the LibDescr.
+ *
+ * @returns True if the library update is valid, false otherwise.
+ */
 bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSlice> old_value,
                                              Ref<vm::CellSlice> new_value) {
   // shared_lib_descr$00 lib:^Cell publishers:(Hashmap 256 True) = LibDescr;
@@ -4841,6 +5429,12 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
   return true;
 }
 
+/**
+ * Checks if all updates of LibDescr are valid.
+ * Used in masterchain validation.
+ *
+ * @returns True if the library updates are valid.
+ */
 bool ValidateQuery::check_shard_libraries() {
   CHECK(ps_.shard_libraries_ && ns_.shard_libraries_);
   if (!ps_.shard_libraries_->scan_diff(
@@ -4861,6 +5455,11 @@ bool ValidateQuery::check_shard_libraries() {
   return true;
 }
 
+/**
+ * Checks the validity of the new shard state.
+ *
+ * @returns True if the new state is valid, false otherwise.
+ */
 bool ValidateQuery::check_new_state() {
   LOG(INFO) << "checking header of the new shardchain state";
   block::gen::ShardStateUnsplit::Record info;
@@ -4955,6 +5554,15 @@ bool ValidateQuery::check_new_state() {
   return true;
 }
 
+/**
+ * Checks if a masterchain configuration update is valid.
+ * Used in masterchain validation.
+ *
+ * @param old_conf_params The old configuration parameters.
+ * @param new_conf_params The new configuration parameters.
+ *
+ * @returns True if the update is valid, false otherwise.
+ */
 bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<vm::CellSlice> new_conf_params) {
   if (!block::gen::t_ConfigParams.validate_csr(10000, new_conf_params)) {
     return reject_query("new configuration failed to pass automated validity checks");
@@ -5059,6 +5667,16 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
                       "reason (the suggested configuration appears to be valid)");
 }
 
+/**
+ * Checks if a single entry in the dictionary of previous masterchain blocks is valid and consistent.
+ * Used in masterchain validation.
+ *
+ * @param seqno The sequence number of the entry.
+ * @param old_val_extra The old value of the entry.
+ * @param new_val_extra The new value of the entry.
+ *
+ * @returns True if the update is valid and consistent, false otherwise.
+ */
 bool ValidateQuery::check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::CellSlice> old_val_extra,
                                                Ref<vm::CellSlice> new_val_extra) {
   if (old_val_extra.not_null() && new_val_extra.is_null()) {
@@ -5113,7 +5731,13 @@ bool ValidateQuery::check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::Ce
   return true;
 }
 
-// somewhat similar to Collator::create_mc_state_extra()
+/**
+ * Checks the validity of the McStateExtra in the new masterchain state.
+ * Somewhat similar to Collator::create_mc_state_extra()
+ * Used in masterchain validation.
+ *
+ * @returns True if the McStateExtra is valid, false otherwise.
+ */
 bool ValidateQuery::check_mc_state_extra() {
   if (!is_masterchain()) {
     if (ns_.mc_state_extra_.not_null()) {
@@ -5279,6 +5903,17 @@ bool ValidateQuery::check_mc_state_extra() {
   return true;
 }
 
+/**
+ * Validates the update of a counter.
+ *
+ * @param oc The original value of the counter.
+ * @param nc The new value of the counter.
+ * @param expected_incr The expected increment in the counter.
+ *
+ * @returns A `td::Status` object indicating the result of the validation.
+ *          If the validation is successful, OK is returned.
+ *          Otherwise, an error.
+ */
 td::Status ValidateQuery::check_counter_update(const block::DiscountedCounter& oc, const block::DiscountedCounter& nc,
                                                unsigned expected_incr) {
   block::DiscountedCounter cc{oc};
@@ -5328,6 +5963,15 @@ td::Status ValidateQuery::check_counter_update(const block::DiscountedCounter& o
   return td::Status::OK();
 }
 
+/**
+ * Checks the update of CreatorStats for a single block creator.
+ *
+ * @param key The 256-bit key of the block creator.
+ * @param old_val The old value of CreatorStats.
+ * @param new_val The new value of CreatorStats.
+ *
+ * @returns True if the update is valid, false otherwise.
+ */
 bool ValidateQuery::check_one_block_creator_update(td::ConstBitPtr key, Ref<vm::CellSlice> old_val,
                                                    Ref<vm::CellSlice> new_val) {
   LOG(DEBUG) << "checking update of CreatorStats for "s + key.to_hex(256);
@@ -5365,7 +6009,13 @@ bool ValidateQuery::check_one_block_creator_update(td::ConstBitPtr key, Ref<vm::
   return true;
 }
 
-// similar to Collator::update_block_creator_stats()
+/**
+ * Checks the update of the block creation statistics between the old and new state.
+ * Similar to Collator::update_block_creator_stats()
+ * Used in masterchain validation.
+ *
+ * @returns True if the block creation statistics are valid, false otherwise.
+ */
 bool ValidateQuery::check_block_create_stats() {
   LOG(INFO) << "checking all CreatorStats updates between the old and the new state";
   try {
@@ -5409,6 +6059,16 @@ bool ValidateQuery::check_block_create_stats() {
   return true;
 }
 
+/**
+ * Checks the fees imported from a specific shard.
+ * Used in masterchain validation.
+ *
+ * @param shard The shard to check.
+ * @param fees The fees imported from the shard.
+ * @param created The fees for creating blocks.
+ *
+ * @returns True if the fees are valid, false otherwise.
+ */
 bool ValidateQuery::check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                                         const block::CurrencyCollection& created) {
   auto descr = new_shard_conf_->get_shard_hash(shard);
@@ -5433,6 +6093,12 @@ bool ValidateQuery::check_one_shard_fee(ShardIdFull shard, const block::Currency
   return true;
 }
 
+/**
+ * Checks the validity of the McBlockExtra in a masterchain block.
+ * Used in masterchain validation.
+ *
+ * @returns True if the data is valid, false otherwise.
+ */
 bool ValidateQuery::check_mc_block_extra() {
   if (!is_masterchain()) {
     return true;
@@ -5484,6 +6150,11 @@ bool ValidateQuery::check_mc_block_extra() {
   return true;
 }
 
+/**
+ * Validates the value flow of a block.
+ *
+ * @returns True if the value flow is valid, False otherwise.
+ */
 bool ValidateQuery::postcheck_value_flow() {
   auto expected_fees =
       value_flow_.fees_imported + value_flow_.created + transaction_fees_ + import_fees_ - fees_burned_;
@@ -5504,13 +6175,11 @@ bool ValidateQuery::postcheck_value_flow() {
   return true;
 }
 
-/*
+/**
+ * MAIN VALIDATOR FUNCTION (invokes other methods in a suitable order).
  *
- *   MAIN VALIDATOR FUNCTION
- *     (invokes other methods in a suitable order)
- *
+ * @returns True if the validation is successful, False otherwise.
  */
-
 bool ValidateQuery::try_validate() {
   if (pending) {
     return true;
@@ -5616,6 +6285,11 @@ bool ValidateQuery::try_validate() {
   return save_candidate();
 }
 
+/**
+ * Saves the candidate to disk.
+ *
+ * @returns True.
+ */
 bool ValidateQuery::save_candidate() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     if (R.is_error()) {
@@ -5629,6 +6303,10 @@ bool ValidateQuery::save_candidate() {
   return true;
 }
 
+/**
+ * Callback function called after saving block candidate.
+ * Finishes validation.
+ */
 void ValidateQuery::written_candidate() {
   finish_query();
 }

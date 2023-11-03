@@ -9,6 +9,9 @@
   [[ <{ RIST255_MULBASE DUP RIST255_VALIDATE }>s ]] 0 runvmx abort"Exitcode != 0"
   @' n . dup (x.) type cr
   @' ans <> abort"Invalid result"
+  @' n
+  [[ <{ 1 INT RIST255_MULBASE SWAP RIST255_MUL DUP RIST255_VALIDATE }>s ]] 0 runvmx abort"Exitcode != 0"
+  @' ans <> abort"Invalid result"
 } : test-basepoint
 
  0 0x0000000000000000000000000000000000000000000000000000000000000000 test-basepoint

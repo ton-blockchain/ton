@@ -139,7 +139,7 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     now = (unsigned)std::time(nullptr);
   }
   bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
-  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now, is_special)) {
+  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), now, is_special)) {
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
 
@@ -217,7 +217,7 @@ const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction
     now = (unsigned)std::time(nullptr);
   }
   bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
-  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now, is_special)) {
+  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), now, is_special)) {
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
 

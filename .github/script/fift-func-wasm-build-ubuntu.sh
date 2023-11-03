@@ -13,7 +13,7 @@ echo `pwd`
 
 git clone https://github.com/openssl/openssl.git
 cd openssl
-git checkout OpenSSL_1_1_1j
+git checkout checkout openssl-3.1.4
 ./config
 make -j16
 OPENSSL_DIR=`pwd`

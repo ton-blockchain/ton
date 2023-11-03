@@ -130,7 +130,7 @@ void bits_memcpy(unsigned char* to, int to_offs, const unsigned char* from, int 
   from_offs &= 7;
   to_offs &= 7;
   //fprintf(stderr, "bits_memcpy: from=%p (%02x) to=%p (%02x) from_offs=%d to_offs=%d count=%lu\n", from, *from, to, *to, from_offs, to_offs, bit_count);
-  int sz = (int)bit_count;
+  int sz = static_cast<int>(bit_count);
   bit_count += from_offs;
   if (from_offs == to_offs) {
     if (bit_count < 8) {
@@ -206,7 +206,7 @@ void bits_memset(unsigned char* to, int to_offs, bool val, std::size_t bit_count
   }
   to += (to_offs >> 3);
   to_offs &= 7;
-  int sz = (int)bit_count;
+  int sz = static_cast<int>(bit_count);
   bit_count += to_offs;
   int c = *to;
   if (bit_count <= 8) {

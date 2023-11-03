@@ -270,7 +270,7 @@ struct Account {
     return balance;
   }
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
-  bool unpack(Ref<vm::CellSlice> account, Ref<vm::CellSlice> extra, ton::UnixTime now, bool special = false);
+  bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
@@ -382,8 +382,6 @@ struct Transaction {
 
   td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool update_block_storage_profile(vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool would_fit(unsigned cls, const block::BlockLimitStatus& blk_lim_st) const;
   bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account

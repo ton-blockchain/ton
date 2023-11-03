@@ -25,7 +25,6 @@
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/RwMutex.h"
-#include "td/utils/port/thread_local.h"
 #include "td/utils/Random.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/SharedSlice.h"
@@ -598,16 +597,23 @@ void aes_ige_decrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlic
 static void aes_cbc_xcrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlice to, bool encrypt_flag) {
   CHECK(aes_key.size() == 32);
   CHECK(aes_iv.size() == 16);
-  AES_KEY key;
-  int err;
-  if (encrypt_flag) {
-    err = AES_set_encrypt_key(aes_key.ubegin(), 256, &key);
-  } else {
-    err = AES_set_decrypt_key(aes_key.ubegin(), 256, &key);
-  }
-  LOG_IF(FATAL, err != 0);
   CHECK(from.size() <= to.size());
-  AES_cbc_encrypt(from.ubegin(), to.ubegin(), from.size(), &key, aes_iv.ubegin(), encrypt_flag);
+  CHECK(from.size() % 16 == 0);
+  int out_len = 0;
+  EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+  CHECK(ctx);
+  if (encrypt_flag) {
+    CHECK(EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, aes_key.ubegin(), aes_iv.ubegin()) == 1);
+    CHECK(EVP_CIPHER_CTX_set_padding(ctx, 0) == 1);
+    CHECK(EVP_EncryptUpdate(ctx, to.ubegin(), &out_len, from.ubegin(), td::narrow_cast<int>(from.size())) == 1);
+    CHECK(EVP_EncryptFinal_ex(ctx, to.ubegin() + out_len, &out_len) == 1);
+  } else {
+    CHECK(EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, aes_key.ubegin(), aes_iv.ubegin()) == 1);
+    CHECK(EVP_CIPHER_CTX_set_padding(ctx, 0) == 1);
+    CHECK(EVP_DecryptUpdate(ctx, to.ubegin(), &out_len, from.ubegin(), td::narrow_cast<int>(from.size())) == 1);
+    CHECK(EVP_DecryptFinal_ex(ctx, to.ubegin() + out_len, &out_len) == 1);
+  }
+  EVP_CIPHER_CTX_free(ctx);
 }
 
 void aes_cbc_encrypt(Slice aes_key, MutableSlice aes_iv, Slice from, MutableSlice to) {
@@ -723,7 +729,18 @@ string sha512(Slice data) {
 
 class Sha256State::Impl {
  public:
-  SHA256_CTX ctx_;
+  EVP_MD_CTX *ctx_ = nullptr;
+
+  Impl() {
+    ctx_ = EVP_MD_CTX_new();
+    CHECK(ctx_);
+  }
+
+  ~Impl() {
+    if (ctx_) {
+      EVP_MD_CTX_free(ctx_);
+    }
+  }
 };
 
 Sha256State::Sha256State() = default;
@@ -755,24 +772,23 @@ void Sha256State::init() {
     impl_ = make_unique<Sha256State::Impl>();
   }
   CHECK(!is_inited_);
-  int err = SHA256_Init(&impl_->ctx_);
-  LOG_IF(FATAL, err != 1);
+  CHECK(EVP_DigestInit_ex(impl_->ctx_, EVP_sha256(), nullptr) == 1);
   is_inited_ = true;
 }
 
 void Sha256State::feed(Slice data) {
   CHECK(impl_);
   CHECK(is_inited_);
-  int err = SHA256_Update(&impl_->ctx_, data.ubegin(), data.size());
-  LOG_IF(FATAL, err != 1);
+  CHECK(EVP_DigestUpdate(impl_->ctx_, data.ubegin(), data.size()) == 1);
 }
 
 void Sha256State::extract(MutableSlice output, bool destroy) {
   CHECK(output.size() >= 32);
   CHECK(impl_);
   CHECK(is_inited_);
-  int err = SHA256_Final(output.ubegin(), &impl_->ctx_);
-  LOG_IF(FATAL, err != 1);
+  unsigned size;
+  CHECK(EVP_DigestFinal_ex(impl_->ctx_, output.ubegin(), &size) == 1);
+  CHECK(size == 32);
   is_inited_ = false;
   if (destroy) {
     impl_.reset();

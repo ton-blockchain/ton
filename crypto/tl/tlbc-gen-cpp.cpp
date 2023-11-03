@@ -159,7 +159,6 @@ std::string CppIdentSet::compute_cpp_ident(std::string orig_ident, int count) {
   }
   if (!cnt) {
     os << '_';
-    prev_skip = true;
   }
   if (count) {
     os << count;
