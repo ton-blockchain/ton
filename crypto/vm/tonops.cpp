@@ -101,7 +101,7 @@ void register_basic_gas_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xf800, 16, "ACCEPT", exec_accept))
       .insert(OpcodeInstr::mksimple(0xf801, 16, "SETGASLIMIT", exec_set_gas_limit))
-      .insert(OpcodeInstr::mksimple(0xf806, 16, "GASCONSUMED", exec_gas_consumed)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf807, 16, "GASCONSUMED", exec_gas_consumed)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf80f, 16, "COMMIT", exec_commit));
 }
 
