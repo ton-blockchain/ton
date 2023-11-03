@@ -955,10 +955,14 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
  */
 bool Transaction::prepare_credit_phase() {
   credit_phase = std::make_unique<CreditPhase>();
+  // Due payment is only collected in storage phase.
+  // For messages with bounce flag, contract always receives the amount specified in message
   // auto collected = std::min(msg_balance_remaining.grams, due_payment);
   // credit_phase->due_fees_collected = collected;
   // due_payment -= collected;
   // credit_phase->credit = msg_balance_remaining -= collected;
+  credit_phase->due_fees_collected = td::zero_refint();
+  credit_phase->credit = msg_balance_remaining;
   if (!msg_balance_remaining.is_valid()) {
     LOG(ERROR) << "cannot compute the amount to be credited in the credit phase of transaction";
     return false;
