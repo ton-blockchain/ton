@@ -400,7 +400,6 @@ class NetChannel : public td::actor::Actor {
           break;
         } else if (l > alive_end - eps) {
           alive_begin += alive_step + sleep_step;
-          alive_end = alive_begin + alive_step;
         } else {
           double new_l = td::min(alive_end, r);
           res += (new_l - l) * speed;
@@ -516,9 +515,7 @@ class NetChannel : public td::actor::Actor {
       queue_ = {};
     }
 
-    bool ok = false;
     while (!queue_.empty() && (double)queue_.front().size < got_) {
-      ok = true;
       auto query = queue_.pop();
       got_ -= (double)query.size;
       total_size_ -= (double)query.size;

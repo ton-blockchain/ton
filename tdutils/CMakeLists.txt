@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
 
@@ -314,7 +314,7 @@ if (WIN32)
   # find_library(WS2_32_LIBRARY ws2_32)
   # find_library(MSWSOCK_LIBRARY Mswsock)
   # target_link_libraries(tdutils PRIVATE ${WS2_32_LIBRARY} ${MSWSOCK_LIBRARY})
-  target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz psapi)
+  target_link_libraries(tdutils PRIVATE ws2_32 Mswsock Normaliz psapi DbgHelp)
 endif()
 if (NOT CMAKE_CROSSCOMPILING AND TDUTILS_MIME_TYPE)
   add_dependencies(tdutils tdmime_auto)

@@ -48,6 +48,7 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
     return 0;
   }
   void *alloc(size_t size, size_t align, bool temp) override {
+    size = (size + 15) / 16 * 16;
     td::uint32 idx = temp ? 1 : 0;
     auto s = pdata_cur_[idx].fetch_add(size);
     CHECK(s + size <= pdata_size_[idx]);

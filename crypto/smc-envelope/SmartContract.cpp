@@ -181,7 +181,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
                                     int vm_log_verbosity, bool debug_enabled,
                                     std::shared_ptr<const block::Config> config) {
   auto gas_credit = gas.gas_credit;
-  vm::init_op_cp0(debug_enabled);
+  vm::init_vm(debug_enabled).ensure();
   vm::DictionaryBase::get_empty_dictionary();
 
   class Logger : public td::LogInterface {

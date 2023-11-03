@@ -180,7 +180,7 @@ struct MixedRadix {
 
   template <int M>
   const MixedRadix<M>& as_shorter() const {
-    static_assert(M <= N);
+    static_assert(M <= N,"error");
     return *reinterpret_cast<const MixedRadix<M>*>(this);
   }
 
@@ -458,7 +458,7 @@ struct ModArray {
   }
   template <int M>
   ModArray(const ModArray<M>& other) {
-    static_assert(M >= N);
+    static_assert(M >= N,"error");
     std::copy(other.a, other.a + N, a);
   }
   ModArray(const int* p) : a(p) {
@@ -819,7 +819,7 @@ struct ModArray {
 
   template <int M>
   const ModArray<M>& as_shorter() const {
-    static_assert(M <= N);
+    static_assert(M <= N,"error");
     return *reinterpret_cast<const ModArray<M>*>(this);
   }
 

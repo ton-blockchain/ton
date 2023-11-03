@@ -28,9 +28,9 @@ jobs:
         export CXX=$(which clang++)
         export CCACHE_DISABLE=1
 
-        git clone https://github.com/openssl/openssl openssl_1_1_1
-        cd openssl_1_1_1
-        git checkout OpenSSL_1_1_1-stable
+        git clone https://github.com/openssl/openssl openssl_3
+        cd openssl_3
+        git checkout openssl-3.1.4
         ./config
         make build_libs -j4
         
@@ -39,12 +39,22 @@ jobs:
         mkdir build
         cd build
         
-        cmake -GNinja -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_1_1_1/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_1_1_1/libcrypto.a -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= ..
-        ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state emulator
+        cmake -GNinja -DOPENSSL_FOUND=1 -DOPENSSL_INCLUDE_DIR=$rootPath/openssl_3/include -DOPENSSL_CRYPTO_LIBRARY=$rootPath/openssl_3/libcrypto.a -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= ..
+        
+        ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli validator-engine lite-client \
+        pow-miner validator-engine-console generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
+        adnl-proxy create-state emulator \
+        test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont test-net test-tdactor \
+        test-tdutils test-tonlib-offline test-adnl test-dht test-rldp test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state
 
     - name: Strip binaries
       run: |
         strip -g build/storage/storage-daemon/storage-daemon build/storage/storage-daemon/storage-daemon-cli build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.*
+
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure -E "test-catchain|test-actors"
 
     - name: Find & copy binaries
       run: |

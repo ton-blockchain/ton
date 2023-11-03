@@ -1971,7 +1971,7 @@ class RunEmulator : public TonlibQueryActor {
       ton::UnixTime now = account_state_->get_sync_time();
       bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
       block::Account account(address.workchain, address.addr.bits());
-      if (!account.unpack(std::move(shard_account), td::Ref<vm::CellSlice>(), now, is_special)) {
+      if (!account.unpack(std::move(shard_account), now, is_special)) {
         check(td::Status::Error("Can't unpack shard account"));
         return;
       }
