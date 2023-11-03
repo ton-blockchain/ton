@@ -1,3 +1,15 @@
+## 2023.10 Update
+1. A series of additional security checks in node: special cells in action list, init state in external messages, peers data prior to saving to disk.
+2. Human-readable timestamps in explorer
+
+Besides the work of the core team, this update is based on the efforts of @akifoq and @mr-tron.
+
+## 2023.06 Update
+1. (disabled by default) New deflation mechanisms: partial fee burning and blackhole address
+2. Storage-contract improvement
+
+Besides the work of the core team, this update is based on the efforts of @DearJohnDoe from Tonbyte (Storage-contract improvement).
+
 ## 2023.05 Update
 1. Archive manager optimization
 2. A series of catchain (basic consensus protocol) security improvements
