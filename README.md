@@ -70,4 +70,4 @@ If a CI workflow fails not because of your changes but workflow issues, try to f
 
 ## Running tests
 
-Tests are executed by running `ctest` in the build directory.
+Tests are executed by running `ctest` in the build directory. See `doc/Tests.md` for more information.
