@@ -210,8 +210,8 @@ data bytes:secureBytes = Data;
 liteServer.info now:int53 version:int32 capabilities:int64 = liteServer.Info;
 
 
-blocks.masterchainInfo last:ton.BlockIdExt state_root_hash:bytes init:ton.BlockIdExt = blocks.MasterchainInfo;
-blocks.shards shards:vector<ton.BlockIdExt> = blocks.Shards;
+blocks.masterchainInfo last:ton.blockIdExt state_root_hash:bytes init:ton.blockIdExt = blocks.MasterchainInfo;
+blocks.shards shards:vector<ton.blockIdExt> = blocks.Shards;
 blocks.accountTransactionId account:bytes lt:int64 = blocks.AccountTransactionId;
 blocks.shortTxId mode:# account:mode.0?bytes lt:mode.1?int64 hash:mode.2?bytes = liteServer.TransactionId;
 blocks.transactions id:ton.blockIdExt req_count:int32 incomplete:Bool transactions:vector<blocks.shortTxId> = blocks.Transactions;
