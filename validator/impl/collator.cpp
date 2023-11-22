@@ -4310,7 +4310,7 @@ bool Collator::update_public_libraries() {
       }
     }
   }
-  if (libraries_changed_ && verbosity >= 2 * 0) {
+  if (libraries_changed_ && verbosity >= 2) {
     std::cerr << "New public libraries: ";
     block::gen::t_HashmapE_256_LibDescr.print(std::cerr, shard_libraries_->get_root());
     shard_libraries_->get_root()->print_rec(std::cerr);

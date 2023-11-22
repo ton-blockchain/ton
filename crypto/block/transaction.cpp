@@ -2501,7 +2501,27 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
 }
 
 /**
+ * Calculates the number of public libraries in the dictionary.
+ *
+ * @param libraries The dictionary of account libraries.
+ *
+ * @returns The number of public libraries in the dictionary.
+ */
+static td::uint32 get_public_libraries_count(const td::Ref<vm::Cell>& libraries) {
+  td::uint32 count = 0;
+  vm::Dictionary dict{libraries, 256};
+  dict.check_for_each([&](td::Ref<vm::CellSlice> value, td::ConstBitPtr key, int) {
+    if (block::is_public_library(key, std::move(value))) {
+      ++count;
+    }
+    return true;
+  });
+  return count;
+}
+
+/**
  * Checks that the new account state fits in the limits.
+ * This function is not called for special accounts.
  *
  * @param cfg The configuration for the action phase.
  *
@@ -2547,10 +2567,15 @@ td::Status Transaction::check_state_limits(const ActionPhaseConfig& cfg) {
   } else {
     new_storage_stat.clear();
   }
-  return new_storage_stat.cells <= cfg.size_limits.max_acc_state_cells &&
-                 new_storage_stat.bits <= cfg.size_limits.max_acc_state_bits
-             ? td::Status::OK()
-             : td::Status::Error("state too big");
+  if (new_storage_stat.cells > cfg.size_limits.max_acc_state_cells ||
+      new_storage_stat.bits > cfg.size_limits.max_acc_state_bits) {
+    return td::Status::Error("account state is too big");
+  }
+  if (account.is_masterchain() && !cell_equal(account.library, new_library) &&
+      get_public_libraries_count(new_library) > cfg.size_limits.max_acc_public_libraries) {
+    return td::Status::Error("too many public libraries");
+  }
+  return td::Status::OK();
 }
 
 /**
@@ -3135,8 +3160,13 @@ bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_size)
     return false;
   }
   if (with_size) {
-    return blimst.add_proof(new_total_state) && blimst.add_cell(root) && blimst.add_transaction() &&
-           blimst.add_account(is_first);
+    if (!(blimst.add_proof(new_total_state) && blimst.add_cell(root) && blimst.add_transaction() &&
+          blimst.add_account(is_first))) {
+      return false;
+    }
+    if (account.is_masterchain() && (was_frozen || was_deleted)) {
+      blimst.extra_library_diff += get_public_libraries_count(account.orig_library);
+    }
   }
   return true;
 }
