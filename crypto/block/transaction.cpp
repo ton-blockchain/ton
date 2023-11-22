@@ -1976,11 +1976,6 @@ bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const A
   }
   if (rec.anycast->size() > 1) {
     // destination address is an anycast
-    if (rec.workchain_id == ton::masterchainId) {
-      // anycast addresses disabled in masterchain
-      LOG(DEBUG) << "masterchain destination address has an anycast field";
-      return false;
-    }
     vm::CellSlice cs{*rec.anycast};
     int d = (int)cs.fetch_ulong(6) - 32;
     if (d <= 0 || d > 30) {
