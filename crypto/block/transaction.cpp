@@ -885,7 +885,7 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
   if (now < account.last_paid) {
     return false;
   }
-  auto to_pay = account.compute_storage_fees(now, *(cfg.pricing));
+  auto to_pay = account.compute_storage_fees(now, *(cfg.pricing)) + due_payment;
   if (to_pay.not_null() && sgn(to_pay) < 0) {
     return false;
   }
@@ -898,7 +898,7 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
     res->fees_collected = to_pay;
     res->fees_due = td::zero_refint();
     balance -= std::move(to_pay);
-  } else if (acc_status == Account::acc_frozen && !force_collect && to_pay + due_payment < cfg.delete_due_limit) {
+  } else if (acc_status == Account::acc_frozen && !force_collect && to_pay < cfg.delete_due_limit) {
     // do not collect fee
     res->last_paid_updated = (res->is_special ? 0 : account.last_paid);
     res->fees_collected = res->fees_due = td::zero_refint();
@@ -907,7 +907,7 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
     res->fees_due = std::move(to_pay) - std::move(balance.grams);
     balance.grams = td::zero_refint();
     if (!res->is_special) {
-      auto total_due = res->fees_due + due_payment;
+      auto total_due = res->fees_due;
       switch (acc_status) {
         case Account::acc_uninit:
         case Account::acc_frozen:
