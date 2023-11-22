@@ -652,7 +652,7 @@ td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::
                                                   const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
                                                   bool is_special, bool is_masterchain) {
   if (now <= last_paid || !last_paid || is_special || pricing.empty() || now <= pricing[0].valid_since) {
-    return {};
+    return td::zero_refint();
   }
   std::size_t n = pricing.size(), i = n;
   while (i && pricing[i - 1].valid_since > last_paid) {
