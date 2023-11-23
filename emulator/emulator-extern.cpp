@@ -503,7 +503,7 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto result = emulator->run_get_method(method_id, stack);
   
-  vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
   vm::VmStateInterface::Guard guard(&fstate);
   
   vm::CellBuilder stack_cb;
