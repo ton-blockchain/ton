@@ -80,6 +80,7 @@ struct StoragePhaseConfig {
   const std::vector<block::StoragePrices>* pricing{nullptr};
   td::RefInt256 freeze_due_limit;
   td::RefInt256 delete_due_limit;
+  bool enable_due_payment{false};
   StoragePhaseConfig() = default;
   StoragePhaseConfig(const std::vector<block::StoragePrices>* _pricing, td::RefInt256 freeze_limit = {},
                      td::RefInt256 delete_limit = {})
@@ -112,8 +113,11 @@ struct ComputePhaseConfig {
   bool ignore_chksig{false};
   bool with_vm_log{false};
   td::uint16 max_vm_data_depth = 512;
+  int global_version = 0;
+  Ref<vm::Tuple> prev_blocks_info;
   std::unique_ptr<vm::Dictionary> suspended_addresses;
   int vm_log_verbosity = 0;
+
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
       : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
     compute_threshold();
@@ -153,6 +157,8 @@ struct ActionPhaseConfig {
   MsgPrices fwd_mc;  // from/to masterchain
   SizeLimitsConfig size_limits;
   const WorkchainSet* workchains{nullptr};
+  bool action_fine_enabled{false};
+  bool bounce_on_fail_enabled{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
@@ -210,6 +216,9 @@ struct ActionPhase {
   std::vector<Ref<vm::Cell>> out_msgs;
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
+  td::RefInt256 action_fine;
+  bool need_bounce_on_fail = false;
+  bool bounce = false;
 };
 
 struct BouncePhase {
@@ -261,7 +270,7 @@ struct Account {
     return balance;
   }
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
-  bool unpack(Ref<vm::CellSlice> account, Ref<vm::CellSlice> extra, ton::UnixTime now, bool special = false);
+  bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
@@ -373,8 +382,6 @@ struct Transaction {
 
   td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool update_block_storage_profile(vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool would_fit(unsigned cls, const block::BlockLimitStatus& blk_lim_st) const;
   bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
@@ -402,17 +409,18 @@ struct Transaction {
 }  // namespace transaction
 
 struct FetchConfigParams {
-static td::Status fetch_config_params(const block::Config& config,
-                                      Ref<vm::Cell>* old_mparams,
-                                      std::vector<block::StoragePrices>* storage_prices,
-                                      StoragePhaseConfig* storage_phase_cfg,
-                                      td::BitArray<256>* rand_seed,
-                                      ComputePhaseConfig* compute_phase_cfg,
-                                      ActionPhaseConfig* action_phase_cfg,
-                                      td::RefInt256* masterchain_create_fee,
-                                      td::RefInt256* basechain_create_fee,
-                                      ton::WorkchainId wc,
-                                      ton::UnixTime now);
+  static td::Status fetch_config_params(const block::ConfigInfo& config, Ref<vm::Cell>* old_mparams,
+                                        std::vector<block::StoragePrices>* storage_prices,
+                                        StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
+                                        ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
+                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+                                        ton::WorkchainId wc, ton::UnixTime now);
+  static td::Status fetch_config_params(const block::Config& config, Ref<vm::Tuple> prev_blocks_info,
+                                        Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
+                                        StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
+                                        ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
+                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+                                        ton::WorkchainId wc, ton::UnixTime now);
 };
 
 }  // namespace block

@@ -61,6 +61,7 @@ pchan.config#8486f436 alice_public_key:string alice_address:accountAddress bob_p
 
 raw.initialAccountState#ebdb5c47 code:bytes data:bytes = InitialAccountState;
 wallet.v3.initialAccountState#f8f65540 public_key:string wallet_id:int64 = InitialAccountState;
+wallet.v4.initialAccountState#d0e9c2c5 public_key:string wallet_id:int64 = InitialAccountState;
 wallet.highload.v1.initialAccountState#ec749e46 public_key:string wallet_id:int64 = InitialAccountState;
 wallet.highload.v2.initialAccountState#75347929 public_key:string wallet_id:int64 = InitialAccountState;
 
@@ -71,8 +72,10 @@ rwallet.initialAccountState#45b90c14 init_public_key:string public_key:string wa
 dns.initialAccountState#6dcba4bf public_key:string wallet_id:int64 = InitialAccountState;
 pchan.initialAccountState#b23e1d44 config:pchan.config = InitialAccountState;
 
+
 raw.accountState#e04b963a code:bytes data:bytes frozen_hash:bytes = AccountState;
 wallet.v3.accountState#9f7aa84a wallet_id:int64 seqno:int32 = AccountState;
+wallet.v4.accountState#d42e9776 wallet_id:int64 seqno:int32 = AccountState;
 wallet.highload.v1.accountState#6057e4dc wallet_id:int64 seqno:int32 = AccountState;
 wallet.highload.v2.accountState#947d5d4f wallet_id:int64 = AccountState;
 dns.accountState#66fad86a wallet_id:int64 = AccountState;
@@ -183,6 +186,10 @@ smc.runResult#5444f3f3 gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int
 
 smc.libraryEntry#a3d5d20c hash:int256 data:bytes = smc.LibraryEntry;
 smc.libraryResult#0c27bbfe result:vector<smc.libraryEntry> = smc.LibraryResult;
+
+smc.libraryQueryExt.one#6424eae3 hash:int256 = smc.LibraryQueryExt;
+smc.libraryQueryExt.scanBoc#df54a4e5 boc:bytes max_libs:int32 = smc.LibraryQueryExt;
+smc.libraryResultExt#b4deed72 dict_boc:bytes libs_ok:(vector int256) libs_not_found:(vector int256) = smc.LibraryResultExt;
 
 updateSendLiteServerQuery#a34e95dc id:int64 data:bytes = Update;
 updateSyncState#47c823de sync_state:SyncState = Update;
@@ -305,7 +312,8 @@ smc.getData#e6835349 id:int53 = tvm.Cell;
 smc.getState#f338a9eb id:int53 = tvm.Cell;
 smc.runGetMethod#f0c905aa id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
-smc.getLibraries#3089ee15 library_list:vector<int256> = smc.LibraryResult;
+smc.getLibraries#3089ee15 library_list:(vector int256) = smc.LibraryResult;
+smc.getLibrariesExt#37814932 list:(vector smc.LibraryQueryExt) = smc.LibraryResultExt;
 
 dns.resolve#6ac69536 account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
 

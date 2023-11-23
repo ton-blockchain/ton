@@ -14,18 +14,14 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: 'recursive'
-        fetch-depth: 0
 
-    - uses: cachix/install-nix-action@v22
+    - uses: cachix/install-nix-action@v23
       with:
         extra_nix_config: |
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
     - name: Compile
-      run: |
-        git submodule sync --recursive
-        git submodule update
-        nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs --system x86_64-linux -o result-x86_64
+      run: nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs --system x86_64-linux -o result-x86_64
 
     - name: Copy binaries
       run: |
@@ -33,7 +29,8 @@ jobs:
         mkdir artifacts
         cp $PWD/result-x86_64/bin/* artifacts/
         chmod +x artifacts/*
-        cp $PWD/result-x86_64/lib/libtonlibjson.so.0.5 artifacts/
+        cp $PWD/result-x86_64/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
+        cp $PWD/result-x86_64/lib/libemulator.so artifacts/
         cp -R crypto/smartcont artifacts/
         cp -R crypto/fift/lib artifacts/
 

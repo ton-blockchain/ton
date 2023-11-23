@@ -114,7 +114,7 @@ void ExtMessageQ::run_message(td::BufferSlice data, block::SizeLimitsConfig::Ext
           auto utime = std::get<1>(tuple);
           auto lt = std::get<2>(tuple);
           auto config = std::move(std::get<3>(tuple));
-          if (!acc.unpack(shard_acc, {}, utime, false)) {
+          if (!acc.unpack(shard_acc, utime, false)) {
             promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
           } else {
             auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));

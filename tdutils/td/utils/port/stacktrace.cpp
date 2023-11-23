@@ -20,8 +20,12 @@
 
 #include "td/utils/port/signals.h"
 
-#if __GLIBC__
+#if TD_WINDOWS
+#include <DbgHelp.h>
+#else
+#if TD_DARWIN || __GLIBC__
 #include <execinfo.h>
+#endif
 #endif
 
 #if TD_LINUX || TD_FREEBSD
@@ -39,12 +43,47 @@ namespace td {
 namespace {
 
 void print_backtrace(void) {
-#if __GLIBC__
+#if TD_WINDOWS
+  void *stack[100];
+  HANDLE process = GetCurrentProcess();
+  SymInitialize(process, nullptr, 1);
+  unsigned frames = CaptureStackBackTrace(0, 100, stack, nullptr);
+  signal_safe_write("------- Stack Backtrace -------\n", false);
+  for (unsigned i = 0; i < frames; i++) {
+    td::uint8 symbol_buf[sizeof(SYMBOL_INFO) + 256];
+    auto symbol = (SYMBOL_INFO *)symbol_buf;
+    memset(symbol_buf, 0, sizeof(symbol_buf));
+    symbol->MaxNameLen = 255;
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    SymFromAddr(process, (DWORD64)(stack[i]), nullptr, symbol);
+    // Don't use sprintf here because it is not signal-safe
+    char buf[256 + 32];
+    char* buf_ptr = buf;
+    if (frames - i - 1 < 10) {
+      strcpy(buf_ptr, " ");
+      buf_ptr += strlen(buf_ptr);
+    }
+    _itoa(frames - i - 1, buf_ptr, 10);
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, ": [");
+    buf_ptr += strlen(buf_ptr);
+    _ui64toa(td::uint64(symbol->Address), buf_ptr, 16);
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, "] ");
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, symbol->Name);
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, "\n");
+    signal_safe_write(td::Slice{buf, strlen(buf)}, false);
+  }
+#else
+#if TD_DARWIN || __GLIBC__
   void *buffer[128];
   int nptrs = backtrace(buffer, 128);
   signal_safe_write("------- Stack Backtrace -------\n", false);
   backtrace_symbols_fd(buffer, nptrs, 2);
   signal_safe_write("-------------------------------\n", false);
+#endif
 #endif
 }
 
@@ -129,7 +168,7 @@ void Stacktrace::print_to_stderr(const PrintOptions &options) {
 }
 
 void Stacktrace::init() {
-#if __GLIBC__
+#if TD_DARWIN || __GLIBC__
   // backtrace needs to be called once to ensure that next calls are async-signal-safe
   void *buffer[1];
   backtrace(buffer, 1);

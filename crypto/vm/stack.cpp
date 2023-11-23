@@ -21,6 +21,8 @@
 #include "vm/box.hpp"
 #include "vm/atom.h"
 #include "vm/vmstate.h"
+#include "vm/boc.h"
+#include "td/utils/misc.h"
 
 namespace td {
 template class td::Cnt<std::string>;
@@ -81,7 +83,7 @@ std::string StackEntry::to_lisp_string() const {
   return std::move(os).str();
 }
 
-void StackEntry::dump(std::ostream& os) const {
+void StackEntry::dump(std::ostream& os, bool verbose) const {
   switch (tp) {
     case t_null:
       os << "(null)";
@@ -91,14 +93,23 @@ void StackEntry::dump(std::ostream& os) const {
       break;
     case t_cell:
       if (ref.not_null()) {
-        os << "C{" << static_cast<Ref<Cell>>(ref)->get_hash().to_hex() << "}";
+        if (verbose) {
+          std::string serialized = "???";
+          auto boc = vm::std_boc_serialize(as_cell());
+          if (boc.is_ok()) {
+            serialized = td::buffer_to_hex(boc.move_as_ok().as_slice());
+          }
+          os << "C{" << serialized << "}";
+        } else {
+          os << "C{" << *as_cell() << "}";
+        }
       } else {
         os << "C{null}";
       }
       break;
     case t_builder:
       if (ref.not_null()) {
-        os << "BC{" << static_cast<Ref<CellBuilder>>(ref)->to_hex() << "}";
+        os << "BC{" << *as_builder() << "}";
       } else {
         os << "BC{null}";
       }
@@ -149,12 +160,24 @@ void StackEntry::dump(std::ostream& os) const {
       os << "Object{" << (const void*)&*ref << "}";
       break;
     }
+    case t_vmcont: {
+      if (ref.not_null()) {
+        if (verbose) {
+          os << "Cont{" << *as_cont() << "}";
+        } else {
+          os << "Cont{" << as_cont()->type() << "}";
+        }
+      } else {
+        os << "Cont{null}";
+      }
+      break;
+    }
     default:
       os << "???";
   }
 }
 
-void StackEntry::print_list(std::ostream& os) const {
+void StackEntry::print_list(std::ostream& os, bool verbose) const {
   switch (tp) {
     case t_null:
       os << "()";
@@ -163,7 +186,7 @@ void StackEntry::print_list(std::ostream& os) const {
       const auto& tuple = *static_cast<Ref<Tuple>>(ref);
       if (is_list()) {
         os << '(';
-        tuple[0].print_list(os);
+        tuple[0].print_list(os, verbose);
         print_list_tail(os, &tuple[1]);
         break;
       }
@@ -172,7 +195,7 @@ void StackEntry::print_list(std::ostream& os) const {
         os << "[]";
       } else if (n == 1) {
         os << "[";
-        tuple[0].print_list(os);
+        tuple[0].print_list(os, verbose);
         os << "]";
       } else {
         os << "[";
@@ -181,14 +204,14 @@ void StackEntry::print_list(std::ostream& os) const {
           if (c++) {
             os << " ";
           }
-          entry.print_list(os);
+          entry.print_list(os, verbose);
         }
         os << ']';
       }
       break;
     }
     default:
-      dump(os);
+      dump(os, verbose);
   }
 }
 
@@ -326,7 +349,7 @@ void StackEntry::for_each_scalar(const std::function<void(const StackEntry&)>& f
   }
 }
 
-const StackEntry& tuple_index(const Tuple& tup, unsigned idx) {
+const StackEntry& tuple_index(const Ref<Tuple>& tup, unsigned idx) {
   if (idx >= tup->size()) {
     throw VmError{Excno::range_chk, "tuple index out of range"};
   }
@@ -687,12 +710,12 @@ void Stack::dump(std::ostream& os, int mode) const {
   os << " [ ";
   if (mode & 2) {
     for (const auto& x : stack) {
-      x.print_list(os);
+      x.print_list(os, mode & 4);
       os << ' ';
     }
   } else {
     for (const auto& x : stack) {
-      x.dump(os);
+      x.dump(os, mode & 4);
       os << ' ';
     }
   }

@@ -305,7 +305,7 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
       if (!info.known_category.insert(action.category).second) {
         continue;
       }
-      if (action.category == 0) {
+      if (action.category.is_zero()) {
         info.closed = true;
         auto old_actions = std::move(info.actions);
         bool is_empty = true;
@@ -327,7 +327,7 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
       if (info.closed) {
         CombinedActions<ActionT> ca;
         ca.name = it.first;
-        ca.category = 0;
+        ca.category = td::Bits256::zero();
         if (!info.actions.empty() || info.non_empty) {
           ca.actions = std::move(info.actions);
         }

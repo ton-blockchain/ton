@@ -447,4 +447,24 @@ dump_arg_instr_func_t dump_2c_add(unsigned add, std::string prefix, std::string 
 
 }  // namespace instr
 
+OpcodeInstr* OpcodeInstr::require_version(int required_version) {
+  return new OpcodeInstrWithVersion(this, required_version);
+}
+
+int OpcodeInstrWithVersion::dispatch(VmState* st, CellSlice& cs, unsigned opcode, unsigned bits) const {
+  if (st->get_global_version() < required_version) {
+    st->consume_gas(gas_per_instr);
+    throw VmError{Excno::inv_opcode, "invalid opcode", opcode};
+  }
+  return instr->dispatch(st, cs, opcode, bits);
+}
+
+std::string OpcodeInstrWithVersion::dump(CellSlice& cs, unsigned opcode, unsigned bits) const {
+  return instr->dump(cs, opcode, bits);
+}
+
+int OpcodeInstrWithVersion::instr_len(const CellSlice& cs, unsigned opcode, unsigned bits) const {
+  return instr->instr_len(cs, opcode, bits);
+}
+
 }  // namespace vm
