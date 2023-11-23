@@ -1292,10 +1292,11 @@ int output_actions_count(Ref<vm::Cell> list) {
  *
  * @param cfg The configuration for the compute phase.
  * @param lib_only If true, only unpack libraries from the state.
+ * @param forbid_public_libs Don't allow public libraries in initstate.
  *
  * @returns True if the unpacking is successful, false otherwise.
  */
-bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only) {
+bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only, bool forbid_public_libs) {
   block::gen::StateInit::Record state;
   if (in_msg_state.is_null() || !tlb::unpack_cell(in_msg_state, state)) {
     LOG(ERROR) << "cannot unpack StateInit from an inbound message";
@@ -1323,7 +1324,11 @@ bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only)
   new_code = state.code->prefetch_ref();
   new_data = state.data->prefetch_ref();
   new_library = state.library->prefetch_ref();
-  auto S = check_state_limits(cfg.size_limits, false);
+  auto size_limits = cfg.size_limits;
+  if (forbid_public_libs) {
+    size_limits.max_acc_public_libraries = 0;
+  }
+  auto S = check_state_limits(size_limits, false);
   if (S.is_error()) {
     LOG(DEBUG) << "Cannot unpack msg state: " << S.move_as_error();
     new_code = old_code;
@@ -1418,7 +1423,9 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       return true;
     }
     use_msg_state = true;
-    if (!(unpack_msg_state(cfg) && account.check_split_depth(new_split_depth))) {
+    bool forbid_public_libs =
+        acc_status == Account::acc_uninit && account.is_masterchain();  // Forbid for deploying, allow for unfreezing
+    if (!(unpack_msg_state(cfg, false, forbid_public_libs) && account.check_split_depth(new_split_depth))) {
       LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad split_depth; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;

@@ -405,7 +405,7 @@ struct Transaction {
   bool serialize_compute_phase(vm::CellBuilder& cb);
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
-  bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false);
+  bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false, bool forbid_public_libs = false);
 };
 }  // namespace transaction
 
