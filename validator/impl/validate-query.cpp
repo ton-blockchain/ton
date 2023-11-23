@@ -954,6 +954,7 @@ bool ValidateQuery::fetch_config_params() {
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
     compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
+    compute_phase_cfg_.size_limits = size_limits;
   }
   {
     // compute action_phase_cfg

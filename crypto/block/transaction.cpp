@@ -1290,11 +1290,13 @@ int output_actions_count(Ref<vm::Cell> list) {
 /**
  * Unpacks the message StateInit.
  *
+ * @param cfg The configuration for the compute phase.
  * @param lib_only If true, only unpack libraries from the state.
+ * @param forbid_public_libs Don't allow public libraries in initstate.
  *
  * @returns True if the unpacking is successful, false otherwise.
  */
-bool Transaction::unpack_msg_state(bool lib_only) {
+bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only, bool forbid_public_libs) {
   block::gen::StateInit::Record state;
   if (in_msg_state.is_null() || !tlb::unpack_cell(in_msg_state, state)) {
     LOG(ERROR) << "cannot unpack StateInit from an inbound message";
@@ -1318,9 +1320,22 @@ bool Transaction::unpack_msg_state(bool lib_only) {
     new_tock = z & 1;
     LOG(DEBUG) << "tick=" << new_tick << ", tock=" << new_tock;
   }
+  td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
   new_code = state.code->prefetch_ref();
   new_data = state.data->prefetch_ref();
   new_library = state.library->prefetch_ref();
+  auto size_limits = cfg.size_limits;
+  if (forbid_public_libs) {
+    size_limits.max_acc_public_libraries = 0;
+  }
+  auto S = check_state_limits(size_limits, false);
+  if (S.is_error()) {
+    LOG(DEBUG) << "Cannot unpack msg state: " << S.move_as_error();
+    new_code = old_code;
+    new_data = old_data;
+    new_library = old_library;
+    return false;
+  }
   return true;
 }
 
@@ -1408,7 +1423,9 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       return true;
     }
     use_msg_state = true;
-    if (!(unpack_msg_state() && account.check_split_depth(new_split_depth))) {
+    bool forbid_public_libs =
+        acc_status == Account::acc_uninit && account.is_masterchain();  // Forbid for deploying, allow for unfreezing
+    if (!(unpack_msg_state(cfg, false, forbid_public_libs) && account.check_split_depth(new_split_depth))) {
       LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad split_depth; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;
@@ -1423,7 +1440,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.skip_reason = in_msg_state.not_null() ? ComputePhase::sk_bad_state : ComputePhase::sk_no_state;
     return true;
   } else if (in_msg_state.not_null()) {
-    unpack_msg_state(true);  // use only libraries
+    unpack_msg_state(cfg, true);  // use only libraries
   }
   if (in_msg_extern && in_msg_state.not_null() && account.addr != in_msg_state->get_hash().bits()) {
     LOG(DEBUG) << "in_msg_state hash mismatch in external message";
@@ -1560,7 +1577,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     if (account.is_special) {
       return true;
     }
-    auto S = check_state_limits(cfg);
+    auto S = check_state_limits(cfg.size_limits);
     if (S.is_error()) {
       // Rollback changes to state, fail action phase
       LOG(INFO) << "Account state size exceeded limits: " << S.move_as_error();
@@ -2523,13 +2540,14 @@ static td::uint32 get_public_libraries_count(const td::Ref<vm::Cell>& libraries)
  * Checks that the new account state fits in the limits.
  * This function is not called for special accounts.
  *
- * @param cfg The configuration for the action phase.
+ * @param size_limits The size limits configuration.
+ * @param update_storage_stat Store storage stat in the Transaction's CellStorageStat.
  *
  * @returns A `td::Status` indicating the result of the check.
  *          - If the state limits are within the allowed range, returns OK.
  *          - If the state limits exceed the maximum allowed range, returns an error.
  */
-td::Status Transaction::check_state_limits(const ActionPhaseConfig& cfg) {
+td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
     if (a.is_null()) {
       return b.is_null();
@@ -2543,13 +2561,13 @@ td::Status Transaction::check_state_limits(const ActionPhaseConfig& cfg) {
       cell_equal(account.library, new_library)) {
     return td::Status::OK();
   }
-  // new_storage_stat is used here beause these stats will be reused in compute_state()
-  new_storage_stat.limit_cells = cfg.size_limits.max_acc_state_cells;
-  new_storage_stat.limit_bits = cfg.size_limits.max_acc_state_bits;
+  vm::CellStorageStat storage_stat;
+  storage_stat.limit_cells = size_limits.max_acc_state_cells;
+  storage_stat.limit_bits = size_limits.max_acc_state_bits;
   td::Timer timer;
   auto add_used_storage = [&](const td::Ref<vm::Cell>& cell) -> td::Status {
     if (cell.not_null()) {
-      TRY_RESULT(res, new_storage_stat.add_used_storage(cell));
+      TRY_RESULT(res, storage_stat.add_used_storage(cell));
       if (res.max_merkle_depth > max_allowed_merkle_depth) {
         return td::Status::Error("too big merkle depth");
       }
@@ -2563,19 +2581,24 @@ td::Status Transaction::check_state_limits(const ActionPhaseConfig& cfg) {
     LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
   }
   if (acc_status == Account::acc_active) {
-    new_storage_stat.clear_limit();
+    storage_stat.clear_limit();
   } else {
-    new_storage_stat.clear();
+    storage_stat.clear();
   }
-  if (new_storage_stat.cells > cfg.size_limits.max_acc_state_cells ||
-      new_storage_stat.bits > cfg.size_limits.max_acc_state_bits) {
-    return td::Status::Error("account state is too big");
+  td::Status res;
+  if (storage_stat.cells > size_limits.max_acc_state_cells || storage_stat.bits > size_limits.max_acc_state_bits) {
+    res = td::Status::Error(PSTRING() << "account state is too big");
+  } else if (account.is_masterchain() && !cell_equal(account.library, new_library) &&
+             get_public_libraries_count(new_library) > size_limits.max_acc_public_libraries) {
+    res = td::Status::Error("too many public libraries");
+  } else {
+    res = td::Status::OK();
   }
-  if (account.is_masterchain() && !cell_equal(account.library, new_library) &&
-      get_public_libraries_count(new_library) > cfg.size_limits.max_acc_public_libraries) {
-    return td::Status::Error("too many public libraries");
+  if (update_storage_stat) {
+    // storage_stat will be reused in compute_state()
+    new_storage_stat = std::move(storage_stat);
   }
-  return td::Status::OK();
+  return res;
 }
 
 /**
@@ -3407,6 +3430,7 @@ td::Status FetchConfigParams::fetch_config_params(
       compute_phase_cfg->prev_blocks_info = std::move(prev_blocks_info);
     }
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
+    compute_phase_cfg->size_limits = size_limits;
   }
   {
     // compute action_phase_cfg

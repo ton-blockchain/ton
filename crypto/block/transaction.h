@@ -116,6 +116,7 @@ struct ComputePhaseConfig {
   int global_version = 0;
   Ref<vm::Tuple> prev_blocks_info;
   std::unique_ptr<vm::Dictionary> suspended_addresses;
+  SizeLimitsConfig size_limits;
   int vm_log_verbosity = 0;
 
   ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
@@ -372,7 +373,7 @@ struct Transaction {
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
-  td::Status check_state_limits(const ActionPhaseConfig& cfg);
+  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state();
   bool serialize();
@@ -404,7 +405,7 @@ struct Transaction {
   bool serialize_compute_phase(vm::CellBuilder& cb);
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
-  bool unpack_msg_state(bool lib_only = false);
+  bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false, bool forbid_public_libs = false);
 };
 }  // namespace transaction
 
