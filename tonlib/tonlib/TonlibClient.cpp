@@ -1971,7 +1971,7 @@ class RunEmulator : public TonlibQueryActor {
       ton::UnixTime now = account_state_->get_sync_time();
       bool is_special = address.workchain == ton::masterchainId && config->is_special_smartcontract(address.addr);
       block::Account account(address.workchain, address.addr.bits());
-      if (!account.unpack(std::move(shard_account), td::Ref<vm::CellSlice>(), now, is_special)) {
+      if (!account.unpack(std::move(shard_account), now, is_special)) {
         check(td::Status::Error("Can't unpack shard account"));
         return;
       }
@@ -2974,7 +2974,7 @@ struct ToRawTransactions {
         if (type == 0 || type == 0x2167da4b) {
           td::Status status;
 
-          auto r_body_message = vm::CellString::load(body.write());
+          auto r_body_message = TRY_VM(vm::CellString::load(body.write()));
           LOG_IF(WARNING, r_body_message.is_error()) << "Failed to parse a message: " << r_body_message.error();
 
           if (r_body_message.is_ok()) {

@@ -99,7 +99,7 @@ td::uint32 FecType::symbol_size() const {
 }
 
 td::Result<FecType> FecType::create(tl_object_ptr<ton_api::fec_Type> obj) {
-  td::int32 data_size_int, symbol_size_int, symbols_count_int;
+  td::int32 data_size_int = 0, symbol_size_int = 0, symbols_count_int = 0;
   ton_api::downcast_call(*obj, td::overloaded([&](const auto &obj) {
     data_size_int = obj.data_size_;
     symbol_size_int = obj.symbol_size_;

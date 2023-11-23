@@ -1934,6 +1934,7 @@ td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
     unpack_v1(rec);
     limits.max_acc_state_bits = rec.max_acc_state_bits;
     limits.max_acc_state_cells = rec.max_acc_state_cells;
+    limits.max_acc_public_libraries = rec.max_acc_public_libraries;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;

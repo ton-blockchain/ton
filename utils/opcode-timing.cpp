@@ -64,7 +64,6 @@ typedef struct {
 
 vm::Stack prepare_stack(td::Slice command) {
   const auto cell = to_cell(command);
-  vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
   vm::Stack stack;
   try {
@@ -80,7 +79,6 @@ vm::Stack prepare_stack(td::Slice command) {
 
 runInfo time_run_vm(td::Slice command, td::Ref<vm::Stack> stack) {
   const auto cell = to_cell(command);
-  vm::init_op_cp0();
   vm::DictionaryBase::get_empty_dictionary();
   CHECK(stack.is_unique());
   try {
@@ -171,6 +169,7 @@ int main(int argc, char** argv) {
     setup = argv[1];
     code = argv[2];
   }
+  vm::init_vm().ensure();
   const auto time = timeInstruction(setup, code);
   std::cout << std::fixed << std::setprecision(9) << code << "," << time.runtime.mean << "," << time.runtime.stddev
             << "," << time.gasUsage.mean << "," << time.gasUsage.stddev << "," << (int)time.errored << std::endl;

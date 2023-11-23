@@ -139,7 +139,7 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     now = (unsigned)std::time(nullptr);
   }
   bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
-  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now, is_special)) {
+  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), now, is_special)) {
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
 
@@ -217,7 +217,7 @@ const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction
     now = (unsigned)std::time(nullptr);
   }
   bool is_special = wc == ton::masterchainId && emulator->get_config().is_special_smartcontract(addr);
-  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), td::Ref<vm::CellSlice>(), now, is_special)) {
+  if (!account.unpack(vm::load_cell_slice_ref(shard_account_cell.move_as_ok()), now, is_special)) {
     ERROR_RESPONSE(PSTRING() << "Can't unpack shard account");
   }
 
@@ -503,7 +503,7 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto result = emulator->run_get_method(method_id, stack);
   
-  vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
   vm::VmStateInterface::Guard guard(&fstate);
   
   vm::CellBuilder stack_cb;

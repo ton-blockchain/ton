@@ -16,12 +16,12 @@
 */
 #include <assert.h>
 #include <string.h>
-#include <unistd.h>
 #include <array>
 #include <string>
 #include <iostream>
 #include <sstream>
 #include <random>
+#include <getopt.h>
 #include "common/refcnt.hpp"
 #include "common/bigint.hpp"
 #include "common/refint.h"
@@ -211,7 +211,7 @@ bool coin() {
 
 // returns 0 with probability 1/2, 1 with prob. 1/4, ..., k with prob. 1/2^(k+1)
 int randexp(int max = 63, int min = 0) {
-  return min + __builtin_clzll(Random() | (1ULL << (63 - max + min)));
+  return min + td::count_leading_zeroes64(Random() | (1ULL << (63 - max + min)));
 }
 
 void bin_add_small(unsigned char bin[64], long long val, int shift = 0) {
@@ -363,7 +363,7 @@ void check_one_int_repr(td::RefInt256 x, int mode, int in_range, const BInt* val
   if (is_small) {
     // special check for small (64-bit) values
     CHECK(x->to_long() == xval);
-    CHECK((long long)__builtin_bswap64(*(long long*)(bytes + 64 - 8)) == xval);
+    CHECK((long long)td::bswap64(*(long long*)(bytes + 64 - 8)) == xval);
     CHECK(in_range);
     // check sign
     CHECK(x->sgn() == (xval > 0 ? 1 : (xval < 0 ? -1 : 0)));

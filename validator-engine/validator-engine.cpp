@@ -38,7 +38,7 @@
 
 #include "common/errorlog.h"
 
-#include "crypto/vm/cp0.h"
+#include "crypto/vm/vm.h"
 #include "crypto/fift/utils.h"
 
 #include "td/utils/filesystem.h"
@@ -3774,7 +3774,7 @@ int main(int argc, char *argv[]) {
   td::actor::Scheduler scheduler({threads});
 
   scheduler.run_in_context([&] {
-    CHECK(vm::init_op_cp0());
+    vm::init_vm().ensure();
     x = td::actor::create_actor<ValidatorEngine>("validator-engine");
     for (auto &act : acts) {
       act();

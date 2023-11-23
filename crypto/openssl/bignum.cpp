@@ -232,6 +232,7 @@ Bignum& Bignum::import_lsb(const unsigned char* buffer, std::size_t size) {
 
 std::string Bignum::to_str() const {
   char* ptr = BN_bn2dec(val);
+  CHECK(ptr);
   std::string z(ptr);
   OPENSSL_free(ptr);
   return z;
@@ -239,6 +240,7 @@ std::string Bignum::to_str() const {
 
 std::string Bignum::to_hex() const {
   char* ptr = BN_bn2hex(val);
+  CHECK(ptr);
   std::string z(ptr);
   OPENSSL_free(ptr);
   return z;
@@ -255,7 +257,13 @@ std::istream& operator>>(std::istream& is, Bignum& x) {
   return is;
 }
 
-bool is_prime(const Bignum& p, int nchecks, bool trial_div) {
-  return BN_is_prime_fasttest_ex(p.bn_ptr(), BN_prime_checks, get_ctx(), trial_div, 0);
+bool is_prime(const Bignum& p) {
+#if OPENSSL_VERSION_MAJOR >= 3
+  int result = BN_check_prime(p.bn_ptr(), get_ctx(), nullptr);
+  LOG_IF(FATAL, result == -1);
+  return result;
+#else
+  return BN_is_prime_fasttest_ex(p.bn_ptr(), BN_prime_checks, get_ctx(), true, 0);
+#endif
 }
 }  // namespace arith

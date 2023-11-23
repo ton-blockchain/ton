@@ -1,5 +1,5 @@
 -xc++
--std=c++14
+-std=c++17
 -iquote .
 -iquote tdtl/
 -iquote tl/
