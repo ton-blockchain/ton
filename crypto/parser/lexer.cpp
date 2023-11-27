@@ -250,7 +250,6 @@ const Lexem& Lexer::next() {
   }
   if (is_multiline_quote(src.get_ptr(), src.get_end_ptr())) {
     src.advance(multiline_quote.size());
-    const char* begin = src.get_ptr();
     const char* end = nullptr;
     SrcLocation here = src.here();
     std::string body;

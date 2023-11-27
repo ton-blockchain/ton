@@ -390,6 +390,7 @@ class TonlibCli : public td::actor::Actor {
                                "<addr> with specified parameters\n";
       td::TerminalIO::out() << "getstate <key_id>\tget state of wallet with requested key\n";
       td::TerminalIO::out() << "getstatebytransaction <key_id> <lt> <hash>\tget state of wallet with requested key after transaction with local time <lt> and hash <hash> (base64url)\n";
+      td::TerminalIO::out() << "getconfig <param>\tshow specified configuration parameter from the latest masterchain state\n";
       td::TerminalIO::out() << "guessrevision <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "guessaccount <key_id>\tsearch of existing accounts corresponding to the given key\n";
       td::TerminalIO::out() << "getaddress <key_id>\tget address of wallet with requested key\n";
@@ -422,6 +423,8 @@ class TonlibCli : public td::actor::Actor {
       td::TerminalIO::out() << "exportkeypem [<key_id>] - export key\n";
       td::TerminalIO::out()
           << "gethistory <key_id> - get history fo simple wallet with requested key (last 10 transactions)\n";
+      td::TerminalIO::out() << "showtransactions <key_id> <lt> <hash> [<count>] - show transaction on account <key_id> "
+                               "with given <lt> and <hash> (in base64) and previous transactions (up to <count>).\n";
       td::TerminalIO::out() << "init <key_id> - init simple wallet with requested key\n";
       td::TerminalIO::out() << "transfer[f][F][e][k][c] <from_key_id> (<to_key_id> <value> <message>|<file_name>) - "
                                "make transfer from <from_key_id>\n"
@@ -492,6 +495,8 @@ class TonlibCli : public td::actor::Actor {
       get_state(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "getstatebytransaction") {
       get_state_by_transaction(parser, std::move(cmd_promise));
+    } else if (cmd == "getconfig") {
+      get_config_param(parser, std::move(cmd_promise));
     } else if (cmd == "getaddress") {
       get_address(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "importkeypem") {
@@ -517,6 +522,8 @@ class TonlibCli : public td::actor::Actor {
     } else if (cmd == "getmasterchainsignatures") {
       auto seqno = parser.read_word();
       run_get_masterchain_block_signatures(seqno, std::move(cmd_promise));
+    } else if (cmd == "showtransactions") {
+      run_show_transactions(parser, std::move(cmd_promise));
     } else {
       cmd_promise.set_error(td::Status::Error(PSLICE() << "Unkwnown query `" << cmd << "`"));
     }
@@ -2094,6 +2101,26 @@ class TonlibCli : public td::actor::Actor {
                }));
   }
 
+  void get_config_param(td::ConstParser& parser, td::Promise<td::Unit> promise) {
+    TRY_RESULT_PROMISE(promise, param, td::to_integer_safe<td::int32>(parser.read_word()));
+    send_query(make_object<tonlib_api::getConfigParam>(0, param),
+               promise.wrap([param](auto&& result) -> td::Result<td::Unit> {
+                 TRY_RESULT(cell, vm::std_boc_deserialize(result->config_->bytes_, true));
+                 if (cell.is_null()) {
+                   td::TerminalIO::out() << "ConfigParam(" << param << ") = (null)\n";
+                   return td::Unit();
+                 }
+                 std::ostringstream os;
+                 if (param >= 0) {
+                   block::gen::ConfigParam{param}.print_ref(4096, os, cell);
+                   os << "\n";
+                 }
+                 vm::load_cell_slice(cell).print_rec(4096, os);
+                 td::TerminalIO::out() << "ConfigParam(" << param << ") = " << os.str() << "\n";
+                 return td::Unit();
+               }));
+  }
+
   void get_address(td::Slice key, td::Promise<td::Unit> promise) {
     TRY_RESULT_PROMISE(promise, address, to_account_address(key, false));
     promise.set_value(td::Unit());
@@ -2137,6 +2164,45 @@ class TonlibCli : public td::actor::Actor {
       }
       return td::Unit();
     }));
+  }
+
+  void run_show_transactions(td::ConstParser& parser, td::Promise<td::Unit> promise) {
+    TRY_RESULT_PROMISE(promise, address, to_account_address(parser.read_word(), false));
+    TRY_RESULT_PROMISE(promise, lt, td::to_integer_safe<td::int64>(parser.read_word()));
+    TRY_RESULT_PROMISE(promise, hash, td::base64_decode(parser.read_word()));
+    int count = 1;
+    if (!parser.empty()) {
+      TRY_RESULT_PROMISE_ASSIGN(promise, count, td::to_integer_safe<int>(parser.read_word()));
+    }
+    auto id = make_object<tonlib_api::internal_transactionId>(lt, hash);
+    send_query(make_object<tonlib_api::raw_getTransactionsV2>(
+                   nullptr, ton::move_tl_object_as<tonlib_api::accountAddress>(std::move(address.address)),
+                   std::move(id), count, false),
+               promise.wrap([](ton::tl_object_ptr<tonlib_api::raw_transactions>&& result) -> td::Result<td::Unit> {
+                 td::TerminalIO::out() << "Found " << result->transactions_.size() << " transactions\n";
+                 for (size_t i = 0; i < result->transactions_.size(); ++i) {
+                   td::TerminalIO::out() << "Transaction #" << i << "\n";
+                   auto& tr = result->transactions_[i];
+                   TRY_RESULT(root, vm::std_boc_deserialize(tr->data_));
+                   block::gen::Transaction::Record trans;
+                   if (!tlb::unpack_cell(root, trans)) {
+                     return td::Status::Error("cannot unpack transaction");
+                   }
+                   td::TerminalIO::out() << "Transaction Account: " << tr->address_->account_address_ << "\n";
+                   td::TerminalIO::out() << "Transaction LT: " << tr->transaction_id_->lt_ << "\n";
+                   td::TerminalIO::out() << "Transaction Hash: " << td::base64_encode(tr->transaction_id_->hash_)
+                                         << "\n";
+                   td::TerminalIO::out() << "Transaction Timestamp: " << tr->utime_ << "\n";
+                   td::TerminalIO::out() << "Transaction Out messages: " << tr->out_msgs_.size() << "\n";
+                   td::TerminalIO::out() << "Previous transaction LT: " << trans.prev_trans_lt << "\n";
+                   td::TerminalIO::out() << "Previous transaction Hash: "
+                                         << td::base64_encode(trans.prev_trans_hash.as_slice()) << "\n";
+                   std::ostringstream ss;
+                   block::gen::t_Transaction.print_ref(2048, ss, root);
+                   td::TerminalIO::out() << "Transaction dump: " << ss.str() << "\n";
+                 }
+                 return td::Unit();
+               }));
   }
 
   void get_history2(td::Slice key, td::Result<tonlib_api::object_ptr<tonlib_api::fullAccountState>> r_state,

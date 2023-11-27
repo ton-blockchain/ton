@@ -311,6 +311,7 @@ td::Result<BlobView> FileMemoryMappingBlobView::create(td::CSlice file_path, td:
 class CyclicBlobViewImpl : public BlobViewImpl {
  public:
   CyclicBlobViewImpl(td::BufferSlice data, td::uint64 total_size) : data_(std::move(data)), total_size_(total_size) {
+    CHECK(!data_.empty());
   }
   td::Result<td::Slice> view_impl(td::MutableSlice slice, td::uint64 offset) override {
     auto res = slice;

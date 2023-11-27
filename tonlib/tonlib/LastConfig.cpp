@@ -62,7 +62,8 @@ void LastConfig::with_last_block(td::Result<LastBlockState> r_last_block) {
   }
 
   auto last_block = r_last_block.move_as_ok();
-  client_.send_query(ton::lite_api::liteServer_getConfigAll(0, create_tl_lite_block_id(last_block.last_block_id)),
+  client_.send_query(ton::lite_api::liteServer_getConfigAll(block::ConfigInfo::needPrevBlocks,
+                                                            create_tl_lite_block_id(last_block.last_block_id)),
                      [this](auto r_config) { this->on_config(std::move(r_config)); });
 }
 
@@ -92,7 +93,8 @@ td::Status LastConfig::process_config_proof(ton::ton_api::object_ptr<ton::lite_a
   }
   TRY_RESULT(state, block::check_extract_state_proof(blkid, raw_config->state_proof_.as_slice(),
                                                      raw_config->config_proof_.as_slice()));
-  TRY_RESULT(config, block::Config::extract_from_state(std::move(state), 0));
+  TRY_RESULT(config, block::ConfigInfo::extract_config(
+                         std::move(state), block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needCapabilities));
 
   for (auto i : params_) {
     VLOG(last_config) << "ConfigParam(" << i << ") = ";
@@ -109,6 +111,7 @@ td::Status LastConfig::process_config_proof(ton::ton_api::object_ptr<ton::lite_a
       VLOG(last_config) << os.str();
     }
   }
+  TRY_RESULT_ASSIGN(state_.prev_blocks_info, config->get_prev_blocks_info());
   state_.config.reset(config.release());
   return td::Status::OK();
 }

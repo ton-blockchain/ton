@@ -115,6 +115,9 @@ struct CellStorageStat {
   std::map<vm::Cell::Hash, CellInfo> seen;
   CellStorageStat() : cells(0), bits(0), public_cells(0) {
   }
+  explicit CellStorageStat(unsigned long long limit_cells)
+      : cells(0), bits(0), public_cells(0), limit_cells(limit_cells) {
+  }
   void clear_seen() {
     seen.clear();
   }

@@ -52,7 +52,7 @@ int main() {
 
   td::to_integer_safe<td::uint32>("0").ensure();
 
-  std::string db_root_ = "tmp-ee";
+  std::string db_root_ = "tmp-dir-test-adnl";
   td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();
 

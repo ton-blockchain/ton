@@ -28,7 +28,13 @@ public:
     args_.set_now(unixtime);
     args_.set_balance(balance);
     args_.set_rand_seed(rand_seed);
-    args_.set_config(config);
+    if (config) {
+      args_.set_config(config);
+    }
+  }
+
+  void set_prev_blocks_info(td::Ref<vm::Tuple> tuple) {
+    args_.set_prev_blocks_info(std::move(tuple));
   }
 
   void set_debug_enabled(bool debug_enabled) {

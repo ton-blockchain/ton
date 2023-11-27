@@ -28,6 +28,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include "common/global-version.h"
 
 namespace ton {
 
@@ -108,7 +109,7 @@ inline ErrorCtxSet ErrorCtx::set_guard(std::vector<std::string> str_list) {
 
 class ValidateQuery : public td::actor::Actor {
   static constexpr int supported_version() {
-    return 3;
+    return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
@@ -341,8 +342,7 @@ class ValidateQuery : public td::actor::Actor {
                                        const block::McShardDescr& src_nb, bool& unprocessed);
   bool check_in_queue();
   bool check_delivered_dequeued();
-  std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
-                                                    Ref<vm::CellSlice> extra);
+  std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account);
   std::unique_ptr<block::Account> unpack_account(td::ConstBitPtr addr);
   bool check_one_transaction(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
                              bool is_last);

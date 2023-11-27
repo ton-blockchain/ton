@@ -262,6 +262,7 @@ struct BlockLimitStatus {
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
+  unsigned extra_library_diff{};  // Number of public libraries in deleted/frozen accounts
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
       : limits(limits_), cur_lt(std::max(limits_.start_lt, lt)) {
   }
@@ -271,6 +272,7 @@ struct BlockLimitStatus {
     transactions = accounts = 0;
     gas_used = 0;
     extra_out_msgs = 0;
+    extra_library_diff = 0;
   }
   td::uint64 estimate_block_size(const vm::NewCellStorageStat::Stat* extra = nullptr) const;
   int classify() const;

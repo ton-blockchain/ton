@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -79,7 +79,7 @@ else()
   set(HAVE_SSE42 FALSE)
 endif()
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
 
@@ -182,6 +182,8 @@ endif()
 message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
+include(BuildBLST)
+
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)
 #set(CCACHE_FOUND 0)
@@ -253,6 +255,9 @@ if (MSVC)
   add_definitions(-D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /W4 /wd4100 /wd4127 /wd4324 /wd4456 /wd4457 /wd4458 /wd4505 /wd4702")
 elseif (CLANG OR GCC)
+  if (GCC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrong-eval-order=some")
+  endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
   if (APPLE)
     #use "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/export_list" for exported symbols
@@ -445,6 +450,10 @@ target_link_libraries(test-smartcont PRIVATE smc-envelope fift-lib ton_db)
 add_executable(test-bigint ${BIGINT_TEST_SOURCE})
 target_link_libraries(test-bigint PRIVATE ton_crypto)
 
+if (WINGETOPT_FOUND)
+  target_link_libraries_system(test-bigint wingetopt)
+endif()
+
 add_executable(test-cells test/test-td-main.cpp ${CELLS_TEST_SOURCE})
 target_link_libraries(test-cells PRIVATE ton_crypto)
 
@@ -511,26 +520,12 @@ target_link_libraries(test-rldp2 adnl adnltest dht rldp2 tl_api)
 add_executable(test-validator-session-state test/test-validator-session-state.cpp)
 target_link_libraries(test-validator-session-state adnl dht rldp validatorsession tl_api)
 
-#add_executable(test-node test/test-node.cpp)
-#target_link_libraries(test-node overlay tdutils tdactor adnl tl_api dht
-#  catchain validatorsession)
-
 add_executable(test-catchain test/test-catchain.cpp)
 target_link_libraries(test-catchain overlay tdutils tdactor adnl adnltest rldp tl_api dht
   catchain )
-#add_executable(test-validator-session test/test-validator-session.cpp)
-#target_link_libraries(test-validator-session overlay tdutils tdactor adnl tl_api dht
-#  catchain validatorsession)
 add_executable(test-ton-collator test/test-ton-collator.cpp)
 target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
   catchain validatorsession validator-disk ton_validator validator-disk )
-#add_executable(test-validator test/test-validator.cpp)
-#target_link_libraries(test-validator overlay tdutils tdactor adnl tl_api dht
-#    rldp catchain validatorsession ton-node validator ton_validator validator memprof ${JEMALLOC_LIBRARIES})
-#add_executable(test-ext-server test/test-ext-server.cpp)
-#target_link_libraries(test-ext-server tdutils tdactor adnl tl_api dht )
-#add_executable(test-ext-client test/test-ext-client.cpp)
-#target_link_libraries(test-ext-client tdutils tdactor adnl tl_api tl-lite-utils)
 
 add_executable(test-http test/test-http.cpp)
 target_link_libraries(test-http PRIVATE tonhttp)
@@ -572,13 +567,53 @@ add_test(test-tdutils test-tdutils)
 add_test(test-tonlib-offline test-tonlib-offline)
 #END tonlib
 
+# FunC tests
+if (NOT NIX)
+    if (MSVC)
+      set(PYTHON_VER "python")
+    else()
+      set(PYTHON_VER "python3")
+    endif()
+    add_test(
+      NAME test-func
+      COMMAND ${PYTHON_VER} run_tests.py tests/
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
+    if (WIN32)
+        set_property(TEST test-func PROPERTY ENVIRONMENT
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/func.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/fift.exe"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    else()
+        set_property(TEST test-func PROPERTY ENVIRONMENT
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    endif()
+
+    add_test(
+      NAME test-func-legacy
+      COMMAND ${PYTHON_VER} legacy_tester.py
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
+    if (WIN32)
+        set_property(TEST test-func-legacy PROPERTY ENVIRONMENT
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/func.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/fift.exe"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    else()
+        set_property(TEST test-func-legacy PROPERTY ENVIRONMENT
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    endif()
+endif()
+
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
 add_test(test-adnl test-adnl)
 add_test(test-dht test-dht)
 add_test(test-rldp test-rldp)
 add_test(test-rldp2 test-rldp2)
-#add_test(test-validator-session-state test-validator-session-state)
+add_test(test-validator-session-state test-validator-session-state)
 add_test(test-catchain test-catchain)
 
 add_test(test-fec test-fec)

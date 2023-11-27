@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();
 
-  std::string db_root_ = "tmp-ee";
+  std::string db_root_ = "tmp-dir-test-catchain";
   td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();
 
@@ -274,8 +274,6 @@ int main(int argc, char *argv[]) {
       }
     });
 
-    auto t = td::Timestamp::in(1.0);
-
     ton::catchain::CatChainSessionId unique_id;
     td::Random::secure_bytes(unique_id.as_slice());
 
@@ -287,7 +285,7 @@ int main(int argc, char *argv[]) {
       }
     });
 
-    t = td::Timestamp::in(10.0);
+    auto t = td::Timestamp::in(10.0);
     while (scheduler.run(1)) {
       if (t.is_in_past()) {
         break;
@@ -300,7 +298,7 @@ int main(int argc, char *argv[]) {
 
     scheduler.run_in_context([&] { td::actor::send_closure(inst[0], &CatChainInst::create_fork); });
 
-    t = td::Timestamp::in(10.0);
+    t = td::Timestamp::in(1.0);
     while (scheduler.run(1)) {
       if (t.is_in_past()) {
         break;
