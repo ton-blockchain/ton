@@ -223,12 +223,6 @@ void VarDescrList::show(std::ostream& os) const {
   os << " ]\n";
 }
 
-void Op::set_impure(const CodeBlob& code) {
-  if (code.flags & CodeBlob::_ForbidImpure) {
-    throw src::ParseError{where, "impure operation in pure function"};
-  }
-  flags |= _Impure;
-}
 void Op::flags_set_clear(int set, int clear) {
   flags = (flags | set) & ~clear;
   for (auto& op : block0) {

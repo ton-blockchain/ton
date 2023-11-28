@@ -108,6 +108,7 @@ enum Keyword {
   _Forall,
   _Asm,
   _Impure,
+  _Pure,
   _Global,
   _Extern,
   _Inline,
@@ -602,7 +603,6 @@ struct Op {
   bool unreachable() {
     return !(flags & _Reachable);
   }
-  void set_impure(const CodeBlob& code);
   void flags_set_clear(int set, int clear);
   void show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx = "", int mode = 0) const;
   void show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list, const std::vector<TmpVar>& vars) const;
@@ -690,7 +690,7 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
-  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2, _ForbidImpure = 4 };
+  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;
@@ -1778,7 +1778,7 @@ class GlobalPragma {
   bool enabled_ = false;
   std::vector<SrcLocation> locs_;
 };
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_strict_purity_check;
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
 
 /*
  *

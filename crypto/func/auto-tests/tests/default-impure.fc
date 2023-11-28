@@ -1,0 +1,25 @@
+global int x;
+
+() foo1() {
+  x = 5;
+}
+() foo2() {
+  foo1();
+}
+() foo3() {
+  foo2();
+}
+
+int run() method_id(11) {
+  x = 3;
+  foo3();
+  return x;
+}
+
+() main() {
+}
+
+{-
+    method_id | in | out
+TESTCASE | 11 |    | 5
+-}

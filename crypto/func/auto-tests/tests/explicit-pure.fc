@@ -1,0 +1,33 @@
+global int x;
+
+() foo1() {
+  x = 5;
+}
+int foo2() pure {
+  foo1();
+  return 1;
+}
+() foo3() {
+  foo2();
+}
+
+int run() method_id(11) {
+  x = 3;
+  foo3();
+  return x;
+}
+
+(int, int) run2() method_id(12) {
+  x = 3;
+  int y = foo2();
+  return (x, y);
+}
+
+() main() {
+}
+
+{-
+    method_id | in | out
+TESTCASE | 11 |    | 3
+TESTCASE | 12 |    | 5 1
+-}
