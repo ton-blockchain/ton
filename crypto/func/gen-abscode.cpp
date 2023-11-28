@@ -92,7 +92,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _VarApply: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       TypeExpr* fun_type = TypeExpr::new_map(args[1]->e_type, TypeExpr::new_hole());
       try {
         unify(fun_type, args[0]->e_type);
@@ -107,7 +107,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _Letop: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       try {
         // std::cerr << "in assignment: " << args[0]->e_type << " from " << args[1]->e_type << std::endl;
         unify(args[0]->e_type, args[1]->e_type);
@@ -122,7 +122,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _LetFirst: {
-      assert(args.size() == 2);
+      func_assert(args.size() == 2);
       TypeExpr* rhs_type = TypeExpr::new_tensor({args[0]->e_type, TypeExpr::new_hole()});
       try {
         // std::cerr << "in implicit assignment of a modifying method: " << rhs_type << " and " << args[1]->e_type << std::endl;
@@ -140,7 +140,7 @@ bool Expr::deduce_type(const Lexem& lem) {
       return true;
     }
     case _CondExpr: {
-      assert(args.size() == 3);
+      func_assert(args.size() == 3);
       auto flag_type = TypeExpr::new_atomic(_Int);
       try {
         unify(args[0]->e_type, flag_type);
@@ -204,7 +204,11 @@ int Expr::predefine_vars() {
     }
     case _Var:
       if (!sym) {
-        assert(val < 0 && here.defined());
+        func_assert(val < 0 && here.defined());
+        if (prohibited_var_names.count(sym::symbols.get_name(~val))) {
+          throw src::ParseError{
+              here, PSTRING() << "symbol `" << sym::symbols.get_name(~val) << "` cannot be redefined as a variable"};
+        }
         sym = sym::define_symbol(~val, false, here);
         // std::cerr << "predefining variable " << sym::symbols.get_name(~val) << std::endl;
         if (!sym) {
@@ -270,7 +274,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
     arg_order.resize(args.size());
     std::iota(arg_order.begin(), arg_order.end(), 0);
   }
-  assert(args.size() == arg_order.size());
+  func_assert(args.size() == arg_order.size());
   std::vector<std::vector<var_idx_t>> res_lists(args.size());
 
   struct ModifiedVar {
@@ -306,7 +310,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
   }
   for (const auto& list : res_lists) {
     for (var_idx_t v : list) {
-      assert(!code.vars.at(v).on_modification.empty());
+      func_assert(!code.vars.at(v).on_modification.empty());
       code.vars.at(v).on_modification.pop_back();
     }
   }
@@ -335,7 +339,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       return pre_compile_tensor(args, code, lval_globs, {});
     }
     case _Apply: {
-      assert(sym);
+      func_assert(sym);
       auto func = dynamic_cast<SymValFunc*>(sym->value);
       std::vector<var_idx_t> res;
       if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
@@ -422,7 +426,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
     }
     case _CondExpr: {
       auto cond = args[0]->pre_compile(code);
-      assert(cond.size() == 1);
+      func_assert(cond.size() == 1);
       auto rvect = new_tmp_vect(code);
       Op& if_op = code.emplace_back(here, Op::_If, cond);
       code.push_set_cur(if_op.block0);

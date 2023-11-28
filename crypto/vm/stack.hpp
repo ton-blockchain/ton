@@ -103,6 +103,9 @@ class StackEntry {
   }
   StackEntry(td::RefInt256 int_ref) : ref(std::move(int_ref)), tp(t_int) {
   }
+  StackEntry(Ref<Cnt<std::string>> str_ref, bool bytes = false)
+      : ref(std::move(str_ref)), tp(bytes ? t_bytes : t_string) {
+  }
   StackEntry(std::string str, bool bytes = false) : ref(), tp(bytes ? t_bytes : t_string) {
     ref = Ref<Cnt<std::string>>{true, std::move(str)};
   }
@@ -289,8 +292,8 @@ class StackEntry {
   }
   bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
   void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
-  void dump(std::ostream& os) const;
-  void print_list(std::ostream& os) const;
+  void dump(std::ostream& os, bool verbose = false) const;
+  void print_list(std::ostream& os, bool verbose = false) const;
   std::string to_string() const;
   std::string to_lisp_string() const;
 
@@ -302,7 +305,7 @@ inline void swap(StackEntry& se1, StackEntry& se2) {
   se1.swap(se2);
 }
 
-const StackEntry& tuple_index(const Tuple& tup, unsigned idx);
+const StackEntry& tuple_index(const Ref<Tuple>& tup, unsigned idx);
 StackEntry tuple_extend_index(const Ref<Tuple>& tup, unsigned idx);
 unsigned tuple_extend_set_index(Ref<Tuple>& tup, unsigned idx, StackEntry&& value, bool force = false);
 
@@ -555,7 +558,7 @@ class Stack : public td::CntObject {
   }
   bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
   void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
-  // mode: +1 = add eoln, +2 = Lisp-style lists
+  // mode: +1 = add eoln, +2 = Lisp-style lists, +4 = serialized bocs
   void dump(std::ostream& os, int mode = 1) const;
   bool serialize(vm::CellBuilder& cb, int mode = 0) const;
   bool deserialize(vm::CellSlice& cs, int mode = 0);

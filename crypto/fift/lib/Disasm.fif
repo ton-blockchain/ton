@@ -1,0 +1,141 @@
+library TVM_Disasm
+// simple TVM Disassembler
+"Lists.fif" include
+
+variable 'disasm
+{ 'disasm @ execute } : disasm  // disassemble a slice
+// usage: x{74B0} disasm
+
+variable @dismode  @dismode 0!
+{ rot over @ and rot xor swap ! } : andxor!
+{ -2 0 @dismode andxor! } : stack-disasm  // output 's1 s4 XCHG'
+{ -2 1 @dismode andxor! } : std-disasm    // output 'XCHG s1, s4'
+{ -3 2 @dismode andxor! } : show-vm-code
+{ -3 0 @dismode andxor! } : hide-vm-code
+{ @dismode @ 1 and 0= } : stack-disasm?
+
+variable @indent  @indent 0!
+{ ' space @indent @ 2* times } : .indent
+{ @indent 1+! } : +indent
+{ @indent 1-! } : -indent
+
+{ " " $pos } : spc-pos
+{ dup " " $pos swap "," $pos dup 0< { drop } {
+  over 0< { nip } { min } cond } cond
+} : spc-comma-pos
+{ { dup spc-pos 0= } { 1 $| nip } while } : -leading
+{ -leading -trailing dup spc-pos dup 0< {
+  drop dup $len { atom single } { drop nil } cond } {
+    $| swap atom swap -leading 2 { over spc-comma-pos dup 0>= } {
+      swap 1+ -rot $| 1 $| nip -leading rot
+    } while drop tuple
+  } cond
+} : parse-op
+{ dup "s-1" $= { drop "s(-1)" true } {
+  dup "s-2" $= { drop "s(-2)" true } {
+  dup 1 $| swap "x" $= { nip "x{" swap $+ +"}" true } {
+  2drop false } cond } cond } cond
+} : adj-op-arg
+{ over count over <= { drop } { 2dup [] adj-op-arg { swap []= } { drop } cond } cond } : adj-arg[]
+{ 1 adj-arg[] 2 adj-arg[] 3 adj-arg[]
+  dup first
+  dup `XCHG eq? {
+    drop dup count 2 = { tpop swap "s0" , swap , } if } {
+  dup `LSHIFT eq? {
+    drop dup count 2 = stack-disasm? and { second `LSHIFT# swap pair } if } {
+  dup `RSHIFT eq? {
+    drop dup count 2 = stack-disasm? and { second `RSHIFT# swap pair } if } {
+  drop 
+  } cond } cond } cond
+} : adjust-op
+
+variable @cp  @cp 0!
+variable @curop
+variable @contX  variable @contY  variable @cdict
+
+{ atom>$ type } : .atom
+{ dup first .atom dup count 1 > { space 0 over count 2- { 1+ 2dup [] type .", " } swap times 1+ [] type } { drop } cond } : std-show-op
+{ 0 over count 1- { 1+ 2dup [] type space } swap times drop first .atom } : stk-show-op
+{ @dismode @ 2 and { .indent ."// " @curop @ csr. } if } : .curop?
+{ .curop? .indent @dismode @ 1 and ' std-show-op ' stk-show-op cond cr
+} : show-simple-op
+{ dup 4 u@ 9 = { 8 u@+ swap 15 and 3 << s@ } {
+  dup 7 u@ 0x47 = { 7 u@+ nip 2 u@+ 7 u@+ -rot 3 << swap sr@ } {
+  dup 8 u@ 0x8A = { ref@ <s } {
+  abort"invalid PUSHCONT"
+  } cond } cond } cond
+} : get-cont-body
+{ 14 u@+ nip 10 u@+ ref@ dup rot pair swap <s empty? { drop null } if } : get-const-dict
+{ @contX @ @contY @ @contX ! @contY ! } : scont-swap
+{ .indent swap type type cr @contY @ @contY null! @contX @ @contX null!
+  +indent disasm -indent @contY !
+} : show-cont-bodyx
+{ ":<{" show-cont-bodyx .indent ."}>" cr } : show-cont-op
+{ swap scont-swap ":<{" show-cont-bodyx scont-swap
+  "" show-cont-bodyx .indent ."}>" cr } : show-cont2-op
+
+{ @contX @ null? { "CONT" show-cont-op } ifnot
+} : flush-contX
+{ @contY @ null? { scont-swap "CONT" show-cont-op scont-swap } ifnot
+} : flush-contY
+{ flush-contY flush-contX } : flush-cont
+{ @contX @ null? not } : have-cont?
+{ @contY @ null? not } : have-cont2?
+{ flush-contY @contY ! scont-swap } : save-cont-body
+
+{ @cdict ! } : save-const-dict
+{ @cdict null! } : flush-dict
+{ @cdict @ null? not } : have-dict?
+
+{ flush-cont .indent type .":<{" cr
+  @curop @ ref@ <s +indent disasm -indent .indent ."}>" cr
+} : show-ref-op
+{ flush-contY .indent rot type .":<{" cr
+  @curop @ ref@ <s @contX @ @contX null! rot ' swap if
+  +indent disasm -indent .indent swap type cr
+  +indent disasm -indent .indent ."}>" cr
+} : show-cont-ref-op
+{ flush-cont .indent swap type .":<{" cr
+  @curop @ ref@+ <s +indent disasm -indent .indent swap type cr
+  ref@ <s +indent disasm -indent .indent ."}>" cr
+} : show-ref2-op
+
+{ flush-cont first atom>$ dup 5 $| drop "DICTI" $= swap
+  .indent type ." {" cr +indent @cdict @ @cdict null! unpair
+  rot {
+    swap .indent . ."=> <{" cr +indent disasm -indent .indent ."}>" cr true
+  } swap ' idictforeach ' dictforeach cond drop 
+  -indent .indent ."}" cr
+} : show-const-dict-op
+
+( `PUSHCONT `PUSHREFCONT ) constant @PushContL
+( `REPEAT `UNTIL `IF `IFNOT `IFJMP `IFNOTJMP ) constant @CmdC1
+( `IFREF `IFNOTREF `IFJMPREF `IFNOTJMPREF `CALLREF `JMPREF ) constant @CmdR1
+( `DICTIGETJMP `DICTIGETJMPZ `DICTUGETJMP `DICTUGETJMPZ `DICTIGETEXEC `DICTUGETEXEC ) constant @JmpDictL
+{ dup first `DICTPUSHCONST eq? {
+    flush-cont @curop @ get-const-dict save-const-dict show-simple-op } {
+  dup first @JmpDictL list-member? have-dict? and {
+    flush-cont show-const-dict-op } {
+  flush-dict
+  dup first @PushContL list-member? {
+    drop @curop @ get-cont-body save-cont-body } {
+  dup first @CmdC1 list-member? have-cont? and {
+    flush-contY first atom>$ .curop? show-cont-op } {
+  dup first @CmdR1 list-member? {
+    flush-cont first atom>$ dup $len 3 - $| drop .curop? show-ref-op } {
+  dup first `WHILE eq? have-cont2? and {
+    drop "WHILE" "}>DO<{" .curop? show-cont2-op } {
+  dup first `IFELSE eq? have-cont2? and {
+    drop "IF" "}>ELSE<{" .curop? show-cont2-op } {
+  dup first dup `IFREFELSE eq? swap `IFELSEREF eq? or have-cont? and {
+    first `IFREFELSE eq? "IF" "}>ELSE<{" rot .curop? show-cont-ref-op } {
+  dup first `IFREFELSEREF eq? {
+    drop "IF" "}>ELSE<{" .curop? show-ref2-op } {
+    flush-cont show-simple-op
+  } cond } cond } cond } cond } cond } cond } cond } cond } cond
+} : show-op
+{ dup @cp @ (vmoplen) dup 0> { 65536 /mod swap sr@+ swap dup @cp @ (vmopdump) parse-op swap s> true } { drop false } cond } : fetch-one-op
+{ { fetch-one-op } { swap @curop ! adjust-op show-op } while } : disasm-slice
+{ { disasm-slice dup sbitrefs 1- or 0= } { ref@ <s } while flush-dict flush-cont } : disasm-chain
+{ @curop @ swap disasm-chain dup sbitrefs or { .indent ."Cannot disassemble: " csr. } { drop } cond @curop ! }
+'disasm !

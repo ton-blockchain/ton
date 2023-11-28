@@ -1,0 +1,29 @@
+namespace My
+
+"a" constant a
+"b" constant b
+"c" constant c
+
+a b c .s { drop } 3 times // "a" "b" "c"
+
+My definitions
+"b-my" constant b
+"c-my" constant c
+"d-my" constant d
+
+a b c d .s { drop } 4 times // "a" "b-my" "c-my" "d-my"
+
+Fift definitions
+a b c .s { drop } 3 times // "a" "b-my" "c-my" "d-my"
+
+My b My c My d .s { drop } 3 times // "b-my" "c-my" "d-my"
+a b c .s { drop } 3 times // "a" "b" "c" "d"
+
+My definitions
+a b c d .s { drop } 4 times // "a" "b-my" "c-my" "d-my"
+Fift a Fift b Fift c d .s { drop } 4 times // "a" "b" "c" "d-my"
+
+Fift definitions
+cr
+My-wordlist @
+{ drop type -1 } hmapforeach drop cr // "b " "d " "c "

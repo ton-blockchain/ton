@@ -138,8 +138,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (cell->get_virtualization() != 0) {
       return;
     }
-    //LOG(ERROR) << "INC";
-    //CellSlice(cell, nullptr).print_rec(std::cout);
     to_inc_.push_back(cell);
   }
   void dec(const Ref<Cell> &cell) override {
@@ -149,8 +147,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (cell->get_virtualization() != 0) {
       return;
     }
-    //LOG(ERROR) << "DEC";
-    //CellSlice(cell, nullptr).print_rec(std::cout);
     to_dec_.push_back(cell);
   }
 
@@ -167,25 +163,20 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (is_prepared_for_commit()) {
       return td::Status::OK();
     }
-    //LOG(ERROR) << "dfs_new_cells_in_db";
     for (auto &new_cell : to_inc_) {
       auto &new_cell_info = get_cell_info(new_cell);
       dfs_new_cells_in_db(new_cell_info);
     }
-    //return td::Status::OK();
-    //LOG(ERROR) << "dfs_new_cells";
     for (auto &new_cell : to_inc_) {
       auto &new_cell_info = get_cell_info(new_cell);
       dfs_new_cells(new_cell_info);
     }
 
-    //LOG(ERROR) << "dfs_old_cells";
     for (auto &old_cell : to_dec_) {
       auto &old_cell_info = get_cell_info(old_cell);
       dfs_old_cells(old_cell_info);
     }
 
-    //LOG(ERROR) << "save_diff_prepare";
     save_diff_prepare();
 
     to_inc_.clear();
@@ -363,7 +354,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       info.was = true;
       visited_.push_back(&info);
     }
-    //LOG(ERROR) << "dfs new " << td::format::escaped(info.cell->hash());
 
     if (info.was_dfs_new_cells) {
       return;
@@ -384,7 +374,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       info.was = true;
       visited_.push_back(&info);
     }
-    //LOG(ERROR) << "dfs old " << td::format::escaped(info.cell->hash());
 
     load_cell(info);
 
@@ -405,7 +394,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   }
 
   void save_diff(CellStorer &storer) {
-    //LOG(ERROR) << hash_table_.size();
     for (auto info_ptr : visited_) {
       save_cell(*info_ptr, storer);
     }
@@ -414,7 +402,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
 
   void save_cell_prepare(CellInfo &info) {
     if (info.refcnt_diff == 0) {
-      //CellSlice(info.cell, nullptr).print_rec(std::cout);
       return;
     }
     load_cell(info);
@@ -450,15 +437,11 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
 
     if (info.db_refcnt == 0) {
       CHECK(info.in_db);
-      //LOG(ERROR) << "ERASE";
-      //CellSlice(NoVm(), info.cell).print_rec(std::cout);
       storer.erase(info.cell->get_hash().as_slice());
       info.in_db = false;
       hash_table_.erase(info.cell->get_hash().as_slice());
       guard.dismiss();
     } else {
-      //LOG(ERROR) << "SAVE " << info.db_refcnt;
-      //CellSlice(NoVm(), info.cell).print_rec(std::cout);
       auto loaded_cell = info.cell->load_cell().move_as_ok();
       storer.set(info.db_refcnt, *loaded_cell.data_cell);
       info.in_db = true;
@@ -482,7 +465,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     CHECK(cell->is_loaded());
     vm::CellSlice cs(vm::NoVm{}, cell);  // FIXME
     for (unsigned i = 0; i < cs.size_refs(); i++) {
-      //LOG(ERROR) << "---> " << td::format::escaped(cell->ref(i)->hash());
       f(get_cell_info(cs.prefetch_ref(i)));
     }
   }

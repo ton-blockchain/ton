@@ -84,7 +84,7 @@ class CellDbIn : public CellDbBase {
   static BlockIdExt get_empty_key();
   KeyHash get_empty_key_hash();
 
-  void gc();
+  void gc(BlockIdExt block_id);
   void gc_cont(BlockHandle handle);
   void gc_cont2(BlockHandle handle);
   void skip_gc();
@@ -96,8 +96,6 @@ class CellDbIn : public CellDbBase {
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
-
-  KeyHash last_gc_;
 };
 
 class CellDb : public CellDbBase {

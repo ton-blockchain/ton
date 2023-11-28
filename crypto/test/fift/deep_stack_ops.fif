@@ -1,0 +1,27 @@
+"Asm.fif" include
+
+{ { drop } depth 1- times } : clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT XCHGX 300 INT PICK 450 INT CHKDEPTH }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT ROLLX }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT -ROLLX }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 700 times
+<{ 350 INT 300 INT BLKSWX }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT 5 INT REVX }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT DROPX }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT ONLYTOPX }>s 1000000 64 8 + runvmx .s clear-stack
+
+0 { dup 1+ } 500 times
+<{ 400 INT ONLYX }>s 1000000 64 8 + runvmx .s clear-stack

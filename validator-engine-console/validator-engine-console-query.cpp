@@ -32,6 +32,7 @@
 #include "terminal/terminal.h"
 #include "td/utils/filesystem.h"
 #include "overlay/overlays.h"
+#include "ton/ton-tl.hpp"
 
 #include <cctype>
 #include <fstream>
@@ -1053,5 +1054,56 @@ td::Status GetPerfTimerStatsJsonQuery::receive(td::BufferSlice data) {
   sb << std::flush;
 
   td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
+  return td::Status::OK();
+}
+
+td::Status GetShardOutQueueSizeQuery::run() {
+  TRY_RESULT_ASSIGN(block_id_.workchain, tokenizer_.get_token<int>());
+  TRY_RESULT_ASSIGN(block_id_.shard, tokenizer_.get_token<long long>());
+  TRY_RESULT_ASSIGN(block_id_.seqno, tokenizer_.get_token<int>());
+  if (!tokenizer_.endl()) {
+    ton::ShardIdFull dest;
+    TRY_RESULT_ASSIGN(dest.workchain, tokenizer_.get_token<int>());
+    TRY_RESULT_ASSIGN(dest.shard, tokenizer_.get_token<long long>());
+    dest_ = dest;
+  }
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetShardOutQueueSizeQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getShardOutQueueSize>(
+      dest_ ? 1 : 0, ton::create_tl_block_id_simple(block_id_), dest_ ? dest_.value().workchain : 0,
+      dest_ ? dest_.value().shard : 0);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetShardOutQueueSizeQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_shardOutQueueSize>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "Queue_size: " << f->size_ << "\n";
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagesBroadcastDisabledQuery::run() {
+  TRY_RESULT(x, tokenizer_.get_token<int>());
+  if (x < 0 || x > 1) {
+    return td::Status::Error("value should be 0 or 1");
+  }
+  value = x;
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagesBroadcastDisabledQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled>(value);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagesBroadcastDisabledQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
   return td::Status::OK();
 }

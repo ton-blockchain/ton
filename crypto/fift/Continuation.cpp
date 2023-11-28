@@ -27,7 +27,7 @@ namespace fift {
 //
 bool FiftCont::print_dict_name(std::ostream& os, const IntCtx& ctx) const {
   std::string word_name;
-  if (ctx.dictionary && ctx.dictionary->lookup_def(this, &word_name)) {
+  if (ctx.dictionary.lookup_def(this, &word_name)) {
     if (word_name.size() && word_name.back() == ' ') {
       word_name.pop_back();
     }
@@ -39,7 +39,7 @@ bool FiftCont::print_dict_name(std::ostream& os, const IntCtx& ctx) const {
 
 std::string FiftCont::get_dict_name(const IntCtx& ctx) const {
   std::string word_name;
-  if (ctx.dictionary && ctx.dictionary->lookup_def(this, &word_name)) {
+  if (ctx.dictionary.lookup_def(this, &word_name)) {
     if (word_name.size() && word_name.back() == ' ') {
       word_name.pop_back();
     }
@@ -61,6 +61,140 @@ bool FiftCont::dump(std::ostream& os, const IntCtx& ctx) const {
   bool ok = print_name(os, ctx);
   os << std::endl;
   return ok;
+}
+
+//
+// StackWord
+//
+Ref<FiftCont> StackWord::run_tail(IntCtx& ctx) const {
+  f(ctx.stack);
+  return {};
+}
+
+//
+// CtxWord
+//
+Ref<FiftCont> CtxWord::run_tail(IntCtx& ctx) const {
+  f(ctx);
+  return {};
+}
+
+//
+// CtxTailWord
+//
+Ref<FiftCont> CtxTailWord::run_tail(IntCtx& ctx) const {
+  return f(ctx);
+}
+
+//
+// WordList
+//
+WordList::WordList(std::vector<Ref<FiftCont>>&& _list) : list(std::move(_list)) {
+}
+
+WordList::WordList(const std::vector<Ref<FiftCont>>& _list) : list(_list) {
+}
+
+WordList& WordList::push_back(Ref<FiftCont> word_def) {
+  list.push_back(std::move(word_def));
+  return *this;
+}
+
+WordList& WordList::push_back(FiftCont& wd) {
+  list.emplace_back(&wd);
+  return *this;
+}
+
+Ref<FiftCont> WordList::run_tail(IntCtx& ctx) const {
+  if (list.empty()) {
+    return {};
+  }
+  if (list.size() > 1) {
+    ctx.next = td::make_ref<ListCont>(std::move(ctx.next), Ref<WordList>(this), 1);
+  }
+  return list[0];
+}
+
+void WordList::close() {
+  list.shrink_to_fit();
+}
+
+WordList& WordList::append(const std::vector<Ref<FiftCont>>& other) {
+  list.insert(list.end(), other.begin(), other.end());
+  return *this;
+}
+
+WordList& WordList::append(const Ref<FiftCont>* begin, const Ref<FiftCont>* end) {
+  list.insert(list.end(), begin, end);
+  return *this;
+}
+
+bool WordList::dump(std::ostream& os, const IntCtx& ctx) const {
+  os << "{";
+  for (auto entry : list) {
+    os << ' ';
+    entry->print_name(os, ctx);
+  }
+  os << " }" << std::endl;
+  return true;
+}
+
+//
+// ListCont
+//
+
+Ref<FiftCont> ListCont::run_tail(IntCtx& ctx) const {
+  auto sz = list->size();
+  if (pos >= sz) {
+    return std::move(ctx.next);
+  } else if (ctx.next.not_null()) {
+    ctx.next = td::make_ref<ListCont>(SeqCont::seq(next, std::move(ctx.next)), list, pos + 1);
+  } else if (pos + 1 == sz) {
+    ctx.next = next;
+  } else {
+    ctx.next = td::make_ref<ListCont>(next, list, pos + 1);
+  }
+  return list->at(pos);
+}
+
+Ref<FiftCont> ListCont::run_modify(IntCtx& ctx) {
+  auto sz = list->size();
+  if (pos >= sz) {
+    return std::move(ctx.next);
+  }
+  auto cur = list->at(pos++);
+  if (ctx.next.not_null()) {
+    next = SeqCont::seq(next, std::move(ctx.next));
+  }
+  if (pos == sz) {
+    ctx.next = std::move(next);
+  } else {
+    ctx.next = self();
+  }
+  return cur;
+}
+
+bool ListCont::dump(std::ostream& os, const IntCtx& ctx) const {
+  std::string dict_name = list->get_dict_name(ctx);
+  if (!dict_name.empty()) {
+    os << "[in " << dict_name << ":] ";
+  }
+  std::size_t sz = list->size(), i, a = (pos >= 16 ? pos - 16 : 0), b = std::min(pos + 16, sz);
+  if (a > 0) {
+    os << "... ";
+  }
+  for (i = a; i < b; i++) {
+    if (i == pos) {
+      os << "**HERE** ";
+    }
+    list->at(i)->print_name(os, ctx);
+    os << ' ';
+  }
+  if (b < sz) {
+    os << "...";
+  }
+  os << std::endl;
+  return true;
 }
 
 //
@@ -295,11 +429,14 @@ bool GenericLitCont::print_name(std::ostream& os, const IntCtx& ctx) const {
   bool sp = false;
   for (auto entry : list) {
     if (sp) {
-      os << sp;
+      os << ' ';
     }
     sp = true;
     int tp = entry.type();
     if (entry.is_int() || entry.is(vm::StackEntry::t_string) || entry.is(vm::StackEntry::t_bytes)) {
+      entry.dump(os);
+    } else if (entry.is_atom()) {
+      os << '`';
       entry.dump(os);
     } else {
       auto cont_lit = entry.as_object<FiftCont>();

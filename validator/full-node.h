@@ -27,6 +27,7 @@
 
 #include "adnl/adnl.h"
 #include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "validator/validator.h"
@@ -43,6 +44,16 @@ constexpr int VERBOSITY_NAME(FULL_NODE_NOTICE) = verbosity_INFO;
 constexpr int VERBOSITY_NAME(FULL_NODE_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(FULL_NODE_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(FULL_NODE_EXTRA_DEBUG) = verbosity_DEBUG + 1;
+
+struct FullNodeConfig {
+  FullNodeConfig() = default;
+  FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig>& obj);
+  tl_object_ptr<ton_api::engine_validator_fullNodeConfig> tl() const;
+  bool operator==(const FullNodeConfig& rhs) const;
+  bool operator!=(const FullNodeConfig& rhs) const;
+
+  bool ext_messages_broadcast_disabled_ = false;
+};
 
 class FullNode : public td::actor::Actor {
  public:
@@ -61,6 +72,7 @@ class FullNode : public td::actor::Actor {
                                                 td::Promise<td::Unit> promise) = 0;
 
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
+  virtual void set_config(FullNodeConfig config) = 0;
 
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;
@@ -73,10 +85,10 @@ class FullNode : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<FullNode> create(ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                                              FileHash zero_state_file_hash,
+                                              FileHash zero_state_file_hash, FullNodeConfig config,
                                               td::actor::ActorId<keyring::Keyring> keyring,
                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                                              td::actor::ActorId<dht::Dht> dht,
+                                              td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
                                               td::actor::ActorId<overlay::Overlays> overlays,
                                               td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);

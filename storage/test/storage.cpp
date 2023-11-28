@@ -400,7 +400,6 @@ class NetChannel : public td::actor::Actor {
           break;
         } else if (l > alive_end - eps) {
           alive_begin += alive_step + sleep_step;
-          alive_end = alive_begin + alive_step;
         } else {
           double new_l = td::min(alive_end, r);
           res += (new_l - l) * speed;
@@ -516,9 +515,7 @@ class NetChannel : public td::actor::Actor {
       queue_ = {};
     }
 
-    bool ok = false;
     while (!queue_.empty() && (double)queue_.front().size < got_) {
-      ok = true;
       auto query = queue_.pop();
       got_ -= (double)query.size;
       total_size_ -= (double)query.size;
@@ -1342,7 +1339,7 @@ TEST(Torrent, Peer) {
     guard->push_back(td::actor::create_actor<ton::NodeActor>(
         "Node#1", 1, std::move(torrent),
         td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
-        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2)), nullptr));
+        td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2)), nullptr, ton::SpeedLimiters{}));
     for (size_t i = 2; i <= peers_n; i++) {
       ton::Torrent::Options options;
       options.in_memory = true;
@@ -1351,7 +1348,7 @@ TEST(Torrent, Peer) {
           PSLICE() << "Node#" << i, i, std::move(other_torrent),
           td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
           td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2)),
-          nullptr);
+          nullptr, ton::SpeedLimiters{});
 
       if (i == 3) {
         td::actor::create_actor<StatsActor>("StatsActor", node_actor.get()).release();

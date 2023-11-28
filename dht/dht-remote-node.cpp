@@ -140,13 +140,7 @@ adnl::AdnlNodeIdFull DhtRemoteNode::get_full_id() const {
 
 td::Result<std::unique_ptr<DhtRemoteNode>> DhtRemoteNode::create(DhtNode node, td::uint32 max_missed_pings,
                                                                  td::int32 our_network_id) {
-  TRY_RESULT(enc, node.adnl_id().pubkey().create_encryptor());
-  auto tl = node.tl();
-  auto sig = std::move(tl->signature_);
-
-  TRY_STATUS_PREFIX(enc->check_signature(serialize_tl_object(tl, true).as_slice(), sig.as_slice()),
-                    "bad node signature: ");
-
+  TRY_STATUS(node.check_signature());
   return std::make_unique<DhtRemoteNode>(std::move(node), max_missed_pings, our_network_id);
 }
 

@@ -191,7 +191,10 @@ class Continuation : public td::CntObject {
     return (cont = deserialize(cs, mode)).not_null();
   }
   static bool deserialize_to(Ref<Cell> cell, Ref<Continuation>& cont, int mode = 0);
+  virtual std::string type() const = 0;
 };
+
+std::ostream& operator<<(std::ostream& os, const Continuation& cont);
 
 class QuitCont : public Continuation {
   int exit_code;
@@ -205,6 +208,7 @@ class QuitCont : public Continuation {
   }
   bool serialize(CellBuilder& cb) const override;
   static Ref<QuitCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class ExcQuitCont : public Continuation {
@@ -214,6 +218,7 @@ class ExcQuitCont : public Continuation {
   int jump(VmState* st) const & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<ExcQuitCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class PushIntCont : public Continuation {
@@ -228,6 +233,7 @@ class PushIntCont : public Continuation {
   int jump_w(VmState* st) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<PushIntCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class RepeatCont : public Continuation {
@@ -243,6 +249,7 @@ class RepeatCont : public Continuation {
   int jump_w(VmState* st) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<RepeatCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class AgainCont : public Continuation {
@@ -256,6 +263,7 @@ class AgainCont : public Continuation {
   int jump_w(VmState* st) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<AgainCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class UntilCont : public Continuation {
@@ -269,6 +277,7 @@ class UntilCont : public Continuation {
   int jump_w(VmState* st) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<UntilCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class WhileCont : public Continuation {
@@ -284,6 +293,7 @@ class WhileCont : public Continuation {
   int jump_w(VmState* st) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<WhileCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class ArgContExt : public Continuation {
@@ -315,6 +325,7 @@ class ArgContExt : public Continuation {
   }
   bool serialize(CellBuilder& cb) const override;
   static Ref<ArgContExt> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 class OrdCont : public Continuation {
@@ -369,6 +380,7 @@ class OrdCont : public Continuation {
   }
   bool serialize(CellBuilder& cb) const override;
   static Ref<OrdCont> deserialize(CellSlice& cs, int mode = 0);
+  std::string type() const override;
 };
 
 ControlData* force_cdata(Ref<Continuation>& cont);

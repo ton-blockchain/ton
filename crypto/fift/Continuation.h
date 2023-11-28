@@ -17,6 +17,7 @@
     Copyright 2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/stack.hpp"
@@ -74,6 +75,101 @@ class FiftCont : public td::CntObject {
   Ref<FiftCont> self() const {
     return Ref<FiftCont>{this};
   }
+};
+
+typedef std::function<void(vm::Stack&)> StackWordFunc;
+typedef std::function<void(IntCtx&)> CtxWordFunc;
+typedef std::function<Ref<FiftCont>(IntCtx&)> CtxTailWordFunc;
+
+class NopWord : public FiftCont {
+ public:
+  NopWord() = default;
+  ~NopWord() override = default;
+  Ref<FiftCont> run_tail(IntCtx& ctx) const override {
+    return {};
+  }
+};
+
+class StackWord : public FiftCont {
+  StackWordFunc f;
+
+ public:
+  StackWord(StackWordFunc _f) : f(std::move(_f)) {
+  }
+  ~StackWord() override = default;
+  Ref<FiftCont> run_tail(IntCtx& ctx) const override;
+};
+
+class CtxWord : public FiftCont {
+  CtxWordFunc f;
+
+ public:
+  CtxWord(CtxWordFunc _f) : f(std::move(_f)) {
+  }
+  ~CtxWord() override = default;
+  Ref<FiftCont> run_tail(IntCtx& ctx) const override;
+};
+
+class CtxTailWord : public FiftCont {
+  CtxTailWordFunc f;
+
+ public:
+  CtxTailWord(CtxTailWordFunc _f) : f(std::move(_f)) {
+  }
+  ~CtxTailWord() override = default;
+  Ref<FiftCont> run_tail(IntCtx& ctx) const override;
+};
+
+class WordList : public FiftCont {
+  std::vector<Ref<FiftCont>> list;
+
+ public:
+  ~WordList() override = default;
+  WordList() = default;
+  WordList(std::vector<Ref<FiftCont>>&& _list);
+  WordList(const std::vector<Ref<FiftCont>>& _list);
+  WordList& push_back(Ref<FiftCont> word_def);
+  WordList& push_back(FiftCont& wd);
+  Ref<FiftCont> run_tail(IntCtx& ctx) const override;
+  void close();
+  bool is_list() const override {
+    return true;
+  }
+  long long list_size() const override {
+    return (long long)list.size();
+  }
+  std::size_t size() const {
+    return list.size();
+  }
+  const Ref<FiftCont>& at(std::size_t idx) const {
+    return list.at(idx);
+  }
+  const Ref<FiftCont>* get_list() const override {
+    return list.data();
+  }
+  WordList& append(const std::vector<Ref<FiftCont>>& other);
+  WordList& append(const Ref<FiftCont>* begin, const Ref<FiftCont>* end);
+  WordList* make_copy() const override {
+    return new WordList(list);
+  }
+  bool dump(std::ostream& os, const IntCtx& ctx) const override;
+};
+
+class ListCont : public FiftCont {
+  Ref<FiftCont> next;
+  Ref<WordList> list;
+  std::size_t pos;
+
+ public:
+  ListCont(Ref<FiftCont> nxt, Ref<WordList> wl, std::size_t p = 0) : next(std::move(nxt)), list(std::move(wl)), pos(p) {
+  }
+  ~ListCont() override = default;
+  Ref<FiftCont> run_tail(IntCtx& ctx) const override;
+  Ref<FiftCont> run_modify(IntCtx& ctx) override;
+  Ref<FiftCont> up() const override {
+    return next;
+  }
+  bool dump(std::ostream& os, const IntCtx& ctx) const override;
 };
 
 class QuitCont : public FiftCont {

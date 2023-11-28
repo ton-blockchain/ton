@@ -39,9 +39,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
     return PrintId{incarnation_, local_id_};
   }
 
-  void add_prepared_event(td::BufferSlice data) override {
-    add_block(std::move(data), std::vector<CatChainBlockHash>());
-  }
   CatChainSessionId get_incarnation() const override {
     return incarnation_;
   }
@@ -73,15 +70,10 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   void receive_query_from_overlay(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                   td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlock query, td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlocks query,
-                     td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getBlockHistory query,
-                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::catchain_getDifference query,
                      td::Promise<td::BufferSlice> promise);
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, const T &query, td::Promise<td::BufferSlice> promise) {
-    //LOG(WARNING) << this << ": unknown query from " << src;
     callback_->on_custom_query(get_source_by_adnl_id(src)->get_hash(), serialize_tl_object(&query, true),
                                std::move(promise));
   }
@@ -89,7 +81,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
 
   void receive_block(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
   void receive_block_answer(adnl::AdnlNodeIdShort src, td::BufferSlice);
-  //void send_block(const PublicKeyHash &src, tl_object_ptr<ton_api::catchain_block> block, td::BufferSlice payload);
 
   CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block> block, td::SharedSlice payload) override;
   CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block_dep> block) override;
@@ -117,6 +108,8 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   void on_blame(td::uint32 src) override {
     callback_->blame(src);
   }
+  void on_found_fork_proof(td::uint32 source_id, td::BufferSlice data) override;
+  void on_blame_processed(td::uint32 source_id) override;
   const CatChainOptions &opts() const override {
     return opts_;
   }
@@ -204,9 +197,6 @@ class CatChainReceiverImpl final : public CatChainReceiver {
 
   std::vector<td::uint32> neighbours_;
 
-  //std::queue<tl_object_ptr<ton_api::catchain_block_inner_Data>> events_;
-  //std::queue<td::BufferSlice> raw_events_;
-
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<overlay::Overlays> overlay_manager_;
@@ -231,6 +221,9 @@ class CatChainReceiverImpl final : public CatChainReceiver {
   bool started_{false};
 
   std::list<CatChainReceivedBlock *> to_run_;
+
+  std::vector<bool> blame_processed_;
+  std::map<td::uint32, td::BufferSlice> pending_fork_proofs_;
 };
 
 }  // namespace catchain

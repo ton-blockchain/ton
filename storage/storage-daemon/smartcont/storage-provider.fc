@@ -2,7 +2,7 @@
 
 #include "constants.fc";
 
-const min_deploy_amount = 50000000;
+const min_deploy_amount = 60000000;
 
 ;; cell storage_contract_code() asm """ "storage-contract-code.boc" file>B B>boc PUSHREF """;
 ;; the same constant but more "compiler" friendly

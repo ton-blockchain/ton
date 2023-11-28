@@ -389,6 +389,7 @@ struct SizeLimitsConfig {
   ExtMsgLimits ext_msg_limits;
   td::uint32 max_acc_state_cells = 1 << 16;
   td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_acc_public_libraries = 256;
 };
 
 struct CatchainValidatorsConfig {
@@ -504,6 +505,22 @@ class ShardConfig {
   bool set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value);
 };
 
+struct BurningConfig {
+  td::optional<td::Bits256> blackhole_addr;
+  td::uint32 fee_burn_num = 0, fee_burn_denom = 1;
+
+  td::RefInt256 calculate_burned_fees(const td::RefInt256& x) const {
+    if (x.is_null()) {
+      return x;
+    }
+    return x * fee_burn_num / td::make_refint(fee_burn_denom);
+  }
+
+  CurrencyCollection calculate_burned_fees(const CurrencyCollection& x) const {
+    return CurrencyCollection{calculate_burned_fees(x.grams)};
+  }
+};
+
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,
@@ -617,6 +634,7 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
   std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
+  BurningConfig get_burning_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,
@@ -721,6 +739,7 @@ class ConfigInfo : public Config, public ShardConfig {
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
+  td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
   static td::Result<std::unique_ptr<ConfigInfo>> extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
                                                                 int mode = 0);
   static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root, int mode = 0);

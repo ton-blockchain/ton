@@ -212,6 +212,77 @@ int exec_ret_data(VmState* st) {
   return st->ret();
 }
 
+// Mode:
+// +1 = same_c3 (set c3 to code)
+// +2 = push_0 (push an implicit 0 before running the code)
+// +4 = load c4 (persistent data) from stack and return its final value
+// +8 = load gas limit from stack and return consumed gas
+// +16 = load c7 (smart-contract context)
+// +32 = return c5 (actions)
+// +64 = pop hard gas limit (enabled by ACCEPT) from stack as well
+// +128 = isolated gas consumption (separate set of visited cells, reset chksgn counter)
+// +256 = pop number N, return exactly N values from stack (only if res=0 or 1; if not enough then res=stk_und)
+int exec_runvm_common(VmState* st, unsigned mode) {
+  if (mode >= 512) {
+    throw VmError{Excno::range_chk, "invalid flags"};
+  }
+  st->consume_gas(VmState::runvm_gas_price);
+  Stack& stack = st->get_stack();
+  bool with_data = mode & 4;
+  Ref<vm::Tuple> c7;
+  Ref<vm::Cell> data, actions;
+  long long gas_max = (mode & 64) ? stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  long long gas_limit = (mode & 8) ? stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  if (!(mode & 64)) {
+    gas_max = gas_limit;
+  } else {
+    gas_max = std::max(gas_max, gas_limit);
+  }
+  if (mode & 16) {
+    c7 = stack.pop_tuple();
+  }
+  if (with_data) {
+    data = stack.pop_cell();
+  }
+  int ret_vals = -1;
+  if (mode & 256) {
+    ret_vals = stack.pop_smallint_range(1 << 30);
+  }
+  auto code = stack.pop_cellslice();
+  int stack_size = stack.pop_smallint_range(stack.depth() - 1);
+  std::vector<StackEntry> new_stack_entries(stack_size);
+  for (int i = 0; i < stack_size; ++i) {
+    new_stack_entries[stack_size - 1 - i] = stack.pop();
+  }
+  td::Ref<Stack> new_stack{true, std::move(new_stack_entries)};
+  st->consume_stack_gas(new_stack);
+  gas_max = std::min(gas_max, st->get_gas_limits().gas_remaining);
+  gas_limit = std::min(gas_limit, st->get_gas_limits().gas_remaining);
+  vm::GasLimits gas{gas_limit, gas_max};
+
+  VmStateInterface::Guard guard{nullptr}; // Don't consume gas for creating/loading cells during VM init
+  VmState new_state{std::move(code), std::move(new_stack),     gas,          (int)mode & 3, std::move(data),
+                    VmLog{},         std::vector<Ref<Cell>>{}, std::move(c7)};
+  new_state.set_chksig_always_succeed(st->get_chksig_always_succeed());
+  new_state.set_global_version(st->get_global_version());
+  st->run_child_vm(std::move(new_state), with_data, mode & 32, mode & 8, mode & 128, ret_vals);
+  return 0;
+}
+
+int exec_runvm(VmState* st, unsigned args) {
+  VM_LOG(st) << "execute RUNVM " << (args & 4095) << "\n";
+  return exec_runvm_common(st, args & 4095);
+}
+
+int exec_runvmx(VmState* st) {
+  VM_LOG(st) << "execute RUNVMX\n";
+  return exec_runvm_common(st, st->get_stack().pop_smallint_range(4095));
+}
+
+std::string dump_runvm(CellSlice&, unsigned args) {
+  return PSTRING() << "RUNVM " << (args & 4095);
+}
+
 void register_continuation_jump_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xd8, 8, "EXECUTE", exec_execute))
@@ -246,7 +317,9 @@ void register_continuation_jump_ops(OpcodeTable& cp0) {
                                            },
                                            "JMPREFDATA"),
                                  compute_len_push_ref))
-      .insert(OpcodeInstr::mksimple(0xdb3f, 16, "RETDATA", exec_ret_data));
+      .insert(OpcodeInstr::mksimple(0xdb3f, 16, "RETDATA", exec_ret_data))
+      .insert(OpcodeInstr::mkfixed(0xdb4, 12, 12, dump_runvm, exec_runvm)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xdb50, 16, "RUNVMX ", exec_runvmx)->require_version(4));
 }
 
 int exec_if(VmState* st) {
@@ -378,8 +451,8 @@ int exec_if_bit_jmp(VmState* st, unsigned args) {
 }
 
 std::string dump_if_bit_jmp(CellSlice& cs, unsigned args) {
-  std::ostringstream os{args & 0x20 ? "IFN" : " IF"};
-  os << "BITJMP " << (args & 0x1f);
+  std::ostringstream os;
+  os << "IF" << (args & 0x20 ? "N" : "") << "BITJMP " << (args & 0x1f);
   return os.str();
 }
 
@@ -408,8 +481,8 @@ std::string dump_if_bit_jmpref(CellSlice& cs, unsigned args, int pfx_bits) {
   }
   cs.advance(pfx_bits);
   cs.advance_refs(1);
-  std::ostringstream os{args & 0x20 ? "IFN" : " IF"};
-  os << "BITJMPREF " << (args & 0x1f);
+  std::ostringstream os;
+  os << "IF" << (args & 0x20 ? "N" : "") << "BITJMPREF " << (args & 0x1f);
   return os.str();
 }
 
@@ -597,8 +670,8 @@ int exec_setcontargs(VmState* st, unsigned args) {
 
 std::string dump_setcontargs(CellSlice& cs, unsigned args, const char* name) {
   int copy = (args >> 4) & 15, more = ((args + 1) & 15) - 1;
-  std::ostringstream os{name};
-  os << ' ' << copy << ',' << more;
+  std::ostringstream os;
+  os << name << ' ' << copy << ',' << more;
   return os.str();
 }
 
@@ -1065,8 +1138,8 @@ std::string dump_throw_any(CellSlice& cs, unsigned args) {
   bool has_param = args & 1;
   bool has_cond = args & 6;
   bool throw_cond = args & 2;
-  std::ostringstream os{has_param ? "THROWARG" : "THROW"};
-  os << "ANY";
+  std::ostringstream os;
+  os << "THROW" << (has_param ? "ARG" : "") << "ANY";
   if (has_cond) {
     os << (throw_cond ? "IF" : "IFNOT");
   }

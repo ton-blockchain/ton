@@ -19,6 +19,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <set>
 #include <stack>
 #include <utility>
 #include <algorithm>
@@ -30,6 +31,11 @@
 #include "parser/srcread.h"
 #include "parser/lexer.h"
 #include "parser/symtable.h"
+#include "td/utils/Status.h"
+
+#define func_assert(expr) \
+  (bool(expr) ? void(0)   \
+              : throw src::Fatal(PSTRING() << "Assertion failed at " << __FILE__ << ":" << __LINE__ << ": " << #expr))
 
 namespace funC {
 
@@ -39,7 +45,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.4.2"};
+const std::string func_version{"0.4.4"};
 
 enum Keyword {
   _Eof = -1,
@@ -157,6 +163,7 @@ struct TypeExpr {
   int minw, maxw;
   static constexpr int w_inf = 1023;
   std::vector<TypeExpr*> args;
+  bool was_forall_var = false;
   TypeExpr(te_type _constr, int _val = 0) : constr(_constr), value(_val), minw(0), maxw(w_inf) {
   }
   TypeExpr(te_type _constr, int _val, int width) : constr(_constr), value(_val), minw(width), maxw(width) {
@@ -263,7 +270,7 @@ struct TypeExpr {
     return new TypeExpr{te_ForAll, body, std::move(list)};
   }
   static bool remove_indirect(TypeExpr*& te, TypeExpr* forbidden = nullptr);
-  static bool remove_forall(TypeExpr*& te);
+  static std::vector<TypeExpr*> remove_forall(TypeExpr*& te);
   static bool remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars);
 };
 
@@ -307,6 +314,7 @@ struct TmpVar {
   int coord;
   std::unique_ptr<SrcLocation> where;
   std::vector<std::function<void(const SrcLocation &)>> on_modification;
+  bool undefined = false;
   TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
@@ -691,6 +699,7 @@ struct CodeBlob {
   std::unique_ptr<Op>* cur_ops;
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   int flags = 0;
+  bool require_callxargs = false;
   CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
   }
   template <typename... Args>
@@ -838,12 +847,42 @@ struct SymValConst : sym::SymValBase {
 
 extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
 extern std::vector<SymDef*> glob_func, glob_vars;
+extern std::set<std::string> prohibited_var_names;
 
 /*
  * 
  *   PARSE SOURCE
  * 
  */
+
+class ReadCallback {
+public:
+  /// Noncopyable.
+  ReadCallback(ReadCallback const&) = delete;
+  ReadCallback& operator=(ReadCallback const&) = delete;
+
+  enum class Kind
+  {
+    ReadFile,
+    Realpath
+  };
+
+  static std::string kindString(Kind _kind)
+  {
+    switch (_kind)
+    {
+    case Kind::ReadFile:
+      return "source";
+    case Kind::Realpath:
+      return "realpath";
+    default:
+      throw ""; // todo ?
+    }
+  }
+
+  /// File reading or generic query callback.
+  using Callback = std::function<td::Result<std::string>(ReadCallback::Kind, const char*)>;
+};
 
 // defined in parse-func.cpp
 bool parse_source(std::istream* is, const src::FileDescr* fdescr);
@@ -1144,7 +1183,7 @@ struct AsmOpList {
   }
   template <typename... Args>
   AsmOpList& add(Args&&... args) {
-    list_.emplace_back(std::forward<Args>(args)...);
+    append(AsmOp(std::forward<Args>(args)...));
     adjust_last();
     return *this;
   }
@@ -1531,8 +1570,8 @@ struct Stack {
   AsmOpList& o;
   enum {
     _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
-    _InlineFunc = 512, _NeedRetAlt = 1024,
-    _ModeSave = _InlineFunc | _NeedRetAlt,
+    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
+    _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
   };
   int mode;
@@ -1579,7 +1618,7 @@ struct Stack {
     if (i > 255) {
       throw src::Fatal{"Too deep stack"};
     }
-    assert(i >= 0 && i < depth() && "invalid stack reference");
+    func_assert(i >= 0 && i < depth() && "invalid stack reference");
   }
   void modified() {
     mode &= ~_Shown;
@@ -1610,14 +1649,24 @@ struct Stack {
   bool operator==(const Stack& y) const & {
     return s == y.s;
   }
-  void apply_wrappers() {
+  void apply_wrappers(int callxargs_count) {
+    bool is_inline = mode & _InlineFunc;
     if (o.retalt_) {
       o.insert(0, "SAMEALTSAVE");
       o.insert(0, "c2 SAVE");
-      if (mode & _InlineFunc) {
-        o.indent_all();
-        o.insert(0, "CONT:<{");
-        o << "}>";
+    }
+    if (callxargs_count != -1 || (is_inline && o.retalt_)) {
+      o.indent_all();
+      o.insert(0, "CONT:<{");
+      o << "}>";
+      if (callxargs_count != -1) {
+        if (callxargs_count <= 15) {
+          o << AsmOp::Custom(PSTRING() << callxargs_count << " -1 CALLXARGS");
+        } else {
+          func_assert(callxargs_count <= 254);
+          o << AsmOp::Custom(PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
+        }
+      } else {
         o << "EXECUTE";
       }
     }
@@ -1691,6 +1740,9 @@ void define_builtins();
 extern int verbosity, indent, opt_level;
 extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
 extern std::string generated_from, boc_output_filename;
+extern ReadCallback::Callback read_callback;
+
+td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query);
 
 class GlobalPragma {
  public:

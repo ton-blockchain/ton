@@ -1,0 +1,93 @@
+"Asm.fif" include
+
+// Four programs:
+// 4 contains 2 and 3, 2 contains 1
+
+// Program #1
+PROGRAM{
+  DECLPROC foo1
+  DECLPROC foo2
+  DECLPROC foo3
+  DECLPROC main
+  foo1 PROC:<{ MUL INC }>
+  foo2 PROCINLINE:<{ PLDREF }>
+  foo3 PROC:<{ CTOS foo2 INLINECALLDICT CTOS 32 PLDU }>
+  main PROC:<{ 0 PUSHINT }>
+}END>c constant code-1
+
+// Program #2
+PROGRAM{
+  DECLPROC foo3
+  DECLPROC foo4
+  DECLPROC main
+  foo3 PROC:<{ code-1 PUSHREF }>
+  foo4 PROC:<{ CTOS 8 PLDU }>
+  main PROC:<{ foo3 CALLDICT foo4 CALLDICT NEWC ROT STUX }>
+}END>c constant code-2
+
+// Program #3
+PROGRAM{
+  DECLPROC foo1
+  DECLPROC foo4
+  DECLPROC main
+  foo1 PROC:<{ DUP 137 PUSHINT MUL PAIR }>
+  foo4 PROC:<{ UNPAIR SWAP DIV }>
+  main PROC:<{ 70 PUSHINT DIV }>
+}END>c constant code-3
+
+// Program #4
+PROGRAM{
+  DECLPROC foo2
+  DECLPROC foo3
+  DECLPROC foo5
+  DECLPROC main
+  foo2 PROC:<{ code-2 PUSHREF }>
+  foo3 PROC:<{ code-3 PUSHREF }>
+  foo5 PROC:<{ foo2 CALLDICT CTOS 8 PLDU 1 RSHIFT# }>
+  main PROC:<{ foo5 CALLDICT 5 MULCONST }>
+}END>c
+
+.dump cr
+
+// Program #4, nested
+PROGRAM{
+  DECLPROC foo2
+  DECLPROC foo3
+  DECLPROC foo5
+  DECLPROC main
+  foo2 PROC:<{
+    PROGRAM{
+      DECLPROC foo3
+      DECLPROC foo4
+      DECLPROC main
+      foo3 PROC:<{
+        PROGRAM{
+          DECLPROC foo1
+          DECLPROC foo2
+          DECLPROC foo3
+          DECLPROC main
+          foo1 PROC:<{ MUL INC }>
+          foo2 PROCINLINE:<{ PLDREF }>
+          foo3 PROC:<{ CTOS foo2 INLINECALLDICT CTOS 32 PLDU }>
+          main PROC:<{ 0 PUSHINT }>
+        }END>c PUSHREF
+      }>
+      foo4 PROC:<{ CTOS 8 PLDU }>
+      main PROC:<{ foo3 CALLDICT foo4 CALLDICT NEWC ROT STUX }>
+    }END>c PUSHREF
+  }>
+  foo3 PROC:<{
+    PROGRAM{
+      DECLPROC foo1
+      DECLPROC foo4
+      DECLPROC main
+      foo1 PROC:<{ DUP 137 PUSHINT MUL PAIR }>
+      foo4 PROC:<{ UNPAIR SWAP DIV }>
+      main PROC:<{ 70 PUSHINT DIV }>
+    }END>c PUSHREF
+  }>
+  foo5 PROC:<{ foo2 CALLDICT CTOS 8 PLDU 1 RSHIFT# }>
+  main PROC:<{ foo5 CALLDICT 5 MULCONST }>
+}END>c
+
+.dump cr

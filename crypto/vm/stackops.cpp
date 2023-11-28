@@ -75,8 +75,8 @@ std::string dump_xchg(CellSlice&, unsigned args) {
   if (!x || x >= y) {
     return "";
   }
-  std::ostringstream os{"XCHG s"};
-  os << x << ",s" << y;
+  std::ostringstream os;
+  os << "XCHG s" << x << ",s" << y;
   return os.str();
 }
 
@@ -92,7 +92,7 @@ int exec_xchg1(VmState* st, unsigned args) {
 
 int exec_dup(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute DUP\n";
+  VM_LOG(st) << "execute DUP";
   stack.check_underflow(1);
   stack.push(stack.fetch(0));
   return 0;
@@ -100,7 +100,7 @@ int exec_dup(VmState* st) {
 
 int exec_over(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute OVER\n";
+  VM_LOG(st) << "execute OVER";
   stack.check_underflow(2);
   stack.push(stack.fetch(1));
   return 0;
@@ -126,7 +126,7 @@ int exec_push_l(VmState* st, unsigned args) {
 
 int exec_drop(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute DROP\n";
+  VM_LOG(st) << "execute DROP";
   stack.check_underflow(1);
   stack.pop();
   return 0;
@@ -134,7 +134,7 @@ int exec_drop(VmState* st) {
 
 int exec_nip(VmState* st) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute NIP\n";
+  VM_LOG(st) << "execute NIP";
   stack.check_underflow(2);
   stack.pop(stack[1]);
   return 0;
@@ -301,9 +301,7 @@ int exec_blkswap(VmState* st, unsigned args) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute BLKSWAP " << x << ',' << y;
   stack.check_underflow(x + y);
-  std::reverse(stack.from_top(x + y), stack.from_top(y));
-  std::reverse(stack.from_top(y), stack.top());
-  std::reverse(stack.from_top(x + y), stack.top());
+  std::rotate(stack.from_top(x + y), stack.from_top(y), stack.top());
   return 0;
 }
 
@@ -403,7 +401,7 @@ int exec_pick(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute PICK\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow_p(x);
   stack.push(stack.fetch(x));
   return 0;
@@ -413,8 +411,9 @@ int exec_roll(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute ROLL\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow_p(x);
+  st->consume_gas(std::max(x - 255, 0));
   while (--x >= 0) {
     swap(stack[x], stack[x + 1]);
   }
@@ -425,8 +424,9 @@ int exec_rollrev(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute ROLLREV\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow_p(x);
+  st->consume_gas(std::max(x - 255, 0));
   for (int i = 0; i < x; i++) {
     swap(stack[i], stack[i + 1]);
   }
@@ -437,13 +437,14 @@ int exec_blkswap_x(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute BLKSWX\n";
   stack.check_underflow(2);
-  int y = stack.pop_smallint_range(255);
-  int x = stack.pop_smallint_range(255);
+  int y = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x + y);
   if (x > 0 && y > 0) {
-    std::reverse(stack.from_top(x + y), stack.from_top(y));
-    std::reverse(stack.from_top(y), stack.top());
-    std::reverse(stack.from_top(x + y), stack.top());
+    if (st->get_global_version() >= 4) {
+      st->consume_gas(std::max(x + y - 255, 0));
+    }
+    std::rotate(stack.from_top(x + y), stack.from_top(y), stack.top());
   }
   return 0;
 }
@@ -452,9 +453,10 @@ int exec_reverse_x(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute REVX\n";
   stack.check_underflow(2);
-  int y = stack.pop_smallint_range(255);
-  int x = stack.pop_smallint_range(255);
+  int y = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x + y);
+  st->consume_gas(std::max(x - 255, 0));
   std::reverse(stack.from_top(x + y), stack.from_top(y));
   return 0;
 }
@@ -463,7 +465,7 @@ int exec_drop_x(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute DROPX\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x);
   stack.pop_many(x);
   return 0;
@@ -482,7 +484,7 @@ int exec_xchg_x(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute XCHGX\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow_p(x);
   swap(stack[0], stack[x]);
   return 0;
@@ -499,7 +501,7 @@ int exec_chkdepth(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute CHKDEPTH\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x);
   return 0;
 }
@@ -508,10 +510,11 @@ int exec_onlytop_x(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute ONLYTOPX\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x);
   int n = stack.depth(), d = n - x;
   if (d > 0) {
+    st->consume_gas(std::max(x - 255, 0));
     for (int i = n - 1; i >= d; i--) {
       stack[i] = std::move(stack[i - d]);
     }
@@ -524,7 +527,7 @@ int exec_only_x(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute ONLYX\n";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(255);
+  int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
   stack.check_underflow(x);
   stack.pop_many(stack.depth() - x);
   return 0;

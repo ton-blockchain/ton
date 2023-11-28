@@ -35,8 +35,37 @@
 #include "vm/cells/MerkleProof.h"
 #include "block/mc-config.h"
 #include "ton/ton-shard.h"
+#include "td/utils/date.h"
 
 bool local_scripts{false};
+
+static std::string time_to_human(unsigned ts) {
+  td::StringBuilder sb;
+  sb << date::format("%F %T",
+                     std::chrono::time_point<std::chrono::system_clock, std::chrono::seconds>{std::chrono::seconds(ts)})
+     << ", ";
+  auto now = (unsigned)td::Clocks::system();
+  bool past = now >= ts;
+  unsigned x = past ? now - ts : ts - now;
+  if (!past) {
+    sb << "in ";
+  }
+  if (x < 60) {
+    sb << x << "s";
+  } else if (x < 3600) {
+    sb << x / 60 << "m " << x % 60 << "s";
+  } else if (x < 3600 * 24) {
+    x /= 60;
+    sb << x / 60 << "h " << x % 60 << "m";
+  } else {
+    x /= 3600;
+    sb << x / 24 << "d " << x % 24 << "h";
+  }
+  if (past) {
+    sb << " ago";
+  }
+  return sb.as_cslice().str();
+}
 
 HttpAnswer& HttpAnswer::operator<<(AddressCell addr_c) {
   ton::WorkchainId wc;
@@ -84,7 +113,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>source</th><td>" << AddressCell{info.src} << "</td></tr>\n"
             << "<tr><th>destination</th><td>NONE</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
-            << "<tr><th>time</th><td>" << info.created_at << "</td></tr>\n";
+            << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n";
       break;
     }
     case block::gen::CommonMsgInfo::int_msg_info: {
@@ -103,7 +132,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>source</th><td>" << AddressCell{info.src} << "</td></tr>\n"
             << "<tr><th>destination</th><td>" << AddressCell{info.dest} << "</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
-            << "<tr><th>time</th><td>" << info.created_at << "</td></tr>\n"
+            << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n"
             << "<tr><th>value</th><td>" << value << "</td></tr>\n";
       break;
     }
@@ -277,7 +306,7 @@ HttpAnswer& HttpAnswer::operator<<(TransactionCell trans_c) {
         << "<tr><th>account</th><td>" << trans_c.addr.rserialize(true) << "</td></tr>"
         << "<tr><th>hash</th><td>" << trans_c.root->get_hash().to_hex() << "</td></tr>\n"
         << "<tr><th>lt</th><td>" << trans.lt << "</td></tr>\n"
-        << "<tr><th>time</th><td>" << trans.now << "</td></tr>\n"
+        << "<tr><th>time</th><td>" << trans.now << " (" << time_to_human(trans.now) << ")</td></tr>\n"
         << "<tr><th>out messages</th><td>";
   vm::Dictionary dict{trans.r1.out_msgs, 15};
   for (td::int32 i = 0; i < trans.outmsg_cnt; i++) {
@@ -456,7 +485,7 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
           << "<tr><th>block</th><td>" << block_id.id.to_str() << "</td></tr>\n"
           << "<tr><th>roothash</th><td>" << block_id.root_hash.to_hex() << "</td></tr>\n"
           << "<tr><th>filehash</th><td>" << block_id.file_hash.to_hex() << "</td></tr>\n"
-          << "<tr><th>time</th><td>" << info.gen_utime << "</td></tr>\n"
+          << "<tr><th>time</th><td>" << info.gen_utime << " (" << time_to_human(info.gen_utime) << ")</td></tr>\n"
           << "<tr><th>lt</th><td>" << info.start_lt << " .. " << info.end_lt << "</td></tr>\n"
           << "<tr><th>global_id</th><td>" << blk.global_id << "</td></tr>\n"
           << "<tr><th>version</th><td>" << info.version << "</td></tr>\n"
@@ -543,7 +572,8 @@ HttpAnswer& HttpAnswer::operator<<(BlockShardsCell shards_c) {
       ton::ShardIdFull shard{id.workchain, id.shard};
       if (ref.not_null()) {
         *this << "<td>" << shard.to_str() << "</td><td><a href=\"" << HttpAnswer::BlockLink{ref->top_block_id()}
-              << "\">" << ref->top_block_id().id.seqno << "</a></td><td>" << ref->created_at() << "</td>"
+              << "\">" << ref->top_block_id().id.seqno << "</a></td><td><span title=\""
+              << time_to_human(ref->created_at()) << "\">" << ref->created_at() << "</span></td>"
               << "<td>" << ref->want_split_ << "</td>"
               << "<td>" << ref->want_merge_ << "</td>"
               << "<td>" << ref->before_split_ << "</td>"

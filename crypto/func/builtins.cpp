@@ -29,8 +29,12 @@ using namespace std::literals::string_literals;
 
 int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
 std::vector<SymDef*> glob_func, glob_vars;
+std::set<std::string> prohibited_var_names;
 
 SymDef* predefine_builtin_func(std::string name, TypeExpr* func_type) {
+  if (name.back() == '_') {
+    prohibited_var_names.insert(name);
+  }
   sym_idx_t name_idx = sym::symbols.lookup(name, 1);
   if (sym::symbols.is_keyword(name_idx)) {
     std::cerr << "fatal: global function `" << name << "` already defined as a keyword" << std::endl;
@@ -425,7 +429,7 @@ AsmOp push_const(td::RefInt256 x) {
 }
 
 AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const + y.int_const);
@@ -467,7 +471,7 @@ AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
 }
 
 AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const - y.int_const);
@@ -500,7 +504,7 @@ AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
 }
 
 AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 1);
+  func_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(-x.int_const);
@@ -515,7 +519,7 @@ AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args, co
 }
 
 AsmOp compile_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const & y.int_const);
@@ -528,7 +532,7 @@ AsmOp compile_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
 }
 
 AsmOp compile_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const | y.int_const);
@@ -541,7 +545,7 @@ AsmOp compile_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const 
 }
 
 AsmOp compile_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const ^ y.int_const);
@@ -554,7 +558,7 @@ AsmOp compile_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
 }
 
 AsmOp compile_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 1);
+  func_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(~x.int_const);
@@ -634,12 +638,12 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocat
 }
 
 AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   return compile_mul_internal(res[0], args[0], args[1], where);
 }
 
 AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
@@ -682,7 +686,7 @@ AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, co
 
 AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
                      int round_mode) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
@@ -751,13 +755,13 @@ AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocat
 }
 
 AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where, int round_mode) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   return compile_div_internal(res[0], args[0], args[1], where, round_mode);
 }
 
 AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const src::SrcLocation& where,
                   int round_mode) {
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(mod(x.int_const, y.int_const, round_mode));
@@ -798,7 +802,7 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
 
 AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
                      int round_mode) {
-  assert(res.size() == 1 && args.size() == 3);
+  func_assert(res.size() == 1 && args.size() == 3);
   VarDescr &r = res[0], &x = args[0], &y = args[1], &z = args[2];
   if (x.is_int_const() && y.is_int_const() && z.is_int_const()) {
     r.set_const(muldiv(x.int_const, y.int_const, z.int_const, round_mode));
@@ -919,8 +923,8 @@ int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
 }
 
 AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int mode) {
-  assert(mode >= 1 && mode <= 7);
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(mode >= 1 && mode <= 7);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     int v = compute_compare(x.int_const, y.int_const, mode);
@@ -931,7 +935,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   }
   int v = compute_compare(x, y, mode);
   // std::cerr << "compute_compare(" << x << ", " << y << ", " << mode << ") = " << v << std::endl;
-  assert(v);
+  func_assert(v);
   if (!(v & (v - 1))) {
     r.set_const(v - (v >> 2) - 2);
     x.unused();
@@ -967,7 +971,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
 }
 
 AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
-  assert(res.empty() && args.size() == 1);
+  func_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
@@ -978,7 +982,7 @@ AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, con
 }
 
 AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool mode) {
-  assert(res.empty() && args.size() == 2);
+  func_assert(res.empty() && args.size() == 2);
   VarDescr &x = args[0], &y = args[1];
   std::string suff = (mode ? "IF" : "IFNOT");
   bool skip_cond = false;
@@ -999,7 +1003,7 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
 }
 
 AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
-  assert(res.empty() && args.size() == 2);
+  func_assert(res.empty() && args.size() == 2);
   VarDescr &x = args[1];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
@@ -1010,7 +1014,7 @@ AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
 }
 
 AsmOp compile_cond_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool mode) {
-  assert(res.empty() && args.size() == 3);
+  func_assert(res.empty() && args.size() == 3);
   VarDescr &x = args[1], &y = args[2];
   std::string suff = (mode ? "IF" : "IFNOT");
   bool skip_cond = false;
@@ -1031,7 +1035,7 @@ AsmOp compile_cond_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 }
 
 AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool val) {
-  assert(res.size() == 1 && args.empty());
+  func_assert(res.size() == 1 && args.empty());
   VarDescr& r = res[0];
   r.set_const(val ? -1 : 0);
   return AsmOp::Const(val ? "TRUE" : "FALSE");
@@ -1042,7 +1046,7 @@ AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args
 // int preload_int(slice s, int len) asm "PLDIX";
 // int preload_uint(slice s, int len) asm "PLDUX";
 AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool fetch, bool sgnd) {
-  assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
+  func_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto &y = args[1], &r = res.back();
   r.val = (sgnd ? VarDescr::FiniteInt : VarDescr::FiniteUInt);
   int v = -1;
@@ -1065,7 +1069,7 @@ AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
 // builder store_uint(builder b, int x, int len) asm(x b len) "STUX";
 // builder store_int(builder b, int x, int len) asm(x b len) "STIX";
 AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool sgnd) {
-  assert(args.size() == 3 && res.size() == 1);
+  func_assert(args.size() == 3 && res.size() == 1);
   auto& z = args[2];
   if (z.is_int_const() && z.int_const > 0 && z.int_const <= 256) {
     z.unused();
@@ -1075,7 +1079,7 @@ AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
 }
 
 AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool fetch) {
-  assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
+  func_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto& y = args[1];
   int v = -1;
   if (y.is_int_const() && y.int_const > 0 && y.int_const <= 256) {
@@ -1090,7 +1094,7 @@ AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
 
 // <type> <type>_at(tuple t, int index) asm "INDEXVAR";
 AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
-  assert(args.size() == 2 && res.size() == 1);
+  func_assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
@@ -1101,7 +1105,7 @@ AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, 
 
 // int null?(X arg)
 AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
-  assert(args.size() == 1 && res.size() == 1);
+  func_assert(args.size() == 1 && res.size() == 1);
   auto &x = args[0], &r = res[0];
   if (x.always_null() || x.always_not_null()) {
     x.unused();
@@ -1114,7 +1118,7 @@ AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, c
 
 bool compile_run_method(AsmOpList& code, std::vector<VarDescr>& res, std::vector<VarDescr>& args, int n,
                         bool has_value) {
-  assert(args.size() == (unsigned)n + 1 && res.size() == (unsigned)has_value);
+  func_assert(args.size() == (unsigned)n + 1 && res.size() == (unsigned)has_value);
   auto& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(14)) {
     x.unused();

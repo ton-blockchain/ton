@@ -1,0 +1,98 @@
+"Asm.fif" include
+
+{ { drop } depth 1- times } : clear-stack
+
+// Compare HASHEXT_SHA256 with SHA256U
+<{
+  x{0123456789abcdef} PUSHSLICE SHA256U
+
+  x{0123456789abcdef} PUSHSLICE 1 PUSHINT HASHEXT_SHA256
+
+  x{01} PUSHSLICE
+  x{2} PUSHSLICE
+  b{001101} PUSHSLICE NEWC STSLICE
+  b{0} PUSHSLICE
+  b{00101} PUSHSLICE NEWC STSLICE
+  x{6789a} PUSHSLICE
+  b{1} PUSHSLICE
+  b{0111100} PUSHSLICE
+  x{def} PUSHSLICE
+  9 PUSHINT HASHEXT_SHA256
+
+  x{01} PUSHSLICE
+  x{2} PUSHSLICE
+  b{001101} PUSHSLICE NEWC STSLICE
+  b{0} PUSHSLICE
+  b{00101} PUSHSLICE NEWC STSLICE
+  x{6789a} PUSHSLICE
+  b{1} PUSHSLICE
+  b{0111100} PUSHSLICE
+  x{def} PUSHSLICE
+  9 0 REVERSE
+  9 PUSHINT HASHEXTR_SHA256
+}>s
+0 runvmx abort"runvmx finished with exitcode != 0"
+. cr . cr . cr . cr .s
+
+// HASHEXTA
+<{
+  NEWC x{ff} PUSHSLICE STSLICER x{01234567} PUSHSLICE SHA256U 256 STUR ENDC CTOS
+  NEWC x{ff} PUSHSLICE STSLICER x{0123} PUSHSLICE x{4567} PUSHSLICE 2 PUSHINT HASHEXTA_SHA256 ENDC CTOS
+  NEWC x{ff} PUSHSLICE STSLICER x{4567} PUSHSLICE x{0123} PUSHSLICE 2 PUSHINT HASHEXTAR_SHA256 ENDC CTOS
+}>s
+0 runvmx abort"runvmx finished with exitcode != 0"
+csr. csr. csr. .s
+
+// Exceptions on errors
+<{ x{001122334455667} PUSHSLICE 1 PUSHINT HASHEXT_SHA256 }>s 0 runvmx .s 9 <> abort"exitcode != 9" clear-stack
+<{ x{00} PUSHSLICE x{11} PUSHSLICE 3 PUSHINT HASHEXT_SHA256 }>s 0 runvmx .s 5 <> abort"exitcode != 5" clear-stack
+<{ x{00} PUSHSLICE 1 PUSHINT 2 PUSHINT HASHEXT_SHA256 }>s 0 runvmx .s 7 <> abort"exitcode != 7" clear-stack
+<{ x{1234} PUSHSLICE 1 PUSHINT 100 HASHEXT }>s 0 runvmx .s 5 <> abort"exitcode != 5" clear-stack
+
+// Other hash functions
+<b "lorem ipsum" $, b> <s constant str
+<{
+  0 PUSHINT 0 HASHEXT
+  0 PUSHINT 1 HASHEXT
+  0 PUSHINT 2 HASHEXT
+  0 PUSHINT 3 HASHEXT
+  0 PUSHINT 4 HASHEXT
+}>s 0 runvmx .s abort"runvmx finished with exitcode != 0" clear-stack
+<{
+  str PUSHSLICE 1 PUSHINT 0 HASHEXT
+  str PUSHSLICE 1 PUSHINT 1 HASHEXT
+  str PUSHSLICE 1 PUSHINT 2 HASHEXT
+  str PUSHSLICE 1 PUSHINT 3 HASHEXT
+  str PUSHSLICE 1 PUSHINT 4 HASHEXT
+}>s 0 runvmx .s abort"runvmx finished with exitcode != 0" clear-stack
+<{
+  NEWC str PUSHSLICE 1 PUSHINT 4 HASHEXTA ENDC CTOS
+  NEWC str PUSHSLICE 1 PUSHINT 3 HASHEXTA ENDC CTOS
+  NEWC str PUSHSLICE 1 PUSHINT 2 HASHEXTA ENDC CTOS
+  NEWC str PUSHSLICE 1 PUSHINT 1 HASHEXTA ENDC CTOS
+  NEWC str PUSHSLICE 1 PUSHINT 0 HASHEXTA ENDC CTOS
+}>s 0 runvmx abort"runvmx finished with exitcode != 0"
+{ csr. } 5 times .s
+
+// Long string
+0 {
+  =: hash-idx
+  0 {
+    dup =: len
+    <b
+    @' len
+    { dup } {
+      dup 64 min =: c @' c -
+      swap
+      @' len dup * 1+ dup * 1+ dup * 1 @' c << mod
+      @' c u,
+      swap
+    }
+    while
+    drop
+    swap
+    1+
+  } 1024 times
+  <b x{F904} s, @' hash-idx 8 u, b> <s 0 runvmx .s abort"runvmx finished with exitcode != 0" clear-stack
+  @' hash-idx 1+
+} 5 times

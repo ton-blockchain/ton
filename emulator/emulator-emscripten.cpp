@@ -12,6 +12,9 @@ struct TransactionEmulationParams {
   uint64_t lt;
   td::optional<std::string> rand_seed_hex;
   bool ignore_chksig;
+  bool is_tick_tock;
+  bool is_tock;
+  bool debug_enabled;
 };
 
 td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const char* json) {
@@ -37,6 +40,19 @@ td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const
   TRY_RESULT(ignore_chksig, td::get_json_object_bool_field(obj, "ignore_chksig", false));
   params.ignore_chksig = ignore_chksig;
 
+  TRY_RESULT(debug_enabled, td::get_json_object_bool_field(obj, "debug_enabled", false));
+  params.debug_enabled = debug_enabled;
+
+  TRY_RESULT(is_tick_tock, td::get_json_object_bool_field(obj, "is_tick_tock", true, false));
+  params.is_tick_tock = is_tick_tock;
+
+  TRY_RESULT(is_tock, td::get_json_object_bool_field(obj, "is_tock", true, false));
+  params.is_tock = is_tock;
+
+  if (is_tock && !is_tick_tock) {
+    return td::Status::Error("Inconsistent parameters is_tick_tock=false, is_tock=true");
+  }
+
   return params;
 }
 
@@ -45,12 +61,14 @@ struct GetMethodParams {
   std::string data;
   int verbosity;
   td::optional<std::string> libs;
+  td::optional<std::string> prev_blocks_info;
   std::string address;
   uint32_t unixtime;
   uint64_t balance;
   std::string rand_seed_hex;
   int64_t gas_limit;
   int method_id;
+  bool debug_enabled;
 };
 
 td::Result<GetMethodParams> decode_get_method_params(const char* json) {
@@ -74,6 +92,11 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
     params.libs = libs;
   }
 
+  TRY_RESULT(prev_blocks_info, td::get_json_object_string_field(obj, "prev_blocks_info", true));
+  if (prev_blocks_info.size() > 0) {
+    params.prev_blocks_info = prev_blocks_info;
+  }
+
   TRY_RESULT(address, td::get_json_object_string_field(obj, "address", false));
   params.address = address;
 
@@ -94,6 +117,9 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
 
   TRY_RESULT(method_id, td::get_json_object_int_field(obj, "method_id", false));
   params.method_id = method_id;
+
+  TRY_RESULT(debug_enabled, td::get_json_object_bool_field(obj, "debug_enabled", false));
+  params.debug_enabled = debug_enabled;
 
   return params;
 }
@@ -123,12 +149,18 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
         !transaction_emulator_set_lt(em, decoded_params.lt) ||
         !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
         !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
+        !transaction_emulator_set_debug_enabled(em, decoded_params.debug_enabled) ||
         !rand_seed_set) {
         transaction_emulator_destroy(em);
         return strdup(R"({"fail":true,"message":"Can't set params"})");
     }
 
-    auto tx = transaction_emulator_emulate_transaction(em, account, message);
+    const char *result;
+    if (decoded_params.is_tick_tock) {
+      result = transaction_emulator_emulate_tick_tock_transaction(em, account, decoded_params.is_tock);
+    } else {
+      result = transaction_emulator_emulate_transaction(em, account, message);
+    }
 
     transaction_emulator_destroy(em);
 
@@ -136,12 +168,12 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
     {
         td::JsonBuilder jb;
         auto json_obj = jb.enter_object();
-        json_obj("output", td::JsonRaw(td::Slice(tx)));
+        json_obj("output", td::JsonRaw(td::Slice(result)));
         json_obj("logs", logger.get_string());
         json_obj.leave();
         output = strdup(jb.string_builder().as_cslice().c_str());
     }
-    free((void*) tx);
+    free((void*) result);
 
     return output;
 }
@@ -161,11 +193,14 @@ const char *run_get_method(const char *params, const char* stack, const char* co
     auto tvm = tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
 
     if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
-        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime,
-          decoded_params.balance, decoded_params.rand_seed_hex.c_str(), config) ||
-        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit))) {
-      tvm_emulator_destroy(tvm);
-      return strdup(R"({"fail":true,"message":"Can't set params"})");
+        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
+                             decoded_params.rand_seed_hex.c_str(), config) ||
+        (decoded_params.prev_blocks_info &&
+         !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
+        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
+        !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
+        tvm_emulator_destroy(tvm);
+        return strdup(R"({"fail":true,"message":"Can't set params"})");
     }
 
     auto res = tvm_emulator_run_get_method(tvm, decoded_params.method_id, stack);
