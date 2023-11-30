@@ -32,9 +32,14 @@ tests = [
     ["jetton-minter/jetton-minter.fc", 9028309926287301331466371999814928201427184114165428257502393474125007156494],
     ["gg-marketplace/nft-marketplace-v2.fc", 92199806964112524639740773542356508485601908152150843819273107618799016205930],
     ["jetton-wallet/jetton-wallet.fc", 86251125787443633057458168028617933212663498001665054651523310772884328206542],
+
+    # 2023-11-30 update: source files in nominators.fc were included in the wrong order.
+    # FunC v0.4.5 has more strict function ordering rules, so nominators.fc was changed to fix compilation error.
     ["whales-nominators/nominators.fc", 64989185004203073400683226767264384908045055609681310145961012819587514238303],
 
 
+    # 2023-11-30 update: __tact_verify_address was optimized out because it is not marked as impure.
+    # In FunC v0.4.5 all functions are impure by default, so it is not optimized out anymore.
     ["tact-examples/treasure_Treasure.code.fc", 60348994682690664630455354672413353326734169633005380820521037982881341539662],
     ["tact-examples/jetton_SampleJetton.code.fc", 70075170397574779402104489003369966746142305378310979462742589461276337980270],
     ["tact-examples/jetton_JettonDefaultWallet.code.fc", 12710666798574325848563501630728896968396634924087634181325633274893128358499],

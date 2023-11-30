@@ -1,5 +1,6 @@
 ;; Standard library for funC
 ;;
+#pragma version >=0.4.5;
 
 {-
     This file is part of TON FunC Standard Library.
