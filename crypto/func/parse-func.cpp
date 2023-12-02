@@ -912,7 +912,7 @@ Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
     res->set_val(t);
     res->flags = Expr::_IsRvalue;
     res->deduce_type(lex.cur());
-      }
+  }
   return res;
 }
 
