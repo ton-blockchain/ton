@@ -49,7 +49,7 @@ class SmartContract : public td::CntObject {
     td::Ref<vm::Cell> actions;
     td::int32 code;
     td::int64 gas_used;
-    td::ConstBitPtr missing_library{0};
+    td::optional<td::Bits256> missing_library;
     std::string vm_log;
     static int output_actions_count(td::Ref<vm::Cell> list);
   };

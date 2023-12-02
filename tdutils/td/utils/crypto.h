@@ -151,7 +151,7 @@ class Sha256State {
   bool is_inited_ = false;
 };
 
-void md5(Slice input, MutableSlice output);
+[[deprecated("MD5 is not cryptographically secure")]] void md5(Slice input, MutableSlice output);
 
 void pbkdf2_sha256(Slice password, Slice salt, int iteration_count, MutableSlice dest);
 void pbkdf2_sha512(Slice password, Slice salt, int iteration_count, MutableSlice dest);

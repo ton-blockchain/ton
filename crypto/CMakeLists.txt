@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
@@ -236,6 +236,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/SmartContractCode.cpp
   smc-envelope/WalletInterface.cpp
   smc-envelope/WalletV3.cpp
+  smc-envelope/WalletV4.cpp
 
   smc-envelope/GenericAccount.h
   smc-envelope/HighloadWallet.h
@@ -246,6 +247,7 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/SmartContractCode.h
   smc-envelope/WalletInterface.h
   smc-envelope/WalletV3.h
+  smc-envelope/WalletV4.h
 )
 
 set(ED25519_TEST_SOURCE
@@ -373,10 +375,10 @@ add_library(src_parser ${PARSER_SOURCE})
 target_include_directories(src_parser PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(src_parser PUBLIC ton_crypto_core)
 
-add_library(ton_block ${BLOCK_SOURCE})
+add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api)
+target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
 
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)

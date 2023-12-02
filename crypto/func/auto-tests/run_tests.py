@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 
+
 def getenv(name, default=None):
     if name in os.environ:
         return os.environ[name]
@@ -12,10 +13,9 @@ def getenv(name, default=None):
         exit(1)
     return default
 
+
 FUNC_EXECUTABLE = getenv("FUNC_EXECUTABLE", "func")
 FIFT_EXECUTABLE = getenv("FIFT_EXECUTABLE", "fift")
-#FUNC_STDLIB = getenv("FUNC_STDLIB")
-FIFT_LIBS = getenv("FIFT_LIBS")
 TMP_DIR = tempfile.mkdtemp()
 COMPILED_FIF = os.path.join(TMP_DIR, "compiled.fif")
 RUNNER_FIF = os.path.join(TMP_DIR, "runner.fif")
@@ -25,21 +25,25 @@ if len(sys.argv) != 2:
     exit(1)
 TESTS_DIR = sys.argv[1]
 
+
 class ExecutionError(Exception):
     pass
+
 
 def compile_func(f):
     res = subprocess.run([FUNC_EXECUTABLE, "-o", COMPILED_FIF, "-SPA", f], capture_output=True, timeout=10)
     if res.returncode != 0:
         raise ExecutionError(str(res.stderr, "utf-8"))
 
+
 def run_runner():
-    res = subprocess.run([FIFT_EXECUTABLE, "-I", FIFT_LIBS, RUNNER_FIF], capture_output=True, timeout=10)
+    res = subprocess.run([FIFT_EXECUTABLE, RUNNER_FIF], capture_output=True, timeout=10)
     if res.returncode != 0:
         raise ExecutionError(str(res.stderr, "utf-8"))
     s = str(res.stdout, "utf-8")
     s = [x.strip() for x in s.split("\n")]
     return [x for x in s if x != ""]
+
 
 tests = [s for s in os.listdir(TESTS_DIR) if s.endswith(".fc")]
 tests.sort()
@@ -68,18 +72,18 @@ for ti, tf in enumerate(tests):
 
     # preprocess arithmetics in input
     for i in range(len(cases)):
-      inputs = cases[i][1].split(" ")
-      processed_inputs = ""
-      for in_arg in inputs:
-        if "x{" in in_arg:
-          processed_inputs += in_arg
-          continue
-        # filter and execute
-        # is it safe enough?
-        filtered_in = "".join(filter(lambda x: x in "0x123456789()+-*/<>", in_arg))
-        if(filtered_in):
-          processed_inputs += str(eval(filtered_in)) + " ";
-      cases[i][1] = processed_inputs.strip()
+        inputs = cases[i][1].split(" ")
+        processed_inputs = ""
+        for in_arg in inputs:
+            if "x{" in in_arg:
+                processed_inputs += in_arg
+                continue
+            # filter and execute
+            # is it safe enough?
+            filtered_in = "".join(filter(lambda x: x in "0x123456789()+-*/<>", in_arg))
+            if filtered_in:
+                processed_inputs += str(eval(filtered_in)) + " "
+        cases[i][1] = processed_inputs.strip()
 
     with open(RUNNER_FIF, "w") as f:
         print("\"%s\" include <s constant code" % COMPILED_FIF, file=f)

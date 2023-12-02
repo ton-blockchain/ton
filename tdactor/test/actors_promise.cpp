@@ -210,7 +210,7 @@ TEST(Actor, promise_future) {
 TEST(Actor2, actor_lost_promise) {
   using namespace td::actor;
   using namespace td;
-  Scheduler scheduler({1}, Scheduler::Paused);
+  Scheduler scheduler({1}, false, Scheduler::Paused);
 
   auto watcher = td::create_shared_destructor([] {
     LOG(ERROR) << "STOP";

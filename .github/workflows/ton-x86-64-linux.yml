@@ -15,7 +15,7 @@ jobs:
       with:
         submodules: 'recursive'
 
-    - uses: cachix/install-nix-action@v18
+    - uses: cachix/install-nix-action@v23
       with:
         extra_nix_config: |
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}

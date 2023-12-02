@@ -155,7 +155,7 @@ td::Result<td::uint32> GenericAccount::get_wallet_id(const SmartContract& sc) {
   return TRY_VM([&]() -> td::Result<td::uint32> {
     auto answer = sc.run_get_method("wallet_id");
     if (!answer.success) {
-      return td::Status::Error("seqno get method failed");
+      return td::Status::Error("wallet_id get method failed");
     }
     return static_cast<td::uint32>(answer.stack.write().pop_long_range(std::numeric_limits<td::uint32>::max()));
   }());

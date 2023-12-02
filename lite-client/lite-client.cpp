@@ -4307,7 +4307,7 @@ int main(int argc, char* argv[]) {
   });
 #endif
 
-  vm::init_op_cp0(true);  // enable vm debug
+  vm::init_vm(true).ensure();  // enable vm debug
 
   td::actor::Scheduler scheduler({2});
 

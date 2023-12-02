@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-22.05";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.05";
     nixpkgs-trunk.url = "github:nixos/nixpkgs";
     flake-compat = {
       url = "github:edolstra/flake-compat";
@@ -28,14 +28,14 @@
           # then we can skip these manual overrides
           # and switch between pkgsStatic and pkgsStatic.pkgsMusl for static glibc and musl builds
             if !staticExternalDeps then [
-              openssl_1_1
+              openssl
               zlib
               libmicrohttpd
               libsodium
               secp256k1
             ] else
               [
-                (openssl_1_1.override { static = true; }).dev
+                (openssl.override { static = true; }).dev
                 (zlib.override { shared = false; }).dev
             ]
             ++ optionals (!stdenv.isDarwin) [ pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev secp256k1 ]
@@ -50,6 +50,8 @@
           ] ++ optionals (staticGlibc || staticMusl) [
             "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
             "-DCMAKE_LINK_SEARCH_END_STATIC=ON"
+          ] ++ optionals (stdenv.isDarwin) [
+            "-DCMAKE_CXX_FLAGS=-stdlib=libc++" "-DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=11.7"
           ];
 
           LDFLAGS = optional staticExternalDeps (concatStringsSep " " [

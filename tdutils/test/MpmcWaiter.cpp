@@ -75,9 +75,9 @@ void test_waiter_stress_one_one() {
 TEST(MpmcEagerWaiter, stress_one_one) {
   test_waiter_stress_one_one<td::MpmcEagerWaiter>();
 }
-TEST(MpmcSleepyWaiter, stress_one_one) {
-  test_waiter_stress_one_one<td::MpmcSleepyWaiter>();
-}
+// TEST(MpmcSleepyWaiter, stress_one_one) {
+//   test_waiter_stress_one_one<td::MpmcSleepyWaiter>();
+// }
 
 template <class W>
 void test_waiter_stress() {

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
 
