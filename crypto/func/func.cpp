@@ -40,6 +40,7 @@ bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
 GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
 GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
+GlobalPragma pragma_remove_unused_functions{"remove-unused-functions"};
 std::string generated_from, boc_output_filename;
 ReadCallback::Callback read_callback;
 
@@ -156,6 +157,45 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
   }
 }
 
+static std::set<SymDef*> used_syms;
+
+void mark_sym_used(SymDef* sym);
+
+void mark_sym_used_dfs(Op* op) {
+  if (!op) {
+    return;
+  }
+  if (op->fun_ref) {
+    mark_sym_used(op->fun_ref);
+  }
+  mark_sym_used_dfs(op->next.get());
+  mark_sym_used_dfs(op->block0.get());
+  mark_sym_used_dfs(op->block1.get());
+}
+
+void mark_sym_used(SymDef* sym) {
+  if (!used_syms.insert(sym).second) {
+    return;
+  }
+  auto func_val = dynamic_cast<SymValCodeFunc*>(sym->value);
+  if (!func_val || !func_val->code) {
+    return;
+  }
+  mark_sym_used_dfs(func_val->code->ops.get());
+}
+
+void mark_used_symbols() {
+  for (SymDef* func_sym : glob_func) {
+    SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
+    func_assert(func_val);
+    std::string name = sym::symbols.get_name(func_sym->sym_idx);
+    if (func_val->method_id.not_null() || name == "main" || name == "recv_internal" || name == "recv_external" ||
+        name == "run_ticktock" || name == "split_prepare" || name == "split_install") {
+      mark_sym_used(func_sym);
+    }
+  }
+}
+
 int generate_output(std::ostream &outs, std::ostream &errs) {
   if (asm_preamble) {
     outs << "\"Asm.fif\" include\n";
@@ -164,7 +204,13 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   if (program_envelope) {
     outs << "PROGRAM{\n";
   }
+  if (pragma_remove_unused_functions.enabled()) {
+    mark_used_symbols();
+  }
   for (SymDef* func_sym : glob_func) {
+    if (pragma_remove_unused_functions.enabled() && !used_syms.count(func_sym)) {
+      continue;
+    }
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     func_assert(func_val);
     std::string name = sym::symbols.get_name(func_sym->sym_idx);
@@ -176,12 +222,18 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
     }
   }
   for (SymDef* gvar_sym : glob_vars) {
+    if (pragma_remove_unused_functions.enabled() && !used_syms.count(gvar_sym)) {
+      continue;
+    }
     func_assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
     std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
     outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
   int errors = 0;
   for (SymDef* func_sym : glob_func) {
+    if (pragma_remove_unused_functions.enabled() && !used_syms.count(func_sym)) {
+      continue;
+    }
     try {
       generate_output_func(func_sym, outs, errs);
     } catch (src::Error& err) {
@@ -239,6 +291,7 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
     }
     pragma_allow_post_modification.check_enable_in_libs();
     pragma_compute_asm_ltr.check_enable_in_libs();
+    pragma_remove_unused_functions.check_enable_in_libs();
     return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
     errs << "fatal: " << fatal << std::endl;

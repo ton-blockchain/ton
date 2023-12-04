@@ -1778,7 +1778,7 @@ class GlobalPragma {
   bool enabled_ = false;
   std::vector<SrcLocation> locs_;
 };
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
 
 /*
  *

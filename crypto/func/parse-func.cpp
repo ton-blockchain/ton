@@ -1710,6 +1710,8 @@ void parse_pragma(Lexer& lex) {
     pragma_allow_post_modification.enable(lex.cur().loc);
   } else if (pragma_name == pragma_compute_asm_ltr.name()) {
     pragma_compute_asm_ltr.enable(lex.cur().loc);
+  } else if (pragma_name == pragma_remove_unused_functions.name()) {
+    pragma_remove_unused_functions.enable(lex.cur().loc);
   } else {
     lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
   }
