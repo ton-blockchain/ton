@@ -72,6 +72,14 @@ int main(int argc, char* argv[]) {
                  funC::boc_output_filename = arg.str();
                  funC::asm_preamble = funC::program_envelope = true;
                });
+  p.add_checked_option('\0', "pragma", "Enable global #pragma:", [](td::Slice arg) {
+    funC::GlobalPragma* pragma = funC::pragma_by_name(arg.str());
+    if (pragma == nullptr) {
+      return td::Status::Error(std::string{"unknown pragma `"} + arg.str() + "`");
+    }
+    pragma->enable_global();
+    return td::Status::OK();
+  });
   p.add_option('s', "short-version", "Output semantic version of FunC and exit",
                []() {
                  std::cout << funC::func_version << "\n";

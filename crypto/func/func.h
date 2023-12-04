@@ -1755,12 +1755,16 @@ class GlobalPragma {
   bool enabled() const {
     return enabled_;
   }
+  void enable_global() {
+    enabled_ = true;
+    enabled_globally_ = true;
+  }
   void enable(SrcLocation loc) {
     enabled_ = true;
     locs_.push_back(std::move(loc));
   }
   void check_enable_in_libs() {
-    if (locs_.empty()) {
+    if (locs_.empty() || enabled_globally_) {
       return;
     }
     for (const SrcLocation& loc : locs_) {
@@ -1776,9 +1780,23 @@ class GlobalPragma {
  private:
   std::string name_;
   bool enabled_ = false;
+  bool enabled_globally_ = false;
   std::vector<SrcLocation> locs_;
 };
 extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
+
+inline GlobalPragma* pragma_by_name(const std::string& name) {
+  if (name == pragma_allow_post_modification.name()) {
+    return &pragma_allow_post_modification;
+  }
+  if (name == pragma_compute_asm_ltr.name()) {
+    return &pragma_compute_asm_ltr;
+  }
+  if (name == pragma_remove_unused_functions.name()) {
+    return &pragma_remove_unused_functions;
+  }
+  return nullptr;
+}
 
 /*
  *
