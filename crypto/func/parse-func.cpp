@@ -905,7 +905,7 @@ Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
     check_global_func(lex.cur(), name);
     SrcLocation loc{lex.cur().loc};
     lex.next();
-    auto x = parse_expr15(lex, code, false);
+    auto x = parse_expr14(lex, code, false);
     x->chk_rvalue(lex.cur());
     res = new Expr{Expr::_Apply, name, {res, x}};
     res->here = loc;
