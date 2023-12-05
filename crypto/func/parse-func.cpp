@@ -793,7 +793,7 @@ Expr* parse_expr75(Lexer& lex, CodeBlob& code, bool nv) {
   }
 }
 
-// parse E { (* | / | % | /% ) E }
+// parse E { ( * | / | % | /% ) E }
 Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr75(lex, code, nv);
   while (lex.tp() == '*' || lex.tp() == '/' || lex.tp() == '%' || lex.tp() == _DivMod || lex.tp() == _DivC ||
@@ -852,7 +852,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse E { ( << | >> | >>~ | >>^ ) E }
+// parse E { ( << | >> | ~>> | ^>> ) E }
 Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr20(lex, code, nv);
   while (lex.tp() == _Lshift || lex.tp() == _Rshift || lex.tp() == _RshiftC || lex.tp() == _RshiftR) {
@@ -895,17 +895,17 @@ Expr* parse_expr15(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse E [ ( & | ^ | '|' ) E ]
-Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
+// parse E { ( '|' | & | ^ ) E }
+Expr* parse_expr14(Lexer& lex, CodeBlob& code, const bool nv) {
   Expr* res = parse_expr15(lex, code, nv);
-  if (lex.tp() == '&' || lex.tp() == '^' || lex.tp() == '|') {
+  while (lex.tp() == '|' || lex.tp() == '&' || lex.tp() == '^') {
     res->chk_rvalue(lex.cur());
     int t = lex.tp();
-    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
+    const sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
     check_global_func(lex.cur(), name);
-    SrcLocation loc{lex.cur().loc};
+    const SrcLocation loc{lex.cur().loc};
     lex.next();
-    auto x = parse_expr14(lex, code, false);
+    auto x = parse_expr15(lex, code, false);
     x->chk_rvalue(lex.cur());
     res = new Expr{Expr::_Apply, name, {res, x}};
     res->here = loc;
@@ -926,7 +926,7 @@ Expr* parse_expr13(Lexer& lex, CodeBlob& code, bool nv) {
     auto x = parse_expr(lex, code, false);
     x->chk_rvalue(lex.cur());
     lex.expect(':');
-    auto y = parse_expr14(lex, code, false);
+    auto y = parse_expr13(lex, code, false);
     y->chk_rvalue(lex.cur());
     res = new Expr{Expr::_CondExpr, {res, x, y}};
     res->here = loc;
