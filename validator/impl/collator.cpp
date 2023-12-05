@@ -703,6 +703,11 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
+  if (!is_masterchain()) {
+    block_limits_->bytes = {131072 / 3, 524288 / 3, 1048576 / 3};
+    block_limits_->gas = {2000000 / 3, 10000000 / 3, 20000000 / 3};
+    block_limits_->lt_delta = {20, 80, 100};
+  }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
   LOG(DEBUG) << "block limits: gas [" << block_limits_->gas.underload() << ", " << block_limits_->gas.soft() << ", "
@@ -3275,6 +3280,10 @@ bool Collator::process_inbound_internal_messages() {
 bool Collator::process_inbound_external_messages() {
   if (skip_extmsg_) {
     LOG(INFO) << "skipping processing of inbound external messages";
+    return true;
+  }
+  if (out_msg_queue_->get_root_cell().not_null() && out_msg_queue_->get_root_cell()->get_depth() > 12) {
+    LOG(INFO) << "skipping processing of inbound external messages: out msg queue is too big";
     return true;
   }
   bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
