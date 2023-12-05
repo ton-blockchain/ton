@@ -200,7 +200,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   if (asm_preamble) {
     outs << "\"Asm.fif\" include\n";
   }
-  outs << "// automatically generated from " << generated_from << std::endl;
+  outs << "// automatically generated from " << generated_from << "by funC v" << func_version << std::endl;
   if (program_envelope) {
     outs << "PROGRAM{\n";
   }
