@@ -3,6 +3,7 @@ sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev
 
 if [ ! -d "build" ]; then
   mkdir build
+  cd build
 else
   cd build
   rm -rf .ninja* CMakeCache.txt

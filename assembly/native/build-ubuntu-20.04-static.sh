@@ -4,6 +4,7 @@ sudo apt-get install -y build-essential git cmake ninja-build
 
 if [ ! -d "build" ]; then
   mkdir build
+  cd build
 else
   cd build
   rm -rf .ninja* CMakeCache.txt
