@@ -371,6 +371,9 @@ if (LATEX_FOUND)
   add_latex_document(doc/fiftbase.tex TARGET_NAME fift_basic_description)
   add_latex_document(doc/catchain.tex TARGET_NAME catchain_consensus_description)
 endif()
+if (NOT LATEX_FOUND)
+  message(STATUS "Could NOT find LATEX (this is NOT an error)")
+else()
 #END internal
 
 function(target_link_libraries_system target)

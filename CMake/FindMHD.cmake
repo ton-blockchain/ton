@@ -2,7 +2,7 @@
 # Once done this will define
 #
 #  MHD_FOUND - system has MHD
-#  MHD_INCLUDE_DIRS - the MHD include directory
+#  MHD_INCLUDE_DIR - the MHD include directory
 #  MHD_LIBRARY - Link these to use MHD
 
 find_path(
@@ -17,8 +17,9 @@ find_library(
     DOC "microhttpd library"
 )
 
-set(MHD_INCLUDE_DIRS ${MHD_INCLUDE_DIR})
-set(MHD_LIBRARIES ${MHD_LIBRARY})
+if (MHD_LIBRARY)
+  message(STATUS "Found MHD: ${MHD_LIBRARY}")
+endif()
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(MHD DEFAULT_MSG MHD_INCLUDE_DIR MHD_LIBRARY)
