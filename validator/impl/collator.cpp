@@ -1823,6 +1823,17 @@ bool Collator::init_utime() {
   CHECK(config_);
   // consider unixtime and lt from previous block(s) of the same shardchain
   prev_now_ = prev_state_utime_;
+  // Extend collator timeout if previous block is too old
+  td::Timestamp new_timeout = td::Timestamp::in(std::min(30.0, (td::Clocks::system() - (double)prev_now_) / 2));
+  if (timeout < new_timeout) {
+    double add = new_timeout.at() - timeout.at();
+    timeout = new_timeout;
+    queue_cleanup_timeout_ += add;
+    soft_timeout_ += add;
+    medium_timeout_ += add;
+    alarm_timestamp() = timeout;
+  }
+
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
   now_ = std::max<td::uint32>(prev + 1, (unsigned)std::time(nullptr));
   if (now_ > now_upper_limit_) {
