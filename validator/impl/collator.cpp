@@ -704,9 +704,9 @@ bool Collator::unpack_last_mc_state() {
   }
   block_limits_ = limits.move_as_ok();
   if (!is_masterchain()) {
-    block_limits_->bytes = {131072 / 3, 524288 / 3, 1048576 / 3};
-    block_limits_->gas = {2000000 / 3, 10000000 / 3, 20000000 / 3};
-    block_limits_->lt_delta = {20, 80, 100};
+    // block_limits_->bytes = {131072 / 3, 524288 / 3, 1048576 / 3};
+    // block_limits_->gas = {2000000 / 3, 10000000 / 3, 20000000 / 3};
+    block_limits_->lt_delta = {20, 180, 200};
   }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
@@ -3679,10 +3679,10 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
                sibling->is_fsm_merge() && now >= info.fsm_utime() && now >= sibling->fsm_utime() &&
                (depth > wc_info->max_split || (info.want_merge_ && sibling->want_merge_))) {
       // force merge
-      info.before_merge_ = true;
-      changed = true;
-      LOG(INFO) << "force immediate merging of shard " << info.shard().to_str() << " with "
-                << sibling->shard().to_str();
+      // info.before_merge_ = true;
+      // changed = true;
+      // LOG(INFO) << "force immediate merging of shard " << info.shard().to_str() << " with "
+      //           << sibling->shard().to_str();
     }
   }
   if (info.before_merge_ != old_before_merge) {
@@ -4139,7 +4139,7 @@ bool Collator::check_block_overload() {
             << " size_estimate=" << block_size_estimate_;
   auto cl = block_limit_status_->classify();
   if (cl <= block::ParamLimits::cl_underload) {
-    underload_history_ |= 1;
+    // underload_history_ |= 1;
     LOG(INFO) << "block is underloaded";
   } else if (cl >= block::ParamLimits::cl_soft) {
     overload_history_ |= 1;
