@@ -81,8 +81,8 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
-    // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
-    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
+    // default timeout is 25 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
+    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 10.0))
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
@@ -2175,18 +2175,28 @@ bool Collator::out_msg_queue_cleanup() {
     }
   }
 
-  auto res = out_msg_queue_->filter([&](vm::CellSlice& cs, td::ConstBitPtr key, int n) -> int {
+  auto queue_root = out_msg_queue_->get_root_cell();
+  if (queue_root.is_null()) {
+    LOG(DEBUG) << "out_msg_queue is empty";
+    return true;
+  }
+  auto old_out_msg_queue = std::make_unique<vm::AugmentedDictionary>(queue_root, 352, block::tlb::aug_OutMsgQueue);
+
+  int deleted = 0;
+  bool fail = false;
+  old_out_msg_queue->check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
     assert(n == 352);
+    vm::CellSlice& cs = value.write();
     // LOG(DEBUG) << "key is " << key.to_hex(n);
     if (queue_cleanup_timeout_.is_in_past(td::Timestamp::now())) {
       LOG(WARNING) << "cleaning up outbound queue takes too long, ending";
       outq_cleanup_partial_ = true;
-      return (1 << 30) + 1;  // retain all remaining outbound queue entries including this one without processing
+      return false;  // retain all remaining outbound queue entries including this one without processing
     }
     if (block_full_) {
       LOG(WARNING) << "BLOCK FULL while cleaning up outbound queue, cleanup completed only partially";
       outq_cleanup_partial_ = true;
-      return (1 << 30) + 1;  // retain all remaining outbound queue entries including this one without processing
+      return false;  // retain all remaining outbound queue entries including this one without processing
     }
     block::EnqueuedMsgDescr enq_msg_descr;
     unsigned long long created_lt;
@@ -2195,7 +2205,8 @@ bool Collator::out_msg_queue_cleanup() {
           && enq_msg_descr.check_key(key)      // check key
           && enq_msg_descr.lt_ == created_lt)) {
       LOG(ERROR) << "cannot unpack EnqueuedMsg with key " << key.to_hex(n);
-      return -1;
+      fail = true;
+      return false;
     }
     LOG(DEBUG) << "scanning outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << ","
                << enq_msg_descr.hash_.to_hex() << ") enqueued_lt=" << enq_msg_descr.enqueued_lt_;
@@ -2213,20 +2224,23 @@ bool Collator::out_msg_queue_cleanup() {
     if (delivered) {
       LOG(DEBUG) << "outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << "," << enq_msg_descr.hash_.to_hex()
                  << ") enqueued_lt=" << enq_msg_descr.enqueued_lt_ << " has been already delivered, dequeueing";
+      ++deleted;
+      out_msg_queue_->lookup_delete_with_extra(key, n);
       if (!dequeue_message(std::move(enq_msg_descr.msg_env_), deliver_lt)) {
         fatal_error(PSTRING() << "cannot dequeue outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << ","
                               << enq_msg_descr.hash_.to_hex() << ") by inserting a msg_export_deq record");
-        return -1;
+        fail = true;
+        return false;
       }
       register_out_msg_queue_op();
       if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
         block_full_ = true;
       }
     }
-    return !delivered;
-  });
-  LOG(DEBUG) << "deleted " << res << " messages from out_msg_queue";
-  if (res < 0) {
+    return true;
+  }, false, true /* random order */);
+  LOG(INFO) << "deleted " << deleted << " messages from out_msg_queue";
+  if (fail) {
     return fatal_error("error scanning/updating OutMsgQueue");
   }
   auto rt = out_msg_queue_->get_root();
