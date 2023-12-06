@@ -373,7 +373,7 @@ if (LATEX_FOUND)
 endif()
 if (NOT LATEX_FOUND)
   message(STATUS "Could NOT find LATEX (this is NOT an error)")
-else()
+endif()
 #END internal
 
 function(target_link_libraries_system target)
