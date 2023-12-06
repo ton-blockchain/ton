@@ -46,7 +46,7 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
   cached_collated_block_->promises.push_back(std::move(promise));
   run_collate_query(
       shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
-      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_, td::Timestamp::in(10.0),
+      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_, td::Timestamp::in(25.0),
       [SelfId = actor_id(this), cache = cached_collated_block_](td::Result<BlockCandidate> R) {
         td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
       });
