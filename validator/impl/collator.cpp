@@ -81,8 +81,8 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
-    // default timeout is 25 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
-    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 10.0))
+    // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
+    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
@@ -2183,8 +2183,10 @@ bool Collator::out_msg_queue_cleanup() {
   auto old_out_msg_queue = std::make_unique<vm::AugmentedDictionary>(queue_root, 352, block::tlb::aug_OutMsgQueue);
 
   int deleted = 0;
+  int total = 0;
   bool fail = false;
   old_out_msg_queue->check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
+    ++total;
     assert(n == 352);
     vm::CellSlice& cs = value.write();
     // LOG(DEBUG) << "key is " << key.to_hex(n);
@@ -2239,9 +2241,13 @@ bool Collator::out_msg_queue_cleanup() {
     }
     return true;
   }, false, true /* random order */);
-  LOG(INFO) << "deleted " << deleted << " messages from out_msg_queue";
+  LOG(INFO) << "deleted " << deleted << " messages from out_msg_queue, processed " << total << " messages in total";
   if (fail) {
     return fatal_error("error scanning/updating OutMsgQueue");
+  }
+  if (outq_cleanup_partial_ || total > 8000) {
+    LOG(INFO) << "out_msg_queue too big, skipping importing external messages";
+    skip_extmsg_ = true;
   }
   auto rt = out_msg_queue_->get_root();
   if (verbosity >= 2) {
@@ -3693,10 +3699,10 @@ static int update_one_shard(block::McShardHash& info, const block::McShardHash* 
                sibling->is_fsm_merge() && now >= info.fsm_utime() && now >= sibling->fsm_utime() &&
                (depth > wc_info->max_split || (info.want_merge_ && sibling->want_merge_))) {
       // force merge
-      // info.before_merge_ = true;
-      // changed = true;
-      // LOG(INFO) << "force immediate merging of shard " << info.shard().to_str() << " with "
-      //           << sibling->shard().to_str();
+      info.before_merge_ = true;
+      changed = true;
+      LOG(INFO) << "force immediate merging of shard " << info.shard().to_str() << " with "
+                << sibling->shard().to_str();
     }
   }
   if (info.before_merge_ != old_before_merge) {
@@ -4153,7 +4159,7 @@ bool Collator::check_block_overload() {
             << " size_estimate=" << block_size_estimate_;
   auto cl = block_limit_status_->classify();
   if (cl <= block::ParamLimits::cl_underload) {
-    // underload_history_ |= 1;
+    underload_history_ |= 1;
     LOG(INFO) << "block is underloaded";
   } else if (cl >= block::ParamLimits::cl_soft) {
     overload_history_ |= 1;
