@@ -26,7 +26,8 @@ jobs:
     - name: Configure & Build
       run: |
         cd assembly/wasm
-        ./fift-func-wasm-build-ubuntu.sh
+        chmod +x fift-func-wasm-build-ubuntu.sh
+        sudo ./fift-func-wasm-build-ubuntu.sh
 
     - name: Find & copy binaries
       run: |

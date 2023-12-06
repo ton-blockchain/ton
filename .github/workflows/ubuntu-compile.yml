@@ -18,7 +18,7 @@ jobs:
 
     - name: Build TONls
       run: |
-        cp assembly/native/build-ubuntu-20.04-shared.sh .
+        cp ./assembly/native/build-ubuntu-20.04-shared.sh ./
         chmod +x build-ubuntu-20.04-shared.sh
         sudo ./build-ubuntu-20.04-shared.sh
 
