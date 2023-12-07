@@ -1,7 +1,23 @@
 # The script builds funcfift compiler to WASM
 
-# dependencies:
-#sudo apt-get install -y build-essential git make cmake clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libevent-dev
+with_artifacts=false
+
+while getopts 'a' flag; do
+  case "${flag}" in
+    a) with_artifacts=true ;;
+    *) break
+       ;;
+  esac
+done
+
+apt update
+apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
+                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
+                    nodejs libsecp256k1-dev libsodium-dev automake libtool
+
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh 16 all
 
 export CC=$(which clang-16)
 export CXX=$(which clang++-16)
@@ -125,3 +141,21 @@ test $? -eq 0 || { echo "Can't configure TON with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 
 emmake make -j16 funcfiftlib func fift tlbc emulator-emscripten
+
+test $? -eq 0 || { echo "Can't compile TON with emmake "; exit 1; }
+
+if [ "$with_artifacts" = true ]; then
+  echo "Creating artifacts..."
+  rm -rf artifacts
+  mkdir artifacts
+  ls build/crypto
+  cp build/crypto/fift* artifacts
+  cp build/crypto/func* artifacts
+  cp build/crypto/tlbc* artifacts
+  cp build/emulator/emulator-emscripten* artifacts
+  cp -R crypto/smartcont artifacts
+  cp -R crypto/fift/lib artifacts
+  chown -R ${SUDO_USER}  artifacts/*
+fi
+
+

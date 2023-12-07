@@ -1,3 +1,16 @@
+with_tests=false
+with_artifacts=false
+
+
+while getopts 'ta' flag; do
+  case "${flag}" in
+    t) with_tests=true ;;
+    a) with_artifacts=true ;;
+    *) break
+       ;;
+  esac
+done
+
 apt-get update
 apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev
 
@@ -48,7 +61,7 @@ cmake -GNinja .. -DCMAKE_BUILD_TYPE=Release \
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
-if [ "$1" = "--with-tests" ]; then
+if [ "$with_tests" = true ]; then
 ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli \
       validator-engine lite-client pow-miner validator-engine-console \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
@@ -93,7 +106,23 @@ test $? -eq 0 || { echo "Can't strip final binaries"; exit 1; }
 ./build/lite-client/lite-client -V || exit 1
 ./build/crypto/fift  -V || exit 1
 
-if [ "$1" = "--with-tests" ]; then
+if [ "$with_artifacts" = true ]; then
+  echo "Creating artifacts..."
+  rm -rf artifacts
+  mkdir artifacts
+  cp build/storage/storage-daemon/storage-daemon build/storage/storage-daemon/storage-daemon-cli \
+     build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state \
+     build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli \
+     build/tonlib/libtonlibjson.so.0.5 build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy \
+     build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine \
+     build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.* \
+     artifacts
+  cp -R crypto/smartcont artifacts
+  cp -R crypto/fift/lib artifacts
+  chown -R ${SUDO_USER}  artifacts/*
+fi
+
+if [ "$with_tests" = true ]; then
   cd build
   ctest --output-on-failure -E "test-catchain|test-actors"
 fi

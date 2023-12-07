@@ -12,34 +12,11 @@ jobs:
       with:
         submodules: 'recursive'
 
-    - name: Install libraries
-      run: |
-        sudo apt update
-        sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip nodejs libsecp256k1-dev libsodium-dev automake libtool
-
-    - name: Setup compiler
-      run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 16 all
-
     - name: Configure & Build
       run: |
         cd assembly/wasm
         chmod +x fift-func-wasm-build-ubuntu.sh
-        sudo ./fift-func-wasm-build-ubuntu.sh
-
-    - name: Find & copy binaries
-      run: |
-        sudo chmod -R 644 build
-        mkdir artifacts
-        ls build/crypto
-        cp build/crypto/fift* artifacts
-        cp build/crypto/func* artifacts
-        cp build/crypto/tlbc* artifacts
-        cp build/emulator/emulator-emscripten* artifacts
-        cp -R crypto/smartcont artifacts
-        cp -R crypto/fift/lib artifacts
+        sudo ./fift-func-wasm-build-ubuntu.sh -a
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
