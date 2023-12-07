@@ -305,16 +305,16 @@ else()
     )
     
     find_library(
-        SODIUM_LIBRARY
+        SODIUM_LIBRARY_RELEASE
         NAMES sodium libsodium
         DOC "sodium library"
     )
     
     if (SODIUM_LIBRARY)
-      message(STATUS "Found Sodium: ${SODIUM_LIBRARY}")
+      message(STATUS "Found Sodium: ${SODIUM_LIBRARY_RELEASE}")
     endif()
     
     include(FindPackageHandleStandardArgs)
-    find_package_handle_standard_args(Sodium DEFAULT_MSG SODIUM_INCLUDE_DIR SODIUM_LIBRARY)
-    mark_as_advanced(SODIUM_INCLUDE_DIR SODIUM_LIBRARY)
+    find_package_handle_standard_args(Sodium DEFAULT_MSG SODIUM_INCLUDE_DIR SODIUM_LIBRARY_RELEASE)
+    mark_as_advanced(SODIUM_INCLUDE_DIR SODIUM_LIBRARY_RELEASE)
 endif()

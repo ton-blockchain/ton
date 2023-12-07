@@ -146,6 +146,7 @@ test $? -eq 0 || { echo "Can't compile TON with emmake "; exit 1; }
 
 if [ "$with_artifacts" = true ]; then
   echo "Creating artifacts..."
+  cd ..
   rm -rf artifacts
   mkdir artifacts
   ls build/crypto
