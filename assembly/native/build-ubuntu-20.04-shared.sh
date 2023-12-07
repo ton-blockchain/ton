@@ -48,7 +48,7 @@ cmake -GNinja .. -DCMAKE_BUILD_TYPE=Release \
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
-if [ $1 == "with-tests"]; then
+if [ $1 == "--with-tests" ]; then
 ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli \
       validator-engine lite-client pow-miner validator-engine-console \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \

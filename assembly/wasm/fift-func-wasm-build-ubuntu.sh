@@ -41,6 +41,7 @@ cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
 -DCMAKE_CXX_STANDARD=17 \
 -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
+-DOPENSSL_FOUND=1 \
 -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
 -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
 -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so \
@@ -62,8 +63,9 @@ cd emsdk
 ./emsdk install 3.1.19
 ./emsdk activate 3.1.19
 EMSDK_DIR=`pwd`
+ls $EMSDK_DIR
 
-source $EMSDK_DIR/emsdk_env.sh
+. $EMSDK_DIR/emsdk_env.sh
 export CC=$(which emcc)
 export CXX=$(which em++)
 export CCACHE_DISABLE=1
@@ -103,14 +105,17 @@ cd ../build
 emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release \
 -DZLIB_LIBRARY=$ZLIB_DIR/libz.a \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
+-DOPENSSL_FOUND=1 \
 -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
 -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
 -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a \
 -DOPENSSL_SSL_LIBRARY=$OPENSSL_DIR/libssl.a \
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
 -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" \
+-DSECP256K1_FOUND=1 \
 -DSECP256K1_INCLUDE_DIR=$SECP256K1_DIR/include \
 -DSECP256K1_LIBRARY=$SECP256K1_DIR/.libs/libsecp256k1.a \
+-DSODIUM_FOUND=1 \
 -DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
 -DSODIUM_LIBRARY_RELEASE=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \
 -DSODIUM_LIBRARY_DEBUG=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \

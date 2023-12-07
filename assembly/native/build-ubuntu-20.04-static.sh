@@ -113,23 +113,23 @@ cmake -GNinja .. \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
 -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \
--DZLIB_FOUND=1
+-DZLIB_FOUND=1 \
 -DZLIB_INCLUDE_DIR=$zlibPath/libz.a \
--DZLIB_LIBRARY=$zlibPath/ \
--DSECP256K1_FOUND=1
+-DZLIB_LIBRARY=$zlibPath \
+-DSECP256K1_FOUND=1 \
 -DSECP256K1_INCLUDE_DIR=$secp256k1Path/include \
 -DSECP256K1_LIBRARY=$secp256k1Path/.libs/libsecp256k1.a \
 -DSODIUM_FOUND=1 \
 -DSODIUM_INCLUDE=$sodiumPath/src/libsodium/include \
 -DSODIUM_LIBRARY=$sodiumPath/src/libsodium/.libs/libsodium.a \
--DMHD_FOUND=1
+-DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
 -DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
 -DCMAKE_CXX_FLAGS="-fPIC -static"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
-if [ $1 == "with-tests"]; then
+if [ $1 == "--with-tests" ]; then
 ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli \
       validator-engine lite-client pow-miner validator-engine-console \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
