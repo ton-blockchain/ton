@@ -114,6 +114,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::string get_session_logs_file() const override {
     return session_logs_file_;
   }
+  td::uint32 get_celldb_compress_depth() const override {
+    return celldb_compress_depth_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -167,6 +170,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_session_logs_file(std::string f) override {
     session_logs_file_ = std::move(f);
   }
+  void set_celldb_compress_depth(td::uint32 value) override {
+    celldb_compress_depth_ = value;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -209,6 +215,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   BlockSeqno truncate_{0};
   BlockSeqno sync_upto_{0};
   std::string session_logs_file_;
+  td::uint32 celldb_compress_depth_{0};
 };
 
 }  // namespace validator

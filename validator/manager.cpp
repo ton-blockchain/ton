@@ -1441,7 +1441,7 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast) {
 }
 
 void ValidatorManagerImpl::start_up() {
-  db_ = create_db_actor(actor_id(this), db_root_);
+  db_ = create_db_actor(actor_id(this), db_root_, opts_);
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
   td::mkdir(db_root_ + "/tmp/").ensure();
