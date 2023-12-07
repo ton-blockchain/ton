@@ -1,6 +1,6 @@
-sudo apt-get update
-sudo apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-sudo apt-get install -y build-essential git cmake ninja-build
+apt-get update
+apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+apt-get install -y build-essential git cmake ninja-build
 
 if [ ! -d "build" ]; then
   mkdir build
@@ -13,7 +13,7 @@ fi
 if [ ! -f llvm.sh ]; then
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  ./llvm.sh 16 all
   test $? -eq 0 || { echo "Can't install clang-16"; exit 1; }
 else
   echo "Using $(which clang-16)"
@@ -163,4 +163,15 @@ strip -g build/storage/storage-daemon/storage-daemon \
          build/adnl/adnl-proxy \
          build/emulator/libemulator.*
 
+# simple binaries' test
+./build/storage/storage-daemon/storage-daemon -V || exit 1
+./build/validator-engine/validator-engine -V || exit 1
+./build/lite-client/lite-client -V || exit 1
+./build/crypto/fift  -V || exit 1
+
 test $? -eq 0 || { echo "Can't strip final binaries"; exit 1; }
+
+if [ "$1" = "--with-tests" ]; then
+  cd build
+  ctest --output-on-failure -E "test-catchain|test-actors"
+fi

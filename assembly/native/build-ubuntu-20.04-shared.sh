@@ -1,5 +1,5 @@
-sudo apt-get update
-sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev
+apt-get update
+apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev
 
 if [ ! -d "build" ]; then
   mkdir build
@@ -12,7 +12,7 @@ fi
 if [ ! -f llvm.sh ]; then
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  ./llvm.sh 16 all
   test $? -eq 0 || { echo "Can't install clang-16"; exit 1; }
 else
   echo "Using $(which clang-16)"
@@ -69,7 +69,8 @@ cd ..
 
 strip -g build/storage/storage-daemon/storage-daemon \
          build/storage/storage-daemon/storage-daemon-cli \
-         build/crypto/fift build/crypto/tlbc build/crypto/func \
+         build/crypto/fift \
+         build/crypto/tlbc build/crypto/func \
          build/crypto/create-state \
          build/validator-engine-console/validator-engine-console \
          build/tonlib/tonlib-cli \
@@ -85,3 +86,14 @@ strip -g build/storage/storage-daemon/storage-daemon \
          build/emulator/libemulator.*
 
 test $? -eq 0 || { echo "Can't strip final binaries"; exit 1; }
+
+# simple binaries' test
+./build/storage/storage-daemon/storage-daemon -V || exit 1
+./build/validator-engine/validator-engine -V || exit 1
+./build/lite-client/lite-client -V || exit 1
+./build/crypto/fift  -V || exit 1
+
+if [ "$1" = "--with-tests" ]; then
+  cd build
+  ctest --output-on-failure -E "test-catchain|test-actors"
+fi
