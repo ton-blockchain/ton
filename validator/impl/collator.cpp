@@ -4167,7 +4167,6 @@ bool Collator::check_block_overload() {
   auto cl = block_limit_status_->classify();
   if (cl <= block::ParamLimits::cl_underload) {
     if (queue_too_big_) {
-      underload_history_ |= 1;
       LOG(INFO) << "block is underloaded, but don't set underload history because out msg queue is big";
     } else {
       underload_history_ |= 1;
