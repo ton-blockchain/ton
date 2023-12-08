@@ -2256,6 +2256,7 @@ bool Collator::out_msg_queue_cleanup() {
   if (outq_cleanup_partial_ || total > 8000) {
     LOG(INFO) << "out_msg_queue too big, skipping importing external messages";
     skip_extmsg_ = true;
+    queue_too_big_ = true;
   }
   auto rt = out_msg_queue_->get_root();
   if (verbosity >= 2) {
@@ -4167,8 +4168,13 @@ bool Collator::check_block_overload() {
             << " size_estimate=" << block_size_estimate_;
   auto cl = block_limit_status_->classify();
   if (cl <= block::ParamLimits::cl_underload) {
-    underload_history_ |= 1;
-    LOG(INFO) << "block is underloaded";
+    if (queue_too_big_) {
+      underload_history_ |= 1;
+      LOG(INFO) << "block is underloaded, but don't set underload history because out msg queue is big";
+    } else {
+      underload_history_ |= 1;
+      LOG(INFO) << "block is underloaded";
+    }
   } else if (cl >= block::ParamLimits::cl_soft) {
     overload_history_ |= 1;
     LOG(INFO) << "block is overloaded (category " << cl << ")";
