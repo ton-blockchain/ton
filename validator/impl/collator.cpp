@@ -1828,9 +1828,6 @@ bool Collator::init_utime() {
   if (timeout < new_timeout) {
     double add = new_timeout.at() - timeout.at();
     timeout = new_timeout;
-    queue_cleanup_timeout_ += add;
-    soft_timeout_ += add;
-    medium_timeout_ += add;
     alarm_timestamp() = timeout;
   }
 
