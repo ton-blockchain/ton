@@ -585,6 +585,12 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
 
 void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                             td::Promise<td::Ref<ShardState>> promise) {
+  auto it0 = block_state_cache_.find(handle->id());
+  if (it0 != block_state_cache_.end()) {
+    it0->second.ttl_ = td::Timestamp::in(1800.0);
+    promise.set_result(it0->second.state_);
+    return;
+  }
   auto it = wait_state_.find(handle->id());
   if (it == wait_state_.end()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
@@ -988,6 +994,9 @@ void ValidatorManagerImpl::get_block_by_seqno_from_db(AccountIdPrefixFull accoun
 }
 
 void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td::Ref<ShardState>> R) {
+  if (R.is_ok()) {
+    block_state_cache_[handle->id()] = {R.ok(), td::Timestamp::in(1800.0)};
+  }
   auto it = wait_state_.find(handle->id());
   if (it != wait_state_.end()) {
     if (R.is_error()) {
@@ -2372,6 +2381,13 @@ void ValidatorManagerImpl::alarm() {
     }
     for (auto &w : shard_client_waiters_) {
       w.second.check_timers();
+    }
+    for (auto it = block_state_cache_.begin(); it != block_state_cache_.end();) {
+      if (it->second.ttl_.is_in_past()) {
+        it = block_state_cache_.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
   alarm_timestamp().relax(check_waiters_at_);
