@@ -549,7 +549,7 @@ void ValidatorManagerImpl::register_block_handle(BlockHandle handle, td::Promise
 }
 
 void ValidatorManagerImpl::start_up() {
-  db_ = create_db_actor(actor_id(this), db_root_);
+  db_ = create_db_actor(actor_id(this), db_root_, opts_);
 }
 
 void ValidatorManagerImpl::try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) {
