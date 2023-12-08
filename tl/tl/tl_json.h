@@ -108,12 +108,13 @@ inline Status from_json(std::int32_t &to, JsonValue from) {
 inline Status from_json(bool &to, JsonValue from) {
   if (from.type() != JsonValue::Type::Boolean) {
     int32 x;
+    auto type = from.type();
     auto status = from_json(x, std::move(from));
     if (status.is_ok()) {
       to = x != 0;
       return Status::OK();
     }
-    return Status::Error(PSLICE() << "Expected bool, got " << from.type());
+    return Status::Error(PSLICE() << "Expected bool, got " << type);
   }
   to = from.get_boolean();
   return Status::OK();

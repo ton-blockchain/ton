@@ -52,7 +52,7 @@
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/cp0.h"
+#include "vm/vm.h"
 
 #include "auto/tl/lite_api.h"
 #include "ton/lite-tl.hpp"
@@ -655,7 +655,7 @@ int main(int argc, char* argv[]) {
   });
 #endif
 
-  vm::init_op_cp0();
+  vm::init_vm().ensure();
 
   td::actor::Scheduler scheduler({2});
   scheduler_ptr = &scheduler;

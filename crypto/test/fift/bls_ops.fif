@@ -1,0 +1,215 @@
+"Asm.fif" include
+"FiftExt.fif" include
+
+{ { drop } depth 1- times } : clear-stack
+
+// Map to g1
+."G1 Points:" cr
+x{7abd13983c76661a98659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92}
+<{ BLS_MAP_TO_G1 }>s 0 runvmx abort"Exitcode != 0" dup ."a1 = " csr. constant a1
+x{7a6990b38d5a7bfc47b38c5adeec60680637e8a5030dddd796e7befbec3585c54c378472daadd7756ce7a52adbea507c}
+<{ BLS_MAP_TO_G1 }>s 0 runvmx abort"Exitcode != 0" dup ."a2 = " csr. constant a2
+x{4e51f1317a8d7981f7bb061488b6e6528978209226ded49b02fd45fcb9b5ff8d33c360cd6db9661143a77edb34aac125}
+<{ BLS_MAP_TO_G1 }>s 0 runvmx abort"Exitcode != 0" dup ."a3 = " csr. constant a3
+x{0ca4a2a9a055367caa8c41facaae4c1f28360e2bfc70182904ff966011de9c02e6744bad6b0096e7ef3f21bd972386af}
+<{ BLS_MAP_TO_G1 }>s 0 runvmx abort"Exitcode != 0" dup ."a4 = " csr. constant a4
+x{1473aa897a1a166ce6c1b1d11e2401ad719b9c03f3a86d8dd63158d389667d66917d3845414a23c69ccef01762ec78d4}
+<{ BLS_MAP_TO_G1 }>s 0 runvmx abort"Exitcode != 0" dup ."a5 = " csr. constant a5
+
+// Validate points
+a1 a2 a3 a4 a5
+<{ { BLS_G1_INGROUP 33 THROWIFNOT } 5 times }>s 0 runvmx abort"Exitcode != 0"
+
+// Invalid point
+x{1d549908b5eb3c16f91174abe436c1a91442a57f922da813cb3dbc55de9e62bd63eac19a664eb8c3ea34b5a5c176d844}
+<{ BLS_G1_INGROUP }>s 0 runvmx abort"Exitcode != 0" abort"0 expected"
+
+// Zero
+."Zero:" cr
+a1 a2 a3 a4 a5
+<{ { BLS_G1_ISZERO 33 THROWIF } 5 times }>s 0 runvmx abort"Exitcode != 0"
+<{ BLS_G1_ZERO }>s 0 runvmx abort"Exitcode != 0" dup csr. constant zero
+zero <{ BLS_G1_INGROUP }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
+zero <{ BLS_G1_ISZERO }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
+
+// Addition
+."a1 + a2 + a3:" cr
+a1 a2 a3 <{ { BLS_G1_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+a3 a2 a1 <{ { BLS_G1_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+a2 a3 a1 <{ { BLS_G1_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 zero a2 a3 zero <{ { BLS_G1_ADD } 4 times }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Subtraction
+."a1 - a2:" cr
+a1 a2 <{ BLS_G1_SUB }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 zero a2 <{ BLS_G1_SUB BLS_G1_ADD }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Negation
+."-a1:" cr
+a1 <{ BLS_G1_NEG }>s 0 runvmx abort"Exitcode != 0" csr.
+zero a1 <{ BLS_G1_SUB }>s 0 runvmx abort"Exitcode != 0" csr.
+."0:" cr
+a1 a1 <{ BLS_G1_NEG BLS_G1_ADD }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 a1 <{ BLS_G1_SUB }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Multiplication:
+."a1 * 1:" cr
+a1 csr.
+a1 1 <{ BLS_G1_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+."a1 * 0:" cr
+zero csr.
+a1 0 <{ BLS_G1_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+."a1 * (-1):" cr
+a1 -1 <{ BLS_G1_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 <{ BLS_G1_NEG }>s 0 runvmx abort"Exitcode != 0" csr.
+."a1 * 3:" cr
+a1 3 <{ BLS_G1_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 a1 a1 <{ { BLS_G1_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+."a1 * 123:" cr
+a1 123 <{ BLS_G1_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+<{ a1 SLICE 100 INT BLS_G1_MUL a1 SLICE 23 INT BLS_G1_MUL BLS_G1_ADD }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 -123 <{ BLS_G1_MUL BLS_G1_NEG }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Multiexp
+."a1*111 + a2*222 + a3*(-333) + a4*0 + a5*1:" cr
+a1 111 a2 222 a3 -333 a4 0 a5 1 5 <{ BLS_G1_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 111 a2 222 a3 -333 a5 1 4 <{ BLS_G1_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+<{
+  a1 SLICE 111 INT BLS_G1_MUL
+  a2 SLICE 222 INT BLS_G1_MUL
+  a3 SLICE -333 INT BLS_G1_MUL
+  a5 SLICE
+  { BLS_G1_ADD } 3 times
+}>s 0 runvmx abort"Exitcode != 0" csr.
+."0:" cr
+zero csr.
+0 <{ BLS_G1_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+a1 0 1 <{ BLS_G1_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Map to g2
+."G2 Points:" cr
+x{cce34c6322b8f3b455617a975aff8b6eaedf04fbae74a8890db6bc3fab0475b94cd8fbde0e1182ce6993afd56ed6e71919cae59c891923b4014ed9e42d9f0e1a779d9a7edb64f5e2fd600012805fc773b5092af5d2f0c6c0946ee9ad8394bf19}
+<{ BLS_MAP_TO_G2 }>s 0 runvmx abort"Exitcode != 0" dup ."b1 = " csr. constant b1
+x{2faa65f3431da8f04b8d029f7699b6426eb31feb06b3429b13b99fde35d5c0ab17e67943802313a96b2252a69dfdcc6e56f5671d905984940f4b9ce3b410042457dff7ae5fd4be6a0b73cad5d0390ed379d658cb24e11973d80f98bd7ff64f19}
+<{ BLS_MAP_TO_G2 }>s 0 runvmx abort"Exitcode != 0" dup ."b2 = " csr. constant b2
+x{28619564e5cbb27c9e709d80b654f2eb1fd2c3ab435d7b97b4bd80638dbfe5b47e52df0e5be0b2c328357c5ddd8018acc6e739c4d132cc6f2b9797c210051acef9513ae54bb66de2a9ea8d02cbca7e96ce8193be1557d3128906e12f37913887}
+<{ BLS_MAP_TO_G2 }>s 0 runvmx abort"Exitcode != 0" dup ."b3 = " csr. constant b3
+x{66f14fc1bb199ece07fde0a7af3cb3d2719acd4bb5186ab4ddda7de6a9f96557df44f3d14264eb0fed79f53d972ddc4517e362a001c5e7c7217169a05d9e3cd82b521236737f5d564f5860139d027018d3b33605d51e48c77b51554bf1d5b24a}
+<{ BLS_MAP_TO_G2 }>s 0 runvmx abort"Exitcode != 0" dup ."b4 = " csr. constant b4
+x{a9e68db711778adb0bcee53ae4fd2d31605c1eff02ae38279eebfb45fc319964d33cb45ee32bbcb13663fe2131f79120af2d8ce26400ece9a7fb57ef9666c5b1b6f1856cb121b1c618b2dcfb359ffa63a08989c1f457b355958f589e7314610a}
+<{ BLS_MAP_TO_G2 }>s 0 runvmx abort"Exitcode != 0" dup ."b5 = " csr. constant b5
+
+// Validate points
+b1 b2 b3 b4 b5
+<{ { BLS_G2_INGROUP 33 THROWIFNOT } 5 times }>s 0 runvmx abort"Exitcode != 0"
+
+// Invalid point
+x{090069862cb1b1ac4241c4b1ed5f98edb95413db77f534bba7e85d9cb54d953c61416c0eeb5c65c6f0b494e9f59b2c9dfe8b4a9af75e1114b45ec60f6b5d2327cc05a6d9d6e76d7a9efd947302966d4f357bd48e5c3f950101c88c65b13bd5c7}
+<{ BLS_G2_INGROUP }>s 0 runvmx abort"Exitcode != 0" abort"0 expected"
+
+// Zero
+."Zero:" cr
+b1 b2 b3 b4 b5
+<{ { BLS_G2_ISZERO 33 THROWIF } 5 times }>s 0 runvmx abort"Exitcode != 0"
+<{ BLS_G2_ZERO }>s 0 runvmx abort"Exitcode != 0" dup csr. constant zero
+zero <{ BLS_G2_INGROUP }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
+zero <{ BLS_G2_ISZERO }>s 0 runvmx abort"Exitcode != 0" not abort"-1 expected"
+
+// Addition
+."b1 + b2 + b3:" cr
+b1 b2 b3 <{ { BLS_G2_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+b3 b2 b1 <{ { BLS_G2_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+b2 b3 b1 <{ { BLS_G2_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 zero b2 b3 zero <{ { BLS_G2_ADD } 4 times }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Subtraction
+."b1 - b2:" cr
+b1 b2 <{ BLS_G2_SUB }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 zero b2 <{ BLS_G2_SUB BLS_G2_ADD }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Negation
+."-b1:" cr
+b1 <{ BLS_G2_NEG }>s 0 runvmx abort"Exitcode != 0" csr.
+zero b1 <{ BLS_G2_SUB }>s 0 runvmx abort"Exitcode != 0" csr.
+."0:" cr
+b1 b1 <{ BLS_G2_NEG BLS_G2_ADD }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 b1 <{ BLS_G2_SUB }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Multiplication:
+."b1 * 1:" cr
+b1 csr.
+b1 1 <{ BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+."b1 * 0:" cr
+zero csr.
+b1 0 <{ BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+."b1 * (-1):" cr
+b1 -1 <{ BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 <{ BLS_G2_NEG }>s 0 runvmx abort"Exitcode != 0" csr.
+."b1 * 3:" cr
+b1 3 <{ BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 b1 b1 <{ { BLS_G2_ADD } 2 times }>s 0 runvmx abort"Exitcode != 0" csr.
+."b1 * 123:" cr
+b1 123 <{ BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+<{ b1 SLICE 100 INT BLS_G2_MUL b1 SLICE 23 INT BLS_G2_MUL BLS_G2_ADD }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 -123 <{ BLS_G2_MUL BLS_G2_NEG }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// Multiexp
+."b1*111 + b2*222 + b3*(-333) + b4*0 + b5*1:" cr
+b1 111 b2 222 b3 -333 b4 0 b5 1 5 <{ BLS_G2_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 111 b2 222 b3 -333 b5 1 4 <{ BLS_G2_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+<{
+  b1 SLICE 111 INT BLS_G2_MUL
+  b2 SLICE 222 INT BLS_G2_MUL
+  b3 SLICE -333 INT BLS_G2_MUL
+  b5 SLICE
+  { BLS_G2_ADD } 3 times
+}>s 0 runvmx abort"Exitcode != 0" csr.
+."0:" cr
+zero csr.
+0 <{ BLS_G2_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 0 1 <{ BLS_G2_MULTIEXP }>s 0 runvmx abort"Exitcode != 0" csr.
+
+// r
+<{ BLS_PUSHR }>s 0 runvmx abort"Exitcode != 0" cr ."r = " . cr
+b1 <{ BLS_PUSHR BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+zero csr.
+b1 <{ BLS_PUSHR INC BLS_G2_MUL }>s 0 runvmx abort"Exitcode != 0" csr.
+b1 csr.
+
+// Pairings
+{ [[ <{ BLS_G1_MUL }>s ]] 0 runvmx abort"Exitcode != -1" } : bls_g1_mul
+{ [[ <{ BLS_G2_MUL }>s ]] 0 runvmx abort"Exitcode != -1" } : bls_g2_mul
+75634785643785634785634876232423354534 constant x
+."a1*x,b1 a1,b1*(-x) : "
+a1 x bls_g1_mul b1
+a1 b1 x negate bls_g2_mul
+2 <{ BLS_PAIRING }>s 0 runvmx abort"Exitcode != 0" .s not abort"-1 expected"
+."a1*x,b1 a1,b1*(-x-1) : "
+a1 x bls_g1_mul b1
+a1 b1 x negate 1 - bls_g2_mul
+2 <{ BLS_PAIRING }>s 0 runvmx abort"Exitcode != 0" .s abort"0 expected"
+
+08036758068232723862526737758751120353935980577994643429668638941492109432519 constant x1
+76720311667788346189068792441910584335982488547394926476426087533015880449318 constant x2
+73698677644295053147826041647629389417255852559045739853199261775689421644183 constant x3
+00651749128863148819911470689106677724299434569675211711456038250594316760143 constant x4
+."a1*x1,b1 a2*x2,b2 a3*x3,b3 a4*x4,b4 a1,b1*(-x1) a2,b2*(-x2) a3,b3*(-x3) a4,b4*(-x4) : "
+a1 x1 bls_g1_mul b1
+a2 x2 bls_g1_mul b2
+a3 x3 bls_g1_mul b3
+a4 x4 bls_g1_mul b4
+a1 b1 x1 negate bls_g2_mul
+a2 b2 x2 negate bls_g2_mul
+a3 b3 x3 negate bls_g2_mul
+a4 b4 x4 negate bls_g2_mul
+8 <{ BLS_PAIRING }>s 0 runvmx abort"Exitcode != 0" .s not abort"-1 expected"
+."a1*x1,b1 a2*x2,b2 a3*x3,b3 a4*x4,b4 a1,b1*(-x1) a2,b2*(-x2) a3,b3*(-x4) a4,b4*(-x3) : "
+a1 x1 bls_g1_mul b1
+a2 x2 bls_g1_mul b2
+a3 x3 bls_g1_mul b3
+a4 x4 bls_g1_mul b4
+a1 b1 x1 negate bls_g2_mul
+a2 b2 x2 negate bls_g2_mul
+a3 b3 x4 negate bls_g2_mul
+a4 b4 x3 negate bls_g2_mul
+8 <{ BLS_PAIRING }>s 0 runvmx abort"Exitcode != 0" .s abort"0 expected"

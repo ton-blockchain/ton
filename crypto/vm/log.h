@@ -31,7 +31,7 @@ namespace vm {
 struct VmLog {
   td::LogInterface *log_interface{td::log_interface};
   td::LogOptions log_options{td::log_options};
-  enum { DumpStack = 2, ExecLocation = 4, GasRemaining = 8 };
+  enum { DumpStack = 2, ExecLocation = 4, GasRemaining = 8, DumpStackVerbose = 16 };
   int log_mask{1};
   static VmLog Null() {
     VmLog res;

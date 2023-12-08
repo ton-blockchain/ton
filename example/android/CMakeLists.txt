@@ -37,9 +37,6 @@ add_subdirectory(${TON_DIR} ton EXCLUDE_FROM_ALL)
 target_link_libraries(native-lib tonlibjson)
 target_link_libraries(native-lib tonlib)
 
-#target_sources(native-lib PRIVATE ${ALL_TEST_SOURCE})
-#target_link_libraries(native-lib all_tests)
-
 set(TONLIB_API_JAVA_PACKAGE "drinkless/org/ton")
 target_compile_definitions(native-lib PRIVATE PACKAGE_NAME="${TONLIB_API_JAVA_PACKAGE}")
 

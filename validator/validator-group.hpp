@@ -126,6 +126,15 @@ class ValidatorGroup : public td::actor::Actor {
   std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
 
   void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
+
+  typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
+  std::map<CacheKey, UnixTime> approved_candidates_cache_;
+
+  void update_approve_cache(CacheKey key, UnixTime value);
+
+  static CacheKey block_to_cache_key(const BlockCandidate& block) {
+    return std::make_tuple(block.pubkey.as_bits256(), block.id, sha256_bits256(block.data), block.collated_file_hash);
+  }
 };
 
 }  // namespace validator

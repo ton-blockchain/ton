@@ -52,7 +52,7 @@ class CellText {
 
  private:
   template <class F>
-  static void for_each(F &&f, CellSlice cs);
+  static td::Status for_each(F &&f, CellSlice cs);
   static td::Ref<vm::Cell> do_store(td::BitSlice slice);
 };
 

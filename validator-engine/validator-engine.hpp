@@ -200,6 +200,7 @@ class ValidatorEngine : public td::actor::Actor {
   double sync_ttl_ = 0;
   double archive_ttl_ = 0;
   double key_proof_ttl_ = 0;
+  td::uint32 celldb_compress_depth_ = 0;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -255,6 +256,10 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void add_key_to_set(ton::PublicKey key) {
     keys_[key.compute_short_id()] = key;
+  }
+  void schedule_shutdown(double at);
+  void set_celldb_compress_depth(td::uint32 value) {
+    celldb_compress_depth_ = value;
   }
   void start_up() override;
   ValidatorEngine() {

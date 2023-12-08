@@ -66,3 +66,8 @@ If a CI workflow fails not because of your changes but workflow issues, try to f
 
 * **C/C++ CI (ccpp-linux.yml)**: TBD
 * **C/C++ CI Win64 Compile (ccpp-win64.yml)**: TBD
+
+
+## Running tests
+
+Tests are executed by running `ctest` in the build directory. See `doc/Tests.md` for more information.

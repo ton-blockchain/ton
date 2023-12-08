@@ -183,6 +183,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockIdExt, WaitList<WaitBlockState, td::Ref<ShardState>>> wait_state_;
   std::map<BlockIdExt, WaitList<WaitBlockData, td::Ref<BlockData>>> wait_block_data_;
 
+  struct CachedBlockState {
+    td::Ref<ShardState> state_;
+    td::Timestamp ttl_;
+  };
+  std::map<BlockIdExt, CachedBlockState> block_state_cache_;
+
   struct WaitBlockHandle {
     std::vector<td::Promise<BlockHandle>> waiting_;
   };

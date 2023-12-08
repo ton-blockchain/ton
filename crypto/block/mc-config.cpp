@@ -1934,6 +1934,7 @@ td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
     unpack_v1(rec);
     limits.max_acc_state_bits = rec.max_acc_state_bits;
     limits.max_acc_state_cells = rec.max_acc_state_cells;
+    limits.max_acc_public_libraries = rec.max_acc_public_libraries;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
@@ -1963,7 +1964,7 @@ BurningConfig Config::get_burning_config() const {
     return {};
   }
   BurningConfig c;
-  c.fee_burn_nom = rec.fee_burn_nom;
+  c.fee_burn_num = rec.fee_burn_num;
   c.fee_burn_denom = rec.fee_burn_denom;
   vm::CellSlice& addr = rec.blackhole_addr.write();
   if (addr.fetch_long(1)) {
@@ -2218,6 +2219,44 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
     return {};
   }
   return lib;
+}
+
+td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
+  // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
+  // [ last_mc_blocks:[BlockId...]
+  //   prev_key_block:BlockId ] : PrevBlocksInfo
+  auto block_id_to_tuple = [](const ton::BlockIdExt& block_id) -> vm::Ref<vm::Tuple> {
+    td::RefInt256 shard = td::make_refint(block_id.id.shard);
+    if (shard->sgn() < 0) {
+      shard &= ((td::make_refint(1) << 64) - 1);
+    }
+    return vm::make_tuple_ref(
+        td::make_refint(block_id.id.workchain),
+        std::move(shard),
+        td::make_refint(block_id.id.seqno),
+        td::bits_to_refint(block_id.root_hash.bits(), 256),
+        td::bits_to_refint(block_id.file_hash.bits(), 256));
+  };
+  std::vector<vm::StackEntry> last_mc_blocks;
+
+  last_mc_blocks.push_back(block_id_to_tuple(block_id));
+  for (ton::BlockSeqno seqno = block_id.id.seqno; seqno > 0 && last_mc_blocks.size() < 16; ) {
+    --seqno;
+    ton::BlockIdExt block_id;
+    if (!get_old_mc_block_id(seqno, block_id)) {
+      return td::Status::Error("cannot fetch old mc block");
+    }
+    last_mc_blocks.push_back(block_id_to_tuple(block_id));
+  }
+
+  ton::BlockIdExt last_key_block;
+  ton::LogicalTime last_key_block_lt;
+  if (!get_last_key_block(last_key_block, last_key_block_lt)) {
+    return td::Status::Error("cannot fetch last key block");
+  }
+  return vm::make_tuple_ref(
+      td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks)),
+      block_id_to_tuple(last_key_block));
 }
 
 }  // namespace block
