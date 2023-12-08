@@ -703,9 +703,7 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
-  if (!is_masterchain()) {
-    // block_limits_->bytes = {131072 / 3, 524288 / 3, 1048576 / 3};
-    // block_limits_->gas = {2000000 / 3, 10000000 / 3, 20000000 / 3};
+  if (now_ > prev_now_ + 15 && block_limits_->lt_delta.hard() > 200) {
     block_limits_->lt_delta = {20, 180, 200};
   }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
@@ -1828,9 +1826,6 @@ bool Collator::init_utime() {
   if (timeout < new_timeout) {
     double add = new_timeout.at() - timeout.at();
     timeout = new_timeout;
-    queue_cleanup_timeout_ += add;
-    soft_timeout_ += add;
-    medium_timeout_ += add;
     alarm_timestamp() = timeout;
   }
 
@@ -2259,6 +2254,7 @@ bool Collator::out_msg_queue_cleanup() {
   if (outq_cleanup_partial_ || total > 8000) {
     LOG(INFO) << "out_msg_queue too big, skipping importing external messages";
     skip_extmsg_ = true;
+    queue_too_big_ = true;
   }
   auto rt = out_msg_queue_->get_root();
   if (verbosity >= 2) {
@@ -4170,8 +4166,12 @@ bool Collator::check_block_overload() {
             << " size_estimate=" << block_size_estimate_;
   auto cl = block_limit_status_->classify();
   if (cl <= block::ParamLimits::cl_underload) {
-    underload_history_ |= 1;
-    LOG(INFO) << "block is underloaded";
+    if (queue_too_big_) {
+      LOG(INFO) << "block is underloaded, but don't set underload history because out msg queue is big";
+    } else {
+      underload_history_ |= 1;
+      LOG(INFO) << "block is underloaded";
+    }
   } else if (cl >= block::ParamLimits::cl_soft) {
     overload_history_ |= 1;
     LOG(INFO) << "block is overloaded (category " << cl << ")";
