@@ -703,9 +703,7 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
-  if (!is_masterchain()) {
-    // block_limits_->bytes = {131072 / 3, 524288 / 3, 1048576 / 3};
-    // block_limits_->gas = {2000000 / 3, 10000000 / 3, 20000000 / 3};
+  if (now_ > prev_now_ + 15 && block_limits_->lt_delta.hard() > 200) {
     block_limits_->lt_delta = {20, 180, 200};
   }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
