@@ -323,8 +323,12 @@ if (NOT USE_EMSCRIPTEN)
   find_package(Sodium REQUIRED)
 endif()
 
+if (MSVC)
+  target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
+endif()
+
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
-target_link_libraries(ton_crypto PUBLIC $<BUILD_INTERFACE:${SECP256K1_LIBRARY}>)
+target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
 target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
