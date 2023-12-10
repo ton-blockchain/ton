@@ -5,17 +5,33 @@ echo off
 echo Installing chocolatey windows package manager...
 @"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -InputFormat None -ExecutionPolicy Bypass -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))" && SET "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
 choco -?
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF %errorlevel% NEQ 0 (
+  echo Can't install chocolatey
+  exit /b %errorlevel%
+)
 
 echo Installing pkgconfiglite...
 choco install -y pkgconfiglite
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF %errorlevel% NEQ 0 (
+  echo Can't install pkgconfiglite
+  exit /b %errorlevel%
+)
+
+echo Installing ninja...
+choco install -y ninja
+IF %errorlevel% NEQ 0 (
+  echo Can't install ninja
+  exit /b %errorlevel%
+)
 
 if not exist "zlib" (
 git clone https://github.com/madler/zlib.git
 cd zlib\contrib\vstudio\vc14
 msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF %errorlevel% NEQ 0 (
+  echo Can't install zlib
+  exit /b %errorlevel%
+)
 cd ..\..\..\..
 ) else (
 echo Using zlib...
@@ -25,7 +41,10 @@ if not exist "secp256k1" (
 git clone https://github.com/libbitcoin/secp256k1.git
 cd secp256k1\builds\msvc\vs2017
 msbuild /p:Configuration=StaticRelease -p:PlatformToolset=v142 -p:Platform=x64
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF %errorlevel% NEQ 0 (
+  echo Can't install secp256k1
+  exit /b %errorlevel%
+)
 cd ..\..\..\..
 ) else (
 echo Using secp256k1...
@@ -82,25 +101,46 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 ^
 -DOPENSSL_INCLUDE_DIR=%root%/openssl-3.1.4/x64/include ^
 -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-3.1.4/x64/lib/libcrypto_static.lib ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF %errorlevel% NEQ 0 (
+  echo Can't configure TON
+  exit /b %errorlevel%
+)
 
-REM cmake --build . --config Release --target
+IF "%~1"=="-t" (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
 test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont test-net ^
 test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp test-rldp2 test-catchain ^
 test-fec test-tddb test-db test-validator-session-state
+IF %errorlevel% NEQ 0 (
+  echo Can't compile TON
+  exit /b %errorlevel%
+)
+) else (
+ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson  ^
+tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id ^
+json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator
+IF %errorlevel% NEQ 0 (
+  echo Can't compile TON
+  exit /b %errorlevel%
+)
+)
 
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+copy validator-engine\validator-engine.exe test
+IF %errorlevel% NEQ 0 (
+  echo validator-engine.exe does not exist
+  exit /b %errorlevel%
+)
 
-
-copy validator-engine\Release\validator-engine.exe test
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
-
-echo Running tests...
-ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-validator-session-state"
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF "%~1"=="-t" (
+  echo Running tests...
+  ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-validator-session-state"
+  IF %errorlevel% NEQ 0 (
+    echo Some tests failed
+    exit /b %errorlevel%
+  )
+)
 
 
 echo Creating artifacts...
@@ -109,6 +149,24 @@ mkdir artifacts
 mkdir artifacts\smartcont
 mkdir artifacts\lib
 
-for %%I in (build\storage\storage-daemon\Release\storage-daemon.exe build\storage\storage-daemon\Release\storage-daemon-cli.exe build\blockchain-explorer\blockchain-explorer.exe build\crypto\Release\fift.exe build\crypto\Release\tlbc.exe build\crypto\Release\func.exe build\crypto\Release\create-state.exe build\validator-engine-console\Release\validator-engine-console.exe build\tonlib\Release\tonlib-cli.exe build\tonlib\Release\tonlibjson.dll build\http\Release\http-proxy.exe build\rldp-http-proxy\Release\rldp-http-proxy.exe build\dht-server\Release\dht-server.exe build\lite-client\Release\lite-client.exe build\validator-engine\Release\validator-engine.exe build\utils\Release\generate-random-id.exe build\utils\Release\json2tlo.exe build\adnl\Release\adnl-proxy.exe build\emulator\Release\emulator.dll) do (strip -g %%I & copy %%I artifacts\)
+for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
+build\storage\storage-daemon\storage-daemon-cli.exe ^
+build\blockchain-explorer\blockchain-explorer.exe ^
+build\crypto\fift.exe ^
+build\crypto\tlbc.exe ^
+build\crypto\func.exe ^
+build\crypto\create-state.exe ^
+build\validator-engine-console\validator-engine-console.exe ^
+build\tonlib\tonlib-cli.exe ^
+build\tonlib\tonlibjson.dll ^
+build\http\http-proxy.exe ^
+build\rldp-http-proxy\rldp-http-proxy.exe ^
+build\dht-server\dht-server.exe ^
+build\lite-client\lite-client.exe ^
+build\validator-engine\validator-engine.exe ^
+build\utils\generate-random-id.exe ^
+build\utils\json2tlo.exe ^
+build\adnl\adnl-proxy.exe ^
+build\emulator\emulator.dll) do (strip -g %%I & copy %%I artifacts\)
 xcopy /e /k /h /i crypto\smartcont artifacts\smartcont
 xcopy /e /k /h /i crypto\fift\lib artifacts\lib

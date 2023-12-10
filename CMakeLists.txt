@@ -583,8 +583,8 @@ if (NOT NIX)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
     if (WIN32)
         set_property(TEST test-func PROPERTY ENVIRONMENT
-          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/func.exe"
-          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/fift.exe"
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift.exe"
           "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
     else()
         set_property(TEST test-func PROPERTY ENVIRONMENT
@@ -599,8 +599,8 @@ if (NOT NIX)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
     if (WIN32)
         set_property(TEST test-func-legacy PROPERTY ENVIRONMENT
-          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/func.exe"
-          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/fift.exe"
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift.exe"
           "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
     else()
         set_property(TEST test-func-legacy PROPERTY ENVIRONMENT
