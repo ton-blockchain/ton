@@ -131,10 +131,8 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release \
 -DSECP256K1_FOUND=1 \
 -DSECP256K1_INCLUDE_DIR=$SECP256K1_DIR/include \
 -DSECP256K1_LIBRARY=$SECP256K1_DIR/.libs/libsecp256k1.a \
--DSODIUM_FOUND=1 \
 -DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
 -DSODIUM_LIBRARY_RELEASE=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \
--DSODIUM_LIBRARY_DEBUG=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \
 -DSODIUM_USE_STATIC_LIBS=ON ..
 
 test $? -eq 0 || { echo "Can't configure TON with emmake "; exit 1; }
