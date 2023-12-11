@@ -55,8 +55,6 @@ mkdir build
 cd build
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
 -DCMAKE_CXX_STANDARD=17 \
--DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.so \
--DZLIB_INCLUDE_DIR=$ZLIB_DIR \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
 -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
@@ -89,7 +87,7 @@ export CCACHE_DISABLE=1
 cd ../openssl
 
 make clean
-emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-ui
+emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test
 sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
 sed -i 's/-ldl//g' Makefile
 sed -i 's/-O3/-Os/g' Makefile
@@ -119,7 +117,8 @@ test $? -eq 0 || { echo "Can't compile libsodium with emmake "; exit 1; }
 cd ../build
 
 emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release \
--DZLIB_LIBRARY=$ZLIB_DIR/libz.a \
+-DZLIB_FOUND=1 \
+-DZLIB_LIBRARIES=$ZLIB_DIR/libz.a \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \

@@ -1,0 +1,25 @@
+name: Ubuntu TON build (portable)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Build TON
+      run: |
+        cp assembly/native/build-ubuntu-20.04-portable.sh .
+        chmod +x build-ubuntu-20.04-portable.sh
+        sudo ./build-ubuntu-20.04-portable.sh -t -a
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries-${{ matrix.os }}
+        path: artifacts
