@@ -1,4 +1,4 @@
-REM execute this script inside console "x64 Native Tools Command Prompt for VS 2022"
+REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2022"
 
 echo off
 

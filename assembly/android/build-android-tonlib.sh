@@ -33,6 +33,7 @@ export OPENSSL_DIR=$(pwd)/example/android/third_party/crypto
 rm -rf example/android/src/drinkless/org/ton/TonApi.java
 cd example/android/
 
+rm CMakeCache.txt .ninja_*
 cmake -GNinja -DTON_ONLY_TONLIB=ON .
 
 test $? -eq 0 || { echo "Can't configure TON"; exit 1; }
