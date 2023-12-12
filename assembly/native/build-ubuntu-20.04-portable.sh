@@ -138,8 +138,7 @@ cmake -GNinja .. \
 -DSODIUM_LIBRARY_RELEASE=$sodiumPath/src/libsodium/.libs/libsodium.a \
 -DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
--DCMAKE_CXX_FLAGS="-fPIC -static"
+-DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }

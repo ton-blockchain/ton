@@ -30,7 +30,6 @@ add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
 target_link_libraries(emulator_static PUBLIC ton_crypto ton_block smc-envelope)
 
 if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
-  set(CMAKE_CXX_FLAGS "")
   add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
 else()
   add_library(emulator STATIC ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
