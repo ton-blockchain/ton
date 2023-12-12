@@ -12,7 +12,7 @@ while getopts 'ta' flag; do
 done
 
 apt-get update
-apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev libblas-dev
 apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
 
 if [ ! -d "build" ]; then

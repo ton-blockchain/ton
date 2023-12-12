@@ -12,7 +12,7 @@ while getopts 'ta' flag; do
 done
 
 apt-get update
-apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev
+apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev libblas-dev
 
 if [ ! -d "build" ]; then
   mkdir build
