@@ -3397,6 +3397,19 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getShardO
           promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "no such block")));
           return;
         }
+        if (!dest) {
+          td::actor::send_closure(
+              manager, &ton::validator::ValidatorManagerInterface::get_out_msg_queue_size, handle->id(),
+              [promise = std::move(promise)](td::Result<td::uint32> R) mutable {
+                if (R.is_error()) {
+                  promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get queue size: ")));
+                } else {
+                  promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_shardOutQueueSize>(
+                      R.move_as_ok()));
+                }
+              });
+          return;
+        }
         td::actor::send_closure(
             manager, &ton::validator::ValidatorManagerInterface::get_shard_state_from_db, handle,
             [=, promise = std::move(promise)](td::Result<td::Ref<ton::validator::ShardState>> R) mutable {

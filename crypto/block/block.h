@@ -433,10 +433,11 @@ struct ShardState {
                               ton::BlockSeqno prev_mc_block_seqno, bool after_split, bool clear_history,
                               std::function<bool(ton::BlockSeqno)> for_each_mcseqno);
   td::Status merge_with(ShardState& sib);
-  td::Result<std::unique_ptr<vm::AugmentedDictionary>> compute_split_out_msg_queue(ton::ShardIdFull subshard);
+  td::Result<std::unique_ptr<vm::AugmentedDictionary>> compute_split_out_msg_queue(ton::ShardIdFull subshard,
+                                                                                   td::uint32* queue_size = nullptr);
   td::Result<std::shared_ptr<block::MsgProcessedUptoCollection>> compute_split_processed_upto(
       ton::ShardIdFull subshard);
-  td::Status split(ton::ShardIdFull subshard);
+  td::Status split(ton::ShardIdFull subshard, td::uint32* queue_size = nullptr);
   td::Status unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_info);
   bool clear_load_history() {
     overload_history_ = underload_history_ = 0;
@@ -656,7 +657,8 @@ class MtCarloComputeShare {
   void gen_vset();
 };
 
-int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard);
+int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard,
+                         td::uint32* queue_size = nullptr);
 
 std::ostream& operator<<(std::ostream& os, const ShardId& shard_id);
 

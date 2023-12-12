@@ -52,6 +52,7 @@ set(VALIDATOR_HEADERS
   invariants.hpp
   
   import-db-slice.hpp
+  queue-size-counter.hpp
 
   manager-disk.h
   manager-disk.hpp
@@ -77,6 +78,7 @@ set(VALIDATOR_SOURCE
   validator-full-id.cpp
   validator-group.cpp
   validator-options.cpp
+  queue-size-counter.cpp
 
   downloaders/wait-block-data.cpp
   downloaders/wait-block-state.cpp

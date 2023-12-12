@@ -60,7 +60,6 @@ class Collator final : public td::actor::Actor {
   bool preinit_complete{false};
   bool is_key_block_{false};
   bool block_full_{false};
-  bool outq_cleanup_partial_{false};
   bool inbound_queues_empty_{false};
   bool libraries_changed_{false};
   bool prev_key_block_exists_{false};
@@ -159,7 +158,6 @@ class Collator final : public td::actor::Actor {
   bool report_version_{false};
   bool skip_topmsgdescr_{false};
   bool skip_extmsg_{false};
-  bool queue_too_big_{false};
   bool short_dequeue_records_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
@@ -189,6 +187,7 @@ class Collator final : public td::actor::Actor {
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
+  td::uint32 out_msg_queue_size_ = 0;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
   std::unique_ptr<vm::Dictionary> block_create_stats_;
@@ -227,6 +226,7 @@ class Collator final : public td::actor::Actor {
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, const ton::ShardIdFull& owner);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto);
   void got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res);
+  void got_out_queue_size(size_t i, td::Result<td::uint32> res);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);
@@ -260,6 +260,7 @@ class Collator final : public td::actor::Actor {
   bool check_prev_block_exact(const BlockIdExt& listed, const BlockIdExt& prev);
   bool check_this_shard_mc_info();
   bool request_neighbor_msg_queues();
+  bool request_out_msg_queue_size();
   void update_max_lt(ton::LogicalTime lt);
   bool is_masterchain() const {
     return shard_.is_masterchain();
