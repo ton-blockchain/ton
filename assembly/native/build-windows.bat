@@ -86,7 +86,8 @@ set SODIUM_DIR=%root%\libsodium
 
 mkdir build
 cd build
-cmake -GNinja  -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 ^
+cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
+-DPORTABLE=1 ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
 -DSECP256K1_FOUND=1 ^
 -DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
@@ -96,7 +97,7 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 ^
 -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static ^
 -DZLIB_FOUND=1 ^
 -DZLIB_INCLUDE_DIR=%root%\zlib ^
--DZLIB_LIBRARY=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
+-DZLIB_LIBRARIES=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
 -DOPENSSL_FOUND=1 ^
 -DOPENSSL_INCLUDE_DIR=%root%/openssl-3.1.4/x64/include ^
 -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-3.1.4/x64/lib/libcrypto_static.lib ^

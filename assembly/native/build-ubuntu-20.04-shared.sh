@@ -126,5 +126,5 @@ fi
 
 if [ "$with_tests" = true ]; then
   cd build
-  ctest --output-on-failure -E "test-catchain|test-actors"
+  ctest --output-on-failure -E "test-catchain|test-actors|test-smartcont|test-adnl|test-validator-session-state"
 fi

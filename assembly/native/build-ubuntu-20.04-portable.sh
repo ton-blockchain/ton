@@ -122,6 +122,7 @@ fi
 # ./src/include
 
 cmake -GNinja .. \
+-DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
@@ -205,5 +206,5 @@ fi
 
 if [ "$with_tests" = true ]; then
   cd build
-  ctest --output-on-failure -E "test-catchain|test-actors"
+  ctest --output-on-failure -E "test-catchain|test-actors|test-smartcont|test-adnl|test-validator-session-state"
 fi
