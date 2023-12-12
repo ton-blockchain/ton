@@ -95,6 +95,7 @@ set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
 
 include(GenerateExportHeader)
 if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
+  set(CMAKE_CXX_FLAGS "")
   add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
 else()
   add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})

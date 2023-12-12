@@ -21,5 +21,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-binaries-${{ matrix.os }}
+        name: ton-binaries-linux-x86-64
         path: artifacts
