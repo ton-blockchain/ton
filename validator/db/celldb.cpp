@@ -62,16 +62,29 @@ void CellDbBase::execute_sync(std::function<void()> f) {
   f();
 }
 
-CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path)
-    : root_db_(root_db), parent_(parent), path_(std::move(path)) {
+CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
+                   td::Ref<ValidatorManagerOptions> opts)
+    : root_db_(root_db), parent_(parent), path_(std::move(path)), opts_(opts) {
 }
 
 void CellDbIn::start_up() {
+  on_load_callback_ = [db = actor_id(this),
+                       compress_depth = opts_->get_celldb_compress_depth()](const vm::CellLoader::LoadResult& res) {
+    if (res.cell_.is_null()) {
+      return;
+    }
+    bool expected_stored_boc = res.cell_->get_depth() == compress_depth && compress_depth != 0;
+    if (expected_stored_boc != res.stored_boc_) {
+      td::actor::send_closure(db, &CellDbIn::migrate_cell, td::Bits256{res.cell_->get_hash().bits()});
+    }
+  };
+
   CellDbBase::start_up();
   cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_).move_as_ok());
 
   boc_ = vm::DynamicBagOfCellsDb::create();
-  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();
+  boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
+  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   alarm_timestamp() = td::Timestamp::in(10.0);
@@ -129,7 +142,7 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
   set_block(key_hash, std::move(D));
   cell_db_->commit_write_batch().ensure();
 
-  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();
+  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
@@ -140,6 +153,9 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
 }
 
 void CellDbIn::alarm() {
+  if (migrate_after_ && migrate_after_.is_in_past()) {
+    migrate_cells();
+  }
   auto E = get_block(get_empty_key_hash()).move_as_ok();
   auto N = get_block(E.next).move_as_ok();
   if (N.is_empty()) {
@@ -220,7 +236,7 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   cell_db_->commit_write_batch().ensure();
   alarm_timestamp() = td::Timestamp::now();
 
-  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot())).ensure();
+  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   DCHECK(get_block(key_hash).is_error());
@@ -273,6 +289,49 @@ void CellDbIn::set_block(KeyHash key_hash, DbEntry e) {
   cell_db_->set(td::as_slice(key), e.release()).ensure();
 }
 
+void CellDbIn::migrate_cell(td::Bits256 hash) {
+  cells_to_migrate_.insert(hash);
+  if (cells_to_migrate_.size() >= 32) {
+    migrate_cells();
+  } else if (!migrate_after_) {
+    migrate_after_ = td::Timestamp::in(1.0);
+  }
+}
+
+void CellDbIn::migrate_cells() {
+  if (cells_to_migrate_.empty()) {
+    return;
+  }
+  vm::CellStorer stor{*cell_db_};
+  auto loader = std::make_unique<vm::CellLoader>(cell_db_->snapshot());
+  boc_->set_loader(std::make_unique<vm::CellLoader>(*loader)).ensure();
+  cell_db_->begin_write_batch().ensure();
+  td::uint32 cnt = 0;
+  for (const auto& hash : cells_to_migrate_) {
+    auto R = loader->load(hash.as_slice(), true, boc_->as_ext_cell_creator());
+    if (R.is_error()) {
+      continue;
+    }
+    if (R.ok().status == vm::CellLoader::LoadResult::NotFound) {
+      continue;
+    }
+    bool expected_stored_boc =
+        R.ok().cell_->get_depth() == opts_->get_celldb_compress_depth() && opts_->get_celldb_compress_depth() != 0;
+    if (expected_stored_boc != R.ok().stored_boc_) {
+      ++cnt;
+      stor.set(R.ok().refcnt(), R.ok().cell_, expected_stored_boc).ensure();
+    }
+  }
+  cells_to_migrate_.clear();
+  if (cnt > 0) {
+    LOG(DEBUG) << "Migrated " << cnt << " cells";
+  }
+  cell_db_->commit_write_batch().ensure();
+  boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+  td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
+  migrate_after_ = td::Timestamp::never();
+}
+
 void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
   if (!started_) {
     td::actor::send_closure(cell_db_, &CellDbIn::load_cell, hash, std::move(promise));
@@ -300,7 +359,18 @@ void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> p
 void CellDb::start_up() {
   CellDbBase::start_up();
   boc_ = vm::DynamicBagOfCellsDb::create();
-  cell_db_ = td::actor::create_actor<CellDbIn>("celldbin", root_db_, actor_id(this), path_);
+  boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
+  cell_db_ = td::actor::create_actor<CellDbIn>("celldbin", root_db_, actor_id(this), path_, opts_);
+  on_load_callback_ = [db = cell_db_.get(),
+                       compress_depth = opts_->get_celldb_compress_depth()](const vm::CellLoader::LoadResult& res) {
+    if (res.cell_.is_null()) {
+      return;
+    }
+    bool expected_stored_boc = res.cell_->get_depth() == compress_depth && compress_depth != 0;
+    if (expected_stored_boc != res.stored_boc_) {
+      td::actor::send_closure(db, &CellDbIn::migrate_cell, td::Bits256{res.cell_->get_hash().bits()});
+    }
+  };
 }
 
 CellDbIn::DbEntry::DbEntry(tl_object_ptr<ton_api::db_celldb_value> entry)

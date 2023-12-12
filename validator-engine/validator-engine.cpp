@@ -1363,6 +1363,7 @@ td::Status ValidatorEngine::load_global_config() {
   if (!session_logs_file_.empty()) {
     validator_options_.write().set_session_logs_file(session_logs_file_);
   }
+  validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -3759,6 +3760,11 @@ int main(int argc, char *argv[]) {
   p.add_checked_option('\0', "shutdown-at", "stop validator at the given time (unix timestamp)", [&](td::Slice arg) {
     TRY_RESULT(at, td::to_integer_safe<td::uint32>(arg));
     acts.push_back([&x, at]() { td::actor::send_closure(x, &ValidatorEngine::schedule_shutdown, (double)at); });
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "celldb-compress-depth", "(default: 0)", [&](td::Slice arg) {
+    TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
+    acts.push_back([&x, value]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_compress_depth, value); });
     return td::Status::OK();
   });
   auto S = p.run(argc, argv);

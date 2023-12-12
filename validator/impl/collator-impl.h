@@ -159,6 +159,7 @@ class Collator final : public td::actor::Actor {
   bool report_version_{false};
   bool skip_topmsgdescr_{false};
   bool skip_extmsg_{false};
+  bool queue_too_big_{false};
   bool short_dequeue_records_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};

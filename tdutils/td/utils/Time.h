@@ -110,6 +110,7 @@ class Timestamp {
   }
 
   friend bool operator==(Timestamp a, Timestamp b);
+  friend Timestamp &operator+=(Timestamp &a, double b);
 
  private:
   double at_{0};
@@ -120,6 +121,11 @@ class Timestamp {
 
 inline bool operator<(const Timestamp &a, const Timestamp &b) {
   return a.at() < b.at();
+}
+
+inline Timestamp &operator+=(Timestamp &a, double b) {
+  a.at_ += b;
+  return a;
 }
 
 template <class StorerT>
