@@ -2277,7 +2277,15 @@ void ValidatorManagerImpl::allow_block_info_gc(BlockIdExt block_id, td::Promise<
 void ValidatorManagerImpl::got_next_gc_masterchain_handle(BlockHandle handle) {
   CHECK(gc_advancing_);
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
-    R.ensure();
+    if (R.is_error()) {
+      if (R.error().code() == ErrorCode::timeout) {
+        LOG(ERROR) << "Failed to get gc masterchain state, retrying: " << R.move_as_error();
+        td::actor::send_closure(SelfId, &ValidatorManagerImpl::got_next_gc_masterchain_handle, std::move(handle));
+      } else {
+        LOG(FATAL) << "Failed to get gc masterchain state: " << R.move_as_error();
+      }
+      return;
+    }
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::got_next_gc_masterchain_state, std::move(handle),
                             td::Ref<MasterchainState>{R.move_as_ok()});
   });
