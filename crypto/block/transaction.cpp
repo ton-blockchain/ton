@@ -2537,6 +2537,31 @@ static td::uint32 get_public_libraries_count(const td::Ref<vm::Cell>& libraries)
 }
 
 /**
+ * Calculates the number of changes of public libraries in the dictionary.
+ *
+ * @param old_libraries The dictionary of account libraries before the transaction.
+ * @param new_libraries The dictionary of account libraries after the transaction.
+ *
+ * @returns The number of changed public libraries.
+ */
+static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_libraries,
+                                                  const td::Ref<vm::Cell>& new_libraries) {
+  td::uint32 count = 0;
+  vm::Dictionary dict1{old_libraries, 256};
+  vm::Dictionary dict2{new_libraries, 256};
+  dict1.scan_diff(dict2, [&](td::ConstBitPtr key, int n, Ref<vm::CellSlice> val1, Ref<vm::CellSlice> val2) -> bool {
+    CHECK(n == 256);
+    bool is_public1 = val1.not_null() && block::is_public_library(key, val1);
+    bool is_public2 = val2.not_null() && block::is_public_library(key, val2);
+    if (is_public1 != is_public2) {
+      ++count;
+    }
+    return true;
+  });
+  return count;
+}
+
+/**
  * Checks that the new account state fits in the limits.
  * This function is not called for special accounts.
  *
@@ -2979,14 +3004,14 @@ bool Transaction::serialize() {
     vm::load_cell_slice(root).print_rec(std::cerr);
   }
 
-  if (!block::gen::t_Transaction.validate_ref(root)) {
+  if (!block::gen::t_Transaction.validate_ref(4096, root)) {
     LOG(ERROR) << "newly-generated transaction failed to pass automated validation:";
     vm::load_cell_slice(root).print_rec(std::cerr);
     block::gen::t_Transaction.print_ref(std::cerr, root);
     root.clear();
     return false;
   }
-  if (!block::tlb::t_Transaction.validate_ref(root)) {
+  if (!block::tlb::t_Transaction.validate_ref(4096, root)) {
     LOG(ERROR) << "newly-generated transaction failed to pass hand-written validation:";
     vm::load_cell_slice(root).print_rec(std::cerr);
     block::gen::t_Transaction.print_ref(std::cerr, root);
@@ -3187,8 +3212,12 @@ bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_size)
           blimst.add_account(is_first))) {
       return false;
     }
-    if (account.is_masterchain() && (was_frozen || was_deleted)) {
-      blimst.extra_library_diff += get_public_libraries_count(account.orig_library);
+    if (account.is_masterchain()) {
+      if (was_frozen || was_deleted) {
+        blimst.public_library_diff += get_public_libraries_count(account.orig_library);
+      } else {
+        blimst.public_library_diff += get_public_libraries_diff_count(account.orig_library, new_library);
+      }
     }
   }
   return true;
