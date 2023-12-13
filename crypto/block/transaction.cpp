@@ -2979,14 +2979,14 @@ bool Transaction::serialize() {
     vm::load_cell_slice(root).print_rec(std::cerr);
   }
 
-  if (!block::gen::t_Transaction.validate_ref(root)) {
+  if (!block::gen::t_Transaction.validate_ref(4096, root)) {
     LOG(ERROR) << "newly-generated transaction failed to pass automated validation:";
     vm::load_cell_slice(root).print_rec(std::cerr);
     block::gen::t_Transaction.print_ref(std::cerr, root);
     root.clear();
     return false;
   }
-  if (!block::tlb::t_Transaction.validate_ref(root)) {
+  if (!block::tlb::t_Transaction.validate_ref(4096, root)) {
     LOG(ERROR) << "newly-generated transaction failed to pass hand-written validation:";
     vm::load_cell_slice(root).print_rec(std::cerr);
     block::gen::t_Transaction.print_ref(std::cerr, root);
