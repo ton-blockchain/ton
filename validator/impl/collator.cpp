@@ -709,9 +709,6 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
-  if (now_ > prev_now_ + 15 && block_limits_->lt_delta.hard() > 200) {
-    block_limits_->lt_delta = {20, 180, 200};
-  }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
   LOG(DEBUG) << "block limits: gas [" << block_limits_->gas.underload() << ", " << block_limits_->gas.soft() << ", "
@@ -1433,6 +1430,9 @@ bool Collator::check_this_shard_mc_info() {
 bool Collator::init_block_limits() {
   CHECK(block_limits_);
   CHECK(state_usage_tree_);
+  if (now_ > prev_now_ + 15 && block_limits_->lt_delta.hard() > 200) {
+    block_limits_->lt_delta = {20, 180, 200};
+  }
   block_limits_->usage_tree = state_usage_tree_.get();
   block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
   return true;
