@@ -22,7 +22,7 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja libsodium libmicrohttpd pkg-config automake libtool
+brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf
 
 if [ ! -d "secp256k1" ]; then
   git clone https://github.com/bitcoin-core/secp256k1.git
