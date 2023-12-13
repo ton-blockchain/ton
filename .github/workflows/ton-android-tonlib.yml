@@ -1,4 +1,4 @@
-name: Tonlib Android JNI
+name: Tonlib Android
 
 on: [push,workflow_dispatch,workflow_call]
 
@@ -21,5 +21,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: tonlib-android-jni
+        name: tonlib-android
         path: artifacts
