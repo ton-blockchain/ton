@@ -48,6 +48,7 @@ using namespace std::literals::string_literals;
 static const td::uint32 FORCE_SPLIT_QUEUE_SIZE = 4096;
 static const td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
 static const td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
+static const td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
 
 #define DBG(__n) dbg(__n)&&
 #define DSTART int __dcnt = 0;
@@ -3407,6 +3408,11 @@ bool Collator::process_inbound_internal_messages() {
 bool Collator::process_inbound_external_messages() {
   if (skip_extmsg_) {
     LOG(INFO) << "skipping processing of inbound external messages";
+    return true;
+  }
+  if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE) {
+    LOG(INFO) << "skipping processing of inbound external messages because out_msg_queue is too big ("
+              << out_msg_queue_size_ << " > " << SKIP_EXTERNALS_QUEUE_SIZE << ")";
     return true;
   }
   bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
