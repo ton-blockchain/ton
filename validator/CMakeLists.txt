@@ -100,7 +100,8 @@ set(DISK_VALIDATOR_SOURCE
   validator-full-id.cpp
   validator-group.cpp
   validator-options.cpp
-  
+  queue-size-counter.cpp
+
   downloaders/wait-block-data-disk.cpp
   downloaders/wait-block-state.cpp
   downloaders/wait-block-state-merge.cpp
@@ -119,7 +120,8 @@ set(HARDFORK_VALIDATOR_SOURCE
   validator-full-id.cpp
   validator-group.cpp
   validator-options.cpp
-  
+  queue-size-counter.cpp
+
   downloaders/wait-block-data-disk.cpp
   downloaders/wait-block-state.cpp
   downloaders/wait-block-state-merge.cpp
