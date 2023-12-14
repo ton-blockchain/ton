@@ -1,11 +1,11 @@
-name: MacOS 12.6 Monterey x86-64 Compile
+name: MacOS TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
 
-    runs-on: macos-12
+    runs-on: macos-11
 
     steps:
       - name: Check out repository
@@ -15,12 +15,12 @@ jobs:
 
       - name: Build TON
         run: |
-          cp assembly/native/build-macos-shared.sh .
-          chmod +x build-macos-shared.sh
-          ./build-macos-shared.sh -t -a -o 12.6
+          cp assembly/native/build-macos-portable.sh .
+          chmod +x build-macos-portable.sh
+          ./build-macos-portable.sh -t -a -o 11.7
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-macos-12.6
+          name: ton-binaries-macos-x86-64
           path: artifacts

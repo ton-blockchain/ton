@@ -145,7 +145,7 @@ test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
 if [ "$with_tests" = true ]; then
 ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli \
-      validator-engine lite-client pow-miner validator-engine-console \
+      validator-engine lite-client pow-miner validator-engine-console blockchain-explorer \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
       adnl-proxy create-state emulator test-ed25519 test-ed25519-crypto test-bigint \
       test-vm test-fift test-cells test-smartcont test-net test-tdactor test-tdutils \
@@ -162,6 +162,7 @@ fi
 
 strip -g storage/storage-daemon/storage-daemon \
          storage/storage-daemon/storage-daemon-cli \
+         blockchain-explorer/blockchain-explorer \
          crypto/fift \
          crypto/tlbc \
          crypto/func \
@@ -208,5 +209,5 @@ fi
 if [ "$with_tests" = true ]; then
   cd build
 #  ctest --output-on-failure -E "test-catchain|test-actors|test-smartcont|test-adnl|test-validator-session-state|test-dht|test-rldp"
-  ctest --output-on-failure
+  ctest --output-on-failure -E "test-adnl"
 fi

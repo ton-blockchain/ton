@@ -1,4 +1,4 @@
-name: Ubuntu TON build (portable)
+name: Ubuntu TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
