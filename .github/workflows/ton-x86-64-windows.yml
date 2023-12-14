@@ -25,7 +25,7 @@ jobs:
         run: |
           copy assembly\native\build-windows-github.bat .
           copy assembly\native\build-windows.bat .
-          build-windows-github.bat -t
+          build-windows-github.bat
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
