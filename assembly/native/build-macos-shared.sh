@@ -119,7 +119,7 @@ if [ "$with_artifacts" = true ]; then
 fi
 
 if [ "$with_tests" = true ]; then
-  echo Running tests...
   cd build
-  ctest --output-on-failure -E "test-catchain|test-actors"
+#  ctest --output-on-failure -E "test-catchain|test-actors"
+  ctest --output-on-failure
 fi
