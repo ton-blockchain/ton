@@ -28,6 +28,7 @@
 #include "state-serializer.hpp"
 #include "rldp/rldp.h"
 #include "token-manager.h"
+#include "queue-size-counter.hpp"
 
 #include <map>
 #include <set>
@@ -548,6 +549,18 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
 
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+    if (queue_size_counter_.empty()) {
+      if (last_masterchain_state_.is_null()) {
+        promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
+        return;
+      }
+      queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter",
+                                                                      last_masterchain_state_, actor_id(this));
+    }
+    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
+  }
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -612,6 +625,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
+  td::actor::ActorOwn<QueueSizeCounter> queue_size_counter_;
 };
 
 }  // namespace validator

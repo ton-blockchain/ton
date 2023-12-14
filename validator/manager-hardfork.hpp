@@ -23,6 +23,7 @@
 #include "validator-group.hpp"
 #include "manager-init.h"
 #include "manager-hardfork.h"
+#include "queue-size-counter.hpp"
 
 #include <map>
 #include <set>
@@ -437,6 +438,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
     UNREACHABLE();
   }
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+    if (queue_size_counter_.empty()) {
+      queue_size_counter_ =
+          td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{}, actor_id(this));
+    }
+    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
+  }
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;
@@ -445,6 +453,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::string db_root_;
   ShardIdFull shard_to_generate_;
   BlockIdExt block_to_generate_;
+  td::actor::ActorOwn<QueueSizeCounter> queue_size_counter_;
 };
 
 }  // namespace validator

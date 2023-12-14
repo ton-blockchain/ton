@@ -146,8 +146,16 @@ bool OutputQueueMerger::add_root(int src, Ref<vm::Cell> outmsg_root) {
   return true;
 }
 
-OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<block::McShardDescr> _neighbors)
+OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<Neighbor> _neighbors)
     : queue_for(_queue_for), neighbors(std::move(_neighbors)), eof(false), failed(false) {
+  init();
+}
+
+OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<block::McShardDescr> _neighbors)
+    : queue_for(_queue_for), eof(false), failed(false) {
+  for (auto& nb : _neighbors) {
+    neighbors.emplace_back(nb.top_block_id(), nb.outmsg_root, nb.is_disabled());
+  }
   init();
 }
 
@@ -157,11 +165,11 @@ void OutputQueueMerger::init() {
   td::bitstring::bits_store_long_top(common_pfx.bits() + 32, queue_for.shard, l);
   common_pfx_len = 32 + l;
   int i = 0;
-  for (block::McShardDescr& neighbor : neighbors) {
-    if (!neighbor.is_disabled()) {
-      LOG(DEBUG) << "adding " << (neighbor.outmsg_root.is_null() ? "" : "non-") << "empty output queue for neighbor #"
-                 << i << " (" << neighbor.blk_.to_str() << ")";
-      add_root(i++, neighbor.outmsg_root);
+  for (Neighbor& neighbor : neighbors) {
+    if (!neighbor.disabled_) {
+      LOG(DEBUG) << "adding " << (neighbor.outmsg_root_.is_null() ? "" : "non-") << "empty output queue for neighbor #"
+                 << i << " (" << neighbor.block_id_.to_str() << ")";
+      add_root(i++, neighbor.outmsg_root_);
     } else {
       LOG(DEBUG) << "skipping output queue for disabled neighbor #" << i;
       i++;
