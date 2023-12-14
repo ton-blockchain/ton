@@ -107,7 +107,7 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
-IF "%~1"=="-t" (
+IF "%1"=="-t" (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
@@ -134,7 +134,7 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
-IF "%~1"=="-t" (
+IF "%1"=="-t" (
   echo Running tests...
 REM  ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-validator-session-state"
   ctest -C Release --output-on-failure
