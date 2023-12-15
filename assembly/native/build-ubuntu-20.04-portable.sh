@@ -1,3 +1,9 @@
+#/bin/bash
+
+#sudo apt-get update
+#sudo apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev libblas-dev libreadline-dev
+#sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
+
 with_tests=false
 with_artifacts=false
 
@@ -10,10 +16,6 @@ while getopts 'ta' flag; do
        ;;
   esac
 done
-
-apt-get update
-apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgsl-dev libblas-dev libreadline-dev
-apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
 
 if [ ! -d "build" ]; then
   mkdir build
@@ -70,15 +72,12 @@ else
   sodiumPath=$(pwd)/libsodium
   echo "Using compiled libsodium"
 fi
-# ./src/libsodium/.libs/libsodium.a
-# ./src/libsodium/include
 
 if [ ! -d "openssl_3" ]; then
   git clone https://github.com/openssl/openssl openssl_3
   cd openssl_3
   opensslPath=`pwd`
   git checkout openssl-3.1.4
-#  ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test
   ./config -static
   make build_libs -j12
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
@@ -87,8 +86,6 @@ else
   opensslPath=$(pwd)/openssl_3
   echo "Using compiled openssl_3"
 fi
-# ./libcrypto.a
-# ./include
 
 if [ ! -d "zlib" ]; then
   git clone https://github.com/madler/zlib.git
@@ -102,8 +99,6 @@ else
   zlibPath=$(pwd)/zlib
   echo "Using compiled zlib"
 fi
-# ./libz.a
-# .
 
 if [ ! -d "libmicrohttpd" ]; then
   git clone https://git.gnunet.org/libmicrohttpd.git
@@ -118,8 +113,6 @@ else
   libmicrohttpdPath=$(pwd)/libmicrohttpd
   echo "Using compiled libmicrohttpd"
 fi
-# ./src/microhttpd/.libs/libmicrohttpd.a
-# ./src/include
 
 cmake -GNinja .. \
 -DPORTABLE=1 \

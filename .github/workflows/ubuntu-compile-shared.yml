@@ -16,11 +16,16 @@ jobs:
       with:      
         submodules: 'recursive'
 
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+
     - name: Build TON
       run: |
         cp assembly/native/build-ubuntu-20.04-shared.sh .
         chmod +x build-ubuntu-20.04-shared.sh
-        sudo ./build-ubuntu-20.04-shared.sh -t -a
+        ./build-ubuntu-20.04-shared.sh -t -a
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master

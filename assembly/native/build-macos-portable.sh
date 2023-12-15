@@ -27,8 +27,8 @@ export NONINTERACTIVE=1
 brew install ninja pkg-config automake libtool autoconf
 brew install llvm@16
 brew uninstall libmicrohttpd
-brew uninstall gnutls
-brew uninstall libsodium
+brew uninstall --ignore-dependencies gnutls
+brew uninstall --ignore-dependencies libsodium
 brew uninstall secp256k1
 
 
@@ -55,9 +55,6 @@ else
   secp256k1Path=$(pwd)/secp256k1
   echo "Using compiled secp256k1"
 fi
-# ./.libs/libsecp256k1.a
-# ./include
-
 
 if [ ! -d "libsodium" ]; then
   export LIBSODIUM_FULL_BUILD=1
@@ -74,8 +71,6 @@ else
   sodiumPath=$(pwd)/libsodium
   echo "Using compiled libsodium"
 fi
-# ./src/libsodium/.libs/libsodium.a
-# ./src/libsodium/include
 
 if [ ! -d "openssl_3" ]; then
   git clone https://github.com/openssl/openssl openssl_3
@@ -90,8 +85,6 @@ else
   opensslPath=$(pwd)/openssl_3
   echo "Using compiled openssl_3"
 fi
-# ./libcrypto.a
-# ./include
 
 if [ ! -d "zlib" ]; then
   git clone https://github.com/madler/zlib.git
@@ -105,8 +98,6 @@ else
   zlibPath=$(pwd)/zlib
   echo "Using compiled zlib"
 fi
-# ./libz.a
-# .
 
 if [ ! -d "libmicrohttpd" ]; then
   git clone https://git.gnunet.org/libmicrohttpd.git
@@ -121,8 +112,6 @@ else
   libmicrohttpdPath=$(pwd)/libmicrohttpd
   echo "Using compiled libmicrohttpd"
 fi
-# ./src/microhttpd/.libs/libmicrohttpd.a
-# ./src/include
 
 cmake -GNinja .. \
 -DPORTABLE=1 \

@@ -1,3 +1,8 @@
+#/bin/bash
+
+#sudo apt-get update
+#sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+
 with_tests=false
 with_artifacts=false
 
@@ -10,9 +15,6 @@ while getopts 'ta' flag; do
        ;;
   esac
 done
-
-apt-get update
-apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
 
 if [ ! -d "build" ]; then
   mkdir build
@@ -49,9 +51,6 @@ else
   opensslPath=$(pwd)/openssl_3
   echo "Using compiled openssl_3"
 fi
-# ./libcrypto.so
-# ./include
-
 
 cmake -GNinja .. \
 -DCMAKE_BUILD_TYPE=Release \
