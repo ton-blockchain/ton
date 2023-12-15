@@ -25,7 +25,7 @@ jobs:
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        ./llvm.sh 16 all
+        sudo ./llvm.sh 16 all
 
     - name: Build TON
       run: |
