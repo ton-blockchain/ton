@@ -21,6 +21,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
 
+    - name: Install clang-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        ./llvm.sh 16 all
+
     - name: Build TON
       run: |
         cp assembly/native/build-ubuntu-20.04-shared.sh .

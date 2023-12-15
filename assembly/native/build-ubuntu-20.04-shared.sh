@@ -24,16 +24,6 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-if [ ! -f llvm.sh ]; then
-  wget https://apt.llvm.org/llvm.sh
-  chmod +x llvm.sh
-  ./llvm.sh 16 all
-  test $? -eq 0 || { echo "Can't install clang-16"; exit 1; }
-else
-  echo "Using $(which clang-16)"
-fi
-
-
 export CC=$(which clang-16)
 export CXX=$(which clang++-16)
 export CCACHE_DISABLE=1
