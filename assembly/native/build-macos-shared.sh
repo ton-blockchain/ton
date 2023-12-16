@@ -56,7 +56,6 @@ brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
 -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
 -DSECP256K1_FOUND=1 \
 -DSECP256K1_INCLUDE_DIR=$secp256k1Path/include \

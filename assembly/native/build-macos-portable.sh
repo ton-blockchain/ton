@@ -27,8 +27,6 @@ export NONINTERACTIVE=1
 brew install ninja pkg-config automake libtool autoconf
 brew install llvm@16
 brew uninstall libmicrohttpd
-brew uninstall --ignore-dependencies gnutls
-brew uninstall --ignore-dependencies libsodium
 brew uninstall secp256k1
 
 
@@ -104,7 +102,7 @@ if [ ! -d "libmicrohttpd" ]; then
   cd libmicrohttpd
   libmicrohttpdPath=`pwd`
   ./autogen.sh
-  ./configure --enable-static --with-pic
+  ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j12
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ..

@@ -1,7 +1,6 @@
 #/bin/bash
 
 #sudo apt-get update
-#sudo apt remove -y libsecp256k1-dev libmicrohttpd-dev libsodium-dev libgnutls28-dev libgsl-dev libblas-dev libreadline-dev
 #sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
 
 with_tests=false
@@ -95,7 +94,7 @@ if [ ! -d "libmicrohttpd" ]; then
   cd libmicrohttpd
   libmicrohttpdPath=`pwd`
   ./autogen.sh
-  ./configure --enable-static --disable-tests --disable-benchmark --with-pic
+  ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j12
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ..
@@ -183,9 +182,10 @@ if [ "$with_artifacts" = true ]; then
      build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine \
      build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.* \
      artifacts
+  test $? -eq 0 || { echo "Can't copy final binaries"; exit 1; }
+  chmod +x artifacts/*
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
-  chown -R ${SUDO_USER}  artifacts/*
 fi
 
 if [ "$with_tests" = true ]; then

@@ -62,7 +62,7 @@ jobs:
       - name: Download WASM artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ton-wasm-emscripten.yml
+          workflow: build-ton-wasm-emscripten.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true

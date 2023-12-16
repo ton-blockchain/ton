@@ -17,7 +17,7 @@ jobs:
         run: |
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
-          ./build-macos-shared.sh -t -a -o 11.7
+          ./build-macos-shared.sh -t -a
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master

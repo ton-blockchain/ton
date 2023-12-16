@@ -108,9 +108,10 @@ if [ "$with_artifacts" = true ]; then
      build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine \
      build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.* \
      artifacts
+  test $? -eq 0 || { echo "Can't copy final binaries"; exit 1; }
+  chmod +x artifacts/*
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
-  chown -R ${SUDO_USER}  artifacts/*
 fi
 
 if [ "$with_tests" = true ]; then

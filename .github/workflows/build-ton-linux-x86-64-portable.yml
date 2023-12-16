@@ -1,14 +1,10 @@
-name: Ubuntu TON build
+name: Ubuntu TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Check out repository
@@ -19,7 +15,7 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+        sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
 
     - name: Install clang-16
       run: |
@@ -29,12 +25,12 @@ jobs:
 
     - name: Build TON
       run: |
-        cp assembly/native/build-ubuntu-20.04-shared.sh .
-        chmod +x build-ubuntu-20.04-shared.sh
-        ./build-ubuntu-20.04-shared.sh -t -a
+        cp assembly/native/build-ubuntu-20.04-portable.sh .
+        chmod +x build-ubuntu-20.04-portable.sh
+        sudo ./build-ubuntu-20.04-portable.sh -t -a
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-binaries-${{ matrix.os }}
+        name: ton-binaries-linux-x86-64
         path: artifacts
