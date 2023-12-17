@@ -3,30 +3,45 @@ pipeline {
     stages {
         stage('Run Builds') {
             parallel {
-                stage('Ubuntu 20.04 x86-64') {
+                stage('Ubuntu 20.04 x86-64 (shared)') {
                     agent {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        sh 'pwd; ls; lsb_release -a; touch a; git branch'
+                        sh '''sudo apt-get update
+                            sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+                            wget https://apt.llvm.org/llvm.sh
+                            chmod +x llvm.sh
+                            sudo ./llvm.sh 16 all
+                            cp assembly/native/build-ubuntu-20.04-shared.sh .
+                            chmod +x build-ubuntu-20.04-shared.sh
+                            ./build-ubuntu-20.04-shared.sh -t -a
+                           '''
                     }
                     post {
                         always {
-                            sh 'echo ok 1'
-                            archiveArtifacts artifacts: 'artifacts/*.*'
+                            archiveArtifacts artifacts: 'artifacts/**/*.*'
                         }
                     }
                 }
-                stage('Ubuntu 20.04 arm64') {
+                stage('Ubuntu 20.04 arm64 (shared)') {
                     agent {
                         label 'Ubuntu_arm64'
                     }
                     steps {
-                        sh 'pwd; ls; lsb_release -a; touch b; git branch'
+                        sh '''sudo apt-get update
+                            sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+                            wget https://apt.llvm.org/llvm.sh
+                            chmod +x llvm.sh
+                            sudo ./llvm.sh 16 all
+                            cp assembly/native/build-ubuntu-20.04-shared.sh .
+                            chmod +x build-ubuntu-20.04-shared.sh
+                            ./build-ubuntu-20.04-shared.sh -t -a
+                           '''
                     }
                     post {
                         always {
-                            sh 'echo ok 2'
+                            archiveArtifacts artifacts: 'artifacts/**/*.*'
                         }
                     }
                 }
@@ -39,7 +54,7 @@ pipeline {
                     }
                     post {
                         always {
-                            sh 'echo ok 3'
+                            archiveArtifacts artifacts: 'artifacts/**/*.*'
                         }
                     }
                 }
@@ -52,7 +67,7 @@ pipeline {
                     }
                     post {
                         always {
-                            sh 'echo ok 4'
+                            archiveArtifacts artifacts: 'artifacts/**/*.*'
                         }
                     }
                 }
@@ -65,7 +80,7 @@ pipeline {
                     }
                     post {
                         always {
-                            sh 'echo ok 5'
+                            archiveArtifacts artifacts: 'artifacts/**/*.*'
                         }
                     }
                 }
@@ -74,12 +89,12 @@ pipeline {
                         label 'Windows_x86-64'
                     }
                     steps {
-                        sh 'echo %cd%'
-                        sh 'git branch'
+                        bat 'echo %cd%'
+                        bat 'git branch'
                     }
                     post {
                         always {
-                            sh 'echo ok 6'
+                            archiveArtifacts artifacts: 'artifacts/**/*.*'
                         }
                     }
                 }
