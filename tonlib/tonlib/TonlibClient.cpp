@@ -1227,8 +1227,7 @@ class RemoteRunSmcMethod : public td::actor::Actor {
   td::Status do_with_last_block(td::Result<LastBlockState> r_last_block) {
     TRY_RESULT(last_block, std::move(r_last_block));
     query_.block_id = std::move(last_block.last_block_id);
-    with_block_id();
-    return td::Status::OK();
+    return with_block_id();
   }
 
   void start_up() override {
