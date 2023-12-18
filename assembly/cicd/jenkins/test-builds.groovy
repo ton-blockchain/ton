@@ -42,7 +42,7 @@ pipeline {
                         }
                     }
                 }
-                stage('Ubuntu 20.04 arm64 (shared)') {
+                stage('Ubuntu 20.04 aarch64 (shared)') {
                     agent {
                         label 'Ubuntu_arm64'
                     }
@@ -58,7 +58,7 @@ pipeline {
                         }
                     }
                 }
-                stage('Ubuntu 20.04 arm64 (portable)') {
+                stage('Ubuntu 20.04 aarch64 (portable)') {
                     agent {
                         label 'Ubuntu_arm64'
                     }
@@ -106,7 +106,7 @@ pipeline {
                         }
                     }
                 }
-                stage('macOS 12.6 arm64 (M1, shared)') {
+                stage('macOS 12.6 aarch64 (shared)') {
                     agent {
                         label 'macOS_12.6.3-arm64'
                     }
@@ -122,7 +122,7 @@ pipeline {
                         }
                     }
                 }
-                stage('macOS 12.6 arm64 (M1, portable)') {
+                stage('macOS 12.6 aarch64 (portable)') {
                     agent {
                         label 'macOS_12.6.3-arm64'
                     }
@@ -138,7 +138,7 @@ pipeline {
                         }
                     }
                 }
-                stage('macOS 13.2 arm64 (M2, shared)') {
+                stage('macOS 13.2 aarch64 (shared)') {
                     agent {
                         label 'macOS_13.2-arm64-m2'
                     }
@@ -154,7 +154,7 @@ pipeline {
                         }
                     }
                 }
-                stage('macOS 13.2 arm64 (M2, portable)') {
+                stage('macOS 13.2 aarch64 (portable)') {
                     agent {
                         label 'macOS_13.2-arm64-m2'
                     }
@@ -181,7 +181,7 @@ pipeline {
                             copy assembly\\native\\build-windows.bat .
                             build-windows-github.bat
                             '''
-                            sh 'zip -r ton-x86-64-windows ./artifacts/*'
+                            bat 'zip -r ton-x86-64-windows ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-x86-64-windows.zip'
                         }
                     }
