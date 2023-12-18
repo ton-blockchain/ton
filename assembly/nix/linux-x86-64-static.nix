@@ -23,6 +23,7 @@ pkgs.stdenv.mkDerivation { # gcc
     ];
 
   makeStatic = true;
+  doTest = true;
 
   configureFlags = [
 

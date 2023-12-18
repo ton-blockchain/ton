@@ -74,6 +74,22 @@ pipeline {
                         }
                     }
                 }
+                stage('Ubuntu 20.04 aarch64 (nix)') {
+                    agent {
+                        label 'Ubuntu_arm64'
+                    }
+                    steps {
+                        timeout(time: 90, unit: 'MINUTES') {
+                            sh '''
+                            cp assembly/nix/linux-x86-64-static.nix .
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            nix-build linux-x86-64-static.nix
+                            '''
+                            sh 'zip -r ton-arm64-linux-nix ./result/*'
+                            archiveArtifacts artifacts: 'ton-arm64-linux-nix.zip'
+                        }
+                    }
+                }
                 stage('macOS 12.7 x86-64 (shared)') {
                     agent {
                         label 'macOS_12.7_x86-64'
