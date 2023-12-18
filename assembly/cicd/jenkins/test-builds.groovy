@@ -15,7 +15,7 @@ pipeline {
                         chmod +x llvm.sh
                         sudo ./llvm.sh 16 all
                         */
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-ubuntu-20.04-shared.sh .
                             chmod +x build-ubuntu-20.04-shared.sh
@@ -31,7 +31,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-ubuntu-20.04-portable.sh .
                             chmod +x build-ubuntu-20.04-portable.sh
@@ -42,12 +42,28 @@ pipeline {
                         }
                     }
                 }
+                stage('Ubuntu 20.04 x86-64 (nix)') {
+                    agent {
+                        label 'Ubuntu_x86-64'
+                    }
+                    steps {
+                        timeout(time: 60, unit: 'MINUTES') {
+                            sh '''
+                            cp assembly/nix/linux-x86-64-static.nix .
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            nix-build linux-x86-64-static.nix
+                            '''
+                            sh 'zip -r ton-x86-64-linux-nix ./result/*'
+                            archiveArtifacts artifacts: 'ton-x86-64-linux-nix.zip'
+                        }
+                    }
+                }
                 stage('Ubuntu 20.04 aarch64 (shared)') {
                     agent {
                         label 'Ubuntu_arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-ubuntu-20.04-shared.sh .
                             chmod +x build-ubuntu-20.04-shared.sh
@@ -63,7 +79,7 @@ pipeline {
                         label 'Ubuntu_arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-ubuntu-20.04-portable.sh .
                             chmod +x build-ubuntu-20.04-portable.sh
@@ -79,7 +95,7 @@ pipeline {
                         label 'Ubuntu_arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/nix/linux-x86-64-static.nix .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
@@ -95,7 +111,7 @@ pipeline {
                         label 'macOS_12.7_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-macos-shared.sh .
                             chmod +x build-macos-shared.sh
@@ -111,7 +127,7 @@ pipeline {
                         label 'macOS_12.7_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-macos-portable.sh .
                             chmod +x build-macos-portable.sh
@@ -127,7 +143,7 @@ pipeline {
                         label 'macOS_12.6.3-arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-macos-shared.sh .
                             chmod +x build-macos-shared.sh
@@ -143,7 +159,7 @@ pipeline {
                         label 'macOS_12.6.3-arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-macos-portable.sh .
                             chmod +x build-macos-portable.sh
@@ -159,7 +175,7 @@ pipeline {
                         label 'macOS_13.2-arm64-m2'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-macos-shared.sh .
                             chmod +x build-macos-shared.sh
@@ -175,7 +191,7 @@ pipeline {
                         label 'macOS_13.2-arm64-m2'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/native/build-macos-portable.sh .
                             chmod +x build-macos-portable.sh
@@ -191,7 +207,7 @@ pipeline {
                         label 'Windows_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             bat '''
                             copy assembly\\native\\build-windows-github.bat .
                             copy assembly\\native\\build-windows.bat .
@@ -207,7 +223,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cp assembly/android/build-android-tonlib.sh .
                             chmod +x build-android-tonlib.sh
@@ -223,7 +239,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 60, unit: 'MINUTES') {
                             sh '''
                             cd assembly/wasm
                             chmod +x fift-func-wasm-build-ubuntu.sh
