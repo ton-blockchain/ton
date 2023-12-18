@@ -4241,8 +4241,7 @@ td::Status TonlibClient::do_request(const tonlib_api::query_send& request,
 
 td::Status TonlibClient::do_request(tonlib_api::query_forget& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
-  auto it = queries_.find(request.id_);
-  if (it == queries_.end()) {
+  if (queries_.erase(request.id_) == 0) {
     return TonlibError::InvalidQueryId();
   }
   promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
