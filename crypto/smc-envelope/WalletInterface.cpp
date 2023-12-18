@@ -71,7 +71,7 @@ void WalletInterface::store_gift_message(vm::CellBuilder &cb, const Gift &gift) 
 
   cb.store_zeroes(1);
   if (gift.is_encrypted) {
-    cb.store_long(0x2167da4b, 32);
+    cb.store_long(EncryptedCommentOp, 32);
   } else {
     cb.store_long(0, 32);
   }

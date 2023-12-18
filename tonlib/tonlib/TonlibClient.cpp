@@ -2970,7 +2970,7 @@ struct ToRawTransactions {
       tonlib_api::object_ptr<tonlib_api::msg_Data> data;
       if (try_decode_messages_ && body->size() >= 32) {
         auto type = static_cast<td::uint32>(body.write().fetch_long(32));
-        if (type == 0 || type == 0x2167da4b) {
+        if (type == 0 || type == ton::WalletInterface::EncryptedCommentOp) {
           td::Status status;
 
           auto r_body_message = TRY_VM(vm::CellString::load(body.write()));
@@ -5471,9 +5471,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
                         td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise) {
   TRY_RESULT(block, to_lite_api(*request.id_))
   auto root_hash = block->root_hash_;
-  bool check_proof = request.mode_ & 32;
-  bool reverse_mode = request.mode_ & 64;
-  bool has_starting_tx = request.mode_ & 128;
+  bool check_proof = request.mode_ & ton::lite_api::liteServer_listBlockTransactions::WANT_PROOF_MASK;
+  bool reverse_mode = request.mode_ & ton::lite_api::liteServer_listBlockTransactions::REVERSE_ORDER_MASK;
+  bool has_starting_tx = request.mode_ & ton::lite_api::liteServer_listBlockTransactions::AFTER_MASK;
   
   td::Bits256 start_addr;
   ton::LogicalTime start_lt;
@@ -5590,9 +5590,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt& request,
                         td::Promise<object_ptr<tonlib_api::blocks_transactionsExt>>&& promise) {
   TRY_RESULT(block, to_lite_api(*request.id_))
-  bool check_proof = request.mode_ & 32;
-  bool reverse_mode = request.mode_ & 64;
-  bool has_starting_tx = request.mode_ & 128;
+  bool check_proof = request.mode_ & ton::lite_api::liteServer_listBlockTransactionsExt::WANT_PROOF_MASK;
+  bool reverse_mode = request.mode_ & ton::lite_api::liteServer_listBlockTransactionsExt::REVERSE_ORDER_MASK;
+  bool has_starting_tx = request.mode_ & ton::lite_api::liteServer_listBlockTransactionsExt::AFTER_MASK;
   
   td::Bits256 start_addr;
   ton::LogicalTime start_lt;
