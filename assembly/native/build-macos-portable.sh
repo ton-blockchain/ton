@@ -26,8 +26,6 @@ fi
 export NONINTERACTIVE=1
 brew install ninja pkg-config automake libtool autoconf
 brew install llvm@16
-brew uninstall libmicrohttpd
-brew uninstall secp256k1
 
 
 if [ -f /opt/homebrew/opt/llvm@16/bin/clang ]; then
