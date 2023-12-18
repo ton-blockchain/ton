@@ -43,7 +43,6 @@ stdenv227.mkDerivation {
 
   ];
 
-
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
     "-DNIX=ON"
