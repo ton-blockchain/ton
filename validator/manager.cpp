@@ -785,7 +785,7 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
 void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
                                                  td::Promise<std::vector<td::Ref<ExtMessage>>> promise) {
   td::Timer t;
-  size_t processed = 0;
+  size_t processed = 0, deleted = 0;
   std::vector<td::Ref<ExtMessage>> res;
   MessageId<ExtMessage> left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
   auto it = ext_messages_.lower_bound(left);
@@ -799,6 +799,7 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
       ext_addr_messages_[it->second->address()].erase(it->first.hash);
       ext_messages_hashes_.erase(it->first.hash);
       it = ext_messages_.erase(it);
+      ++deleted;
       continue;
     }
     if (it->second->is_active()) {
@@ -806,8 +807,9 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
     }
     it++;
   }
-  LOG(INFO) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()
-            << " result_size=" << res.size() << " processed=" << processed;
+  LOG(WARNING) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()
+               << " result_size=" << res.size() << " processed=" << processed << " expired=" << deleted
+               << " total_size=" << ext_messages_.size();
   promise.set_value(std::move(res));
 }
 

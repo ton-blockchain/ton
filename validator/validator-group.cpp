@@ -150,7 +150,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
     return;
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
-  LOG(INFO) << "Accepted block " << next_block_id;
+  LOG(WARNING) << "Accepted block " << next_block_id;
   td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id, std::move(stats));
   auto block =
       block_data.size() > 0 ? create_block(next_block_id, std::move(block_data)).move_as_ok() : td::Ref<BlockData>{};

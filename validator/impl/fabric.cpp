@@ -202,10 +202,12 @@ void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_maste
       seqno = p.seqno();
     }
   }
-  td::actor::create_actor<ValidateQuery>(
-      PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str() << ":" << (seqno + 1), shard, min_ts,
-      min_masterchain_block_id, std::move(prev), std::move(candidate), std::move(validator_set), std::move(manager),
-      timeout, std::move(promise), is_fake)
+  static std::atomic<size_t> idx;
+  td::actor::create_actor<ValidateQuery>(PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str()
+                                                   << ":" << (seqno + 1) << "#" << idx.fetch_add(1),
+                                         shard, min_ts, min_masterchain_block_id, std::move(prev), std::move(candidate),
+                                         std::move(validator_set), std::move(manager), timeout, std::move(promise),
+                                         is_fake)
       .release();
 }
 
