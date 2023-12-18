@@ -1,5 +1,15 @@
 # The script builds funcfift compiler to WASM
 
+# Execute these prerequisites first
+# sudo apt update
+# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
+#                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
+#                    nodejs libsecp256k1-dev libsodium-dev automake libtool
+
+# wget https://apt.llvm.org/llvm.sh
+# chmod +x llvm.sh
+# sudo ./llvm.sh 16 all
+
 with_artifacts=false
 
 while getopts 'a' flag; do
@@ -9,15 +19,6 @@ while getopts 'a' flag; do
        ;;
   esac
 done
-
-apt update
-apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
-                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-                    nodejs libsecp256k1-dev libsodium-dev automake libtool
-
-wget https://apt.llvm.org/llvm.sh
-chmod +x llvm.sh
-sudo ./llvm.sh 16 all
 
 export CC=$(which clang-16)
 export CXX=$(which clang++-16)
@@ -153,7 +154,6 @@ if [ "$with_artifacts" = true ]; then
   cp build/emulator/emulator-emscripten* artifacts
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
-  chown -R ${SUDO_USER}  artifacts/*
 fi
 
 

@@ -198,7 +198,23 @@ pipeline {
                             ./build-android-tonlib.sh -a
                             '''
                             sh 'zip -r ton-android-tonlib ./artifacts/tonlib-android-jni/*'
-                            archiveArtifacts artifacts: 'ton-android-tonlib'
+                            archiveArtifacts artifacts: 'ton-android-tonlib.zip'
+                        }
+                    }
+                }
+                stage('WASM fift func emulator') {
+                    agent {
+                        label 'Ubuntu_x86-64'
+                    }
+                    steps {
+                        timeout(time: 90, unit: 'MINUTES') {
+                            sh '''
+                            cd assembly/wasm
+                            chmod +x fift-func-wasm-build-ubuntu.sh
+                            ./fift-func-wasm-build-ubuntu.sh -a
+                            '''
+                            sh 'zip -r ton-wasm-binaries ./artifacts/*'
+                            archiveArtifacts artifacts: 'ton-wasm-binaries.zip'
                         }
                     }
                 }
