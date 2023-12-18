@@ -5659,73 +5659,68 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
   client_.send_query(ton::lite_api::liteServer_getBlockHeader(
                        std::move(block),
                        0xffff),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& hdr) {
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& hdr) -> td::Result<tonlib_api::object_ptr<tonlib_api::blocks_header>> {
                        auto blk_id = ton::create_block_id(hdr->id_);
                        auto R = vm::std_boc_deserialize(std::move(hdr->header_proof_));
-                       tonlib_api::blocks_header header;
                        if (R.is_error()) {
-                            LOG(WARNING) << "R.is_error() ";
+                         return R.move_as_error_prefix("Couldn't deserialize header proof: ");
                        } else {
-                          auto root = R.move_as_ok();
-                          try {
-                            ton::RootHash vhash{root->get_hash().bits()};
-                            auto virt_root = vm::MerkleProof::virtualize(root, 1);
-                            if (virt_root.is_null()) {
-                              LOG(WARNING) << "virt root is null";
-                            } else {
-                              std::vector<ton::BlockIdExt> prev;
-                              ton::BlockIdExt mc_blkid;
-                              bool after_split;
-                              auto res = block::unpack_block_prev_blk_ext(virt_root, blk_id, prev, mc_blkid, after_split);
-                              if (res.is_error()) {
-                                LOG(WARNING) << "res.is_error() ";
-                              } else {
-                                block::gen::Block::Record blk;
-                                block::gen::BlockInfo::Record info;
-                                if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info))) {
-                                  LOG(WARNING) << "unpack failed";
-                                } else {
-                                  header.id_ = to_tonlib_api(blk_id);
-                                  header.global_id_ = blk.global_id;
-                                  header.version_ = info.version;
-                                  header.flags_ = info.flags;
-                                  header.after_merge_ = info.after_merge;
-                                  header.after_split_ = info.after_split;
-                                  header.before_split_ = info.before_split;
-                                  header.want_merge_ = info.want_merge;
-                                  header.want_split_ = info.want_split;
-                                  header.validator_list_hash_short_ = info.gen_validator_list_hash_short;
-                                  header.catchain_seqno_ = info.gen_catchain_seqno;
-                                  header.min_ref_mc_seqno_ = info.min_ref_mc_seqno;
-                                  header.start_lt_ = info.start_lt;
-                                  header.end_lt_ = info.end_lt;
-                                  header.gen_utime_ = info.gen_utime;
-                                  header.is_key_block_ = info.key_block;
-                                  header.vert_seqno_ = info.vert_seq_no;
-                                  if(!info.not_master) {
+                         auto root = R.move_as_ok();
+                         try {
+                           ton::RootHash vhash{root->get_hash().bits()};
+                           auto virt_root = vm::MerkleProof::virtualize(root, 1);
+                           if (virt_root.is_null()) {
+                             return td::Status::Error("Virt root is null");
+                           } else {
+                             std::vector<ton::BlockIdExt> prev;
+                             ton::BlockIdExt mc_blkid;
+                             bool after_split;
+                             auto res =
+                                 block::unpack_block_prev_blk_ext(virt_root, blk_id, prev, mc_blkid, after_split);
+                             if (res.is_error()) {
+                               return td::Status::Error("Unpack failed");
+                             } else {
+                               block::gen::Block::Record blk;
+                               block::gen::BlockInfo::Record info;
+                               if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info))) {
+                                 return td::Status::Error("Unpack failed");
+                               } else {
+                                 tonlib_api::blocks_header header;
+                                 header.id_ = to_tonlib_api(blk_id);
+                                 header.global_id_ = blk.global_id;
+                                 header.version_ = info.version;
+                                 header.flags_ = info.flags;
+                                 header.after_merge_ = info.after_merge;
+                                 header.after_split_ = info.after_split;
+                                 header.before_split_ = info.before_split;
+                                 header.want_merge_ = info.want_merge;
+                                 header.want_split_ = info.want_split;
+                                 header.validator_list_hash_short_ = info.gen_validator_list_hash_short;
+                                 header.catchain_seqno_ = info.gen_catchain_seqno;
+                                 header.min_ref_mc_seqno_ = info.min_ref_mc_seqno;
+                                 header.start_lt_ = info.start_lt;
+                                 header.end_lt_ = info.end_lt;
+                                 header.gen_utime_ = info.gen_utime;
+                                 header.is_key_block_ = info.key_block;
+                                 header.vert_seqno_ = info.vert_seq_no;
+                                 if (!info.not_master) {
                                    header.prev_key_block_seqno_ = info.prev_key_block_seqno;
-                                  }
-                                  for (auto id : prev) {
-                                    header.prev_blocks_.push_back(to_tonlib_api(id));
-                                  }
-                                  //if(info.before_split) {
-                                  //} else {
-                                  //}
-                                  return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
-                                }
-                              }
-                            }
-                          } catch (vm::VmError& err) {
-                           auto E = err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
-                           LOG(ERROR) << std::move(E);
-                          } catch (vm::VmVirtError& err) {
-                           auto E = err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
-                           LOG(ERROR) << std::move(E);
-                          } catch (...) {
-                            LOG(WARNING) << "exception catched ";
-                          }
+                                 }
+                                 for (auto& id : prev) {
+                                   header.prev_blocks_.push_back(to_tonlib_api(id));
+                                 }
+                                 return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
+                               }
+                             }
+                           }
+                         } catch (vm::VmError& err) {
+                           return err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
+                         } catch (vm::VmVirtError& err) {
+                           return err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
+                         } catch (...) {
+                           return td::Status::Error("Unhandled exception catched while processing header");
+                         }
                        }
-                       return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
                      }));
   return td::Status::OK();
 }
