@@ -1,11 +1,14 @@
-name: MacOS 11.7 Big Sur x86-64 Compile
+name: MacOS TON build (shared, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
-
-    runs-on: macos-11
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-11, macos-12]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out repository
@@ -22,5 +25,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-macos-11.7
+          name: ton-binaries-${{ matrix.os }}
           path: artifacts
