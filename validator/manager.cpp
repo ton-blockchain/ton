@@ -2374,15 +2374,15 @@ void ValidatorManagerImpl::alarm() {
   }
   if (log_status_at_.is_in_past()) {
     if (last_masterchain_block_handle_) {
-      LOG(INFO) << "STATUS: last_masterchain_block_ago="
-                << td::format::as_time(td::Clocks::system() - last_masterchain_block_handle_->unix_time())
-                << " last_known_key_block_ago="
-                << td::format::as_time(td::Clocks::system() - (last_known_key_block_handle_->inited_unix_time()
-                                                                   ? last_known_key_block_handle_->unix_time()
-                                                                   : 0))
-                << " shard_client_ago="
-                << td::format::as_time(td::Clocks::system() -
-                                       (shard_client_handle_ ? shard_client_handle_->unix_time() : 0));
+      LOG(ERROR) << "STATUS: last_masterchain_block_ago="
+                 << td::format::as_time(td::Clocks::system() - last_masterchain_block_handle_->unix_time())
+                 << " last_known_key_block_ago="
+                 << td::format::as_time(td::Clocks::system() - (last_known_key_block_handle_->inited_unix_time()
+                                                                    ? last_known_key_block_handle_->unix_time()
+                                                                    : 0))
+                 << " shard_client_ago="
+                 << td::format::as_time(td::Clocks::system() -
+                                        (shard_client_handle_ ? shard_client_handle_->unix_time() : 0));
     }
     log_status_at_ = td::Timestamp::in(60.0);
   }
