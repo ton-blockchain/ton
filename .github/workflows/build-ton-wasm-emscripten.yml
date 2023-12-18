@@ -21,7 +21,7 @@ jobs:
       run: |
         cd assembly/wasm
         chmod +x fift-func-wasm-build-ubuntu.sh
-        sudo ./fift-func-wasm-build-ubuntu.sh -a
+        ./fift-func-wasm-build-ubuntu.sh -a
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
