@@ -3775,11 +3775,15 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, at]() { td::actor::send_closure(x, &ValidatorEngine::schedule_shutdown, (double)at); });
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "celldb-compress-depth", "(default: 0)", [&](td::Slice arg) {
-    TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
-    acts.push_back([&x, value]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_compress_depth, value); });
-    return td::Status::OK();
-  });
+  p.add_checked_option('\0', "celldb-compress-depth",
+                       "optimize celldb by storing cells of depth X with whole subtrees (experimental, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
+                         acts.push_back([&x, value]() {
+                           td::actor::send_closure(x, &ValidatorEngine::set_celldb_compress_depth, value);
+                         });
+                         return td::Status::OK();
+                       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

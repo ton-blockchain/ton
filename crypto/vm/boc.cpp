@@ -930,7 +930,7 @@ unsigned long long BagOfCells::get_idx_entry_raw(int index) {
  * 
  */
 
-td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty) {
+td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty, bool allow_nonzero_level) {
   if (data.empty() && can_be_empty) {
     return Ref<Cell>();
   }
@@ -946,7 +946,7 @@ td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty) {
   if (root.is_null()) {
     return td::Status::Error("bag of cells has null root cell (?)");
   }
-  if (root->get_level() != 0) {
+  if (!allow_nonzero_level && root->get_level() != 0) {
     return td::Status::Error("bag of cells has a root with non-zero level");
   }
   return std::move(root);
