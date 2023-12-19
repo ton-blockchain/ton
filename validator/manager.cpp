@@ -784,6 +784,8 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
 
 void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
                                                  td::Promise<std::vector<td::Ref<ExtMessage>>> promise) {
+  td::Timer t;
+  size_t processed = 0, deleted = 0;
   std::vector<td::Ref<ExtMessage>> res;
   MessageId<ExtMessage> left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
   auto it = ext_messages_.lower_bound(left);
@@ -792,10 +794,12 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
     if (!shard_contains(shard, s.dst)) {
       break;
     }
+    ++processed;
     if (it->second->expired()) {
       ext_addr_messages_[it->second->address()].erase(it->first.hash);
       ext_messages_hashes_.erase(it->first.hash);
       it = ext_messages_.erase(it);
+      ++deleted;
       continue;
     }
     if (it->second->is_active()) {
@@ -803,6 +807,9 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
     }
     it++;
   }
+  LOG(WARNING) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()
+               << " result_size=" << res.size() << " processed=" << processed << " expired=" << deleted
+               << " total_size=" << ext_messages_.size();
   promise.set_value(std::move(res));
 }
 
@@ -1356,7 +1363,18 @@ td::Ref<MasterchainState> ValidatorManagerImpl::do_get_last_liteserver_state() {
   if (last_masterchain_state_.is_null()) {
     return {};
   }
-  if (last_liteserver_state_.is_null() || last_liteserver_state_->get_unix_time() < td::Clocks::system() - 30) {
+  if (last_liteserver_state_.is_null()) {
+    last_liteserver_state_ = last_masterchain_state_;
+    return last_liteserver_state_;
+  }
+  if (last_liteserver_state_->get_seqno() == last_masterchain_state_->get_seqno()) {
+    return last_liteserver_state_;
+  }
+  // If liteserver seqno (i.e. shard client) lags then use last masterchain state for liteserver
+  // Allowed lag depends on the block rate
+  double time_per_block = double(last_masterchain_state_->get_unix_time() - last_liteserver_state_->get_unix_time()) /
+                          double(last_masterchain_state_->get_seqno() - last_liteserver_state_->get_seqno());
+  if (td::Clocks::system() - double(last_liteserver_state_->get_unix_time()) > std::min(time_per_block * 8, 180.0)) {
     last_liteserver_state_ = last_masterchain_state_;
   }
   return last_liteserver_state_;
@@ -2356,15 +2374,15 @@ void ValidatorManagerImpl::alarm() {
   }
   if (log_status_at_.is_in_past()) {
     if (last_masterchain_block_handle_) {
-      LOG(INFO) << "STATUS: last_masterchain_block_ago="
-                << td::format::as_time(td::Clocks::system() - last_masterchain_block_handle_->unix_time())
-                << " last_known_key_block_ago="
-                << td::format::as_time(td::Clocks::system() - (last_known_key_block_handle_->inited_unix_time()
-                                                                   ? last_known_key_block_handle_->unix_time()
-                                                                   : 0))
-                << " shard_client_ago="
-                << td::format::as_time(td::Clocks::system() -
-                                       (shard_client_handle_ ? shard_client_handle_->unix_time() : 0));
+      LOG(ERROR) << "STATUS: last_masterchain_block_ago="
+                 << td::format::as_time(td::Clocks::system() - last_masterchain_block_handle_->unix_time())
+                 << " last_known_key_block_ago="
+                 << td::format::as_time(td::Clocks::system() - (last_known_key_block_handle_->inited_unix_time()
+                                                                    ? last_known_key_block_handle_->unix_time()
+                                                                    : 0))
+                 << " shard_client_ago="
+                 << td::format::as_time(td::Clocks::system() -
+                                        (shard_client_handle_ ? shard_client_handle_->unix_time() : 0));
     }
     log_status_at_ = td::Timestamp::in(60.0);
   }

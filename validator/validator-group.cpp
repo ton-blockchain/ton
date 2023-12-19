@@ -136,7 +136,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
                                             std::vector<BlockSignature> approve_signatures,
                                             validatorsession::ValidatorSessionStats stats,
                                             td::Promise<td::Unit> promise) {
-  if (round_id >= last_known_round_id_) {
+      if (round_id >= last_known_round_id_) {
     last_known_round_id_ = round_id + 1;
   }
   auto sig_set = create_signature_set(std::move(signatures));
@@ -150,6 +150,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
     return;
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
+  LOG(WARNING) << "Accepted block " << next_block_id;
   td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id, std::move(stats));
   auto block =
       block_data.size() > 0 ? create_block(next_block_id, std::move(block_data)).move_as_ok() : td::Ref<BlockData>{};

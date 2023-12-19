@@ -234,6 +234,7 @@ bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
  */
 void ValidateQuery::finish_query() {
   if (main_promise) {
+    LOG(WARNING) << "validate query done";
     main_promise.set_result(now_);
   }
   stop();
@@ -252,7 +253,7 @@ void ValidateQuery::finish_query() {
  * Then the function also sends requests to the ValidatorManager to fetch blocks and shard stated.
  */
 void ValidateQuery::start_up() {
-  LOG(INFO) << "validate query for " << block_candidate.id.to_str() << " started";
+  LOG(WARNING) << "validate query for " << block_candidate.id.to_str() << " started";
   alarm_timestamp() = timeout;
   rand_seed_.set_zero();
   created_by_ = block_candidate.pubkey;
@@ -667,7 +668,7 @@ bool ValidateQuery::extract_collated_data() {
  * @param res The result of the retrieval of the latest masterchain state.
  */
 void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
-  LOG(DEBUG) << "in ValidateQuery::after_get_latest_mc_state()";
+  LOG(WARNING) << "in ValidateQuery::after_get_latest_mc_state()";
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -708,7 +709,7 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
  * @param res The result of the masterchain state retrieval.
  */
 void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
-  LOG(DEBUG) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
+  LOG(WARNING) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -752,7 +753,7 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
  * @param res The result of the shard state retrieval.
  */
 void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
-  LOG(DEBUG) << "in ValidateQuery::after_get_shard_state(" << idx << ")";
+  LOG(WARNING) << "in ValidateQuery::after_get_shard_state(" << idx << ")";
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -1495,7 +1496,6 @@ bool ValidateQuery::request_neighbor_queues() {
  * @param res The obtained outbound queue.
  */
 void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res) {
-  LOG(DEBUG) << "obtained outbound queue for neighbor #" << i;
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -1503,6 +1503,7 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
   }
   Ref<MessageQueue> outq_descr = res.move_as_ok();
   block::McShardDescr& descr = neighbors_.at(i);
+  LOG(WARNING) << "obtained outbound queue for neighbor #" << i << " : " << descr.shard().to_str();
   if (outq_descr->get_block_id() != descr.blk_) {
     LOG(DEBUG) << "outq_descr->id = " << outq_descr->get_block_id().to_str() << " ; descr.id = " << descr.blk_.to_str();
     fatal_error(
@@ -6187,6 +6188,7 @@ bool ValidateQuery::try_validate() {
   }
   try {
     if (!stage_) {
+      LOG(WARNING) << "try_validate stage 0";
       if (!compute_prev_state()) {
         return fatal_error(-666, "cannot compute previous state");
       }
@@ -6216,6 +6218,7 @@ bool ValidateQuery::try_validate() {
         return true;
       }
     }
+    LOG(WARNING) << "try_validate stage 1";
     LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
     if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
       return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
