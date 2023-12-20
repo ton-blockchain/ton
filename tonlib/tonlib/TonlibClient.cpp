@@ -5410,34 +5410,68 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfo&
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise) {
   TRY_RESULT(block, to_lite_api(*request.id_))
+  TRY_RESULT(req_blk_id, to_block_id(*request.id_));
   client_.send_query(ton::lite_api::liteServer_getAllShardsInfo(std::move(block)),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_allShardsInfo>&& all_shards_info)
+                     promise.wrap([req_blk_id](lite_api_ptr<ton::lite_api::liteServer_allShardsInfo>&& all_shards_info)
                                       -> td::Result<object_ptr<tonlib_api::blocks_shards>> {
-                       td::BufferSlice proof = std::move((*all_shards_info).proof_);
-                       td::BufferSlice data = std::move((*all_shards_info).data_);
-                       if (data.empty()) {
-                         return td::Status::Error("shard configuration is empty");
-                       } else {
-                         auto R = vm::std_boc_deserialize(data.clone());
-                         if (R.is_error()) {
-                           return R.move_as_error_prefix("cannot deserialize shard configuration: ");
-                         }
-                         auto root = R.move_as_ok();
-                         block::ShardConfig sh_conf;
-                         if (!sh_conf.unpack(vm::load_cell_slice_ref(root))) {
-                           return td::Status::Error("cannot extract shard block list from shard configuration");
-                         } else {
-                           auto ids = sh_conf.get_shard_hash_ids(true);
-                           tonlib_api::blocks_shards shards;
-                           for (auto id : ids) {
-                             auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
-                             if (ref.not_null()) {
-                               shards.shards_.push_back(to_tonlib_api(ref->top_block_id()));
-                             }
-                           }
-                           return tonlib_api::make_object<tonlib_api::blocks_shards>(std::move(shards));
-                         }
-                       }
+                        auto blk_id = ton::create_block_id(all_shards_info->id_);
+                        if (blk_id != req_blk_id) {
+                          return td::Status::Error("Liteserver responded with wrong block");
+                        }
+                        td::BufferSlice proof = std::move((*all_shards_info).proof_);
+                        td::BufferSlice data = std::move((*all_shards_info).data_);
+                        if (data.empty() || proof.empty()) {
+                          return td::Status::Error("Shard configuration or proof is empty");
+                        }
+                        auto proof_cell = vm::std_boc_deserialize(std::move(proof));
+                        if (proof_cell.is_error()) {
+                          return proof_cell.move_as_error_prefix("Couldn't deserialize shards proof: ");
+                        }
+                        auto data_cell = vm::std_boc_deserialize(std::move(data));
+                        if (data_cell.is_error()) {
+                          return data_cell.move_as_error_prefix("Couldn't deserialize shards data: ");
+                        }
+                        try {
+                          auto virt_root = vm::MerkleProof::virtualize(proof_cell.move_as_ok(), 1);
+                          if (virt_root.is_null()) {
+                            return td::Status::Error("Virt root is null");
+                          }
+                          if (ton::RootHash{virt_root->get_hash().bits()} != blk_id.root_hash) {
+                            return td::Status::Error("Block shards merkle proof has incorrect root hash");
+                          }
+
+                          block::gen::Block::Record blk;
+                          block::gen::BlockExtra::Record extra;
+                          block::gen::McBlockExtra::Record mc_extra;
+                          if (!tlb::unpack_cell(virt_root, blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
+                              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+                            return td::Status::Error("cannot unpack block extra of block " + blk_id.to_str());
+                          }
+                          auto data_csr = vm::load_cell_slice_ref(data_cell.move_as_ok());
+                          if (data_csr->prefetch_ref()->get_hash() != mc_extra.shard_hashes->prefetch_ref()->get_hash()) {
+                            return td::Status::Error("Block shards data and proof hashes don't match");
+                          }
+
+                          block::ShardConfig sh_conf;
+                          if (!sh_conf.unpack(mc_extra.shard_hashes)) {
+                            return td::Status::Error("cannot extract shard block list from shard configuration");
+                          }
+                          auto ids = sh_conf.get_shard_hash_ids(true);
+                          tonlib_api::blocks_shards shards;
+                          for (auto& id : ids) {
+                            auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
+                            if (ref.not_null()) {
+                              shards.shards_.push_back(to_tonlib_api(ref->top_block_id()));
+                            }
+                          }
+                          return tonlib_api::make_object<tonlib_api::blocks_shards>(std::move(shards));
+                        } catch (vm::VmError& err) {
+                          return err.as_status("Couldn't verify proof: ");
+                        } catch (vm::VmVirtError& err) {
+                          return err.as_status("Couldn't verify proof: ");
+                        } catch (...) {
+                          return td::Status::Error("Unknown exception raised while verifying proof");
+                        }
                      }));
   return td::Status::OK();
 }
