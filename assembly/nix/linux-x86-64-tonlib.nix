@@ -34,7 +34,7 @@ stdenv227.mkDerivation {
 
   buildInputs = with pkgs;
     [
-      pkgsStatic.openssl pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1
+      pkgsStatic.openssl_3_0 pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1
     ];
 
   dontAddStaticConfigureFlags = false;

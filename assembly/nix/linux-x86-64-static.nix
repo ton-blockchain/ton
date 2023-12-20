@@ -19,7 +19,7 @@ pkgs.stdenv.mkDerivation { # gcc
 
   buildInputs = with pkgs;
     [
-      pkgsStatic.openssl pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1 glibc.static
+      pkgsStatic.openssl_3_0 pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1 glibc.static
     ];
 
   makeStatic = true;

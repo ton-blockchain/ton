@@ -26,22 +26,6 @@ pipeline {
                         }
                     }
                 }
-                stage('Ubuntu 20.04 x86-64 (portable)') {
-                    agent {
-                        label 'Ubuntu_x86-64'
-                    }
-                    steps {
-                        timeout(time: 90, unit: 'MINUTES') {
-                            sh '''
-                            cp assembly/native/build-ubuntu-20.04-portable.sh .
-                            chmod +x build-ubuntu-20.04-portable.sh
-                            ./build-ubuntu-20.04-portable.sh -t -a
-                            '''
-                            sh 'zip -r ton-x86_64-linux-portable ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-x86_64-linux-portable.zip'
-                        }
-                    }
-                }
                 stage('Ubuntu 20.04 x86-64 (nix)') {
                     agent {
                         label 'Ubuntu_x86-64'
@@ -77,22 +61,6 @@ pipeline {
                             '''
                             sh 'zip -r ton-arm64-linux-shared ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-arm64-linux-shared.zip'
-                        }
-                    }
-                }
-                stage('Ubuntu 20.04 aarch64 (portable)') {
-                    agent {
-                        label 'Ubuntu_arm64'
-                    }
-                    steps {
-                        timeout(time: 90, unit: 'MINUTES') {
-                            sh '''
-                            cp assembly/native/build-ubuntu-20.04-portable.sh .
-                            chmod +x build-ubuntu-20.04-portable.sh
-                            ./build-ubuntu-20.04-portable.sh -t -a
-                            '''
-                            sh 'zip -r ton-arm64-linux-portable ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-arm64-linux-portable.zip'
                         }
                     }
                 }
@@ -141,18 +109,18 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-macos-portable.sh .
-                            chmod +x build-macos-portable.sh
-                            ./build-macos-portable.sh -t -a -o 12.7
+                            cp assembly/nix/macos-arm64-* .
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            nix-build macos-arm64-static.nix
                             '''
-                            sh 'zip -r ton-x86-64-macos-portable ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-x86-64-macos-portable.zip'
+                            sh 'zip -r ton-arm64-macos-portable ./artifacts/bin/*'
+                            archiveArtifacts artifacts: 'ton-arm64-macos-portable.zip'
                         }
                     }
                 }
                 stage('macOS 12.6 aarch64 (shared)') {
                     agent {
-                        label 'macOS_12.6.3-arm64'
+                        label 'macOS_12.6-arm64-m1'
                     }
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
@@ -168,7 +136,7 @@ pipeline {
                 }
                 stage('macOS 12.6 aarch64 (portable)') {
                     agent {
-                        label 'macOS_12.6.3-arm64'
+                        label 'macOS_12.6-arm64-m1'
                     }
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
