@@ -1743,7 +1743,7 @@ void LiteQuery::continue_getConfigParams(int mode, std::vector<int> param_list) 
 void LiteQuery::perform_getAllShardsInfo(BlockIdExt blkid) {
   LOG(INFO) << "started a getAllShardsInfo(" << blkid.to_str() << ") liteserver query";
   set_continuation([&]() -> void { continue_getAllShardsInfo(); });
-  request_mc_block_data_state(blkid);
+  request_mc_block_data(blkid);
 }
 
 void LiteQuery::continue_getShardInfo(ShardIdFull shard, bool exact) {
@@ -1790,30 +1790,30 @@ void LiteQuery::continue_getShardInfo(ShardIdFull shard, bool exact) {
 
 void LiteQuery::continue_getAllShardsInfo() {
   LOG(INFO) << "completing getAllShardsInfo() query";
-  Ref<vm::Cell> proof1, proof2;
-  if (!make_mc_state_root_proof(proof1)) {
+  vm::MerkleProofBuilder mpb{mc_block_->root_cell()};
+  block::gen::Block::Record blk;
+  block::gen::BlockExtra::Record extra;
+  block::gen::McBlockExtra::Record mc_extra;
+  if (!tlb::unpack_cell(mpb.root(), blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
+      !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+    fatal_error("cannot unpack header of block "s + mc_block_->block_id().to_str());
     return;
   }
-  vm::MerkleProofBuilder mpb{mc_state_->root_cell()};
-  auto shards_dict = block::ShardConfig::extract_shard_hashes_dict(mpb.root());
-  if (!shards_dict) {
-    fatal_error("cannot extract ShardHashes from last mc state");
-    return;
-  }
-  if (!mpb.extract_proof_to(proof2)) {
+  vm::Dictionary shards_dict(std::move(mc_extra.shard_hashes), 32);
+  Ref<vm::Cell> proof;
+  if (!mpb.extract_proof_to(proof)) {
     fatal_error("cannot construct Merkle proof for all shards dictionary");
     return;
   }
-  shards_dict = block::ShardConfig::extract_shard_hashes_dict(mc_state_->root_cell());
-  vm::CellBuilder cb;
-  Ref<vm::Cell> cell;
-  if (!(std::move(shards_dict)->append_dict_to_bool(cb) && cb.finalize_to(cell))) {
-    fatal_error("cannot store ShardHashes from last mc state into a new cell");
+  auto proof_boc = vm::std_boc_serialize(std::move(proof));
+  if (proof_boc.is_error()) {
+    fatal_error(proof_boc.move_as_error());
     return;
   }
-  auto proof = vm::std_boc_serialize_multi({std::move(proof1), std::move(proof2)});
-  if (proof.is_error()) {
-    fatal_error(proof.move_as_error());
+  vm::CellBuilder cb;
+  Ref<vm::Cell> cell;
+  if (!(shards_dict.append_dict_to_bool(cb) && cb.finalize_to(cell))) {
+    fatal_error("cannot store ShardHashes from last mc block into a new cell");
     return;
   }
   auto data = vm::std_boc_serialize(std::move(cell));
@@ -1823,7 +1823,7 @@ void LiteQuery::continue_getAllShardsInfo() {
   }
   LOG(INFO) << "getAllShardInfo() query completed";
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_allShardsInfo>(
-      ton::create_tl_lite_block_id(base_blk_id_), proof.move_as_ok(), data.move_as_ok());
+      ton::create_tl_lite_block_id(base_blk_id_), proof_boc.move_as_ok(), data.move_as_ok());
   finish_query(std::move(b));
 }
 
