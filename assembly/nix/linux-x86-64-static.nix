@@ -8,7 +8,7 @@
 }:
 pkgs.stdenv.mkDerivation { # gcc
   pname = "ton";
-  version = "dev";
+  version = "dev-bin";
 
   src = ./.;
 

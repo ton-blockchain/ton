@@ -25,7 +25,7 @@ let
 in
 stdenv227.mkDerivation {
   pname = "ton";
-  version = "dev";
+  version = "dev-lib";
 
   src = ./.;
 
@@ -50,6 +50,10 @@ stdenv227.mkDerivation {
 
   LDFLAGS = [
      "-static-libgcc" "-static-libstdc++" "-fPIC"
- ];
+  ];
+
+  ninjaFlags = [
+    "tonlibjson" "emulator"
+  ];
 
 }
