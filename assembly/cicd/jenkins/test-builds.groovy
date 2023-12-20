@@ -109,12 +109,12 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/macos-arm64-* .
+                            cp assembly/nix/macos-x86-64-* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
-                            nix-build macos-arm64-static.nix
+                            nix-build macos-x86-64-static.nix
                             '''
-                            sh 'zip -r ton-arm64-macos-portable ./artifacts/bin/*'
-                            archiveArtifacts artifacts: 'ton-arm64-macos-portable.zip'
+                            sh 'zip -r ton-x86-64-macos-portable ./result/bin/*'
+                            archiveArtifacts artifacts: 'ton-x86-64-macos-portable.zip'
                         }
                     }
                 }
@@ -141,11 +141,11 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-macos-portable.sh .
-                            chmod +x build-macos-portable.sh
-                            ./build-macos-portable.sh -t -a -o 12.6
+                            cp assembly/nix/macos-arm64-* .
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            nix-build macos-arm64-static.nix
                             '''
-                            sh 'zip -r ton-arm64-m1-macos-portable ./artifacts/*'
+                            sh 'zip -r ton-arm64-m1-macos-portable ./result/*'
                             archiveArtifacts artifacts: 'ton-arm64-m1-macos-portable.zip'
                         }
                     }
