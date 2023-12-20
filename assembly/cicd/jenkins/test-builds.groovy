@@ -53,11 +53,11 @@ pipeline {
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
                             nix-build linux-x86-64-static.nix
                             mkdir tmp
-                            cp ./result/* tmp/
+                            cp ./result/bin/* tmp/
                             rm -rf result                             
                             nix-build linux-x86-64-tonlib.nix
-                            cp ./result/libtonlibjson.so.0.5 tmp/
-                            cp ./result/libemulator.so tmp/
+                            cp ./result/lib/libtonlibjson.so.0.5 tmp/
+                            cp ./result/lib/libemulator.so tmp/
                             '''
                             sh 'zip -r ton-x86-64-linux-nix ./tmp/*'
                             archiveArtifacts artifacts: 'ton-x86-64-linux-nix.zip'
@@ -107,11 +107,11 @@ pipeline {
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
                             nix-build linux-x86-64-static.nix
                             mkdir tmp
-                            cp ./result/* tmp/
+                            cp ./result/bin/* tmp/
                             rm -rf result                             
                             nix-build linux-x86-64-tonlib.nix
-                            cp ./result/libtonlibjson.so.0.5 tmp/
-                            cp ./result/libemulator.so tmp/
+                            cp ./result/lib/libtonlibjson.so.0.5 tmp/
+                            cp ./result/lib/libemulator.so tmp/
                             '''
                             sh 'zip -r ton-arm64-linux-nix ./tmp/*'
                             archiveArtifacts artifacts: 'ton-xarm64-linux-nix.zip'
