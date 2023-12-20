@@ -1777,7 +1777,6 @@ class RunEmulator : public TonlibQueryActor {
           return td::Status::Error("block header proof is not a valid Merkle proof");
         }
 
-        ton::RootHash vhash{virt_root->get_hash().bits()};
         if (ton::RootHash{virt_root->get_hash().bits()} != block_id.root_hash) {
           return td::Status::Error("block header has incorrect root hash");
         }
@@ -5651,23 +5650,29 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt&
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& request,
                         td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise) {
-  TRY_RESULT(block, to_lite_api(*request.id_))
+  TRY_RESULT(lite_block, to_lite_api(*request.id_))
+  TRY_RESULT(req_blk_id, to_block_id(*request.id_));
   client_.send_query(ton::lite_api::liteServer_getBlockHeader(
-                       std::move(block),
+                       std::move(lite_block),
                        0xffff),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& hdr) -> td::Result<tonlib_api::object_ptr<tonlib_api::blocks_header>> {
+                     promise.wrap([req_blk_id](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& hdr) -> td::Result<tonlib_api::object_ptr<tonlib_api::blocks_header>> {
                        auto blk_id = ton::create_block_id(hdr->id_);
+                       if (blk_id != req_blk_id) {
+                         return td::Status::Error("Liteserver responded with wrong block");
+                       }
                        auto R = vm::std_boc_deserialize(std::move(hdr->header_proof_));
                        if (R.is_error()) {
                          return R.move_as_error_prefix("Couldn't deserialize header proof: ");
                        } else {
                          auto root = R.move_as_ok();
                          try {
-                           ton::RootHash vhash{root->get_hash().bits()};
                            auto virt_root = vm::MerkleProof::virtualize(root, 1);
                            if (virt_root.is_null()) {
                              return td::Status::Error("Virt root is null");
                            } else {
+                             if (ton::RootHash{virt_root->get_hash().bits()} != blk_id.root_hash) {
+                               return td::Status::Error("Block header merkle proof has incorrect root hash");
+                             }
                              std::vector<ton::BlockIdExt> prev;
                              ton::BlockIdExt mc_blkid;
                              bool after_split;
