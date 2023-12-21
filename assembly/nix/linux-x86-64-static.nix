@@ -38,6 +38,5 @@ pkgs.stdenv.mkDerivation { # gcc
 
   LDFLAGS = [
      "-static-libgcc" "-static-libstdc++" "-fPIC" "--enable-static-pie" "-static"
- ];
-
+  ];
 }
