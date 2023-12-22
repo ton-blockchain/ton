@@ -7,7 +7,7 @@
 , stdenv ? pkgs.stdenv
 }:
 let
-      system = "x86_64-linux";
+      system = builtins.currentSystem;
 
           nixos1909 = (import (builtins.fetchTarball {
             url = "https://channels.nixos.org/nixos-19.09/nixexprs.tar.xz";

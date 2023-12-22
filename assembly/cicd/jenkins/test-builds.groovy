@@ -71,14 +71,13 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/linux-x86-64-static.nix .
-                            cp assembly/nix/linux-arm64-tonlib.nix .
+                            cp assembly/nix/linux-x86-64* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
                             nix-build linux-x86-64-static.nix
                             mkdir tmp
                             cp ./result/bin/* tmp/
                             rm -rf result                             
-                            nix-build linux-arm64-tonlib.nix
+                            nix-build linux-x86-64-tonlib.nix
                             cp ./result/lib/libtonlibjson.so.0.5 tmp/
                             cp ./result/lib/libemulator.so tmp/
                             '''
@@ -113,8 +112,14 @@ pipeline {
                             cp assembly/nix/macos-x86-64-* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
                             nix-build macos-x86-64-static.nix
+                            mkdir tmp
+                            cp ./result/bin/* tmp/
+                            rm -rf result                             
+                            nix-build linux-x86-64-tonlib.nix
+                            cp ./result/lib/libtonlibjson.dylib tmp/
+                            cp ./result/lib/libemulator.dylib tmp/
                             '''
-                            sh 'zip -r ton-x86-64-macos-portable ./result/bin/*'
+                            sh 'zip -r ton-x86-64-macos-portable ./tmp/*'
                             archiveArtifacts artifacts: 'ton-x86-64-macos-portable.zip'
                         }
                     }
@@ -145,9 +150,15 @@ pipeline {
                             cp assembly/nix/macos-arm64-* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
                             nix-build macos-arm64-static.nix
+                            mkdir tmp
+                            cp ./result/bin/* tmp/
+                            rm -rf result                             
+                            nix-build macos-arm64-tonlib.nix
+                            cp ./result/lib/libtonlibjson.dylib tmp/
+                            cp ./result/lib/libemulator.dylib tmp/
                             '''
-                            sh 'zip -r ton-arm64-m1-macos-portable ./result/bin/*'
-                            archiveArtifacts artifacts: 'ton-arm64-m1-macos-portable.zip'
+                            sh 'zip -r ton-arm64-macos-portable ./tmp/*'
+                            archiveArtifacts artifacts: 'ton-arm64-macos-portable.zip'
                         }
                     }
                 }
