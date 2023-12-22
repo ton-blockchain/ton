@@ -37,11 +37,6 @@ stdenv227.mkDerivation {
 
   dontAddStaticConfigureFlags = false;
 
-  configureFlags = [
-
-  ];
-
-
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
     "-DNIX=ON"
@@ -50,9 +45,4 @@ stdenv227.mkDerivation {
   LDFLAGS = [
      "-static-libgcc" "-static-libstdc++" "-fPIC"
   ];
-
-  ninjaFlags = [
-    "tonlibjson" "emulator"
-  ];
-
 }

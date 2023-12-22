@@ -34,14 +34,10 @@ stdenv227.mkDerivation {
 
   buildInputs = with pkgs;
     [
-      pkgsStatic.openssl_3_0 pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1
+      pkgsStatic.openssl pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1
     ];
 
   dontAddStaticConfigureFlags = false;
-
-  configureFlags = [
-
-  ];
 
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
@@ -51,9 +47,4 @@ stdenv227.mkDerivation {
   LDFLAGS = [
      "-static-libgcc" "-static-libstdc++" "-fPIC"
   ];
-
-  ninjaFlags = [
-    "tonlibjson" "emulator"
-  ];
-
 }

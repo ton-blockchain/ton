@@ -5,9 +5,9 @@
 , stdenv ? pkgs.stdenv
 }:
 
-pkgs.stdenv.mkDerivation { # clang default
+pkgs.llvmPackages_14.stdenv.mkDerivation {
   pname = "ton";
-  version = "dev";
+  version = "dev-lib";
 
   src = ./.;
 
@@ -27,7 +27,6 @@ pkgs.stdenv.mkDerivation { # clang default
 
 
   dontAddStaticConfigureFlags = true;
-  doCheck = false;
 
   configureFlags = [];
 
@@ -43,15 +42,11 @@ pkgs.stdenv.mkDerivation { # clang default
     "-framework CoreFoundation"
   ];
 
-  ninjaFlags = [
-    "tonlibjson" "emulator"
-  ];
-
-   preFixup = ''
+  preFixup = ''
      for fn in $out/bin/* $out/lib/*.dylib; do
         echo Fixing libc++ in "$fn"
         install_name_tool -change "$(otool -L "$fn" | grep libc++.1 | cut -d' ' -f1 | xargs)" libc++.1.dylib "$fn"
         install_name_tool -change "$(otool -L "$fn" | grep libc++abi.1 | cut -d' ' -f1 | xargs)" libc++abi.dylib "$fn"
-      done
-   '';
+     done
+  '';
 }

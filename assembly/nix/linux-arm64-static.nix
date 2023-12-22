@@ -1,6 +1,4 @@
 # export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
-# copy linux-x86-64-static.nix to git root directory and execute:
-# nix-build linux-x86-64-static.nix
 
 { pkgs ? import <nixpkgs> { system = builtins.currentSystem; }
 , lib ? pkgs.lib
@@ -25,6 +23,9 @@ pkgs.stdenv.mkDerivation { # gcc
   makeStatic = true;
   doCheck = false;
 
+  configureFlags = [
+
+  ];
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
     "-DNIX=ON"

@@ -26,7 +26,7 @@ pipeline {
                         }
                     }
                 }
-                stage('Ubuntu 20.04 x86-64 (nix)') {
+                stage('Ubuntu 20.04 x86-64 (portable)') {
                     agent {
                         label 'Ubuntu_x86-64'
                     }
@@ -64,17 +64,16 @@ pipeline {
                         }
                     }
                 }
-                stage('Ubuntu 20.04 aarch64 (nix)') {
+                stage('Ubuntu 20.04 aarch64 (portable)') {
                     agent {
                         label 'Ubuntu_arm64'
                     }
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/linux-x86-64* .
                             cp assembly/nix/linux-arm64* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build linux-x86-64-static.nix
+                            nix-build linux-arm64-static.nix
                             mkdir tmp
                             cp ./result/bin/* tmp/
                             rm -rf result                             
