@@ -21,16 +21,15 @@ pkgs.stdenv.mkDerivation { # clang default
       (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" "--disable-tests" ]; dontDisableStatic = true; }))
     ++ [
       darwin.apple_sdk.frameworks.CoreFoundation
-      (openssl.override { static = true; }).dev
+      (openssl_3.override { static = true; }).dev
       (zlib.override { shared = false; }).dev
       (libiconv.override { enableStatic = true; enableShared = false; })
    ];
 
 
-   dontAddStaticConfigureFlags = true;
-   doCheck = false;
-   makeStatic = true;
-
+  dontAddStaticConfigureFlags = true;
+  doCheck = false;
+  makeStatic = true;
 
   configureFlags = [];
 

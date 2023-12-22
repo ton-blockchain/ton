@@ -5,13 +5,7 @@
 , stdenv ? pkgs.stdenv
 }:
 
-let
-#  secp256k1 = (import ./secp256k1.nix) {};
-#  sodium = (import ./sodium.nix) {};
-in
-#with import secp256k1;
-
-pkgs.llvmPackages_14.stdenv.mkDerivation { # clang
+pkgs.gcc11Stdenv.mkDerivation { # gcc
   pname = "ton";
   version = "x86_64-darwin";
 
@@ -22,21 +16,24 @@ pkgs.llvmPackages_14.stdenv.mkDerivation { # clang
 
   buildInputs = with pkgs;
    lib.forEach [
-        secp256k1 libsodium.dev libmicrohttpd.dev gmp.dev nettle.dev libtasn1.dev libidn2.dev libunistring.dev gettext (gnutls.override { withP11-kit = false; }).dev
+        secp256k1 libsodium.dev libmicrohttpd.dev gmp.dev nettle.dev libtasn1.dev libidn2.dev libunistring.dev gettext
       ]
       (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" "--disable-tests" ]; dontDisableStatic = true; }))
     ++ [
       darwin.apple_sdk.frameworks.CoreFoundation
-      (openssl.override { static = true; }).dev
+      (openssl_3.override { static = true; }).dev
       (zlib.override { shared = false; }).dev
       (libiconv.override { enableStatic = true; enableShared = false; })
+      ((gnutls.override { withP11-kit = false; }).overrideAttrs(oldAttrs: rec {
+        cmakeFlags = (oldAttrs.cmakeFlags or []) ++ [ "-fpermissive" "-Wno-error=implicit-int" ];
+        configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" "--disable-tests" ]; dontDisableStatic = true;
+       })).dev
    ];
 
 
-   dontAddStaticConfigureFlags = true;
-   doCheck = false;
-   makeStatic = true;
-
+  dontAddStaticConfigureFlags = true;
+  doCheck = false;
+  makeStatic = true;
 
   configureFlags = [];
 
@@ -47,13 +44,12 @@ pkgs.llvmPackages_14.stdenv.mkDerivation { # clang
     "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
     "-DCMAKE_LINK_SEARCH_END_STATIC=ON"
     "-DBUILD_SHARED_LIBS=OFF"
-    "-DCMAKE_CXX_FLAGS=-stdlib=libc++"
+    "-DCMAKE_CXX_FLAGS=-fpermissive -Wno-error=implicit-int"
     "-DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=11.3"
   ];
 
   LDFLAGS = [
-#    "-static-libgcc"
-    "-static-libstdc++"
+    "-static-libgcc"
     "-framework CoreFoundation"
   ];
 

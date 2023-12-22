@@ -72,12 +72,13 @@ pipeline {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
                             cp assembly/nix/linux-x86-64* .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            cp assembly/nix/linux-arm64* .
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build linux-x86-64-static.nix
                             mkdir tmp
                             cp ./result/bin/* tmp/
                             rm -rf result                             
-                            nix-build linux-x86-64-tonlib.nix
+                            nix-build linux-arm64-tonlib.nix
                             cp ./result/lib/libtonlibjson.so.0.5 tmp/
                             cp ./result/lib/libemulator.so tmp/
                             '''
@@ -110,7 +111,7 @@ pipeline {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
                             cp assembly/nix/macos-x86-64-* .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build macos-x86-64-static.nix
                             mkdir tmp
                             cp ./result/bin/* tmp/
@@ -148,11 +149,11 @@ pipeline {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
                             cp assembly/nix/macos-arm64-* .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build macos-arm64-static.nix
                             mkdir tmp
-                            cp ./result/bin/* tmp/
-                            rm -rf result                             
+                            cp ./result-bin/bin/* tmp/
+                            rm -rf result-bin
                             nix-build macos-arm64-tonlib.nix
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
