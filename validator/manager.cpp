@@ -2334,8 +2334,11 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
                                                             td::Promise<td::Unit> promise) {
   shard_client_handle_ = std::move(handle);
   auto seqno = shard_client_handle_->id().seqno();
-  if (last_liteserver_state_.is_null() || last_liteserver_state_->get_block_id().seqno() < seqno) {
-    last_liteserver_state_ = std::move(state);
+  if (state.not_null()) {
+    shard_client_shards_ = state->get_shards();
+    if (last_liteserver_state_.is_null() || last_liteserver_state_->get_block_id().seqno() < seqno) {
+      last_liteserver_state_ = std::move(state);
+    }
   }
   shard_client_update(seqno);
   promise.set_value(td::Unit());
@@ -2660,6 +2663,143 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
   file.close();
 
   LOG(INFO) << "Writing validator session stats for " << block_id.id;
+}
+
+void ValidatorManagerImpl::get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) {
+  get_block_handle(
+      block_id, false,
+      [SelfId = actor_id(this), block_id, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+        if (R.is_ok() && R.ok()->is_applied()) {
+          promise.set_value(R.move_as_ok());
+        } else {
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::process_block_handle_for_litequery_error, block_id,
+                                  std::move(R), std::move(promise));
+        }
+      });
+}
+
+void ValidatorManagerImpl::get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                                                 td::Promise<ConstBlockHandle> promise) {
+  get_block_by_lt_from_db(
+      account, lt, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
+        if (R.is_ok() && R.ok()->is_applied()) {
+          promise.set_value(R.move_as_ok());
+        } else {
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::process_lookup_block_for_litequery_error, account, 0,
+                                  lt, std::move(R), std::move(promise));
+        }
+      });
+}
+
+void ValidatorManagerImpl::get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                                        td::Promise<ConstBlockHandle> promise) {
+  get_block_by_unix_time_from_db(
+      account, ts, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
+        if (R.is_ok() && R.ok()->is_applied()) {
+          promise.set_value(R.move_as_ok());
+        } else {
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::process_lookup_block_for_litequery_error, account, 1,
+                                  ts, std::move(R), std::move(promise));
+        }
+      });
+}
+
+void ValidatorManagerImpl::get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                                    td::Promise<ConstBlockHandle> promise) {
+  get_block_by_seqno_from_db(
+      account, seqno,
+      [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
+        if (R.is_ok() && R.ok()->is_applied()) {
+          promise.set_value(R.move_as_ok());
+        } else {
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::process_lookup_block_for_litequery_error, account, 2,
+                                  seqno, std::move(R), std::move(promise));
+        }
+      });
+}
+
+void ValidatorManagerImpl::process_block_handle_for_litequery_error(BlockIdExt block_id,
+                                                                    td::Result<BlockHandle> r_handle,
+                                                                    td::Promise<ConstBlockHandle> promise) {
+  td::Status err;
+  if (r_handle.is_error()) {
+    err = r_handle.move_as_error();
+  } else {
+    auto handle = r_handle.move_as_ok();
+    if (handle->is_applied()) {
+      promise.set_value(std::move(handle));
+      return;
+    }
+    if (!handle->received() || !handle->received_state()) {
+      err = td::Status::Error(ErrorCode::notready, PSTRING() << "block " << block_id.id.to_str() << " is not in db");
+    } else {
+      err = td::Status::Error(ErrorCode::notready, PSTRING() << "block " << block_id.id.to_str() << " is not applied");
+    }
+  }
+  if (block_id.is_masterchain()) {
+    if (block_id.seqno() > last_masterchain_seqno_) {
+      err = err.move_as_error_suffix(PSTRING() << " (last known masterchain block: " << last_masterchain_seqno_ << ")");
+    }
+  } else {
+    for (auto &shard : shard_client_shards_) {
+      if (shard_intersects(shard->shard(), block_id.shard_full())) {
+        if (block_id.seqno() > shard->top_block_id().seqno()) {
+          err = err.move_as_error_suffix(
+              PSTRING() << " (possibly out of sync: shard_client_seqno="
+                        << (shard_client_handle_ ? shard_client_handle_->id().seqno() : 0) << " ls_seqno="
+                        << (last_liteserver_state_.not_null() ? last_liteserver_state_->get_seqno() : 0) << ")");
+        }
+        break;
+      }
+    }
+  }
+  promise.set_error(std::move(err));
+}
+
+void ValidatorManagerImpl::process_lookup_block_for_litequery_error(AccountIdPrefixFull account, int type,
+                                                                    td::uint64 value,
+                                                                    td::Result<ConstBlockHandle> r_handle,
+                                                                    td::Promise<ConstBlockHandle> promise) {
+  td::Status err;
+  if (r_handle.is_error()) {
+    err = r_handle.move_as_error();
+  } else {
+    auto handle = r_handle.move_as_ok();
+    if (handle->is_applied()) {
+      promise.set_value(std::move(handle));
+      return;
+    }
+    if (!handle->received() || !handle->received_state()) {
+      err = td::Status::Error(ErrorCode::notready, PSTRING() << "block " << handle->id().to_str() << " is not in db");
+    } else {
+      err = td::Status::Error(ErrorCode::notready, PSTRING() << "block " << handle->id().to_str() << " is not applied");
+    }
+  }
+  if (account.is_masterchain()) {
+    if (value > (type == 0
+                     ? last_masterchain_state_->get_logical_time()
+                     : (type == 1 ? last_masterchain_state_->get_unix_time() : last_masterchain_state_->get_seqno()))) {
+      err = err.move_as_error_suffix(PSTRING() << " (last known masterchain block: " << last_masterchain_seqno_ << ")");
+    }
+  } else {
+    for (auto &shard : shard_client_shards_) {
+      if (shard_intersects(shard->shard(), account.as_leaf_shard())) {
+        if (value > (type == 0 ? shard->end_lt()
+                               : (type == 1 ? (shard_client_handle_ ? shard_client_handle_->unix_time() : 0)
+                                            : shard->top_block_id().seqno()))) {
+          err = err.move_as_error_suffix(
+              PSTRING() << " (possibly out of sync: shard_client_seqno="
+                        << (shard_client_handle_ ? shard_client_handle_->id().seqno() : 0) << " ls_seqno="
+                        << (last_liteserver_state_.not_null() ? last_liteserver_state_->get_seqno() : 0) << ")");
+        }
+        break;
+      }
+    }
+  }
+  static std::string names[3] = {"lt", "utime", "seqno"};
+  err = err.move_as_error_prefix(PSTRING() << "cannot find block " << account.to_str() << " " << names[type] << "="
+                                           << value << ": ");
+  promise.set_error(std::move(err));
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(

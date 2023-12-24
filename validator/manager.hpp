@@ -252,6 +252,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_key_block_handle_;
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
+  std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> last_liteserver_state_;
 
   td::Ref<MasterchainState> do_get_last_liteserver_state();
@@ -560,6 +561,19 @@ class ValidatorManagerImpl : public ValidatorManager {
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }
+
+  void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                             td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                    td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                td::Promise<ConstBlockHandle> promise) override;
+  void process_block_handle_for_litequery_error(BlockIdExt block_id, td::Result<BlockHandle> r_handle,
+                                                td::Promise<ConstBlockHandle> promise);
+  void process_lookup_block_for_litequery_error(AccountIdPrefixFull account, int type, td::uint64 value,
+                                                td::Result<ConstBlockHandle> r_handle,
+                                                td::Promise<ConstBlockHandle> promise);
 
  private:
   td::Timestamp resend_shard_blocks_at_;
