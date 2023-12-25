@@ -19,7 +19,7 @@ if (NOT MHD_FOUND)
 endif()
 
 target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
-target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARIES})
+target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARY})
 
 install(TARGETS blockchain-explorer RUNTIME DESTINATION bin)
 
