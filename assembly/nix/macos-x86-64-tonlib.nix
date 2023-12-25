@@ -42,6 +42,10 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
     "-framework CoreFoundation"
   ];
 
+  ninjaFlags = [
+    "tonlibjson" "emulator"
+  ];
+
   preFixup = ''
      for fn in $out/bin/* $out/lib/*.dylib; do
         echo Fixing libc++ in "$fn"

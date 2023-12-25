@@ -119,7 +119,7 @@ pipeline {
                             cp ./result/lib/libemulator.so tmp/
                             '''
                             sh 'zip -r ton-arm64-linux-nix ./tmp/*'
-                            archiveArtifacts artifacts: 'ton-xarm64-linux-nix.zip'
+                            archiveArtifacts artifacts: 'ton-arm64-linux-nix.zip'
                         }
                     }
                 }

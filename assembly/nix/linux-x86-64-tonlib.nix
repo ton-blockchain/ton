@@ -47,4 +47,8 @@ stdenv227.mkDerivation {
   LDFLAGS = [
      "-static-libgcc" "-static-libstdc++" "-fPIC"
   ];
+
+  ninjaFlags = [
+    "tonlibjson" "emulator"
+  ];
 }
