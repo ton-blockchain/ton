@@ -50,6 +50,8 @@ pipeline {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
                             cp assembly/nix/linux-x86-64* .
+                            cp assembly/nix/microhttpd.nix .
+                            cp assembly/nix/openssl.nix .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build linux-x86-64-static.nix
                             mkdir tmp
