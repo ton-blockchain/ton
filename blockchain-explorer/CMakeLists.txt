@@ -13,15 +13,13 @@ set(BLOCHAIN_EXPLORER_SOURCE
 
 add_executable(blockchain-explorer ${BLOCHAIN_EXPLORER_SOURCE})
 
-if (MHD_FOUND)
-  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
-  target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARY})
-else()
+if (NOT MHD_FOUND)
   find_package(PkgConfig REQUIRED)
   find_package(MHD REQUIRED)
-  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
-  target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARIES})
 endif()
+
+target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
+target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARIES})
 
 install(TARGETS blockchain-explorer RUNTIME DESTINATION bin)
 
