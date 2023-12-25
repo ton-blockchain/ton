@@ -28,8 +28,8 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
 
 
   dontAddStaticConfigureFlags = true;
-  doCheck = false;
   makeStatic = true;
+  doCheck = true;
 
   configureFlags = [];
 

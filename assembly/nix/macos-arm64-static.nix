@@ -28,8 +28,8 @@ pkgs.stdenv.mkDerivation { # clang default
 
 
   dontAddStaticConfigureFlags = true;
-  doCheck = false;
   makeStatic = true;
+  doCheck = true;
 
   configureFlags = [];
 

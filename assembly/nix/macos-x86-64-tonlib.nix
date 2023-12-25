@@ -25,7 +25,6 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
       (libiconv.override { enableStatic = true; enableShared = false; })
     ];
 
-
   dontAddStaticConfigureFlags = true;
 
   configureFlags = [];

@@ -33,22 +33,6 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-ubuntu-20.04-portable.sh .
-                            chmod +x build-ubuntu-20.04-portable.sh
-                            ./build-ubuntu-20.04-portable.sh -t -a
-                            '''
-                            sh 'zip -r ton-x86_64-linux-portable ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-x86_64-linux-portable.zip'
-                        }
-                    }
-                }
-                stage('Ubuntu 20.04 x86-64 (nix)') {
-                    agent {
-                        label 'Ubuntu_x86-64'
-                    }
-                    steps {
-                        timeout(time: 90, unit: 'MINUTES') {
-                            sh '''
                             cp assembly/nix/linux-x86-64* .
                             cp assembly/nix/microhttpd.nix .
                             cp assembly/nix/openssl.nix .
@@ -61,8 +45,8 @@ pipeline {
                             cp ./result/lib/libtonlibjson.so.0.5 tmp/
                             cp ./result/lib/libemulator.so tmp/
                             '''
-                            sh 'zip -r ton-x86-64-linux-nix ./tmp/*'
-                            archiveArtifacts artifacts: 'ton-x86-64-linux-nix.zip'
+                            sh 'zip -r ton-x86-64-linux-portable ./tmp/*'
+                            archiveArtifacts artifacts: 'ton-x86-64-linux-portable.zip'
                         }
                     }
                 }
@@ -89,22 +73,6 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-ubuntu-20.04-portable.sh .
-                            chmod +x build-ubuntu-20.04-portable.sh
-                            ./build-ubuntu-20.04-portable.sh -t -a
-                            '''
-                            sh 'zip -r ton-arm64-linux-portable ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-arm64-linux-portable.zip'
-                        }
-                    }
-                }
-                stage('Ubuntu 20.04 aarch64 (nix)') {
-                    agent {
-                        label 'Ubuntu_arm64'
-                    }
-                    steps {
-                        timeout(time: 90, unit: 'MINUTES') {
-                            sh '''
                             cp assembly/nix/linux-arm64* .
                             cp assembly/nix/microhttpd.nix .
                             cp assembly/nix/openssl.nix .
@@ -118,8 +86,8 @@ pipeline {
                             cp ./result/lib/libtonlibjson.so.0.5 tmp/
                             cp ./result/lib/libemulator.so tmp/
                             '''
-                            sh 'zip -r ton-arm64-linux-nix ./tmp/*'
-                            archiveArtifacts artifacts: 'ton-arm64-linux-nix.zip'
+                            sh 'zip -r ton-arm64-linux-portable ./tmp/*'
+                            archiveArtifacts artifacts: 'ton-arm64-linux-portable.zip'
                         }
                     }
                 }
@@ -184,13 +152,13 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/macos-arm64-* .
+                            cp assembly/nix/macos-x86-64-* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build macos-arm64-static.nix
+                            nix-build macos-x86-64-static.nix
                             mkdir tmp
                             cp ./result-bin/bin/* tmp/
                             rm -rf result-bin
-                            nix-build macos-arm64-tonlib.nix
+                            nix-build macos-x86-64-tonlib.nix
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
                             '''

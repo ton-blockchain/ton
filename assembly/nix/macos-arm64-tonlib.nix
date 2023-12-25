@@ -25,9 +25,7 @@ pkgs.stdenv.mkDerivation { # clang default
       (libiconv.override { enableStatic = true; enableShared = false; })
     ];
 
-
   dontAddStaticConfigureFlags = true;
-  doCheck = false;
 
   configureFlags = [];
 
