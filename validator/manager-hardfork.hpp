@@ -445,6 +445,21 @@ class ValidatorManagerImpl : public ValidatorManager {
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }
+  void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) override {
+    get_block_handle(block_id, false, promise.wrap([](BlockHandle &&handle) -> ConstBlockHandle { return handle; }));
+  }
+  void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                             td::Promise<ConstBlockHandle> promise) override {
+    get_block_by_lt_from_db(account, lt, std::move(promise));
+  }
+  void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                    td::Promise<ConstBlockHandle> promise) override {
+    get_block_by_unix_time_from_db(account, ts, std::move(promise));
+  }
+  void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                td::Promise<ConstBlockHandle> promise) override {
+    get_block_by_seqno_from_db(account, seqno, std::move(promise));
+  }
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;
