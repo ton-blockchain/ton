@@ -13,17 +13,14 @@ set(BLOCHAIN_EXPLORER_SOURCE
 
 add_executable(blockchain-explorer ${BLOCHAIN_EXPLORER_SOURCE})
 
-if (NIX)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(MHD libmicrohttpd)
-  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR} ${MHD_STATIC_INCLUDE_DIRS})
-  target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARIES} ${MHD_STATIC_LIBRARIES})
-else()
-  if (NOT MHD_FOUND)
-    find_package(MHD)
-  endif()
+if (MHD_FOUND)
   target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
   target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARY})
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(MHD libmicrohttpd)
+  target_include_directories(blockchain-explorer PUBLIC ${MHD_INCLUDE_DIR})
+  target_link_libraries(blockchain-explorer tdutils tdactor adnllite tl_lite_api tl-lite-utils ton_crypto ton_block ${MHD_LIBRARIES})
 endif()
 
 install(TARGETS blockchain-explorer RUNTIME DESTINATION bin)

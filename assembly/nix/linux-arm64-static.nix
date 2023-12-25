@@ -1,10 +1,14 @@
-# export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+# export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
 
 { pkgs ? import <nixpkgs> { system = builtins.currentSystem; }
 , lib ? pkgs.lib
 , stdenv ? pkgs.stdenv
 }:
-pkgs.stdenv.mkDerivation { # gcc
+let
+  microhttpdmy = (import ./microhttpd.nix) {};
+in
+with import microhttpdmy;
+stdenv.mkDerivation {
   pname = "ton";
   version = "dev-bin";
 
@@ -17,24 +21,24 @@ pkgs.stdenv.mkDerivation { # gcc
 
   buildInputs = with pkgs;
     [
-      pkgsStatic.openssl pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1 glibc.static
+      pkgsStatic.openssl microhttpdmy pkgsStatic.zlib pkgsStatic.libsodium.dev pkgsStatic.secp256k1 glibc.static
     ];
 
   makeStatic = true;
   doCheck = false;
 
-  configureFlags = [
-
-  ];
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
     "-DNIX=ON"
     "-DBUILD_SHARED_LIBS=OFF"
     "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
     "-DCMAKE_LINK_SEARCH_END_STATIC=ON"
+    "-DMHD_FOUND=1"
+    "-DMHD_INCLUDE_DIR=${microhttpdmy}/usr/local/include"
+    "-DMHD_LIBRARY=${microhttpdmy}/usr/local/lib/libmicrohttpd.a"
   ];
 
   LDFLAGS = [
-     "-static-libgcc" "-static-libstdc++" "-fPIC" "--enable-static-pie" "-static"
+     "-static-libgcc" "-static-libstdc++" "-static"
   ];
 }

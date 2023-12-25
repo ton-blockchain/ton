@@ -33,8 +33,24 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
+                            cp assembly/native/build-ubuntu-20.04-portable.sh .
+                            chmod +x build-ubuntu-20.04-portable.sh
+                            ./build-ubuntu-20.04-portable.sh -t -a
+                            '''
+                            sh 'zip -r ton-x86_64-linux-portable ./artifacts/*'
+                            archiveArtifacts artifacts: 'ton-x86_64-linux-portable.zip'
+                        }
+                    }
+                }
+                stage('Ubuntu 20.04 x86-64 (nix)') {
+                    agent {
+                        label 'Ubuntu_x86-64'
+                    }
+                    steps {
+                        timeout(time: 90, unit: 'MINUTES') {
+                            sh '''
                             cp assembly/nix/linux-x86-64* .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.11.tar.gz
+                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build linux-x86-64-static.nix
                             mkdir tmp
                             cp ./result/bin/* tmp/
@@ -71,7 +87,26 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
+                            cp assembly/native/build-ubuntu-20.04-portable.sh .
+                            chmod +x build-ubuntu-20.04-portable.sh
+                            ./build-ubuntu-20.04-portable.sh -t -a
+                            '''
+                            sh 'zip -r ton-arm64-linux-portable ./artifacts/*'
+                            archiveArtifacts artifacts: 'ton-arm64-linux-portable.zip'
+                        }
+                    }
+                }
+                stage('Ubuntu 20.04 aarch64 (nix)') {
+                    agent {
+                        label 'Ubuntu_arm64'
+                    }
+                    steps {
+                        timeout(time: 90, unit: 'MINUTES') {
+                            sh '''
                             cp assembly/nix/linux-arm64* .
+                            cp assembly/nix/microhttpd.nix .
+                            cp assembly/nix/openssl.nix .
+                            
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build linux-arm64-static.nix
                             mkdir tmp
@@ -113,9 +148,9 @@ pipeline {
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                             nix-build macos-x86-64-static.nix
                             mkdir tmp
-                            cp ./result/bin/* tmp/
-                            rm -rf result                             
-                            nix-build linux-x86-64-tonlib.nix
+                            cp ./result-bin/bin/* tmp/
+                            rm -rf result-bin
+                            nix-build macos-x86-64-tonlib.nix
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
                             '''
@@ -171,7 +206,7 @@ pipeline {
                             sh '''
                             cp assembly/native/build-macos-shared.sh .
                             chmod +x build-macos-shared.sh
-                            ./build-macos-shared.sh -t -a
+                            ./build-macos-shared.sh -a
                             '''
                             sh 'zip -r ton-arm64-m2-macos-shared ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-arm64-m2-macos-shared.zip'
