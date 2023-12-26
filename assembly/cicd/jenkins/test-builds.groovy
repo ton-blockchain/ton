@@ -176,7 +176,7 @@ pipeline {
                             sh '''
                             cp assembly/native/build-macos-shared.sh .
                             chmod +x build-macos-shared.sh
-                            ./build-macos-shared.sh -a
+                            ./build-macos-shared.sh -t -a
                             '''
                             sh 'zip -r ton-arm64-m2-macos-shared ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-arm64-m2-macos-shared.zip'

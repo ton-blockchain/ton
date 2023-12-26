@@ -25,7 +25,7 @@ stdenv.mkDerivation {
     ];
 
   makeStatic = true;
-  doCheck = false;
+  doCheck = true;
 
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
