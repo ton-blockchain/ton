@@ -21,7 +21,7 @@ pipeline {
                             chmod +x build-ubuntu-20.04-shared.sh
                             ./build-ubuntu-20.04-shared.sh -t -a
                             '''
-                            sh 'zip -r ton-x86_64-linux-shared ./artifacts/*'
+                            sh 'zip -9jr ton-x86_64-linux-shared ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-x86_64-linux-shared.zip'
                         }
                     }
@@ -45,7 +45,7 @@ pipeline {
                             cp ./result/lib/libtonlibjson.so.0.5 tmp/
                             cp ./result/lib/libemulator.so tmp/
                             '''
-                            sh 'zip -r ton-x86-64-linux-portable ./tmp/*'
+                            sh 'zip -9jr ton-x86-64-linux-portable ./tmp/*'
                             archiveArtifacts artifacts: 'ton-x86-64-linux-portable.zip'
                         }
                     }
@@ -61,7 +61,7 @@ pipeline {
                             chmod +x build-ubuntu-20.04-shared.sh
                             ./build-ubuntu-20.04-shared.sh -t -a
                             '''
-                            sh 'zip -r ton-arm64-linux-shared ./artifacts/*'
+                            sh 'zip -9jr ton-arm64-linux-shared ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-arm64-linux-shared.zip'
                         }
                     }
@@ -86,7 +86,7 @@ pipeline {
                             cp ./result/lib/libtonlibjson.so.0.5 tmp/
                             cp ./result/lib/libemulator.so tmp/
                             '''
-                            sh 'zip -r ton-arm64-linux-portable ./tmp/*'
+                            sh 'zip -9jr ton-arm64-linux-portable ./tmp/*'
                             archiveArtifacts artifacts: 'ton-arm64-linux-portable.zip'
                         }
                     }
@@ -102,7 +102,7 @@ pipeline {
                             chmod +x build-macos-shared.sh
                             ./build-macos-shared.sh -t -a
                             '''
-                            sh 'zip -r ton-x86-64-macos-shared ./artifacts/*'
+                            sh 'zip -9jr ton-x86-64-macos-shared ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-x86-64-macos-shared.zip'
                         }
                     }
@@ -124,7 +124,7 @@ pipeline {
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
                             '''
-                            sh 'zip -r ton-x86-64-macos-portable ./tmp/*'
+                            sh 'zip -9jr ton-x86-64-macos-portable ./tmp/*'
                             archiveArtifacts artifacts: 'ton-x86-64-macos-portable.zip'
                         }
                     }
@@ -140,8 +140,8 @@ pipeline {
                             chmod +x build-macos-shared.sh
                             ./build-macos-shared.sh -t -a
                             '''
-                            sh 'zip -r ton-arm64-m1-macos-shared ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-arm64-m1-macos-shared.zip'
+                            sh 'zip -9jr ton-arm64-macos-m1-shared ./artifacts/*'
+                            archiveArtifacts artifacts: 'ton-arm64-macos-m1-shared.zip'
                         }
                     }
                 }
@@ -162,7 +162,7 @@ pipeline {
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
                             '''
-                            sh 'zip -r ton-arm64-macos-portable ./tmp/*'
+                            sh 'zip -9jr ton-arm64-macos-portable ./tmp/*'
                             archiveArtifacts artifacts: 'ton-arm64-macos-portable.zip'
                         }
                     }
@@ -178,8 +178,8 @@ pipeline {
                             chmod +x build-macos-shared.sh
                             ./build-macos-shared.sh -t -a
                             '''
-                            sh 'zip -r ton-arm64-m2-macos-shared ./artifacts/*'
-                            archiveArtifacts artifacts: 'ton-arm64-m2-macos-shared.zip'
+                            sh 'zip -9jr ton-arm64-macos-m2-shared ./artifacts/*'
+                            archiveArtifacts artifacts: 'ton-arm64-macos-m2-shared.zip'
                         }
                     }
                 }
@@ -194,7 +194,7 @@ pipeline {
                             copy assembly\\native\\build-windows.bat .
                             build-windows-github.bat
                             '''
-                            bat 'zip -r ton-x86-64-windows ./artifacts/*'
+                            bat 'zip -9jr ton-x86-64-windows ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-x86-64-windows.zip'
                         }
                     }
@@ -210,7 +210,7 @@ pipeline {
                             chmod +x build-android-tonlib.sh
                             ./build-android-tonlib.sh -a
                             '''
-                            sh 'zip -r ton-android-tonlib ./artifacts/tonlib-android-jni/*'
+                            sh 'zip -9jr ton-android-tonlib ./artifacts/tonlib-android-jni/*'
                             archiveArtifacts artifacts: 'ton-android-tonlib.zip'
                         }
                     }
@@ -226,7 +226,7 @@ pipeline {
                             chmod +x fift-func-wasm-build-ubuntu.sh
                             ./fift-func-wasm-build-ubuntu.sh -a
                             '''
-                            sh 'zip -r ton-wasm-binaries ./artifacts/*'
+                            sh 'zip -9jr ton-wasm-binaries ./artifacts/*'
                             archiveArtifacts artifacts: 'ton-wasm-binaries.zip'
                         }
                     }
