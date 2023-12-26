@@ -118,7 +118,7 @@ void FullNodePrivateOverlay::start_up() {
 void FullNodePrivateOverlay::try_init() {
   // Sometimes adnl id is added to validator engine later (or not at all)
   td::actor::send_closure(
-      adnl_, &adnl::Adnl::chech_id_exists, local_id_, [SelfId = actor_id(this)](td::Result<bool> R) {
+      adnl_, &adnl::Adnl::check_id_exists, local_id_, [SelfId = actor_id(this)](td::Result<bool> R) {
         if (R.is_ok() && R.ok()) {
           td::actor::send_closure(SelfId, &FullNodePrivateOverlay::init);
         } else {
