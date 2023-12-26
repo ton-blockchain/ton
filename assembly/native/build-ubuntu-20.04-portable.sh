@@ -175,6 +175,8 @@ cd ..
 if [ "$with_artifacts" = true ]; then
   rm -rf artifacts
   mkdir artifacts
+  cp crypto/fift/lib artifacts/
+  cp -R crypto/smartcont/ artifacts/
   cp build/storage/storage-daemon/storage-daemon build/storage/storage-daemon/storage-daemon-cli \
      build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/blockchain-explorer/blockchain-explorer \
      build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli \

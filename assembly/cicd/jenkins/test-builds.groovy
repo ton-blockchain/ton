@@ -114,13 +114,13 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/macos-x86-64-* .
+                            cp assembly/nix/macos-* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build macos-x86-64-static.nix
+                            nix-build macos-static.nix
                             mkdir tmp
                             cp ./result-bin/bin/* tmp/
                             rm -rf result-bin
-                            nix-build macos-x86-64-tonlib.nix
+                            nix-build macos-tonlib.nix
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
                             '''
@@ -152,13 +152,13 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/macos-x86-64-* .
+                            cp assembly/nix/macos-* .
                             export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build macos-x86-64-static.nix
+                            nix-build macos-static.nix
                             mkdir tmp
                             cp ./result-bin/bin/* tmp/
                             rm -rf result-bin
-                            nix-build macos-x86-64-tonlib.nix
+                            nix-build macos-tonlib.nix
                             cp ./result/lib/libtonlibjson.dylib tmp/
                             cp ./result/lib/libemulator.dylib tmp/
                             '''
@@ -194,7 +194,10 @@ pipeline {
                             copy assembly\\native\\build-windows.bat .
                             build-windows-github.bat
                             '''
-                            bat 'cd artifacts; zip -9r ton-x86-64-windows ./*'
+                            bat '''
+                            cd artifacts
+                            zip -9r ton-x86-64-windows ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-x86-64-windows.zip'
                         }
                     }
