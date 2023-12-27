@@ -17,11 +17,14 @@ pipeline {
                         */
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-ubuntu-20.04-shared.sh .
-                            chmod +x build-ubuntu-20.04-shared.sh
-                            ./build-ubuntu-20.04-shared.sh -t -a
+                                cp assembly/native/build-ubuntu-20.04-shared.sh .
+                                chmod +x build-ubuntu-20.04-shared.sh
+                                ./build-ubuntu-20.04-shared.sh -t -a
                             '''
-                            sh 'cd artifacts; zip -9r ton-x86_64-linux-shared ./*'
+                            sh '''
+                                cd artifacts
+                                zip -9r ton-x86_64-linux-shared ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-x86_64-linux-shared.zip'
                         }
                     }
@@ -33,19 +36,24 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/linux-x86-64* .
-                            cp assembly/nix/microhttpd.nix .
-                            cp assembly/nix/openssl.nix .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build linux-x86-64-static.nix
-                            mkdir tmp
-                            cp ./result/bin/* tmp/
-                            rm -rf result                             
-                            nix-build linux-x86-64-tonlib.nix
-                            cp ./result/lib/libtonlibjson.so.0.5 tmp/
-                            cp ./result/lib/libemulator.so tmp/
+                                cp assembly/nix/linux-x86-64* .
+                                cp assembly/nix/microhttpd.nix .
+                                cp assembly/nix/openssl.nix .
+                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
+                                nix-build linux-x86-64-static.nix
+                                mkdir tmp
+                                cp ./result/bin/* tmp/
+                                rm -rf result                             
+                                nix-build linux-x86-64-tonlib.nix
+                                cp ./result/lib/libtonlibjson.so.0.5 tmp/
+                                cp ./result/lib/libemulator.so tmp/
                             '''
-                            sh 'cd tmp; zip -9r ton-x86-64-linux-portable ./*'
+                            sh '''
+                                cd tmp
+                                cp ../crypto/fift/lib .
+                                cp -R ../crypto/smartcont/ .
+                                zip -9r ton-x86-64-linux-portable ./*
+                            '''
                             archiveArtifacts artifacts: 'tmp/ton-x86-64-linux-portable.zip'
                         }
                     }
@@ -57,11 +65,14 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-ubuntu-20.04-shared.sh .
-                            chmod +x build-ubuntu-20.04-shared.sh
-                            ./build-ubuntu-20.04-shared.sh -t -a
+                                cp assembly/native/build-ubuntu-20.04-shared.sh .
+                                chmod +x build-ubuntu-20.04-shared.sh
+                                ./build-ubuntu-20.04-shared.sh -t -a
                             '''
-                            sh 'cd artifacts; zip -9r ton-arm64-linux-shared ./*'
+                            sh '''
+                                cd artifacts
+                                zip -9r ton-arm64-linux-shared ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-arm64-linux-shared.zip'
                         }
                     }
@@ -73,20 +84,25 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/linux-arm64* .
-                            cp assembly/nix/microhttpd.nix .
-                            cp assembly/nix/openssl.nix .
-                            
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build linux-arm64-static.nix
-                            mkdir tmp
-                            cp ./result/bin/* tmp/
-                            rm -rf result                             
-                            nix-build linux-arm64-tonlib.nix
-                            cp ./result/lib/libtonlibjson.so.0.5 tmp/
-                            cp ./result/lib/libemulator.so tmp/
+                                cp assembly/nix/linux-arm64* .
+                                cp assembly/nix/microhttpd.nix .
+                                cp assembly/nix/openssl.nix .
+                                
+                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
+                                nix-build linux-arm64-static.nix
+                                mkdir tmp
+                                cp ./result/bin/* tmp/
+                                rm -rf result                             
+                                nix-build linux-arm64-tonlib.nix
+                                cp ./result/lib/libtonlibjson.so.0.5 tmp/
+                                cp ./result/lib/libemulator.so tmp/
                             '''
-                            sh 'cd tmp; zip -9r ton-arm64-linux-portable ./*'
+                            sh '''
+                                cd tmp
+                                cp ../crypto/fift/lib .
+                                cp -R ../crypto/smartcont/ .
+                                zip -9r ton-arm64-linux-portable ./*
+                            '''
                             archiveArtifacts artifacts: 'tmp/ton-arm64-linux-portable.zip'
                         }
                     }
@@ -98,11 +114,14 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-macos-shared.sh .
-                            chmod +x build-macos-shared.sh
-                            ./build-macos-shared.sh -t -a
+                                cp assembly/native/build-macos-shared.sh .
+                                chmod +x build-macos-shared.sh
+                                ./build-macos-shared.sh -t -a
                             '''
-                            sh 'cd artifacts; zip -9r ton-x86-64-macos-shared ./*'
+                            sh '''
+                                cd artifacts
+                                zip -9r ton-x86-64-macos-shared ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-x86-64-macos-shared.zip'
                         }
                     }
@@ -114,17 +133,22 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/macos-* .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build macos-static.nix
-                            mkdir tmp
-                            cp ./result-bin/bin/* tmp/
-                            rm -rf result-bin
-                            nix-build macos-tonlib.nix
-                            cp ./result/lib/libtonlibjson.dylib tmp/
-                            cp ./result/lib/libemulator.dylib tmp/
+                                cp assembly/nix/macos-* .
+                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
+                                nix-build macos-static.nix
+                                mkdir tmp
+                                cp ./result-bin/bin/* tmp/
+                                rm -rf result-bin
+                                nix-build macos-tonlib.nix
+                                cp ./result/lib/libtonlibjson.dylib tmp/
+                                cp ./result/lib/libemulator.dylib tmp/
                             '''
-                            sh 'cd tmp; zip -9r ton-x86-64-macos-portable ./*'
+                            sh '''
+                                cd tmp
+                                cp ../crypto/fift/lib .
+                                cp -R ../crypto/smartcont/ .
+                                zip -9r ton-x86-64-macos-portable ./*
+                            '''
                             archiveArtifacts artifacts: 'tmp/ton-x86-64-macos-portable.zip'
                         }
                     }
@@ -136,11 +160,14 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-macos-shared.sh .
-                            chmod +x build-macos-shared.sh
-                            ./build-macos-shared.sh -t -a
+                                cp assembly/native/build-macos-shared.sh .
+                                chmod +x build-macos-shared.sh
+                                ./build-macos-shared.sh -t -a
                             '''
-                            sh 'cd artifacts; zip -9r ton-arm64-macos-m1-shared ./*'
+                            sh '''
+                                cd artifacts
+                                zip -9r ton-arm64-macos-m1-shared ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-arm64-macos-m1-shared.zip'
                         }
                     }
@@ -152,17 +179,22 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/nix/macos-* .
-                            export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                            nix-build macos-static.nix
-                            mkdir tmp
-                            cp ./result-bin/bin/* tmp/
-                            rm -rf result-bin
-                            nix-build macos-tonlib.nix
-                            cp ./result/lib/libtonlibjson.dylib tmp/
-                            cp ./result/lib/libemulator.dylib tmp/
+                                cp assembly/nix/macos-* .
+                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
+                                nix-build macos-static.nix
+                                mkdir tmp
+                                cp ./result-bin/bin/* tmp/
+                                rm -rf result-bin
+                                nix-build macos-tonlib.nix
+                                cp ./result/lib/libtonlibjson.dylib tmp/
+                                cp ./result/lib/libemulator.dylib tmp/
                             '''
-                            sh 'cd tmp; zip -9r ton-arm64-macos-portable ./*'
+                            sh '''
+                                cd tmp
+                                cp ../crypto/fift/lib .
+                                cp -R ../crypto/smartcont/ .
+                                zip -9r ton-arm64-macos-portable ./*
+                            '''
                             archiveArtifacts artifacts: 'tmp/ton-arm64-macos-portable.zip'
                         }
                     }
@@ -174,11 +206,14 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/native/build-macos-shared.sh .
-                            chmod +x build-macos-shared.sh
-                            ./build-macos-shared.sh -t -a
+                                cp assembly/native/build-macos-shared.sh .
+                                chmod +x build-macos-shared.sh
+                                ./build-macos-shared.sh -t -a
                             '''
-                            sh 'cd artifacts; zip -9r ton-arm64-macos-m2-shared ./*'
+                            sh '''
+                                cd artifacts
+                                zip -9r ton-arm64-macos-m2-shared ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-arm64-macos-m2-shared.zip'
                         }
                     }
@@ -190,13 +225,13 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             bat '''
-                            copy assembly\\native\\build-windows-github.bat .
-                            copy assembly\\native\\build-windows.bat .
-                            build-windows-github.bat
+                                copy assembly\\native\\build-windows-github.bat .
+                                copy assembly\\native\\build-windows.bat .
+                                build-windows-github.bat
                             '''
                             bat '''
-                            cd artifacts
-                            zip -9r ton-x86-64-windows ./*
+                                cd artifacts
+                                zip -9r ton-x86-64-windows ./*
                             '''
                             archiveArtifacts artifacts: 'artifacts/ton-x86-64-windows.zip'
                         }
@@ -209,11 +244,14 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cp assembly/android/build-android-tonlib.sh .
-                            chmod +x build-android-tonlib.sh
-                            ./build-android-tonlib.sh -a
+                                cp assembly/android/build-android-tonlib.sh .
+                                chmod +x build-android-tonlib.sh
+                                ./build-android-tonlib.sh -a
                             '''
-                            sh 'cd artifacts/tonlib-android-jni; zip -9r ton-android-tonlib ./*'
+                            sh '''
+                                cd artifacts/tonlib-android-jni
+                                zip -9r ton-android-tonlib ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/tonlib-android-jni/ton-android-tonlib.zip'
                         }
                     }
@@ -225,11 +263,14 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                            cd assembly/wasm
-                            chmod +x fift-func-wasm-build-ubuntu.sh
-                            ./fift-func-wasm-build-ubuntu.sh -a
+                                cd assembly/wasm
+                                chmod +x fift-func-wasm-build-ubuntu.sh
+                                ./fift-func-wasm-build-ubuntu.sh -a
                             '''
-                            sh 'cd artifacts; zip -9r ton-wasm-binaries ./*'
+                            sh '''
+                                cd artifacts
+                                zip -9r ton-wasm-binaries ./*
+                            '''
                             archiveArtifacts artifacts: 'artifacts/ton-wasm-binaries.zip'
                         }
                     }
