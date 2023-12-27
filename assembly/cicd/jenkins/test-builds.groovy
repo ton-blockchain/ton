@@ -50,8 +50,8 @@ pipeline {
                             '''
                             sh '''
                                 cd tmp
-                                cp ../crypto/fift/lib .
-                                cp -R ../crypto/smartcont/ .
+                                cp -r ../crypto/fift/lib .
+                                cp -r ../crypto/smartcont/ .
                                 zip -9r ton-x86-64-linux-portable ./*
                             '''
                             archiveArtifacts artifacts: 'tmp/ton-x86-64-linux-portable.zip'
@@ -99,8 +99,8 @@ pipeline {
                             '''
                             sh '''
                                 cd tmp
-                                cp ../crypto/fift/lib .
-                                cp -R ../crypto/smartcont/ .
+                                cp -r ../crypto/fift/lib .
+                                cp -r ../crypto/smartcont/ .
                                 zip -9r ton-arm64-linux-portable ./*
                             '''
                             archiveArtifacts artifacts: 'tmp/ton-arm64-linux-portable.zip'
@@ -145,8 +145,8 @@ pipeline {
                             '''
                             sh '''
                                 cd tmp
-                                cp ../crypto/fift/lib .
-                                cp -R ../crypto/smartcont/ .
+                                cp -r ../crypto/fift/lib .
+                                cp -r ../crypto/smartcont/ .
                                 zip -9r ton-x86-64-macos-portable ./*
                             '''
                             archiveArtifacts artifacts: 'tmp/ton-x86-64-macos-portable.zip'
@@ -191,8 +191,8 @@ pipeline {
                             '''
                             sh '''
                                 cd tmp
-                                cp ../crypto/fift/lib .
-                                cp -R ../crypto/smartcont/ .
+                                cp -r ../crypto/fift/lib .
+                                cp -r ../crypto/smartcont/ .
                                 zip -9r ton-arm64-macos-portable ./*
                             '''
                             archiveArtifacts artifacts: 'tmp/ton-arm64-macos-portable.zip'
