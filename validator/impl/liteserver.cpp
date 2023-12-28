@@ -1034,7 +1034,8 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
   vm::MerkleProofBuilder pb{std::move(block_root)};
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
-  if (!(tlb::unpack_cell(pb.root(), blk) && tlb::unpack_cell(blk.info, info))) {
+  if (!(tlb::unpack_cell(pb.root(), blk) && tlb::unpack_cell(blk.info, info) &&
+        block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref))) {
     return fatal_error("cannot unpack block header");
   }
   vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
