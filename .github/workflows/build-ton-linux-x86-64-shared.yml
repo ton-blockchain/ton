@@ -29,9 +29,9 @@ jobs:
 
     - name: Build TON
       run: |
-        cp assembly/native/build-ubuntu-20.04-shared.sh .
+        cp assembly/native/build-ubuntu-shared.sh .
         chmod +x build-ubuntu-shared.sh
-        ./build-ubuntu-20.04-shared.sh -t -a
+        ./build-ubuntu-shared.sh -t -a
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
