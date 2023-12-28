@@ -41,20 +41,20 @@ pipeline {
                                 cp assembly/nix/openssl.nix .
                                 export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                                 nix-build linux-x86-64-static.nix
-                                mkdir tmp
-                                cp ./result/bin/* tmp/
+                                mkdir artifacts
+                                cp ./result/bin/* artifacts/
                                 rm -rf result                             
                                 nix-build linux-x86-64-tonlib.nix
-                                cp ./result/lib/libtonlibjson.so.0.5 tmp/
-                                cp ./result/lib/libemulator.so tmp/
+                                cp ./result/lib/libtonlibjson.so.0.5 artifacts/
+                                cp ./result/lib/libemulator.so artifacts/
                             '''
                             sh '''
-                                cd tmp
+                                cd artifacts
                                 cp -r ../crypto/fift/lib .
                                 cp -r ../crypto/smartcont .
                                 zip -9r ton-x86-64-linux-portable ./*
                             '''
-                            archiveArtifacts artifacts: 'tmp/ton-x86-64-linux-portable.zip'
+                            archiveArtifacts artifacts: 'artifacts/ton-x86-64-linux-portable.zip'
                         }
                     }
                 }
@@ -90,20 +90,20 @@ pipeline {
                                 
                                 export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                                 nix-build linux-arm64-static.nix
-                                mkdir tmp
-                                cp ./result/bin/* tmp/
+                                mkdir artifacts
+                                cp ./result/bin/* artifacts/
                                 rm -rf result                             
                                 nix-build linux-arm64-tonlib.nix
-                                cp ./result/lib/libtonlibjson.so.0.5 tmp/
-                                cp ./result/lib/libemulator.so tmp/
+                                cp ./result/lib/libtonlibjson.so.0.5 artifacts/
+                                cp ./result/lib/libemulator.so artifacts/
                             '''
                             sh '''
-                                cd tmp
+                                cd artifacts
                                 cp -r ../crypto/fift/lib .
                                 cp -r ../crypto/smartcont .
                                 zip -9r ton-arm64-linux-portable ./*
                             '''
-                            archiveArtifacts artifacts: 'tmp/ton-arm64-linux-portable.zip'
+                            archiveArtifacts artifacts: 'artifacts/ton-arm64-linux-portable.zip'
                         }
                     }
                 }
@@ -136,20 +136,20 @@ pipeline {
                                 cp assembly/nix/macos-* .
                                 export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                                 nix-build macos-static.nix
-                                mkdir tmp
-                                cp ./result-bin/bin/* tmp/
+                                mkdir artifacts
+                                cp ./result-bin/bin/* artifacts/
                                 rm -rf result-bin
                                 nix-build macos-tonlib.nix
-                                cp ./result/lib/libtonlibjson.dylib tmp/
-                                cp ./result/lib/libemulator.dylib tmp/
+                                cp ./result/lib/libtonlibjson.dylib artifacts/
+                                cp ./result/lib/libemulator.dylib artifacts/
                             '''
                             sh '''
-                                cd tmp
+                                cd artifacts
                                 cp -r ../crypto/fift/lib .
                                 cp -r ../crypto/smartcont .
                                 zip -9r ton-x86-64-macos-portable ./*
                             '''
-                            archiveArtifacts artifacts: 'tmp/ton-x86-64-macos-portable.zip'
+                            archiveArtifacts artifacts: 'artifacts/ton-x86-64-macos-portable.zip'
                         }
                     }
                 }
@@ -182,20 +182,20 @@ pipeline {
                                 cp assembly/nix/macos-* .
                                 export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
                                 nix-build macos-static.nix
-                                mkdir tmp
-                                cp ./result-bin/bin/* tmp/
+                                mkdir artifacts
+                                cp ./result-bin/bin/* artifacts/
                                 rm -rf result-bin
                                 nix-build macos-tonlib.nix
-                                cp ./result/lib/libtonlibjson.dylib tmp/
-                                cp ./result/lib/libemulator.dylib tmp/
+                                cp ./result/lib/libtonlibjson.dylib artifacts/
+                                cp ./result/lib/libemulator.dylib artifacts/
                             '''
                             sh '''
-                                cd tmp
+                                cd artifacts
                                 cp -r ../crypto/fift/lib .
                                 cp -r ../crypto/smartcont .
                                 zip -9r ton-arm64-macos-portable ./*
                             '''
-                            archiveArtifacts artifacts: 'tmp/ton-arm64-macos-portable.zip'
+                            archiveArtifacts artifacts: 'artifacts/ton-arm64-macos-portable.zip'
                         }
                     }
                 }
