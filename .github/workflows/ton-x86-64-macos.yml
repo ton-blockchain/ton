@@ -1,4 +1,4 @@
-name: "TON x86_64 macOS binaries"
+name: MacOS TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 

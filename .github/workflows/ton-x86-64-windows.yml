@@ -1,4 +1,4 @@
-name: Windows Server 2019 x64 Compile
+name: Windows TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 

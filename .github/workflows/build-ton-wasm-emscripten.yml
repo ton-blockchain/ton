@@ -1,4 +1,4 @@
-name: TON WASM Compile
+name: Emscripten TON build (wasm)
 
 on: [push,workflow_dispatch,workflow_call]
 
