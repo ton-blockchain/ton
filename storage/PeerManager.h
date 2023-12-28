@@ -143,9 +143,11 @@ class PeerManager : public td::actor::Actor {
         td::actor::ActorId<PeerManager> peer_manager_;
         ton::adnl::AdnlNodeIdShort dst_;
       };
+      ton::overlay::OverlayOptions opts;
+      opts.announce_self_ = !client_mode_;
+      opts.frequent_dht_lookup_ = true;
       send_closure(overlays_, &ton::overlay::Overlays::create_public_overlay_ex, src_id, overlay_id_.clone(),
-                   std::make_unique<Callback>(actor_id(this), src_id), rules, R"({ "type": "storage" })",
-                   !client_mode_);
+                   std::make_unique<Callback>(actor_id(this), src_id), rules, R"({ "type": "storage" })", opts);
     }
     promise.set_value({});
   }

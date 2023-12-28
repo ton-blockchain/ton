@@ -25,6 +25,7 @@
 #include "td/utils/overloaded.h"
 #include "td/utils/Random.h"
 #include "vm/boc.h"
+#include "common/delay.h"
 
 namespace ton {
 
@@ -119,9 +120,9 @@ void PeerActor::on_get_piece_result(PartId piece_id, td::Result<td::BufferSlice>
     return std::move(res);
   }();
   if (res.is_error()) {
-    LOG(DEBUG) << "getPiece " << piece_id << "query: " << res.error();
+    LOG(DEBUG) << "getPiece " << piece_id << " query: " << res.error();
   } else {
-    LOG(DEBUG) << "getPiece " << piece_id << "query: OK";
+    LOG(DEBUG) << "getPiece " << piece_id << " query: OK";
   }
   state_->node_queries_results_.add_element(std::make_pair(piece_id, std::move(res)));
   notify_node();
@@ -343,11 +344,20 @@ void PeerActor::loop_node_get_piece() {
       }
       auto piece_size =
           std::min<td::uint64>(torrent_info_->piece_size, torrent_info_->file_size - part * torrent_info_->piece_size);
-      td::actor::send_closure(state_->speed_limiters_.download, &SpeedLimiter::enqueue, (double)piece_size,
-                              td::Timestamp::in(3.0), [part, SelfId = actor_id(this)](td::Result<td::Unit> R) {
-                                td::actor::send_closure(SelfId, &PeerActor::node_get_piece_query_ready, part,
-                                                        std::move(R));
-                              });
+      td::Timestamp timeout = td::Timestamp::in(3.0);
+      td::actor::send_closure(
+          state_->speed_limiters_.download, &SpeedLimiter::enqueue, (double)piece_size, timeout,
+          [=, SelfId = actor_id(this)](td::Result<td::Unit> R) {
+            if (R.is_ok()) {
+              td::actor::send_closure(SelfId, &PeerActor::node_get_piece_query_ready, part, std::move(R));
+            } else {
+              delay_action(
+                  [=, R = std::move(R)]() mutable {
+                    td::actor::send_closure(SelfId, &PeerActor::node_get_piece_query_ready, part, std::move(R));
+                  },
+                  timeout);
+            }
+          });
     }
   }
 
