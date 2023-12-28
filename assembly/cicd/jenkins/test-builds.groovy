@@ -19,7 +19,7 @@ pipeline {
                             sh '''
                                 cp assembly/native/build-ubuntu-20.04-shared.sh .
                                 chmod +x build-ubuntu-shared.sh
-                                ./build-ubuntu-20.04-shared.sh -t -a
+                                ./build-ubuntu-shared.sh -t -a
                             '''
                             sh '''
                                 cd artifacts
@@ -65,8 +65,8 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                                cp assembly/native/build-ubuntu-20.04-shared.sh .
-                                chmod +x build-ubuntu-20.04-shared.sh
+                                cp assembly/native/build-ubuntu-shared.sh .
+                                chmod +x build-ubuntu-shared.sh
                                 ./build-ubuntu-shared.sh -t -a
                             '''
                             sh '''
