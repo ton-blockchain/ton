@@ -210,6 +210,9 @@ void LiteQuery::start_up() {
           [&](lite_api::liteServer_getLibraries& q) {
             this->perform_getLibraries(q.library_list_);
           },
+          [&](lite_api::liteServer_getLibrariesWithProof& q) {
+            this->perform_getLibrariesWithProof(ton::create_block_id(q.id_), q.library_list_);
+          },
           [&](lite_api::liteServer_getShardBlockProof& q) {
             this->perform_getShardBlockProof(create_block_id(q.id_));
           },
@@ -915,6 +918,86 @@ void LiteQuery::continue_getLibraries(Ref<ton::validator::MasterchainState> mc_s
     a.push_back(ton::create_tl_object<ton::lite_api::liteServer_libraryEntry>(hash, data.move_as_ok()));
   }
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_libraryResult>(std::move(a));
+  finish_query(std::move(b));
+}
+
+void LiteQuery::perform_getLibrariesWithProof(BlockIdExt blkid, std::vector<td::Bits256> library_list) {
+  LOG(INFO) << "started a getLibrariesWithProof(<list of " << library_list.size() << " parameters>) liteserver query";
+  if (library_list.size() > 16) {
+    LOG(INFO) << "too many libraries requested, returning only first 16";
+    library_list.resize(16);
+  }
+  sort( library_list.begin(), library_list.end() );
+  library_list.erase( unique( library_list.begin(), library_list.end() ), library_list.end() );
+
+  set_continuation([this, library_list]() -> void { continue_getLibrariesWithProof(library_list); });
+  request_mc_block_data_state(blkid);
+}
+
+void LiteQuery::continue_getLibrariesWithProof(std::vector<td::Bits256> library_list) {
+  LOG(INFO) << "obtained masterchain block = " << base_blk_id_.to_str();
+  CHECK(mc_state_.not_null());
+
+  Ref<vm::Cell> state_proof, data_proof;
+  if (!make_mc_state_root_proof(state_proof)) {
+    return;
+  }
+
+  vm::MerkleProofBuilder pb{mc_state_->root_cell()};
+
+  auto rconfig = block::ConfigInfo::extract_config(pb.root(), block::ConfigInfo::needLibraries);
+  if (rconfig.is_error()) {
+    fatal_error("cannot extract library list block configuration from masterchain state");
+    return;
+  }
+  auto config = rconfig.move_as_ok();
+
+  if (false) {
+    std::ostringstream os;
+    vm::load_cell_slice(config->get_libraries_root()).print_rec(os);
+    LOG(INFO) << "\n" << os.str();
+
+    auto lib_dict = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
+    for (auto k: *lib_dict) {
+      std::ostringstream oss;
+      k.second->print_rec(oss);
+      LOG(INFO) << "library " << k.first.to_hex(256) << ": \n" << oss.str();
+    }
+  }
+
+  std::vector<ton::tl_object_ptr<ton::lite_api::liteServer_libraryEntry>> result;
+  for (const auto& hash : library_list) {
+    LOG(INFO) << "looking for library " << hash.to_hex();
+    auto libres = config->lookup_library(hash);
+    if (libres.is_null()) {
+      LOG(INFO) << "library lookup result is null";
+      continue;
+    }
+    auto data = vm::std_boc_serialize(libres);
+    if (data.is_error()) {
+      LOG(WARNING) << "library serialization failed: " << data.move_as_error().to_string();
+      continue;
+    }
+    result.push_back(ton::create_tl_object<ton::lite_api::liteServer_libraryEntry>(hash, data.move_as_ok()));
+  }
+
+  if (!pb.extract_proof_to(data_proof)) {
+    fatal_error("error while constructing Merkle proof for library list");
+    return;
+  }
+  auto state_proof_boc = vm::std_boc_serialize(std::move(state_proof));
+  if (state_proof_boc.is_error()) {
+    fatal_error(state_proof_boc.move_as_error());
+    return;
+  }
+  auto data_proof_boc = vm::std_boc_serialize(std::move(data_proof));
+  if (data_proof_boc.is_error()) {
+    fatal_error(data_proof_boc.move_as_error());
+    return;
+  }
+
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_libraryResultWithProof>(ton::create_tl_lite_block_id(base_blk_id_), std::move(result), 
+                    state_proof_boc.move_as_ok(), data_proof_boc.move_as_ok());
   finish_query(std::move(b));
 }
 
