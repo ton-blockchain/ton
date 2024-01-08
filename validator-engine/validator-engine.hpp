@@ -204,6 +204,7 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_ttl_ = 0;
   double key_proof_ttl_ = 0;
   td::uint32 celldb_compress_depth_ = 0;
+  std::vector<std::string> ext_msg_overlays_;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -264,6 +265,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_celldb_compress_depth(td::uint32 value) {
     celldb_compress_depth_ = value;
   }
+  void add_ext_msg_overlay(std::string filename) {
+    ext_msg_overlays_.push_back(std::move(filename));
+  }
   void start_up() override;
   ValidatorEngine() {
   }
@@ -295,6 +299,7 @@ class ValidatorEngine : public td::actor::Actor {
   void started_validator();
 
   void start_full_node();
+  void create_ext_msg_overlays();
   void started_full_node();
 
   void add_lite_server(ton::PublicKeyHash id, td::uint16 port);

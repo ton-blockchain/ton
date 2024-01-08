@@ -1838,6 +1838,7 @@ void ValidatorEngine::start_full_node() {
         config_.full_node_config, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
+    create_ext_msg_overlays();
   }
 
   for (auto &v : config_.validators) {
@@ -1846,6 +1847,35 @@ void ValidatorEngine::start_full_node() {
   }
 
   started_full_node();
+}
+
+void ValidatorEngine::create_ext_msg_overlays() {
+  for (const std::string& filename : ext_msg_overlays_) {
+    auto data_R = td::read_file(filename);
+    if (data_R.is_error()) {
+      LOG(ERROR) << "failed to add ext msg overlay " << filename << ": " << data_R.move_as_error();
+      continue;
+    }
+    auto data = data_R.move_as_ok();
+    auto json_R = td::json_decode(data.as_slice());
+    if (json_R.is_error()) {
+      LOG(ERROR) << "failed to add ext msg overlay " << filename << ": " << json_R.move_as_error();
+      continue;
+    }
+    auto json = json_R.move_as_ok();
+    ton::ton_api::engine_validator_privateExtMsgOverlayConfig conf;
+    auto S = ton::ton_api::from_json(conf, json.get_object());
+    if (S.is_error()) {
+      LOG(ERROR) << "failed to add ext msg overlay " << filename << ": " << S;
+      continue;
+    }
+    std::vector<ton::adnl::AdnlNodeIdShort> nodes;
+    for (const td::Bits256 &node : conf.nodes_) {
+      nodes.emplace_back(node);
+    }
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes),
+                            conf.priority_);
+  }
 }
 
 void ValidatorEngine::started_full_node() {
@@ -3793,6 +3823,11 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
+  p.add_checked_option('\0', "ext-msg-overlay", "add private overlay for external messages", [&](td::Slice arg) {
+    acts.push_back(
+        [&x, s = arg.str()]() { td::actor::send_closure(x, &ValidatorEngine::add_ext_msg_overlay, s); });
+    return td::Status::OK();
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

@@ -150,7 +150,7 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
   td::actor::send_closure(db_, &Db::get_key_block_proof_link, block_id, std::move(P));
 }
 
-void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
+void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priority) {
   auto R = create_ext_message(std::move(data), block::SizeLimitsConfig::ExtMsgLimits());
   if (R.is_ok()) {
     ext_messages_.emplace_back(R.move_as_ok());

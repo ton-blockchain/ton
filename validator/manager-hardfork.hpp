@@ -144,7 +144,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
 
-  void new_external_message(td::BufferSlice data) override;
+  void new_external_message(td::BufferSlice data, int priority) override;
   void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override {
     UNREACHABLE();
   }
@@ -308,7 +308,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void send_external_message(td::Ref<ExtMessage> message) override {
-    new_external_message(message->serialize());
+    new_external_message(message->serialize(), 0);
   }
   void send_ihr_message(td::Ref<IhrMessage> message) override {
     new_ihr_message(message->serialize());

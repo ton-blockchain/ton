@@ -259,7 +259,7 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
   td::actor::send_closure(db_, &Db::get_key_block_proof, block_id, std::move(P));
 }
 
-void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
+void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priority) {
   if (last_masterchain_state_.is_null()) {
     return;
   }

@@ -113,7 +113,7 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
     promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
     promise = [manager = validator_manager_, message = q->message_->data_.clone()](td::Result<td::Unit> R) mutable {
       if (R.is_ok()) {
-        td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message));
+        td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message), 0);
       }
     };
   }
@@ -626,7 +626,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ih
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
-                          std::move(query.message_->data_));
+                          std::move(query.message_->data_), 0);
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {

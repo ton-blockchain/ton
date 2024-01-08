@@ -53,6 +53,8 @@ class FullNodeImpl : public FullNode {
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
   void set_config(FullNodeConfig config) override;
 
+  void add_ext_msg_overlay(std::vector<adnl::AdnlNodeIdShort> nodes, int priority) override;
+
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
 
@@ -117,7 +119,10 @@ class FullNodeImpl : public FullNode {
   std::set<PublicKeyHash> local_keys_;
   FullNodeConfig config_;
 
-  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateOverlay>> private_block_overlays_;
+  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
+
+  std::map<std::vector<adnl::AdnlNodeIdShort>, std::pair<int, td::actor::ActorOwn<FullNodePrivateExtMsgOverlay>>>
+      private_ext_msg_overlays_;
 
   void update_private_block_overlays();
   void create_private_block_overlay(PublicKeyHash key);
