@@ -124,6 +124,8 @@ class LiteQuery : public td::actor::Actor {
                            UnixTime gen_utime, LogicalTime gen_lt);
   void perform_getLibraries(std::vector<td::Bits256> library_list);
   void continue_getLibraries(Ref<MasterchainState> mc_state, BlockIdExt blkid, std::vector<td::Bits256> library_list);
+  void perform_getLibrariesWithProof(BlockIdExt blkid, std::vector<td::Bits256> library_list);
+  void continue_getLibrariesWithProof(std::vector<td::Bits256> library_list);
   void perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt);
   void continue_getOneTransaction();
   void perform_getTransactions(WorkchainId workchain, StdSmcAddress addr, LogicalTime lt, Bits256 hash, unsigned count);
