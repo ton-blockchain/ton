@@ -1,7 +1,7 @@
 #/bin/bash
 
 #sudo apt-get update
-#sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+#sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
 
 with_tests=false
 with_artifacts=false
