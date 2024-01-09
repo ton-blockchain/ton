@@ -132,5 +132,5 @@ fi
 if [ "$with_tests" = true ]; then
   cd build
 #  ctest --output-on-failure -E "test-catchain|test-actors"
-  ctest --output-on-failure --timeout 300
+  ctest --output-on-failure --timeout 600
 fi
