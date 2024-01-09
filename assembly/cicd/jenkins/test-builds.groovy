@@ -8,13 +8,6 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        /*
-                        sudo apt-get update
-                        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-                        wget https://apt.llvm.org/llvm.sh
-                        chmod +x llvm.sh
-                        sudo ./llvm.sh 16 all
-                        */
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/native/build-ubuntu-shared.sh .
@@ -36,22 +29,12 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                                cp assembly/nix/linux-x86-64* .
-                                cp assembly/nix/microhttpd.nix .
-                                cp assembly/nix/openssl.nix .
-                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                                nix-build linux-x86-64-static.nix
-                                mkdir artifacts
-                                cp ./result/bin/* artifacts/
-                                rm -rf result                             
-                                nix-build linux-x86-64-tonlib.nix
-                                cp ./result/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
-                                cp ./result/lib/libemulator.so artifacts/
+                                cp assembly/nix/build-linux-x86-64-nix.sh .
+                                chmod +x build-linux-x86-64-nix.sh
+                                ./build-linux-x86-64-nix.sh
                             '''
                             sh '''
                                 cd artifacts
-                                cp -r ../crypto/fift/lib .
-                                cp -r ../crypto/smartcont .
                                 zip -9r ton-x86-64-linux-portable ./*
                             '''
                             archiveArtifacts artifacts: 'artifacts/ton-x86-64-linux-portable.zip'
@@ -84,23 +67,12 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                                cp assembly/nix/linux-arm64* .
-                                cp assembly/nix/microhttpd.nix .
-                                cp assembly/nix/openssl.nix .
-                                
-                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                                nix-build linux-arm64-static.nix
-                                mkdir artifacts
-                                cp ./result/bin/* artifacts/
-                                rm -rf result                             
-                                nix-build linux-arm64-tonlib.nix
-                                cp ./result/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
-                                cp ./result/lib/libemulator.so artifacts/
+                                cp assembly/nix/build-linux-arm64-nix.sh .
+                                chmod +x build-linux-arm64-nix.sh
+                                ./build-linux-arm64-nix.sh
                             '''
                             sh '''
                                 cd artifacts
-                                cp -r ../crypto/fift/lib .
-                                cp -r ../crypto/smartcont .
                                 zip -9r ton-arm64-linux-portable ./*
                             '''
                             archiveArtifacts artifacts: 'artifacts/ton-arm64-linux-portable.zip'
@@ -133,20 +105,12 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                                cp assembly/nix/macos-* .
-                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                                nix-build macos-static.nix
-                                mkdir artifacts
-                                cp ./result-bin/bin/* artifacts/
-                                rm -rf result-bin
-                                nix-build macos-tonlib.nix
-                                cp ./result/lib/libtonlibjson.dylib artifacts/
-                                cp ./result/lib/libemulator.dylib artifacts/
+                                cp assembly/nix/build-macos-nix.sh .
+                                chmod +x build-macos-nix.sh
+                                ./build-macos-nix.sh
                             '''
                             sh '''
                                 cd artifacts
-                                cp -r ../crypto/fift/lib .
-                                cp -r ../crypto/smartcont .
                                 zip -9r ton-x86-64-macos-portable ./*
                             '''
                             archiveArtifacts artifacts: 'artifacts/ton-x86-64-macos-portable.zip'
@@ -179,20 +143,12 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             sh '''
-                                cp assembly/nix/macos-* .
-                                export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-                                nix-build macos-static.nix
-                                mkdir artifacts
-                                cp ./result-bin/bin/* artifacts/
-                                rm -rf result-bin
-                                nix-build macos-tonlib.nix
-                                cp ./result/lib/libtonlibjson.dylib artifacts/
-                                cp ./result/lib/libemulator.dylib artifacts/
+                                cp assembly/nix/build-macos-nix.sh .
+                                chmod +x build-macos-nix.sh
+                                ./build-macos-nix.sh
                             '''
                             sh '''
                                 cd artifacts
-                                cp -r ../crypto/fift/lib .
-                                cp -r ../crypto/smartcont .
                                 zip -9r ton-arm64-macos-portable ./*
                             '''
                             archiveArtifacts artifacts: 'artifacts/ton-arm64-macos-portable.zip'
