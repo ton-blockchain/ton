@@ -210,6 +210,9 @@ void LiteQuery::start_up() {
           [&](lite_api::liteServer_getLibraries& q) {
             this->perform_getLibraries(q.library_list_);
           },
+          [&](lite_api::liteServer_getLibraryExt& q) {
+            this->perform_getLibraryExt(q.mode_, ton::create_block_id(q.id_), q.library_hash_);
+          },
           [&](lite_api::liteServer_getShardBlockProof& q) {
             this->perform_getShardBlockProof(create_block_id(q.id_));
           },
@@ -903,6 +906,92 @@ void LiteQuery::continue_getLibraries(Ref<ton::validator::MasterchainState> mc_s
   }
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_libraryResult>(std::move(a));
   finish_query(std::move(b));
+}
+
+void LiteQuery::perform_getLibraryExt(int mode, BlockIdExt blkid, td::Bits256 library_hash) {
+  LOG(INFO) << "started a getLibraryExt for library hash: " << library_hash.to_hex() << " liteserver query";
+
+  if (!blkid.is_valid()) {
+    fatal_error("invalid block provided for getLibraryExt()");
+    return;
+  }
+
+  if (!blkid.is_masterchain()) {
+    fatal_error("not masterchain block provided to getLibraryExt()");
+    return;
+  }
+
+  set_continuation([this, mode, library_hash]() -> void { continue_getLibraryExt(mode, library_hash); });
+  request_mc_block_data_state(blkid);
+}
+
+
+void LiteQuery::continue_getLibraryExt(int mode, td::Bits256 library_hash) {
+  vm::MerkleProofBuilder mpb{mc_state_->root_cell()};
+
+  block::gen::ShardStateUnsplit::Record sstate;
+  if (!(tlb::unpack_cell(mpb.root(), sstate))) {
+    fatal_error("cannot unpack state header");
+    return;
+  }
+
+//  auto libraries_dict{vm::Dictionary(), sstate.r1.libraries, 256};
+
+  auto lib_root = sstate.r1.libraries->prefetch_ref();
+  auto libraries_dict = std::make_unique<vm::Dictionary>(std::move(lib_root), 256);
+
+  if (!libraries_dict) {
+    fatal_error("cannot unpack libraries dict for block "s + base_blk_id_.to_str());
+    return;
+  }
+
+  auto csr = libraries_dict->lookup(library_hash.bits(), 256);
+
+  if (csr.is_null()) {
+    fatal_error("cannot find library hash "s + library_hash.to_hex() + "in block "s + base_blk_id_.to_str());
+    return;
+  }
+
+  if (mode & 1) { // load publishers
+    if (csr->size_refs() > 1) {
+      visit(csr->prefetch_ref(1));
+    }
+  }
+
+  Ref<vm::Cell> proof1, proof2;
+
+  if (!make_mc_state_root_proof(proof1)) {
+    fatal_error("unknown error creating mc state proof");
+    return;
+  }
+
+  if (!mpb.extract_proof_to(proof2)) {
+    fatal_error("unknown error creating Merkle proof");
+    return;
+  }
+
+  td::Result<td::BufferSlice> res_library, res_proof;
+
+  res_library = vm::std_boc_serialize(csr->prefetch_ref());
+  res_proof = vm::std_boc_serialize_multi({std::move(proof1), std::move(proof2)});
+
+  if (res_proof.is_error()) {
+    fatal_error(res_proof.move_as_error());
+    return;
+  }
+
+  if (res_library.is_error()) {
+    fatal_error(res_library.move_as_error());
+    return;
+  }
+
+  auto a = ton::create_serialize_tl_object<ton::lite_api::liteServer_libraryExt>(
+      mode,
+      ton::create_tl_lite_block_id(base_blk_id_),
+      res_library.move_as_ok(),
+      res_proof.move_as_ok()
+      );
+  finish_query(std::move(a));
 }
 
 void LiteQuery::perform_getOneTransaction(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, LogicalTime lt) {
