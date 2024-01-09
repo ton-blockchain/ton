@@ -6,12 +6,12 @@ variable 'disasm
 { 'disasm @ execute } : disasm  // disassemble a slice
 // usage: x{74B0} disasm
 
+variable @vmlibs dictnew @vmlibs !
 variable @dismode  @dismode 0!
 { rot over @ and rot xor swap ! } : andxor!
 { -2 0 @dismode andxor! } : stack-disasm  // output 's1 s4 XCHG'
 { -2 1 @dismode andxor! } : std-disasm    // output 'XCHG s1, s4'
 { -3 2 @dismode andxor! } : show-vm-code
-{ -3 0 @dismode andxor! } : hide-vm-code
 { @dismode @ 1 and 0= } : stack-disasm?
 
 variable @indent  @indent 0!
@@ -56,7 +56,28 @@ variable @contX  variable @contY  variable @cdict
 { atom>$ type } : .atom
 { dup first .atom dup count 1 > { space 0 over count 2- { 1+ 2dup [] type .", " } swap times 1+ [] type } { drop } cond } : std-show-op
 { 0 over count 1- { 1+ 2dup [] type space } swap times drop first .atom } : stk-show-op
-{ @dismode @ 2 and { .indent ."// " @curop @ csr. } if } : .curop?
+
+{
+  @curop @ dup 8 u@
+  dup 0x88 = { // PUSHREF
+    drop ref@ <spec {
+        8 u@+ swap 2 = {
+        256 u@ dup @vmlibs @ 256 udict@ // load lib
+        {
+            ."// LIB: " swap X. cr
+            ref@ <s +indent +indent disasm -indent -indent
+        } { drop } cond
+     } { drop } cond
+    } { drop } cond
+  }
+  { // TODO: other variants of PUSHREF
+    2drop
+  } cond
+} : lib-disasm
+{
+  @dismode @ 2 and { .indent ."// " @curop @ csr. } if
+  lib-disasm
+} : .curop?
 { .curop? .indent @dismode @ 1 and ' std-show-op ' stk-show-op cond cr
 } : show-simple-op
 { dup 4 u@ 9 = { 8 u@+ swap 15 and 3 << s@ } {
