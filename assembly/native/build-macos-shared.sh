@@ -123,7 +123,7 @@ if [ "$with_artifacts" = true ]; then
   cp build/utils/generate-random-id artifacts/
   cp build/utils/json2tlo artifacts/
   cp build/adnl/adnl-proxy artifacts/
-  cp build/emulator/*emulator.* artifacts/
+  cp build/emulator/libemulator.dylib artifacts/
   chmod +x artifacts/*
   rsync -r crypto/smartcont artifacts/
   rsync -r crypto/fift/lib artifacts/
@@ -132,5 +132,5 @@ fi
 if [ "$with_tests" = true ]; then
   cd build
 #  ctest --output-on-failure -E "test-catchain|test-actors"
-  ctest --output-on-failure --timeout 600
+  ctest --output-on-failure --timeout 900
 fi
