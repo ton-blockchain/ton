@@ -795,7 +795,7 @@ void FullNodeShardImpl::download_block_proof_link(BlockIdExt block_id, td::uint3
                                                   td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
   td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, false, adnl_id_, overlay_id_,
-                                         adnl::AdnlNodeIdShort::zero(), priority, timeout, validator_manager_, rldp_,
+                                         b.adnl_id, priority, timeout, validator_manager_, rldp_,
                                          overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
       .release();
 }
