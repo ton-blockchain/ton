@@ -94,7 +94,7 @@ variable @contX  variable @contY  variable @cdict
   dup 7 u@ 0x47 = { 7 u@+ nip 2 u@+ 7 u@+ -rot 3 << swap sr@ } {
   dup 8 u@ 0x8A = { ref@ <spec {
     libspecial? {
-        vmlib@ { swap drop } { abort"Lib not found" } cond
+        vmlib@ { swap drop <s } { abort"Lib not found" } cond
     } { abort"Invalid special cell" } } if  } {
   abort"invalid PUSHCONT"
   } cond } cond } cond
