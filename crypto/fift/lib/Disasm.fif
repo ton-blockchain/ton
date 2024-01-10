@@ -2,11 +2,25 @@ library TVM_Disasm
 // simple TVM Disassembler
 "Lists.fif" include
 
+variable @vmlibs dictnew @vmlibs !
+{ 256 u@ dup @vmlibs @ 256 udict@ } : vmlib@
+{ 8 u@+ swap 2 = } : libspecial?
+
 variable 'disasm
 { 'disasm @ execute } : disasm  // disassemble a slice
+{ <spec {
+    libspecial? {
+         vmlib@ {
+            ."// LIB: " swap X. cr ref@ <s disasm
+          } {
+            2drop // Only library special cell supported
+         } cond
+    } {
+        drop // Only library special cell supported
+    } cond
+ } { disasm } cond } : disasmc  // disassemble a cell
 // usage: x{74B0} disasm
 
-variable @vmlibs dictnew @vmlibs !
 variable @dismode  @dismode 0!
 { rot over @ and rot xor swap ! } : andxor!
 { -2 0 @dismode andxor! } : stack-disasm  // output 's1 s4 XCHG'
@@ -57,20 +71,16 @@ variable @contX  variable @contY  variable @cdict
 { dup first .atom dup count 1 > { space 0 over count 2- { 1+ 2dup [] type .", " } swap times 1+ [] type } { drop } cond } : std-show-op
 { 0 over count 1- { 1+ 2dup [] type space } swap times drop first .atom } : stk-show-op
 
+{ ."// LIB: " swap X. cr ref@ <s +indent +indent disasm -indent -indent  } : .ilib-disasm
 {
   @curop @ dup 8 u@
-  dup 0x88 = { // PUSHREF
-    drop ref@ <spec {
-        8 u@+ swap 2 = {
-        256 u@ dup @vmlibs @ 256 udict@ // load lib
-        {
-            ."// LIB: " swap X. cr
-            ref@ <s +indent +indent disasm -indent -indent
-        } { drop } cond
+  dup dup dup 0x88 = swap 0x89 = rot 0x8A = or or { // PUSHREF, PUSHREFSLICE, PUSHREFCONT
+    drop ref@ <spec { libspecial? { vmlib@ { .ilib-disasm }
+        { drop } cond
      } { drop } cond
     } { drop } cond
   }
-  { // TODO: other variants of PUSHREF
+  { // add IFREFELSE, ... opcodes if needed
     2drop
   } cond
 } : lib-disasm
@@ -82,7 +92,10 @@ variable @contX  variable @contY  variable @cdict
 } : show-simple-op
 { dup 4 u@ 9 = { 8 u@+ swap 15 and 3 << s@ } {
   dup 7 u@ 0x47 = { 7 u@+ nip 2 u@+ 7 u@+ -rot 3 << swap sr@ } {
-  dup 8 u@ 0x8A = { ref@ <s } {
+  dup 8 u@ 0x8A = { ref@ <spec {
+    libspecial? {
+        vmlib@ { swap drop } { abort"Lib not found" } cond
+    } { abort"Invalid special cell" } } if  } {
   abort"invalid PUSHCONT"
   } cond } cond } cond
 } : get-cont-body
@@ -160,3 +173,5 @@ variable @contX  variable @contY  variable @cdict
 { { disasm-slice dup sbitrefs 1- or 0= } { ref@ <s } while flush-dict flush-cont } : disasm-chain
 { @curop @ swap disasm-chain dup sbitrefs or { .indent ."Cannot disassemble: " csr. } { drop } cond @curop ! }
 'disasm !
+
+// gcmsg "Allow disasm cell, add PUSHREFSLICE, PUSHREFCONT"
