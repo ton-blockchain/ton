@@ -173,5 +173,3 @@ variable @contX  variable @contY  variable @cdict
 { { disasm-slice dup sbitrefs 1- or 0= } { ref@ <s } while flush-dict flush-cont } : disasm-chain
 { @curop @ swap disasm-chain dup sbitrefs or { .indent ."Cannot disassemble: " csr. } { drop } cond @curop ! }
 'disasm !
-
-// gcmsg "Allow disasm cell, add PUSHREFSLICE, PUSHREFCONT"
