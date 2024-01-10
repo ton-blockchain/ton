@@ -13,7 +13,7 @@ variable 'disasm
          vmlib@ {
             ."// LIB: " swap X. cr ref@ <s disasm
           } {
-            2drop // Only library special cell supported
+            drop // Lib not found
          } cond
     } {
         drop // Only library special cell supported
@@ -59,7 +59,7 @@ variable @indent  @indent 0!
     drop dup count 2 = stack-disasm? and { second `LSHIFT# swap pair } if } {
   dup `RSHIFT eq? {
     drop dup count 2 = stack-disasm? and { second `RSHIFT# swap pair } if } {
-  drop 
+  drop
   } cond } cond } cond
 } : adjust-op
 
@@ -138,7 +138,7 @@ variable @contX  variable @contY  variable @cdict
   .indent type ." {" cr +indent @cdict @ @cdict null! unpair
   rot {
     swap .indent . ."=> <{" cr +indent disasm -indent .indent ."}>" cr true
-  } swap ' idictforeach ' dictforeach cond drop 
+  } swap ' idictforeach ' dictforeach cond drop
   -indent .indent ."}" cr
 } : show-const-dict-op
 
