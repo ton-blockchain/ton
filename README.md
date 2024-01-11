@@ -88,7 +88,12 @@ Compile TON binaries
 ```
 
 ### Windows 10, 11, Server (x86-64)
-Execute below command in the elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2022"
+You need to install `MS Visual Studio 2022` first.
+Go to https://www.visualstudio.com/downloads/ and download `MS Visual Studio 2022 Community`.
+
+Launch installer and select `Desktop development with C++`.
+
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to root folder and execute: 
 ```bash
   copy assembly\native\build-windows.bat .
   build-windows.bat
@@ -127,6 +132,11 @@ Compile TON tonlib library
 ```
 
 ### Build TON portable binaries with Nix package manager
+You need to install Nix first.
+```bash
+   sh <(curl -L https://nixos.org/nix/install) --daemon
+```
+Then compile TON with Nix by executing below command from the root folder: 
 ```bash
   cp -r assembly/nix/* .
   export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz

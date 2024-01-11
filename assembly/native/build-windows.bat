@@ -27,8 +27,9 @@ IF %errorlevel% NEQ 0 (
 if not exist "zlib" (
 git clone https://github.com/madler/zlib.git
 cd zlib\contrib\vstudio\vc14
-msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
-IF %errorlevel% NEQ 0 (
+msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v143
+
+IF errorlevel 1 (
   echo Can't install zlib
   exit /b %errorlevel%
 )
@@ -40,8 +41,8 @@ echo Using zlib...
 if not exist "secp256k1" (
 git clone https://github.com/libbitcoin/secp256k1.git
 cd secp256k1\builds\msvc\vs2017
-msbuild /p:Configuration=StaticRelease -p:PlatformToolset=v142 -p:Platform=x64
-IF %errorlevel% NEQ 0 (
+msbuild /p:Configuration=StaticRelease -p:PlatformToolset=v143 -p:Platform=x64
+IF errorlevel 1 (
   echo Can't install secp256k1
   exit /b %errorlevel%
 )
@@ -91,7 +92,7 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
 -DSECP256K1_FOUND=1 ^
 -DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
--DSECP256K1_LIBRARY=%root%\secp256k1\bin\x64\Release\v142\static\secp256k1.lib ^
+-DSECP256K1_LIBRARY=%root%\secp256k1\bin\x64\Release\v143\static\secp256k1.lib ^
 -DMHD_FOUND=1 ^
 -DMHD_LIBRARY=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib ^
 -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static ^
@@ -102,7 +103,7 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DOPENSSL_INCLUDE_DIR=%root%/openssl-3.1.4/x64/include ^
 -DOPENSSL_CRYPTO_LIBRARY=%root%/openssl-3.1.4/x64/lib/libcrypto_static.lib ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
-IF %errorlevel% NEQ 0 (
+IF errorlevel 1 (
   echo Can't configure TON
   exit /b %errorlevel%
 )
@@ -114,7 +115,7 @@ json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-ha
 test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont test-net ^
 test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp test-rldp2 test-catchain ^
 test-fec test-tddb test-db test-validator-session-state
-IF %errorlevel% NEQ 0 (
+IF errorlevel 1 (
   echo Can't compile TON
   exit /b %errorlevel%
 )
@@ -122,14 +123,14 @@ IF %errorlevel% NEQ 0 (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator
-IF %errorlevel% NEQ 0 (
+IF errorlevel 1 (
   echo Can't compile TON
   exit /b %errorlevel%
 )
 )
 
 copy validator-engine\validator-engine.exe test
-IF %errorlevel% NEQ 0 (
+IF errorlevel 1 (
   echo validator-engine.exe does not exist
   exit /b %errorlevel%
 )
@@ -138,7 +139,7 @@ IF "%1"=="-t" (
   echo Running tests...
 REM  ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-validator-session-state"
   ctest -C Release --output-on-failure --timeout 600
-  IF %errorlevel% NEQ 0 (
+  IF errorlevel 1 (
     echo Some tests failed
     exit /b %errorlevel%
   )
