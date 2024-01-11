@@ -91,9 +91,11 @@ Compile TON binaries
 You need to install `MS Visual Studio 2022` first.
 Go to https://www.visualstudio.com/downloads/ and download `MS Visual Studio 2022 Community`.
 
-Launch installer and select `Desktop development with C++`.
+Launch installer and select `Desktop development with C++`. 
+After installation, also make sure that `cmake` is globally available by adding
+`C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin` to the system `PATH` (adjust the path per your needs).
 
-Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to root folder and execute: 
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute: 
 ```bash
   copy assembly\native\build-windows.bat .
   build-windows.bat
