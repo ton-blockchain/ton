@@ -596,7 +596,9 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
-engine.validator.privateExtMsgOverlayConfig priority:int nodes:(vector int256) = engine.validator.PrivateExtMsgOverlayConfig;
+engine.validator.privateExtMsgOverlayNode adnl_id:int256 sender:Bool = engine.validator.PrivateExtMsgOverlayNode;
+engine.validator.privateExtMsgOverlay name:string priority:int nodes:(vector engine.validator.privateExtMsgOverlayNode) = engine.validator.PrivateExtMsgOverlay;
+engine.validator.privateExtMsgOverlaysConfig overlays:(vector engine.validator.privateExtMsgOverlay) = engine.validator.PrivateExtMsgOverlaysConfig;
 
 ---functions---
 ---types---
@@ -700,6 +702,10 @@ engine.validator.importShardOverlayCertificate workchain:int shard:long signed_k
 engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
 engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
 engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validator.Success;
+
+engine.validator.addPrivateExtMsgOverlay overlay:engine.validator.privateExtMsgOverlay = engine.validator.Success;
+engine.validator.delPrivateExtMsgOverlay name:string = engine.validator.Success;
+engine.validator.showPrivateExtMsgOverlays = engine.validator.PrivateExtMsgOverlaysConfig;
 
 ---types---
 

@@ -393,12 +393,13 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg, int pri
   auto id = message->ext_id();
   auto address = message->address();
   unsigned long per_address_limit = 256;
-  if (msgs.ext_addr_messages_.count(address) >= per_address_limit) {
+  auto it = msgs.ext_addr_messages_.find(address);
+  if (it != msgs.ext_addr_messages_.end() && it->second.size() >= per_address_limit) {
     return;
   }
-  auto it = ext_messages_hashes_.find(id.hash);
-  if (it != ext_messages_hashes_.end()) {
-    int old_priority = it->second.first;
+  auto it2 = ext_messages_hashes_.find(id.hash);
+  if (it2 != ext_messages_hashes_.end()) {
+    int old_priority = it2->second.first;
     if (old_priority >= priority) {
       return;
     }
@@ -790,14 +791,17 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
-                                                 td::Promise<std::vector<td::Ref<ExtMessage>>> promise) {
+void ValidatorManagerImpl::get_external_messages(
+    ShardIdFull shard, td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
   td::Timer t;
   size_t processed = 0, deleted = 0;
-  std::vector<td::Ref<ExtMessage>> res;
+  std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
   MessageId<ExtMessage> left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
   size_t total_msgs = 0;
+  td::Random::Fast rnd;
   for (auto iter = ext_msgs_.rbegin(); iter != ext_msgs_.rend(); ++iter) {
+    std::vector<std::pair<td::Ref<ExtMessage>, int>> cur_res;
+    int priority = iter->first;
     auto &msgs = iter->second;
     auto it = msgs.ext_messages_.lower_bound(left);
     while (it != msgs.ext_messages_.end()) {
@@ -814,10 +818,12 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard,
         continue;
       }
       if (it->second->is_active()) {
-        res.push_back(it->second->message());
+        cur_res.emplace_back(it->second->message(), priority);
       }
       it++;
     }
+    td::random_shuffle(td::as_mutable_span(cur_res), rnd);
+    res.insert(res.end(), cur_res.begin(), cur_res.end());
     total_msgs += msgs.ext_messages_.size();
   }
   LOG(WARNING) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()

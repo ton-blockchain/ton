@@ -1144,3 +1144,67 @@ class SetExtMessagesBroadcastDisabledQuery : public Query {
  private:
   bool value;
 };
+
+class AddPrivateExtMsgOverlayQuery : public Query {
+ public:
+  AddPrivateExtMsgOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "addprivateextmsgoverlay";
+  }
+  static std::string get_help() {
+    return "addprivateextmsgoverlay <filename>\tadd private overlay for external messages with config from file "
+           "<filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class DelPrivateExtMsgOverlayQuery : public Query {
+ public:
+  DelPrivateExtMsgOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "delprivateextmsgoverlay";
+  }
+  static std::string get_help() {
+    return "delprivateextmsgoverlay <name>\tdelete private overlay for external messages with name <name>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string name_;
+};
+
+class ShowPrivateExtMsgOverlaysQuery : public Query {
+ public:
+  ShowPrivateExtMsgOverlaysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "showprivateextmsgoverlays";
+  }
+  static std::string get_help() {
+    return "showprivateextmsgoverlays\tshow all private overlay for external messages";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};

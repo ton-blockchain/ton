@@ -87,7 +87,6 @@ class FullNodePrivateExtMsgOverlay : public td::actor::Actor {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
-  void check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise);
 
   void send_external_message(td::BufferSlice data);
 
@@ -98,7 +97,8 @@ class FullNodePrivateExtMsgOverlay : public td::actor::Actor {
   void start_up() override;
   void tear_down() override;
 
-  FullNodePrivateExtMsgOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes, int priority,
+  FullNodePrivateExtMsgOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
+                               std::vector<adnl::AdnlNodeIdShort> senders, int priority, std::string name,
                                FileHash zero_state_file_hash, FullNodeConfig config,
                                td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                                td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
@@ -106,7 +106,9 @@ class FullNodePrivateExtMsgOverlay : public td::actor::Actor {
                                td::actor::ActorId<ValidatorManagerInterface> validator_manager)
       : local_id_(local_id)
       , nodes_(std::move(nodes))
+      , senders_(std::move(senders))
       , priority_(priority)
+      , name_(std::move(name))
       , zero_state_file_hash_(zero_state_file_hash)
       , config_(config)
       , keyring_(keyring)
@@ -120,7 +122,9 @@ class FullNodePrivateExtMsgOverlay : public td::actor::Actor {
  private:
   adnl::AdnlNodeIdShort local_id_;
   std::vector<adnl::AdnlNodeIdShort> nodes_;
+  std::vector<adnl::AdnlNodeIdShort> senders_;
   int priority_;
+  std::string name_;
   FileHash zero_state_file_hash_;
   FullNodeConfig config_;
 

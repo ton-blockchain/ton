@@ -205,7 +205,7 @@ class Overlays : public td::actor::Actor {
                                          td::string scope, OverlayOptions opts) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
-                                      OverlayPrivacyRules rules) = 0;
+                                      OverlayPrivacyRules rules, std::string scope) = 0;
   virtual void delete_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id) = 0;
 
   virtual void send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
