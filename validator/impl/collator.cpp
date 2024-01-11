@@ -2667,7 +2667,8 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot serialize new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!trans->update_limits(*block_limit_status_)) {
+  if (!trans->update_limits(*block_limit_status_,
+                            /* with_gas = */ !(acc->is_special && compute_phase_cfg_.special_gas_full))) {
     return fatal_error(-666, "cannot update block limit status to include the new transaction");
   }
   if (trans->commit(*acc).is_null()) {
@@ -2744,7 +2745,8 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
   }
   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
-  if (!trans->update_limits(*block_limit_status_)) {
+  if (!trans->update_limits(*block_limit_status_,
+                            /* with_gas = */ !(acc->is_special && compute_phase_cfg_.special_gas_full))) {
     fatal_error("cannot update block limit status to include the new transaction");
     return {};
   }

@@ -3207,8 +3207,8 @@ td::Result<vm::NewCellStorageStat::Stat> Transaction::estimate_block_storage_pro
  *
  * @returns True if the limits were successfully updated, False otherwise.
  */
-bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_size) const {
-  if (!(blimst.update_lt(end_lt) && blimst.update_gas(account.is_special ? 0 : gas_used()))) {
+bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_gas, bool with_size) const {
+  if (!(blimst.update_lt(end_lt) && blimst.update_gas(with_gas ? gas_used() : 0))) {
     return false;
   }
   if (with_size) {

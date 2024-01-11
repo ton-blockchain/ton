@@ -379,7 +379,7 @@ struct Transaction {
 
   td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_gas = true, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);

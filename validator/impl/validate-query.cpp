@@ -5051,7 +5051,9 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (!trs->update_limits(*block_limit_status_, false)) {
+  if (!trs->update_limits(*block_limit_status_,
+                          /* with_gas = */ !account.is_special,
+                          /* with_size = */ false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
   }
