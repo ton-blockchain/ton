@@ -181,8 +181,9 @@ pipeline {
                     steps {
                         timeout(time: 90, unit: 'MINUTES') {
                             bat '''
-                                copy assembly\\native\\build-windows.bat .                                                                
-                                build-windows.bat
+                                copy assembly\\native\\build-windows-github.bat .
+                                copy assembly\\native\\build-windows.bat .
+                                build-windows-github.bat Community
                             '''
                             bat '''
                                 cd artifacts
