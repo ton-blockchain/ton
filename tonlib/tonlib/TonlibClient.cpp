@@ -4995,6 +4995,8 @@ td::Status TonlibClient::do_request(const tonlib_api::importKey& request,
   if (!request.exported_key_) {
     return TonlibError::EmptyField("exported_key");
   }
+  // Note: the mnemonic is considered valid if a certain hash starts with zero byte (see Mnemonic::is_basic_seed())
+  // Therefore, importKey with invalid password has 1/256 chance to return OK
   TRY_RESULT(key, key_storage_.import_key(std::move(request.local_password_), std::move(request.mnemonic_password_),
                                           KeyStorage::ExportedKey{std::move(request.exported_key_->word_list_)}));
   TRY_RESULT(key_bytes, public_key_from_bytes(key.public_key.as_slice()));
