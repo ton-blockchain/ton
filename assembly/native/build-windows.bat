@@ -10,6 +10,8 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
+choco feature enable -n allowEmptyChecksums
+
 echo Installing pkgconfiglite...
 choco install -y pkgconfiglite
 IF %errorlevel% NEQ 0 (
