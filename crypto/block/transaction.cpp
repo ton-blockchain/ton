@@ -1039,8 +1039,12 @@ bool ComputePhaseConfig::parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, t
     delete_due_limit = td::make_refint(r.delete_due_limit);
   };
   block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
+  block::gen::GasLimitsPrices::Record_gas_prices_v3 rec_v3;
   if (tlb::csr_unpack(cs, rec)) {
     f(rec, rec.special_gas_limit);
+  } else if (tlb::csr_unpack(cs, rec_v3)) {
+    f(rec_v3, rec_v3.special_gas_limit);
+    special_gas_full = true;
   } else {
     block::gen::GasLimitsPrices::Record_gas_prices rec0;
     if (tlb::csr_unpack(std::move(cs), rec0)) {
@@ -1142,7 +1146,7 @@ bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig&
     cp.gas_max = cfg.gas_bought_for(balance.grams);
   }
   cp.gas_credit = 0;
-  if (trans_type != tr_ord) {
+  if (trans_type != tr_ord || (account.is_special && cfg.special_gas_full)) {
     // may use all gas that can be bought using remaining balance
     cp.gas_limit = cp.gas_max;
   } else {
@@ -3203,8 +3207,8 @@ td::Result<vm::NewCellStorageStat::Stat> Transaction::estimate_block_storage_pro
  *
  * @returns True if the limits were successfully updated, False otherwise.
  */
-bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_size) const {
-  if (!(blimst.update_lt(end_lt) && blimst.update_gas(gas_used()))) {
+bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_gas, bool with_size) const {
+  if (!(blimst.update_lt(end_lt) && blimst.update_gas(with_gas ? gas_used() : 0))) {
     return false;
   }
   if (with_size) {

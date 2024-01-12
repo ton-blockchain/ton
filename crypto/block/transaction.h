@@ -104,6 +104,7 @@ struct ComputePhaseConfig {
   td::uint64 gas_credit;
   td::uint64 flat_gas_limit = 0;
   td::uint64 flat_gas_price = 0;
+  bool special_gas_full = false;
   static constexpr td::uint64 gas_infty = (1ULL << 63) - 1;
   td::RefInt256 gas_price256;
   td::RefInt256 max_gas_threshold;
@@ -119,12 +120,7 @@ struct ComputePhaseConfig {
   SizeLimitsConfig size_limits;
   int vm_log_verbosity = 0;
 
-  ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
-      : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
-    compute_threshold();
-  }
-  ComputePhaseConfig(td::uint64 _gas_price, td::uint64 _gas_limit, td::uint64 _spec_gas_limit, td::uint64 _gas_credit)
-      : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_spec_gas_limit), gas_credit(_gas_credit) {
+  ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
   }
   void compute_threshold();
@@ -383,7 +379,7 @@ struct Transaction {
 
   td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_gas = true, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);
