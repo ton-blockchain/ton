@@ -14,14 +14,14 @@ choco feature enable -n allowEmptyChecksums
 
 echo Installing pkgconfiglite...
 choco install -y pkgconfiglite
-IF %errorlevel% NEQ 0 (
+IF errorlevel 1 (
   echo Can't install pkgconfiglite
   exit /b %errorlevel%
 )
 
 echo Installing ninja...
 choco install -y ninja
-IF %errorlevel% NEQ 0 (
+IF errorlevel 1 (
   echo Can't install ninja
   exit /b %errorlevel%
 )
@@ -56,6 +56,10 @@ echo Using secp256k1...
 
 if not exist "libsodium" (
 curl  -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
+IF errorlevel 1 (
+  echo Can't download libsodium
+  exit /b %errorlevel%
+)
 unzip libsodium-1.0.18-stable-msvc.zip
 ) else (
 echo Using libsodium...
@@ -63,6 +67,10 @@ echo Using libsodium...
 
 if not exist "openssl-3.1.4" (
 curl  -Lo openssl-3.1.4.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/openssl-3.1.4.zip
+IF errorlevel 1 (
+  echo Can't download OpenSSL
+  exit /b %errorlevel%
+)
 unzip -q openssl-3.1.4.zip
 ) else (
 echo Using openssl...
@@ -70,6 +78,10 @@ echo Using openssl...
 
 if not exist "libmicrohttpd-0.9.77-w32-bin" (
 curl  -Lo libmicrohttpd-0.9.77-w32-bin.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/libmicrohttpd-0.9.77-w32-bin.zip
+IF errorlevel 1 (
+  echo Can't download libmicrohttpd
+  exit /b %errorlevel%
+)
 unzip -q libmicrohttpd-0.9.77-w32-bin.zip
 ) else (
 echo Using libmicrohttpd...
@@ -77,6 +89,10 @@ echo Using libmicrohttpd...
 
 if not exist "readline-5.0-1-lib" (
 curl  -Lo readline-5.0-1-lib.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/readline-5.0-1-lib.zip
+IF errorlevel 1 (
+  echo Can't download readline
+  exit /b %errorlevel%
+)
 unzip -q -d readline-5.0-1-lib readline-5.0-1-lib.zip
 ) else (
 echo Using readline...
