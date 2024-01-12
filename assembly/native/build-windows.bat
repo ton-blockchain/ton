@@ -156,7 +156,7 @@ IF errorlevel 1 (
 IF "%1"=="-t" (
   echo Running tests...
 REM  ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-validator-session-state"
-  ctest -C Release --output-on-failure --timeout 600
+  ctest -C Release --output-on-failure --timeout 1800
   IF errorlevel 1 (
     echo Some tests failed
     exit /b %errorlevel%

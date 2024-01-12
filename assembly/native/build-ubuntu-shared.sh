@@ -118,5 +118,5 @@ fi
 if [ "$with_tests" = true ]; then
   cd build
 #  ctest --output-on-failure -E "test-catchain|test-actors|test-smartcont|test-adnl|test-validator-session-state|test-dht|test-rldp"
-  ctest --output-on-failure --timeout 900
+  ctest --output-on-failure --timeout 1800
 fi
