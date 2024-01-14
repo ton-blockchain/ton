@@ -18,6 +18,7 @@
 */
 #include "func.h"
 #include "td/utils/crypto.h"
+#include "td/utils/StringCase.h"
 #include "common/refint.h"
 #include "openssl/digest.hpp"
 #include "block/block.h"
@@ -1475,7 +1476,7 @@ void parse_func_def(Lexer& lex) {
       method_name = func_name.str;
     }
     if (method_id.is_null()) {
-      unsigned crc = td::crc16(method_name);
+      unsigned crc = td::crc16(td::StringCase::is_camel_case(method_name) ? td::StringCase::camel_to_snake(method_name) : method_name);
       method_id = td::make_refint((crc & 0xffff) | 0x10000);
     }
   }

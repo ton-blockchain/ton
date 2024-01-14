@@ -44,6 +44,8 @@
 #include "crypto/vm/utils.h"
 #include "td/utils/crypto.h"
 
+#include "td/utils/StringCase.h"
+
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
@@ -1418,7 +1420,7 @@ void HttpQueryRunMethod::finish_query() {
       auto code = state_init.code->prefetch_ref();
       auto data = state_init.data->prefetch_ref();
       auto stack = td::make_ref<vm::Stack>(std::move(params_));
-      td::int64 method_id = (td::crc16(td::Slice{method_name_}) & 0xffff) | 0x10000;
+      td::int64 method_id = (td::crc16(td::Slice{td::StringCase::is_camel_case(method_name_) ? td::StringCase::camel_to_snake(method_name_) : method_name_}) & 0xffff) | 0x10000;
       stack.write().push_smallint(method_id);
       long long gas_limit = vm::GasLimits::infty;
       // OstreamLogger ostream_logger(ctx.error_stream);
