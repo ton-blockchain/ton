@@ -1580,6 +1580,9 @@ forget @proclist  forget @proccnt
 -3 constant split_prepare
 -4 constant split_install
 
+recv_internal constant receiveInternalMessage
+recv_external constant receiveExternalMessage
+
 { asm-mode 0 3 ~! } : asm-no-remove-unused
 { asm-mode 1 1 ~! } : asm-remove-unused   // enabled by default
 { asm-mode 3 3 ~! } : asm-warn-remove-unused
