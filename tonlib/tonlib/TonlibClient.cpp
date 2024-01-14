@@ -5533,21 +5533,179 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
   return td::Status::OK();
 }
 
+td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>& result, int mode, ton::BlockId blkid, ton::BlockIdExt client_mc_blkid, td::uint64 lt, td::uint32 utime);
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& request,
                         td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise) {
-  client_.send_query(ton::lite_api::liteServer_lookupBlock(
-                       request.mode_,
-                       ton::lite_api::make_object<ton::lite_api::tonNode_blockId>((*request.id_).workchain_, (*request.id_).shard_, (*request.id_).seqno_),
-                       (td::uint64)(request.lt_),
-                       (td::uint32)(request.utime_)),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_blockHeader>&& header) {
-                        const auto& id = header->id_;
-                        return to_tonlib_api(*id);
-                        //tonlib_api::make_object<tonlib_api::ton_blockIdExt>(
-                        //  ton::tonlib_api::ton_blockIdExt(id->workchain_, id->)
-                        //);
-                     }));
+  auto lite_block = ton::lite_api::make_object<ton::lite_api::tonNode_blockId>((*request.id_).workchain_, (*request.id_).shard_, (*request.id_).seqno_);
+  auto blkid = ton::BlockId(request.id_->workchain_, request.id_->shard_, request.id_->seqno_);
+  client_.with_last_block(
+    [self = this, blkid, lite_block = std::move(lite_block), mode = request.mode_, lt = (td::uint64)request.lt_, 
+    utime = (td::uint32)request.utime_, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable { 
+      self->client_.send_query(ton::lite_api::liteServer_lookupBlockWithProof(mode, std::move(lite_block), ton::create_tl_lite_block_id(r_last_block.ok().last_block_id), lt, utime),
+        promise.wrap([blkid, mode, utime, lt, last_block = r_last_block.ok().last_block_id](lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>&& result) 
+                                          -> td::Result<object_ptr<tonlib_api::ton_blockIdExt>> {
+          TRY_STATUS(check_lookup_block_proof(result, mode, blkid, last_block, lt, utime));
+          return to_tonlib_api(*result->id_);
+        })
+      );
+  });
+  return td::Status::OK();
+}
+
+td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>& result, int mode, ton::BlockId blkid, ton::BlockIdExt client_mc_blkid, td::uint64 lt, td::uint32 utime) {
+  auto state = block::check_extract_state_proof(client_mc_blkid, result->client_mc_state_proof_.as_slice(),
+                                              result->mc_block_proof_.as_slice());
+  if (state.is_error()) {
+    LOG(WARNING) << "cannot check state proof: " << state.move_as_error().to_string();
+    return state.move_as_error();
+  }  
+  auto state_root = state.move_as_ok();
+
+  try {
+    auto prev_blocks_dict = block::get_prev_blocks_dict(state_root);
+    if (!prev_blocks_dict) {
+      return td::Status::Error("cannot extract prev blocks dict from state");
+    }
+    ton::BlockIdExt cur_id = ton::create_block_id(result->mc_block_id_);
+    try {
+      for (auto& link : result->shard_links_) {
+        ton::BlockIdExt prev_id = create_block_id(link->id_);
+        td::BufferSlice proof = std::move(link->proof_);
+        auto R = vm::std_boc_deserialize(proof);
+        if (R.is_error()) {
+          return TonlibError::InvalidBagOfCells("proof");
+        }
+        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok(), 1);
+        if (cur_id.root_hash != block_root->get_hash().bits()) {
+          return td::Status::Error("invalid block hash in proof");
+        }
+        if (cur_id.is_masterchain()) {
+          if (!block::check_old_mc_block_id(*prev_blocks_dict, cur_id)) {
+            return td::Status::Error("couldn't check old mc block id");
+          }
+          block::gen::Block::Record blk;
+          block::gen::BlockExtra::Record extra;
+          block::gen::McBlockExtra::Record mc_extra;
+          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
+              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+            return td::Status::Error("cannot unpack block header");
+          }
+          block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());
+          td::Ref<block::McShardHash> shard_hash = shards.get_shard_hash(prev_id.shard_full(), true);
+          if (shard_hash.is_null() || shard_hash->top_block_id() != prev_id) {
+            return td::Status::Error("invalid proof chain: prev block is not in mc shard list");
+          }
+        } else {
+          std::vector<ton::BlockIdExt> prev;
+          ton::BlockIdExt mc_blkid;
+          bool after_split;
+          td::Status S = block::unpack_block_prev_blk_try(block_root, cur_id, prev, mc_blkid, after_split);
+          if (S.is_error()) {
+            return S;
+          }
+          CHECK(prev.size() == 1 || prev.size() == 2);
+          bool found = prev_id == prev[0] || (prev.size() == 2 && prev_id == prev[1]);
+          if (!found) {
+            return td::Status::Error("invalid proof chain: prev block is not in prev blocks list");
+          }
+        }
+        cur_id = prev_id;
+      }
+    } catch (vm::VmVirtError& err) {
+      return err.as_status();
+    }
+    if (cur_id.id.workchain != blkid.workchain || !ton::shard_contains(cur_id.id.shard, blkid.shard)) {
+      return td::Status::Error("response block has incorrect workchain/shard");
+    }
+
+    auto header_r = vm::std_boc_deserialize(std::move(result->header_));
+    if (header_r.is_error()) {
+      return TonlibError::InvalidBagOfCells("header");
+    }
+    auto header_root = vm::MerkleProof::virtualize(header_r.move_as_ok(), 1);
+    if (header_root.is_null()) {
+      return td::Status::Error("header_root is null");
+    }
+    if (cur_id.root_hash != header_root->get_hash().bits()) {
+      return td::Status::Error("invalid header hash in proof");
+    }
+
+    std::vector<ton::BlockIdExt> prev;
+    ton::BlockIdExt mc_blkid;
+    bool after_split;
+    auto R = block::unpack_block_prev_blk_try(header_root, cur_id, prev, mc_blkid, after_split);
+    if (R.is_error()) {
+      return R;
+    }
+    if (cur_id != ton::create_block_id(result->id_)) {
+      return td::Status::Error("response blkid doesn't match header");
+    }
+
+    block::gen::Block::Record blk;
+    block::gen::BlockInfo::Record info;
+    if (!(tlb::unpack_cell(header_root, blk) && tlb::unpack_cell(blk.info, info))) {
+      return td::Status::Error("block header unpack failed");
+    }
+
+    if (mode & 1) {
+      if (cur_id.seqno() != blkid.seqno) {
+        return td::Status::Error("invalid seqno in proof");
+      }
+    } else if (mode & 6) {
+      auto prev_header_r = vm::std_boc_deserialize(std::move(result->prev_header_));
+      if (prev_header_r.is_error()) {
+        return TonlibError::InvalidBagOfCells("prev_headers");
+      }
+      auto prev_header = prev_header_r.move_as_ok();
+      auto prev_root = vm::MerkleProof::virtualize(prev_header, 1);
+      if (prev_root.is_null()) {
+        return td::Status::Error("prev_root is null");
+      }
+
+      bool prev_valid = false;
+      int prev_idx = -1;
+      for (size_t i = 0; i < prev.size(); i++) {
+        if (prev[i].root_hash == prev_root->get_hash().bits()) {
+          prev_valid = true;
+          prev_idx = i;
+        }
+      }
+      if (!prev_valid) {
+        return td::Status::Error("invalid prev header hash in proof");
+      }
+      if (!ton::shard_contains(prev[prev_idx].id.shard, blkid.shard)) {
+        return td::Status::Error("invalid prev header shard in proof");
+      }
+
+      block::gen::Block::Record prev_blk;
+      block::gen::BlockInfo::Record prev_info;
+      if (!(tlb::unpack_cell(prev_root, prev_blk) && tlb::unpack_cell(prev_blk.info, prev_info))) {
+        return td::Status::Error("prev header unpack failed");
+      }
+    
+      if (mode & 2) {
+        if (prev_info.end_lt > lt) {
+          return td::Status::Error("prev header end_lt > lt");
+        }
+        if (info.end_lt < lt) {
+          return td::Status::Error("header end_lt < lt");
+        }
+      } else if (mode & 4) {
+        if (prev_info.gen_utime > utime) {
+          return td::Status::Error("prev header end_lt > lt");
+        }
+        if (info.gen_utime < utime) {
+          return td::Status::Error("header end_lt < lt");
+        }
+      } 
+    }
+  } catch (vm::VmError& err) {
+    return td::Status::Error(PSLICE() << "error while checking lookupBlock proof: " << err.get_msg());
+  } catch (vm::VmVirtError& err) {
+    return td::Status::Error(PSLICE() << "virtualization error while checking lookupBlock proof: " << err.get_msg());
+  }
+
   return td::Status::OK();
 }
 

@@ -233,6 +233,9 @@ void LiteQuery::perform() {
           [&](lite_api::liteServer_lookupBlock& q) {
             this->perform_lookupBlock(ton::create_block_id_simple(q.id_), q.mode_, q.lt_, q.utime_);
           },
+          [&](lite_api::liteServer_lookupBlockWithProof& q) {
+            this->perform_lookupBlockWithProof(ton::create_block_id_simple(q.id_), ton::create_block_id(q.mc_block_id_), q.mode_, q.lt_, q.utime_);
+          },
           [&](lite_api::liteServer_listBlockTransactions& q) {
             this->perform_listBlockTransactions(ton::create_block_id(q.id_), q.mode_, q.count_,
                                                 (q.mode_ & 128) ? q.after_->account_ : td::Bits256::zero(),
@@ -2013,6 +2016,293 @@ void LiteQuery::continue_getAllShardsInfo() {
   LOG(INFO) << "getAllShardInfo() query completed";
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_allShardsInfo>(
       ton::create_tl_lite_block_id(base_blk_id_), proof_boc.move_as_ok(), data.move_as_ok());
+  finish_query(std::move(b));
+}
+
+void LiteQuery::perform_lookupBlockWithProof(BlockId blkid, BlockIdExt mc_blkid, int mode, LogicalTime lt, UnixTime utime) {
+  if (!((1 << (mode & 7)) & 0x16)) {
+    fatal_error("exactly one of mode.0, mode.1 and mode.2 bits must be set");
+    return;
+  }
+  if (!mc_blkid.is_masterchain_ext()) {
+    fatal_error("masterchain block id must be specified");
+    return;
+  }
+  if (!(mode & 1)) {
+    blkid.seqno = 0;
+  }
+  if (!(mode & 2)) {
+    lt = 0;
+  }
+  if (!(mode & 4)) {
+    utime = 0;
+  }
+  mode_ = mode;
+  base_blk_id_ = mc_blkid;
+  LOG(INFO) << "started a lookupBlockWithProof(" << blkid.to_str() << ", " << mc_blkid.to_str() << ", " << mode << ", "
+            << lt << ", " << utime << ") liteserver query";
+
+  ton::AccountIdPrefixFull pfx{blkid.workchain, blkid.shard};
+  auto P = td::PromiseCreator::lambda(
+    [Self = actor_id(this), mc_blkid, manager = manager_, mode, pfx](td::Result<ConstBlockHandle> res) {
+      if (res.is_error()) {
+        td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+      } else {
+        auto handle = res.move_as_ok();
+        if (!handle->is_applied()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error(ErrorCode::notready, "block is not applied"));
+          return;
+        }
+        if (!handle->inited_masterchain_ref_block()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error("block doesn't have masterchain ref"));
+          return;
+        }
+        if (handle->masterchain_ref_block() > mc_blkid.seqno()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error("specified mc block is older than block's masterchain ref"));
+          return;
+        }
+        LOG(DEBUG) << "requesting data for block " << handle->id().to_str();
+        td::actor::send_closure_later(manager, &ValidatorManager::get_block_data_from_db, handle,
+                                      [Self, mc_ref_blkid = handle->masterchain_ref_block(), mc_blkid, pfx, mode](td::Result<Ref<BlockData>> res) {
+          if (res.is_error()) {
+            td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+          } else {
+            td::actor::send_closure_later(Self, &LiteQuery::continue_lookupBlockWithProof_getHeaderProof, res.move_as_ok(), pfx, mc_ref_blkid);
+          }
+        });
+      }
+  });
+
+  if (mode & 2) {
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_lt_from_db, pfx, lt, std::move(P));
+  } else if (mode & 4) {
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_unix_time_from_db, pfx, utime, std::move(P));
+  } else {
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_seqno_from_db, pfx, blkid.seqno, std::move(P));
+  }
+}
+
+void LiteQuery::continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator::BlockData> block, AccountIdPrefixFull req_prefix, BlockSeqno masterchain_ref_seqno) {
+  blk_id_ = block->block_id();
+  LOG(INFO) << "obtained data for getBlockHeader(" << blk_id_.to_str() << ", " << mode_ << ")";
+  CHECK(block.not_null());
+  auto block_root = block->root_cell();
+  if (block_root.is_null()) {
+    fatal_error("block has no valid root cell");
+    return;
+  }
+
+  vm::MerkleProofBuilder mpb{block_root};
+  std::vector<BlockIdExt> prev;
+  BlockIdExt mc_blkid;
+  bool after_split;
+  td::Status S = block::unpack_block_prev_blk_try(mpb.root(), blk_id_, prev, mc_blkid, after_split);
+  if (S.is_error()) {
+    fatal_error(std::move(S));
+    return;
+  }
+  auto proof_data = mpb.extract_proof_boc();
+  if (proof_data.is_error()) {
+    fatal_error(proof_data.move_as_error());
+    return;
+  }
+  lookup_header_proof_ = proof_data.move_as_ok();
+
+  bool include_prev = mode_ & 6;
+  if (include_prev) {
+    BlockIdExt prev_blkid;
+    for (auto& p : prev) {
+      if (ton::shard_contains(p.shard_full(), req_prefix)) {
+        prev_blkid = p;
+      }
+    }
+    CHECK(prev_blkid.is_valid());
+    get_block_handle_checked(prev_blkid, [Self = actor_id(this), masterchain_ref_seqno, manager = manager_](td::Result<ConstBlockHandle> R) mutable {
+      if (R.is_error()) {
+        td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
+        return;
+      }
+      td::actor::send_closure(manager, &ValidatorManager::get_block_data_from_db, R.move_as_ok(), 
+                              [Self, masterchain_ref_seqno](td::Result<Ref<BlockData>> res) mutable {
+        if (res.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+          return;
+        }
+        td::actor::send_closure(Self, &LiteQuery::continue_lookupBlockWithProof_gotPrevBlockData, res.move_as_ok(), masterchain_ref_seqno);
+      });
+    });
+  } else {
+    continue_lookupBlockWithProof_gotPrevBlockData(Ref<BlockData>(), masterchain_ref_seqno);
+  }
+}
+
+void LiteQuery::continue_lookupBlockWithProof_gotPrevBlockData(Ref<BlockData> prev_block, BlockSeqno masterchain_ref_seqno) {
+  if (prev_block.not_null()) {
+    CHECK(prev_block.not_null());
+    if (prev_block->root_cell().is_null()) {
+      fatal_error("block has no valid root cell");
+      return;
+    }
+    vm::MerkleProofBuilder mpb{prev_block->root_cell()};
+    block::gen::Block::Record blk;
+    block::gen::BlockInfo::Record info;
+    if (!(tlb::unpack_cell(mpb.root(), blk) && tlb::unpack_cell(blk.info, info))) {
+      fatal_error(td::Status::Error("cannot unpack prev block header"));
+      return;
+    }
+    auto proof_data = mpb.extract_proof_boc();
+    if (proof_data.is_error()) {
+      fatal_error(proof_data.move_as_error());
+      return;
+    }
+    lookup_prev_header_proof_ = proof_data.move_as_ok();
+  }
+
+  if (!blk_id_.is_masterchain()) {
+    ton::AccountIdPrefixFull pfx{ton::masterchainId, ton::shardIdAll};
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_seqno_from_db, pfx, masterchain_ref_seqno, 
+        [manager = manager_, Self = actor_id(this)](td::Result<ConstBlockHandle> R) mutable {
+      if (R.is_error()) {
+        td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
+        return;
+      }
+      td::actor::send_closure(manager, &ValidatorManager::get_block_data_from_db, R.move_as_ok(), 
+                              [Self](td::Result<Ref<BlockData>> res) mutable {
+        if (res.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+          return;
+        }
+        td::actor::send_closure(Self, &LiteQuery::continue_lookupBlockWithProof_buildProofLinks, res.move_as_ok(), std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>>());
+      });
+    });
+  } else {
+    td::actor::send_closure(actor_id(this), &LiteQuery::continue_lookupBlockWithProof_getClientMcBlockDataState, std::vector<std::pair<BlockIdExt, Ref<vm::Cell>>>());
+  }
+}
+
+void LiteQuery::continue_lookupBlockWithProof_buildProofLinks(td::Ref<BlockData> cur_block, 
+                                        std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> result) {
+  BlockIdExt cur_id = cur_block->block_id();
+  BlockIdExt prev_id;
+  vm::MerkleProofBuilder mpb{cur_block->root_cell()};
+  if (cur_id.is_masterchain()) {
+    base_blk_id_alt_ = cur_id;
+    block::gen::Block::Record blk;
+    block::gen::BlockExtra::Record extra;
+    block::gen::McBlockExtra::Record mc_extra;
+    if (!tlb::unpack_cell(mpb.root(), blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
+        !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+      fatal_error("cannot unpack header of block "s + cur_id.to_str());
+      return;
+    }
+    block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());
+    ShardIdFull shard_id = blk_id_.shard_full();
+    shard_id.shard = (shard_id.shard & ~(1 << (63 - shard_id.pfx_len()))) | 1;
+    Ref<block::McShardHash> shard_hash = shards.get_shard_hash(shard_id, false);
+    if (shard_hash.is_null()) {
+      fatal_error("shard not found");
+      return;
+    }
+    prev_id = shard_hash->top_block_id();
+  } else {
+    std::vector<BlockIdExt> prev;
+    BlockIdExt mc_blkid;
+    bool after_split;
+    td::Status S = block::unpack_block_prev_blk_try(mpb.root(), cur_id, prev, mc_blkid, after_split);
+    if (S.is_error()) {
+      fatal_error(std::move(S));
+      return;
+    }
+    bool found = false;
+    for (const BlockIdExt& id : prev) {
+      if (shard_intersects(id.shard_full(), blk_id_.shard_full())) {
+        found = true;
+        prev_id = id;
+        break;
+      }
+    }
+    if (!found) {
+      fatal_error("failed to find block chain");
+      return;
+    }
+  }
+  auto proof = mpb.extract_proof();
+  if (proof.is_error()) {
+    fatal_error(proof.move_as_error_prefix("cannot serialize Merkle proof : "));
+    return;
+  }
+  result.emplace_back(prev_id, proof.move_as_ok());
+
+  if (prev_id == blk_id_) {
+    CHECK(base_blk_id_alt_.is_masterchain());
+    continue_lookupBlockWithProof_getClientMcBlockDataState(std::move(result));
+  }
+  if (result.size() == 8) {
+    // Chains of shardblocks between masterchain blocks can't be longer than 8 (see collator.cpp:991)
+    fatal_error("proof chain is too long");
+    return;
+  }
+
+  td::actor::send_closure_later(
+      manager_, &ValidatorManager::get_block_data_from_db_short, prev_id,
+      [Self = actor_id(this), result = std::move(result)](td::Result<Ref<BlockData>> R) mutable {
+        if (R.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
+        } else {
+          td::actor::send_closure_later(Self, &LiteQuery::continue_lookupBlockWithProof_buildProofLinks, R.move_as_ok(),
+                                        std::move(result));
+        }
+  });
+}
+
+void LiteQuery::continue_lookupBlockWithProof_getClientMcBlockDataState(std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links) {
+  set_continuation([this, links = std::move(links)]() -> void {
+    continue_lookupBlockWithProof_getMcBlockPrev(std::move(links));
+  });
+  request_mc_block_data_state(base_blk_id_);
+}
+
+void LiteQuery::continue_lookupBlockWithProof_getMcBlockPrev(std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links)  {
+  vm::MerkleProofBuilder mpb{mc_state_->root_cell()};
+  auto prev_blocks_dict = block::get_prev_blocks_dict(mpb.root());
+  if (!prev_blocks_dict) {
+    fatal_error(td::Status::Error("cannot extract prev_blocks from mc state"));
+    return;
+  }
+  if (!block::check_old_mc_block_id(*prev_blocks_dict, base_blk_id_alt_)) {
+    fatal_error(td::Status::Error("client mc blkid is not in prev_blocks"));
+    return;
+  }
+  auto client_mc_blk_proof = mpb.extract_proof_boc();
+  if (client_mc_blk_proof.is_error()) {
+    fatal_error(client_mc_blk_proof.move_as_error());
+    return;
+  }
+  std::vector<tl_object_ptr<lite_api::liteServer_shardBlockLink>> links_res;
+  for (auto& p : links) {
+    auto prev_block_proof = vm::std_boc_serialize(std::move(p.second));
+    if (prev_block_proof.is_error()) {
+      fatal_error(prev_block_proof.move_as_error());
+      return;
+    }
+    links_res.push_back(
+        create_tl_object<lite_api::liteServer_shardBlockLink>(create_tl_lite_block_id(p.first), prev_block_proof.move_as_ok()));
+  }
+
+  Ref<vm::Cell> mc_state_proof;
+  if (!make_mc_state_root_proof(mc_state_proof)) {
+    fatal_error(td::Status::Error("cannot create Merkle proof for mc state"));
+    return;
+  }
+  auto mc_state_proof_boc = vm::std_boc_serialize(std::move(mc_state_proof));
+  if (mc_state_proof_boc.is_error()) {
+    fatal_error(mc_state_proof_boc.move_as_error());
+    return;
+  }
+
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_lookupBlockResult>(ton::create_tl_lite_block_id(blk_id_),
+                                                mode_, ton::create_tl_lite_block_id(base_blk_id_alt_), mc_state_proof_boc.move_as_ok(), client_mc_blk_proof.move_as_ok(), 
+                                                std::move(links_res), std::move(lookup_header_proof_), std::move(lookup_prev_header_proof_));
   finish_query(std::move(b));
 }
 
