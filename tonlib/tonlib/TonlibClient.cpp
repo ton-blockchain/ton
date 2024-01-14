@@ -4532,7 +4532,7 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
     return;
   }
 
-  client_.send_query(ton::lite_api::liteServer_getLibrariesWithProof(ton::create_tl_lite_block_id(blkid), std::move(not_cached_hashes)),
+  client_.send_query(ton::lite_api::liteServer_getLibrariesWithProof(ton::create_tl_lite_block_id(blkid), 1, std::move(not_cached_hashes)),
                      promise.wrap([self=this, blkid, result_entries = std::move(result_entries), not_cached_hashes]
                                   (td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResultWithProof>> r_libraries) mutable 
                                     -> td::Result<tonlib_api::object_ptr<tonlib_api::smc_libraryResult>> {
@@ -4549,48 +4549,59 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
       return state.move_as_error();
     }
     auto state_root = state.move_as_ok();
-    auto rconfig = block::ConfigInfo::extract_config(state_root, block::ConfigInfo::needLibraries);
-    if (rconfig.is_error()) {
-      LOG(WARNING) << "cannot extract config: " << rconfig.move_as_error().to_string();
-      return rconfig.move_as_error();
-    }
-    auto config = rconfig.move_as_ok();
-    for (auto& hash : not_cached_hashes) {
-      auto libres = config->lookup_library(hash);
-      if (libres.is_null()) {
-        LOG(WARNING) << "library " << hash.to_hex() << " not found in config";
-        if (std::any_of(libraries->result_.begin(), libraries->result_.end(), 
-                      [&hash](const auto& lib) { return lib->hash_.bits().equals(hash.cbits(), 256); })) {
-          return TonlibError::Internal("library is included in response but it's not found in proof");
+
+    try {
+      block::gen::ShardStateUnsplit::Record state_record;
+      if (!tlb::unpack_cell(state_root, state_record)) {
+        return td::Status::Error("cannot unpack shardchain state");
+      }
+      auto libraries_dict = vm::Dictionary(state_record.r1.libraries->prefetch_ref(), 256);
+
+      for (auto& hash : not_cached_hashes) {
+        auto csr = libraries_dict.lookup(hash.bits(), 256);
+        if (csr.is_null()) {
+          LOG(WARNING) << "library " << hash.to_hex() << " not found in config";
+          if (std::any_of(libraries->result_.begin(), libraries->result_.end(), 
+                        [&hash](const auto& lib) { return lib->hash_.bits().equals(hash.cbits(), 256); })) {
+            return TonlibError::Internal("library is included in response but it's not found in proof");
+          }
+          continue;
         }
-        continue;
-      }
+        block::gen::LibDescr::Record libdescr;
+        if (!tlb::csr_unpack(csr, libdescr)) {
+          return TonlibError::Internal("cannot unpack LibDescr record");
+        }
 
-      auto lib_it = std::find_if(libraries->result_.begin(), libraries->result_.end(), 
-                              [&hash](const auto& lib) { return lib->hash_.bits().equals(hash.cbits(), 256); });
-      if (lib_it == libraries->result_.end()) {
+        auto lib_it = std::find_if(libraries->result_.begin(), libraries->result_.end(), 
+                                [&hash](const auto& lib) { return lib->hash_.bits().equals(hash.cbits(), 256); });
+        if (lib_it == libraries->result_.end()) {
           return TonlibError::Internal("library is found in proof but not in response");
-      }
-      auto& lib = *lib_it;
-      auto contents = vm::std_boc_deserialize(lib->data_);
-      if (!contents.is_ok() || contents.ok().is_null()) {
-          return TonlibError::Internal(PSLICE() << "cannot deserialize library cell " << lib->hash_.to_hex());
-      }
+        }
+        auto& lib = *lib_it;
+        auto contents = vm::std_boc_deserialize(lib->data_);
+        if (!contents.is_ok() || contents.ok().is_null()) {
+           return TonlibError::Internal(PSLICE() << "cannot deserialize library cell " << lib->hash_.to_hex());
+        }
 
-      if (!contents.ok()->get_hash().bits().equals(hash.cbits(), 256)) {
-          return TonlibError::Internal(PSLICE() << "library hash mismatch data " << contents.ok()->get_hash().to_hex() << " != requested " << hash.to_hex());
-      }
+        if (!contents.ok()->get_hash().bits().equals(hash.cbits(), 256)) {
+            return TonlibError::Internal(PSLICE() << "library hash mismatch data " << contents.ok()->get_hash().to_hex() << " != requested " << hash.to_hex());
+        }
 
-      if (contents.ok()->get_hash() != libres->get_hash()) {
-        return TonlibError::Internal(PSLICE() << "library hash mismatch data " << lib->hash_.to_hex() << " != proof " << libres->get_hash().to_hex());
+        if (contents.ok()->get_hash() != libdescr.lib->get_hash()) {
+          return TonlibError::Internal(PSLICE() << "library hash mismatch data " << lib->hash_.to_hex() << " != proof " << libdescr.lib->get_hash().to_hex());
+        }
+        
+        result_entries.push_back(tonlib_api::make_object<tonlib_api::smc_libraryEntry>(lib->hash_, lib->data_.as_slice().str()));
+        self->libraries.set_ref(lib->hash_, contents.move_as_ok());
+        LOG(DEBUG) << "registered library " << lib->hash_.to_hex();
       }
-      
-      result_entries.push_back(tonlib_api::make_object<tonlib_api::smc_libraryEntry>(lib->hash_, lib->data_.as_slice().str()));
-      self->libraries.set_ref(lib->hash_, contents.move_as_ok());
-      LOG(DEBUG) << "registered library " << lib->hash_.to_hex();
+      self->store_libs_to_disk();
+      return tonlib_api::make_object<tonlib_api::smc_libraryResult>(std::move(result_entries));
+    } catch (vm::VmError& err) {
+      return TonlibError::Internal(PSLICE() << "error while checking getLibrariesWithProof proof: " << err.get_msg());
+    } catch (vm::VmVirtError& err) {
+      return TonlibError::Internal(PSLICE() << "virtualization error while checking getLibrariesWithProof proof: " << err.get_msg());
     }
-    self->store_libs_to_disk();
-    return tonlib_api::make_object<tonlib_api::smc_libraryResult>(std::move(result_entries));
   }));
 }
 
