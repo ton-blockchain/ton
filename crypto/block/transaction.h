@@ -105,6 +105,7 @@ struct ComputePhaseConfig {
   td::uint64 flat_gas_limit = 0;
   td::uint64 flat_gas_price = 0;
   bool special_gas_full = false;
+  block::GasLimitsPrices mc_gas_prices;
   static constexpr td::uint64 gas_infty = (1ULL << 63) - 1;
   td::RefInt256 gas_price256;
   td::RefInt256 max_gas_threshold;
@@ -358,12 +359,14 @@ struct Transaction {
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
   vm::CellStorageStat new_storage_stat;
+  bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
   bool check_in_msg_state_hash();
   bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true, bool adjust_msg_value = false);
   bool prepare_credit_phase();
+  td::uint64 gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms);
   bool compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg);
   Ref<vm::Stack> prepare_vm_stack(ComputePhase& cp);
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);

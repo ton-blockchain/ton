@@ -940,6 +940,11 @@ bool ValidateQuery::fetch_config_params() {
                                                   storage_phase_cfg_.delete_due_limit)) {
       return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
+    auto mc_gas_prices = config_->get_gas_limits_prices(true);
+    if (mc_gas_prices.is_error()) {
+      return fatal_error(mc_gas_prices.move_as_error_prefix("cannot unpack masterchain gas prices and limits: "));
+    }
+    compute_phase_cfg_.mc_gas_prices = mc_gas_prices.move_as_ok();
     storage_phase_cfg_.enable_due_payment = config_->get_global_version() >= 4;
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
@@ -5052,7 +5057,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                   << " for smart contract " << addr.to_hex());
   }
   if (!trs->update_limits(*block_limit_status_,
-                          /* with_gas = */ !account.is_special,
+                          /* with_gas = */ !account.is_special && !trs->gas_limit_overridden,
                           /* with_size = */ false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
