@@ -467,15 +467,20 @@ TEST(Tonlib, KeysApi) {
             make_object<tonlib_api::deleteKey>(make_object<tonlib_api::key>(key->public_key_, key->secret_.copy())))
       .move_as_ok();
 
-  auto err1 = sync_send(client, make_object<tonlib_api::importKey>(
-                                    new_local_password.copy(), td::SecureString("wrong password"),
-                                    make_object<tonlib_api::exportedKey>(copy_word_list())))
-                  .move_as_error();
+  auto err1 = sync_send(
+      client, make_object<tonlib_api::importKey>(new_local_password.copy(), td::SecureString("wrong password"),
+                                                 make_object<tonlib_api::exportedKey>(copy_word_list())));
+  if (err1.is_ok()) {
+    if (err1.ok()->public_key_ != key->public_key_) {
+      err1 = td::Status::Error("imported key successfully, but the public key is different");
+    }
+  }
+  err1.ensure_error();
   auto err2 =
       sync_send(client, make_object<tonlib_api::importKey>(new_local_password.copy(), td::SecureString(),
-                                                           make_object<tonlib_api::exportedKey>(copy_word_list())))
-          .move_as_error();
-  LOG(INFO) << err1 << " | " << err2;
+                                                           make_object<tonlib_api::exportedKey>(copy_word_list())));
+  err2.ensure_error();
+  LOG(INFO) << err1.move_as_error() << " | " << err2.move_as_error();
   auto imported_key =
       sync_send(client, make_object<tonlib_api::importKey>(new_local_password.copy(), mnemonic_password.copy(),
                                                            make_object<tonlib_api::exportedKey>(copy_word_list())))

@@ -211,7 +211,13 @@ set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
-find_package(ZLIB REQUIRED)
+
+if (NOT ZLIB_FOUND)
+  find_package(ZLIB REQUIRED)
+else()
+  message(STATUS "Using zlib ${ZLIB_LIBRARIES}")
+endif()
+
 
 if (TON_ARCH AND NOT MSVC)
   CHECK_CXX_COMPILER_FLAG( "-march=${TON_ARCH}" COMPILER_OPT_ARCH_SUPPORTED )
@@ -370,6 +376,9 @@ if (LATEX_FOUND)
   add_latex_document(doc/tblkch.tex TARGET_NAME ton_blockchain_description)
   add_latex_document(doc/fiftbase.tex TARGET_NAME fift_basic_description)
   add_latex_document(doc/catchain.tex TARGET_NAME catchain_consensus_description)
+endif()
+if (NOT LATEX_FOUND)
+  message(STATUS "Could NOT find LATEX (this is NOT an error)")
 endif()
 #END internal
 
@@ -580,8 +589,8 @@ if (NOT NIX)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
     if (WIN32)
         set_property(TEST test-func PROPERTY ENVIRONMENT
-          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/func.exe"
-          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/fift.exe"
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift.exe"
           "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
     else()
         set_property(TEST test-func PROPERTY ENVIRONMENT
@@ -596,8 +605,8 @@ if (NOT NIX)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
     if (WIN32)
         set_property(TEST test-func-legacy PROPERTY ENVIRONMENT
-          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/func.exe"
-          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/Release/fift.exe"
+          "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift.exe"
           "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
     else()
         set_property(TEST test-func-legacy PROPERTY ENVIRONMENT

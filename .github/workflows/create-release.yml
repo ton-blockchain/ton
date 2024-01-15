@@ -46,7 +46,7 @@ jobs:
       - name: Download Windows artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: win-2019-compile.yml
+          workflow: ton-x86-64-windows.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
@@ -54,7 +54,7 @@ jobs:
       - name: Download and unzip Windows artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: win-2019-compile.yml
+          workflow: ton-x86-64-windows.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: false
@@ -62,7 +62,7 @@ jobs:
       - name: Download WASM artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ton-wasm-emscripten.yml
+          workflow: build-ton-wasm-emscripten.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
