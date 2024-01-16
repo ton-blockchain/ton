@@ -160,7 +160,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   ValidatorSessionStats cur_stats_;
   void stats_init();
   void stats_add_round();
-  void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, int status);
+  void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, ValidatorSessionCandidateId candidate_id,
+                                  int status, std::string comment = "");
 
  public:
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
@@ -173,6 +174,7 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   void start() override;
   void destroy() override;
+  void get_current_stats(td::Promise<ValidatorSessionStats> promise) override;
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();

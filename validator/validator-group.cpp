@@ -136,7 +136,8 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
                                             std::vector<BlockSignature> approve_signatures,
                                             validatorsession::ValidatorSessionStats stats,
                                             td::Promise<td::Unit> promise) {
-      if (round_id >= last_known_round_id_) {
+  stats.cc_seqno = validator_set_->get_catchain_seqno();
+  if (round_id >= last_known_round_id_) {
     last_known_round_id_ = round_id + 1;
   }
   auto sig_set = create_signature_set(std::move(signatures));
@@ -354,6 +355,19 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
 
 void ValidatorGroup::destroy() {
   if (!session_.empty()) {
+    td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_current_stats,
+                            [manager = manager_, cc_seqno = validator_set_->get_catchain_seqno(),
+                             block_id = create_next_block_id(RootHash::zero(), FileHash::zero())](
+                                td::Result<validatorsession::ValidatorSessionStats> R) {
+                              if (R.is_error()) {
+                                LOG(WARNING) << "Failed to get validator session stats: " << R.move_as_error();
+                                return;
+                              }
+                              auto stats = R.move_as_ok();
+                              stats.cc_seqno = cc_seqno;
+                              td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats, block_id,
+                                                      std::move(stats));
+                            });
     auto ses = session_.release();
     delay_action([ses]() mutable { td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy); },
                  td::Timestamp::in(10.0));
