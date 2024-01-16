@@ -2640,18 +2640,19 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
   }
 
   std::vector<tl_object_ptr<ton_api::validatorSession_statsRound>> rounds;
-  for (const auto& round : stats.rounds) {
+  for (const auto &round : stats.rounds) {
     std::vector<tl_object_ptr<ton_api::validatorSession_statsProducer>> producers;
-    for (const auto& producer : round.producers) {
+    for (const auto &producer : round.producers) {
       producers.push_back(create_tl_object<ton_api::validatorSession_statsProducer>(
-          producer.id.bits256_value(), producer.block_status, producer.block_timestamp));
+          producer.id.bits256_value(), producer.candidate_id, producer.block_status, producer.block_timestamp,
+          producer.comment));
     }
     rounds.push_back(create_tl_object<ton_api::validatorSession_statsRound>(round.timestamp, std::move(producers)));
   }
 
   auto obj = create_tl_object<ton_api::validatorSession_stats>(
-      create_tl_block_id_simple(block_id.id), stats.timestamp, stats.self.bits256_value(),
-      stats.creator.bits256_value(), stats.total_validators, stats.total_weight, stats.signatures,
+      stats.success, create_tl_block_id(block_id), stats.timestamp, stats.self.bits256_value(), stats.session_id,
+      stats.cc_seqno, stats.creator.bits256_value(), stats.total_validators, stats.total_weight, stats.signatures,
       stats.signatures_weight, stats.approve_signatures, stats.approve_signatures_weight, stats.first_round,
       std::move(rounds));
   std::string s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
