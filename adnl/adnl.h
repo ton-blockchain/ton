@@ -97,8 +97,6 @@ class Adnl : public AdnlSenderInterface {
   virtual void add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat, td::uint32 mode) = 0;
   virtual void del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) = 0;
 
-  virtual void check_id_exists(AdnlNodeIdShort id, td::Promise<bool> promise) = 0;
-
   // subscribe to (some) messages(+queries) to this local id
   virtual void subscribe(AdnlNodeIdShort dst, std::string prefix, std::unique_ptr<Callback> callback) = 0;
   virtual void unsubscribe(AdnlNodeIdShort dst, std::string prefix) = 0;

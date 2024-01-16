@@ -77,10 +77,6 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
                         td::actor::ActorId<AdnlChannel> channel) override;
   void unregister_channel(AdnlChannelIdShort id) override;
 
-  void check_id_exists(AdnlNodeIdShort id, td::Promise<bool> promise) override {
-    promise.set_value(local_ids_.count(id));
-  }
-
   void write_new_addr_list_to_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, AdnlDbItem node,
                                  td::Promise<td::Unit> promise) override;
   void get_addr_list_from_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id,

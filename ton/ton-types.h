@@ -353,14 +353,6 @@ struct BlockBroadcast {
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   td::BufferSlice proof;
-
-  BlockBroadcast clone() const {
-    std::vector<BlockSignature> new_signatures;
-    for (const BlockSignature& s : signatures) {
-      new_signatures.emplace_back(s.node, s.signature.clone());
-    }
-    return {block_id, std::move(new_signatures), catchain_seqno, validator_set_hash, data.clone(), proof.clone()};
-  }
 };
 
 struct Ed25519_PrivateKey {

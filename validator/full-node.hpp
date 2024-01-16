@@ -23,7 +23,6 @@
 //#include "ton-node-slave.h"
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
-#include "full-node-private-overlay.hpp"
 
 #include <map>
 #include <set>
@@ -112,15 +111,9 @@ class FullNodeImpl : public FullNode {
 
   PublicKeyHash sign_cert_by_;
   std::vector<PublicKeyHash> all_validators_;
-  std::map<PublicKeyHash, adnl::AdnlNodeIdShort> current_validators_;
 
   std::set<PublicKeyHash> local_keys_;
   FullNodeConfig config_;
-
-  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateOverlay>> private_block_overlays_;
-
-  void update_private_block_overlays();
-  void create_private_block_overlay(PublicKeyHash key);
 };
 
 }  // namespace fullnode
