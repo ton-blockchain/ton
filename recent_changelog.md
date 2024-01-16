@@ -1,10 +1,10 @@
-##2023.11 Update
+## 2023.12 Update
 
-1. New TVM Functionality. (Disabled by default)
-2. A series of emulator improvements: libraries support, higher max stack size, etc
-3. A series of tonlib and tonlib-cli improvements: wallet-v4 support, getconfig, showtransactions, etc
-4. Changes to public libraries: now contract can not publish more than 256 libraries (config parameter) and contracts can not be deployed with public libraries in initstate (instead contracts need explicitly publish all libraries)
-5. Changes to storage due payment: now due payment is collected in Storage Phase, however for bouncable messages fee amount can not exceed balance of account prior to message.
+1. Optimized message queue handling, now queue cleaning speed doesn't depend on total queue size
+     * Cleaning delivered messages using lt augmentation instead of random search / consequtive walk
+     * Keeping root cell of queue message in memory until outdated (caching)
+2. Changes to block collation/validation limits
+3. Stop accepting new external message if message queue is overloaded
+4. Introducing conditions for shard split/merge based on queue size
 
-
-Besides the work of the core team, this update is based on the efforts of @aleksej-paschenko (emulator improvements), @akifoq (security improvements), Trail of Bits auditor as well as all participants of [TEP-88 discussion](https://github.com/ton-blockchain/TEPs/pull/88).
+Read [more](https://blog.ton.org/technical-report-december-5-inscriptions-launch-on-ton) on that update.
