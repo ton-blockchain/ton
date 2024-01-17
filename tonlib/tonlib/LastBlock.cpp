@@ -132,7 +132,7 @@ void LastBlock::do_get_last_block() {
   VLOG(last_block) << "get_last_block: continue " << state_.last_key_block_id.to_str() << " -> ?";
   get_last_block_stats_.queries_++;
   client_.send_query(
-      ton::lite_api::liteServer_getBlockProof(0, create_tl_lite_block_id(state_.last_key_block_id), nullptr),
+      ton::lite_api::liteServer_getBlockProof(2, create_tl_lite_block_id(state_.last_key_block_id), nullptr),
       [this, from = state_.last_key_block_id](auto r_block_proof) {
         this->on_block_proof(from, std::move(r_block_proof));
       });
