@@ -489,7 +489,7 @@ void do_test_wallet(int revision) {
   auto address = std::move(res.address);
   auto iwallet = std::move(res.wallet);
   auto public_key = priv_key.get_public_key().move_as_ok().as_octet_string();
-  ;
+
   check_wallet_state(iwallet, 1, 123, public_key);
 
   // lets send a lot of messages
@@ -1026,7 +1026,7 @@ class CheckedDns {
         }
         return action;
       });
-      auto query = dns_->create_update_query(key_.value(), smc_actions).move_as_ok();
+      auto query = dns_->create_update_query(key_.value(), smc_actions, query_id_++).move_as_ok();
       CHECK(dns_.write().send_external_message(std::move(query)).code == 0);
     }
     map_dns_.update(entries);
@@ -1081,6 +1081,7 @@ class CheckedDns {
   using ManualDns = ton::ManualDns;
   td::optional<td::Ed25519::PrivateKey> key_;
   td::Ref<ManualDns> dns_;
+  td::uint32 query_id_ = 1;  // Query id serve as "valid until", but in tests now() == 0
 
   MapDns map_dns_;
   td::optional<MapDns> combined_map_dns_;

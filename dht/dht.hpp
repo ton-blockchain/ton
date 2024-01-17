@@ -95,7 +95,7 @@ class DhtMember : public Dht {
 
   //virtual void update_addr_list(tl_object_ptr<ton_api::adnl_addressList> addr_list) = 0;
   //virtual void add_node(adnl::AdnlNodeIdShort id) = 0;
-  virtual void add_full_node(DhtKeyId id, DhtNode node) = 0;
+  virtual void add_full_node(DhtKeyId id, DhtNode node, bool set_active) = 0;
 
   virtual void receive_ping(DhtKeyId id, DhtNode result) = 0;
 

@@ -107,6 +107,30 @@ class CellDbIn : public CellDbBase {
   std::function<void(const vm::CellLoader::LoadResult&)> on_load_callback_;
   std::set<td::Bits256> cells_to_migrate_;
   td::Timestamp migrate_after_ = td::Timestamp::never();
+  bool migration_active_ = false;
+
+  struct MigrationStats {
+    td::Timer start_;
+    td::Timestamp end_at_ = td::Timestamp::in(60.0);
+    size_t batches_ = 0;
+    size_t migrated_cells_ = 0;
+    size_t checked_cells_ = 0;
+    double total_time_ = 0.0;
+  };
+  std::unique_ptr<MigrationStats> migration_stats_;
+
+ public:
+  class MigrationProxy : public td::actor::Actor {
+   public:
+    explicit MigrationProxy(td::actor::ActorId<CellDbIn> cell_db) : cell_db_(cell_db) {
+    }
+    void migrate_cell(td::Bits256 hash) {
+      td::actor::send_closure(cell_db_, &CellDbIn::migrate_cell, hash);
+    }
+
+   private:
+    td::actor::ActorId<CellDbIn> cell_db_;
+  };
 };
 
 class CellDb : public CellDbBase {

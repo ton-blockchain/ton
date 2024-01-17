@@ -43,7 +43,7 @@ __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on han
 - To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities)
 - To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/)
 
-## Updates flow:
+## Updates flow
 
 * **master branch** - mainnet is running on this stable branch.
 
@@ -61,12 +61,90 @@ Usually, the response to your pull request will indicate which section it falls 
 * Thou shall not merge your own PRs, at least one person should review the PR and merge it (4-eyes rule)
 * Thou shall make sure that workflows are cleanly completed for your PR before considering merge
 
-## Workflows responsibility
-If a CI workflow fails not because of your changes but workflow issues, try to fix it yourself or contact one of the persons listed below via Telegram messenger:
+## Build TON blockchain
 
-* **C/C++ CI (ccpp-linux.yml)**: TBD
-* **C/C++ CI Win64 Compile (ccpp-win64.yml)**: TBD
+### Ubuntu 20.4, 22.04 (x86-64, aarch64)
+Install additional system libraries
+```bash
+  sudo apt-get update
+  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+          
+  wget https://apt.llvm.org/llvm.sh
+  chmod +x llvm.sh
+  sudo ./llvm.sh 16 all
+```
+Compile TON binaries
+```bash
+  cp assembly/native/build-ubuntu-shared.sh .
+  chmod +x build-ubuntu-shared.sh
+  ./build-ubuntu-shared.sh  
+```
 
+### MacOS 11, 12 (x86-64, aarch64)
+```bash
+  cp assembly/native/build-macos-shared.sh .
+  chmod +x build-macos-shared.sh
+  ./build-macos-shared.sh
+```
+
+### Windows 10, 11, Server (x86-64)
+You need to install `MS Visual Studio 2022` first.
+Go to https://www.visualstudio.com/downloads/ and download `MS Visual Studio 2022 Community`.
+
+Launch installer and select `Desktop development with C++`. 
+After installation, also make sure that `cmake` is globally available by adding
+`C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin` to the system `PATH` (adjust the path per your needs).
+
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute: 
+```bash
+  copy assembly\native\build-windows.bat .
+  build-windows.bat
+```
+
+### Building TON to WebAssembly
+Install additional system libraries on Ubuntu
+```bash
+  sudo apt-get update
+  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+          
+  wget https://apt.llvm.org/llvm.sh
+  chmod +x llvm.sh
+  sudo ./llvm.sh 16 all
+```
+Compile TON binaries with emscripten
+```bash
+  cd assembly/wasm
+  chmod +x fift-func-wasm-build-ubuntu.sh
+  ./fift-func-wasm-build-ubuntu.sh
+```
+
+### Building TON tonlib library for Android (arm64-v8a, armeabi-v7a, x86, x86-64)
+Install additional system libraries on Ubuntu
+```bash
+  sudo apt-get update
+  sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
+  zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
+  libtool autoconf libsodium-dev libsecp256k1-dev
+```
+Compile TON tonlib library
+```bash
+  cp assembly/android/build-android-tonlib.sh .
+  chmod +x build-android-tonlib.sh
+  ./build-android-tonlib.sh
+```
+
+### Build TON portable binaries with Nix package manager
+You need to install Nix first.
+```bash
+   sh <(curl -L https://nixos.org/nix/install) --daemon
+```
+Then compile TON with Nix by executing below command from the root folder: 
+```bash
+  cp -r assembly/nix/* .
+  export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
+  nix-build linux-x86-64-static.nix
+```
+More examples for other platforms can be found under `assembly/nix`.  
 
 ## Running tests
 

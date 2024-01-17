@@ -63,11 +63,7 @@ class DhtQuery : public td::actor::Actor {
   }
   void send_queries();
   void add_nodes(DhtNodesList list);
-  void finish_query() {
-    active_queries_--;
-    CHECK(active_queries_ <= k_);
-    send_queries();
-  }
+  void finish_query(adnl::AdnlNodeIdShort id, bool success = true);
   DhtKeyId get_key() const {
     return key_;
   }
@@ -88,15 +84,21 @@ class DhtQuery : public td::actor::Actor {
   virtual std::string get_name() const = 0;
 
  private:
+  struct NodeInfo {
+    DhtNode node;
+    int failed_attempts = 0;
+  };
   DhtMember::PrintId print_id_;
   adnl::AdnlNodeIdShort src_;
-  std::map<DhtKeyId, DhtNode> list_;
-  std::set<DhtKeyId> pending_ids_;
+  std::map<DhtKeyId, NodeInfo> nodes_;
+  std::set<DhtKeyId> result_list_, pending_queries_;
   td::uint32 k_;
   td::uint32 a_;
   td::int32 our_network_id_;
   td::actor::ActorId<DhtMember> node_;
   td::uint32 active_queries_ = 0;
+
+  static const int MAX_ATTEMPTS = 1;
 
  protected:
   td::actor::ActorId<adnl::Adnl> adnl_;

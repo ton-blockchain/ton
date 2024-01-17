@@ -98,7 +98,7 @@ class RefcntCellParser {
       auto size = parser.get_left_len();
       td::Slice data = parser.template fetch_string_raw<td::Slice>(size);
       if (stored_boc_) {
-        TRY_RESULT(boc, vm::std_boc_deserialize(data));
+        TRY_RESULT(boc, vm::std_boc_deserialize(data, false, true));
         TRY_RESULT(loaded_cell, boc->load_cell());
         cell = std::move(loaded_cell.data_cell);
         return td::Status::OK();

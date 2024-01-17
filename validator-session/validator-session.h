@@ -91,6 +91,7 @@ class ValidatorSession : public td::actor::Actor {
 
   virtual void start() = 0;
   virtual void destroy() = 0;
+  virtual void get_current_stats(td::Promise<ValidatorSessionStats> promise) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,

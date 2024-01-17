@@ -1596,6 +1596,12 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
   }
   auto conf_data_R = td::read_file(config_file_);
   if (conf_data_R.is_error()) {
+    conf_data_R = td::read_file(temp_config_file());
+    if (conf_data_R.is_ok()) {
+      td::rename(temp_config_file(), config_file_).ensure();
+    }
+  }
+  if (conf_data_R.is_error()) {
     auto P = td::PromiseCreator::lambda(
         [name = local_config_, new_name = config_file_, promise = std::move(promise)](td::Result<td::Unit> R) {
           if (R.is_error()) {
@@ -1643,12 +1649,15 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
 void ValidatorEngine::write_config(td::Promise<td::Unit> promise) {
   auto s = td::json_encode<std::string>(td::ToJson(*config_.tl().get()), true);
 
-  auto S = td::write_file(config_file_, s);
-  if (S.is_ok()) {
-    promise.set_value(td::Unit());
-  } else {
+  auto S = td::write_file(temp_config_file(), s);
+  if (S.is_error()) {
+    td::unlink(temp_config_file()).ignore();
     promise.set_error(std::move(S));
+    return;
   }
+  td::unlink(config_file_).ignore();
+  TRY_STATUS_PROMISE(promise, td::rename(temp_config_file(), config_file_));
+  promise.set_value(td::Unit());
 }
 
 td::Promise<ton::PublicKey> ValidatorEngine::get_key_promise(td::MultiPromise::InitGuard &ig) {
@@ -3775,11 +3784,15 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, at]() { td::actor::send_closure(x, &ValidatorEngine::schedule_shutdown, (double)at); });
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "celldb-compress-depth", "(default: 0)", [&](td::Slice arg) {
-    TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
-    acts.push_back([&x, value]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_compress_depth, value); });
-    return td::Status::OK();
-  });
+  p.add_checked_option('\0', "celldb-compress-depth",
+                       "optimize celldb by storing cells of depth X with whole subtrees (experimental, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
+                         acts.push_back([&x, value]() {
+                           td::actor::send_closure(x, &ValidatorEngine::set_celldb_compress_depth, value);
+                         });
+                         return td::Status::OK();
+                       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

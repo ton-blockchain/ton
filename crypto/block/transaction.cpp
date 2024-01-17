@@ -1039,8 +1039,12 @@ bool ComputePhaseConfig::parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, t
     delete_due_limit = td::make_refint(r.delete_due_limit);
   };
   block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
+  block::gen::GasLimitsPrices::Record_gas_prices_v3 rec_v3;
   if (tlb::csr_unpack(cs, rec)) {
     f(rec, rec.special_gas_limit);
+  } else if (tlb::csr_unpack(cs, rec_v3)) {
+    f(rec_v3, rec_v3.special_gas_limit);
+    special_gas_full = true;
   } else {
     block::gen::GasLimitsPrices::Record_gas_prices rec0;
     if (tlb::csr_unpack(std::move(cs), rec0)) {
@@ -1078,18 +1082,32 @@ bool ComputePhaseConfig::is_address_suspended(ton::WorkchainId wc, td::Bits256 a
 }
 
 /**
+ * Computes the maximum gas fee based on the gas prices and limits.
+ *
+ * @param gas_price256 The gas price from config as RefInt256
+ * @param gas_limit The gas limit from config
+ * @param flat_gas_limit The flat gas limit from config
+ * @param flat_gas_price The flat gas price from config
+ *
+ * @returns The maximum gas fee.
+ */
+static td::RefInt256 compute_max_gas_threshold(const td::RefInt256& gas_price256, td::uint64 gas_limit,
+                                               td::uint64 flat_gas_limit, td::uint64 flat_gas_price) {
+  if (gas_limit > flat_gas_limit) {
+    return td::rshift(gas_price256 * (gas_limit - flat_gas_limit), 16, 1) + td::make_bigint(flat_gas_price);
+  } else {
+    return td::make_refint(flat_gas_price);
+  }
+}
+
+/**
  * Computes the maximum for gas fee based on the gas prices and limits.
  *
  * Updates max_gas_threshold.
  */
 void ComputePhaseConfig::compute_threshold() {
   gas_price256 = td::make_refint(gas_price);
-  if (gas_limit > flat_gas_limit) {
-    max_gas_threshold =
-        td::rshift(gas_price256 * (gas_limit - flat_gas_limit), 16, 1) + td::make_bigint(flat_gas_price);
-  } else {
-    max_gas_threshold = td::make_refint(flat_gas_price);
-  }
+  max_gas_threshold = compute_max_gas_threshold(gas_price256, gas_limit, flat_gas_limit, flat_gas_price);
 }
 
 /**
@@ -1126,6 +1144,67 @@ td::RefInt256 ComputePhaseConfig::compute_gas_price(td::uint64 gas_used) const {
 }
 
 namespace transaction {
+
+/**
+ * Checks if it is required to increase gas_limit (from GasLimitsPrices config) to special_gas_limit * 2
+ * from masterchain GasLimitsPrices config for the transaction.
+ *
+ * In January 2024 a highload wallet of @wallet Telegram bot in mainnet was stuck because current gas limit (1M) is
+ * not enough to clean up old queires, thus locking funds inside.
+ * See comment in crypto/smartcont/highload-wallet-v2-code.fc for details on why this happened.
+ * Account address: EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu
+ * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-16).
+ * It is activated by setting gas_prices_v3 in ConfigParam 20 (config_mc_gas_prices).
+ * This config change also activates new behavior for special accounts in masterchain.
+ *
+ * @param cfg The compute phase configuration.
+ * @param now The Unix time of the transaction.
+ * @param account The account of the transaction.
+ *
+ * @returns True if gas_limit override is required, false otherwise
+ */
+static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now, const Account& account) {
+  if (!cfg.mc_gas_prices.special_full_limit) {
+    return false;
+  }
+  ton::UnixTime until = 1708041600;  // 2024-02-16 00:00:00 UTC
+  ton::WorkchainId wc = 0;
+  const char* addr_hex = "FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD";
+  return now < until && account.workchain == wc && account.addr.to_hex() == addr_hex;
+}
+
+/**
+ * Computes the amount of gas that can be bought for a given amount of nanograms.
+ * Usually equal to `cfg.gas_bought_for(nanograms)`
+ * However, it overrides gas_limit from config in special cases.
+ *
+ * @param cfg The compute phase configuration.
+ * @param nanograms The amount of nanograms to compute gas for.
+ *
+ * @returns The amount of gas.
+ */
+td::uint64 Transaction::gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms) {
+  if (override_gas_limit(cfg, now, account)) {
+    gas_limit_overridden = true;
+    // Same as ComputePhaseConfig::gas_bought for, but with other gas_limit and max_gas_threshold
+    auto gas_limit = cfg.mc_gas_prices.special_gas_limit * 2;
+    auto max_gas_threshold =
+        compute_max_gas_threshold(cfg.gas_price256, gas_limit, cfg.flat_gas_limit, cfg.flat_gas_price);
+    if (nanograms.is_null() || sgn(nanograms) < 0) {
+      return 0;
+    }
+    if (nanograms >= max_gas_threshold) {
+      return gas_limit;
+    }
+    if (nanograms < cfg.flat_gas_price) {
+      return 0;
+    }
+    auto res = td::div((std::move(nanograms) - cfg.flat_gas_price) << 16, cfg.gas_price256);
+    return res->to_long() + cfg.flat_gas_limit;
+  }
+  return cfg.gas_bought_for(nanograms);
+}
+
 /**
  * Computes the gas limits for a transaction.
  *
@@ -1139,16 +1218,16 @@ bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig&
   if (account.is_special) {
     cp.gas_max = cfg.special_gas_limit;
   } else {
-    cp.gas_max = cfg.gas_bought_for(balance.grams);
+    cp.gas_max = gas_bought_for(cfg, balance.grams);
   }
   cp.gas_credit = 0;
-  if (trans_type != tr_ord) {
+  if (trans_type != tr_ord || (account.is_special && cfg.special_gas_full)) {
     // may use all gas that can be bought using remaining balance
     cp.gas_limit = cp.gas_max;
   } else {
     // originally use only gas bought using remaining message balance
     // if the message is "accepted" by the smart contract, the gas limit will be set to gas_max
-    cp.gas_limit = std::min(cfg.gas_bought_for(msg_balance_remaining.grams), cp.gas_max);
+    cp.gas_limit = std::min(gas_bought_for(cfg, msg_balance_remaining.grams), cp.gas_max);
     if (!block::tlb::t_Message.is_internal(in_msg)) {
       // external messages carry no balance, give them some credit to check whether they are accepted
       cp.gas_credit = std::min(cfg.gas_credit, cp.gas_max);
@@ -3203,8 +3282,8 @@ td::Result<vm::NewCellStorageStat::Stat> Transaction::estimate_block_storage_pro
  *
  * @returns True if the limits were successfully updated, False otherwise.
  */
-bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_size) const {
-  if (!(blimst.update_lt(end_lt) && blimst.update_gas(gas_used()))) {
+bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_gas, bool with_size) const {
+  if (!(blimst.update_lt(end_lt) && blimst.update_gas(with_gas ? gas_used() : 0))) {
     return false;
   }
   if (with_size) {
@@ -3450,6 +3529,9 @@ td::Status FetchConfigParams::fetch_config_params(
                                                   storage_phase_cfg->delete_due_limit)) {
       return td::Status::Error(-668, "cannot unpack current gas prices and limits from masterchain configuration");
     }
+    TRY_RESULT_PREFIX(mc_gas_prices, config.get_gas_limits_prices(true),
+                      "cannot unpack masterchain gas prices and limits: ");
+    compute_phase_cfg->mc_gas_prices = std::move(mc_gas_prices);
     storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;

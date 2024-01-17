@@ -1,4 +1,4 @@
-name: "TON x86_64 Linux binaries"
+name: Ubuntu TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
@@ -20,19 +20,11 @@ jobs:
         extra_nix_config: |
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
-    - name: Compile
-      run: nix build .?submodules=1#packages.x86_64-linux.ton-oldglibc_staticbinaries --print-build-logs --system x86_64-linux -o result-x86_64
-
-    - name: Copy binaries
+    - name: Build TON
       run: |
-        ls -lart 
-        mkdir artifacts
-        cp $PWD/result-x86_64/bin/* artifacts/
-        chmod +x artifacts/*
-        cp $PWD/result-x86_64/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
-        cp $PWD/result-x86_64/lib/libemulator.so artifacts/
-        cp -R crypto/smartcont artifacts/
-        cp -R crypto/fift/lib artifacts/
+        cp assembly/nix/build-linux-x86-64-nix.sh .
+        chmod +x build-linux-x86-64-nix.sh
+        ./build-linux-x86-64-nix.sh
 
     - name: Simple binaries test
       run: |

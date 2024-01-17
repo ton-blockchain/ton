@@ -104,6 +104,8 @@ struct ComputePhaseConfig {
   td::uint64 gas_credit;
   td::uint64 flat_gas_limit = 0;
   td::uint64 flat_gas_price = 0;
+  bool special_gas_full = false;
+  block::GasLimitsPrices mc_gas_prices;
   static constexpr td::uint64 gas_infty = (1ULL << 63) - 1;
   td::RefInt256 gas_price256;
   td::RefInt256 max_gas_threshold;
@@ -119,12 +121,7 @@ struct ComputePhaseConfig {
   SizeLimitsConfig size_limits;
   int vm_log_verbosity = 0;
 
-  ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
-      : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
-    compute_threshold();
-  }
-  ComputePhaseConfig(td::uint64 _gas_price, td::uint64 _gas_limit, td::uint64 _spec_gas_limit, td::uint64 _gas_credit)
-      : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_spec_gas_limit), gas_credit(_gas_credit) {
+  ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
   }
   void compute_threshold();
@@ -362,12 +359,14 @@ struct Transaction {
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
   vm::CellStorageStat new_storage_stat;
+  bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
   bool check_in_msg_state_hash();
   bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true, bool adjust_msg_value = false);
   bool prepare_credit_phase();
+  td::uint64 gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms);
   bool compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg);
   Ref<vm::Stack> prepare_vm_stack(ComputePhase& cp);
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
@@ -383,7 +382,7 @@ struct Transaction {
 
   td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_size = true) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_gas = true, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);

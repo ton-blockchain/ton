@@ -16,6 +16,7 @@
 */
 
 #include "SpeedLimiter.h"
+#include "common/errorcode.h"
 
 namespace ton {
 
@@ -41,11 +42,11 @@ void SpeedLimiter::enqueue(double size, td::Timestamp timeout, td::Promise<td::U
     return;
   }
   if (max_speed_ == 0.0) {
-    promise.set_error(td::Status::Error("Speed limit is 0"));
+    promise.set_error(td::Status::Error(ErrorCode::timeout, "Speed limit is 0"));
     return;
   }
   if (timeout < unlock_at_) {
-    promise.set_error(td::Status::Error("Timeout caused by speed limit"));
+    promise.set_error(td::Status::Error(ErrorCode::timeout, "Timeout caused by speed limit"));
     return;
   }
   if (queue_.empty() && unlock_at_.is_in_past()) {

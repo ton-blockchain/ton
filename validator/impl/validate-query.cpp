@@ -234,6 +234,7 @@ bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
  */
 void ValidateQuery::finish_query() {
   if (main_promise) {
+    LOG(WARNING) << "validate query done";
     main_promise.set_result(now_);
   }
   stop();
@@ -252,7 +253,7 @@ void ValidateQuery::finish_query() {
  * Then the function also sends requests to the ValidatorManager to fetch blocks and shard stated.
  */
 void ValidateQuery::start_up() {
-  LOG(INFO) << "validate query for " << block_candidate.id.to_str() << " started";
+  LOG(WARNING) << "validate query for " << block_candidate.id.to_str() << " started";
   alarm_timestamp() = timeout;
   rand_seed_.set_zero();
   created_by_ = block_candidate.pubkey;
@@ -667,7 +668,7 @@ bool ValidateQuery::extract_collated_data() {
  * @param res The result of the retrieval of the latest masterchain state.
  */
 void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
-  LOG(DEBUG) << "in ValidateQuery::after_get_latest_mc_state()";
+  LOG(WARNING) << "in ValidateQuery::after_get_latest_mc_state()";
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -708,7 +709,7 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
  * @param res The result of the masterchain state retrieval.
  */
 void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
-  LOG(DEBUG) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
+  LOG(WARNING) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -752,7 +753,7 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
  * @param res The result of the shard state retrieval.
  */
 void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
-  LOG(DEBUG) << "in ValidateQuery::after_get_shard_state(" << idx << ")";
+  LOG(WARNING) << "in ValidateQuery::after_get_shard_state(" << idx << ")";
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -939,6 +940,11 @@ bool ValidateQuery::fetch_config_params() {
                                                   storage_phase_cfg_.delete_due_limit)) {
       return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
+    auto mc_gas_prices = config_->get_gas_limits_prices(true);
+    if (mc_gas_prices.is_error()) {
+      return fatal_error(mc_gas_prices.move_as_error_prefix("cannot unpack masterchain gas prices and limits: "));
+    }
+    compute_phase_cfg_.mc_gas_prices = mc_gas_prices.move_as_ok();
     storage_phase_cfg_.enable_due_payment = config_->get_global_version() >= 4;
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
@@ -1495,7 +1501,6 @@ bool ValidateQuery::request_neighbor_queues() {
  * @param res The obtained outbound queue.
  */
 void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res) {
-  LOG(DEBUG) << "obtained outbound queue for neighbor #" << i;
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -1503,6 +1508,7 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
   }
   Ref<MessageQueue> outq_descr = res.move_as_ok();
   block::McShardDescr& descr = neighbors_.at(i);
+  LOG(WARNING) << "obtained outbound queue for neighbor #" << i << " : " << descr.shard().to_str();
   if (outq_descr->get_block_id() != descr.blk_) {
     LOG(DEBUG) << "outq_descr->id = " << outq_descr->get_block_id().to_str() << " ; descr.id = " << descr.blk_.to_str();
     fatal_error(
@@ -4903,13 +4909,6 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   int trans_type = block::transaction::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
-      if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
-        return reject_query(PSTRING() << "cannod add ordinary transaction because hard block limits are exceeded: "
-                                      << "gas_used=" << block_limit_status_->gas_used
-                                      << "(limit=" << block_limits_->gas.hard() << "), "
-                                      << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
-                                      << "(limit=" << block_limits_->lt_delta.hard() << ")");
-      }
       trans_type = block::transaction::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
@@ -5057,9 +5056,18 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (!trs->update_limits(*block_limit_status_, false)) {
+  if (!trs->update_limits(*block_limit_status_,
+                          /* with_gas = */ !account.is_special && !trs->gas_limit_overridden,
+                          /* with_size = */ false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
+  }
+  if (block_limit_status_->gas_used > block_limits_->gas.hard() + compute_phase_cfg_.gas_limit) {
+    // Note that block_limit_status_->gas_used does not include transactions in special accounts
+    return reject_query(PSTRING() << "gas block limits are exceeded: total_gas_used > gas_limit_hard + trx_gas_limit ("
+                                  << "total_gas_used=" << block_limit_status_->gas_used
+                                  << ", gas_limit_hard=" << block_limits_->gas.hard()
+                                  << ", trx_gas_limit=" << compute_phase_cfg_.gas_limit << ")");
   }
   auto trans_root2 = trs->commit(account);
   if (trans_root2.is_null()) {
@@ -6187,6 +6195,7 @@ bool ValidateQuery::try_validate() {
   }
   try {
     if (!stage_) {
+      LOG(WARNING) << "try_validate stage 0";
       if (!compute_prev_state()) {
         return fatal_error(-666, "cannot compute previous state");
       }
@@ -6216,6 +6225,7 @@ bool ValidateQuery::try_validate() {
         return true;
       }
     }
+    LOG(WARNING) << "try_validate stage 1";
     LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
     if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
       return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
