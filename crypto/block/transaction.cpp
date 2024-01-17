@@ -1220,7 +1220,6 @@ bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig&
   } else {
     cp.gas_max = gas_bought_for(cfg, balance.grams);
   }
-  cp.gas_credit = 0;
   if (trans_type != tr_ord || (account.is_special && cfg.special_gas_full)) {
     // may use all gas that can be bought using remaining balance
     cp.gas_limit = cp.gas_max;
@@ -1228,10 +1227,12 @@ bool Transaction::compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig&
     // originally use only gas bought using remaining message balance
     // if the message is "accepted" by the smart contract, the gas limit will be set to gas_max
     cp.gas_limit = std::min(gas_bought_for(cfg, msg_balance_remaining.grams), cp.gas_max);
-    if (!block::tlb::t_Message.is_internal(in_msg)) {
-      // external messages carry no balance, give them some credit to check whether they are accepted
-      cp.gas_credit = std::min(cfg.gas_credit, cp.gas_max);
-    }
+  }
+  if (trans_type == tr_ord && !block::tlb::t_Message.is_internal(in_msg)) {
+    // external messages carry no balance, give them some credit to check whether they are accepted
+    cp.gas_credit = std::min(cfg.gas_credit, cp.gas_max);
+  } else {
+    cp.gas_credit = 0;
   }
   LOG(DEBUG) << "gas limits: max=" << cp.gas_max << ", limit=" << cp.gas_limit << ", credit=" << cp.gas_credit;
   return true;
