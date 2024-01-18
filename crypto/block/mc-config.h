@@ -349,7 +349,6 @@ struct GasLimitsPrices {
   td::uint64 block_gas_limit{0};
   td::uint64 freeze_due_limit{0};
   td::uint64 delete_due_limit{0};
-  bool special_full_limit{false};
 
   td::RefInt256 compute_gas_price(td::uint64 gas_used) const;
 };
