@@ -1149,7 +1149,7 @@ namespace transaction {
  * not enough to clean up old queires, thus locking funds inside.
  * See comment in crypto/smartcont/highload-wallet-v2-code.fc for details on why this happened.
  * Account address: EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu
- * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-16).
+ * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-29).
  * It is activated by setting global version to 5 in ConfigParam 8.
  * This config change also activates new behavior for special accounts in masterchain.
  *
@@ -1163,7 +1163,7 @@ static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now,
   if (!cfg.special_gas_full) {
     return false;
   }
-  ton::UnixTime until = 1708041600;  // 2024-02-16 00:00:00 UTC
+  ton::UnixTime until = 1709164800;  // 2024-02-29 00:00:00 UTC
   ton::WorkchainId wc = 0;
   const char* addr_hex = "FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD";
   return now < until && account.workchain == wc && account.addr.to_hex() == addr_hex;

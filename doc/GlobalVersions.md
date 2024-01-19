@@ -45,5 +45,5 @@ Version 5 enables higher gas limits for special contracts.
 Previously only ticktock transactions had this limit, while ordinary transactions could use up to `gas_limit` gas (1M).
 * Gas usage of special contracts is not taken into account when checking block limits. This allows keeping masterchain block limits low
 while having high gas limits for elector.
-* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to `special_gas_limit * 2` untul 2024-02-16.
+* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to `special_gas_limit * 2` until 2024-02-29.
 See [this post](https://t.me/tonstatus/88) for details.
