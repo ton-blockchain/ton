@@ -244,7 +244,7 @@ class Collator final : public td::actor::Actor {
                                   Ref<vm::Cell>& in_msg);
   bool create_ticktock_transactions(int mask);
   bool create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, ton::LogicalTime req_start_lt, int mask);
-  Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root);
+  Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root, bool is_special_tx = false);
   bool check_cur_validator_set();
   bool unpack_last_mc_state();
   bool unpack_last_state();

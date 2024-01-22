@@ -195,6 +195,7 @@ class ValidateQuery : public td::actor::Actor {
   ton::LogicalTime prev_key_block_lt_;
   std::unique_ptr<block::BlockLimits> block_limits_;
   std::unique_ptr<block::BlockLimitStatus> block_limit_status_;
+  td::uint64 total_gas_used_{0}, total_special_gas_used_{0};
 
   LogicalTime start_lt_, end_lt_;
   UnixTime prev_now_{~0u}, now_{~0u};
