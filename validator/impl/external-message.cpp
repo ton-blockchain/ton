@@ -156,6 +156,7 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
    }
    compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
    compute_phase_cfg_.with_vm_log = true;
+   compute_phase_cfg_.stop_on_accept_message = true;
 
    auto res = Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt,
                                                     &storage_phase_cfg_, &compute_phase_cfg_,
