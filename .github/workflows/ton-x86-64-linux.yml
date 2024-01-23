@@ -24,7 +24,7 @@ jobs:
       run: |
         cp assembly/nix/build-linux-x86-64-nix.sh .
         chmod +x build-linux-x86-64-nix.sh
-        ./build-linux-x86-64-nix.sh
+        ./build-linux-x86-64-nix.sh -t
 
     - name: Simple binaries test
       run: |
