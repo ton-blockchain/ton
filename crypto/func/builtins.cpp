@@ -1165,7 +1165,7 @@ AsmOp compile_store_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
 
   if (all_zeroes && (slice_size > 17 || slice_size == 10)) {
     slice.unused();
-    os << slice_size << " INT STZROES";
+    os << slice_size << " INT STZEROES";
     return exec_op(os.str(), 1, 1);
   }
 
