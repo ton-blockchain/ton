@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
+#include <iostream>
 
 namespace funC {
 using namespace std::literals::string_literals;
@@ -1116,6 +1117,103 @@ AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, c
   return exec_op("ISNULL", 1, 1);
 }
 
+AsmOp compile_slice_begins(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  func_assert(args.size() == 2 && res.size() == 2);
+  auto& slice = args[1];
+  if (!slice.is_const()) {
+    return exec_op("SDBEGINSXQ", 2, 2);
+  }
+  std::ostringstream os;
+  os << "x{" << slice.str_const << "} SDBEGINSQ";
+  slice.unused();
+  return exec_op(os.str(), 1, 2);
+}
+
+AsmOp compile_store_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  func_assert(args.size() == 2 && res.size() == 1);
+  auto& slice = args[1];
+  if (!slice.is_const()) {
+    return exec_op("STSLICE", 2, 1);
+  }
+
+  unsigned char buff[128];
+  int slice_size = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), slice.str_const.data(), slice.str_const.data() + slice.str_const.size());
+
+  td::BitString slice_bs(slice_size);
+
+  td::bitstring::bits_memcpy(slice_bs.bits(), buff, slice_size);
+
+  bool all_zeroes = td::bitstring::bits_memscan(slice_bs.bits(), slice_size, false) == (u_long)slice_size;
+  bool all_ones = td::bitstring::bits_memscan(slice_bs.bits(), slice_size, true) == (u_long)slice_size;
+
+  if (all_zeroes && slice_size == 1) {
+    slice.unused();
+    return exec_op("STZERO", 1, 1);
+  }
+  if (all_ones && slice_size == 1) {
+    slice.unused();
+    return exec_op("STONE", 1, 1);
+  }
+
+  std::ostringstream os;
+
+  if (all_ones) {
+    slice.unused();
+    os << slice_size << " INT STONES";
+    return exec_op(os.str(), 1, 1);
+  }
+
+  if (all_zeroes) {
+    slice.unused();
+    os << slice_size << " INT STZROES";
+    return exec_op(os.str(), 1, 1);
+  }
+
+  if (slice_size <= 57) {
+    os << "x{" << slice.str_const << "} STSLICECONST";
+    slice.unused();
+    return exec_op(os.str(), 1, 1);
+  }
+
+  return exec_op("STSLICE", 2, 1);
+}
+
+AsmOp compile_pack_address(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  auto& wc = args[0];
+  auto& hash = args[1];
+  std::ostringstream os;
+
+  bool const_wc = wc.is_const();
+  bool const_hash = hash.is_const();
+
+  td::BitString address_bb(3 + 8 + 256);
+  td::bitstring::bits_store_long(address_bb.bits(), 4, 3); // addr_std$10 anycast:(Maybe Anycast)
+
+  if (const_wc) {
+    td::bitstring::bits_store_long(address_bb.bits() + 3, wc.int_const->to_long(), 8);
+    os << "NEWC x{" << td::bitstring::bits_to_hex(address_bb.bits(), 3 + 8) << "} STSLICECONST ";
+    wc.unused();
+  } else {
+    os << "NEWC b{100} STSLICECONST 8 STI ";
+  }
+
+  if (const_hash) {
+    hash.int_const->export_bits(address_bb.bits() + 3 + 8, 256, true);
+  }
+
+  os << "256 STU "; // hash
+
+  if (const_wc && const_hash) {
+    hash.unused();
+    return exec_op("x{" + td::bitstring::bits_to_hex(address_bb.bits(), 267) + "} PUSHSLICE", 0, 1);
+  }
+
+  os << "ENDC CTOS";
+
+  return exec_op(os.str(), 2 - (unsigned)const_wc - (unsigned)const_hash, 1);
+}
+
+
 bool compile_run_method(AsmOpList& code, std::vector<VarDescr>& res, std::vector<VarDescr>& args, int n,
                         bool has_value) {
   func_assert(args.size() == (unsigned)n + 1 && res.size() == (unsigned)has_value);
@@ -1156,6 +1254,9 @@ void define_builtins() {
   auto store_int_op = TypeExpr::new_map(TypeExpr::new_tensor({Builder, Int, Int}), Builder);
   auto store_int_method =
       TypeExpr::new_map(TypeExpr::new_tensor({Builder, Int, Int}), TypeExpr::new_tensor({Builder, Unit}));
+  auto store_slice_op = TypeExpr::new_map(TypeExpr::new_tensor({Builder, Slice}), Builder);
+  auto store_slice_method =
+      TypeExpr::new_map(TypeExpr::new_tensor({Builder, Slice}), TypeExpr::new_tensor({Builder, Unit}));
   auto fetch_slice_op = TypeExpr::new_map(SliceInt, TypeExpr::new_tensor({Slice, Slice}));
   auto prefetch_slice_op = TypeExpr::new_map(SliceInt, Slice);
   //auto arith_null_op = TypeExpr::new_map(TypeExpr::new_unit(), Int);
@@ -1248,6 +1349,11 @@ void define_builtins() {
                       AsmOp::Custom("s0 DUMP", 1, 1), true);
   define_builtin_func("~strdump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
                       AsmOp::Custom("STRDUMP", 1, 1), true);
+  define_builtin_func("slice_begins_with", TypeExpr::new_map(TypeExpr::new_tensor({Slice, Slice}), SliceInt),
+                      compile_slice_begins, true);
+  define_builtin_func("store_slice", store_slice_op, compile_store_slice, {1, 0});
+  define_builtin_func("~store_slice", store_slice_method, compile_store_slice, {1, 0});
+  define_builtin_func("pack_address", TypeExpr::new_map(Int2, Slice), compile_pack_address, {1, 0});
   define_builtin_func(
       "run_method0", TypeExpr::new_map(Int, Unit),
       [](AsmOpList& a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
