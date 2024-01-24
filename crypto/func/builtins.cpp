@@ -1157,13 +1157,13 @@ AsmOp compile_store_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
 
   std::ostringstream os;
 
-  if (all_ones) {
+  if (all_ones && (slice_size > 17 || slice_size == 10)) {
     slice.unused();
     os << slice_size << " INT STONES";
     return exec_op(os.str(), 1, 1);
   }
 
-  if (all_zeroes) {
+  if (all_zeroes && (slice_size > 17 || slice_size == 10)) {
     slice.unused();
     os << slice_size << " INT STZROES";
     return exec_op(os.str(), 1, 1);
