@@ -2667,8 +2667,7 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot serialize new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!trans->update_limits(*block_limit_status_,
-                            /* with_gas = */ !(acc->is_special && compute_phase_cfg_.special_gas_full))) {
+  if (!trans->update_limits(*block_limit_status_, /* with_gas = */ false)) {
     return fatal_error(-666, "cannot update block limit status to include the new transaction");
   }
   if (trans->commit(*acc).is_null()) {
@@ -2684,10 +2683,11 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
  * Creates an ordinary transaction using a given message.
  *
  * @param msg_root The root of the message to be processed serialized using Message TLB-scheme.
+ * @param is_special_tx True if creating a special transaction (mint/recover), false otherwise.
  *
  * @returns The root of the serialized transaction, or an empty reference if the transaction creation fails.
  */
-Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
+Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root, bool is_special_tx) {
   ton::StdSmcAddress addr;
   auto cs = vm::load_cell_slice(msg_root);
   bool external;
@@ -2746,7 +2746,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root) {
   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
   if (!trans->update_limits(*block_limit_status_,
-                            /* with_gas = */ !(acc->is_special && compute_phase_cfg_.special_gas_full))) {
+                            /* with_gas = */ !(is_special_tx && compute_phase_cfg_.special_gas_full))) {
     fatal_error("cannot update block limit status to include the new transaction");
     return {};
   }
@@ -3019,7 +3019,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     return -1;
   }
   // 1. create a Transaction processing this Message
-  auto trans_root = create_ordinary_transaction(msg.msg);
+  auto trans_root = create_ordinary_transaction(msg.msg, is_special != nullptr);
   if (trans_root.is_null()) {
     fatal_error("cannot create transaction for re-processing output message");
     return -1;

@@ -120,6 +120,7 @@ struct ComputePhaseConfig {
   std::unique_ptr<vm::Dictionary> suspended_addresses;
   SizeLimitsConfig size_limits;
   int vm_log_verbosity = 0;
+  bool stop_on_accept_message = false;
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();

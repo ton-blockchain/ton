@@ -67,6 +67,10 @@ int exec_set_gas_generic(VmState* st, long long new_gas_limit) {
     throw VmNoGas{};
   }
   st->change_gas_limit(new_gas_limit);
+  if (st->get_stop_on_accept_message()) {
+    VM_LOG(st) << "External message is accepted, stopping TVM";
+    return st->jump(td::Ref<QuitCont>{true, 0});
+  }
   return 0;
 }
 

@@ -2460,8 +2460,8 @@ void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_bloc
 }
 
 void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) {
-  if (!shard_client_.empty() && !from_db) {
-    td::actor::send_closure(shard_client_, &ShardClient::get_processed_masterchain_block_id, std::move(promise));
+  if (shard_client_handle_ && !from_db) {
+    promise.set_result(shard_client_handle_->id());
   } else {
     td::actor::send_closure(db_, &Db::get_shard_client_state, std::move(promise));
   }
