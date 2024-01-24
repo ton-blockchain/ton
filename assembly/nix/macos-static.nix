@@ -3,6 +3,7 @@
 { pkgs ? import <nixpkgs> { system = builtins.currentSystem; }
 , lib ? pkgs.lib
 , stdenv ? pkgs.stdenv
+, testing ? false
 }:
 
 pkgs.llvmPackages_14.stdenv.mkDerivation {
@@ -29,7 +30,7 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
 
   dontAddStaticConfigureFlags = true;
   makeStatic = true;
-  doCheck = true;
+  doCheck = testing;
 
   configureFlags = [];
 

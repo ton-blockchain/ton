@@ -31,7 +31,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-linux-x86-64-nix.sh .
                                 chmod +x build-linux-x86-64-nix.sh
-                                ./build-linux-x86-64-nix.sh
+                                ./build-linux-x86-64-nix.sh -t
                             '''
                             sh '''
                                 cd artifacts
@@ -69,7 +69,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-linux-arm64-nix.sh .
                                 chmod +x build-linux-arm64-nix.sh
-                                ./build-linux-arm64-nix.sh
+                                ./build-linux-arm64-nix.sh -t
                             '''
                             sh '''
                                 cd artifacts
@@ -107,7 +107,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-macos-nix.sh .
                                 chmod +x build-macos-nix.sh
-                                ./build-macos-nix.sh
+                                ./build-macos-nix.sh -t
                             '''
                             sh '''
                                 cd artifacts
@@ -145,7 +145,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-macos-nix.sh .
                                 chmod +x build-macos-nix.sh
-                                ./build-macos-nix.sh
+                                ./build-macos-nix.sh -t
                             '''
                             sh '''
                                 cd artifacts
