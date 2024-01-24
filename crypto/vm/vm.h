@@ -340,7 +340,7 @@ class VmState final : public VmStateInterface {
   void preclear_cr(const ControlRegs& save) {
     cr &= save;
   }
-  int get_global_version() const {
+  int get_global_version() const override {
     return global_version;
   }
   void set_global_version(int version) {
