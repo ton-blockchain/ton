@@ -736,3 +736,5 @@ const get_c2() asm "c2 PUSH";
   }
   send_raw_message(message.end_cell(), mode);
 }
+
+const slice addr_none = "2_"s; ;; addr_none$00 = MsgAddressExt;
