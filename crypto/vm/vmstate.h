@@ -19,6 +19,7 @@
 #pragma once
 #include "common/refcnt.hpp"
 #include "vm/cells.h"
+#include "common/global-version.h"
 
 #include "td/utils/Context.h"
 
@@ -38,6 +39,9 @@ class VmStateInterface : public td::Context<VmStateInterface> {
   virtual bool register_op(int op_units = 1) {
     return true;
   };
+  virtual int get_global_version() const {
+    return ton::SUPPORTED_VERSION;
+  }
 };
 
 }  // namespace vm
