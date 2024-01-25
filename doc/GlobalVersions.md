@@ -37,3 +37,20 @@ intermediate value before division (e.g. `(xy+w)/z`).
 
 ### Storage phase
 * Unpaid storage fee is now saved to `due_payment`
+
+## Version 5
+
+### Gas limits
+Version 5 enables higher gas limits for special contracts.
+
+* Gas limit for all transactions on special contracts is set to `special_gas_limit` from `ConfigParam 20` (which is 35M at the moment of writing). 
+Previously only ticktock transactions had this limit, while ordinary transactions had a default limit of `gas_limit` gas (1M).
+* Gas usage of special contracts is not taken into account when checking block limits. This allows keeping masterchain block limits low
+while having high gas limits for elector.
+* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to `special_gas_limit * 2` until 2024-02-29.
+See [this post](https://t.me/tonstatus/88) for details.
+
+### Loading libraries
+* Loading "nested libraries" (i.e. a library cell that points to another library cell) throws an exception.
+* Loading a library consumes gas for cell load only once (for the library cell), not twice (both for the library cell and the cell in the library).
+* `XLOAD` now works differently. When it takes a library cell, it returns the cell that it points to. This allows loading "nested libraries", if needed.

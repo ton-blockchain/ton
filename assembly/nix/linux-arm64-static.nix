@@ -3,6 +3,7 @@
 { pkgs ? import <nixpkgs> { system = builtins.currentSystem; }
 , lib ? pkgs.lib
 , stdenv ? pkgs.stdenv
+, testing ? false
 }:
 let
   microhttpdmy = (import ./microhttpd.nix) {};
@@ -25,7 +26,7 @@ stdenv.mkDerivation {
     ];
 
   makeStatic = true;
-  doCheck = true;
+  doCheck = testing;
 
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"

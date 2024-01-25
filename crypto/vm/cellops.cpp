@@ -892,6 +892,40 @@ int exec_load_special_cell(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute XLOAD" << (quiet ? "Q" : "");
   auto cell = stack.pop_cell();
+  if (st->get_global_version() >= 5) {
+    st->register_cell_load(cell->get_hash());
+    auto r_loaded_cell = cell->load_cell();
+    if (r_loaded_cell.is_error()) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      } else {
+        throw VmError{Excno::cell_und, "failed to load cell"};
+      }
+    }
+    auto loaded_cell = r_loaded_cell.move_as_ok();
+    if (loaded_cell.data_cell->is_special()) {
+      if (loaded_cell.data_cell->special_type() != CellTraits::SpecialType::Library) {
+        if (quiet) {
+          stack.push_bool(false);
+          return 0;
+        } else {
+          throw VmError{Excno::cell_und, "unexpected special cell"};
+        }
+      }
+      CellSlice cs(std::move(loaded_cell));
+      DCHECK(cs.size() == Cell::hash_bits + 8);
+      cell = st->load_library(cs.data_bits() + 8);
+      if (cell.is_null()) {
+        if (quiet) {
+          stack.push_bool(false);
+          return 0;
+        } else {
+          throw VmError{Excno::cell_und, "failed to load library cell"};
+        }
+      }
+    }
+  }
   stack.push_cell(cell);
   if (quiet) {
     stack.push_bool(true);

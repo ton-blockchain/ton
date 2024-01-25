@@ -1056,9 +1056,10 @@ std::ostream& operator<<(std::ostream& os, Ref<CellSlice> cs_ref) {
 // If can_be_special is not null, then it is allowed to load special cell
 // Flag whether loaded cell is actually special will be stored into can_be_special
 VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_special) {
+  auto* vm_state_interface = VmStateInterface::get();
+  bool library_loaded = false;
   while (true) {
-    auto* vm_state_interface = VmStateInterface::get();
-    if (vm_state_interface) {
+    if (vm_state_interface && !library_loaded) {
       vm_state_interface->register_cell_load(cell->get_hash());
     }
     auto r_loaded_cell = cell->load_cell();
@@ -1077,6 +1078,12 @@ VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_specia
     } else if (loaded_cell.data_cell->is_special()) {
       if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::Library) {
         if (vm_state_interface) {
+          if (vm_state_interface->get_global_version() >= 5) {
+            if (library_loaded) {
+              throw VmError{Excno::cell_und, "failed to load library cell: recursive library cells are not allowed"};
+            }
+            library_loaded = true;
+          }
           CellSlice cs(std::move(loaded_cell));
           DCHECK(cs.size() == Cell::hash_bits + 8);
           auto library_cell = vm_state_interface->load_library(cs.data_bits() + 8);

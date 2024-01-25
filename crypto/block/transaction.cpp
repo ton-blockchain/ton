@@ -1039,12 +1039,8 @@ bool ComputePhaseConfig::parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, t
     delete_due_limit = td::make_refint(r.delete_due_limit);
   };
   block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
-  block::gen::GasLimitsPrices::Record_gas_prices_v3 rec_v3;
   if (tlb::csr_unpack(cs, rec)) {
     f(rec, rec.special_gas_limit);
-  } else if (tlb::csr_unpack(cs, rec_v3)) {
-    f(rec_v3, rec_v3.special_gas_limit);
-    special_gas_full = true;
   } else {
     block::gen::GasLimitsPrices::Record_gas_prices rec0;
     if (tlb::csr_unpack(std::move(cs), rec0)) {
@@ -1153,8 +1149,8 @@ namespace transaction {
  * not enough to clean up old queires, thus locking funds inside.
  * See comment in crypto/smartcont/highload-wallet-v2-code.fc for details on why this happened.
  * Account address: EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu
- * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-16).
- * It is activated by setting gas_prices_v3 in ConfigParam 20 (config_mc_gas_prices).
+ * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-29).
+ * It is activated by setting global version to 5 in ConfigParam 8.
  * This config change also activates new behavior for special accounts in masterchain.
  *
  * @param cfg The compute phase configuration.
@@ -1164,10 +1160,10 @@ namespace transaction {
  * @returns True if gas_limit override is required, false otherwise
  */
 static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now, const Account& account) {
-  if (!cfg.mc_gas_prices.special_full_limit) {
+  if (!cfg.special_gas_full) {
     return false;
   }
-  ton::UnixTime until = 1708041600;  // 2024-02-16 00:00:00 UTC
+  ton::UnixTime until = 1709164800;  // 2024-02-29 00:00:00 UTC
   ton::WorkchainId wc = 0;
   const char* addr_hex = "FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD";
   return now < until && account.workchain == wc && account.addr.to_hex() == addr_hex;
@@ -1563,6 +1559,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   vm.set_global_version(cfg.global_version);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   vm.set_chksig_always_succeed(cfg.ignore_chksig);
+  vm.set_stop_on_accept_message(cfg.stop_on_accept_message);
   // vm.incr_stack_trace(1);    // enable stack dump after each step
 
   LOG(DEBUG) << "starting VM";
@@ -3533,6 +3530,7 @@ td::Status FetchConfigParams::fetch_config_params(
     TRY_RESULT_PREFIX(mc_gas_prices, config.get_gas_limits_prices(true),
                       "cannot unpack masterchain gas prices and limits: ");
     compute_phase_cfg->mc_gas_prices = std::move(mc_gas_prices);
+    compute_phase_cfg->special_gas_full = config.get_global_version() >= 5;
     storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;

@@ -58,6 +58,7 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
   };
   std::array<std::atomic<Cached>, cache_size> cache_;
 
+ public:
   class MemPool {
    public:
     explicit MemPool(size_t chunk_size);
@@ -71,6 +72,8 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
     std::vector<td::uint8 *> data_;
     size_t ptr_ = 0;
   };
+
+ private:
   MemPool mem_perm_ = MemPool(mem_chunk_size_perm);
   MemPool mem_temp_ = MemPool(mem_chunk_size_temp);
 
