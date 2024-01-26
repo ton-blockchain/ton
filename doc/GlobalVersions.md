@@ -69,11 +69,25 @@ If the parameter is absent from the config, the value is null.
 * **6**: `ConfigParam 43` (size limits).
 
 ### New TVM instructions
+
+#### Fee calculation
 * `GETEXECUTIONPRICE` (`gas_used is_mc - price`) - calculates gas fee.
 * `GETSTORAGEPRICE` (`cells bits seconds is_mc - price`) - calculates storage fees (only current StoragePrices entry is used).
 * `GETFORWARDPRICE` (`cells bits is_mc - price`) - calculates forward fee.
 * `GETPRECOMPILEDGAS` (`- null`) - reserved, currently returns `null`.
+
 `gas_used`, `cells`, `bits`, `time_delta` are integers in range `0..2^63-1`.
+
+#### Cell operations
+Operations for working with Merkle proofs, where cells can have non-zero level and multiple hashes.
+* `CLEVEL` (`cell - level`) - returns level of the cell.
+* `CLEVELMASK` (`cell - level_mask`) - returns level mask of the cell.
+* `i CHASHI` (`cell - hash`) - returns `i`th hash of the cell.
+* `i CDEPTHI` (`cell - depth`) - returns `i`th depth of the cell.
+* `CHASHIX` (`cell i - hash`) - returns `i`th hash of the cell.
+* `CDEPTHIX` (`cell i - depth`) - returns `i`th depth of the cell.
+
+`i` is in range `0..3`.
 
 ### Other changes
 * `GLOBALID` gets `ConfigParam 19` from the tuple, not from the config dict. This decreases gas usage.

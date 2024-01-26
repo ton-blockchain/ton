@@ -1391,6 +1391,55 @@ int exec_slice_depth(VmState* st) {
   return 0;
 }
 
+int exec_cell_level(VmState* st) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute CLEVEL";
+  auto cell = stack.pop_cell();
+  stack.push_smallint(cell->get_level());
+  return 0;
+}
+
+int exec_cell_level_mask(VmState* st) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute CLEVELMASK";
+  auto cell = stack.pop_cell();
+  stack.push_smallint(cell->get_level_mask().get_mask());
+  return 0;
+}
+
+int exec_cell_hash_i(VmState* st, unsigned args, bool var) {
+  unsigned i;
+  Stack& stack = st->get_stack();
+  if (var) {
+    VM_LOG(st) << "execute CHASHIX";
+    i = stack.pop_smallint_range(3);
+  } else {
+    i = args & 3;
+    VM_LOG(st) << "execute CHASHI " << i;
+  }
+  auto cell = stack.pop_cell();
+  std::array<unsigned char, 32> hash = cell->get_hash(i).as_array();
+  td::RefInt256 res{true};
+  CHECK(res.write().import_bytes(hash.data(), hash.size(), false));
+  stack.push_int(std::move(res));
+  return 0;
+}
+
+int exec_cell_depth_i(VmState* st, unsigned args, bool var) {
+  unsigned i;
+  Stack& stack = st->get_stack();
+  if (var) {
+    VM_LOG(st) << "execute CDEPTHIX";
+    i = stack.pop_smallint_range(3);
+  } else {
+    i = args & 3;
+    VM_LOG(st) << "execute CDEPTHI " << i;
+  }
+  auto cell = stack.pop_cell();
+  stack.push_smallint(cell->get_depth(i));
+  return 0;
+}
+
 void register_cell_deserialize_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xd0, 8, "CTOS", exec_cell_to_slice))
@@ -1479,7 +1528,13 @@ void register_cell_deserialize_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xd761, 16, "LDONES", std::bind(exec_load_same, _1, "LDONES", 1)))
       .insert(OpcodeInstr::mksimple(0xd762, 16, "LDSAME", std::bind(exec_load_same, _1, "LDSAME", -1)))
       .insert(OpcodeInstr::mksimple(0xd764, 16, "SDEPTH", exec_slice_depth))
-      .insert(OpcodeInstr::mksimple(0xd765, 16, "CDEPTH", exec_cell_depth));
+      .insert(OpcodeInstr::mksimple(0xd765, 16, "CDEPTH", exec_cell_depth))
+      .insert(OpcodeInstr::mksimple(0xd766, 16, "CLEVEL", exec_cell_level)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd767, 16, "CLEVELMASK", exec_cell_level_mask)->require_version(6))
+      .insert(OpcodeInstr::mkfixed(0xd768 >> 2, 14, 2, instr::dump_1c_and(3, "CHASHI "), std::bind(exec_cell_hash_i, _1, _2, false))->require_version(6))
+      .insert(OpcodeInstr::mkfixed(0xd76c >> 2, 14, 2, instr::dump_1c_and(3, "CDEPTHI "), std::bind(exec_cell_depth_i, _1, _2, false))->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd770, 16, "CHASHIX ", std::bind(exec_cell_hash_i, _1, 0, true))->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd771, 16, "CDEPTHIX ", std::bind(exec_cell_depth_i, _1, 0, true))->require_version(6));
 }
 
 void register_cell_ops(OpcodeTable& cp0) {

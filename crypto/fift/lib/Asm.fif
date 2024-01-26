@@ -813,6 +813,12 @@ x{D761} @Defop LDONES
 x{D762} @Defop LDSAME
 x{D764} @Defop SDEPTH
 x{D765} @Defop CDEPTH
+x{D766} @Defop CLEVEL
+x{D767} @Defop CLEVELMASK
+{ <b x{D76A_} s, swap 2 u, @addopb } : CHASHI
+{ <b x{D76E_} s, swap 2 u, @addopb } : CDEPTHI
+x{D770} @Defop CHASHIX
+x{D771} @Defop CDEPTHIX
 //
 // continuation / flow control primitives
 x{D8} dup @Defop EXECUTE @Defop CALLX
