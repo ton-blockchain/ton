@@ -117,6 +117,7 @@ struct ComputePhaseConfig {
   td::uint16 max_vm_data_depth = 512;
   int global_version = 0;
   Ref<vm::Tuple> prev_blocks_info;
+  Ref<vm::Tuple> unpacked_config_tuple;
   std::unique_ptr<vm::Dictionary> suspended_addresses;
   SizeLimitsConfig size_limits;
   int vm_log_verbosity = 0;

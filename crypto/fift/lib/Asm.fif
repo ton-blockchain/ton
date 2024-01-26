@@ -2,7 +2,7 @@ library TVM_Asm
 // simple TVM Assembler
 namespace Asm
 Asm definitions
-"0.4.4" constant asm-fif-version
+"0.4.5" constant asm-fif-version
 
 variable @atend
 variable @was-split
@@ -1295,12 +1295,17 @@ x{F82A} @Defop MYCODE
 x{F82B} @Defop INCOMINGVALUE
 x{F82C} @Defop STORAGEFEES
 x{F82D} @Defop PREVBLOCKSINFOTUPLE
+x{F82E} @Defop UNPACKEDCONFIGTUPLE
 x{F830} @Defop CONFIGDICT
 x{F832} @Defop CONFIGPARAM
 x{F833} @Defop CONFIGOPTPARAM
 x{F83400} @Defop PREVMCBLOCKS
 x{F83401} @Defop PREVKEYBLOCK
 x{F835} @Defop GLOBALID
+x{F836} @Defop GETEXECUTIONPRICE
+x{F837} @Defop GETSTORAGEPRICE
+x{F838} @Defop GETFORWARDPRICE
+x{F839} @Defop GETPRECOMPILEDGAS
 
 x{F840} @Defop GETGLOBVAR
 { dup 1 31 @rangechk <b x{F85_} s, swap 5 u, @addopb } : GETGLOB

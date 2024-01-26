@@ -1337,6 +1337,10 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // may only return tuple or raise Error (See crypto/block/mc-config.cpp#2223)
     tuple.push_back(cfg.prev_blocks_info.not_null() ? vm::StackEntry(cfg.prev_blocks_info) : vm::StackEntry());
   }
+  if (cfg.global_version >= 6) {
+    tuple.push_back(cfg.unpacked_config_tuple.not_null() ? vm::StackEntry(cfg.unpacked_config_tuple)
+                                                         : vm::StackEntry()); // unpacked_config_tuple:[...]
+  }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
   return vm::make_tuple_ref(std::move(tuple_ref));
@@ -1918,6 +1922,25 @@ td::uint64 MsgPrices::compute_fwd_fees(td::uint64 cells, td::uint64 bits) const 
                           .add(td::uint128(0xffffu))
                           .shr(16)
                           .lo();
+}
+
+/**
+ * Computes the forward fees for a message based on the number of cells and bits.
+ * Return the result as td::RefInt256
+ *
+ * msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
+ * ihr_fwd_fees = ceil((msg_fwd_fees * ihr_price_factor)/2^16) nanograms
+ * bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
+ *
+ * @param cells The number of cells in the message.
+ * @param bits The number of bits in the message.
+ *
+ * @returns The computed forward fees for the message as td::RefInt256j.
+ */
+td::RefInt256 MsgPrices::compute_fwd_fees256(td::uint64 cells, td::uint64 bits) const {
+  return td::rshift(
+      td::make_refint(lump_price) + td::make_refint(bit_price) * bits + td::make_refint(cell_price) * cells, 16,
+      1);  // divide by 2^16 with ceil rounding
 }
 
 /**
@@ -3538,6 +3561,9 @@ td::Status FetchConfigParams::fetch_config_params(
     compute_phase_cfg->global_version = config.get_global_version();
     if (compute_phase_cfg->global_version >= 4) {
       compute_phase_cfg->prev_blocks_info = std::move(prev_blocks_info);
+    }
+    if (compute_phase_cfg->global_version >= 6) {
+      compute_phase_cfg->unpacked_config_tuple = config.get_unpacked_config_tuple(now);
     }
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
     compute_phase_cfg->size_limits = size_limits;
