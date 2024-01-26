@@ -960,6 +960,9 @@ bool ValidateQuery::fetch_config_params() {
       }
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
+    if (compute_phase_cfg_.global_version >= 6) {
+      compute_phase_cfg_.unpacked_config_tuple = config_->get_unpacked_config_tuple(now_);
+    }
     compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
     compute_phase_cfg_.size_limits = size_limits;
   }

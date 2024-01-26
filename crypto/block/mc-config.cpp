@@ -621,12 +621,14 @@ td::Result<std::vector<StoragePrices>> Config::get_storage_prices() const {
   }
   vm::Dictionary dict{std::move(cell), 32};
   if (!dict.check_for_each([&res](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
-        block::gen::StoragePrices::Record data;
-        if (!tlb::csr_unpack(std::move(cs_ref), data) || data.utime_since != key.get_uint(n)) {
+        auto r_prices = do_get_one_storage_prices(*cs_ref);
+        if (r_prices.is_error()) {
           return false;
         }
-        res.emplace_back(data.utime_since, data.bit_price_ps, data.cell_price_ps, data.mc_bit_price_ps,
-                         data.mc_cell_price_ps);
+        res.push_back(r_prices.move_as_ok());
+        if (res.back().valid_since != key.get_uint(n)) {
+          return false;
+        }
         return true;
       })) {
     return td::Status::Error("invalid storage prices dictionary in configuration parameter 18");
@@ -634,16 +636,25 @@ td::Result<std::vector<StoragePrices>> Config::get_storage_prices() const {
   return std::move(res);
 }
 
-td::Result<GasLimitsPrices> Config::do_get_gas_limits_prices(td::Ref<vm::Cell> cell, int id) {
+td::Result<StoragePrices> Config::do_get_one_storage_prices(vm::CellSlice cs) {
+  block::gen::StoragePrices::Record data;
+  if (!tlb::unpack(cs, data)) {
+    return td::Status::Error("invalid storage prices dictionary in configuration parameter 18");
+  }
+  return StoragePrices{data.utime_since, data.bit_price_ps, data.cell_price_ps, data.mc_bit_price_ps,
+                       data.mc_cell_price_ps};
+}
+
+td::Result<GasLimitsPrices> Config::do_get_gas_limits_prices(vm::CellSlice cs, int id) {
   GasLimitsPrices res;
-  auto cs = vm::load_cell_slice(cell);
+  vm::CellSlice cs0 = cs;
   block::gen::GasLimitsPrices::Record_gas_flat_pfx flat;
   if (tlb::unpack(cs, flat)) {
     cs = *flat.other;
     res.flat_gas_limit = flat.flat_gas_limit;
     res.flat_gas_price = flat.flat_gas_price;
   } else {
-    cs = vm::load_cell_slice(cell);
+    cs = cs0;
   }
   auto f = [&](const auto& r, td::uint64 spec_limit) {
     res.gas_limit = r.gas_limit;
@@ -654,7 +665,6 @@ td::Result<GasLimitsPrices> Config::do_get_gas_limits_prices(td::Ref<vm::Cell> c
     res.delete_due_limit = r.delete_due_limit;
   };
   block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
-  vm::CellSlice cs0 = cs;
   if (tlb::unpack(cs, rec)) {
     f(rec, rec.special_gas_limit);
   } else {
@@ -689,7 +699,7 @@ td::Result<GasLimitsPrices> Config::get_gas_limits_prices(bool is_masterchain) c
   if (cell.is_null()) {
     return td::Status::Error(PSLICE() << "configuration parameter " << id << " with gas prices is absent");
   }
-  return do_get_gas_limits_prices(std::move(cell), id);
+  return do_get_gas_limits_prices(vm::load_cell_slice(cell), id);
 }
 
 td::Result<MsgPrices> Config::get_msg_prices(bool is_masterchain) const {
@@ -698,7 +708,10 @@ td::Result<MsgPrices> Config::get_msg_prices(bool is_masterchain) const {
   if (cell.is_null()) {
     return td::Status::Error(PSLICE() << "configuration parameter " << id << " with msg prices is absent");
   }
-  auto cs = vm::load_cell_slice(std::move(cell));
+  return do_get_msg_prices(vm::load_cell_slice(cell), id);
+}
+
+td::Result<MsgPrices> Config::do_get_msg_prices(vm::CellSlice cs, int id) {
   block::gen::MsgForwardPrices::Record rec;
   if (!tlb::unpack(cs, rec)) {
     return td::Status::Error(PSLICE() << "configuration parameter " << id
@@ -1917,10 +1930,17 @@ std::vector<ton::ValidatorDescr> Config::compute_total_validator_set(int next) c
 }
 
 td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
-  SizeLimitsConfig limits;
   td::Ref<vm::Cell> param = get_config_param(43);
   if (param.is_null()) {
-    return limits;
+    return do_get_size_limits_config({});
+  }
+  return do_get_size_limits_config(vm::load_cell_slice_ref(param));
+}
+
+td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellSlice> cs) {
+  SizeLimitsConfig limits;
+  if (cs.is_null()) {
+    return limits; // default values
   }
   auto unpack_v1 = [&](auto& rec) {
     limits.max_msg_bits = rec.max_msg_bits;
@@ -1939,9 +1959,9 @@ td::Result<SizeLimitsConfig> Config::get_size_limits_config() const {
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
-  if (tlb::unpack_cell(param, rec_v1)) {
+  if (tlb::csr_unpack(cs, rec_v1)) {
     unpack_v1(rec_v1);
-  } else if (tlb::unpack_cell(param, rec_v2)) {
+  } else if (tlb::csr_unpack(cs, rec_v2)) {
     unpack_v2(rec_v2);
   } else {
     return td::Status::Error("configuration parameter 43 is invalid");
@@ -1974,6 +1994,42 @@ BurningConfig Config::get_burning_config() const {
     c.blackhole_addr = x;
   }
   return c;
+}
+
+td::Ref<vm::Tuple> Config::get_unpacked_config_tuple(ton::UnixTime now) const {
+  auto get_param = [&](td::int32 idx) -> vm::StackEntry {
+    auto cell = get_config_param(idx);
+    if (cell.is_null()) {
+      return {};
+    }
+    return vm::load_cell_slice_ref(cell);
+  };
+  auto get_current_storage_prices = [&]() -> vm::StackEntry {
+    auto cell = get_config_param(18);
+    if (cell.is_null()) {
+      return {};
+    }
+    vm::StackEntry res;
+    vm::Dictionary dict{std::move(cell), 32};
+    dict.check_for_each([&](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
+      auto utime_since = key.get_uint(n);
+      if (now >= utime_since) {
+        res = std::move(cs_ref);
+        return true;
+      }
+      return false;
+    });
+    return res;
+  };
+  std::vector<vm::StackEntry> tuple;
+  tuple.push_back(get_current_storage_prices());  // storage_prices
+  tuple.push_back(get_param(19));                 // global_id
+  tuple.push_back(get_param(20));                 // config_mc_gas_prices
+  tuple.push_back(get_param(21));                 // config_gas_prices
+  tuple.push_back(get_param(24));                 // config_mc_fwd_prices
+  tuple.push_back(get_param(25));                 // config_fwd_prices
+  tuple.push_back(get_param(43));                 // size_limits_config
+  return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
 }
 
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {

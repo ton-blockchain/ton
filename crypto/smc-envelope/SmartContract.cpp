@@ -171,6 +171,9 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
     //   prev_key_block:BlockId ] : PrevBlocksInfo
     tuple.push_back(args.prev_blocks_info ? args.prev_blocks_info.value() : vm::StackEntry{});  // prev_block_info
   }
+  if (args.config && args.config.value()->get_global_version() >= 6) {
+    tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
+  }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
   return vm::make_tuple_ref(std::move(tuple_ref));

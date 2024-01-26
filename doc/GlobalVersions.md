@@ -54,3 +54,27 @@ See [this post](https://t.me/tonstatus/88) for details.
 * Loading "nested libraries" (i.e. a library cell that points to another library cell) throws an exception.
 * Loading a library consumes gas for cell load only once (for the library cell), not twice (both for the library cell and the cell in the library).
 * `XLOAD` now works differently. When it takes a library cell, it returns the cell that it points to. This allows loading "nested libraries", if needed.
+
+## Version 6
+
+### c7 tuple
+**c7** tuple extended from 14 to 15 elements. The new element is a tuple that contains some config parameters as cell slices.
+If the parameter is absent from the config, the value is null.
+* **0**: `StoragePrices` from `ConfigParam 18`. Not the whole dict, but only the one StoragePrices entry (one which corresponds to the current time).
+* **1**: `ConfigParam 19` (global id).
+* **2**: `ConfigParam 20` (mc gas prices).
+* **3**: `ConfigParam 21` (gas prices).
+* **4**: `ConfigParam 24` (mc fwd fees).
+* **5**: `ConfigParam 25` (fwd fees).
+* **6**: `ConfigParam 43` (size limits).
+
+### New TVM instructions
+* `GETEXECUTIONPRICE` (`gas_used is_mc - price`) - calculates gas fee.
+* `GETSTORAGEPRICE` (`cells bits seconds is_mc - price`) - calculates storage fees (only current StoragePrices entry is used).
+* `GETFORWARDPRICE` (`cells bits is_mc - price`) - calculates forward fee.
+* `GETPRECOMPILEDGAS` (`- null`) - reserved, currently returns `null`.
+`gas_used`, `cells`, `bits`, `time_delta` are integers in range `0..2^63-1`.
+
+### Other changes
+* `GLOBALID` gets `ConfigParam 19` from the tuple, not from the config dict. This decreases gas usage.
+* `SENDMSG` gets `ConfigParam 24/25` (message prices) from the tuple, not from the config dict, and also uses `ConfigParam 43` to get max_msg_cells.
