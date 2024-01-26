@@ -123,7 +123,7 @@ static const StackEntry& get_param(VmState* st, unsigned idx) {
   return tuple_index(t1, idx);
 }
 
-// ConfigParams: 18 (only one entry), 19, 20, 21, 24, 25, 31, 43
+// ConfigParams: 18 (only one entry), 19, 20, 21, 24, 25, 43
 static td::Ref<CellSlice> get_unpacked_config_param(VmState* st, unsigned idx) {
   auto tuple = st->get_c7();
   auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
@@ -1723,7 +1723,7 @@ int exec_send_message(VmState* st) {
   // bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
   td::uint64 max_cells;
   if (st->get_global_version() >= 6) {
-    auto r_size_limits_config = block::Config::do_get_size_limits_config(get_unpacked_config_param(st, 7));
+    auto r_size_limits_config = block::Config::do_get_size_limits_config(get_unpacked_config_param(st, 6));
     if (r_size_limits_config.is_error()) {
       throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_size_limits_config.error().message()};
     }

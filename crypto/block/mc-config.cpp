@@ -2028,9 +2028,7 @@ td::Ref<vm::Tuple> Config::get_unpacked_config_tuple(ton::UnixTime now) const {
   tuple.push_back(get_param(21));                 // config_gas_prices
   tuple.push_back(get_param(24));                 // config_mc_fwd_prices
   tuple.push_back(get_param(25));                 // config_fwd_prices
-  tuple.push_back(get_param(31));                 // fundamental_smc_addr
   tuple.push_back(get_param(43));                 // size_limits_config
-  tuple.push_back({});                            // null, reserved
   return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
 }
 

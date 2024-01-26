@@ -66,14 +66,12 @@ If the parameter is absent from the config, the value is null.
 * **3**: `ConfigParam 21` (gas prices).
 * **4**: `ConfigParam 24` (mc fwd fees).
 * **5**: `ConfigParam 25` (fwd fees).
-* **6**: `ConfigParam 31` (fundamental smc addresses).
-* **7**: `ConfigParam 43` (size limits).
-* **8**: `null` (reserved).
+* **6**: `ConfigParam 43` (size limits).
 
 ### New TVM instructions
 * `GETEXECUTIONPRICE` (`gas_used is_mc - price`) - calculates gas fee.
-* `GETSTORAGEPRICE` (`cells bits is_mc - price`) - calculates storage fees (only current StoragePrices entry is used).
-* `GETFORWARDPRICE` (`cells bits time_delta is_mc - price`) - calculates forward fee.
+* `GETSTORAGEPRICE` (`cells bits seconds is_mc - price`) - calculates storage fees (only current StoragePrices entry is used).
+* `GETFORWARDPRICE` (`cells bits is_mc - price`) - calculates forward fee.
 * `GETPRECOMPILEDGAS` (`- null`) - reserved, currently returns `null`.
 `gas_used`, `cells`, `bits`, `time_delta` are integers in range `0..2^63-1`.
 
