@@ -276,11 +276,7 @@ int exec_get_global_id(VmState* st) {
   return 0;
 }
 
-int exec_get_execution_price(VmState* st) {
-  VM_LOG(st) << "execute GETEXECUTIONPRICE";
-  Stack& stack = st->get_stack();
-  bool is_masterchain = stack.pop_bool();
-  td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
+static block::GasLimitsPrices get_gas_prices(VmState* st, bool is_masterchain) {
   Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 2 : 3);
   if (cs.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a slice"};
@@ -289,13 +285,33 @@ int exec_get_execution_price(VmState* st) {
   if (r_prices.is_error()) {
     throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
   }
-  block::GasLimitsPrices prices = r_prices.move_as_ok();
+  return r_prices.move_as_ok();
+}
+
+static block::MsgPrices get_msg_prices(VmState* st, bool is_masterchain) {
+  Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 4 : 5);
+  if (cs.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
+  }
+  auto r_prices = block::Config::do_get_msg_prices(*cs, is_masterchain ? 24 : 25);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+int exec_get_gas_fee(VmState* st) {
+  VM_LOG(st) << "execute GETGASFEE";
+  Stack& stack = st->get_stack();
+  bool is_masterchain = stack.pop_bool();
+  td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
+  block::GasLimitsPrices prices = get_gas_prices(st, is_masterchain);
   stack.push_int(prices.compute_gas_price(gas));
   return 0;
 }
 
-int exec_get_storage_price(VmState* st) {
-  VM_LOG(st) << "execute GETSTORAGEPRICE";
+int exec_get_storage_fee(VmState* st) {
+  VM_LOG(st) << "execute GETSTORAGEFEE";
   Stack& stack = st->get_stack();
   bool is_masterchain = stack.pop_bool();
   td::int64 delta = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
@@ -325,21 +341,13 @@ int exec_get_storage_price(VmState* st) {
   return 0;
 }
 
-int exec_get_forward_price(VmState* st) {
-  VM_LOG(st) << "execute GETFORWARDPRICE";
+int exec_get_forward_fee(VmState* st) {
+  VM_LOG(st) << "execute GETFORWARDFEE";
   Stack& stack = st->get_stack();
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 4 : 5);
-  if (cs.is_null()) {
-    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
-  }
-  auto r_prices = block::Config::do_get_msg_prices(*cs, is_masterchain ? 24 : 25);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  block::MsgPrices prices = r_prices.move_as_ok();
+  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
   stack.push_int(prices.compute_fwd_fees256(cells, bits));
   return 0;
 }
@@ -348,6 +356,41 @@ int exec_get_precompiled_gas(VmState* st) {
   VM_LOG(st) << "execute GETPRECOMPILEDGAS";
   Stack& stack = st->get_stack();
   stack.push_null();
+  return 0;
+}
+
+int exec_get_original_fwd_fee(VmState* st) {
+  VM_LOG(st) << "execute GETORIGINALFWDFEE";
+  Stack& stack = st->get_stack();
+  bool is_masterchain = stack.pop_bool();
+  td::RefInt256 fwd_fee = stack.pop_int_finite();
+  if (fwd_fee->sgn() < 0) {
+    throw VmError{Excno::range_chk, "fwd_fee is negative"};
+  }
+  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  stack.push_int(td::muldiv(fwd_fee, td::make_refint(1 << 16), td::make_refint((1 << 16) - prices.first_frac)));
+  return 0;
+}
+
+int exec_get_gas_fee_simple(VmState* st) {
+  VM_LOG(st) << "execute GETGASFEESIMPLE";
+  Stack& stack = st->get_stack();
+  bool is_masterchain = stack.pop_bool();
+  td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
+  block::GasLimitsPrices prices = get_gas_prices(st, is_masterchain);
+  stack.push_int(td::rshift(td::make_refint(prices.gas_price) * gas, 16, 1));
+  return 0;
+}
+
+int exec_get_forward_fee_simple(VmState* st) {
+  VM_LOG(st) << "execute GETFORWARDFEESIMPLE";
+  Stack& stack = st->get_stack();
+  bool is_masterchain = stack.pop_bool();
+  td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
+  td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
+  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  stack.push_int(td::rshift(td::make_refint(prices.bit_price) * bits + td::make_refint(prices.cell_price) * cells, 16,
+                            1));  // divide by 2^16 with ceil rounding
   return 0;
 }
 
@@ -366,17 +409,20 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf82c, 16, "STORAGEFEES", std::bind(exec_get_param, _1, 12, "STORAGEFEES")))
       .insert(OpcodeInstr::mksimple(0xf82d, 16, "PREVBLOCKSINFOTUPLE", std::bind(exec_get_param, _1, 13, "PREVBLOCKSINFOTUPLE")))
       .insert(OpcodeInstr::mksimple(0xf82e, 16, "UNPACKEDCONFIGTUPLE", std::bind(exec_get_param, _1, 14, "UNPACKEDCONFIGTUPLE")))
-      .insert(OpcodeInstr::mkfixedrange(0xf82f, 0xf830, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
+      .insert(OpcodeInstr::mksimple(0xf82f, 16, "DUEPAYMENT", std::bind(exec_get_param, _1, 15, "DUEPAYMENT")))
       .insert(OpcodeInstr::mksimple(0xf830, 16, "CONFIGDICT", exec_get_config_dict))
       .insert(OpcodeInstr::mksimple(0xf832, 16, "CONFIGPARAM", std::bind(exec_get_config_param, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf833, 16, "CONFIGOPTPARAM", std::bind(exec_get_config_param, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS", std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf835, 16, "GLOBALID", exec_get_global_id)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf836, 16, "GETEXECUTIONPRICE", exec_get_execution_price)->require_version(6))
-      .insert(OpcodeInstr::mksimple(0xf837, 16, "GETSTORAGEPRICE", exec_get_storage_price)->require_version(6))
-      .insert(OpcodeInstr::mksimple(0xf838, 16, "GETFORWARDPRICE", exec_get_forward_price)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xf836, 16, "GETGASFEE", exec_get_gas_fee)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xf837, 16, "GETSTORAGEFEE", exec_get_storage_fee)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xf838, 16, "GETFORWARDFEE", exec_get_forward_fee)->require_version(6))
       .insert(OpcodeInstr::mksimple(0xf839, 16, "GETPRECOMPILEDGAS", exec_get_precompiled_gas)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xf83a, 16, "GETORIGINALFWDFEE", exec_get_original_fwd_fee)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xf83b, 16, "GETGASFEESIMPLE", exec_get_gas_fee_simple)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xf83c, 16, "GETFORWARDFEESIMPLE", exec_get_forward_fee_simple)->require_version(6))
       .insert(OpcodeInstr::mksimple(0xf840, 16, "GETGLOBVAR", exec_get_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))

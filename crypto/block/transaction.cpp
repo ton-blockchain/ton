@@ -1339,7 +1339,8 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
   }
   if (cfg.global_version >= 6) {
     tuple.push_back(cfg.unpacked_config_tuple.not_null() ? vm::StackEntry(cfg.unpacked_config_tuple)
-                                                         : vm::StackEntry()); // unpacked_config_tuple:[...]
+                                                         : vm::StackEntry());   // unpacked_config_tuple:[...]
+    tuple.push_back(due_payment.not_null() ? due_payment : td::zero_refint());  // due_payment:Integer
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
@@ -1938,9 +1939,9 @@ td::uint64 MsgPrices::compute_fwd_fees(td::uint64 cells, td::uint64 bits) const 
  * @returns The computed forward fees for the message as td::RefInt256j.
  */
 td::RefInt256 MsgPrices::compute_fwd_fees256(td::uint64 cells, td::uint64 bits) const {
-  return td::rshift(
-      td::make_refint(lump_price) + td::make_refint(bit_price) * bits + td::make_refint(cell_price) * cells, 16,
-      1);  // divide by 2^16 with ceil rounding
+  return td::make_refint(lump_price) +
+         td::rshift(td::make_refint(bit_price) * bits + td::make_refint(cell_price) * cells, 16,
+                    1);  // divide by 2^16 with ceil rounding
 }
 
 /**
