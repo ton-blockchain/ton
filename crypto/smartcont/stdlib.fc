@@ -638,33 +638,233 @@ int equal_slice_bits (slice a, slice b) asm "SDEQ";
 ;;; Concatenates two builders
 builder store_builder(builder to, builder from) asm(from to) "STB";
 
-builder store_builder_as_ref(builder to, builder from) asm(from to) "STBREF";
-(slice, slice) load_ref_as_slice(slice s) asm "LDREFRTOS";
-int my_balance_ton() asm "BALANCE FIRST";
+;; NEW FUNCS
 
-builder store_op(builder b, int op) asm(op b) "32 STU";
-builder store_query_id(builder b, int query_id) asm(query_id b) "64 STU";
-(slice, int) load_op(slice s) asm( -> 1 0) "32 LDU";
-(slice, int) load_query_id(slice s) asm( -> 1 0) "64 LDU";
+;; ===== TVM UPGRADE =====
 
-(int, int) builder_bits_refs(builder b) asm "BBITREFS";
-(int, int) builder_rem_bits_refs(builder b) asm "BREMBITREFS";
+;;; Retrieves code of smart-contract from c7
+cell my_code() asm "MYCODE";
 
-;;; returns: flags, sender address, forward fees
-(int, slice, int) parse_message(cell full_message) asm "CTOS 4 LDU LDMSGADDR LDMSGADDR LDGRAMS SKIPDICT LDGRAMS LDGRAMS DROP 3 1 BLKDROP2";
-int bounceable?(int flags) asm "2 INT AND";
-int bounced?(int flags) asm "ONE AND";
+;;; Creates an output action and returns a fee for creating a message. Mode has the same effect as in the case of SENDRAWMSG
+int send_message(cell msg, int mode) impure asm "SENDMSG";
 
+;; TVM V6 https://github.com/ton-blockchain/ton/blob/testnet/doc/GlobalVersions.md#version-6
+
+int get_compute_price(int workchain, int gas_used) asm(gas_used workchain) "GETEXECUTIONPRICE";
+int get_storage_price(int workchain, int seconds, int bits, int cells) asm(cells bits seconds workchain) "GETSTORAGEPRICE";
+int get_forward_price(int workchain, int bits, int cells) asm(cells bits workchain) "GETFORWARDPRICE";
+int get_precompiled_gas_consumption() asm "GETPRECOMPILEDGAS";
+
+[slice, slice, slice, slice, slice, slice, slice] get_fee_cofigs() asm "UNPACKEDCONFIGTUPLE";
+
+;; ===== ADDRESS =====
+
+const slice addr_none = "2_"s; ;; addr_none$00 = MsgAddressExt;
+
+builder store_addr_none(builder b) asm "b{00} STSLICECONST";
+
+int addr_none?(slice s) asm "b{00} PUSHSLICE SDEQ";
+
+;;; Checking that the address is a standard basechain address and does not have anycast (should be used after load_msg_addr)
+int validate_addr_bc(slice addr) asm "b{10000000000} PUSHSLICE SDPPFXREV";
+;;; Checking that the address is a standard masterchain address and does not have anycast (should be used after load_msg_addr)
+int validate_addr_mc(slice addr) asm "b{10011111111} PUSHSLICE SDPPFXREV";
+
+;;; Checking that the `slice` [addr] is a standard basechain address and does not have anycast (can be used with any `slice`)
+int ext_validate_addr_bc(slice addr) asm """
+  DUP
+  b{10000000000} PUSHSLICE SDPPFXREV SWAP
+  267 INT 0 INT SCHKBITREFSQ
+  AND
+""";
+;;; Checking that the `slice` [addr] is a standard masterchain address and does not have anycast (can be used with any `slice`)
+int ext_validate_addr_mc(slice addr) asm """
+  DUP
+  b{10011111111} PUSHSLICE SDPPFXREV SWAP
+  267 INT 0 INT SCHKBITREFSQ
+  AND
+""";
+
+;;; Checking that [addr1] and [addr2] have the same workchain
+int workchains_equal?(slice addr1, slice addr2) asm "REWRITESTDADDR DROP SWAP REWRITESTDADDR DROP EQUAL";
+;;; Checking that [addr] have the workchain [wc]
+int workchain_match?(slice addr, int wc) asm(wc addr) "REWRITESTDADDR DROP EQUAL";
+;;; Checking that [addr] have the workchain 0
+int basechain_addr?(slice addr) asm "REWRITESTDADDR DROP 0 EQINT";
+;;; Checking that [addr] have the workchain -1
+int masterchain_addr?(slice addr) asm "REWRITESTDADDR DROP -1 EQINT";
+
+;;; Basic store StateInit construction in `builder` [b].
 builder store_state_init(builder b, cell data, cell code) asm(data code b) "b{00110} STSLICECONST STREF STREF";
 
+;;; Calculate standard basechain address from `state_init`
 slice calc_bc_address(cell state_init) inline {
   return pack_address(0, cell_hash(state_init));
 }
 
+;;; Calculate standard masterchain address from `state_init`
 slice calc_mc_address(cell state_init) inline {
   return pack_address(-1, cell_hash(state_init));
 }
 
+;; ===== BOOL =====
+
+const int TRUE = -1;
+const int FALSE = 0;
+
+builder store_true(builder b) asm "STONE";
+builder store_false(builder b) asm "STZERO";
+builder store_bool(builder b, int x) asm(x b) "1 STI";
+
+(slice, int) ~load_bool(slice s) asm(-> 1 0) "1 LDI";
+
+;;; skip (Maybe ^Cell) from `slice` [s].
+(slice, ()) ~skip_maybe_ref(slice s) asm "SKIPOPTREF";
+(slice, ()) ~skip_dict(slice s) asm "SKIPOPTREF";
+
+;; ===== MSG FLAGS =====
+
+const int BOUNCEABLE = 0x18; ;; 0b011000 tag - 0, ihr_disabled - 1, bounce - 1, bounced - 0, src = adr_none$00
+const int NON_BOUNCEABLE = 0x10; ;; 0b010000 tag - 0, ihr_disabled - 1, bounce - 0, bounced - 0, src = adr_none$00
+
+builder store_msg_flags(builder b, int flag) asm(flag b) "6 STU";
+
+builder store_msg_flags_bounceable(builder b) asm "b{011000} STSLICECONST";
+builder store_msg_flags_non_bounceable(builder b) asm "b{010000} STSLICECONST";
+
+;; load msg_flags only
+(slice, int) ~load_msg_flags(slice s) asm(-> 1 0) "4 LDU";
+
+;;; Basic parse MessageX (full_message), returns: flags, sender, forward fee
+(int, slice, int) parse_message(cell full_message) asm "CTOS 4 LDU LDMSGADDR LDMSGADDR LDGRAMS SKIPDICT LDGRAMS LDGRAMS DROP 3 1 BLKDROP2";
+
+;;; Checking that the "bounce" bit in the flags is set to "true"
+int bounceable?(int flags) asm "2 INT AND";
+;;; Checking that the "bounced" bit in the flags is set to "true"
+int bounced?(int flags) asm "ONE AND";
+
+(slice, ()) ~skip_bounced_prefix(slice s) asm "x{FFFFFFFF} SDBEGINS";
+
+;; ===== MSG BODY =====
+
+;;; Store standard uint32 operation code into `builder` [b]
+builder store_op(builder b, int op) asm(op b) "32 STU";
+;;; Store standard uint64 query id into `builder` [b]
+builder store_query_id(builder b, int query_id) asm(query_id b) "64 STU";
+;;; Load standard uint32 operation code from `slice` [s]
+(slice, int) load_op(slice s) asm(-> 1 0) "32 LDU";
+;;; Load standard uint64 query id from `slice` [s]
+(slice, int) load_query_id(slice s) asm(-> 1 0) "64 LDU";
+
+(slice, (int, int)) ~load_op_and_query_id(slice s) asm(->2 0 1) "32 LDU 64 LDU";
+
+;; ===== SEND =====
+
+const int MSG_INFO_REST_BITS = 1 + 4 + 4 + 64 + 32;
+
+;; https://github.com/ton-blockchain/ton/blob/8a9ff339927b22b72819c5125428b70c406da631/crypto/block/block.tlb#L155
+;; message$_ {X:Type} info:CommonMsgInfo
+;;  Maybe (Either StateInit ^StateInit)
+;;  body:(Either X ^X) = Message X;
+;;
+;;message$_ {X:Type} info:CommonMsgInfoRelaxed
+;;  init:(Maybe (Either StateInit ^StateInit))
+;;  body:(Either X ^X) = MessageRelaxed X;
+;;
+;;_ (Message Any) = MessageAny;
+
+;; if have StateInit (always place StateInit in ref):
+;; 0b11 for `Maybe (Either StateInit ^StateInit)` and 0b1 or 0b0 for `body:(Either X ^X)`
+
+const int MSG_WITH_STATE_INIT_AND_BODY_SIZE = MSG_INFO_REST_BITS + 1 + 1 + 1;
+const int MSG_HAVE_STATE_INIT = 4;
+const int MSG_STATE_INIT_IN_REF = 2;
+const int MSG_BODY_IN_REF = 1;
+
+;; if no StateInit:
+;; 0b0 for `Maybe (Either StateInit ^StateInit)` and 0b1 or 0b0 for `body:(Either X ^X)`
+
+const int MSG_ONLY_BODY_SIZE = MSG_INFO_REST_BITS + 1 + 1;
+
+;; ===== SEND MODES =====
+
+;; For `send_raw_message` and `send_message`:
+
+;;; x = 0 is used for ordinary messages; the gas fees are deducted from the senging amount; action phaes should NOT be ignored.
+const int sendmode::REGULAR = 0;
+;;; +1 means that the sender wants to pay transfer fees separately.
+const int sendmode::PAY_FEES_SEPARATELY = 1;
+;;; + 2 means that any errors arising while processing this message during the action phase should be ignored.
+const int sendmode::IGNORE_ERRORS = 2;
+;;; + 32 means that the current account must be destroyed if its resulting balance is zero.
+const int sendmode::DESTROY = 32;
+;;; x = 64 is used for messages that carry all the remaining value of the inbound message in addition to the value initially indicated in the new message.
+const int sendmode::CARRY_ALL_REMAINING_MESSAGE_VALUE = 64;
+;;; x = 128 is used for messages that are to carry all the remaining balance of the current smart contract (instead of the value originally indicated in the message).
+const int sendmode::CARRY_ALL_BALANCE = 128;
+;;; in the case of action fail - bounce transaction. No effect if sendmode::IGNORE_ERRORS (+2) is used. TVM UPGRADE 2023-07.
+const int sendmode::BOUNCE_ON_ACTION_FAIL = 16;
+
+;; Only for `send_message`:
+
+;;; do not create an action, only estimate fee
+const int sendmode::ESTIMATE_FEE_ONLY = 1024;
+
+;; Other modes affect the fee calculation as follows:
+;; +64 substitutes the entire balance of the incoming message as an outcoming value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
+;; +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
+
+;; ===== RESERVE MODES =====
+
+;;; Creates an output action which would reserve exactly x nanograms (if y = 0).
+const int reserve::REGULAR = 0;
+;;; Creates an output action which would reserve at most x nanograms (if y = 2).
+;;; Bit +2 in y means that the external action does not fail if the specified amount cannot be reserved; instead, all remaining balance is reserved.
+const int reserve::AT_MOST = 2;
+;;; in the case of action fail - bounce transaction. No effect if RESERVE_AT_MOST (+2) is used. TVM UPGRADE 2023-07.
+const int reserve::BOUNCE_ON_ACTION_FAIL = 16;
+
+;; ===== TOKEN METADATA =====
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0064-token-data-standard.md
+
+const slice ONCHAIN_CONTENT = "00"s;
+const slice OFFCHAIN_CONTENT = "01"s;
+const slice SNAKE_FORMAT = "00"s;
+const slice CHUNKS_FORMAT = "01"s;
+
+;; Key is sha256 hash of string. Value is data encoded as described in "Data serialization" paragraph.
+;; Snake format - must be prefixed with 0x00 byte
+(cell, ()) ~set_token_snake_metadata_entry(cell content_dict, int key, slice value) impure {
+  content_dict~udict_set_ref(256, key, begin_cell().store_slice(SNAKE_FORMAT).store_slice(value).end_cell());
+  return (content_dict, ());
+}
+
+;; On-chain content layout The first byte is 0x00 and the rest is key/value dictionary.
+cell create_token_onchain_metadata(cell content_dict) inline {
+  return begin_cell().store_slice(ONCHAIN_CONTENT).store_dict(content_dict).end_cell();
+}
+
+;; ===== BASIC =====
+
+;;; Returns the current length of the `tuple` [t]
+int tuple_length(tuple t) asm "TLEN";
+
+;;; Concatenates two builders, but second builder stores as the reference (end_cell -> store_ref)
+builder store_builder_as_ref(builder to, builder from) asm(from to) "STBREF";
+
+;;; Loads the reference from the slice and parse (load_ref -> begin_parse)
+(slice, slice) load_ref_as_slice(slice s) asm "LDREFRTOS";
+
+;;; Returns the TON balance of the smart contract
+int get_ton_balance() asm "BALANCE FIRST";
+
+;;; Returns the number of data bits and cell references already stored in `builder` [b].
+(int, int) builder_bits_refs(builder b) asm "BBITREFS";
+
+;;; Returns the number of data bits and cell references that can be stored in `builder` [b].
+(int, int) builder_rem_bits_refs(builder b) asm "BREMBITREFS";
+
+;;; Store `integer` [x] number as string (UTF-8) in decimal form in `builder` [b].
 builder store_number_dec(builder b, int x) asm """
   ZERO                                                        // b x i=0
   SWAP                                                        // b i=0 x
@@ -680,6 +880,7 @@ builder store_number_dec(builder b, int x) asm """
   REPEAT:<{ 8 STU }>                                          // ..rrr.. b i
 """;
 
+;;; Store `int` [x] number as string (UTF-8) in hexadecimal form in `builder` [b].
 builder store_number_hex(builder b, int x) asm """
   ZERO                                                        // b x i=0
   SWAP                                                        // b i=0 x
@@ -695,22 +896,9 @@ builder store_number_hex(builder b, int x) asm """
   REPEAT:<{ 8 STU }>                                          // ..rrr.. b i
 """;
 
-int validate_addr_bc(slice addr) asm "b{10000000000} PUSHSLICE SDPPFXREV";
-int ext_validate_addr_bc(slice addr) asm """
-  DUP
-  b{10000000000} PUSHSLICE SDPPFXREV SWAP
-  267 INT 0 INT SCHKBITREFSQ
-  AND
-""";
-
-int workchains_equal?(slice addr1, slice addr2) asm "REWRITESTDADDR DROP SWAP REWRITESTDADDR DROP EQUAL";
-int workchain_match?(slice addr, int wc) asm(wc addr) "REWRITESTDADDR DROP EQUAL";
-int basechain_addr?(slice addr) asm "REWRITESTDADDR DROP 0 EQINT";
-int masterchain_addr?(slice addr) asm "REWRITESTDADDR DROP -1 EQINT";
-
-int tuple_length(tuple t) asm "TLEN";
-
-const get_c2() asm "c2 PUSH";
+;;; Returns the continuation located in register c2
+cont get_c2() asm "c2 PUSH";
+;;; Store `continuation` [c] to register c2
 () set_c2(cont c) impure asm "c2 POP";
 
 ;;; DRAFT, not for use in prod
@@ -737,4 +925,41 @@ const get_c2() asm "c2 PUSH";
   send_raw_message(message.end_cell(), mode);
 }
 
-const slice addr_none = "2_"s; ;; addr_none$00 = MsgAddressExt;
+
+;; ===== STANDARD OP's =====
+
+;; Common (used in TEP-62,74,85)
+const int op::excesses               = "d53276db"s;
+
+;; TEP-62 - NFT
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0062-nft-standard.md
+const int op::transfer_nft           = "5fcc3d14"s;
+const int op::ownership_assigned     = "05138d91"s;
+const int op::get_static_data        = "2fcb26a2"s;
+const int op::report_static_data     = "8b771735"s;
+
+;; TEP-66 - NFT Royalty
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0066-nft-royalty-standard.md
+const int op::get_royalty_params     = "693d3950"s;
+const int op::report_royalty_params  = "a8cb00ad"s;
+
+;; TEP-74 - Jettons
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md
+const int op::transfer_jetton        = "0f8a7ea5"s;
+const int op::internal_transfer      = "178d4519"s;
+const int op::transfer_notification  = "7362d09c"s;
+const int op::burn_notification      = "7bdd97de"s;
+
+;; TEP-85 - SBT
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0085-sbt-standard.md
+const int op::prove_ownership        = "04ded148"s;
+const int op::ownership_proof        = "0524c7ae"s;
+const int op::request_owner          = "d0c3bfea"s;
+const int op::owner_info             = "0dd607e3"s;
+const int op::destroy_sbt            = "1f04537a"s;
+const int op::revoke_sbt             = "6f89f5e3"s;
+
+;; TEP-89 - Discoverable Jettons Wallets
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0089-jetton-wallet-discovery.md
+const int op::provide_wallet_address = "2c76b973"s;
+const int op::take_wallet_address    = "d1735400"s;
