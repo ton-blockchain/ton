@@ -67,7 +67,7 @@ See [this post](https://t.me/tonstatus/88) for details.
   * **4**: `ConfigParam 24` (mc fwd fees).
   * **5**: `ConfigParam 25` (fwd fees).
   * **6**: `ConfigParam 43` (size limits).
-* **15**: "[due paument](https://github.com/ton-blockchain/ton/blob/8a9ff339927b22b72819c5125428b70c406da631/crypto/block/block.tlb#L237)" - current debt for storage fee (nanotons). Asm opcode: `DUEPAYMENT`.
+* **15**: "[due payment](https://github.com/ton-blockchain/ton/blob/8a9ff339927b22b72819c5125428b70c406da631/crypto/block/block.tlb#L237)" - current debt for storage fee (nanotons). Asm opcode: `DUEPAYMENT`.
 
 ### New TVM instructions
 
