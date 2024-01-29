@@ -57,6 +57,7 @@ void prepare_c7() {
   } else {
     tuple.push_back(vm::StackEntry());
   }
+  tuple.push_back(td::zero_refint());
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   c7 = vm::make_tuple_ref(std::move(tuple_ref));
 }

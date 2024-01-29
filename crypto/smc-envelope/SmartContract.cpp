@@ -173,6 +173,7 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
   }
   if (args.config && args.config.value()->get_global_version() >= 6) {
     tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
+    tuple.push_back(td::zero_refint());                                    // due_payment
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
