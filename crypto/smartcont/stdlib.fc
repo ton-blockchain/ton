@@ -659,6 +659,9 @@ int get_precompiled_gas_consumption() asm "GETPRECOMPILEDGAS";
 
 ;; ===== ADDRESS =====
 
+const int BASECHAIN = 0;
+const int MASTERCHAIN = -1;
+
 const slice addr_none = "2_"s; ;; addr_none$00 = MsgAddressExt;
 
 builder store_addr_none(builder b) asm "b{00} STSLICECONST";
@@ -699,12 +702,12 @@ builder store_state_init(builder b, cell data, cell code) asm(data code b) "b{00
 
 ;;; Calculate standard basechain address from `state_init`
 slice calc_bc_address(cell state_init) inline {
-  return pack_address(0, cell_hash(state_init));
+  return pack_address(BASECHAIN, cell_hash(state_init));
 }
 
 ;;; Calculate standard masterchain address from `state_init`
 slice calc_mc_address(cell state_init) inline {
-  return pack_address(-1, cell_hash(state_init));
+  return pack_address(MASTERCHAIN, cell_hash(state_init));
 }
 
 ;; ===== BOOL =====
@@ -724,8 +727,8 @@ builder store_bool(builder b, int x) asm(x b) "1 STI";
 
 ;; ===== MSG FLAGS =====
 
-const int BOUNCEABLE = 0x18; ;; 0b011000 tag - 0, ihr_disabled - 1, bounce - 1, bounced - 0, src = adr_none$00
-const int NON_BOUNCEABLE = 0x10; ;; 0b010000 tag - 0, ihr_disabled - 1, bounce - 0, bounced - 0, src = adr_none$00
+const slice BOUNCEABLE = "62_"s; ;; 0b011000 tag - 0, ihr_disabled - 1, bounce - 1, bounced - 0, src = adr_none$00
+const slice NON_BOUNCEABLE = "42_"s; ;; 0b010000 tag - 0, ihr_disabled - 1, bounce - 0, bounced - 0, src = adr_none$00
 
 builder store_msg_flags(builder b, int flag) asm(flag b) "6 STU";
 
@@ -849,6 +852,9 @@ cell create_token_onchain_metadata(cell content_dict) inline {
 ;;; Returns the current length of the `tuple` [t]
 int tuple_length(tuple t) asm "TLEN";
 
+builder store_zeroes(builder b, int x) asm "STZEROES";
+builder store_ones(builder b, int x) asm "STONES";
+
 ;;; Concatenates two builders, but second builder stores as the reference (end_cell -> store_ref)
 builder store_builder_as_ref(builder to, builder from) asm(from to) "STBREF";
 
@@ -903,24 +909,24 @@ cont get_c2() asm "c2 PUSH";
 
 ;;; DRAFT, not for use in prod
 () send(slice address, int value, builder state_init, builder body, int mode) impure inline {
-  builder message = begin_cell().store_slice("62_"s).store_slice(address).store_coins(value).store_uint(0, 105);
+  builder message = begin_cell().store_slice(BOUNCEABLE).store_slice(address).store_coins(value).store_zeroes(105);
 
   if (state_init != null()) {
-    message = message.store_slice("A_"s).store_builder(state_init);
+    message = message.store_slice("A_"s).store_builder(state_init); ;; x{A_} == b{10}
   } else {
-    message = message.store_slice("4_"s);
+    message = message.store_false();
   }
 
   if (body != null()) {
     (int b1, int r1) = message.builder_rem_bits_refs();
     (int b2, int r2) = body.builder_bits_refs();
     if (b1 >= b2 & r1 >= r2) {
-      message = message.store_slice("4_"s).store_builder(body);
+      message = message.store_false().store_builder(body);
     } else {
-      message = message.store_slice("C_"s).store_builder_as_ref(body);
+      message = message.store_true().store_builder_as_ref(body);
     }
   } else {
-    message = message.store_slice("4_"s);
+    message = message.store_false();
   }
   send_raw_message(message.end_cell(), mode);
 }
