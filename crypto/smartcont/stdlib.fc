@@ -929,37 +929,37 @@ cont get_c2() asm "c2 PUSH";
 ;; ===== STANDARD OP's =====
 
 ;; Common (used in TEP-62,74,85)
-const int op::excesses               = "d53276db"s;
+const slice op::excesses               = "d53276db"s;
 
 ;; TEP-62 - NFT
 ;; https://github.com/ton-blockchain/TEPs/blob/master/text/0062-nft-standard.md
-const int op::transfer_nft           = "5fcc3d14"s;
-const int op::ownership_assigned     = "05138d91"s;
-const int op::get_static_data        = "2fcb26a2"s;
-const int op::report_static_data     = "8b771735"s;
+const slice op::transfer_nft           = "5fcc3d14"s;
+const slice op::ownership_assigned     = "05138d91"s;
+const slice op::get_static_data        = "2fcb26a2"s;
+const slice op::report_static_data     = "8b771735"s;
 
 ;; TEP-66 - NFT Royalty
 ;; https://github.com/ton-blockchain/TEPs/blob/master/text/0066-nft-royalty-standard.md
-const int op::get_royalty_params     = "693d3950"s;
-const int op::report_royalty_params  = "a8cb00ad"s;
+const slice op::get_royalty_params     = "693d3950"s;
+const slice op::report_royalty_params  = "a8cb00ad"s;
 
 ;; TEP-74 - Jettons
 ;; https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md
-const int op::transfer_jetton        = "0f8a7ea5"s;
-const int op::internal_transfer      = "178d4519"s;
-const int op::transfer_notification  = "7362d09c"s;
-const int op::burn_notification      = "7bdd97de"s;
+const slice op::transfer_jetton        = "0f8a7ea5"s;
+const slice op::internal_transfer      = "178d4519"s;
+const slice op::transfer_notification  = "7362d09c"s;
+const slice op::burn_notification      = "7bdd97de"s;
 
 ;; TEP-85 - SBT
 ;; https://github.com/ton-blockchain/TEPs/blob/master/text/0085-sbt-standard.md
-const int op::prove_ownership        = "04ded148"s;
-const int op::ownership_proof        = "0524c7ae"s;
-const int op::request_owner          = "d0c3bfea"s;
-const int op::owner_info             = "0dd607e3"s;
-const int op::destroy_sbt            = "1f04537a"s;
-const int op::revoke_sbt             = "6f89f5e3"s;
+const slice op::prove_ownership        = "04ded148"s;
+const slice op::ownership_proof        = "0524c7ae"s;
+const slice op::request_owner          = "d0c3bfea"s;
+const slice op::owner_info             = "0dd607e3"s;
+const slice op::destroy_sbt            = "1f04537a"s;
+const slice op::revoke_sbt             = "6f89f5e3"s;
 
 ;; TEP-89 - Discoverable Jettons Wallets
 ;; https://github.com/ton-blockchain/TEPs/blob/master/text/0089-jetton-wallet-discovery.md
-const int op::provide_wallet_address = "2c76b973"s;
-const int op::take_wallet_address    = "d1735400"s;
+const slice op::provide_wallet_address = "2c76b973"s;
+const slice op::take_wallet_address    = "d1735400"s;
