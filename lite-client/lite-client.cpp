@@ -3627,7 +3627,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
     auto x1 = info2->created[i].first - info1->created[i].first;
     auto y1 = info2->created[i].second - info1->created[i].second;
     if (x1 < 0 || y1 < 0 || (x1 | y1) >= (1u << 31)) {
-      LOG(ERROR) << "impossible situation: validator #i created a negative amount of blocks: " << x1
+      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << x1
                  << " masterchain blocks, " << y1 << " shardchain blocks";
       return;
     }
