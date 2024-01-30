@@ -664,8 +664,10 @@ const int MASTERCHAIN = -1;
 
 const slice addr_none = "2_"s; ;; addr_none$00 = MsgAddressExt;
 
+;;; Store addr_none constuction (b{00}) to `builder` [b]
 builder store_addr_none(builder b) asm "b{00} STSLICECONST";
 
+;;; Checking that `slice` [s] is a addr_none constuction;
 int addr_none?(slice s) asm "b{00} PUSHSLICE SDEQ";
 
 ;;; Checking that the address is a standard basechain address and does not have anycast (should be used after load_msg_addr)
@@ -715,15 +717,23 @@ slice calc_mc_address(cell state_init) inline {
 const int TRUE = -1;
 const int FALSE = 0;
 
+;;; Store binary true b{1} to `builder` [b]
 builder store_true(builder b) asm "STONE";
+;;; Store binary false b{0} to `builder` [b]
 builder store_false(builder b) asm "STZERO";
+;;; Store `int` [x] as bool to `builder` [b]
 builder store_bool(builder b, int x) asm(x b) "1 STI";
 
-(slice, int) ~load_bool(slice s) asm(-> 1 0) "1 LDI";
+;;; Loads bool from `slice` [s]
+(slice, int) load_bool(slice s) asm(-> 1 0) "1 LDI";
 
-;;; skip (Maybe ^Cell) from `slice` [s].
+;;; Checks whether `int` [x] is a “boolean value" (i.e., either 0 or -1).
+int bool?(int x) asm "CHKBOOL";
+
+;;; Skip (Maybe ^Cell) from `slice` [s].
 (slice, ()) ~skip_maybe_ref(slice s) asm "SKIPOPTREF";
 (slice, ()) ~skip_dict(slice s) asm "SKIPOPTREF";
+
 
 ;; ===== MSG FLAGS =====
 
@@ -869,6 +879,20 @@ int get_ton_balance() asm "BALANCE FIRST";
 
 ;;; Returns the number of data bits and cell references that can be stored in `builder` [b].
 (int, int) builder_rem_bits_refs(builder b) asm "BREMBITREFS";
+
+;;; Checks whether `slice` [pfx] is a prefix of `slice` [s]
+int slice_check_prefix(slice s, slice pfx) asm "SDPFXREV";
+;;; Checks whether `slice` [sfx] is a suffix of `slice` [s]
+int slice_check_suffix(slice s, slice sfx) asm "SDSFXREV";
+;;; Checks whether there are at least [l] data bits in `slice` [s].
+int slice_check_bits(slice s, int l) asm "SCHKBITSQ";
+;;; Checks whether there are at least [r] references in `slice` [s].
+int slice_check_refs(slice s, int r) asm "SCHKREFSQ";
+;;; Checks whether there are at least [l] data bits and [r] references in `slice` [s].
+int slice_check_bits_refs(slice s, int l, int r) asm "SCHKBITREFSQ";
+
+;;; Checks whether `slice` [s] begins with (the data bits of) [pfx], and removes [pfx] from [s] on success.
+;;(slice, int) slice_begins_with(slice s, slice pfx) asm "SDBEGINSXQ";
 
 ;;; Store `integer` [x] number as string (UTF-8) in decimal form in `builder` [b].
 builder store_number_dec(builder b, int x) asm """
