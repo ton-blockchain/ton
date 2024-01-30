@@ -364,6 +364,13 @@ endif()
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=leak")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -finstrument-functions")
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    include(CodeCoverage)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
+    append_coverage_compiler_flags()
+    setup_target_for_coverage_gcovr_html(NAME coverage)
+endif()
+
 #Compilation database
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
