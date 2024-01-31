@@ -22,12 +22,13 @@ if [ "$with_tests" = true ]; then
 else
   nix-build macos-static.nix
 fi
-mkdir artifacts
+
+mkdir -p artifacts/lib
 cp ./result-bin/bin/* artifacts/
 chmod +x artifacts/*
 rm -rf result-bin
 nix-build macos-tonlib.nix
 cp ./result/lib/libtonlibjson.dylib artifacts/
 cp ./result/lib/libemulator.dylib artifacts/
-cp -r crypto/fift/lib artifacts/
-cp -r crypto/smartcont artifacts/
+cp ./result/lib/fift/* artifacts/lib/
+cp -r ./result/share/ton/smartcont artifacts/
