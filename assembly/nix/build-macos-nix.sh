@@ -25,6 +25,7 @@ fi
 
 mkdir -p artifacts/lib
 cp ./result-bin/bin/* artifacts/
+test $? -eq 0 || { echo "No artifacts have been built..."; exit 1; }
 chmod +x artifacts/*
 rm -rf result-bin
 nix-build macos-tonlib.nix
