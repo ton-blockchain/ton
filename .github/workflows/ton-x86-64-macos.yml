@@ -1,4 +1,4 @@
-name: "TON x86_64 macOS binaries"
+name: MacOS TON build (portable, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
@@ -11,24 +11,16 @@ jobs:
       with:
         submodules: 'recursive'
 
-    - uses: cachix/install-nix-action@v22
+    - uses: cachix/install-nix-action@v23
       with:
         extra_nix_config: |
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
-    - name: Compile
-      run: nix build .?submodules=1#packages.x86_64-darwin.ton-staticbin-dylib --print-build-logs -o result-x86_64-darwin
-
-    - name: Copy binaries
+    - name: Build TON
       run: |
-        ls -lart
-        mkdir artifacts
-        cp $PWD/result-x86_64-darwin/bin/* artifacts/
-        chmod +x artifacts/*
-        cp $PWD/result-x86_64-darwin/lib/libtonlibjson.dylib artifacts/
-        cp $PWD/result-x86_64-darwin/lib/libemulator.dylib artifacts/
-        cp -R crypto/smartcont artifacts/
-        cp -R crypto/fift/lib artifacts/
+        cp assembly/nix/build-macos-nix.sh .
+        chmod +x build-macos-nix.sh
+        ./build-macos-nix.sh -t
 
     - name: Simple binaries test
       run: |

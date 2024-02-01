@@ -141,9 +141,8 @@ class ValidatorGroup : public td::actor::Actor {
 
   typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
-  td::uint32 approved_candidates_cache_round_ = 0;
 
-  void update_approve_cache(td::uint32 round_id, CacheKey key, UnixTime value);
+  void update_approve_cache(CacheKey key, UnixTime value);
 
   static CacheKey block_to_cache_key(const BlockCandidate& block) {
     return std::make_tuple(block.pubkey.as_bits256(), block.id, sha256_bits256(block.data), block.collated_file_hash);

@@ -170,6 +170,14 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
 
+  virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                                     td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                            td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                        td::Promise<ConstBlockHandle> promise) = 0;
+
   virtual void validated_new_block(BlockIdExt block_id) = 0;
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;

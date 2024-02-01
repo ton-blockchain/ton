@@ -127,12 +127,12 @@ class BenchSha256Low : public td::Benchmark {
 
   void run(int n) override {
     int res = 0;
-    SHA256_CTX ctx;
+    td::Sha256State ctx;
     for (int i = 0; i < n; i++) {
-      SHA256_Init(&ctx);
-      SHA256_Update(&ctx, "abcd", 4);
+      ctx.init();
+      ctx.feed("abcd");
       unsigned char buf[32];
-      SHA256_Final(buf, &ctx);
+      ctx.extract(td::MutableSlice{buf, 32});
       res += buf[0];
     }
     td::do_not_optimize_away(res);

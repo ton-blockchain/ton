@@ -26,6 +26,7 @@
 # Furthermore an imported "sodium" target is created.
 #
 
+
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU"
   OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
   set(_GCC_COMPATIBLE 1)

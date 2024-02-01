@@ -171,6 +171,10 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
     //   prev_key_block:BlockId ] : PrevBlocksInfo
     tuple.push_back(args.prev_blocks_info ? args.prev_blocks_info.value() : vm::StackEntry{});  // prev_block_info
   }
+  if (args.config && args.config.value()->get_global_version() >= 6) {
+    tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
+    tuple.push_back(td::zero_refint());                                    // due_payment
+  }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
   return vm::make_tuple_ref(std::move(tuple_ref));
@@ -181,7 +185,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
                                     int vm_log_verbosity, bool debug_enabled,
                                     std::shared_ptr<const block::Config> config) {
   auto gas_credit = gas.gas_credit;
-  vm::init_op_cp0(debug_enabled);
+  vm::init_vm(debug_enabled).ensure();
   vm::DictionaryBase::get_empty_dictionary();
 
   class Logger : public td::LogInterface {

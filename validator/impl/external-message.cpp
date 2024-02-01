@@ -102,7 +102,7 @@ void ExtMessageQ::run_message(td::BufferSlice data, block::SizeLimitsConfig::Ext
 
   run_fetch_account_state(
       wc, addr, manager,
-      [promise = std::move(promise), msg_root = root, wc,
+      [promise = std::move(promise), msg_root = root, wc, addr,
        M](td::Result<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
               res) mutable {
         if (res.is_error()) {
@@ -114,7 +114,8 @@ void ExtMessageQ::run_message(td::BufferSlice data, block::SizeLimitsConfig::Ext
           auto utime = std::get<1>(tuple);
           auto lt = std::get<2>(tuple);
           auto config = std::move(std::get<3>(tuple));
-          if (!acc.unpack(shard_acc, {}, utime, false)) {
+          bool special = wc == masterchainId && config->is_special_smartcontract(addr);
+          if (!acc.unpack(shard_acc, utime, special)) {
             promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
           } else {
             auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));
@@ -155,6 +156,7 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
    }
    compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
    compute_phase_cfg_.with_vm_log = true;
+   compute_phase_cfg_.stop_on_accept_message = true;
 
    auto res = Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt,
                                                     &storage_phase_cfg_, &compute_phase_cfg_,

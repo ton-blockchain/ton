@@ -21,6 +21,8 @@
 #include "vm/dict.h"
 #include "vm/log.h"
 #include "vm/vm.h"
+#include "cp0.h"
+#include <sodium.h>
 
 namespace vm {
 
@@ -768,6 +770,17 @@ void VmState::restore_parent_vm(int res) {
   if (parent->return_gas) {
     cur_stack.push_smallint(child_state.gas.gas_consumed());
   }
+}
+
+td::Status init_vm(bool enable_debug) {
+  if (!init_op_cp0(enable_debug)) {
+    return td::Status::Error("Failed to init TVM: failed to init cp0");
+  }
+  auto code = sodium_init();
+  if (code < 0) {
+    return td::Status::Error(PSTRING() << "Failed to init TVM: sodium_init, code=" << code);
+  }
+  return td::Status::OK();
 }
 
 }  // namespace vm

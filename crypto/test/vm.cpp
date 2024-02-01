@@ -28,7 +28,7 @@
 #include "td/utils/StringBuilder.h"
 
 std::string run_vm(td::Ref<vm::Cell> cell) {
-  vm::init_op_cp0();
+  vm::init_vm().ensure();
   vm::DictionaryBase::get_empty_dictionary();
 
   class Logger : public td::LogInterface {

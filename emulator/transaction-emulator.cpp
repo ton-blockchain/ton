@@ -1,7 +1,7 @@
 #include <string>
 #include "transaction-emulator.h"
 #include "crypto/common/refcnt.hpp"
-#include "vm/cp0.h"
+#include "vm/vm.h"
 #include "tdutils/td/utils/Time.h"
 
 using td::Ref;
@@ -34,7 +34,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
         return fetch_res.move_as_error_prefix("cannot fetch config params ");
     }
 
-    vm::init_op_cp0(debug_enabled_);
+    TRY_STATUS(vm::init_vm(debug_enabled_));
 
     if (!lt) {
       lt = lt_;
@@ -42,6 +42,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     if (!lt) {
       lt = (account.last_trans_lt_ / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align(); // next block after account_.last_trans_lt_
     }
+    account.block_lt = lt - lt % block::ConfigInfo::get_lt_align();
 
     compute_phase_cfg.libraries = std::make_unique<vm::Dictionary>(libraries_);
     compute_phase_cfg.ignore_chksig = ignore_chksig_;

@@ -720,7 +720,7 @@ TEST(Actor2, actor_function_result) {
 }
 
 TEST(Actor2, actor_ping_pong) {
-  Scheduler scheduler{{3}, Scheduler::Paused};
+  Scheduler scheduler{{3}, false, Scheduler::Paused};
   sb.clear();
   scheduler.start();
 
@@ -799,7 +799,7 @@ TEST(Actor2, Schedulers) {
       for (auto run_count : {0, 1, 2}) {
         for (auto stop_count : {0, 1, 2}) {
           for (size_t threads : {0, 1}) {
-            Scheduler scheduler({threads}, mode);
+            Scheduler scheduler({threads}, false, mode);
             for (int i = 0; i < start_count; i++) {
               scheduler.start();
             }

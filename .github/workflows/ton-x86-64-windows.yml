@@ -1,0 +1,34 @@
+name: Windows TON build (portable, x86-64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+defaults:
+  run:
+    shell: cmd
+
+jobs:
+  build:
+
+    runs-on: windows-2022
+
+    steps:
+      - name: Get Current OS version
+        run: |
+          systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
+
+      - name: Check out current repository
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: Build TON
+        run: |
+          copy assembly\native\build-windows-github.bat .
+          copy assembly\native\build-windows.bat .
+          build-windows-github.bat Enterprise
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-win-binaries
+          path: artifacts

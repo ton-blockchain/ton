@@ -20,6 +20,7 @@
 
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
+#include "validator.h"
 
 namespace ton {
 
@@ -28,7 +29,8 @@ namespace validator {
 enum ValidateMode { fake = 1, full_collated_data = 2 };
 enum CollateMode { skip_store_candidate = 1 };
 
-td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_);
+td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
+                                        td::Ref<ValidatorManagerOptions> opts);
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
                                                                    std::string db_root);
 

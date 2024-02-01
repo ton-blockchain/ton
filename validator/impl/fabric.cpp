@@ -39,8 +39,9 @@ namespace ton {
 
 namespace validator {
 
-td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_) {
-  return td::actor::create_actor<RootDb>("db", manager, db_root_);
+td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
+                                        td::Ref<ValidatorManagerOptions> opts) {
+  return td::actor::create_actor<RootDb>("db", manager, db_root_, opts);
 }
 
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
@@ -202,10 +203,12 @@ void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
     }
   }
   bool is_fake = mode & ValidateMode::fake;
-  td::actor::create_actor<ValidateQuery>(
-      PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str() << ":" << (seqno + 1), shard,
-      min_masterchain_block_id, std::move(prev), std::move(candidate), std::move(validator_set), std::move(manager),
-      timeout, std::move(promise), mode)
+  static std::atomic<size_t> idx;
+  td::actor::create_actor<ValidateQuery>(PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str()
+                                                   << ":" << (seqno + 1) << "#" << idx.fetch_add(1),
+                                         shard, min_masterchain_block_id, std::move(prev), std::move(candidate),
+                                         std::move(validator_set), std::move(manager), timeout, std::move(promise),
+                                         mode)
       .release();
 }
 

@@ -285,8 +285,11 @@ int exec_divmod(VmState* st, unsigned args, int quiet) {
     typename td::BigInt256::DoubleInt tmp{*x}, quot;
     tmp += *w;
     tmp.mod_div(*y, quot, round_mode);
-    stack.push_int_quiet(td::make_refint(quot), quiet);
-    stack.push_int_quiet(td::make_refint(tmp), quiet);
+    auto q = td::make_refint(quot), r = td::make_refint(tmp);
+    q.write().normalize();
+    r.write().normalize();
+    stack.push_int_quiet(std::move(q), quiet);
+    stack.push_int_quiet(std::move(r), quiet);
   } else {
     switch (d) {
       case 1:
@@ -399,6 +402,7 @@ std::string dump_shrmod(CellSlice&, unsigned args, int mode) {
   if (mode & 1) {
     os << 'Q';
   }
+  std::string end;
   switch (args & 12) {
     case 4:
       os << "RSHIFT";
@@ -407,17 +411,22 @@ std::string dump_shrmod(CellSlice&, unsigned args, int mode) {
       os << "MODPOW2";
       break;
     case 12:
-      os << "RSHIFTMOD";
+      os << "RSHIFT";
+      end = "MOD";
       break;
     case 0:
-      os << "ADDRSHIFTMOD";
+      os << "ADDRSHIFT";
+      end = "MOD";
       break;
+  }
+  if (!(mode & 2)) {
+    os << end;
   }
   if (round_mode) {
     os << "FRC"[round_mode];
   }
   if (mode & 2) {
-    os << ' ' << y;
+    os << "#" << end << ' ' << y;
   }
   return os.str();
 }
@@ -519,7 +528,7 @@ int exec_mulshrmod(VmState* st, unsigned args, int mode) {
   if (add) {
     tmp = *w;
   }
-  tmp.add_mul(*x, *y);
+  tmp.add_mul(*x, *y).normalize();
   switch (d) {
     case 1:
       tmp.rshift(z, round_mode).normalize();
@@ -553,6 +562,7 @@ std::string dump_mulshrmod(CellSlice&, unsigned args, int mode) {
   if (mode & 1) {
     os << 'Q';
   }
+  std::string end;
   switch (args & 12) {
     case 4:
       os << "MULRSHIFT";
@@ -561,15 +571,21 @@ std::string dump_mulshrmod(CellSlice&, unsigned args, int mode) {
       os << "MULMODPOW2";
       break;
     case 12:
-      os << "MULRSHIFTMOD";
+      os << "MULRSHIFT";
+      end = "MOD";
       break;
     case 0:
-      os << "MULADDRSHIFTMOD";
+      os << "MULADDRSHIFT";
+      end = "MOD";
       break;
   }
   if (round_mode) {
     os << "FRC"[round_mode];
   }
+  if (mode & 2) {
+    os << "#";
+  }
+  os << end;
   if (mode & 2) {
     os << ' ' << y;
   }
@@ -644,18 +660,22 @@ std::string dump_shldivmod(CellSlice&, unsigned args, int mode) {
   if (mode & 1) {
     os << "Q";
   }
+  os << "LSHIFT";
+  if (mode & 2) {
+    os << "#";
+  }
   switch (args & 12) {
     case 4:
-      os << "LSHIFTDIV";
+      os << "DIV";
       break;
     case 8:
-      os << "LSHIFTMOD";
+      os << "MOD";
       break;
     case 12:
-      os << "LSHIFTDIVMOD";
+      os << "DIVMOD";
       break;
     case 0:
-      os << "LSHIFTADDDIVMOD";
+      os << "ADDDIVMOD";
       break;
   }
   if (round_mode) {

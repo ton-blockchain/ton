@@ -160,7 +160,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   ValidatorSessionStats cur_stats_;
   void stats_init();
   void stats_add_round();
-  void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, int status);
+  void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, ValidatorSessionCandidateId candidate_id,
+                                  int status, std::string comment = "");
 
   void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) override;
 
@@ -175,6 +176,7 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   void start() override;
   void destroy() override;
+  void get_current_stats(td::Promise<ValidatorSessionStats> promise) override;
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();

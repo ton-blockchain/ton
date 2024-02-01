@@ -210,6 +210,14 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return td::Status::OK();
   }
 
+  void set_celldb_compress_depth(td::uint32 value) override {
+    celldb_compress_depth_ = value;
+  }
+
+  vm::ExtCellCreator& as_ext_cell_creator() override {
+    return *this;
+  }
+
  private:
   std::unique_ptr<CellLoader> loader_;
   std::vector<Ref<Cell>> to_inc_;
@@ -217,6 +225,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   CellHashTable<CellInfo> hash_table_;
   std::vector<CellInfo *> visited_;
   Stats stats_diff_;
+  td::uint32 celldb_compress_depth_{0};
 
   static td::NamedThreadSafeCounter::CounterRef get_thread_safe_counter() {
     static auto res = td::NamedThreadSafeCounter::get_default().get_counter("DynamicBagOfCellsDb");
@@ -443,7 +452,8 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       guard.dismiss();
     } else {
       auto loaded_cell = info.cell->load_cell().move_as_ok();
-      storer.set(info.db_refcnt, *loaded_cell.data_cell);
+      storer.set(info.db_refcnt, loaded_cell.data_cell,
+                 loaded_cell.data_cell->get_depth() == celldb_compress_depth_ && celldb_compress_depth_ != 0);
       info.in_db = true;
     }
   }

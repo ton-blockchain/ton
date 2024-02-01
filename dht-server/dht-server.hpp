@@ -109,6 +109,9 @@ class DhtServer : public td::actor::Actor {
   std::string local_config_ = "";
   std::string global_config_ = "ton-global.config";
   std::string config_file_;
+  std::string temp_config_file() const {
+    return config_file_ + ".tmp";
+  }
 
   std::string db_root_ = "/var/ton-work/db/";
 

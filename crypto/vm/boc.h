@@ -53,6 +53,7 @@ class NewCellStorageStat {
     bool operator==(const Stat& other) const {
       return key() == other.key();
     }
+    Stat(const Stat& other) = default;
     Stat& operator=(const Stat& other) = default;
     Stat& operator+=(const Stat& other) {
       cells += other.cells;
@@ -336,7 +337,7 @@ class BagOfCells {
                                                      std::vector<td::uint8>* cell_should_cache);
 };
 
-td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty = false);
+td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty = false, bool allow_nonzero_level = false);
 td::Result<td::BufferSlice> std_boc_serialize(Ref<Cell> root, int mode = 0);
 
 td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data,

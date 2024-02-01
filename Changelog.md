@@ -1,3 +1,55 @@
+## 2024.01 Update
+
+1. Fixes in how gas in transactions on special accounts is accounted in block limit. Previously, gas was counted as usual, so to conduct elections that costs >30m gas block limit in masterchain was set to 37m gas. To lower the limit for safety reasons it is proposed to caunt gas on special accounts separately. Besides `gas_max` is set to `special_gas_limit` for all types of transactions on special accounts. New behavior is activated through setting `version >= 5` in `ConfigParam 8;`.
+   * Besides update of config temporally increases gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` to `special_gas_limit`, see [details](https://t.me/tonstatus/88).
+2. Improvements in LS behavior
+   * Improved detection of the state with all shards applied to decrease rate of `Block is not applied` error
+   * Better error logs: `block not in db` and `block is not applied` separation
+   * Fix error in proof generation for blocks after merge
+   * Fix most of `block is not applied` issues related to sending too recent block in Proofs
+   * LS now check external messages till `accept_message` (`set_gas`).
+3. Improvements in DHT work and storage, CellDb, config.json ammendment, peer misbehavior detection, validator session stats collection, emulator.
+4. Change in CTOS and XLOAD behavior activated through setting `version >= 5` in `ConfigParam 8;`:
+   * Loading "nested libraries" (i.e. a library cell that points to another library cell) throws an exception.
+   * Loading a library consumes gas for cell load only once (for the library cell), not twice (both for the library cell and the cell in the library).
+   * `XLOAD` now works differently. When it takes a library cell, it returns the cell that it points to. This allows loading "nested libraries", if needed.
+
+Besides the work of the Core team, this update is based on the efforts of @XaBbl4 (peer misbehavior detection) and @akifoq (CTOS behavior and gas limit scheme for special accounts).
+
+## 2023.12 Update
+
+1. Optimized message queue handling, now queue cleaning speed doesn't depend on total queue size
+     * Cleaning delivered messages using lt augmentation instead of random search / consequtive walk
+     * Keeping root cell of queue message in memory until outdated (caching)
+2. Changes to block collation/validation limits
+3. Stop accepting new external message if message queue is overloaded
+4. Introducing conditions for shard split/merge based on queue size
+
+Read [more](https://blog.ton.org/technical-report-december-5-inscriptions-launch-on-ton) on that update.
+
+## 2023.11 Update
+
+1. New TVM Functionality. (Disabled by default)
+2. A series of emulator improvements: libraries support, higher max stack size, etc
+3. A series of tonlib and tonlib-cli improvements: wallet-v4 support, getconfig, showtransactions, etc
+4. Changes to public libraries: now contract can not publish more than 256 libraries (config parameter) and contracts can not be deployed with public libraries in initstate (instead contracts need explicitly publish all libraries)
+5. Changes to storage due payment: now due payment is collected in Storage Phase, however for bouncable messages fee amount can not exceed balance of account prior to message.
+
+
+Besides the work of the core team, this update is based on the efforts of @aleksej-paschenko (emulator improvements), @akifoq (security improvements), Trail of Bits auditor as well as all participants of [TEP-88 discussion](https://github.com/ton-blockchain/TEPs/pull/88).
+
+## 2023.10 Update
+1. A series of additional security checks in node: special cells in action list, init state in external messages, peers data prior to saving to disk.
+2. Human-readable timestamps in explorer
+
+Besides the work of the core team, this update is based on the efforts of @akifoq and @mr-tron.
+
+## 2023.06 Update
+1. (disabled by default) New deflation mechanisms: partial fee burning and blackhole address
+2. Storage-contract improvement
+
+Besides the work of the core team, this update is based on the efforts of @DearJohnDoe from Tonbyte (Storage-contract improvement).
+
 ## 2023.05 Update
 1. Archive manager optimization
 2. A series of catchain (basic consensus protocol) security improvements

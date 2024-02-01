@@ -734,7 +734,7 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
     sum += *extra;
   }
   return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + accounts * 200 +
-         transactions * 200 + (extra ? 200 : 0) + extra_out_msgs * 300;
+         transactions * 200 + (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
 }
 
 int BlockLimitStatus::classify() const {
@@ -1030,8 +1030,8 @@ td::Status ShardState::merge_with(ShardState& sib) {
   return td::Status::OK();
 }
 
-td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(
-    ton::ShardIdFull subshard) {
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(ton::ShardIdFull subshard,
+                                                                                             td::uint32* queue_size) {
   auto shard = id_.shard_full();
   if (!ton::shard_is_parent(shard, subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
@@ -1039,7 +1039,7 @@ td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_o
   }
   CHECK(out_msg_queue_);
   auto subqueue = std::make_unique<vm::AugmentedDictionary>(*out_msg_queue_);
-  int res = block::filter_out_msg_queue(*subqueue, shard, subshard);
+  int res = block::filter_out_msg_queue(*subqueue, shard, subshard, queue_size);
   if (res < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
@@ -1061,7 +1061,7 @@ td::Result<std::shared_ptr<block::MsgProcessedUptoCollection>> ShardState::compu
   return std::move(sub_processed_upto);
 }
 
-td::Status ShardState::split(ton::ShardIdFull subshard) {
+td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) {
   if (!ton::shard_is_parent(id_.shard_full(), subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
                                        " because it is not a parent");
@@ -1079,7 +1079,7 @@ td::Status ShardState::split(ton::ShardIdFull subshard) {
   auto shard1 = id_.shard_full();
   CHECK(ton::shard_is_parent(shard1, subshard));
   CHECK(out_msg_queue_);
-  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard);
+  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard, queue_size);
   if (res1 < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
@@ -1119,8 +1119,12 @@ td::Status ShardState::split(ton::ShardIdFull subshard) {
   return td::Status::OK();
 }
 
-int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard) {
-  return out_queue.filter([subshard, old_shard](vm::CellSlice& cs, td::ConstBitPtr key, int key_len) -> int {
+int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard,
+                         td::uint32* queue_size) {
+  if (queue_size) {
+    *queue_size = 0;
+  }
+  return out_queue.filter([=](vm::CellSlice& cs, td::ConstBitPtr key, int key_len) -> int {
     CHECK(key_len == 352);
     LOG(DEBUG) << "scanning OutMsgQueue entry with key " << key.to_hex(key_len);
     block::tlb::MsgEnvelope::Record_std env;
@@ -1143,7 +1147,11 @@ int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull ol
                  << " does not contain current address belonging to shard " << old_shard.to_str();
       return -1;
     }
-    return ton::shard_contains(subshard, cur_prefix);
+    bool res = ton::shard_contains(subshard, cur_prefix);
+    if (res && queue_size) {
+      ++*queue_size;
+    }
+    return res;
   });
 }
 

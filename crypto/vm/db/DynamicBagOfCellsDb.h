@@ -64,6 +64,9 @@ class DynamicBagOfCellsDb {
   // restart with new loader will also reset stats_diff
   virtual td::Status set_loader(std::unique_ptr<CellLoader> loader) = 0;
 
+  virtual void set_celldb_compress_depth(td::uint32 value) = 0;
+  virtual vm::ExtCellCreator& as_ext_cell_creator() = 0;
+
   static std::unique_ptr<DynamicBagOfCellsDb> create();
 
   class AsyncExecutor {

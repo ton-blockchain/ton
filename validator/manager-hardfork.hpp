@@ -23,6 +23,7 @@
 #include "validator-group.hpp"
 #include "manager-init.h"
 #include "manager-hardfork.h"
+#include "queue-size-counter.hpp"
 
 #include <map>
 #include <set>
@@ -447,6 +448,28 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
     UNREACHABLE();
   }
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+    if (queue_size_counter_.empty()) {
+      queue_size_counter_ =
+          td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{}, actor_id(this));
+    }
+    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
+  }
+  void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) override {
+    get_block_handle(block_id, false, promise.wrap([](BlockHandle &&handle) -> ConstBlockHandle { return handle; }));
+  }
+  void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                             td::Promise<ConstBlockHandle> promise) override {
+    get_block_by_lt_from_db(account, lt, std::move(promise));
+  }
+  void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                    td::Promise<ConstBlockHandle> promise) override {
+    get_block_by_unix_time_from_db(account, ts, std::move(promise));
+  }
+  void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                td::Promise<ConstBlockHandle> promise) override {
+    get_block_by_seqno_from_db(account, seqno, std::move(promise));
+  }
   void validated_new_block(BlockIdExt block_id) override {
   }
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
@@ -473,6 +496,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::string db_root_;
   ShardIdFull shard_to_generate_;
   BlockIdExt block_to_generate_;
+  td::actor::ActorOwn<QueueSizeCounter> queue_size_counter_;
 };
 
 }  // namespace validator

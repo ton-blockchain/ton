@@ -52,7 +52,7 @@
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/cp0.h"
+#include "vm/vm.h"
 
 #include "auto/tl/lite_api.h"
 #include "ton/lite-tl.hpp"
@@ -104,23 +104,24 @@ class HttpQueryRunner {
         Self->finish(nullptr);
       }
     });
-    mutex_.lock();
     scheduler_ptr->run_in_context_external([&]() { func(std::move(P)); });
   }
   void finish(MHD_Response* response) {
+    std::unique_lock<std::mutex> lock(mutex_);
     response_ = response;
-    mutex_.unlock();
+    cond.notify_all();
   }
   MHD_Response* wait() {
-    mutex_.lock();
-    mutex_.unlock();
+    std::unique_lock<std::mutex> lock(mutex_);
+    cond.wait(lock, [&]() { return response_ != nullptr; });
     return response_;
   }
 
  private:
   std::function<void(td::Promise<MHD_Response*>)> func_;
-  MHD_Response* response_;
+  MHD_Response* response_ = nullptr;
   std::mutex mutex_;
+  std::condition_variable cond;
 };
 
 class CoreActor : public CoreActorInterface {
@@ -643,7 +644,7 @@ int main(int argc, char* argv[]) {
   });
 #endif
 
-  vm::init_op_cp0();
+  vm::init_vm().ensure();
 
   td::actor::Scheduler scheduler({2});
   scheduler_ptr = &scheduler;

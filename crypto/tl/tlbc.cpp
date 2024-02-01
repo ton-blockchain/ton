@@ -2252,11 +2252,9 @@ TypeExpr* parse_expr10(Lexer& lex, Constructor& cs, int mode) {
   }
   if (op == '>') {
     std::swap(expr, expr2);
-    op = '<';
     op_name = Less_name;
   } else if (op == src::_Geq) {
     std::swap(expr, expr2);
-    op = src::_Leq;
     op_name = Leq_name;
   }
   auto sym_def = sym::lookup_symbol(op_name, 2);

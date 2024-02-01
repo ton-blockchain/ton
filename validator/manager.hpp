@@ -28,6 +28,7 @@
 #include "state-serializer.hpp"
 #include "rldp/rldp.h"
 #include "token-manager.h"
+#include "queue-size-counter.hpp"
 #include "collator-node.hpp"
 
 #include <map>
@@ -190,6 +191,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockIdExt, WaitList<WaitBlockState, td::Ref<ShardState>>> wait_state_;
   std::map<BlockIdExt, WaitList<WaitBlockData, td::Ref<BlockData>>> wait_block_data_;
 
+  struct CachedBlockState {
+    td::Ref<ShardState> state_;
+    td::Timestamp ttl_;
+  };
+  std::map<BlockIdExt, CachedBlockState> block_state_cache_;
+
   struct WaitBlockHandle {
     std::vector<td::Promise<BlockHandle>> waiting_;
   };
@@ -262,6 +269,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_key_block_handle_;
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
+  std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> last_liteserver_state_;
 
   td::Ref<MasterchainState> do_get_last_liteserver_state();
@@ -582,6 +590,31 @@ class ValidatorManagerImpl : public ValidatorManager {
   void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+    if (queue_size_counter_.empty()) {
+      if (last_masterchain_state_.is_null()) {
+        promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
+        return;
+      }
+      queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter",
+                                                                      last_masterchain_state_, actor_id(this));
+    }
+    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
+  }
+
+  void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                             td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                    td::Promise<ConstBlockHandle> promise) override;
+  void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                td::Promise<ConstBlockHandle> promise) override;
+  void process_block_handle_for_litequery_error(BlockIdExt block_id, td::Result<BlockHandle> r_handle,
+                                                td::Promise<ConstBlockHandle> promise);
+  void process_lookup_block_for_litequery_error(AccountIdPrefixFull account, int type, td::uint64 value,
+                                                td::Result<ConstBlockHandle> r_handle,
+                                                td::Promise<ConstBlockHandle> promise);
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -655,6 +688,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
+  td::actor::ActorOwn<QueueSizeCounter> queue_size_counter_;
 
   struct Collator {
     td::actor::ActorOwn<CollatorNode> actor;

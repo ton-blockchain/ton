@@ -186,6 +186,7 @@ class CatChainInst : public td::actor::Actor {
 
   void create_fork() {
     auto height = height_ - 1;  //td::Random::fast(0, height_ - 1);
+    LOG(WARNING) << "Creating fork, source_id=" << idx_ << ", height=" << height;
 
     auto sum = prev_values_[height] + 1;
     td::uint64 x[2];
@@ -219,7 +220,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();
 
-  std::string db_root_ = "tmp-ee";
+  std::string db_root_ = "tmp-dir-test-catchain";
   td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();
 
@@ -241,7 +242,8 @@ int main(int argc, char *argv[]) {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
   });
 
-  for (td::uint32 att = 0; att < 10; att++) {
+  for (td::uint32 att = 0; att < 20; att++) {
+    LOG(WARNING) << "Test #" << att;
     nodes.resize(total_nodes);
 
     scheduler.run_in_context([&] {
@@ -274,8 +276,6 @@ int main(int argc, char *argv[]) {
       }
     });
 
-    auto t = td::Timestamp::in(1.0);
-
     ton::catchain::CatChainSessionId unique_id;
     td::Random::secure_bytes(unique_id.as_slice());
 
@@ -287,7 +287,7 @@ int main(int argc, char *argv[]) {
       }
     });
 
-    t = td::Timestamp::in(10.0);
+    auto t = td::Timestamp::in(10.0);
     while (scheduler.run(1)) {
       if (t.is_in_past()) {
         break;
@@ -298,9 +298,12 @@ int main(int argc, char *argv[]) {
       std::cout << "value=" << n.get_actor_unsafe().value() << std::endl;
     }
 
-    scheduler.run_in_context([&] { td::actor::send_closure(inst[0], &CatChainInst::create_fork); });
+    td::uint32 fork_cnt = att < 10 ? 1 : (att - 10) / 5 + 2;
+    for (td::uint32 idx = 0; idx < fork_cnt; ++idx) {
+      scheduler.run_in_context([&] { td::actor::send_closure(inst[idx], &CatChainInst::create_fork); });
+    }
 
-    t = td::Timestamp::in(10.0);
+    t = td::Timestamp::in(1.0);
     while (scheduler.run(1)) {
       if (t.is_in_past()) {
         break;

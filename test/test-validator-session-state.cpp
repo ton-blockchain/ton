@@ -34,6 +34,7 @@
 
 #include "validator-session/validator-session-description.h"
 #include "validator-session/validator-session-state.h"
+#include "validator-session/validator-session-description.hpp"
 
 #include <limits>
 #include <memory>
@@ -48,16 +49,13 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
     return 0;
   }
   void *alloc(size_t size, size_t align, bool temp) override {
-    td::uint32 idx = temp ? 1 : 0;
-    auto s = pdata_cur_[idx].fetch_add(size);
-    CHECK(s + size <= pdata_size_[idx]);
-    return static_cast<void *>(pdata_[idx] + s);
+    return (temp ? mem_temp_ : mem_perm_).alloc(size, align);
   }
   bool is_persistent(const void *ptr) const override {
-    return ptr == nullptr || (ptr >= pdata_[0] && ptr < pdata_[0] + pdata_size_[0]);
+    return mem_perm_.contains(ptr);
   }
   void clear_temp_memory() override {
-    pdata_cur_[1] = 0;
+    mem_temp_.clear();
   }
 
   ton::PublicKeyHash get_source_id(td::uint32 idx) const override {
@@ -192,21 +190,8 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
     return opts_;
   }
 
-  ~Description() {
-    delete[] pdata_[0];
-    delete[] pdata_[1];
-  }
-
   Description(ton::validatorsession::ValidatorSessionOptions opts, td::uint32 total_nodes)
-      : opts_(opts), total_nodes_(total_nodes) {
-    pdata_size_[0] =
-        static_cast<std::size_t>(std::numeric_limits<std::size_t>::max() < (1ull << 32) ? 1ull << 30 : 1ull << 33);
-    pdata_size_[1] = 1 << 22;
-    pdata_[0] = new td::uint8[pdata_size_[0]];
-    pdata_[1] = new td::uint8[pdata_size_[1]];
-    pdata_cur_[0] = 0;
-    pdata_cur_[1] = 0;
-
+      : opts_(opts), total_nodes_(total_nodes), mem_perm_(1 << 30), mem_temp_(1 << 22) {
     for (auto &el : cache_) {
       Cached v{nullptr};
       el.store(v, std::memory_order_relaxed);
@@ -227,9 +212,7 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
   };
   std::array<std::atomic<Cached>, cache_size> cache_;
 
-  td::uint8 *pdata_[2];
-  std::atomic<size_t> pdata_cur_[2];
-  size_t pdata_size_[2];
+  ton::validatorsession::ValidatorSessionDescriptionImpl::MemPool mem_perm_, mem_temp_;
 };
 
 double myrand() {

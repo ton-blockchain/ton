@@ -91,6 +91,7 @@ class ValidatorSession : public td::actor::Actor {
 
   virtual void start() = 0;
   virtual void destroy() = 0;
+  virtual void get_current_stats(td::Promise<ValidatorSessionStats> promise) = 0;
 
   virtual void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) = 0;
 

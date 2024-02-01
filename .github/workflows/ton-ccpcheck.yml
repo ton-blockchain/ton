@@ -1,10 +1,9 @@
-name: TON Ccpcheck
+name: TON Static Code Analysis
 
 on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
-
     runs-on: ubuntu-22.04
 
     steps:

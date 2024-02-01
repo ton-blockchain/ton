@@ -350,7 +350,11 @@ struct GasLimitsPrices {
   td::uint64 freeze_due_limit{0};
   td::uint64 delete_due_limit{0};
 
-  td::RefInt256 compute_gas_price(td::uint64 gas_used) const;
+  td::RefInt256 compute_gas_price(td::uint64 gas_used) const {
+    return gas_used <= flat_gas_limit
+               ? td::make_refint(flat_gas_price)
+               : td::rshift(td::make_refint(gas_price) * (gas_used - flat_gas_limit), 16, 1) + flat_gas_price;
+  }
 };
 
 // msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
@@ -365,6 +369,7 @@ struct MsgPrices {
   td::uint32 first_frac;
   td::uint32 next_frac;
   td::uint64 compute_fwd_fees(td::uint64 cells, td::uint64 bits) const;
+  td::RefInt256 compute_fwd_fees256(td::uint64 cells, td::uint64 bits) const;
   std::pair<td::uint64, td::uint64> compute_fwd_ihr_fees(td::uint64 cells, td::uint64 bits,
                                                          bool ihr_disabled = false) const;
   MsgPrices() = default;
@@ -389,6 +394,7 @@ struct SizeLimitsConfig {
   ExtMsgLimits ext_msg_limits;
   td::uint32 max_acc_state_cells = 1 << 16;
   td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_acc_public_libraries = 256;
 };
 
 struct CatchainValidatorsConfig {
@@ -614,9 +620,11 @@ class Config {
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
   static td::Result<std::unique_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
+  static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
-  static td::Result<GasLimitsPrices> do_get_gas_limits_prices(td::Ref<vm::Cell> cell, int id);
+  static td::Result<GasLimitsPrices> do_get_gas_limits_prices(vm::CellSlice cs, int id);
   td::Result<MsgPrices> get_msg_prices(bool is_masterchain = false) const;
+  static td::Result<MsgPrices> do_get_msg_prices(vm::CellSlice cs, int id);
   static CatchainValidatorsConfig unpack_catchain_validators_config(Ref<vm::Cell> cell);
   CatchainValidatorsConfig get_catchain_validators_config() const;
   td::Status visit_validator_params() const;
@@ -644,8 +652,10 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
   CollatorConfig get_collator_config(bool need_collator_nodes) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
+  static td::Result<SizeLimitsConfig> do_get_size_limits_config(td::Ref<vm::CellSlice> cs);
   std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
   BurningConfig get_burning_config() const;
+  td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,

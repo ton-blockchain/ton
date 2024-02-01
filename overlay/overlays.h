@@ -158,6 +158,11 @@ class Certificate {
   td::SharedSlice signature_;
 };
 
+struct OverlayOptions {
+  bool announce_self_ = true;
+  bool frequent_dht_lookup_ = false;
+};
+
 class Overlays : public td::actor::Actor {
  public:
   class Callback {
@@ -204,7 +209,7 @@ class Overlays : public td::actor::Actor {
                                      td::string scope) = 0;
   virtual void create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                          std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
-                                         td::string scope, bool announce_self) = 0;
+                                         td::string scope, OverlayOptions opts) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                       OverlayPrivacyRules rules) = 0;

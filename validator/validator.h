@@ -81,6 +81,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockSeqno get_truncate_seqno() const = 0;
   virtual BlockSeqno sync_upto() const = 0;
   virtual std::string get_session_logs_file() const = 0;
+  virtual td::uint32 get_celldb_compress_depth() const = 0;
   virtual ValidatorMode validator_mode() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
@@ -100,6 +101,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void truncate_db(BlockSeqno seqno) = 0;
   virtual void set_sync_upto(BlockSeqno seqno) = 0;
   virtual void set_session_logs_file(std::string f) = 0;
+  virtual void set_celldb_compress_depth(td::uint32 value) = 0;
   virtual void set_validator_mode(ValidatorMode value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
@@ -239,6 +241,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
   virtual void add_perf_timer_stat(std::string name, double duration) = 0;
+  virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) = 0;
+
 
   virtual void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) = 0;

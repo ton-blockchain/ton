@@ -50,7 +50,7 @@
 
 #include "validator/fabric.h"
 #include "validator/impl/collator.h"
-#include "crypto/vm/cp0.h"
+#include "crypto/vm/vm.h"
 #include "crypto/block/block-db.h"
 
 #include "common/errorlog.h"
@@ -412,7 +412,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();
 
-  CHECK(vm::init_op_cp0());
+  vm::init_vm().ensure();
 
   td::actor::ActorOwn<TestNode> x;
 
