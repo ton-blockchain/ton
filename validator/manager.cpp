@@ -1185,7 +1185,7 @@ void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit
 void ValidatorManagerImpl::written_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
   bool received = handle->received();
   bool inited_state = handle->received_state();
-  bool inited_proof = handle->id().is_masterchain() ? handle->inited_proof() : handle->inited_proof();
+  bool inited_proof = handle->id().is_masterchain() ? handle->inited_proof() : handle->inited_proof_link();
 
   if (handle->need_flush()) {
     handle->flush(actor_id(this), handle, std::move(promise));
@@ -1198,10 +1198,23 @@ void ValidatorManagerImpl::written_handle(BlockHandle handle, td::Promise<td::Un
       td::actor::send_closure(it->second.actor_, &WaitBlockData::force_read_from_db);
     }
   }
-  if (inited_state && inited_proof) {
+  if (inited_state) {
     auto it = wait_state_.find(handle->id());
     if (it != wait_state_.end()) {
       td::actor::send_closure(it->second.actor_, &WaitBlockState::force_read_from_db);
+    }
+  } else {
+    if (handle->inited_proof_link()) {
+      auto it = wait_state_.find(handle->id());
+      if (it != wait_state_.end()) {
+        td::actor::send_closure(it->second.actor_, &WaitBlockState::after_get_proof_link);
+      }
+    }
+    if (handle->id().is_masterchain() && handle->inited_proof()) {
+      auto it = wait_state_.find(handle->id());
+      if (it != wait_state_.end()) {
+        td::actor::send_closure(it->second.actor_, &WaitBlockState::after_get_proof);
+      }
     }
   }
 

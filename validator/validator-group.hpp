@@ -43,7 +43,7 @@ class ValidatorGroup : public td::actor::Actor {
   void skip_round(td::uint32 round);
   void retry_accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
                                 td::Ref<BlockSignatureSet> sigs, td::Ref<BlockSignatureSet> approve_sigs,
-                                td::Promise<td::Unit> promise);
+                                bool send_broadcast, td::Promise<td::Unit> promise);
   void get_approved_candidate(PublicKey source, RootHash root_hash, FileHash file_hash,
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
