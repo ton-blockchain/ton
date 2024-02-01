@@ -3529,7 +3529,7 @@ void TestNode::continue_check_validator_load2(std::unique_ptr<TestNode::Validato
                                               std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
                                               std::string file_pfx) {
   LOG(INFO) << "continue_check_validator_load2 for blocks " << info1->blk_id.to_str() << " and "
-            << info1->blk_id.to_str() << " : requesting block creators data";
+            << info2->blk_id.to_str() << " : requesting block creators data";
   td::Status st = info1->unpack_vset();
   if (st.is_error()) {
     LOG(ERROR) << "cannot unpack validator set from block " << info1->blk_id.to_str() << " :" << st.move_as_error();
