@@ -650,12 +650,17 @@ int send_message(cell msg, int mode) impure asm "SENDMSG";
 
 ;; TVM V6 https://github.com/ton-blockchain/ton/blob/testnet/doc/GlobalVersions.md#version-6
 
-int get_compute_price(int workchain, int gas_used) asm(gas_used workchain) "GETEXECUTIONPRICE";
-int get_storage_price(int workchain, int seconds, int bits, int cells) asm(cells bits seconds workchain) "GETSTORAGEPRICE";
-int get_forward_price(int workchain, int bits, int cells) asm(cells bits workchain) "GETFORWARDPRICE";
+int get_compute_fee(int workchain, int gas_used) asm(gas_used workchain) "GETGASFEE";
+int get_storage_fee(int workchain, int seconds, int bits, int cells) asm(cells bits seconds workchain) "GETSTORAGEFEE";
+int get_forward_fee(int workchain, int bits, int cells) asm(cells bits workchain) "GETFORWARDFEE";
 int get_precompiled_gas_consumption() asm "GETPRECOMPILEDGAS";
 
-[slice, slice, slice, slice, slice, slice, slice] get_fee_cofigs() asm "UNPACKEDCONFIGTUPLE";
+int get_simple_compute_fee(int workchain, int gas_used) asm(gas_used workchain) "GETGASFEESIMPLE";
+int get_simple_forward_fee(int workchain, int bits, int cells) asm(cells bits workchain) "GETFORWARDFEESIMPLE";
+int get_original_fwd_fee(int workchain, int fwd_fee) asm(fwd_fee workchain) "GETORIGINALFWDFEE";
+int my_storage_due() asm "DUEPAYMENT";
+
+tuple get_fee_cofigs() asm "UNPACKEDCONFIGTUPLE";
 
 ;; ===== ADDRESS =====
 
@@ -674,6 +679,9 @@ int addr_none?(slice s) asm "b{00} PUSHSLICE SDEQ";
 int validate_addr_bc(slice addr) asm "b{10000000000} PUSHSLICE SDPPFXREV";
 ;;; Checking that the address is a standard masterchain address and does not have anycast (should be used after load_msg_addr)
 int validate_addr_mc(slice addr) asm "b{10011111111} PUSHSLICE SDPPFXREV";
+
+builder store_bc_address(builder b, cell state_init) asm "HASHCU SWAP b{10000000000} STSLICECONST 256 STU";
+builder store_mc_address(builder b, cell state_init) asm "HASHCU SWAP b{10011111111} STSLICECONST 256 STU";
 
 ;;; Checking that the `slice` [addr] is a standard basechain address and does not have anycast (can be used with any `slice`)
 int ext_validate_addr_bc(slice addr) asm """
@@ -769,7 +777,9 @@ builder store_query_id(builder b, int query_id) asm(query_id b) "64 STU";
 ;;; Load standard uint64 query id from `slice` [s]
 (slice, int) load_query_id(slice s) asm(-> 1 0) "64 LDU";
 
-(slice, (int, int)) ~load_op_and_query_id(slice s) asm(->2 0 1) "32 LDU 64 LDU";
+(slice, (int, int)) ~load_op_and_query_id(slice s) asm(-> 2 0 1) "32 LDU 64 LDU";
+
+(slice, ()) ~skip_query_id(slice s) asm "64 INT SDSKIPFIRST";
 
 ;; ===== SEND =====
 
@@ -935,16 +945,16 @@ cont get_c2() asm "c2 PUSH";
 () send(slice address, int value, builder state_init, builder body, int mode) impure inline {
   builder message = begin_cell().store_slice(BOUNCEABLE).store_slice(address).store_coins(value).store_zeroes(105);
 
-  if (state_init != null()) {
+  ifnot (state_init.null?()) {
     message = message.store_slice("A_"s).store_builder(state_init); ;; x{A_} == b{10}
   } else {
     message = message.store_false();
   }
 
-  if (body != null()) {
+  ifnot (body.null?()) {
     (int b1, int r1) = message.builder_rem_bits_refs();
     (int b2, int r2) = body.builder_bits_refs();
-    if (b1 >= b2 & r1 >= r2) {
+    if ((b1 >= b2) & (r1 >= r2)) {
       message = message.store_false().store_builder(body);
     } else {
       message = message.store_true().store_builder_as_ref(body);
