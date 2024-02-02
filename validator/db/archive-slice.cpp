@@ -532,7 +532,7 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(promise));
 
   for (auto &p : packages_) {
-    td::actor::send_closure(p.writer, &PackageWriter::set_async_mode, mode, std::move(promise));
+    td::actor::send_closure(p.writer, &PackageWriter::set_async_mode, mode, ig.get_promise());
   }
 }
 
