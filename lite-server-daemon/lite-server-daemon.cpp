@@ -82,6 +82,7 @@ class LiteServerDaemon : public td::actor::Actor {
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
   td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
+  ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
 
   int to_load_keys = 0;
 
@@ -172,6 +173,17 @@ class LiteServerDaemon : public td::actor::Actor {
     }
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
 
+    // Start DHT
+    for (auto &dht : config_.dht_ids) {
+      auto D = ton::dht::Dht::create(ton::adnl::AdnlNodeIdShort{dht}, db_root_, dht_config_, keyring_.get(), adnl_.get());
+      D.ensure();
+
+      dht_nodes_[dht] = D.move_as_ok();
+      if (default_dht_node_.is_zero()) {
+        default_dht_node_ = dht;
+      }
+    }
+
     rldp_ = ton::rldp::Rldp::create(adnl_.get());
     rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
 
@@ -219,11 +231,13 @@ class LiteServerDaemon : public td::actor::Actor {
       auto id = pk.compute_short_id();
       td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), false, [](td::Unit) {});
       config.config_add_adnl_addr(id, 0).ensure();
+      config.config_add_dht_node(id).ensure();
 
       auto ls_pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
       auto ls_id = ls_pk.compute_short_id();
       td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(ls_pk), false, [](td::Unit) {});
-      config.config_add_lite_server(ls_id, ls_port);
+      config.config_add_lite_server(ls_id, ls_port).ensure();
+
 
       auto ss = td::json_encode<std::string>(td::ToJson(*config.tl().get()), true);
 

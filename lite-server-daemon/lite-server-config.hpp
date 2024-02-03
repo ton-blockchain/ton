@@ -35,6 +35,7 @@ class Config {
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
+  std::set<ton::PublicKeyHash> dht_ids;
 
   Config() {
   }
@@ -53,6 +54,22 @@ class Config {
     for (auto &adnl : config.adnl_) {
       config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, td::narrow_cast<td::uint8>(adnl->category_)).ensure();
     }
+
+    for (auto &dht : config.dht_) {
+      config_add_dht_node(ton::PublicKeyHash{dht->id_}).ensure();
+    }
+  }
+
+  td::Result<bool> config_add_dht_node(ton::PublicKeyHash id) {
+    if (dht_ids.count(id) > 0) {
+      return false;
+    }
+    if (adnl_ids.count(id) == 0) {
+      return td::Status::Error(ton::ErrorCode::notready, "to-be-added dht node not in adnl nodes list");
+    }
+    incref(id);
+    dht_ids.insert(id);
+    return true;
   }
 
   td::Result<bool> config_add_lite_server(ton::PublicKeyHash keyhash, td::int32 port) {
@@ -111,8 +128,15 @@ class Config {
     for (auto &x : liteservers) {
       liteserver_vec.push_back(ton::create_tl_object<ton::ton_api::engine_liteServer>(x.second.tl(), x.first));
     }
+
+    std::vector<ton::tl_object_ptr<ton::ton_api::engine_dht>> dht_vec;
+    for (auto &x : dht_ids) {
+      dht_vec.push_back(ton::create_tl_object<ton::ton_api::engine_dht>(x.tl()));
+    }
+
     return ton::create_tl_object<ton::ton_api::engine_liteserver_config>(
-        addr_.get_ipv4(), addr_.get_port(), std::move(adnl_vec), std::move(liteserver_vec));
+        addr_.get_ipv4(), addr_.get_port(), std::move(adnl_vec), std::move(liteserver_vec),
+        std::move(dht_vec));
   };
 };
 }  // namespace liteserver
