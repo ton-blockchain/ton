@@ -595,7 +595,7 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
-engine.liteserver.config ip:int adnl:(vector engine.adnl)
+engine.liteserver.config ip:int out_port:int adnl:(vector engine.adnl)
         liteservers:(vector engine.liteServer) = engine.liteserver.Config;
 
 ---functions---

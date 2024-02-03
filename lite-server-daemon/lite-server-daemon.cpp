@@ -128,6 +128,7 @@ class LiteServerDaemon : public td::actor::Actor {
   std::string server_config_;
   std::string tmp_ipaddr_;
   std::string global_config_;
+  ton::liteserver::Config config_;
 
   td::Ref<ton::validator::ValidatorManagerOptions> opts_;
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
@@ -147,7 +148,7 @@ class LiteServerDaemon : public td::actor::Actor {
         std::_Exit(2);
       }
 
-      auto ls_port = addr.get_port();
+      auto ls_port = addr.get_port() + 1;
       config.set_addr(addr);
 
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
@@ -186,6 +187,18 @@ class LiteServerDaemon : public td::actor::Actor {
       if (S.is_error()) {
         LOG(ERROR) << "Json does not fit TL scheme";
         std::_Exit(2);
+      }
+
+      config_ = ton::liteserver::Config{conf};
+
+      LOG(WARNING) << "ADNL available on: " << config_.addr_;
+
+      for (auto &[t, e] : config_.adnl_ids) {
+        LOG(WARNING) << "ADNL Key: " << t.tl().to_hex();
+      }
+
+      for (auto &[t, e] : config_.liteservers) {
+        LOG(WARNING) << "LiteServer port: " << t << " key: " << e.tl().to_hex();
       }
     }
   }

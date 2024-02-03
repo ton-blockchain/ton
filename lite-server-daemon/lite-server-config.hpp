@@ -20,10 +20,6 @@ class Config {
       return addr < with.addr;
     }
   };
-
-  td::IPAddress addr_;
-  std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
-  std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
 
   void decref(ton::PublicKeyHash key) {
@@ -36,6 +32,29 @@ class Config {
   };
 
  public:
+  td::IPAddress addr_;
+  std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
+  std::map<td::int32, ton::PublicKeyHash> liteservers;
+
+  Config() {
+  }
+
+  Config(ton::ton_api::engine_liteserver_config &config) {
+    auto tmp = addr_.init_host_port(td::IPAddress::ipv4_to_str(config.ip_), static_cast<td::uint16>(config.out_port_));
+    if (tmp.is_error()) {
+      LOG(ERROR) << tmp.move_as_error();
+      std::_Exit(2);
+    }
+
+    for (auto &serv : config.liteservers_) {
+      config_add_lite_server(ton::PublicKeyHash{serv->id_}, serv->port_).ensure();
+    }
+
+    for (auto &adnl : config.adnl_) {
+      config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, td::narrow_cast<td::uint8>(adnl->category_)).ensure();
+    }
+  }
+
   td::Result<bool> config_add_lite_server(ton::PublicKeyHash key, td::int32 port) {
     auto it = liteservers.find(port);
     if (it != liteservers.end()) {
@@ -51,8 +70,8 @@ class Config {
     }
   };
 
-  td::Result<bool> set_addr(std::string addr) {
-    auto s = addr_.init_host_port(std::move(addr), 0);
+  td::Result<bool> set_addr(const std::string &addr) {
+    auto s = addr_.init_host_port(addr);
     if (s.is_error()) {
       LOG(ERROR) << s.move_as_error();
       return false;
@@ -92,8 +111,8 @@ class Config {
     for (auto &x : liteservers) {
       liteserver_vec.push_back(ton::create_tl_object<ton::ton_api::engine_liteServer>(x.second.tl(), x.first));
     }
-    return ton::create_tl_object<ton::ton_api::engine_liteserver_config>(addr_.get_ipv4(), std::move(adnl_vec),
-                                                                         std::move(liteserver_vec));
+    return ton::create_tl_object<ton::ton_api::engine_liteserver_config>(
+        addr_.get_ipv4(), addr_.get_port(), std::move(adnl_vec), std::move(liteserver_vec));
   };
 };
 }  // namespace liteserver
