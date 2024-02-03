@@ -85,12 +85,14 @@ Result<RocksDb> RocksDb::open(std::string path, bool read_only) {
     column_families.push_back(rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, cf_options));
     std::vector<rocksdb::ColumnFamilyHandle *> handles;
     if (read_only) {
-      TRY_STATUS(from_rocksdb(
-          rocksdb::OptimisticTransactionDB::OpenForReadOnly(options, std::move(path), column_families, &handles, reinterpret_cast<rocksdb::DB **>(&db))));
+      const std::string kSecondaryPath = "/tmp/rocksdb_secondary/";
+      TRY_STATUS(from_rocksdb(rocksdb::OptimisticTransactionDB::OpenAsSecondary(
+          options, path, kSecondaryPath, column_families, &handles, reinterpret_cast<rocksdb::DB **>(&db))));
     } else {
-      TRY_STATUS(from_rocksdb(
-          rocksdb::OptimisticTransactionDB::Open(options, occ_options, std::move(path), column_families, &handles, &db)));
+      TRY_STATUS(from_rocksdb(rocksdb::OptimisticTransactionDB::Open(options, occ_options, std::move(path),
+                                                                     column_families, &handles, &db)));
     }
+
     CHECK(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
