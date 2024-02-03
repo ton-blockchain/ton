@@ -983,7 +983,7 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerDiskFactory::crea
     PublicKeyHash id, td::Ref<ValidatorManagerOptions> opts, ShardIdFull shard, BlockIdExt shard_top_block_id,
     std::string db_root, bool read_only_) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", id, std::move(opts), shard,
-                                                                  shard_top_block_id, db_root);
+                                                                  shard_top_block_id, db_root, read_only_);
 }
 
 }  // namespace validator
