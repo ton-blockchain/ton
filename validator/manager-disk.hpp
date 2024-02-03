@@ -447,6 +447,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void update_shards();
   void update_shard_blocks();
+  void reinit();
   void dec_pending_new_blocks();
   ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
 };

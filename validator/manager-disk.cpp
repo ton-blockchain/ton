@@ -29,6 +29,7 @@
 #include "td/utils/overloaded.h"
 #include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
+#include "common/delay.h"
 
 namespace ton {
 
@@ -307,12 +308,15 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
-  if (last_masterchain_state_.is_null()) {
-    return;
-  }
-  auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
-  if (R.is_ok()) {
-    ext_messages_.emplace_back(R.move_as_ok());
+  if (offline_) {
+    if (last_masterchain_state_.is_null()) {
+      return;
+    }
+    auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
+    if (R.is_ok()) {
+      ext_messages_.emplace_back(R.move_as_ok());
+    }
+  } else {
   }
 }
 
@@ -966,6 +970,21 @@ void ValidatorManagerImpl::start_up() {
 
     lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
   }
+
+  validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P), read_only_);
+
+  if (!offline_) {
+    delay_action([SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::reinit); },
+                 td::Timestamp::in(1.0));
+  }
+}
+void ValidatorManagerImpl::reinit() {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
+    R.ensure();
+    LOG(INFO) << "Reinited: " << R.move_as_ok().handle->id();
+    delay_action([SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::reinit); },
+                 td::Timestamp::in(1.0));
+  });
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P), read_only_);
 }
