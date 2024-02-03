@@ -3525,7 +3525,7 @@ void ValidatorEngine::run() {
   td::mkdir(db_root_).ensure();
   ton::errorlog::ErrorLog::create(db_root_);
 
-  auto Sr = load_global_config();
+  auto Sr = load_load_global_configglobal_config();
   if (Sr.is_error()) {
     LOG(ERROR) << "failed to load global config'" << global_config_ << "': " << Sr;
     std::_Exit(2);

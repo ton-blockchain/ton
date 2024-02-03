@@ -20,7 +20,6 @@ class Config {
       return addr < with.addr;
     }
   };
-  std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
 
   void decref(ton::PublicKeyHash key) {
     auto v = keys_refcnt[key]--;
@@ -35,6 +34,7 @@ class Config {
   td::IPAddress addr_;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
+  std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
 
   Config() {
   }
@@ -55,17 +55,17 @@ class Config {
     }
   }
 
-  td::Result<bool> config_add_lite_server(ton::PublicKeyHash key, td::int32 port) {
+  td::Result<bool> config_add_lite_server(ton::PublicKeyHash keyhash, td::int32 port) {
     auto it = liteservers.find(port);
     if (it != liteservers.end()) {
-      if (it->second == key) {
+      if (it->second == keyhash) {
         return false;
       } else {
         return td::Status::Error(ton::ErrorCode::error, "duplicate port");
       }
     } else {
-      incref(key);
-      liteservers.emplace(port, key);
+      incref(keyhash);
+      liteservers.emplace(port, keyhash);
       return true;
     }
   };
@@ -85,8 +85,8 @@ class Config {
     return true;
   }
 
-  td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash addr, AdnlCategory cat) {
-    auto it = adnl_ids.find(addr);
+  td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash keyhash, AdnlCategory cat) {
+    auto it = adnl_ids.find(keyhash);
     if (it != adnl_ids.end()) {
       if (it->second != cat) {
         it->second = cat;
@@ -95,8 +95,8 @@ class Config {
         return false;
       }
     } else {
-      incref(addr);
-      adnl_ids.emplace(addr, cat);
+      incref(keyhash);
+      adnl_ids.emplace(keyhash, cat);
       return true;
     }
   }

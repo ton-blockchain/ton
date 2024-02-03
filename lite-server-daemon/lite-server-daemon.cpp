@@ -46,8 +46,32 @@ class LiteServerDaemon : public td::actor::Actor {
 
   void start_up() override {
     LOG(WARNING) << "Start lite-server daemon";
+    keyring_ = ton::keyring::Keyring::create(db_root_ + "/keyring");
     load_config();
+  }
 
+  void sync_complete(const ton::validator::BlockHandle &handle) {
+    LOG(WARNING) << "Sync complete: " << handle->id().to_str();
+  }
+
+ private:
+  std::string db_root_;
+  std::string server_config_;
+  std::string tmp_ipaddr_;
+  std::string global_config_;
+  ton::liteserver::Config config_;
+
+  std::map<ton::PublicKeyHash, ton::PublicKey> keys_;
+  adnl::AdnlNodeIdShort local_id_;
+  td::actor::ActorOwn<keyring::Keyring> keyring_;
+  td::actor::ActorOwn<adnl::AdnlNetworkManager> adnl_network_manager_;
+  td::actor::ActorOwn<adnl::Adnl> adnl_;
+  td::Ref<ton::validator::ValidatorManagerOptions> opts_;
+  td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
+
+  int to_load_keys = 0;
+
+  void init_validator_engine() {
     auto Sr = create_validator_options();
     if (Sr.is_error()) {
       LOG(ERROR) << "failed to load global config'" << global_config_ << "': " << Sr;
@@ -119,19 +143,50 @@ class LiteServerDaemon : public td::actor::Actor {
                             std::make_unique<Callback>(actor_id(this)), std::move(P_cb));
   }
 
-  void sync_complete(const ton::validator::BlockHandle &handle) {
-    LOG(WARNING) << "Sync complete: " << handle->id().to_str();
+  void init_network() {
+    adnl_network_manager_ = adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config_.addr_.get_port()));
+    adnl_ = adnl::Adnl::create(db_root_, keyring_.get());
+    td::actor::send_closure(adnl_, &adnl::Adnl::register_network_manager, adnl_network_manager_.get());
+    adnl::AdnlCategoryMask cat_mask;
+    cat_mask[0] = true;
+    td::actor::send_closure(adnl_network_manager_, &adnl::AdnlNetworkManager::add_self_addr, config_.addr_,
+                            std::move(cat_mask), 0);
+
+    if (config_.adnl_ids.size() != 1) {
+      LOG(ERROR) << "Unsupported ADNL IDs, must be 1";
+      std::_Exit(2);
+    }
+
+    adnl::AdnlAddressList addr_list;
+    addr_list.add_udp_address(config_.addr_).ensure();
+    addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
+    addr_list.set_reinit_date(adnl::Adnl::adnl_start_time());
+
+    for (auto &adnl : config_.adnl_ids) {
+      adnl::AdnlNodeIdFull local_id_full = adnl::AdnlNodeIdFull::create(keys_[adnl.first].tl()).move_as_ok();
+      local_id_ = local_id_full.compute_short_id();
+      td::actor::send_closure(adnl_, &adnl::Adnl::add_id, local_id_full, addr_list, static_cast<td::uint8>(0));
+    }
+
+    init_validator_engine();
   }
 
- private:
-  std::string db_root_;
-  std::string server_config_;
-  std::string tmp_ipaddr_;
-  std::string global_config_;
-  ton::liteserver::Config config_;
+  void got_key(ton::PublicKey key) {
+    to_load_keys--;
+    keys_[key.compute_short_id()] = std::move(key);
 
-  td::Ref<ton::validator::ValidatorManagerOptions> opts_;
-  td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
+    if (to_load_keys == 0) {
+      LOG(WARNING) << "ADNL available on: " << config_.addr_;
+
+      for (auto &t : config_.adnl_ids) {
+        LOG(WARNING) << "ADNL pub: " << keys_[t.first].ed25519_value().raw().to_hex();
+      }
+
+      for (auto &[t, e] : config_.liteservers) {
+        LOG(WARNING) << "LiteServer port: " << t << " pub: " << keys_[e].ed25519_value().raw().to_hex();
+      }
+    }
+  }
 
   void load_config() {
     if (server_config_.empty()) {
@@ -153,17 +208,20 @@ class LiteServerDaemon : public td::actor::Actor {
 
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
       auto id = pk.compute_short_id();
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), false, [](td::Unit) {});
       config.config_add_adnl_addr(id, 0).ensure();
 
       auto ls_pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
-      auto ls_id = pk.compute_short_id();
+      auto ls_id = ls_pk.compute_short_id();
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(ls_pk), false, [](td::Unit) {});
       config.config_add_lite_server(ls_id, ls_port);
 
       auto ss = td::json_encode<std::string>(td::ToJson(*config.tl().get()), true);
 
       auto S = td::write_file(server_config_, ss);
       if (S.is_ok()) {
-        std::_Exit(0);
+        stop();  // todo: wait keyring_ save keys
+        return;
       } else {
         LOG(ERROR) << S.move_as_error();
       }
@@ -190,15 +248,19 @@ class LiteServerDaemon : public td::actor::Actor {
       }
 
       config_ = ton::liteserver::Config{conf};
+      for (auto &key : config_.keys_refcnt) {
+        to_load_keys++;
 
-      LOG(WARNING) << "ADNL available on: " << config_.addr_;
+        auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ton::PublicKey> R) mutable {
+          if (R.is_error()) {
+            LOG(ERROR) << R.move_as_error();
+            std::_Exit(2);
+          } else {
+            td::actor::send_closure(SelfId, &LiteServerDaemon::got_key, R.move_as_ok());
+          }
+        });
 
-      for (auto &[t, e] : config_.adnl_ids) {
-        LOG(WARNING) << "ADNL Key: " << t.tl().to_hex();
-      }
-
-      for (auto &[t, e] : config_.liteservers) {
-        LOG(WARNING) << "LiteServer port: " << t << " key: " << e.tl().to_hex();
+        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key_short, key.first, std::move(P));
       }
     }
   }
