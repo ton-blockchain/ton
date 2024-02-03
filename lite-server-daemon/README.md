@@ -11,4 +11,4 @@ Check:
 
 ## Run
 
-`./lite-server-daemon/lite-server -D <NODE-DB> -S <NODE-DB>/liteserver.json -C <GLOBAL-CONFIG-PATH>`
+`./lite-server-daemon/lite-server -D <NODE-DB> -S <NODE-DB>/liteserver.json -C <GLOBAL-CONFIG-PATH> -v 3`
