@@ -27,6 +27,8 @@
 #include "manager.h"
 #include "ton/ton-io.hpp"
 #include "td/utils/overloaded.h"
+#include "auto/tl/lite_api.h"
+#include "tl-utils/lite-utils.hpp"
 
 namespace ton {
 
@@ -58,6 +60,50 @@ void ValidatorManagerImpl::validate_block_proof(BlockIdExt block_id, td::BufferS
 void ValidatorManagerImpl::validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof,
                                                      td::Promise<td::Unit> promise) {
   UNREACHABLE();
+}
+
+void ValidatorManagerImpl::add_ext_server_id(adnl::AdnlNodeIdShort id) {
+  if (offline_) {
+    UNREACHABLE();
+  } else {
+    class Cb : public adnl::Adnl::Callback {
+     private:
+      td::actor::ActorId<ValidatorManagerImpl> id_;
+
+      void receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override {
+      }
+      void receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
+        td::actor::send_closure(id_, &ValidatorManagerImpl::run_ext_query, std::move(data), std::move(promise));
+      }
+
+     public:
+      Cb(td::actor::ActorId<ValidatorManagerImpl> id) : id_(id) {
+      }
+    };
+
+    td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, id,
+                            adnl::Adnl::int_to_bytestring(lite_api::liteServer_query::ID),
+                            std::make_unique<Cb>(actor_id(this)));
+
+    if (lite_server_.empty()) {
+      pending_ext_ids_.push_back(id);
+    } else {
+      td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_local_id, id);
+    }
+  }
+}
+
+void ValidatorManagerImpl::add_ext_server_port(td::uint16 port) {
+  if (offline_) {
+    UNREACHABLE();
+  } else {
+    if (lite_server_.empty()) {
+      pending_ext_ports_.push_back(port);
+    } else {
+      td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port);
+    }
+  }
 }
 
 void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
@@ -688,7 +734,7 @@ void ValidatorManagerImpl::store_persistent_state_file(BlockIdExt block_id, Bloc
 }
 
 void ValidatorManagerImpl::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                           std::function<td::Status(td::FileFd&)> write_data,
+                                                           std::function<td::Status(td::FileFd &)> write_data,
                                                            td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_persistent_state_file_gen, block_id, masterchain_block_id,
                           std::move(write_data), std::move(promise));
@@ -908,7 +954,75 @@ void ValidatorManagerImpl::start_up() {
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok());
   });
 
+  if (!offline_) {
+    auto Q =
+        td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::actor::ActorOwn<adnl::AdnlExtServer>> R) {
+          R.ensure();
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::created_ext_server, R.move_as_ok());
+        });
+    td::actor::send_closure(adnl_, &adnl::Adnl::create_ext_server, std::vector<adnl::AdnlNodeIdShort>{},
+                            std::vector<td::uint16>{}, std::move(Q));
+
+    lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
+  }
+
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P), read_only_);
+}
+
+void ValidatorManagerImpl::created_ext_server(td::actor::ActorOwn<adnl::AdnlExtServer> server) {
+  if (offline_) {
+    UNREACHABLE();
+  } else {
+    lite_server_ = std::move(server);
+    for (auto &id : pending_ext_ids_) {
+      td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_local_id, id);
+    }
+    for (auto port : pending_ext_ports_) {
+      td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port);
+    }
+    pending_ext_ids_.clear();
+    pending_ext_ports_.clear();
+  }
+}
+
+void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+  if (offline_){
+    UNREACHABLE();
+  } else {
+    if (!started_) {
+      promise.set_error(td::Status::Error(ErrorCode::notready, "node not synced"));
+      return;
+    }
+    auto F = fetch_tl_object<lite_api::liteServer_query>(data.clone(), true);
+    if (F.is_ok()) {
+      data = std::move(F.move_as_ok()->data_);
+    } else {
+      auto G = fetch_tl_prefix<lite_api::liteServer_queryPrefix>(data, true);
+      if (G.is_error()) {
+        promise.set_error(G.move_as_error());
+        return;
+      }
+    }
+
+    auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+      td::BufferSlice data;
+      if (R.is_error()) {
+        auto S = R.move_as_error();
+        data = create_serialize_tl_object<lite_api::liteServer_error>(S.code(), S.message().c_str());
+      } else {
+        data = R.move_as_ok();
+      }
+      promise.set_value(std::move(data));
+    });
+
+    auto E = fetch_tl_prefix<lite_api::liteServer_waitMasterchainSeqno>(data, true);
+    if (E.is_error()) {
+      run_liteserver_query(std::move(data), actor_id(this), lite_server_cache_.get(), std::move(P));
+    } else {
+      promise.set_error(td::Status::Error(ErrorCode::notready, "not supported yet ;)"));
+      return;
+    }
+  }
 }
 
 void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
@@ -984,6 +1098,15 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerDiskFactory::crea
     std::string db_root, bool read_only_) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", id, std::move(opts), shard,
                                                                   shard_top_block_id, db_root, read_only_);
+}
+
+td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerDiskFactory::create(
+    PublicKeyHash id, td::Ref<ValidatorManagerOptions> opts, ShardIdFull shard, BlockIdExt shard_top_block_id,
+    std::string db_root, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, bool read_only_) {
+  return td::actor::create_actor<validator::ValidatorManagerImpl>(
+      "manager", id, std::move(opts), shard, shard_top_block_id, db_root, std::move(keyring), std::move(adnl),
+      std::move(rldp), std::move(overlays), read_only_);
 }
 
 }  // namespace validator

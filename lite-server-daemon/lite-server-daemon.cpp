@@ -61,6 +61,16 @@ class LiteServerDaemon : public td::actor::Actor {
 
   void sync_complete(const ton::validator::BlockHandle &handle) {
     LOG(WARNING) << "Sync complete: " << handle->id().to_str();
+
+    // Start LightServers
+    for (auto &s : config_.liteservers) {
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[s.second]},
+                              ton::adnl::AdnlAddressList{}, static_cast<td::uint8>(255));
+      td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_ext_server_id,
+                              ton::adnl::AdnlNodeIdShort{s.second});
+      td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_ext_server_port,
+                              static_cast<td::uint16>(s.first));
+    }
   }
 
  private:
@@ -80,6 +90,7 @@ class LiteServerDaemon : public td::actor::Actor {
   td::actor::ActorOwn<adnl::Adnl> adnl_;
   td::Ref<ton::validator::ValidatorManagerOptions> opts_;
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager_;
   td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
@@ -92,8 +103,8 @@ class LiteServerDaemon : public td::actor::Actor {
         ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()};
 
     auto id = ton::PublicKeyHash::zero();
-    validator_manager_ =
-        ton::validator::ValidatorManagerDiskFactory::create(id, opts_, shard, shard_top, db_root_, true);
+    validator_manager_ = ton::validator::ValidatorManagerDiskFactory::create(
+        id, opts_, shard, shard_top, db_root_, keyring_.get(), adnl_.get(), rldp_.get(), overlay_manager_.get(), true);
 
     class Callback : public ton::validator::ValidatorManagerInterface::Callback {
      public:
@@ -159,7 +170,6 @@ class LiteServerDaemon : public td::actor::Actor {
     td::actor::send_closure(adnl_network_manager_, &adnl::AdnlNetworkManager::add_self_addr, config_.addr_,
                             std::move(cat_mask), 0);
 
-
     // Start ADNL
     adnl::AdnlAddressList addr_list;
     addr_list.add_udp_address(config_.addr_).ensure();
@@ -175,7 +185,8 @@ class LiteServerDaemon : public td::actor::Actor {
 
     // Start DHT
     for (auto &dht : config_.dht_ids) {
-      auto D = ton::dht::Dht::create(ton::adnl::AdnlNodeIdShort{dht}, db_root_, dht_config_, keyring_.get(), adnl_.get());
+      auto D =
+          ton::dht::Dht::create(ton::adnl::AdnlNodeIdShort{dht}, db_root_, dht_config_, keyring_.get(), adnl_.get());
       D.ensure();
 
       dht_nodes_[dht] = D.move_as_ok();
@@ -184,8 +195,17 @@ class LiteServerDaemon : public td::actor::Actor {
       }
     }
 
+    // Start RLDP
     rldp_ = ton::rldp::Rldp::create(adnl_.get());
     rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
+
+    if (default_dht_node_.is_zero()) {
+      LOG(ERROR) << "Config broken, no DHT";
+      std::_Exit(2);
+    }
+    // Start Overlay
+    overlay_manager_ =
+        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
 
     init_validator_engine();
   }
@@ -237,7 +257,6 @@ class LiteServerDaemon : public td::actor::Actor {
       auto ls_id = ls_pk.compute_short_id();
       td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(ls_pk), false, [](td::Unit) {});
       config.config_add_lite_server(ls_id, ls_port).ensure();
-
 
       auto ss = td::json_encode<std::string>(td::ToJson(*config.tl().get()), true);
 

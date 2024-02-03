@@ -24,6 +24,7 @@
 #include "manager-init.h"
 #include "manager-disk.h"
 #include "queue-size-counter.hpp"
+#include "auto/tl/lite_api.h"
 
 #include <map>
 #include <set>
@@ -131,12 +132,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
 
-  void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
-    UNREACHABLE();
-  }
-  void add_ext_server_port(td::uint16 port) override {
-    UNREACHABLE();
-  }
+  void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
+  void add_ext_server_port(td::uint16 port) override;
 
   void get_block_handle(BlockIdExt id, bool force, td::Promise<BlockHandle> promise) override;
 
@@ -303,15 +300,30 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_vertical_seqno(BlockSeqno seqno, td::Promise<td::uint32> promise) override {
     promise.set_result(opts_->get_vertical_seqno(seqno));
   }
-  void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
-    UNREACHABLE();
-  }
+  void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
 
   ValidatorManagerImpl(PublicKeyHash local_id, td::Ref<ValidatorManagerOptions> opts, ShardIdFull shard_id,
                        BlockIdExt shard_to_block_id, std::string db_root, bool read_only = false)
       : local_id_(local_id)
       , opts_(std::move(opts))
       , read_only_(read_only)
+      , db_root_(db_root)
+      , shard_to_generate_(shard_id)
+      , block_to_generate_(shard_to_block_id) {
+  }
+
+  ValidatorManagerImpl(PublicKeyHash local_id, td::Ref<ValidatorManagerOptions> opts, ShardIdFull shard_id,
+                       BlockIdExt shard_to_block_id, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
+                       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+                       td::actor::ActorId<overlay::Overlays> overlays, bool read_only = false)
+      : local_id_(local_id)
+      , opts_(std::move(opts))
+      , read_only_(read_only)
+      , offline_(false)
+      , keyring_(keyring)
+      , adnl_(adnl)
+      , rldp_(rldp)
+      , overlays_(overlays)
       , db_root_(db_root)
       , shard_to_generate_(shard_id)
       , block_to_generate_(shard_to_block_id) {
@@ -411,6 +423,19 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockIdExt last_masterchain_block_id_;
   BlockHandle last_masterchain_block_handle_;
   bool read_only_ = false;
+  bool offline_ = true;
+
+  void created_ext_server(td::actor::ActorOwn<adnl::AdnlExtServer> lite_server);
+
+  td::actor::ActorOwn<adnl::AdnlExtServer> lite_server_;
+  td::actor::ActorOwn<LiteServerCache> lite_server_cache_;
+  std::vector<td::uint16> pending_ext_ports_;
+  std::vector<adnl::AdnlNodeIdShort> pending_ext_ids_;
+
+  td::actor::ActorId<keyring::Keyring> keyring_;
+  td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<overlay::Overlays> overlays_;
 
   std::string db_root_;
   ShardIdFull shard_to_generate_;
