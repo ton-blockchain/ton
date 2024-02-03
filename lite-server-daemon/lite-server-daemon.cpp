@@ -151,7 +151,7 @@ class LiteServerDaemon : public td::actor::Actor {
 
   void init_network() {
     adnl_network_manager_ = adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config_.addr_.get_port()));
-    adnl_ = adnl::Adnl::create(db_root_, keyring_.get());
+    adnl_ = adnl::Adnl::create("", keyring_.get());
     td::actor::send_closure(adnl_, &adnl::Adnl::register_network_manager, adnl_network_manager_.get());
     adnl::AdnlCategoryMask cat_mask;
     cat_mask[0] = true;
