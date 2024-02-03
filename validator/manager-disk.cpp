@@ -74,6 +74,7 @@ void ValidatorManagerImpl::add_ext_server_id(adnl::AdnlNodeIdShort id) {
       }
       void receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                          td::Promise<td::BufferSlice> promise) override {
+        LOG(INFO) << "Receive LiteServer request, src: " << src.pubkey_hash();
         td::actor::send_closure(id_, &ValidatorManagerImpl::run_ext_query, std::move(data), std::move(promise));
       }
 
@@ -986,7 +987,7 @@ void ValidatorManagerImpl::created_ext_server(td::actor::ActorOwn<adnl::AdnlExtS
 }
 
 void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
-  if (offline_){
+  if (offline_) {
     UNREACHABLE();
   } else {
     auto F = fetch_tl_object<lite_api::liteServer_query>(data.clone(), true);
