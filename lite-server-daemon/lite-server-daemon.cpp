@@ -47,6 +47,15 @@ class LiteServerDaemon : public td::actor::Actor {
   void start_up() override {
     LOG(WARNING) << "Start lite-server daemon";
     keyring_ = ton::keyring::Keyring::create(db_root_ + "/keyring");
+
+    auto Sr = create_validator_options();
+    if (Sr.is_error()) {
+      LOG(ERROR) << "failed to load global config'" << global_config_ << "': " << Sr;
+      std::_Exit(2);
+    } else {
+      LOG(DEBUG) << "Global config loaded successfully from " << global_config_;
+    }
+
     load_config();
   }
 
@@ -61,6 +70,9 @@ class LiteServerDaemon : public td::actor::Actor {
   std::string global_config_;
   ton::liteserver::Config config_;
 
+  ton::adnl::AdnlNodesList adnl_static_nodes_;
+  std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
+  std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
   std::map<ton::PublicKeyHash, ton::PublicKey> keys_;
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorOwn<keyring::Keyring> keyring_;
@@ -68,18 +80,12 @@ class LiteServerDaemon : public td::actor::Actor {
   td::actor::ActorOwn<adnl::Adnl> adnl_;
   td::Ref<ton::validator::ValidatorManagerOptions> opts_;
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
+  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
 
   int to_load_keys = 0;
 
   void init_validator_engine() {
-    auto Sr = create_validator_options();
-    if (Sr.is_error()) {
-      LOG(ERROR) << "failed to load global config'" << global_config_ << "': " << Sr;
-      std::_Exit(2);
-    } else {
-      LOG(DEBUG) << "Global config loaded successfully from " << global_config_;
-    }
-
     auto shard = ton::ShardIdFull(ton::masterchainId, ton::shardIdAll);
     auto shard_top =
         ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()};
@@ -152,11 +158,8 @@ class LiteServerDaemon : public td::actor::Actor {
     td::actor::send_closure(adnl_network_manager_, &adnl::AdnlNetworkManager::add_self_addr, config_.addr_,
                             std::move(cat_mask), 0);
 
-    if (config_.adnl_ids.size() != 1) {
-      LOG(ERROR) << "Unsupported ADNL IDs, must be 1";
-      std::_Exit(2);
-    }
 
+    // Start ADNL
     adnl::AdnlAddressList addr_list;
     addr_list.add_udp_address(config_.addr_).ensure();
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
@@ -167,6 +170,10 @@ class LiteServerDaemon : public td::actor::Actor {
       local_id_ = local_id_full.compute_short_id();
       td::actor::send_closure(adnl_, &adnl::Adnl::add_id, local_id_full, addr_list, static_cast<td::uint8>(0));
     }
+    td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
+
+    rldp_ = ton::rldp::Rldp::create(adnl_.get());
+    rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
 
     init_validator_engine();
   }
@@ -185,6 +192,8 @@ class LiteServerDaemon : public td::actor::Actor {
       for (auto &[t, e] : config_.liteservers) {
         LOG(WARNING) << "LiteServer port: " << t << " pub: " << keys_[e].ed25519_value().raw().to_hex();
       }
+
+      td::actor::send_closure(actor_id(this), &LiteServerDaemon::init_network);
     }
   }
 
@@ -271,6 +280,15 @@ class LiteServerDaemon : public td::actor::Actor {
 
     ton::ton_api::config_global conf;
     TRY_STATUS_PREFIX(ton::ton_api::from_json(conf, conf_json.get_object()), "json does not fit TL scheme: ");
+
+    if (conf.adnl_) {
+      if (conf.adnl_->static_nodes_) {
+        TRY_RESULT_PREFIX_ASSIGN(adnl_static_nodes_, ton::adnl::AdnlNodesList::create(conf.adnl_->static_nodes_),
+                                 "bad static adnl nodes: ");
+      }
+    }
+    TRY_RESULT_PREFIX(dht, ton::dht::Dht::create_global_config(std::move(conf.dht_)), "bad [dht] section: ");
+    dht_config_ = std::move(dht);
 
     auto zero_state = ton::create_block_id(conf.validator_->zero_state_);
     ton::BlockIdExt init_block;
