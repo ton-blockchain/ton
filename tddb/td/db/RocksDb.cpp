@@ -116,6 +116,10 @@ std::string RocksDb::stats() const {
 }
 
 Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
+  if (read_only_) {
+    db_->TryCatchUpWithPrimary();
+  }
+
   //LOG(ERROR) << "GET";
   rocksdb::Status status;
   if (snapshot_) {
@@ -235,7 +239,8 @@ Status RocksDb::end_snapshot() {
   return td::Status::OK();
 }
 
-RocksDb::RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, std::shared_ptr<rocksdb::Statistics> statistics)
-    : db_(std::move(db)), statistics_(std::move(statistics)) {
+RocksDb::RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, std::shared_ptr<rocksdb::Statistics> statistics,
+                 bool read_only)
+    : db_(std::move(db)), statistics_(std::move(statistics)), read_only_(read_only) {
 }
 }  // namespace td
