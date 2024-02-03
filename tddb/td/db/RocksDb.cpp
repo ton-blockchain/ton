@@ -98,7 +98,7 @@ Result<RocksDb> RocksDb::open(std::string path, bool read_only) {
     // default column family
     delete handles[0];
   }
-  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(statistics));
+  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(statistics), read_only);
 }
 
 std::unique_ptr<KeyValueReader> RocksDb::snapshot() {
@@ -117,10 +117,11 @@ std::string RocksDb::stats() const {
 
 Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
   if (read_only_) {
-    db_->TryCatchUpWithPrimary();
+    if (!last_catch_timeout_ || last_catch_timeout_.is_in_past()) {
+      db_->TryCatchUpWithPrimary();
+      last_catch_timeout_ = td::Timestamp::at(1.0);
+    }
   }
-
-  //LOG(ERROR) << "GET";
   rocksdb::Status status;
   if (snapshot_) {
     rocksdb::ReadOptions options;

@@ -105,6 +105,7 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   void truncated_db();
   void got_prev_key_block_handle(BlockHandle handle);
   void truncated();
+  void rerun_get_shard_state();
   void truncate_shard_next(BlockIdExt block_id, td::Promise<td::Unit> promise);
   void truncated_next();
   void written_next();

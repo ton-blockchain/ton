@@ -37,11 +37,13 @@ class CellDbAsyncExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
   void execute_async(std::function<void()> f) override {
     class Runner : public td::actor::Actor {
      public:
-      explicit Runner(std::function<void()> f) : f_(std::move(f)) {}
+      explicit Runner(std::function<void()> f) : f_(std::move(f)) {
+      }
       void start_up() override {
         f_();
         stop();
       }
+
      private:
       std::function<void()> f_;
     };
@@ -51,6 +53,7 @@ class CellDbAsyncExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
   void execute_sync(std::function<void()> f) override {
     td::actor::send_closure(cell_db_, &CellDbBase::execute_sync, std::move(f));
   }
+
  private:
   td::actor::ActorId<CellDbBase> cell_db_;
 };
@@ -167,7 +170,13 @@ void CellDbIn::alarm() {
     migration_stats_ = {};
   }
   auto E = get_block(get_empty_key_hash()).move_as_ok();
-  auto N = get_block(E.next).move_as_ok();
+  auto x = get_block(E.next);
+  if (x.is_error()) {
+    alarm_timestamp() = td::Timestamp::in(0.1);
+    return;
+  }
+
+  auto N = x.move_as_ok();
   if (N.is_empty()) {
     alarm_timestamp() = td::Timestamp::in(0.1);
     return;
@@ -322,7 +331,7 @@ void CellDbIn::migrate_cells() {
   boc_->set_loader(std::make_unique<vm::CellLoader>(*loader)).ensure();
   cell_db_->begin_write_batch().ensure();
   td::uint32 checked = 0, migrated = 0;
-  for (auto it = cells_to_migrate_.begin(); it != cells_to_migrate_.end() && checked < 128; ) {
+  for (auto it = cells_to_migrate_.begin(); it != cells_to_migrate_.end() && checked < 128;) {
     ++checked;
     td::Bits256 hash = *it;
     it = cells_to_migrate_.erase(it);

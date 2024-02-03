@@ -343,15 +343,29 @@ void ValidatorManagerMasterchainStarter::got_init_block_handle(BlockHandle handl
   }
   LOG_CHECK(handle_->received_state()) << "block_id=" << handle_->id();
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_init_block_state,
-                            td::Ref<MasterchainState>{R.move_as_ok()});
-  });
+  td::actor::send_closure(actor_id(this), &ValidatorManagerMasterchainStarter::rerun_get_shard_state);
+}
+void ValidatorManagerMasterchainStarter::rerun_get_shard_state() {
+  auto P =
+      td::PromiseCreator::lambda([SelfId = actor_id(this), readonly = read_only_](td::Result<td::Ref<ShardState>> R) {
+        if (R.is_error() && readonly) {
+          // Wait till shard load to cell db
+          LOG(WARNING) << "Rotate shards, not found, try again";
+          delay_action(
+              [SelfId]() mutable {
+                td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::rerun_get_shard_state);
+              },
+              td::Timestamp::in(0.1));
+          return;
+        } else {
+          R.ensure();
+          td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_init_block_state,
+                                  td::Ref<MasterchainState>{R.move_as_ok()});
+        }
+      });
 
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle_, std::move(P));
 }
-
 void ValidatorManagerMasterchainStarter::got_init_block_state(td::Ref<MasterchainState> state) {
   state_ = std::move(state);
   CHECK(state_->get_block_id() == opts_->init_block_id() || state_->ancestor_is_valid(opts_->init_block_id()) ||

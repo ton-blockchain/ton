@@ -285,7 +285,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void finished_wait_data(BlockIdExt id, td::Result<td::Ref<BlockData>> R);
 
   void start_up() override;
-  void started(ValidatorManagerInitResult result);
+  void started(ValidatorManagerInitResult result, bool reinited=false);
 
   void write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
                   td::Ref<ValidatorSet> val_set);

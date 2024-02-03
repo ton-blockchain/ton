@@ -956,7 +956,7 @@ void ValidatorManagerImpl::start_up() {
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok());
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok(), false);
   });
 
   if (!offline_) {
@@ -981,7 +981,8 @@ void ValidatorManagerImpl::start_up() {
 void ValidatorManagerImpl::reinit() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
     R.ensure();
-    LOG(INFO) << "Reinited: " << R.move_as_ok().handle->id();
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok(), true);
+
     delay_action([SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::reinit); },
                  td::Timestamp::in(1.0));
   });
@@ -1041,7 +1042,7 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
   }
 }
 
-void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
+void ValidatorManagerImpl::started(ValidatorManagerInitResult R, bool reinited) {
   LOG(DEBUG) << "started()";
   last_masterchain_block_handle_ = std::move(R.handle);
   last_masterchain_block_id_ = last_masterchain_block_handle_->id();
@@ -1050,7 +1051,11 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
 
   //new_masterchain_block();
 
-  callback_->initial_read_complete(last_masterchain_block_handle_);
+  if (!reinited) {
+    callback_->initial_read_complete(last_masterchain_block_handle_);
+  } else {
+    LOG(INFO) << "Reinited with: " << last_masterchain_block_id_;
+  }
 }
 
 void ValidatorManagerImpl::update_shards() {
