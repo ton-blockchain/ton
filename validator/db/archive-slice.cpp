@@ -447,7 +447,7 @@ void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::
 void ArchiveSlice::start_up() {
   PackageId p_id{archive_id_, key_blocks_only_, temp_};
   std::string db_path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".index";
-  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path).move_as_ok());
+  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path, read_only_).move_as_ok());
 
   std::string value;
   auto R2 = kv_->get("status", value);
@@ -536,11 +536,12 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   }
 }
 
-ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root)
+ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root, bool read_only)
     : archive_id_(archive_id)
     , key_blocks_only_(key_blocks_only)
     , temp_(temp)
     , finalized_(finalized)
+    , read_only_(read_only)
     , db_root_(std::move(db_root)) {
 }
 

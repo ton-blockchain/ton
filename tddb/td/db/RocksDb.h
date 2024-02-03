@@ -38,7 +38,7 @@ class RocksDb : public KeyValue {
  public:
   static Status destroy(Slice path);
   RocksDb clone() const;
-  static Result<RocksDb> open(std::string path);
+  static Result<RocksDb> open(std::string path, bool read_only=false);
 
   Result<GetStatus> get(Slice key, std::string &value) override;
   Status set(Slice key, Slice value) override;

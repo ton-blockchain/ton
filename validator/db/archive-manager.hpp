@@ -28,7 +28,7 @@ class RootDb;
 
 class ArchiveManager : public td::actor::Actor {
  public:
-  ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root);
+  ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root, bool read_only = false);
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
@@ -206,6 +206,7 @@ class ArchiveManager : public td::actor::Actor {
   void got_gc_masterchain_handle(ConstBlockHandle handle, FileHash hash);
 
   std::string db_root_;
+  bool read_only_;
 
   std::shared_ptr<td::KeyValue> index_;
 

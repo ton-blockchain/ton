@@ -30,11 +30,13 @@ class RootDb;
 class StaticFilesDb : public td::actor::Actor {
  public:
   void load_file(FileHash file_hash, td::Promise<td::BufferSlice> promise);
-  StaticFilesDb(td::actor::ActorId<RootDb> root_db, std::string path) : root_db_(root_db), path_(path) {
+  StaticFilesDb(td::actor::ActorId<RootDb> root_db, std::string path, bool read_only = false)
+      : root_db_(root_db), path_(path), read_only_(read_only) {
   }
 
  private:
   td::actor::ActorId<RootDb> root_db_;
+  bool read_only_;
   std::string path_;
 };
 

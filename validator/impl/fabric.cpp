@@ -40,8 +40,8 @@ namespace ton {
 namespace validator {
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
-                                        td::Ref<ValidatorManagerOptions> opts) {
-  return td::actor::create_actor<RootDb>("db", manager, db_root_, opts);
+                                        td::Ref<ValidatorManagerOptions> opts, bool read_only) {
+  return td::actor::create_actor<RootDb>("db", manager, db_root_, opts, read_only);
 }
 
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,

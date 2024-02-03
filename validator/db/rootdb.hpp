@@ -36,8 +36,8 @@ class RootDb : public Db {
  public:
   enum class Flags : td::uint32 { f_started = 1, f_ready = 2, f_switched = 4, f_archived = 8 };
   RootDb(td::actor::ActorId<ValidatorManager> validator_manager, std::string root_path,
-         td::Ref<ValidatorManagerOptions> opts)
-      : validator_manager_(validator_manager), root_path_(std::move(root_path)), opts_(opts) {
+         td::Ref<ValidatorManagerOptions> opts, bool read_only = false)
+      : validator_manager_(validator_manager), root_path_(std::move(root_path)), read_only_(read_only), opts_(opts) {
   }
 
   void start_up() override;
@@ -140,6 +140,7 @@ class RootDb : public Db {
   td::actor::ActorId<ValidatorManager> validator_manager_;
 
   std::string root_path_;
+  bool read_only_ = false;
   td::Ref<ValidatorManagerOptions> opts_;
 
   td::actor::ActorOwn<CellDb> cell_db_;

@@ -901,7 +901,7 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
 }
 
 void ValidatorManagerImpl::start_up() {
-  db_ = create_db_actor(actor_id(this), db_root_, opts_);
+  db_ = create_db_actor(actor_id(this), db_root_, opts_, read_only_);
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
     R.ensure();
@@ -981,7 +981,7 @@ void ValidatorManagerImpl::try_get_static_file(FileHash file_hash, td::Promise<t
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerDiskFactory::create(
     PublicKeyHash id, td::Ref<ValidatorManagerOptions> opts, ShardIdFull shard, BlockIdExt shard_top_block_id,
-    std::string db_root) {
+    std::string db_root, bool read_only_) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", id, std::move(opts), shard,
                                                                   shard_top_block_id, db_root);
 }

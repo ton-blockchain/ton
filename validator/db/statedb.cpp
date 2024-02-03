@@ -217,11 +217,12 @@ void StateDb::get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) {
   promise.set_value(std::move(vec));
 }
 
-StateDb::StateDb(td::actor::ActorId<RootDb> root_db, std::string db_path) : root_db_(root_db), db_path_(db_path) {
+StateDb::StateDb(td::actor::ActorId<RootDb> root_db, std::string db_path, bool read_only)
+    : root_db_(root_db), read_only_(read_only), db_path_(db_path) {
 }
 
 void StateDb::start_up() {
-  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path_).move_as_ok());
+  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path_, read_only_).move_as_ok());
 
   std::string value;
   auto R = kv_->get(create_serialize_tl_object<ton_api::db_state_key_dbVersion>(), value);

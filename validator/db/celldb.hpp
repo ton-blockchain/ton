@@ -57,7 +57,7 @@ class CellDbIn : public CellDbBase {
   void migrate_cell(td::Bits256 hash);
 
   CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
-           td::Ref<ValidatorManagerOptions> opts);
+           td::Ref<ValidatorManagerOptions> opts, bool read_only=false);
 
   void start_up() override;
   void alarm() override;
@@ -100,6 +100,7 @@ class CellDbIn : public CellDbBase {
 
   std::string path_;
   td::Ref<ValidatorManagerOptions> opts_;
+  bool read_only_ = false;
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
@@ -143,8 +144,8 @@ class CellDb : public CellDbBase {
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
 
-  CellDb(td::actor::ActorId<RootDb> root_db, std::string path, td::Ref<ValidatorManagerOptions> opts)
-      : root_db_(root_db), path_(path), opts_(opts) {
+  CellDb(td::actor::ActorId<RootDb> root_db, std::string path, td::Ref<ValidatorManagerOptions> opts, bool read_only=false)
+      : root_db_(root_db), path_(path), opts_(opts), read_only_(read_only)  {
   }
 
   void start_up() override;
@@ -153,6 +154,7 @@ class CellDb : public CellDbBase {
   td::actor::ActorId<RootDb> root_db_;
   std::string path_;
   td::Ref<ValidatorManagerOptions> opts_;
+  bool read_only_ = false;
 
   td::actor::ActorOwn<CellDbIn> cell_db_;
 

@@ -146,7 +146,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                    td::Promise<td::Unit> promise) override;
   void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                       std::function<td::Status(td::FileFd&)> write_data,
+                                       std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
@@ -308,9 +308,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   ValidatorManagerImpl(PublicKeyHash local_id, td::Ref<ValidatorManagerOptions> opts, ShardIdFull shard_id,
-                       BlockIdExt shard_to_block_id, std::string db_root)
+                       BlockIdExt shard_to_block_id, std::string db_root, bool read_only = false)
       : local_id_(local_id)
       , opts_(std::move(opts))
+      , read_only_(read_only)
       , db_root_(db_root)
       , shard_to_generate_(shard_id)
       , block_to_generate_(shard_to_block_id) {
@@ -409,6 +410,7 @@ class ValidatorManagerImpl : public ValidatorManager {
  private:
   BlockIdExt last_masterchain_block_id_;
   BlockHandle last_masterchain_block_handle_;
+  bool read_only_ = false;
 
   std::string db_root_;
   ShardIdFull shard_to_generate_;

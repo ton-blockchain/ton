@@ -55,7 +55,8 @@ std::string PackageId::name() const {
   }
 }
 
-ArchiveManager::ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root) : db_root_(db_root) {
+ArchiveManager::ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root, bool read_only)
+    : db_root_(db_root), read_only_(read_only) {
 }
 
 void ArchiveManager::add_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -337,27 +338,27 @@ void ArchiveManager::add_zero_state(BlockIdExt block_id, td::BufferSlice data, t
 void ArchiveManager::add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice data,
                                           td::Promise<td::Unit> promise) {
   auto create_writer = [&](std::string path, td::Promise<std::string> P) {
-    td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/",
-                                           std::move(path), std::move(data), std::move(P))
+    td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/", std::move(path), std::move(data),
+                                           std::move(P))
         .release();
   };
   add_persistent_state_impl(block_id, masterchain_block_id, std::move(promise), std::move(create_writer));
 }
 
 void ArchiveManager::add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                              std::function<td::Status(td::FileFd&)> write_state,
+                                              std::function<td::Status(td::FileFd &)> write_state,
                                               td::Promise<td::Unit> promise) {
   auto create_writer = [&](std::string path, td::Promise<std::string> P) {
-    td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/",
-                                           std::move(path), std::move(write_state), std::move(P))
+    td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/", std::move(path),
+                                           std::move(write_state), std::move(P))
         .release();
   };
   add_persistent_state_impl(block_id, masterchain_block_id, std::move(promise), std::move(create_writer));
 }
 
-void ArchiveManager::add_persistent_state_impl(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                               td::Promise<td::Unit> promise,
-                                               std::function<void(std::string, td::Promise<std::string>)> create_writer) {
+void ArchiveManager::add_persistent_state_impl(
+    BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise,
+    std::function<void(std::string, td::Promise<std::string>)> create_writer) {
   auto id = FileReference{fileref::PersistentState{block_id, masterchain_block_id}};
   auto hash = id.hash();
   if (perm_states_.find(hash) != perm_states_.end()) {
@@ -598,7 +599,7 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_);
+  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, read_only_);
 
   m.emplace(id, std::move(desc));
 }
@@ -631,7 +632,7 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
   FileDescription new_desc{id, false};
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
-  new_desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_);
+  new_desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, read_only_);
   const FileDescription &desc = f.emplace(id, std::move(new_desc));
   if (!id.temp) {
     update_desc(f, desc, shard, seqno, ts, lt);
@@ -820,7 +821,7 @@ void ArchiveManager::start_up() {
   td::mkdir(db_root_ + "/archive/states/").ensure();
   td::mkdir(db_root_ + "/files/").ensure();
   td::mkdir(db_root_ + "/files/packages/").ensure();
-  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex").move_as_ok());
+  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", read_only_).move_as_ok());
   std::string value;
   auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
   v.ensure();

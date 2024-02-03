@@ -28,7 +28,7 @@ class PackageWriter : public td::actor::Actor {
 
 class ArchiveFile : public td::actor::Actor {
  public:
-  ArchiveFile(std::string path, UnixTime ts) : path_(std::move(path)), ts_(ts) {
+  ArchiveFile(std::string path, UnixTime ts, bool read_only=false) : path_(std::move(path)), ts_(ts), read_only_(read_only) {
   }
   void start_up() override;
   void write(FileDb::RefId ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
@@ -46,6 +46,7 @@ class ArchiveFile : public td::actor::Actor {
 
   std::string path_;
   UnixTime ts_;
+  bool read_only_ = false;
 };
 
 class ArchiveManager : public td::actor::Actor {
