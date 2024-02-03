@@ -83,8 +83,8 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
  public:
   ValidatorManagerMasterchainStarter(td::Ref<ValidatorManagerOptions> opts,
                                      td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<Db> db,
-                                     td::Promise<ValidatorManagerInitResult> promise)
-      : opts_(std::move(opts)), manager_(manager), db_(db), promise_(std::move(promise)) {
+                                     td::Promise<ValidatorManagerInitResult> promise, bool read_only = false)
+      : opts_(std::move(opts)), manager_(manager), db_(db), promise_(std::move(promise)), read_only_(read_only) {
   }
 
   void start_up() override;
@@ -121,6 +121,7 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   td::Ref<MasterchainState> gc_state_;
   BlockHandle last_key_block_handle_;
   bool has_new_hardforks_{false};
+  bool read_only_ = false;
 
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<Db> db_;

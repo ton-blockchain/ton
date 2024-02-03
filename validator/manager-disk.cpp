@@ -908,7 +908,7 @@ void ValidatorManagerImpl::start_up() {
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok());
   });
 
-  validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
+  validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P), read_only_);
 }
 
 void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
