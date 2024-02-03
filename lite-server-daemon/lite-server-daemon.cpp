@@ -205,7 +205,7 @@ class LiteServerDaemon : public td::actor::Actor {
     }
     // Start Overlay
     overlay_manager_ =
-        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get(), "liteserver");
 
     init_validator_engine();
   }

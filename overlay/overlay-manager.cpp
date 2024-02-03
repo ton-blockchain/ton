@@ -161,7 +161,8 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
   }
   auto it2 = it->second.find(OverlayIdShort{M->overlay_});
   if (it2 == it->second.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << M->overlay_ << "@" << dst << " from " << src;
+    VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << M->overlay_ << "@" << dst << " from "
+                         << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << M->overlay_));
     return;
   }
@@ -175,7 +176,7 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
                                     td::BufferSlice query, td::uint64 max_answer_size,
                                     td::actor::ActorId<adnl::AdnlSenderInterface> via) {
   CHECK(query.size() <= adnl::Adnl::huge_packet_max_size());
-  
+
   auto it = overlays_.find(src);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
@@ -183,7 +184,7 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
       td::actor::send_closure(it2->second, &Overlay::update_throughput_out_ctr, dst, (td::uint32)query.size(), true);
     }
   }
-  
+
   td::actor::send_closure(
       via, &adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name), std::move(promise), timeout,
       create_serialize_tl_object_suffix<ton_api::overlay_query>(query.as_slice(), overlay_id.tl()), max_answer_size);
@@ -192,7 +193,7 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
 void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                                       td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) {
   CHECK(object.size() <= adnl::Adnl::huge_packet_max_size());
-  
+
   auto it = overlays_.find(src);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
@@ -200,7 +201,7 @@ void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeI
       td::actor::send_closure(it2->second, &Overlay::update_throughput_out_ctr, dst, (td::uint32)object.size(), false);
     }
   }
-  
+
   td::actor::send_closure(
       via, &adnl::AdnlSenderInterface::send_message, src, dst,
       create_serialize_tl_object_suffix<ton_api::overlay_message>(object.as_slice(), overlay_id.tl()));
@@ -274,18 +275,20 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht) {
-  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht);
+                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                               std::string prefix) {
+  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht, std::move(prefix));
 }
 
 OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht)
-    : db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
+                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                               std::string prefix)
+    : db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht), prefix_(prefix) {
 }
 
 void OverlayManager::start_up() {
-  std::shared_ptr<td::KeyValue> kv =
-      std::make_shared<td::RocksDb>(td::RocksDb::open(PSTRING() << db_root_ << "/overlays").move_as_ok());
+  std::shared_ptr<td::KeyValue> kv = std::make_shared<td::RocksDb>(
+      td::RocksDb::open(PSTRING() << db_root_ << "/" << prefix_ << "overlays").move_as_ok());
   db_ = DbType{std::move(kv)};
 }
 

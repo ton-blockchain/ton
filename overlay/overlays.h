@@ -108,7 +108,6 @@ class OverlayPrivacyRules {
   }
 
   BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) {
-
     auto it = authorized_keys_.find(hash);
     if (it == authorized_keys_.end()) {
       if (size > max_unath_size_) {
@@ -193,7 +192,8 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
+                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              std::string prefix = "");
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 
@@ -201,8 +201,8 @@ class Overlays : public td::actor::Actor {
                                      std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
                                      td::string scope) = 0;
   virtual void create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                         std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
-                                         td::string scope, OverlayOptions opts) = 0;
+                                        std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
+                                        OverlayOptions opts) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                       OverlayPrivacyRules rules) = 0;
