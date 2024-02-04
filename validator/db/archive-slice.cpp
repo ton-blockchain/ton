@@ -52,7 +52,7 @@ class PackageReader : public td::actor::Actor {
       //      auto s = package_->try_sync();
       //      if (s.is_ok()) {
       auto res = package_->read(offset_);
-      if (res.is_error() && num_try <= 10) {  // Can be not-ready
+      if (res.is_error() && num_try <= 30) {  // Can be not-ready
         num_try++;
         reinit();
       } else {
