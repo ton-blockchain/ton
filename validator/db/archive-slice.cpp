@@ -282,9 +282,6 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
         }
       });
 
-  if (read_only_) {
-    p->package->sync();
-  }
 
   td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P)).release();
 }
