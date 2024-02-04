@@ -281,6 +281,11 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
           promise.set_value(std::move(R.move_as_ok().second));
         }
       });
+
+  if (read_only_){
+    p->package->sync();
+  }
+
   td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P)).release();
 }
 
@@ -448,7 +453,10 @@ void ArchiveSlice::start_up() {
   PackageId p_id{archive_id_, key_blocks_only_, temp_};
   std::string db_path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".index";
   kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_path, read_only_).move_as_ok());
+  reinit();
+}
 
+void ArchiveSlice::reinit() {
   std::string value;
   auto R2 = kv_->get("status", value);
   R2.ensure();
@@ -578,7 +586,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
 void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 version) {
   PackageId p_id{seqno, key_blocks_only_, temp_};
   std::string path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".pack";
-  auto R = Package::open(path, false, true);
+  auto R = Package::open(path, read_only_, true);
   if (R.is_error()) {
     LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
     return;
@@ -780,7 +788,7 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handl
   auto pack = cutoff.move_as_ok();
   CHECK(pack);
 
-  auto pack_r = Package::open(pack->path + ".new", false, true);
+  auto pack_r = Package::open(pack->path + ".new", read_only_, true);
   pack_r.ensure();
   auto new_package = std::make_shared<Package>(pack_r.move_as_ok());
   new_package->truncate(0).ensure();

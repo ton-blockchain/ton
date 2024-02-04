@@ -99,6 +99,7 @@ class ArchiveSlice : public td::actor::Actor {
   void destroy(td::Promise<td::Unit> promise);
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
 
+  void reinit();
   void begin_transaction();
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);

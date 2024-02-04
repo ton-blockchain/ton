@@ -614,12 +614,12 @@ const ArchiveManager::FileDescription *ArchiveManager::get_file_desc(ShardIdFull
     if (it->second.deleted) {
       return nullptr;
     }
-    if ((force || read_only_) && !id.temp) {
+    if (force && !id.temp) {
       update_desc(f, it->second, shard, seqno, ts, lt);
     }
     return &it->second;
   }
-  if (!(force || read_only_)) {
+  if (!force) {
     return nullptr;
   }
 
