@@ -586,15 +586,26 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
       CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
       add_package(masterchain_seqno, 0, default_package_version());
 
+      return &packages_[v];
     } else {
-      if (num_try >= 100) {
-        num_try++;
-        LOG(WARNING) << "Reinit, can't find needed package, try: " << num_try;
-        reinit();
-        return choose_package(masterchain_seqno, force);
-      } else {
-        throw std::logic_error("Too much try of reinit");
+      auto max_val = masterchain_seqno - archive_id_ - (masterchain_seqno % slice_size_);
+      max_val /= slice_size_;
+      std::string value;
+
+      for (auto i = (unsigned int)packages_.size(); i <= max_val; i++) {
+        auto R2 = kv_->get(PSTRING() << "status." << i, value);
+        R2.ensure();
+        auto len = td::to_integer<td::uint64>(value);
+        R2 = kv_->get(PSTRING() << "version." << i, value);
+        R2.ensure();
+        td::uint32 ver = 0;
+        if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+          ver = td::to_integer<td::uint32>(value);
+        }
+        add_package(archive_id_ + slice_size_ * i, len, ver);
       }
+
+      return &packages_[max_val];
     }
     return &packages_[v];
   } else {
