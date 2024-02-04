@@ -36,6 +36,7 @@ class Package {
 
   td::uint64 append(std::string filename, td::Slice data, bool sync = true);
   void sync();
+  td::Status try_sync();
   td::uint64 size() const;
   td::Result<std::pair<std::string, td::BufferSlice>> read(td::uint64 offset) const;
 

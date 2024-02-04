@@ -41,16 +41,29 @@ void PackageWriter::append(std::string filename, td::BufferSlice data,
 class PackageReader : public td::actor::Actor {
  public:
   PackageReader(std::shared_ptr<Package> package, td::uint64 offset,
-                td::Promise<std::pair<std::string, td::BufferSlice>> promise)
-      : package_(std::move(package)), offset_(offset), promise_(std::move(promise)) {
+                td::Promise<std::pair<std::string, td::BufferSlice>> promise, bool read_only = false)
+      : package_(std::move(package)), read_only_(read_only), offset_(offset), promise_(std::move(promise)) {
   }
   void start_up() {
-    promise_.set_result(package_->read(offset_));
-    stop();
+    if (!read_only_) {
+      promise_.set_result(package_->read(offset_));
+      stop();
+    } else {
+      auto s = package_->try_sync();
+      if (s.is_ok()) {
+        promise_.set_result(package_->read(offset_));
+        stop();
+      } else {
+        LOG(ERROR) << "Error sync package, try one more time";
+        delay_action([SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &PackageReader::start_up); },
+                     td::Timestamp::in(0.1));
+      }
+    }
   }
 
  private:
   std::shared_ptr<Package> package_;
+  bool read_only_;
   td::uint64 offset_;
   td::Promise<std::pair<std::string, td::BufferSlice>> promise_;
 };
@@ -281,7 +294,6 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
           promise.set_value(std::move(R.move_as_ok().second));
         }
       });
-
 
   td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P)).release();
 }

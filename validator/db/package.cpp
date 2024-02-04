@@ -82,6 +82,10 @@ void Package::sync() {
   fd_.sync().ensure();
 }
 
+td::Status Package::try_sync() {
+  return fd_.sync();
+}
+
 td::uint64 Package::size() const {
   return fd_.get_size().move_as_ok() - header_size();
 }
