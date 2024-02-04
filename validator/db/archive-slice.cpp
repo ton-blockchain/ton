@@ -597,7 +597,7 @@ void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 ver
     return;
   }
   auto pack = std::make_shared<Package>(R.move_as_ok());
-  if (version >= 1) {
+  if (version >= 1 && !read_only_) {
     pack->truncate(size).ensure();
   }
   auto writer = td::actor::create_actor<PackageWriter>("writer", pack);
