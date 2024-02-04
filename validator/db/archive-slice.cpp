@@ -387,14 +387,14 @@ void ArchiveSlice::get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno
   return get_block_common(
       account_id,
       [seqno](ton_api::db_lt_desc_value &w) {
-        return seqno > static_cast<BlockSeqno>(w.last_seqno_)
-                   ? 1
-                   : seqno == static_cast<BlockSeqno>(w.last_seqno_) ? 0 : -1;
+        return seqno > static_cast<BlockSeqno>(w.last_seqno_)    ? 1
+               : seqno == static_cast<BlockSeqno>(w.last_seqno_) ? 0
+                                                                 : -1;
       },
       [seqno](ton_api::db_lt_el_value &w) {
-        return seqno > static_cast<BlockSeqno>(w.id_->seqno_)
-                   ? 1
-                   : seqno == static_cast<BlockSeqno>(w.id_->seqno_) ? 0 : -1;
+        return seqno > static_cast<BlockSeqno>(w.id_->seqno_)    ? 1
+               : seqno == static_cast<BlockSeqno>(w.id_->seqno_) ? 0
+                                                                 : -1;
       },
       true, std::move(promise));
 }
@@ -536,7 +536,8 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   }
 }
 
-ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root, bool read_only)
+ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root,
+                           bool read_only)
     : archive_id_(archive_id)
     , key_blocks_only_(key_blocks_only)
     , temp_(temp)
@@ -554,15 +555,18 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
   }
   auto v = (masterchain_seqno - archive_id_) / slice_size_;
   if (v >= packages_.size()) {
-    if (!force) {
-      return td::Status::Error(ErrorCode::notready, "too big masterchain seqno");
+    if (!read_only_) {
+      if (!force) {
+        return td::Status::Error(ErrorCode::notready, "too big masterchain seqno");
+      }
+      CHECK(v == packages_.size());
+      begin_transaction();
+      kv_->set("slices", td::to_string(v + 1)).ensure();
+      kv_->set(PSTRING() << "status." << v, "0").ensure();
+      kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
+      commit_transaction();
     }
-    CHECK(v == packages_.size());
-    begin_transaction();
-    kv_->set("slices", td::to_string(v + 1)).ensure();
-    kv_->set(PSTRING() << "status." << v, "0").ensure();
-    kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
-    commit_transaction();
+
     CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
     add_package(masterchain_seqno, 0, default_package_version());
     return &packages_[v];
