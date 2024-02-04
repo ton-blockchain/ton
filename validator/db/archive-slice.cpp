@@ -44,26 +44,43 @@ class PackageReader : public td::actor::Actor {
                 td::Promise<std::pair<std::string, td::BufferSlice>> promise, bool read_only = false)
       : package_(std::move(package)), read_only_(read_only), offset_(offset), promise_(std::move(promise)) {
   }
-  void start_up() {
+  void start_up() override {
     if (!read_only_) {
       promise_.set_result(package_->read(offset_));
       stop();
     } else {
-      auto s = package_->try_sync();
-      if (s.is_ok()) {
-        promise_.set_result(package_->read(offset_));
-        stop();
+      //      auto s = package_->try_sync();
+      //      if (s.is_ok()) {
+      auto res = package_->read(offset_);
+      if (res.is_error() && num_try <= 10) {  // Can be not-ready
+        num_try++;
+        reinit();
       } else {
-        LOG(ERROR) << "Error sync package, try one more time";
-        delay_action([SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &PackageReader::start_up); },
-                     td::Timestamp::in(0.1));
+        promise_.set_result(std::move(res));
+        stop();
       }
     }
+    //    else {
+    //      if (num_try <= 10) {
+    //        num_try++;
+    //        reinit();
+    //        LOG(ERROR) << "Error sync package, try one more time";
+    //      } else {
+    //        promise_.set_error(td::Status::Error(ErrorCode::notready));
+    //      }
+    //    }
+    //    }
+  }
+
+  void reinit() {
+    delay_action([SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &PackageReader::start_up); },
+                 td::Timestamp::in(0.1));
   }
 
  private:
   std::shared_ptr<Package> package_;
   bool read_only_;
+  int num_try = 0;
   td::uint64 offset_;
   td::Promise<std::pair<std::string, td::BufferSlice>> promise_;
 };
