@@ -49,27 +49,26 @@ class PackageReader : public td::actor::Actor {
       promise_.set_result(package_->read(offset_));
       stop();
     } else {
-      //      auto s = package_->try_sync();
-      //      if (s.is_ok()) {
-      auto res = package_->read(offset_);
-      if (res.is_error() && num_try <= 30) {  // Can be not-ready
-        num_try++;
-        reinit();
+      auto s = package_->try_sync();
+      if (s.is_ok()) {
+        auto res = package_->read(offset_);
+        if (res.is_error() && num_try <= 40) {  // Can be not-ready
+          num_try++;
+          reinit();
+        } else {
+          promise_.set_result(std::move(res));
+          stop();
+        }
       } else {
-        promise_.set_result(std::move(res));
-        stop();
+        if (num_try <= 40) {
+          num_try++;
+          reinit();
+          LOG(ERROR) << "Error sync package, try one more time";
+        } else {
+          promise_.set_error(td::Status::Error(ErrorCode::notready));
+        }
       }
     }
-    //    else {
-    //      if (num_try <= 10) {
-    //        num_try++;
-    //        reinit();
-    //        LOG(ERROR) << "Error sync package, try one more time";
-    //      } else {
-    //        promise_.set_error(td::Status::Error(ErrorCode::notready));
-    //      }
-    //    }
-    //    }
   }
 
   void reinit() {
@@ -619,7 +618,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
         if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
           ver = td::to_integer<td::uint32>(value);
         }
-        add_package(archive_id_ + slice_size_ * i, len, ver);
+        add_package(archive_id_ + slice_size_ * i, 0, ver);
       }
 
       return &packages_[max_val];
