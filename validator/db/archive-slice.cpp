@@ -584,12 +584,18 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
       commit_transaction();
 
       CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
-    } else {
-      // Fix package ID
-      masterchain_seqno -= (masterchain_seqno - archive_id_) % slice_size_;
-    }
+      add_package(masterchain_seqno, 0, default_package_version());
 
-    add_package(masterchain_seqno, 0, default_package_version());
+    } else {
+      if (num_try >= 100) {
+        num_try++;
+        LOG(WARNING) << "Reinit, can't find needed package, try: " << num_try;
+        reinit();
+        return choose_package(masterchain_seqno, force);
+      } else {
+        throw std::logic_error("Too much try of reinit");
+      }
+    }
     return &packages_[v];
   } else {
     return &packages_[v];

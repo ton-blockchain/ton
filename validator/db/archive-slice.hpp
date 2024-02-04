@@ -128,6 +128,7 @@ class ArchiveSlice : public td::actor::Actor {
   bool sliced_mode_{false};
   td::uint32 huge_transaction_size_ = 0;
   td::uint32 slice_size_{100};
+  td::uint32 num_try = 0;
 
   std::string db_root_;
   std::shared_ptr<td::KeyValue> kv_;
