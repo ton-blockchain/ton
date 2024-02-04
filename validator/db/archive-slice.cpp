@@ -563,17 +563,23 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
   }
   auto v = (masterchain_seqno - archive_id_) / slice_size_;
   if (v >= packages_.size()) {
-    if (!force) {
-      return td::Status::Error(ErrorCode::notready, "too big masterchain seqno");
-    }
-    CHECK(v == packages_.size());
-    begin_transaction();
-    kv_->set("slices", td::to_string(v + 1)).ensure();
-    kv_->set(PSTRING() << "status." << v, "0").ensure();
-    kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
-    commit_transaction();
+    if (!read_only_) {
+      if (!force) {
+        return td::Status::Error(ErrorCode::notready, "too big masterchain seqno");
+      }
+      CHECK(v == packages_.size());
+      begin_transaction();
+      kv_->set("slices", td::to_string(v + 1)).ensure();
+      kv_->set(PSTRING() << "status." << v, "0").ensure();
+      kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
+      commit_transaction();
 
-    CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
+      CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
+    } else {
+      // Fix package ID
+      masterchain_seqno -= (masterchain_seqno - archive_id_) % slice_size_;
+    }
+
     add_package(masterchain_seqno, 0, default_package_version());
     return &packages_[v];
   } else {
