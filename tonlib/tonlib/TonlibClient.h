@@ -90,6 +90,10 @@ class TonlibClient : public td::actor::Actor {
     }
   }
 
+  void make_any_function_request(tonlib_api::object_ptr<tonlib_api::Function>&& function,
+                                td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise);
+
+
  private:
   enum class State { Uninited, Running, Closed } state_ = State::Uninited;
   td::unique_ptr<TonlibCallback> callback_;

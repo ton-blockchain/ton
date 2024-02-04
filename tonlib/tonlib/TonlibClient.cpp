@@ -2191,6 +2191,11 @@ void TonlibClient::on_update(object_ptr<tonlib_api::Object> response) {
   on_result(0, std::move(response));
 }
 
+void TonlibClient::make_any_function_request(tonlib_api::object_ptr<tonlib_api::Function>&& function,
+                                             td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise) {
+  make_any_request(*function, {}, std::move(promise));
+}
+
 void TonlibClient::make_any_request(tonlib_api::Function& function, QueryContext query_context,
                                     td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise) {
   auto old_context = std::move(query_context_);
