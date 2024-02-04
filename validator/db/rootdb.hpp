@@ -135,6 +135,7 @@ class RootDb : public Db {
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;
 
   void run_gc(UnixTime ts, UnixTime archive_ttl) override;
+  void reinit() override;
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;

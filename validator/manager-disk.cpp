@@ -1043,18 +1043,27 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
 }
 
 void ValidatorManagerImpl::started(ValidatorManagerInitResult R, bool reinited) {
-  LOG(DEBUG) << "started()";
-  last_masterchain_block_handle_ = std::move(R.handle);
-  last_masterchain_block_id_ = last_masterchain_block_handle_->id();
-  last_masterchain_seqno_ = last_masterchain_block_id_.id.seqno;
-  last_masterchain_state_ = std::move(R.state);
-
-  //new_masterchain_block();
-
   if (!reinited) {
+    LOG(DEBUG) << "started()";
+    last_masterchain_block_handle_ = std::move(R.handle);
+    last_masterchain_block_id_ = last_masterchain_block_handle_->id();
+    last_masterchain_seqno_ = last_masterchain_block_id_.id.seqno;
+    last_masterchain_state_ = std::move(R.state);
+
+    //new_masterchain_block();
+
     callback_->initial_read_complete(last_masterchain_block_handle_);
   } else {
-    LOG(INFO) << "Reinited with: " << last_masterchain_block_id_;
+    last_masterchain_block_handle_ = std::move(R.handle);
+    if (last_masterchain_block_id_ != last_masterchain_block_handle_->id()){
+      last_masterchain_block_id_ = last_masterchain_block_handle_->id();
+      last_masterchain_seqno_ = last_masterchain_block_id_.id.seqno;
+      last_masterchain_state_ = std::move(R.state);
+
+      // update DB if needed
+      td::actor::send_closure(db_, &Db::reinit);
+      LOG(INFO) << "New MC block: " << last_masterchain_block_id_;
+    }
   }
 }
 

@@ -350,7 +350,6 @@ void ValidatorManagerMasterchainStarter::rerun_get_shard_state() {
       td::PromiseCreator::lambda([SelfId = actor_id(this), readonly = read_only_](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error() && readonly) {
           // Wait till shard load to cell db
-          LOG(WARNING) << "Rotate shards, not found, try again";
           delay_action(
               [SelfId]() mutable {
                 td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::rerun_get_shard_state);

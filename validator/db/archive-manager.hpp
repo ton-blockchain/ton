@@ -72,6 +72,7 @@ class ArchiveManager : public td::actor::Actor {
   void start_up() override;
 
   void commit_transaction();
+  void reinit();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
 
   static constexpr td::uint32 archive_size() {

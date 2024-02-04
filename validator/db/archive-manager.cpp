@@ -566,7 +566,9 @@ void ArchiveManager::deleted_package(PackageId id, td::Promise<td::Unit> promise
 void ArchiveManager::load_package(PackageId id) {
   auto &m = get_file_map(id);
   if (m.count(id)) {
-    LOG(WARNING) << "Duplicate id " << id.name();
+    if (!read_only_) {
+      LOG(WARNING) << "Duplicate id " << id.name();
+    }
     return;
   }
   auto key = create_serialize_tl_object<ton_api::db_files_package_key>(id.id, id.key, id.temp);
@@ -822,33 +824,10 @@ void ArchiveManager::start_up() {
   td::mkdir(db_root_ + "/files/").ensure();
   td::mkdir(db_root_ + "/files/packages/").ensure();
   index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", read_only_).move_as_ok());
-  std::string value;
-  auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
-  v.ensure();
-  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
-    auto R = fetch_tl_object<ton_api::db_files_index_value>(value, true);
-    R.ensure();
-    auto x = R.move_as_ok();
 
-    for (auto &d : x->packages_) {
-      load_package(PackageId{static_cast<td::uint32>(d), false, false});
-    }
-    for (auto &d : x->key_packages_) {
-      load_package(PackageId{static_cast<td::uint32>(d), true, false});
-    }
-    for (auto &d : x->temp_packages_) {
-      load_package(PackageId{static_cast<td::uint32>(d), false, true});
-    }
-  }
+  reinit();
 
-  v = index_->get("finalizedupto", value);
-  v.ensure();
-  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
-    auto R = td::to_integer_safe<td::uint32>(value);
-    R.ensure();
-    finalized_up_to_ = R.move_as_ok();
-  }
-
+  // todo: add to readonly update
   td::WalkPath::run(db_root_ + "/archive/states/", [&](td::CSlice fname, td::WalkPath::Type t) -> void {
     if (t == td::WalkPath::Type::NotDir) {
       LOG(ERROR) << "checking file " << fname;
@@ -877,6 +856,35 @@ void ArchiveManager::start_up() {
   }).ensure();
 
   persistent_state_gc(FileHash::zero());
+}
+
+void ArchiveManager::reinit() {
+  std::string value;
+  auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
+  v.ensure();
+  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    auto R = fetch_tl_object<ton_api::db_files_index_value>(value, true);
+    R.ensure();
+    auto x = R.move_as_ok();
+
+    for (auto &d : x->packages_) {
+      load_package(PackageId{static_cast<td::uint32>(d), false, false});
+    }
+    for (auto &d : x->key_packages_) {
+      load_package(PackageId{static_cast<td::uint32>(d), true, false});
+    }
+    for (auto &d : x->temp_packages_) {
+      load_package(PackageId{static_cast<td::uint32>(d), false, true});
+    }
+  }
+
+  v = index_->get("finalizedupto", value);
+  v.ensure();
+  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    auto R = td::to_integer_safe<td::uint32>(value);
+    R.ensure();
+    finalized_up_to_ = R.move_as_ok();
+  }
 }
 
 void ArchiveManager::run_gc(UnixTime ts, UnixTime archive_ttl) {
