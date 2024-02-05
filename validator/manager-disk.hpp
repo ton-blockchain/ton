@@ -127,9 +127,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   void new_external_message(td::BufferSlice data) override;
-  void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override {
-    UNREACHABLE();
-  }
+  void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override;
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
 
@@ -242,7 +240,11 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void send_external_message(td::Ref<ExtMessage> message) override {
-    new_external_message(message->serialize());
+    if (offline_){
+      new_external_message(message->serialize());
+    } else {
+      callback_->send_ext_message(message->shard(), message->serialize());
+    }
   }
   void send_ihr_message(td::Ref<IhrMessage> message) override {
     new_ihr_message(message->serialize());

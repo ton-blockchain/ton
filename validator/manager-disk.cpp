@@ -318,6 +318,7 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data) {
       ext_messages_.emplace_back(R.move_as_ok());
     }
   } else {
+    UNREACHABLE();
   }
 }
 
@@ -1148,6 +1149,15 @@ void ValidatorManagerImpl::update_shard_blocks() {
       }
     }
   }
+}
+
+void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
+  auto state = last_masterchain_state_; // todo: last_liteserver_state_
+  if (state.is_null()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
+    return;
+  }
+  run_check_external_message(std::move(data), state->get_ext_msg_limits(), actor_id(this), std::move(promise));
 }
 
 ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {
