@@ -401,6 +401,7 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg) {
   }
 }
 void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
+  ++ls_stats_check_ext_messages_;
   auto state = do_get_last_liteserver_state();
   if (state.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
@@ -2466,6 +2467,29 @@ void ValidatorManagerImpl::alarm() {
     }
   }
   alarm_timestamp().relax(check_shard_clients_);
+
+  if (log_ls_stats_at_.is_in_past()) {
+    if (!ls_stats_.empty() || ls_stats_check_ext_messages_ != 0) {
+      td::StringBuilder sb;
+      sb << "Liteserver stats (1 minute):";
+      td::uint32 total = 0;
+      for (const auto &p : ls_stats_) {
+        sb << " " << lite_query_name_by_id(p.first) << ":" << p.second;
+        total += p.second;
+      }
+      if (total > 0) {
+        sb << " TOTAL:" << total;
+      }
+      if (ls_stats_check_ext_messages_ > 0) {
+        sb << " checkExtMessage:" << ls_stats_check_ext_messages_;
+      }
+      LOG(WARNING) << sb.as_cslice();
+    }
+    ls_stats_.clear();
+    ls_stats_check_ext_messages_ = 0;
+    log_ls_stats_at_ = td::Timestamp::in(60.0);
+  }
+  alarm_timestamp().relax(log_ls_stats_at_);
 }
 
 void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) {

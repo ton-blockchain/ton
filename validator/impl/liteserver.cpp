@@ -131,9 +131,11 @@ void LiteQuery::start_up() {
 
   auto F = fetch_tl_object<ton::lite_api::Function>(std::move(query_), true);
   if (F.is_error()) {
+    td::actor::send_closure(manager_, &ValidatorManager::add_lite_query_stats, 0);  // unknown
     abort_query(F.move_as_error());
     return;
   }
+  td::actor::send_closure(manager_, &ValidatorManager::add_lite_query_stats, F.ok()->get_id());
 
   lite_api::downcast_call(
       *F.move_as_ok().get(),
