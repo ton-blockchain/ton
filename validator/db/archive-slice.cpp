@@ -618,7 +618,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
         if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
           ver = td::to_integer<td::uint32>(value);
         }
-        add_package(archive_id_ + slice_size_ * i, 0, ver);
+        add_package(archive_id_ + slice_size_ * i, len, ver);
       }
 
       return &packages_[max_val];
