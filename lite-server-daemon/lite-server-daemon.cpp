@@ -241,9 +241,20 @@ class LiteServerDaemon : public td::actor::Actor {
         }
       };
       full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
-    }
 
-    init_validator_engine();
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          LOG(ERROR) << R.move_as_error();
+          std::_Exit(2);
+        } else {
+          td::actor::send_closure(SelfId, &LiteServerDaemon::init_validator_engine);
+        }
+      });
+
+      td::actor::send_closure(full_node_client_, &ton::adnl::AdnlExtMultiClient::check_ready, std::move(P));
+    } else {
+      init_validator_engine();
+    }
   }
 
   void got_key(ton::PublicKey key) {
