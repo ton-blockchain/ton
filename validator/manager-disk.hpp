@@ -28,6 +28,7 @@
 
 #include <map>
 #include <set>
+#include <utility>
 
 namespace ton {
 
@@ -307,7 +308,7 @@ class ValidatorManagerImpl : public ValidatorManager {
       : local_id_(local_id)
       , opts_(std::move(opts))
       , read_only_(read_only)
-      , db_root_(db_root)
+      , db_root_(std::move(db_root))
       , shard_to_generate_(shard_id)
       , block_to_generate_(shard_to_block_id) {
   }
@@ -320,11 +321,11 @@ class ValidatorManagerImpl : public ValidatorManager {
       , opts_(std::move(opts))
       , read_only_(read_only)
       , offline_(false)
-      , keyring_(keyring)
-      , adnl_(adnl)
-      , rldp_(rldp)
-      , overlays_(overlays)
-      , db_root_(db_root)
+      , keyring_(std::move(keyring))
+      , adnl_(std::move(adnl))
+      , rldp_(std::move(rldp))
+      , overlays_(std::move(overlays))
+      , db_root_(std::move(db_root))
       , shard_to_generate_(shard_id)
       , block_to_generate_(shard_to_block_id) {
   }

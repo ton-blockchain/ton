@@ -78,10 +78,12 @@ class LiteServerDaemon : public td::actor::Actor {
   std::string server_config_;
   std::string tmp_ipaddr_;
   std::string global_config_;
+  std::string full_node_config_path_;
   ton::liteserver::Config config_;
 
   ton::adnl::AdnlNodesList adnl_static_nodes_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
+  td::actor::ActorOwn<ton::adnl::AdnlExtClient> full_node_client_;
   std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
   std::map<ton::PublicKeyHash, ton::PublicKey> keys_;
   adnl::AdnlNodeIdShort local_id_;
@@ -119,6 +121,7 @@ class LiteServerDaemon : public td::actor::Actor {
       void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
       }
       void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
+        td::actor::send_closure(id_, &LiteServerDaemon::send_ext_message, dst, std::move(data));
       }
       void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
       }
@@ -159,6 +162,23 @@ class LiteServerDaemon : public td::actor::Actor {
     auto P_cb = td::PromiseCreator::lambda([](td::Unit R) {});
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
                             std::make_unique<Callback>(actor_id(this)), std::move(P_cb));
+  }
+
+  void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
+    if (!full_node_client_.empty()) {
+      td::actor::send_closure(full_node_client_, &adnl::AdnlExtClient::send_query, "send_ext_query",
+                              create_serialize_tl_object_suffix<ton_api::tonNode_query>(
+                                  create_serialize_tl_object<ton_api::tonNode_slave_sendExtMessage>(
+                                      create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)))),
+                              td::Timestamp::in(1.0), [](td::Result<td::BufferSlice> R) {
+                                if (R.is_error()) {
+                                  LOG(WARNING) << "failed to send ext message: " << R.move_as_error();
+                                }
+                              });
+      return;
+    } else {
+      LOG(ERROR) << "Send of external messages is not supported!";
+    }
   }
 
   void init_network() {
@@ -204,8 +224,24 @@ class LiteServerDaemon : public td::actor::Actor {
       std::_Exit(2);
     }
     // Start Overlay
-    overlay_manager_ =
-        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get(), "liteserver");
+    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
+                                                      dht_nodes_[default_dht_node_].get(), "liteserver");
+
+    // Start client
+    if (!config_.full_node_slaves.empty()) {
+      std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> vec;
+      for (auto &x : config_.full_node_slaves) {
+        vec.emplace_back(ton::adnl::AdnlNodeIdFull{x.key}, x.addr);
+      }
+      class Cb : public ton::adnl::AdnlExtClient::Callback {
+       public:
+        void on_ready() override {
+        }
+        void on_stop_ready() override {
+        }
+      };
+      full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
+    }
 
     init_validator_engine();
   }
@@ -381,6 +417,7 @@ int main(int argc, char **argv) {
   std::string config_path;
   std::string server_config_path;
   std::string ipaddr;
+  std::string full_node_config_path;
   td::uint32 threads = 7;
   int verbosity = 0;
 
@@ -417,6 +454,8 @@ int main(int argc, char **argv) {
   p.add_option('C', "config", "global config path", [&](td::Slice fname) { config_path = fname.str(); });
   p.add_option('S', "server-config", "server config path", [&](td::Slice fname) { server_config_path = fname.str(); });
   p.add_option('I', "ip", "ip address", [&](td::Slice ipaddr_) { ipaddr = ipaddr_.str(); });
+  p.add_option('F', "full-node-config", "full node config path",
+               [&](td::Slice fname) { full_node_config_path = fname.str(); });
 
   auto S = p.run(argc, argv);
   if (S.is_error()) {

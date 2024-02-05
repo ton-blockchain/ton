@@ -30,11 +30,17 @@ class Config {
     keys_refcnt[key]++;
   };
 
+  struct FullNodeSlave {
+    ton::PublicKey key;
+    td::IPAddress addr;
+  };
+
  public:
   td::IPAddress addr_;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::map<td::int32, ton::PublicKeyHash> liteservers;
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
+  std::vector<FullNodeSlave> full_node_slaves;
   std::set<ton::PublicKeyHash> dht_ids;
 
   Config() {
@@ -57,6 +63,12 @@ class Config {
 
     for (auto &dht : config.dht_) {
       config_add_dht_node(ton::PublicKeyHash{dht->id_}).ensure();
+    }
+
+    for (auto &s : config.fullnodeslaves_) {
+      td::IPAddress ip;
+      ip.init_ipv4_port(td::IPAddress::ipv4_to_str(s->ip_), static_cast<td::uint16>(s->port_)).ensure();
+      config_add_full_node_slave(ip, ton::PublicKey{s->adnl_}).ensure();
     }
   }
 
@@ -102,6 +114,20 @@ class Config {
     return true;
   }
 
+  td::Result<bool> config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id) {
+    for (auto &s : full_node_slaves) {
+      if (s.addr == addr) {
+        if (s.key == id) {
+          return true;
+        } else {
+          return td::Status::Error(ton::ErrorCode::error, "duplicate slave ip");
+        }
+      }
+    }
+    full_node_slaves.push_back(FullNodeSlave{std::move(id), addr});
+    return true;
+  };
+
   td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash keyhash, AdnlCategory cat) {
     auto it = adnl_ids.find(keyhash);
     if (it != adnl_ids.end()) {
@@ -134,9 +160,15 @@ class Config {
       dht_vec.push_back(ton::create_tl_object<ton::ton_api::engine_dht>(x.tl()));
     }
 
+    std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
+    for (auto &x : full_node_slaves) {
+      full_node_slaves_vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator_fullNodeSlave>(
+          x.addr.get_ipv4(), x.addr.get_port(), x.key.tl()));
+    }
+
     return ton::create_tl_object<ton::ton_api::engine_liteserver_config>(
-        addr_.get_ipv4(), addr_.get_port(), std::move(adnl_vec), std::move(liteserver_vec),
-        std::move(dht_vec));
+        addr_.get_ipv4(), addr_.get_port(), std::move(adnl_vec), std::move(liteserver_vec), std::move(dht_vec),
+        std::move(full_node_slaves_vec));
   };
 };
 }  // namespace liteserver

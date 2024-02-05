@@ -19,6 +19,7 @@
 #include "manager-disk.hpp"
 #include "validator-group.hpp"
 #include "adnl/utils.hpp"
+#include "adnl/adnl-ext-client.h"
 #include "downloaders/wait-block-state.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-data-disk.hpp"

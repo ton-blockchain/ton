@@ -596,7 +596,8 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         gc:engine.gc = engine.validator.Config;
 
 engine.liteserver.config ip:int out_port:int adnl:(vector engine.adnl)
-        liteservers:(vector engine.liteServer) dht:(vector engine.dht) = engine.liteserver.Config;
+        liteservers:(vector engine.liteServer) dht:(vector engine.dht)
+        fullnodeslaves:(vector engine.validator.fullNodeSlave) = engine.liteserver.Config;
 
 ---functions---
 ---types---
