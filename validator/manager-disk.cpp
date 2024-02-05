@@ -1005,6 +1005,23 @@ void ValidatorManagerImpl::created_ext_server(td::actor::ActorOwn<adnl::AdnlExtS
     pending_ext_ports_.clear();
   }
 }
+void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout,
+                                                   td::Promise<td::Unit> promise) {
+  if (seqno <= last_masterchain_seqno_) {
+    promise.set_value(td::Unit());
+    return;
+  }
+  if (timeout.is_in_past()) {
+    promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
+    return;
+  }
+  if (seqno > last_masterchain_seqno_ + 100) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "too big masterchain block seqno"));
+    return;
+  }
+
+  shard_client_waiters_[seqno].waiting_.emplace_back(timeout, 0, std::move(promise));
+}
 
 void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   if (offline_) {
@@ -1036,8 +1053,22 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
     if (E.is_error()) {
       run_liteserver_query(std::move(data), actor_id(this), lite_server_cache_.get(), std::move(P));
     } else {
-      promise.set_error(td::Status::Error(ErrorCode::notready, "not supported yet ;)"));
-      return;
+      auto e = E.move_as_ok();
+      if (static_cast<BlockSeqno>(e->seqno_) <= last_masterchain_seqno_) {
+        run_liteserver_query(std::move(data), actor_id(this), lite_server_cache_.get(), std::move(P));
+      } else {
+        auto t = e->timeout_ms_ < 10000 ? e->timeout_ms_ * 0.001 : 10.0;
+        auto Q = td::PromiseCreator::lambda([data = std::move(data), SelfId = actor_id(this),
+                                             cache = lite_server_cache_.get(),
+                                             promise = std::move(P)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            promise.set_error(R.move_as_error());
+            return;
+          }
+          run_liteserver_query(std::move(data), SelfId, cache, std::move(promise));
+        });
+        wait_shard_client_state(e->seqno_, td::Timestamp::in(t), std::move(Q));
+      }
     }
   }
 }
@@ -1055,7 +1086,7 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R, bool reinited) 
     callback_->initial_read_complete(last_masterchain_block_handle_);
   } else {
     last_masterchain_block_handle_ = std::move(R.handle);
-    if (last_masterchain_block_id_ != last_masterchain_block_handle_->id()){
+    if (last_masterchain_block_id_ != last_masterchain_block_handle_->id()) {
       last_masterchain_block_id_ = last_masterchain_block_handle_->id();
       last_masterchain_seqno_ = last_masterchain_block_id_.id.seqno;
       last_masterchain_state_ = std::move(R.state);
@@ -1063,6 +1094,18 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R, bool reinited) 
       // update DB if needed
       td::actor::send_closure(db_, &Db::reinit);
       LOG(INFO) << "New MC block: " << last_masterchain_block_id_;
+
+      // Handle wait_block
+      while (!shard_client_waiters_.empty()) {
+        auto it = shard_client_waiters_.begin();
+        if (it->first > last_masterchain_seqno_) {
+          break;
+        }
+        for (auto &y : it->second.waiting_) {
+          y.promise.set_value(td::Unit());
+        }
+        shard_client_waiters_.erase(it);
+      }
     }
   }
 }

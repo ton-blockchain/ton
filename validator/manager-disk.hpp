@@ -285,7 +285,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void finished_wait_data(BlockIdExt id, td::Result<td::Ref<BlockData>> R);
 
   void start_up() override;
-  void started(ValidatorManagerInitResult result, bool reinited=false);
+  void started(ValidatorManagerInitResult result, bool reinited = false);
 
   void write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
                   td::Ref<ValidatorSet> val_set);
@@ -384,9 +384,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
-  void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
+  void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
     UNREACHABLE();
   }
@@ -420,6 +418,59 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::Ref<ValidatorManagerOptions> opts_;
 
  private:
+  // todo: separate from manager.hpp
+  template <typename ResType>
+  struct Waiter {
+    td::Timestamp timeout;
+    td::uint32 priority;
+    td::Promise<ResType> promise;
+
+    Waiter() {
+    }
+    Waiter(td::Timestamp timeout, td::uint32 priority, td::Promise<ResType> promise)
+        : timeout(timeout), priority(priority), promise(std::move(promise)) {
+    }
+  };
+
+  template <typename ActorT, typename ResType>
+  struct WaitList {
+    std::vector<Waiter<ResType>> waiting_;
+    td::actor::ActorId<ActorT> actor_;
+
+    WaitList() = default;
+
+    std::pair<td::Timestamp, td::uint32> get_timeout() const {
+      td::Timestamp t = td::Timestamp::now();
+      td::uint32 prio = 0;
+      for (auto &v : waiting_) {
+        if (v.timeout.at() > t.at()) {
+          t = v.timeout;
+        }
+        if (v.priority > prio) {
+          prio = v.priority;
+        }
+      }
+      return {td::Timestamp::at(t.at() + 10.0), prio};
+    }
+    void check_timers() {
+      td::uint32 j = 0;
+      auto f = waiting_.begin();
+      auto t = waiting_.end();
+      while (f < t) {
+        if (f->timeout.is_in_past()) {
+          f->promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
+          t--;
+          std::swap(*f, *t);
+        } else {
+          f++;
+          j++;
+        }
+      }
+      waiting_.resize(j);
+    }
+  };
+
+  std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
   BlockIdExt last_masterchain_block_id_;
   BlockHandle last_masterchain_block_handle_;
   bool read_only_ = false;
