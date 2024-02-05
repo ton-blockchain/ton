@@ -83,7 +83,7 @@ class LiteServerDaemon : public td::actor::Actor {
 
   ton::adnl::AdnlNodesList adnl_static_nodes_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
-  td::actor::ActorOwn<ton::adnl::AdnlExtClient> full_node_client_;
+  td::actor::ActorOwn<adnl::AdnlExtClient> full_node_client_;
   std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
   std::map<ton::PublicKeyHash, ton::PublicKey> keys_;
   adnl::AdnlNodeIdShort local_id_;
@@ -230,9 +230,6 @@ class LiteServerDaemon : public td::actor::Actor {
     // Start client
     if (!config_.full_node_slaves.empty()) {
       std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> vec;
-      for (auto &x : config_.full_node_slaves) {
-        vec.emplace_back(ton::adnl::AdnlNodeIdFull{x.key}, x.addr);
-      }
       class Cb : public ton::adnl::AdnlExtClient::Callback {
        public:
         void on_ready() override {
@@ -240,7 +237,13 @@ class LiteServerDaemon : public td::actor::Actor {
         void on_stop_ready() override {
         }
       };
-      full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
+
+      for (auto &x : config_.full_node_slaves) {
+        // AdnlNodeIdFull dst, td::IPAddress dst_addr,  std::unique_ptr<AdnlExtClient::Callback> callback
+        full_node_client_ =
+            ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{x.key}, x.addr, std::make_unique<Cb>());
+        break;
+      }
     }
     init_validator_engine();
   }
