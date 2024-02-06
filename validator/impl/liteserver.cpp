@@ -143,6 +143,22 @@ void LiteQuery::start_up() {
   }
   query_obj_ = F.move_as_ok();
 
+  if (!cache_.empty() && query_obj_->get_id() == lite_api::liteServer_sendMessage::ID) {
+    // Dropping duplicate "sendMessage"
+    cache_key_ = td::sha256_bits256(query_);
+    td::actor::send_closure(
+        cache_, &LiteServerCache::lookup, cache_key_,
+        [cache = cache_, cache_key = cache_key_, SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(cache, &LiteServerCache::update, cache_key, td::BufferSlice());
+            td::actor::send_closure(SelfId, &LiteQuery::perform);
+          } else {
+            td::actor::send_closure(SelfId, &LiteQuery::abort_query,
+                                    td::Status::Error("cannot send external message : duplicate message"));
+          }
+        });
+    return;
+  }
   use_cache_ = !cache_.empty() && query_obj_->get_id() == lite_api::liteServer_runSmcMethod::ID;
   if (use_cache_) {
     cache_key_ = td::sha256_bits256(query_);
