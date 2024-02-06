@@ -178,6 +178,9 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
                                                         td::Promise<ConstBlockHandle> promise) = 0;
 
+  virtual void add_lite_query_stats(int lite_query_id) {
+  }
+
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);
   }

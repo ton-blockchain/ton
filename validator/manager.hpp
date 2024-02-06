@@ -575,6 +575,10 @@ class ValidatorManagerImpl : public ValidatorManager {
                                                 td::Result<ConstBlockHandle> r_handle,
                                                 td::Promise<ConstBlockHandle> promise);
 
+  void add_lite_query_stats(int lite_query_id) override {
+    ++ls_stats_[lite_query_id];
+  }
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -640,6 +644,10 @@ class ValidatorManagerImpl : public ValidatorManager {
  private:
   std::map<BlockSeqno, WaitList<td::actor::Actor, td::Unit>> shard_client_waiters_;
   td::actor::ActorOwn<QueueSizeCounter> queue_size_counter_;
+
+  td::Timestamp log_ls_stats_at_;
+  std::map<int, td::uint32> ls_stats_;  // lite_api ID -> count, 0 for unknown
+  td::uint32 ls_stats_check_ext_messages_{0};
 };
 
 }  // namespace validator
