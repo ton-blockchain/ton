@@ -1349,19 +1349,14 @@ int exec_load_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
   Stack& stack = st->get_stack();
   auto csr = stack.pop_cellslice();
   td::RefInt256 x;
-  int len;
-  if (!(csr.write().fetch_uint_to(len_bits, len) && csr.unique_write().fetch_int256_to(len * 8, x, sgnd))) {
-    if (quiet) {
-      stack.push_bool(false);
-    } else {
-      throw VmError{Excno::cell_und, "cannot deserialize a variable-length integer"};
-    }
-  } else {
+  if (util::load_var_integer_q(csr.write(), x, len_bits, sgnd, quiet)) {
     stack.push_int(std::move(x));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
       stack.push_bool(true);
     }
+  } else {
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -1376,21 +1371,13 @@ int exec_store_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
   stack.check_underflow(2);
   auto x = stack.pop_int();
   auto cbr = stack.pop_builder();
-  unsigned len = (((unsigned)x->bit_size(sgnd) + 7) >> 3);
-  if (len >= (1u << len_bits)) {
-    throw VmError{Excno::range_chk};
-  }
-  if (!(cbr.write().store_long_bool(len, len_bits) && cbr.unique_write().store_int256_bool(*x, len * 8, sgnd))) {
-    if (quiet) {
-      stack.push_bool(false);
-    } else {
-      throw VmError{Excno::cell_ov, "cannot serialize a variable-length integer"};
-    }
-  } else {
+  if (util::store_var_integer(cbr.write(), x, len_bits, sgnd, quiet)) {
     stack.push_builder(std::move(cbr));
     if (quiet) {
       stack.push_bool(true);
     }
+  } else {
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -1433,22 +1420,17 @@ bool skip_message_addr(CellSlice& cs) {
 int exec_load_message_addr(VmState* st, bool quiet) {
   VM_LOG(st) << "execute LDMSGADDR" << (quiet ? "Q" : "");
   Stack& stack = st->get_stack();
-  auto csr = stack.pop_cellslice(), csr_copy = csr;
-  auto& cs = csr.write();
-  if (!(skip_message_addr(cs) && csr_copy.write().cut_tail(cs))) {
-    csr.clear();
-    if (quiet) {
-      stack.push_cellslice(std::move(csr_copy));
-      stack.push_bool(false);
-    } else {
-      throw VmError{Excno::cell_und, "cannot load a MsgAddress"};
-    }
-  } else {
-    stack.push_cellslice(std::move(csr_copy));
+  auto csr = stack.pop_cellslice();
+  td::Ref<CellSlice> addr{true};
+  if (util::load_msg_addr_q(csr.write(), addr.write(), quiet)) {
+    stack.push_cellslice(std::move(addr));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
       stack.push_bool(true);
     }
+  } else {
+    stack.push_cellslice(std::move(csr));
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -2019,5 +2001,103 @@ void register_ton_ops(OpcodeTable& cp0) {
   register_ton_currency_address_ops(cp0);
   register_ton_message_ops(cp0);
 }
+
+namespace util {
+
+bool load_var_integer_q(CellSlice& cs, td::RefInt256& res, int len_bits, bool sgnd, bool quiet) {
+  CellSlice cs0 = cs;
+  int len;
+  if (!(cs.fetch_uint_to(len_bits, len) && cs.fetch_int256_to(len * 8, res, sgnd))) {
+    cs = std::move(cs0);
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot deserialize a variable-length integer"};
+  }
+  return true;
+}
+bool load_coins_q(CellSlice& cs, td::RefInt256& res, bool quiet) {
+  return load_var_integer_q(cs, res, 4, false, quiet);
+}
+bool load_msg_addr_q(CellSlice& cs, CellSlice& res, bool quiet) {
+  res = cs;
+  if (!skip_message_addr(cs)) {
+    cs = res;
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot load a MsgAddress"};
+  }
+  res.cut_tail(cs);
+  return true;
+}
+bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, bool quiet) {
+  // Like exec_rewrite_message_addr, but for std address case
+  std::vector<StackEntry> tuple;
+  if (!(parse_message_addr(cs, tuple) && cs.empty_ext())) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot parse a MsgAddress"};
+  }
+  int t = (int)std::move(tuple[0]).as_int()->to_long();
+  if (t != 2 && t != 3) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot parse a MsgAddressInt"};
+  }
+  auto addr = std::move(tuple[3]).as_slice();
+  auto prefix = std::move(tuple[1]).as_slice();
+  if (addr->size() != 256) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "MsgAddressInt is not a standard 256-bit address"};
+  }
+  res_wc = (int)tuple[2].as_int()->to_long();
+  CHECK(addr->prefetch_bits_to(res_addr) &&
+        (prefix.is_null() || prefix->prefetch_bits_to(res_addr.bits(), prefix->size())));
+  return true;
+}
+
+td::RefInt256 load_var_integer(CellSlice& cs, int len_bits, bool sgnd) {
+  td::RefInt256 x;
+  load_var_integer_q(cs, x, len_bits, sgnd, false);
+  return x;
+}
+td::RefInt256 load_coins(CellSlice& cs) {
+  return load_var_integer(cs, 4, false);
+}
+CellSlice load_msg_addr(CellSlice& cs) {
+  CellSlice addr;
+  load_msg_addr_q(cs, addr, false);
+  return addr;
+}
+std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs) {
+  std::pair<ton::WorkchainId, ton::StdSmcAddress> res;
+  parse_std_addr_q(std::move(cs), res.first, res.second, false);
+  return res;
+}
+
+bool store_var_integer(CellBuilder& cb, const td::RefInt256& x, int len_bits, bool sgnd, bool quiet) {
+  unsigned len = (((unsigned)x->bit_size(sgnd) + 7) >> 3);
+  if (len >= (1u << len_bits)) {
+    throw VmError{Excno::range_chk};  // throw even if quiet
+  }
+  if (!cb.can_extend_by(len_bits + len * 8)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov, "cannot serialize a variable-length integer"};
+  }
+  CHECK(cb.store_long_bool(len, len_bits) && cb.store_int256_bool(*x, len * 8, sgnd));
+  return true;
+}
+bool store_coins(CellBuilder& cb, const td::RefInt256& x, bool quiet) {
+  return store_var_integer(cb, x, 4, false, quiet);
+}
+
+}  // namespace util
 
 }  // namespace vm

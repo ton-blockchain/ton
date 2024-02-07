@@ -20,6 +20,7 @@
 #include "common/refcnt.hpp"
 #include "vm/cells.h"
 #include "vm/vmstate.h"
+#include "td/utils/optional.h"
 
 namespace vm {
 using td::Ref;
@@ -32,6 +33,25 @@ class FakeVmStateLimits : public VmStateInterface {
   FakeVmStateLimits(long long max_ops = 1LL << 62, bool _quiet = true) : ops_remaining(max_ops), quiet(_quiet) {
   }
   bool register_op(int op_units = 1) override;
+};
+
+class DummyVmState : public VmStateInterface {
+ public:
+  explicit DummyVmState(std::vector<Ref<Cell>> libraries, int global_version = ton::SUPPORTED_VERSION)
+      : libraries(std::move(libraries)), global_version(global_version) {
+  }
+  Ref<Cell> load_library(td::ConstBitPtr hash) override;
+  int get_global_version() const override {
+    return global_version;
+  }
+  td::optional<td::Bits256> get_missing_library() const {
+    return missing_library;
+  }
+
+ private:
+  std::vector<Ref<Cell>> libraries;
+  int global_version;
+  td::optional<td::Bits256> missing_library;
 };
 
 }  // namespace vm
