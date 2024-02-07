@@ -213,6 +213,7 @@ set(BLOCK_SOURCE
   block/mc-config.cpp
   block/output-queue-merger.cpp
   block/transaction.cpp
+  block/precompiled-smc/PrecompiledSmartContract.cpp
   ${TLB_BLOCK_AUTO}
 
   block/block-binlog.h
@@ -223,6 +224,8 @@ set(BLOCK_SOURCE
   block/check-proof.h
   block/output-queue-merger.h
   block/transaction.h
+  block/precompiled-smc/PrecompiledSmartContract.h
+  block/precompiled-smc/common.h
 )
 
 set(SMC_ENVELOPE_SOURCE

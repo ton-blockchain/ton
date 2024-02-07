@@ -29,6 +29,7 @@
 #include "ton/ton-types.h"
 #include "block/block.h"
 #include "block/mc-config.h"
+#include "precompiled-smc/PrecompiledSmartContract.h"
 
 namespace block {
 using td::Ref;
@@ -123,6 +124,7 @@ struct ComputePhaseConfig {
   int vm_log_verbosity = 0;
   bool stop_on_accept_message = false;
   PrecompiledContractsConfig precompiled_contracts;
+  bool dont_run_precompiled_ = false;
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
@@ -373,6 +375,8 @@ struct Transaction {
   bool compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg);
   Ref<vm::Stack> prepare_vm_stack(ComputePhase& cp);
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
+  bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled,
+                                td::uint64 gas_usage);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
   td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
