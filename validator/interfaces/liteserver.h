@@ -30,6 +30,8 @@ class LiteServerCache : public td::actor::Actor {
 
   virtual void lookup(td::Bits256 key, td::Promise<td::BufferSlice> promise) = 0;
   virtual void update(td::Bits256 key, td::BufferSlice value) = 0;
+
+  virtual void process_send_message(td::Bits256 key, td::Promise<td::Unit> promise) = 0;
 };
 
 } // namespace ton::validator

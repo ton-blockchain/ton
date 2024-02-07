@@ -29,11 +29,15 @@ class LiteServerCacheImpl : public LiteServerCache {
 
   void alarm() override {
     alarm_timestamp() = td::Timestamp::in(60.0);
-    if (queries_cnt_ > 0) {
+    if (queries_cnt_ > 0 || !send_message_cache_.empty()) {
       LOG(WARNING) << "LS Cache stats: " << queries_cnt_ << " queries, " << queries_hit_cnt_ << " hits; "
-                   << cache_.size() << " entries, size=" << total_size_ << "/" << MAX_CACHE_SIZE;
+                   << cache_.size() << " entries, size=" << total_size_ << "/" << MAX_CACHE_SIZE << ";   "
+                   << send_message_cache_.size() << " different sendMessage queries, " << send_message_error_cnt_
+                   << " duplicates";
       queries_cnt_ = 0;
       queries_hit_cnt_ = 0;
+      send_message_cache_.clear();
+      send_message_error_cnt_ = 0;
     }
   }
 
@@ -64,11 +68,20 @@ class LiteServerCacheImpl : public LiteServerCache {
     total_size_ += entry->size();
 
     while (total_size_ > MAX_CACHE_SIZE) {
-      auto to_remove = (CacheEntry*)lru_.get();
+      auto to_remove = (CacheEntry *)lru_.get();
       CHECK(to_remove);
       total_size_ -= to_remove->size();
       to_remove->remove();
       cache_.erase(to_remove->key_);
+    }
+  }
+
+  void process_send_message(td::Bits256 key, td::Promise<td::Unit> promise) override {
+    if (send_message_cache_.insert(key).second) {
+      promise.set_result(td::Unit());
+    } else {
+      ++send_message_error_cnt_;
+      promise.set_error(td::Status::Error("duplicate message"));
     }
   }
 
@@ -89,6 +102,9 @@ class LiteServerCacheImpl : public LiteServerCache {
   size_t total_size_ = 0;
 
   size_t queries_cnt_ = 0, queries_hit_cnt_ = 0;
+
+  std::set<td::Bits256> send_message_cache_;
+  size_t send_message_error_cnt_ = 0;
 
   static const size_t MAX_CACHE_SIZE = 64 << 20;
 };
