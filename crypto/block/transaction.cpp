@@ -1528,6 +1528,29 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.skip_reason = ComputePhase::sk_bad_state;
     return true;
   }
+
+  td::optional<PrecompiledContractsConfig::Contract> precompiled;
+  if (new_code.not_null() && trans_type == tr_ord) {
+    precompiled = cfg.precompiled_contracts.get_contract(new_code->get_hash().bits());
+  }
+
+  vm::GasLimits gas{(long long)cp.gas_limit, (long long)cp.gas_max, (long long)cp.gas_credit};
+  if (precompiled) {
+    td::uint64 gas_usage = precompiled.value().gas_usage;
+    if (gas_usage > cp.gas_limit) {
+      cp.skip_reason = ComputePhase::sk_no_gas;
+      return true;
+    }
+    // TODO: run precompiled if possible
+
+    // Contract is marked as precompiled in global config, but implementation is not available
+    // In this case we run TVM and override gas_used
+    LOG(INFO) << "Unknown precompiled contract (code_hash=" << new_code->get_hash().to_hex()
+              << ", gas_usage=" << gas_usage << "), running VM";
+    long long limit = account.is_special ? cfg.special_gas_limit : cfg.gas_limit;
+    gas = vm::GasLimits{limit, limit, gas.gas_credit ? limit : 0};
+  }
+
   // initialize VM
   Ref<vm::Stack> stack = prepare_vm_stack(cp);
   if (stack.is_null()) {
@@ -1536,7 +1559,6 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   }
   // OstreamLogger ostream_logger(error_stream);
   // auto log = create_vm_log(error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{(long long)cp.gas_limit, (long long)cp.gas_max, (long long)cp.gas_credit};
   LOG(DEBUG) << "creating VM";
 
   std::unique_ptr<StringLoggerTail> logger;
@@ -1584,6 +1606,14 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   if (cp.accepted & use_msg_state) {
     was_activated = true;
     acc_status = Account::acc_active;
+  }
+  if (precompiled) {
+    cp.gas_used = precompiled.value().gas_usage;
+    cp.vm_steps = 0;
+    if (cp.out_of_gas) {
+      LOG(ERROR) << "Precompiled smc got out_of_gas in TVM";
+      return false;
+    }
   }
   LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
@@ -3568,6 +3598,7 @@ td::Status FetchConfigParams::fetch_config_params(
     }
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
     compute_phase_cfg->size_limits = size_limits;
+    compute_phase_cfg->precompiled_contracts = config.get_precompiled_contracts_config();
   }
   {
     // compute action_phase_cfg

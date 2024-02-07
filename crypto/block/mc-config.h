@@ -526,6 +526,15 @@ struct BurningConfig {
   }
 };
 
+struct PrecompiledContractsConfig {
+  struct Contract {
+    td::uint64 gas_usage;
+  };
+  vm::Dictionary list{256};
+
+  td::optional<Contract> get_contract(td::Bits256 code_hash) const;
+};
+
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,
@@ -644,6 +653,7 @@ class Config {
   std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
   BurningConfig get_burning_config() const;
   td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
+  PrecompiledContractsConfig get_precompiled_contracts_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,
