@@ -2385,9 +2385,9 @@ void ValidatorManagerImpl::state_serializer_update(BlockSeqno seqno) {
 void ValidatorManagerImpl::alarm() {
   try_advance_gc_masterchain_block();
   alarm_timestamp() = td::Timestamp::in(1.0);
-  if (gc_masterchain_handle_) {
-    td::actor::send_closure(db_, &Db::run_gc, gc_masterchain_handle_->unix_time(),
-                            static_cast<UnixTime>(opts_->archive_ttl()));
+  if (last_masterchain_block_handle_ && gc_masterchain_handle_) {
+    td::actor::send_closure(db_, &Db::run_gc, last_masterchain_block_handle_->unix_time(),
+                            gc_masterchain_handle_->unix_time(), static_cast<UnixTime>(opts_->archive_ttl()));
   }
   if (log_status_at_.is_in_past()) {
     if (last_masterchain_block_handle_) {
