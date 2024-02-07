@@ -19,16 +19,19 @@
 #pragma once
 
 #include "td/actor/actor.h"
+#include "td/utils/buffer.h"
+#include "common/bitstring.h"
 
-namespace ton {
-
-namespace validator {
+namespace ton::validator {
 
 class LiteServerCache : public td::actor::Actor {
  public:
-  virtual ~LiteServerCache() = default;
+  ~LiteServerCache() override = default;
+
+  virtual void lookup(td::Bits256 key, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void update(td::Bits256 key, td::BufferSlice value) = 0;
+
+  virtual void process_send_message(td::Bits256 key, td::Promise<td::Unit> promise) = 0;
 };
 
-}  // namespace validator
-
-}  // namespace ton
+} // namespace ton::validator
