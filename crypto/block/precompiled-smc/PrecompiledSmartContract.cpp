@@ -141,7 +141,12 @@ td::RefInt256 PrecompiledSmartContract::get_original_fwd_fee(ton::WorkchainId wc
   return util::check_finite(td::muldiv(x, td::make_refint(1 << 16), td::make_refint((1 << 16) - prices.first_frac)));
 }
 
+static std::atomic_bool precompiled_execution_enabled{false};
+
 std::unique_ptr<PrecompiledSmartContract> get_implementation(td::Bits256 code_hash) {
+  if (!precompiled_execution_enabled) {
+    return nullptr;
+  }
   static std::map<td::Bits256, std::unique_ptr<PrecompiledSmartContract> (*)()> map = []() {
     auto from_hex = [](td::Slice s) -> td::Bits256 {
       td::Bits256 x;
@@ -156,6 +161,10 @@ std::unique_ptr<PrecompiledSmartContract> get_implementation(td::Bits256 code_ha
   }();
   auto it = map.find(code_hash);
   return it == map.end() ? nullptr : it->second();
+}
+
+void set_precompiled_execution_enabled(bool value) {
+  precompiled_execution_enabled = value;
 }
 
 }  // namespace block::precompiled

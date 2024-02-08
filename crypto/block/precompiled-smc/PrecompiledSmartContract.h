@@ -117,5 +117,6 @@ class PrecompiledSmartContract {
 };
 
 std::unique_ptr<PrecompiledSmartContract> get_implementation(td::Bits256 code_hash);
+void set_precompiled_execution_enabled(bool value);  // disabled by default
 
 }  // namespace block::precompiled
