@@ -124,7 +124,7 @@ static const StackEntry& get_param(VmState* st, unsigned idx) {
 }
 
 // ConfigParams: 18 (only one entry), 19, 20, 21, 24, 25, 43
-static td::Ref<CellSlice> get_unpacked_config_param(VmState* st, unsigned idx) {
+static td::Ref<Tuple> get_unpacked_config_tuple(VmState* st) {
   auto tuple = st->get_c7();
   auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
@@ -134,7 +134,7 @@ static td::Ref<CellSlice> get_unpacked_config_param(VmState* st, unsigned idx) {
   if (t2.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  return tuple_index(t2, idx).as_slice();
+  return t2;
 }
 
 int exec_get_param(VmState* st, unsigned idx, const char* name) {
@@ -249,7 +249,7 @@ int exec_get_prev_blocks_info(VmState* st, unsigned idx, const char* name) {
 int exec_get_global_id(VmState* st) {
   VM_LOG(st) << "execute GLOBALID";
   if (st->get_global_version() >= 6) {
-    Ref<CellSlice> cs = get_unpacked_config_param(st, 1);
+    Ref<CellSlice> cs = tuple_index(get_unpacked_config_tuple(st), 1).as_slice();
     if (cs.is_null()) {
       throw VmError{Excno::type_chk, "intermediate value is not a slice"};
     }
@@ -276,36 +276,12 @@ int exec_get_global_id(VmState* st) {
   return 0;
 }
 
-static block::GasLimitsPrices get_gas_prices(VmState* st, bool is_masterchain) {
-  Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 2 : 3);
-  if (cs.is_null()) {
-    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
-  }
-  auto r_prices = block::Config::do_get_gas_limits_prices(*cs, is_masterchain ? 20 : 21);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  return r_prices.move_as_ok();
-}
-
-static block::MsgPrices get_msg_prices(VmState* st, bool is_masterchain) {
-  Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 4 : 5);
-  if (cs.is_null()) {
-    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
-  }
-  auto r_prices = block::Config::do_get_msg_prices(*cs, is_masterchain ? 24 : 25);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  return r_prices.move_as_ok();
-}
-
 int exec_get_gas_fee(VmState* st) {
   VM_LOG(st) << "execute GETGASFEE";
   Stack& stack = st->get_stack();
   bool is_masterchain = stack.pop_bool();
   td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::GasLimitsPrices prices = get_gas_prices(st, is_masterchain);
+  block::GasLimitsPrices prices = util::get_gas_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(prices.compute_gas_price(gas));
   return 0;
 }
@@ -317,27 +293,9 @@ int exec_get_storage_fee(VmState* st) {
   td::int64 delta = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  Ref<CellSlice> cs = get_unpacked_config_param(st, 0);
-  if (cs.is_null()) {
-    // null means tat no StoragePrices is active, so the price is 0
-    stack.push_smallint(0);
-    return 0;
-  }
-  auto r_prices = block::Config::do_get_one_storage_prices(*cs);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  block::StoragePrices prices = r_prices.move_as_ok();
-  td::RefInt256 total;
-  if (is_masterchain) {
-    total = td::make_refint(cells) * prices.mc_cell_price;
-    total += td::make_refint(bits) * prices.mc_bit_price;
-  } else {
-    total = td::make_refint(cells) * prices.cell_price;
-    total += td::make_refint(bits) * prices.bit_price;
-  }
-  total *= delta;
-  stack.push_int(td::rshift(total, 16, 1));
+  td::optional<block::StoragePrices> maybe_prices =
+      util::get_storage_prices(get_unpacked_config_tuple(st));
+  stack.push_int(util::calculate_storage_fee(maybe_prices, is_masterchain, delta, bits, cells));
   return 0;
 }
 
@@ -347,7 +305,7 @@ int exec_get_forward_fee(VmState* st) {
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  block::MsgPrices prices = util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(prices.compute_fwd_fees256(cells, bits));
   return 0;
 }
@@ -367,7 +325,7 @@ int exec_get_original_fwd_fee(VmState* st) {
   if (fwd_fee->sgn() < 0) {
     throw VmError{Excno::range_chk, "fwd_fee is negative"};
   }
-  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  block::MsgPrices prices = util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(td::muldiv(fwd_fee, td::make_refint(1 << 16), td::make_refint((1 << 16) - prices.first_frac)));
   return 0;
 }
@@ -377,7 +335,7 @@ int exec_get_gas_fee_simple(VmState* st) {
   Stack& stack = st->get_stack();
   bool is_masterchain = stack.pop_bool();
   td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::GasLimitsPrices prices = get_gas_prices(st, is_masterchain);
+  block::GasLimitsPrices prices = util::get_gas_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(td::rshift(td::make_refint(prices.gas_price) * gas, 16, 1));
   return 0;
 }
@@ -388,7 +346,7 @@ int exec_get_forward_fee_simple(VmState* st) {
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  block::MsgPrices prices = util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(td::rshift(td::make_refint(prices.bit_price) * bits + td::make_refint(prices.cell_price) * cells, 16,
                             1));  // divide by 2^16 with ceil rounding
   return 0;
@@ -1729,7 +1687,7 @@ int exec_send_message(VmState* st) {
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
   td::Ref<CellSlice> prices_cs;
   if (st->get_global_version() >= 6) {
-    prices_cs = get_unpacked_config_param(st, is_masterchain ? 4 : 5);
+    prices_cs = tuple_index(get_unpacked_config_tuple(st), is_masterchain ? 4 : 5).as_slice();
   } else {
     Ref<Cell> config_dict = get_param(st, 9).as_cell();
     Dictionary config{config_dict, 32};
@@ -1751,7 +1709,8 @@ int exec_send_message(VmState* st) {
   // bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
   td::uint64 max_cells;
   if (st->get_global_version() >= 6) {
-    auto r_size_limits_config = block::Config::do_get_size_limits_config(get_unpacked_config_param(st, 6));
+    auto r_size_limits_config =
+        block::Config::do_get_size_limits_config(tuple_index(get_unpacked_config_tuple(st), 6).as_slice());
     if (r_size_limits_config.is_error()) {
       throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_size_limits_config.error().message()};
     }
@@ -2096,6 +2055,62 @@ bool store_var_integer(CellBuilder& cb, const td::RefInt256& x, int len_bits, bo
 }
 bool store_coins(CellBuilder& cb, const td::RefInt256& x, bool quiet) {
   return store_var_integer(cb, x, 4, false, quiet);
+}
+
+block::GasLimitsPrices get_gas_prices(const Ref<Tuple>& unpacked_config, bool is_masterchain) {
+  Ref<CellSlice> cs = tuple_index(unpacked_config, is_masterchain ? 2 : 3).as_slice();
+  if (cs.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
+  }
+  auto r_prices = block::Config::do_get_gas_limits_prices(*cs, is_masterchain ? 20 : 21);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+block::MsgPrices get_msg_prices(const Ref<Tuple>& unpacked_config, bool is_masterchain) {
+  Ref<CellSlice> cs = tuple_index(unpacked_config, is_masterchain ? 4 : 5).as_slice();
+  if (cs.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
+  }
+  auto r_prices = block::Config::do_get_msg_prices(*cs, is_masterchain ? 24 : 25);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+td::optional<block::StoragePrices> get_storage_prices(const Ref<Tuple>& unpacked_config) {
+  Ref<CellSlice> cs = tuple_index(unpacked_config, 0).as_slice();
+  if (cs.is_null()) {
+    // null means tat no StoragePrices is active, so the price is 0
+    return {};
+  }
+  auto r_prices = block::Config::do_get_one_storage_prices(*cs);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+td::RefInt256 calculate_storage_fee(const td::optional<block::StoragePrices>& maybe_prices, bool is_masterchain,
+                                    td::uint64 delta, td::uint64 bits, td::uint64 cells) {
+  if (!maybe_prices) {
+    // no StoragePrices is active, so the price is 0
+    return td::zero_refint();
+  }
+  const block::StoragePrices& prices = maybe_prices.value();
+  td::RefInt256 total;
+  if (is_masterchain) {
+    total = td::make_refint(cells) * prices.mc_cell_price;
+    total += td::make_refint(bits) * prices.mc_bit_price;
+  } else {
+    total = td::make_refint(cells) * prices.cell_price;
+    total += td::make_refint(bits) * prices.bit_price;
+  }
+  total *= delta;
+  return td::rshift(total, 16, 1);
 }
 
 }  // namespace util

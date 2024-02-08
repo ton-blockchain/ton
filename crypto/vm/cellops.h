@@ -47,7 +47,9 @@ td::int64 load_long(CellSlice& cs, int len);
 td::uint64 load_ulong(CellSlice& cs, int len);
 td::Ref<Cell> load_ref(CellSlice& cs);
 td::Ref<Cell> load_maybe_ref(CellSlice& cs);
+void check_have_bits(const CellSlice& cs, int bits);
 void skip_bits(CellSlice& cs, int bits);
+void end_parse(CellSlice& cs);
 
 // store_... functions throw on error if not quiet, return false if quiet (leaving cb unchanged)
 bool store_int256(CellBuilder& cb, const td::RefInt256& x, int len, bool sgnd, bool quiet = false);

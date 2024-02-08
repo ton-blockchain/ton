@@ -19,6 +19,7 @@
 #pragma once
 #include "vm/vm.h"
 #include "ton/ton-types.h"
+#include "mc-config.h"
 
 namespace vm {
 
@@ -43,6 +44,12 @@ std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs);
 // store_... functions throw on error if not quiet, return false if quiet (leaving cb unchanged)
 bool store_var_integer(CellBuilder& cb, const td::RefInt256& x, int len_bits, bool sgnd, bool quiet = false);
 bool store_coins(CellBuilder& cb, const td::RefInt256& x, bool quiet = false);
+
+block::GasLimitsPrices get_gas_prices(const td::Ref<Tuple>& unpacked_config, bool is_masterchain);
+block::MsgPrices get_msg_prices(const td::Ref<Tuple>& unpacked_config, bool is_masterchain);
+td::optional<block::StoragePrices> get_storage_prices(const td::Ref<Tuple>& unpacked_config);
+td::RefInt256 calculate_storage_fee(const td::optional<block::StoragePrices>& maybe_prices, bool is_masterchain,
+                                    td::uint64 delta, td::uint64 bits, td::uint64 cells);
 
 }  // namespace util
 

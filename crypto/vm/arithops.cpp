@@ -1071,20 +1071,22 @@ void register_arith_ops(OpcodeTable& cp0) {
 
 namespace util {
 
-void check_signed_fits(const td::RefInt256& x, int bits) {
+const td::RefInt256& check_signed_fits(const td::RefInt256& x, int bits) {
   if (!x->signed_fits_bits(bits)) {
     throw VmError{Excno::int_ov};
   }
+  return x;
 }
 
-void check_unsigned_fits(const td::RefInt256& x, int bits) {
+const td::RefInt256& check_unsigned_fits(const td::RefInt256& x, int bits) {
   if (!x->unsigned_fits_bits(bits)) {
     throw VmError{Excno::int_ov};
   }
+  return x;
 }
 
-void check_finite(const td::RefInt256& x) {
-  check_signed_fits(x, 257);
+const td::RefInt256& check_finite(const td::RefInt256& x) {
+  return check_signed_fits(x, 257);
 }
 
 }  // namespace util

@@ -1473,9 +1473,10 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
                                            td::uint64 gas_usage) {
   ComputePhase& cp = *compute_phase;
   td::Timer timer;
-  auto result = impl.run(my_addr, now, start_lt, balance, new_data, *in_msg_body, in_msg, msg_balance_remaining,
-                         in_msg_extern, compute_vm_libraries(cfg), cfg.global_version, cfg.max_vm_data_depth, new_code,
-                         cfg.unpacked_config_tuple, due_payment.not_null() ? due_payment : td::zero_refint());
+  auto result =
+      impl.run(my_addr, now, start_lt, balance, new_data, *in_msg_body, in_msg, msg_balance_remaining, in_msg_extern,
+               compute_vm_libraries(cfg), cfg.global_version, cfg.max_vm_data_depth, new_code,
+               cfg.unpacked_config_tuple, due_payment.not_null() ? due_payment : td::zero_refint(), gas_usage);
   double elapsed = timer.elapsed();
   cp.vm_init_state_hash = td::Bits256::zero();
   cp.exit_code = result.exit_code;
@@ -1615,7 +1616,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       return true;
     }
     auto impl = precompiled::get_implementation(new_code->get_hash().bits());
-    if (impl != nullptr && !cfg.dont_run_precompiled_) {
+    if (impl != nullptr && !cfg.dont_run_precompiled_ && impl->required_version() <= cfg.global_version) {
       return run_precompiled_contract(cfg, *impl, gas_usage);
     }
 

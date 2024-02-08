@@ -1631,8 +1631,18 @@ td::Ref<Cell> load_maybe_ref(CellSlice& cs) {
   load_maybe_ref_q(cs, x, false);
   return x;
 }
+void check_have_bits(const CellSlice& cs, int bits) {
+  if (!cs.have(bits)) {
+    throw VmError{Excno::cell_und};
+  }
+}
 void skip_bits(CellSlice& cs, int bits) {
   skip_bits_q(cs, bits, false);
+}
+void end_parse(CellSlice& cs) {
+  if (cs.size() || cs.size_refs()) {
+    throw VmError{Excno::cell_und, "extra data remaining in deserialized cell"};
+  }
 }
 
 bool store_int256(CellBuilder& cb, const td::RefInt256& x, int len, bool sgnd, bool quiet) {

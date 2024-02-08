@@ -19,7 +19,3 @@
 #include "vm/arithops.h"
 #include "vm/cellops.h"
 #include "vm/tonops.h"
-
-namespace block::precompiled {
-
-}  // namespace block::precompiled
