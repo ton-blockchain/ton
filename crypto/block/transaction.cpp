@@ -1341,6 +1341,9 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     tuple.push_back(cfg.unpacked_config_tuple.not_null() ? vm::StackEntry(cfg.unpacked_config_tuple)
                                                          : vm::StackEntry());   // unpacked_config_tuple:[...]
     tuple.push_back(due_payment.not_null() ? due_payment : td::zero_refint());  // due_payment:Integer
+    tuple.push_back(compute_phase->precompiled_gas_usage
+                        ? vm::StackEntry(td::make_refint(compute_phase->precompiled_gas_usage.value()))
+                        : vm::StackEntry());  // precompiled_gas_usage:Integer
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
@@ -1465,13 +1468,13 @@ bool Transaction::check_in_msg_state_hash() {
  *
  * @param cfg The configuration for the compute phase.
  * @param impl Implementation of the smart contract
- * @param gas_usage Fixed gas usage for the contract
  *
  * @returns True if the contract was successfully executed, false otherwise.
  */
-bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& impl,
-                                           td::uint64 gas_usage) {
+bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& impl) {
   ComputePhase& cp = *compute_phase;
+  CHECK(cp.precompiled_gas_usage);
+  td::uint64 gas_usage = cp.precompiled_gas_usage.value();
   td::Timer timer;
   auto result =
       impl.run(my_addr, now, start_lt, balance, new_data, *in_msg_body, in_msg, msg_balance_remaining, in_msg_extern,
@@ -1611,13 +1614,14 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   vm::GasLimits gas{(long long)cp.gas_limit, (long long)cp.gas_max, (long long)cp.gas_credit};
   if (precompiled) {
     td::uint64 gas_usage = precompiled.value().gas_usage;
+    cp.precompiled_gas_usage = gas_usage;
     if (gas_usage > cp.gas_limit) {
       cp.skip_reason = ComputePhase::sk_no_gas;
       return true;
     }
     auto impl = precompiled::get_implementation(new_code->get_hash().bits());
     if (impl != nullptr && !cfg.dont_run_precompiled_ && impl->required_version() <= cfg.global_version) {
-      return run_precompiled_contract(cfg, *impl, gas_usage);
+      return run_precompiled_contract(cfg, *impl);
     }
 
     // Contract is marked as precompiled in global config, but implementation is not available

@@ -192,6 +192,7 @@ struct ComputePhase {
   Ref<vm::Cell> new_data;
   Ref<vm::Cell> actions;
   std::string vm_log;
+  td::optional<td::uint64> precompiled_gas_usage;
 };
 
 struct ActionPhase {
@@ -375,8 +376,7 @@ struct Transaction {
   bool compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg);
   Ref<vm::Stack> prepare_vm_stack(ComputePhase& cp);
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
-  bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled,
-                                td::uint64 gas_usage);
+  bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
   td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);

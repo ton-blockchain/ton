@@ -313,7 +313,7 @@ int exec_get_forward_fee(VmState* st) {
 int exec_get_precompiled_gas(VmState* st) {
   VM_LOG(st) << "execute GETPRECOMPILEDGAS";
   Stack& stack = st->get_stack();
-  stack.push_null();
+  stack.push(get_param(st, 16));
   return 0;
 }
 
