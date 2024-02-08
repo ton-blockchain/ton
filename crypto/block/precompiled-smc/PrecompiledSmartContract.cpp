@@ -33,7 +33,7 @@ Result PrecompiledSmartContract::run(td::Ref<vm::CellSlice> my_address, ton::Uni
   now_ = now;
   cur_lt_ = cur_lt;
   balance_ = std::move(balance);
-  c4_ = std::move(c4);
+  c4_ = (c4.not_null() ? std::move(c4) : CellBuilder().finalize());
   in_msg_body_ = std::move(msg_body);
   in_msg_ = std::move(msg);
   in_msg_balance_ = std::move(msg_balance);
