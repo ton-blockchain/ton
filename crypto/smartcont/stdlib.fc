@@ -133,6 +133,9 @@ slice my_address() asm "MYADDR";
 ;;; Note that RAW primitives such as [send_raw_message] do not update this field.
 [int, cell] get_balance() asm "BALANCE";
 
+;;; Returns value in nanotoncoins of storage phase fees.
+int get_storage_fees() asm "STORAGEFEES";
+
 ;;; Returns the logical time of the current transaction.
 int cur_lt() asm "LTIME";
 
