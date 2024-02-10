@@ -133,6 +133,11 @@ slice my_address() asm "MYADDR";
 ;;; Note that RAW primitives such as [send_raw_message] do not update this field.
 [int, cell] get_balance() asm "BALANCE";
 
+;;; Returns the incoming value to the smart contract as a tuple consisting of an int
+;;; (balance in nanotoncoins) and a `cell`
+;;; (a dictionary with 32-bit keys representing the incoming value of "extra currencies").
+[int, cell] get_incoming_value() asm "INCOMINGVALUE";
+
 ;;; Returns the logical time of the current transaction.
 int cur_lt() asm "LTIME";
 
