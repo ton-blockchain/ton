@@ -258,12 +258,12 @@ cont bless(slice s) impure asm "BLESS";
 ;;; in Computation Phase is thrown later.
 () commit() impure asm "COMMIT";
 
-;;; Not implemented
-;;() buy_gas(int gram) impure asm "BUYGAS";
-
 ;;; Computes the amount of gas that can be bought for `amount` nanoTONs,
 ;;; and sets `gl` accordingly in the same way as [set_gas_limit].
 () buy_gas(int amount) impure asm "BUYGAS";
+
+;;; Returns gas consumed by VM so far (including this instruction).
+int gas_consumed() asm "GASCONSUMED";
 
 ;;; Computes the minimum of two integers [x] and [y].
 int min(int x, int y) asm "MIN";
