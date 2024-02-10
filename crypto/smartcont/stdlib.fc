@@ -126,6 +126,9 @@ int now() asm "NOW";
 ;;; If necessary, it can be parsed further using primitives such as [parse_std_addr].
 slice my_address() asm "MYADDR";
 
+;;; Returns the code of the current smart contract.
+cell my_code() asm "MYCODE";
+
 ;;; Returns the balance of the smart contract as a tuple consisting of an int
 ;;; (balance in nanotoncoins) and a `cell`
 ;;; (a dictionary with 32-bit keys representing the balance of "extra currencies")
