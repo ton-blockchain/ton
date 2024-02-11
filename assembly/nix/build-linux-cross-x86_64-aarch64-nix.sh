@@ -14,7 +14,7 @@ while getopts 't' flag; do
   esac
 done
 
-cp assembly/nix/linux-x86-64* .
+cp assembly/nix/linux-cross-x86_64-aarch64-static.nix .
 
 if [ "$with_tests" = true ]; then
   nix-build linux-cross-x86_64-aarch64-static.nix --arg testing true
