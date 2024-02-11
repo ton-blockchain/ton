@@ -1,6 +1,6 @@
 let
   nixpkgs = fetchTarball "https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz";
-  pkgs = (import nixpkgs {}).pkgsCross.aarch64-unknown-linux-gnu;
+  pkgs = (import nixpkgs {}).pkgsCross.aarch64-multiplatform;
 in
 pkgs.callPackage (
     { mkShell, cmake, ninja, git, pkg-config  }:
