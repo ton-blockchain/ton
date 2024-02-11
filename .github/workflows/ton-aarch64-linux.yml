@@ -1,0 +1,51 @@
+name: Ubuntu TON build (portable, aarch64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - run: |
+        sudo apt update
+        sudo apt install -y apt-utils 
+
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - uses: cachix/install-nix-action@v23
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+
+    - name: Install clang-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 16 all
+
+    - name: Generate auto content
+      run: |
+        cp assembly/native/build-ubuntu-shared.sh .
+        chmod +x build-ubuntu-shared.sh
+        ./build-ubuntu-shared.sh -p -s
+        rm -rf build
+
+    - name: Build TON
+      run: |
+        cp assembly/nix/build-linux-cross-x86_64-aarch64-nix.sh .
+        chmod +x build-linux-cross-x86_64-aarch64-nix.sh
+        ./build-linux-cross-x86_64-aarch64-nix.sh
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-aarch64-linux-binaries
+        path: artifacts
