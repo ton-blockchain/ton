@@ -1365,6 +1365,7 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
+  validator_options_.write().set_archive_preload_period(archive_preload_period_);
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -3799,6 +3800,16 @@ int main(int argc, char *argv[]) {
       [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<size_t>(s));
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_open_archive_files, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "archive-preload-period", "open archive slices for the past X second on startup (default: 0)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v < 0) {
+          return td::Status::Error("sync-before should be non-negative");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_preload_period, v); });
         return td::Status::OK();
       });
   auto S = p.run(argc, argv);

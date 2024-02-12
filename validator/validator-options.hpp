@@ -120,6 +120,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   size_t get_max_open_archive_files() const override {
     return max_open_archive_files_;
   }
+  double get_archive_preload_period() const override {
+    return archive_preload_period_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -179,6 +182,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_max_open_archive_files(size_t value) override {
     max_open_archive_files_ = value;
   }
+  void set_archive_preload_period(double value) override {
+    archive_preload_period_ = value;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -223,6 +229,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::string session_logs_file_;
   td::uint32 celldb_compress_depth_{0};
   size_t max_open_archive_files_ = 0;
+  double archive_preload_period_ = 0.0;
 };
 
 }  // namespace validator

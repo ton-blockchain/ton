@@ -885,6 +885,24 @@ void ArchiveManager::start_up() {
   }).ensure();
 
   persistent_state_gc(FileHash::zero());
+
+  double open_since = td::Clocks::system() - opts_->get_archive_preload_period();
+  for (auto it = files_.rbegin(); it != files_.rend(); ++it) {
+    if (it->second.file_actor_id().empty()) {
+      continue;
+    }
+    td::actor::send_closure(it->second.file_actor_id(), &ArchiveSlice::open_files);
+    bool stop = true;
+    for (const auto &first_block : it->second.first_blocks) {
+      if ((double)first_block.second.ts >= open_since) {
+        stop = false;
+        break;
+      }
+    }
+    if (stop) {
+      break;
+    }
+  }
 }
 
 void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {

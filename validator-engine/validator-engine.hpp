@@ -205,6 +205,7 @@ class ValidatorEngine : public td::actor::Actor {
   double key_proof_ttl_ = 0;
   td::uint32 celldb_compress_depth_ = 0;
   size_t max_open_archive_files_ = 0;
+  double archive_preload_period_ = 0.0;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -267,6 +268,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_max_open_archive_files(size_t value) {
     max_open_archive_files_ = value;
+  }
+  void set_archive_preload_period(double value) {
+    archive_preload_period_ = value;
   }
   void start_up() override;
   ValidatorEngine() {
