@@ -85,6 +85,10 @@ class LiteServerCacheImpl : public LiteServerCache {
     }
   }
 
+  void drop_send_message_from_cache(td::Bits256 key) override {
+    send_message_cache_.erase(key);
+  }
+
  private:
   struct CacheEntry : public td::ListNode {
     explicit CacheEntry(td::Bits256 key, td::BufferSlice value) : key_(key), value_(std::move(value)) {

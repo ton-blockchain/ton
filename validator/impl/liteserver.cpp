@@ -531,10 +531,13 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   auto copy = data.clone();
   td::actor::send_closure_later(
       manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Ref<ExtMessage>> res) mutable {
-        if(res.is_error()) {
-           td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                   res.move_as_error_prefix("cannot apply external message to current state : "s));
+      [Self = actor_id(this), data = std::move(data), manager = manager_, cache = cache_,
+       cache_key = cache_key_](td::Result<td::Ref<ExtMessage>> res) mutable {
+        if (res.is_error()) {
+          // Don't cache errors
+          td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
+          td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                  res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
           LOG(INFO) << "sending an external message to validator manager";
           td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
