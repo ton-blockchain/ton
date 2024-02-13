@@ -1338,26 +1338,6 @@ void define_builtins() {
   define_builtin_func("cell_at", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
   define_builtin_func("slice_at", TypeExpr::new_map(TupleInt, Slice), compile_tuple_at);
   define_builtin_func("tuple_at", TypeExpr::new_map(TupleInt, Tuple), compile_tuple_at);
-  define_builtin_func("isNull", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Int)), compile_is_null);
-  define_builtin_func("throwIf", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);
-  define_builtin_func("throwUnless", impure_bin_op, std::bind(compile_cond_throw, _1, _2, false), true);
-  define_builtin_func("throwArg", throw_arg_op, compile_throw_arg, true);
-  define_builtin_func("throwArgIf", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, true), true);
-  define_builtin_func("throwArgUnless", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, false), true);
-  define_builtin_func("loadInt", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
-  define_builtin_func("loadUint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
-  define_builtin_func("preloadInt", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
-  define_builtin_func("preloadUint", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, false));
-  define_builtin_func("storeInt", store_int_op, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
-  define_builtin_func("storeUint", store_int_op, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
-  define_builtin_func("~storeInt", store_int_method, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
-  define_builtin_func("~storeUint", store_int_method, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
-  define_builtin_func("loadBits", fetch_slice_op, std::bind(compile_fetch_slice, _1, _2, true), {}, {1, 0});
-  define_builtin_func("preloadBits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false));
-  define_builtin_func("intAt", TypeExpr::new_map(TupleInt, Int), compile_tuple_at);
-  define_builtin_func("cellAt", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
-  define_builtin_func("sliceAt", TypeExpr::new_map(TupleInt, Slice), compile_tuple_at);
-  define_builtin_func("tupleAt", TypeExpr::new_map(TupleInt, Tuple), compile_tuple_at);
   define_builtin_func("at", TypeExpr::new_forall({X}, TypeExpr::new_map(TupleInt, X)), compile_tuple_at);
   define_builtin_func("touch", TypeExpr::new_forall({X}, TypeExpr::new_map(X, X)), AsmOp::Nop());
   define_builtin_func("~touch", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
@@ -1386,6 +1366,33 @@ void define_builtins() {
   define_builtin_func(
       "run_method3", TypeExpr::new_forall({X, Y, Z}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X, Y, Z}), Unit)),
       [](AsmOpList& a, auto b, auto c) { return compile_run_method(a, b, c, 3, false); }, {1, 2, 3, 0}, {}, true);
+
+  // camelCase aliases
+  define_builtin_func("isNull", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Int)), compile_is_null);
+  define_builtin_func("throwIf", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);
+  define_builtin_func("throwUnless", impure_bin_op, std::bind(compile_cond_throw, _1, _2, false), true);
+  define_builtin_func("throwArg", throw_arg_op, compile_throw_arg, true);
+  define_builtin_func("throwArgIf", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, true), true);
+  define_builtin_func("throwArgUnless", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, false), true);
+  define_builtin_func("loadInt", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
+  define_builtin_func("loadUint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
+  define_builtin_func("preloadInt", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
+  define_builtin_func("preloadUint", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, false));
+  define_builtin_func("storeInt", store_int_op, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
+  define_builtin_func("storeUint", store_int_op, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
+  define_builtin_func("~storeInt", store_int_method, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
+  define_builtin_func("~storeUint", store_int_method, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
+  define_builtin_func("loadBits", fetch_slice_op, std::bind(compile_fetch_slice, _1, _2, true), {}, {1, 0});
+  define_builtin_func("preloadBits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false));
+  define_builtin_func("intAt", TypeExpr::new_map(TupleInt, Int), compile_tuple_at);
+  define_builtin_func("cellAt", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
+  define_builtin_func("sliceAt", TypeExpr::new_map(TupleInt, Slice), compile_tuple_at);
+  define_builtin_func("tupleAt", TypeExpr::new_map(TupleInt, Tuple), compile_tuple_at);
+  define_builtin_func("sliceBeginsWith", TypeExpr::new_map(TypeExpr::new_tensor({Slice, Slice}), SliceInt),
+                      compile_slice_begins, true);
+  define_builtin_func("storeSlice", store_slice_op, compile_store_slice, {1, 0});
+  define_builtin_func("~storeSlice", store_slice_method, compile_store_slice, {1, 0});
+  define_builtin_func("packAddress", TypeExpr::new_map(Int2, Slice), compile_pack_address, {1, 0});
 }
 
 }  // namespace funC
