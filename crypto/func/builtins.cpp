@@ -1349,7 +1349,7 @@ void define_builtins() {
                       AsmOp::Custom("s0 DUMP", 1, 1), true);
   define_builtin_func("~strdump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
                       AsmOp::Custom("STRDUMP", 1, 1), true);
-  define_builtin_func("slice_begins_with", TypeExpr::new_map(TypeExpr::new_tensor({Slice, Slice}), SliceInt),
+  define_builtin_func("slice_begins_with?", TypeExpr::new_map(TypeExpr::new_tensor({Slice, Slice}), SliceInt),
                       compile_slice_begins, true);
   define_builtin_func("store_slice", store_slice_op, compile_store_slice, {1, 0});
   define_builtin_func("~store_slice", store_slice_method, compile_store_slice, {1, 0});
@@ -1388,7 +1388,7 @@ void define_builtins() {
   define_builtin_func("cellAt", TypeExpr::new_map(TupleInt, Cell), compile_tuple_at);
   define_builtin_func("sliceAt", TypeExpr::new_map(TupleInt, Slice), compile_tuple_at);
   define_builtin_func("tupleAt", TypeExpr::new_map(TupleInt, Tuple), compile_tuple_at);
-  define_builtin_func("sliceBeginsWith", TypeExpr::new_map(TypeExpr::new_tensor({Slice, Slice}), SliceInt),
+  define_builtin_func("isSliceBeginsWith", TypeExpr::new_map(TypeExpr::new_tensor({Slice, Slice}), SliceInt),
                       compile_slice_begins, true);
   define_builtin_func("storeSlice", store_slice_op, compile_store_slice, {1, 0});
   define_builtin_func("~storeSlice", store_slice_method, compile_store_slice, {1, 0});
