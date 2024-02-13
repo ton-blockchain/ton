@@ -692,8 +692,8 @@ int validate_addr_bc(slice addr) asm "b{10000000000} PUSHSLICE SDPPFXREV";
 ;;; Checking that the address is a standard masterchain address and does not have anycast (should be used after load_msg_addr)
 int validate_addr_mc(slice addr) asm "b{10011111111} PUSHSLICE SDPPFXREV";
 
-builder store_bc_address(builder b, cell state_init) asm "HASHCU SWAP b{10000000000} STSLICECONST 256 STU";
-builder store_mc_address(builder b, cell state_init) asm "HASHCU SWAP b{10011111111} STSLICECONST 256 STU";
+builder store_bc_address(builder b, int hash) asm(hash b) "b{10000000000} STSLICECONST 256 STU";
+builder store_mc_address(builder b, int hash) asm(hash b) "b{10011111111} STSLICECONST 256 STU";
 
 ;;; Checking that the `slice` [addr] is a standard basechain address and does not have anycast (can be used with any `slice`)
 int ext_validate_addr_bc(slice addr) asm """
@@ -973,9 +973,13 @@ builder store_number_hex(builder b, int x) asm """
 """;
 
 ;;; Returns the continuation located in register c2
-cont get_c2() asm "c2 PUSH";
+((int, int) -> ()) get_c2() asm "c2 PUSH";
 ;;; Store `continuation` [c] to register c2
-() set_c2(cont c) impure asm "c2 POP";
+() set_c2(((int, int) -> ()) c) impure asm "c2 POP";
+;;; Store `cell` [actions] to register c5 (out actions)
+() set_actions(cell actions) impure asm "c5 POP";
+;;; Store empty cell to register c5 (out actions)
+() clean_actions() impure asm "<b b> PUSHREF c5 POP";
 
 ;;; DRAFT, not for use in prod
 () send(slice address, int value, builder state_init, builder body, int mode) impure inline {
