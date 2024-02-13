@@ -186,18 +186,18 @@ int checkDataSignature(slice data, slice signature, int publicKey) asm "CHKSIGNS
 ;;; The total count of visited cells `x` cannot exceed non-negative [max_cells];
 ;;; otherwise the computation is aborted before visiting the `(max_cells + 1)`-st cell and
 ;;; a zero flag is returned to indicate failure. If [c] is `null`, returns `x = y = z = 0`.
-(int, int, int) computeDataSize(cell c, int maxCells) impure asm "CDATASIZE";
+(int, int, int, int) tryComputeDataSize(cell c, int maxCells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 ;;; Similar to [compute_data_size?], but accepting a `slice` [s] instead of a `cell`.
 ;;; The returned value of `x` does not take into account the cell that contains the `slice` [s] itself;
 ;;; however, the data bits and the cell references of [s] are accounted for in `y` and `z`.
-(int, int, int) sliceComputeDataSize(slice s, int maxCells) impure asm "SDATASIZE";
+(int, int, int, int) trySliceComputeDataSize(cell c, int maxCells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 ;;; A non-quiet version of [compute_data_size?] that throws a cell overflow exception (`8`) on failure.
-(int, int, int, int) tryComputeDataSize(cell c, int maxCells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+(int, int, int) computeDataSize(cell c, int maxCells) impure asm "CDATASIZE";
 
 ;;; A non-quiet version of [slice_compute_data_size?] that throws a cell overflow exception (8) on failure.
-(int, int, int, int) trySliceComputeDataSize(cell c, int maxCells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+(int, int, int) sliceComputeDataSize(slice s, int maxCells) impure asm "SDATASIZE";
 
 ;;; Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
 ;; () throw_if(int excno, int cond) impure asm "THROWARGIF";
@@ -432,14 +432,14 @@ cell endCell(builder b) asm "ENDC";
 builder storeRef(builder b, cell c) asm(c b) "STREF";
 
 ;;; Stores an unsigned [len]-bit integer `x` into `b` for `0 ≤ len ≤ 256`.
-;; builder store_uint(builder b, int x, int len) asm(x b len) "STUX";
+;; builder storeUint(builder b, int x, int len) asm(x b len) "STUX";
 
 ;;; Stores a signed [len]-bit integer `x` into `b` for` 0 ≤ len ≤ 257`.
-;; builder store_int(builder b, int x, int len) asm(x b len) "STIX";
+;; builder storeInt(builder b, int x, int len) asm(x b len) "STIX";
 
 
 ;;; Stores `slice` [s] into `builder` [b]
-builder storeSlice(builder b, slice s) asm "STSLICER";
+;; builder storeSlice(builder b, slice s) asm "STSLICER";
 
 ;;; Stores (serializes) an integer [x] in the range `0..2^120 − 1` into `builder` [b].
 ;;; The serialization of [x] consists of a 4-bit unsigned big-endian integer `l`,
@@ -565,18 +565,18 @@ cell dictSetBuilder(cell dict, int keyLen, slice index, builder value) asm(value
 (cell, int) tryUdictReplaceBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUREPLACEB";
 (cell, int) tryIdictAddBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTIADDB";
 (cell, int) tryIdictReplaceBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTIREPLACEB";
-(cell, int, slice, int) udictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMIN" "NULLSWAPIFNOT2";
-(cell, (int, slice, int)) ~udict::deleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMIN" "NULLSWAPIFNOT2";
-(cell, int, slice, int) idictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2";
-(cell, (int, slice, int)) ~idict::deleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2";
-(cell, slice, slice, int) dictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMIN" "NULLSWAPIFNOT2";
-(cell, (slice, slice, int)) ~dict::deleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMIN" "NULLSWAPIFNOT2";
-(cell, int, slice, int) udictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMAX" "NULLSWAPIFNOT2";
-(cell, (int, slice, int)) ~udict::deleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMAX" "NULLSWAPIFNOT2";
-(cell, int, slice, int) idictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2";
-(cell, (int, slice, int)) ~idict::deleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2";
-(cell, slice, slice, int) dictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMAX" "NULLSWAPIFNOT2";
-(cell, (slice, slice, int)) ~dict::deleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMAX" "NULLSWAPIFNOT2";
+(cell, int, slice, int) tryUdictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMIN" "NULLSWAPIFNOT2";
+(cell, (int, slice, int)) ~tryUdictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMIN" "NULLSWAPIFNOT2";
+(cell, int, slice, int) tryIdictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2";
+(cell, (int, slice, int)) ~tryIdictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2";
+(cell, slice, slice, int) tryDictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMIN" "NULLSWAPIFNOT2";
+(cell, (slice, slice, int)) ~tryDictDeleteGetMin(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMIN" "NULLSWAPIFNOT2";
+(cell, int, slice, int) tryUdictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMAX" "NULLSWAPIFNOT2";
+(cell, (int, slice, int)) ~tryUdictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMAX" "NULLSWAPIFNOT2";
+(cell, int, slice, int) tryIdictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2";
+(cell, (int, slice, int)) ~tryIdictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2";
+(cell, slice, slice, int) tryDictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMAX" "NULLSWAPIFNOT2";
+(cell, (slice, slice, int)) ~tryDictDeleteGetMax(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMAX" "NULLSWAPIFNOT2";
 (int, slice, int) tryUdictGetMin(cell dict, int keyLen) asm (-> 1 0 2) "DICTUMIN" "NULLSWAPIFNOT2";
 (int, slice, int) tryUdictGetMax(cell dict, int keyLen) asm (-> 1 0 2) "DICTUMAX" "NULLSWAPIFNOT2";
 (int, cell, int) tryUdictGetMinRef(cell dict, int keyLen) asm (-> 1 0 2) "DICTUMINREF" "NULLSWAPIFNOT2";
@@ -636,4 +636,560 @@ int getSeed() impure asm "RANDSEED";
 int equalSliceBits (slice a, slice b) asm "SDEQ";
 
 ;;; Concatenates two builders
-builder storeBuilder(builder to, builder from) asm "STBR";
+builder storeBuilder(builder to, builder from) asm(from to) "STB";
+
+;; NEW FUNCS
+
+;; ===== TVM UPGRADE =====
+
+;;; Retrieves code of smart-contract from c7
+cell myCode() asm "MYCODE";
+
+;;; Creates an output action and returns a fee for creating a message. Mode has the same effect as in the case of SENDRAWMSG
+int sendMessage(cell msg, int mode) impure asm "SENDMSG";
+
+;;; Retrieves value of storage phase fees from c7
+int storageFees() asm "STORAGEFEES";
+
+;;; Retrieves global_id from 19 network config
+int globalId() asm "GLOBALID";
+
+;;; Returns gas consumed by VM so far (including this instruction).
+int gasConsumed() asm "GASCONSUMED";
+
+int cellLevel(cell c) asm "CLEVEL";
+int cellLevelMask(cell c) asm "CLEVELMASK";
+
+;; TVM V6 https://github.com/ton-blockchain/ton/blob/testnet/doc/GlobalVersions.md#version-6
+
+int getComputeFee(int workchain, int gasUsed) asm(gasUsed workchain) "GETGASFEE";
+int getStorageFee(int workchain, int seconds, int bits, int cells) asm(cells bits seconds workchain) "GETSTORAGEFEE";
+int getForwardFee(int workchain, int bits, int cells) asm(cells bits workchain) "GETFORWARDFEE";
+int getPrecompiledGasConsumption() asm "GETPRECOMPILEDGAS";
+
+int getSimpleComputeFee(int workchain, int gasUsed) asm(gasUsed workchain) "GETGASFEESIMPLE";
+int getSimpleForwardFee(int workchain, int bits, int cells) asm(cells bits workchain) "GETFORWARDFEESIMPLE";
+int getOriginalFwdFee(int workchain, int fwdFee) asm(fwdFee workchain) "GETORIGINALFWDFEE";
+int myStorageDue() asm "DUEPAYMENT";
+
+tuple getFeeCofigs() asm "UNPACKEDCONFIGTUPLE";
+
+;; ===== ADDRESS =====
+
+const int BASECHAIN = 0;
+const int MASTERCHAIN = -1;
+
+const slice addrNone = "2_"s; ;; addr_none$00 = MsgAddressExt;
+
+;;; Store addr_none constuction (b{00}) to `builder` [b]
+builder storeAddrNone(builder b) asm "b{00} STSLICECONST";
+
+;;; Checking that `slice` [s] is a addr_none constuction;
+int isAddrNone(slice s) asm "b{00} PUSHSLICE SDEQ";
+
+;;; Checking that the address is a standard basechain address and does not have anycast (should be used after load_msg_addr)
+int validateAddrBc(slice addr) asm "b{10000000000} PUSHSLICE SDPPFXREV";
+;;; Checking that the address is a standard masterchain address and does not have anycast (should be used after load_msg_addr)
+int validateAddrMc(slice addr) asm "b{10011111111} PUSHSLICE SDPPFXREV";
+
+builder storeBcAddress(builder b, int hash) asm(hash b) "b{10000000000} STSLICECONST 256 STU";
+builder storeMcAddress(builder b, int hash) asm(hash b) "b{10011111111} STSLICECONST 256 STU";
+
+;;; Checking that the `slice` [addr] is a standard basechain address and does not have anycast (can be used with any `slice`)
+int extValidateAddrBc(slice addr) asm """
+  DUP
+  b{10000000000} PUSHSLICE SDPPFXREV SWAP
+  267 INT 0 INT SCHKBITREFSQ
+  AND
+""";
+;;; Checking that the `slice` [addr] is a standard masterchain address and does not have anycast (can be used with any `slice`)
+int extValidateAddrMc(slice addr) asm """
+  DUP
+  b{10011111111} PUSHSLICE SDPPFXREV SWAP
+  267 INT 0 INT SCHKBITREFSQ
+  AND
+""";
+
+;;; Checking that [addr1] and [addr2] have the same workchain
+int isWorkchainsEqual(slice addr1, slice addr2) asm "REWRITESTDADDR DROP SWAP REWRITESTDADDR DROP EQUAL";
+;;; Checking that [addr] have the workchain [wc]
+int isWorkchainMatch(slice addr, int wc) asm(wc addr) "REWRITESTDADDR DROP EQUAL";
+;;; Checking that [addr] have the workchain 0
+int isBasechainAddr(slice addr) asm "REWRITESTDADDR DROP 0 EQINT";
+;;; Checking that [addr] have the workchain -1
+int isMasterchainAddr(slice addr) asm "REWRITESTDADDR DROP -1 EQINT";
+
+;;; Basic store StateInit construction in `builder` [b].
+builder storeStateInit(builder b, cell data, cell code) asm(data code b) "b{00110} STSLICECONST STREF STREF";
+
+;;; Calculate standard basechain address from `state_init`
+slice calcBcAddress(cell stateInit) inline {
+  return packAddress(BASECHAIN, cellHash(stateInit));
+}
+
+;;; Calculate standard masterchain address from `state_init`
+slice calcMcAddress(cell stateInit) inline {
+  return packAddress(MASTERCHAIN, cellHash(stateInit));
+}
+
+;; ===== BOOL =====
+
+const int TRUE = -1;
+const int FALSE = 0;
+
+;;; Store binary true b{1} to `builder` [b]
+builder storeTrue(builder b) asm "STONE";
+;;; Store binary false b{0} to `builder` [b]
+builder storeFalse(builder b) asm "STZERO";
+;;; Store `int` [x] as bool to `builder` [b]
+builder storeBool(builder b, int x) asm(x b) "1 STI";
+
+;;; Loads bool from `slice` [s]
+(slice, int) loadBool(slice s) asm(-> 1 0) "1 LDI";
+
+;;; Checks whether `int` [x] is a “boolean value" (i.e., either 0 or -1).
+int isBool(int x) asm "CHKBOOL";
+
+;;; Skip (Maybe ^Cell) from `slice` [s].
+(slice, ()) ~skipMaybeRef(slice s) asm "SKIPOPTREF";
+(slice, ()) ~skipDict(slice s) asm "SKIPOPTREF";
+
+;; ===== MSG FLAGS =====
+
+const slice BOUNCEABLE = "62_"s; ;; 0b011000 tag - 0, ihr_disabled - 1, bounce - 1, bounced - 0, src = adr_none$00
+const slice NON_BOUNCEABLE = "42_"s; ;; 0b010000 tag - 0, ihr_disabled - 1, bounce - 0, bounced - 0, src = adr_none$00
+
+builder storeMsgFlags(builder b, int flag) asm(flag b) "6 STU";
+
+builder storeMsgFlagsBounceable(builder b) asm "b{011000} STSLICECONST";
+builder storeMsgFlagsNonBounceable(builder b) asm "b{010000} STSLICECONST";
+
+;; load msg_flags only
+(slice, int) ~loadMsgFlags(slice s) asm(-> 1 0) "4 LDU";
+
+;;; Basic parse MessageX (full_message), returns: flags, sender, forward fee
+(int, slice, int) parseMessage(cell fullMessage) asm "CTOS 4 LDU LDMSGADDR LDMSGADDR LDGRAMS SKIPDICT LDGRAMS LDGRAMS DROP 3 1 BLKDROP2";
+
+;;; Checking that the "bounce" bit in the flags is set to "true"
+int isBounceable(int flags) asm "2 INT AND";
+;;; Checking that the "bounced" bit in the flags is set to "true"
+int isBounced(int flags) asm "ONE AND";
+
+(slice, ()) ~skipBouncedPrefix(slice s) asm "x{FFFFFFFF} SDBEGINS";
+
+;; ===== MSG BODY =====
+
+;;; Store standard uint32 operation code into `builder` [b]
+builder storeOp(builder b, int op) asm(op b) "32 STU";
+;;; Store standard uint64 query id into `builder` [b]
+builder storeQueryId(builder b, int queryId) asm(queryId b) "64 STU";
+;;; Load standard uint32 operation code from `slice` [s]
+(slice, int) loadOp(slice s) asm(-> 1 0) "32 LDU";
+;;; Load standard uint64 query id from `slice` [s]
+(slice, int) loadQueryId(slice s) asm(-> 1 0) "64 LDU";
+
+(slice, (int, int)) ~loadOpAndQueryId(slice s) asm(-> 2 0 1) "32 LDU 64 LDU";
+
+(slice, ()) ~skipOp(slice s) asm "32 LDU NIP";
+(slice, ()) ~skipQueryId(slice s) asm "32 LDU NIP";
+
+;; ===== SEND =====
+
+const int MSG_INFO_REST_BITS = 1 + 4 + 4 + 64 + 32;
+
+;; https://github.com/ton-blockchain/ton/blob/8a9ff339927b22b72819c5125428b70c406da631/crypto/block/block.tlb#L155
+;; message$_ {X:Type} info:CommonMsgInfo
+;;  Maybe (Either StateInit ^StateInit)
+;;  body:(Either X ^X) = Message X;
+;;
+;;message$_ {X:Type} info:CommonMsgInfoRelaxed
+;;  init:(Maybe (Either StateInit ^StateInit))
+;;  body:(Either X ^X) = MessageRelaxed X;
+;;
+;;_ (Message Any) = MessageAny;
+
+;; if have StateInit (always place StateInit in ref):
+;; 0b11 for `Maybe (Either StateInit ^StateInit)` and 0b1 or 0b0 for `body:(Either X ^X)`
+
+const int MSG_WITH_STATE_INIT_AND_BODY_SIZE = MSG_INFO_REST_BITS + 1 + 1 + 1;
+const int MSG_HAVE_STATE_INIT = 4;
+const int MSG_STATE_INIT_IN_REF = 2;
+const int MSG_BODY_IN_REF = 1;
+
+;; if no StateInit:
+;; 0b0 for `Maybe (Either StateInit ^StateInit)` and 0b1 or 0b0 for `body:(Either X ^X)`
+
+const int MSG_ONLY_BODY_SIZE = MSG_INFO_REST_BITS + 1 + 1;
+
+;; ===== SEND MODES =====
+
+;; For `send_raw_message` and `send_message`:
+
+;;; x = 0 is used for ordinary messages; the gas fees are deducted from the senging amount; action phaes should NOT be ignored.
+const int sendmode::REGULAR = 0;
+;;; +1 means that the sender wants to pay transfer fees separately.
+const int sendmode::PAY_FEES_SEPARATELY = 1;
+;;; + 2 means that any errors arising while processing this message during the action phase should be ignored.
+const int sendmode::IGNORE_ERRORS = 2;
+;;; + 32 means that the current account must be destroyed if its resulting balance is zero.
+const int sendmode::DESTROY = 32;
+;;; x = 64 is used for messages that carry all the remaining value of the inbound message in addition to the value initially indicated in the new message.
+const int sendmode::CARRY_ALL_REMAINING_MESSAGE_VALUE = 64;
+;;; x = 128 is used for messages that are to carry all the remaining balance of the current smart contract (instead of the value originally indicated in the message).
+const int sendmode::CARRY_ALL_BALANCE = 128;
+;;; in the case of action fail - bounce transaction. No effect if sendmode::IGNORE_ERRORS (+2) is used. TVM UPGRADE 2023-07.
+const int sendmode::BOUNCE_ON_ACTION_FAIL = 16;
+
+;; Only for `send_message`:
+
+;;; do not create an action, only estimate fee
+const int sendmode::ESTIMATE_FEE_ONLY = 1024;
+
+;; Other modes affect the fee calculation as follows:
+;; +64 substitutes the entire balance of the incoming message as an outcoming value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
+;; +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
+
+;; ===== RESERVE MODES =====
+
+;;; Creates an output action which would reserve exactly x nanograms (if y = 0).
+const int reserve::REGULAR = 0;
+;;; Creates an output action which would reserve at most x nanograms (if y = 2).
+;;; Bit +2 in y means that the external action does not fail if the specified amount cannot be reserved; instead, all remaining balance is reserved.
+const int reserve::AT_MOST = 2;
+;;; in the case of action fail - bounce transaction. No effect if RESERVE_AT_MOST (+2) is used. TVM UPGRADE 2023-07.
+const int reserve::BOUNCE_ON_ACTION_FAIL = 16;
+
+;; ===== TOKEN METADATA =====
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0064-token-data-standard.md
+
+const slice ONCHAIN_CONTENT = "00"s;
+const slice OFFCHAIN_CONTENT = "01"s;
+const slice SNAKE_FORMAT = "00"s;
+const slice CHUNKS_FORMAT = "01"s;
+
+;; Key is sha256 hash of string. Value is data encoded as described in "Data serialization" paragraph.
+;; Snake format - must be prefixed with 0x00 byte
+(cell, ()) ~setTokenSnakeMetadataEntry(cell contentDict, int key, slice value) impure {
+  contentDict~udictSetRef(256, key, beginCell().storeSlice(SNAKE_FORMAT).storeSlice(value).endCell());
+  return (contentDict, ());
+}
+
+;; On-chain content layout The first byte is 0x00 and the rest is key/value dictionary.
+cell createTokenOnchainMetadata(cell contentDict) inline {
+  return beginCell().storeSlice(ONCHAIN_CONTENT).storeDict(contentDict).endCell();
+}
+
+;; ===== BASIC =====
+
+;;; Returns the current length of the `tuple` [t]
+int tupleLength(tuple t) asm "TLEN";
+
+builder storeZeroes(builder b, int x) asm "STZEROES";
+builder storeOnes(builder b, int x) asm "STONES";
+
+builder storeVaruint16(builder b, int x) asm "STVARUINT16";
+builder storeVarint16(builder b, int x) asm "STVARINT16";
+builder storeVaruint32(builder b, int x) asm "STVARUINT32";
+builder storeVarint32(builder b, int x) asm "STVARINT32";
+
+(slice, int) loadVaruint16(slice s) asm(-> 1 0) "LDVARUINT16";
+(slice, int) loadVarint16(slice s) asm(-> 1 0) "LDVARINT16";
+(slice, int) loadVaruint32(slice s) asm(-> 1 0) "LDVARUINT32";
+(slice, int) loadVarint32(slice s) asm(-> 1 0) "LDVARINT32";
+
+;;; Creates an output action that would modify the collection of this smart contract
+;;; libraries by adding or removing library with code given in `Cell` [code].
+;;; Modes: 0 - remove library, 1 - add private library, 2 - add public library
+() setLibrary(cell code, int mode) impure asm "SETLIBCODE";
+
+(slice, ()) ~skipRef(slice s) asm "LDREF NIP";
+(slice, ()) ~skipCoins(slice s) asm "LDGRAMS NIP";
+(slice, ()) ~skipMsgAddr(slice s) asm "LDMSGADDR NIP";
+
+cell preloadFirstRef(slice s) asm "0 PLDREFIDX";
+cell preloadSecondRef(slice s) asm "1 PLDREFIDX";
+cell preloadThirdRef(slice s) asm "2 PLDREFIDX";
+cell preloadFourthRef(slice s) asm "3 PLDREFIDX";
+
+;;; Concatenates two builders, but second builder stores as the reference (end_cell -> store_ref)
+builder storeBuilderAsRef(builder to, builder from) asm(from to) "STBREF";
+
+;;; Loads the reference from the slice and parse (load_ref -> begin_parse)
+(slice, slice) loadRefAsSlice(slice s) asm "LDREFRTOS";
+
+;;; Returns the TON balance of the smart contract
+int getTonBalance() asm "BALANCE FIRST";
+
+;;; Returns the number of data bits and cell references already stored in `builder` [b].
+(int, int) builderBitsRefs(builder b) asm "BBITREFS";
+
+;;; Returns the number of data bits and cell references that can be stored in `builder` [b].
+(int, int) builderRemBitsRefs(builder b) asm "BREMBITREFS";
+
+;;; Checks whether `slice` [pfx] is a prefix of `slice` [s]
+int sliceCheckPrefix(slice s, slice pfx) asm "SDPFXREV";
+;;; Checks whether `slice` [sfx] is a suffix of `slice` [s]
+int sliceCheckSuffix(slice s, slice sfx) asm "SDSFXREV";
+;;; Checks whether there are at least [l] data bits in `slice` [s].
+int sliceCheckBits(slice s, int l) asm "SCHKBITSQ";
+;;; Checks whether there are at least [r] references in `slice` [s].
+int sliceCheckRefs(slice s, int r) asm "SCHKREFSQ";
+;;; Checks whether there are at least [l] data bits and [r] references in `slice` [s].
+int sliceCheckBitsRefs(slice s, int l, int r) asm "SCHKBITREFSQ";
+
+;;; Checks whether `slice` [s] begins with (the data bits of) [pfx], and removes [pfx] from [s] on success.
+;;(slice, int) slice_begins_with(slice s, slice pfx) asm "SDBEGINSXQ";
+
+;;; Store `integer` [x] number as string (UTF-8) in decimal form in `builder` [b].
+builder storeNumberDec(builder b, int x) asm """
+  ZERO                                                        // b x i=0
+  SWAP                                                        // b i=0 x
+  UNTIL:<{                                                    // b i x
+    10 PUSHINT DIVMOD                                         // b i x r
+    48 ADDCONST                                               // b i x r
+    s3 s1 s3 XCHG3                                            // r b x i
+    INC                                                       // r b x i
+    s1 s0 XCPU                                                // r b i x x
+    ISZERO
+  }>
+  DROP
+  REPEAT:<{ 8 STU }>                                          // ..rrr.. b i
+""";
+
+;;; Store `int` [x] number as string (UTF-8) in hexadecimal form in `builder` [b].
+builder storeNumberHex(builder b, int x) asm """
+  ZERO                                                        // b x i=0
+  SWAP                                                        // b i=0 x
+  UNTIL:<{                                                    // b i x
+    16 PUSHINT DIVMOD                                         // b i x r
+    48 ADDCONST DUP 57 GTINT IF:<{ 7 ADDCONST }>              // b i x r
+    s3 s1 s3 XCHG3                                            // r b x i
+    INC                                                       // r b x i
+    s1 s0 XCPU                                                // r b i x x
+    ISZERO
+  }>
+  DROP
+  REPEAT:<{ 8 STU }>                                          // ..rrr.. b i
+""";
+
+;;; Returns the continuation located in register c2
+((int, int) -> ()) getC2() asm "c2 PUSH";
+;;; Store `continuation` [c] to register c2
+() setC2(((int, int) -> ()) c) impure asm "c2 POP";
+;;; Store `cell` [actions] to register c5 (out actions)
+() setActions(cell actions) impure asm "c5 POP";
+;;; Store empty cell to register c5 (out actions)
+() cleanActions() impure asm "<b b> PUSHREF c5 POP";
+
+;;; DRAFT, not for use in prod
+() send(slice address, int value, builder stateInit, builder body, int mode) impure inline {
+  builder message = beginCell().storeSlice(BOUNCEABLE).storeSlice(address).storeCoins(value).storeZeroes(105);
+
+  ifnot (stateInit.isNull()) {
+    message = message.storeSlice("A_"s).storeBuilder(stateInit); ;; x{A_} == b{10}
+  } else {
+    message = message.storeFalse();
+  }
+
+  ifnot (body.isNull()) {
+    (int b1, int r1) = message.builderRemBitsRefs();
+    (int b2, int r2) = body.builderBitsRefs();
+    if ((b1 >= b2) & (r1 >= r2)) {
+      message = message.storeFalse().storeBuilder(body);
+    } else {
+      message = message.storeTrue().storeBuilderAsRef(body);
+    }
+  } else {
+    message = message.storeFalse();
+  }
+  sendRawMessage(message.endCell(), mode);
+}
+
+;; ===== STANDARD OP's =====
+
+;; Common (used in TEP-62,74,85)
+const slice op::excesses               = "d53276db"s;
+
+;; TEP-62 - NFT
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0062-nft-standard.md
+const slice op::transferNft           = "5fcc3d14"s;
+const slice op::ownershipAssigned     = "05138d91"s;
+const slice op::getStaticData        = "2fcb26a2"s;
+const slice op::reportStaticData     = "8b771735"s;
+
+;; TEP-66 - NFT Royalty
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0066-nft-royalty-standard.md
+const slice op::getRoyaltyParams     = "693d3950"s;
+const slice op::reportRoyaltyParams  = "a8cb00ad"s;
+
+;; TEP-74 - Jettons
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md
+const slice op::transferJetton        = "0f8a7ea5"s;
+const slice op::internalTransfer      = "178d4519"s;
+const slice op::transferNotification  = "7362d09c"s;
+const slice op::burnNotification      = "7bdd97de"s;
+
+;; TEP-85 - SBT
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0085-sbt-standard.md
+const slice op::proveOwnership        = "04ded148"s;
+const slice op::ownershipProof        = "0524c7ae"s;
+const slice op::requestOwner          = "d0c3bfea"s;
+const slice op::ownerInfo             = "0dd607e3"s;
+const slice op::destroySbt            = "1f04537a"s;
+const slice op::revokeSbt             = "6f89f5e3"s;
+
+;; TEP-89 - Discoverable Jettons Wallets
+;; https://github.com/ton-blockchain/TEPs/blob/master/text/0089-jetton-wallet-discovery.md
+const slice op::provideWalletAddress = "2c76b973"s;
+const slice op::takeWalletAddress    = "d1735400"s;
+
+;; ===== DICTS (missing funcs) =====
+
+cell dictGetRef(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTGETOPTREF";
+cell udictGetRef(cell dict, int keyLen, int index) asm(index dict keyLen) "DICTUGETOPTREF";
+
+(cell, cell) dictSetGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTSETGETOPTREF";
+
+cell dictSetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTSETREF";
+(cell, ()) ~dictSetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTSETREF";
+
+(cell, int) tryDictGetRef(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTGETREF" "NULLSWAPIFNOT";
+(cell, int) tryDictDelete(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTDEL";
+(slice, int) tryDictGet(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTGET" "NULLSWAPIFNOT";
+
+(cell, slice, int) tryDictDeleteGet(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTDELGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryDictDeleteGet(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTDELGET" "NULLSWAPIFNOT";
+
+(cell, int) tryDictReplace(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTREPLACE";
+(cell, int) tryDictAdd(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTADD";
+
+(cell, int) tryDictReplaceBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTREPLACEB";
+(cell, int) tryDictAddBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTADDB";
+
+(slice, slice, int) tryDictGetMin(cell dict, int keyLen) asm (-> 1 0 2) "DICTMIN" "NULLSWAPIFNOT2";
+(slice, slice, int) tryDictGetMax(cell dict, int keyLen) asm (-> 1 0 2) "DICTMAX" "NULLSWAPIFNOT2";
+(slice, cell, int) tryDictGetMinRef(cell dict, int keyLen) asm (-> 1 0 2) "DICTMINREF" "NULLSWAPIFNOT2";
+(slice, cell, int) tryDictGetMaxRef(cell dict, int keyLen) asm (-> 1 0 2) "DICTMAXREF" "NULLSWAPIFNOT2";
+(slice, slice, int) tryDictGetNext(cell dict, int keyLen, slice pivot) asm(pivot dict keyLen -> 1 0 2) "DICTGETNEXT" "NULLSWAPIFNOT2";
+(slice, slice, int) tryDictGetNexteq(cell dict, int keyLen, slice pivot) asm(pivot dict keyLen -> 1 0 2) "DICTGETNEXTEQ" "NULLSWAPIFNOT2";
+(slice, slice, int) tryDictGetPrev(cell dict, int keyLen, slice pivot) asm(pivot dict keyLen -> 1 0 2) "DICTGETPREV" "NULLSWAPIFNOT2";
+(slice, slice, int) tryDictGetPreveq(cell dict, int keyLen, slice pivot) asm(pivot dict keyLen -> 1 0 2) "DICTGETPREVEQ" "NULLSWAPIFNOT2";
+
+;; ===== DICTS (new funcs) =====
+
+(slice, cell, int) tryLoadDict(slice s) asm(-> 1 0 2) "LDDICTQ" "NULLROTRIFNOT";
+(slice, (cell, int)) ~tryLoadDict(slice s) asm(-> 1 0 2) "LDDICTQ" "NULLROTRIFNOT";
+(cell, int) tryPreloadDict(slice s) asm "PLDDICTQ" "NULLSWAPIFNOT";
+
+(cell, slice, int) tryDictSetGet(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTSETGET" "NULLSWAPIFNOT";
+(cell, slice, int) tryUdictSetGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTUSETGET" "NULLSWAPIFNOT";
+(cell, slice, int) tryIdictSetGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTISETGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryDictSetGet(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTSETGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryUdictSetGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTUSETGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryIdictSetGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTISETGET" "NULLSWAPIFNOT";
+
+(cell, cell, int) tryDictSetGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTSETGETREF" "NULLSWAPIFNOT";
+(cell, cell, int) tryUdictSetGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUSETGETREF" "NULLSWAPIFNOT";
+(cell, cell, int) tryIdictSetGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTISETGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryDictSetGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTSETGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryUdictSetGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUSETGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryIdictSetGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTISETGETREF" "NULLSWAPIFNOT";
+
+(cell, slice, int) tryDictSetGetBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTSETGETB" "NULLSWAPIFNOT";
+(cell, slice, int) tryUdictSetGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUSETGETB" "NULLSWAPIFNOT";
+(cell, slice, int) tryIdictSetGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTISETGETB" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryDictSetGetBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTSETGETB" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryUdictSetGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUSETGETB" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryIdictSetGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTISETGETB" "NULLSWAPIFNOT";
+
+(cell, int) tryDictReplaceRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTREPLACEREF";
+(cell, int) tryUdictReplaceRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUREPLACEREF";
+(cell, int) tryIdictReplaceRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTIREPLACEREF";
+
+(cell, slice, int) tryDictReplaceGet(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTREPLACEGET" "NULLSWAPIFNOT";
+(cell, slice, int) tryUdictReplaceGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTUREPLACEGET" "NULLSWAPIFNOT";
+(cell, slice, int) tryIdictReplaceGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTIREPLACEGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryDictReplaceGet(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTREPLACEGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryUdictReplaceGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTUREPLACEGET" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryIdictReplaceGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTIREPLACEGET" "NULLSWAPIFNOT";
+
+(cell, cell, int) tryDictReplaceGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTREPLACEGETREF" "NULLSWAPIFNOT";
+(cell, cell, int) tryUdictReplaceGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUREPLACEGETREF" "NULLSWAPIFNOT";
+(cell, cell, int) tryIdictReplaceGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTIREPLACEGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryDictReplaceGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTREPLACEGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryUdictReplaceGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUREPLACEGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryIdictReplaceGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTIREPLACEGETREF" "NULLSWAPIFNOT";
+
+(cell, slice, int) tryDictReplaceGetBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTREPLACEGETB" "NULLSWAPIFNOT";
+(cell, slice, int) tryUdictReplaceGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUREPLACEGETB" "NULLSWAPIFNOT";
+(cell, slice, int) tryIdictReplaceGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTIREPLACEGETB" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryDictReplaceGetBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTREPLACEGETB" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryUdictReplaceGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUREPLACEGETB" "NULLSWAPIFNOT";
+(cell, (slice, int)) ~tryIdictReplaceGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTIREPLACEGETB" "NULLSWAPIFNOT";
+
+(cell, int) tryDictAddRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTADDREF";
+(cell, int) tryUdictAddRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUADDREF";
+(cell, int) tryIdictAddRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTIADDREF";
+
+(cell, slice, int) tryDictAddGet(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTADDGET" "NULLSWAPIF";
+(cell, slice, int) tryUdictAddGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTUADDGET" "NULLSWAPIF";
+(cell, slice, int) tryIdictAddGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTIADDGET" "NULLSWAPIF";
+(cell, (slice, int)) ~tryDictAddGet(cell dict, int keyLen, slice index, slice value) asm(value index dict keyLen) "DICTADDGET" "NULLSWAPIF";
+(cell, (slice, int)) ~tryUdictAddGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTUADDGET" "NULLSWAPIF";
+(cell, (slice, int)) ~tryIdictAddGet(cell dict, int keyLen, int index, slice value) asm(value index dict keyLen) "DICTIADDGET" "NULLSWAPIF";
+
+(cell, cell, int) tryDictAddGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTADDGETREF" "NULLSWAPIF";
+(cell, cell, int) tryUdictAddGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUADDGETREF" "NULLSWAPIF";
+(cell, cell, int) tryIdictAddGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTIADDGETREF" "NULLSWAPIF";
+(cell, (cell, int)) ~tryDictAddGetRef(cell dict, int keyLen, slice index, cell value) asm(value index dict keyLen) "DICTADDGETREF" "NULLSWAPIF";
+(cell, (cell, int)) ~tryUdictAddGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTUADDGETREF" "NULLSWAPIF";
+(cell, (cell, int)) ~tryIdictAddGetRef(cell dict, int keyLen, int index, cell value) asm(value index dict keyLen) "DICTIADDGETREF" "NULLSWAPIF";
+
+(cell, slice, int) tryDictAddGetBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTADDGETB" "NULLSWAPIF";
+(cell, slice, int) tryUdictAddGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUADDGETB" "NULLSWAPIF";
+(cell, slice, int) tryIdictAddGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTIADDGETB" "NULLSWAPIF";
+(cell, (slice, int)) ~tryDictAddGetBuilder(cell dict, int keyLen, slice index, builder value) asm(value index dict keyLen) "DICTADDGETB" "NULLSWAPIF";
+(cell, (slice, int)) ~tryUdictAddGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTUADDGETB" "NULLSWAPIF";
+(cell, (slice, int)) ~tryIdictAddGetBuilder(cell dict, int keyLen, int index, builder value) asm(value index dict keyLen) "DICTIADDGETB" "NULLSWAPIF";
+
+(cell, cell, int) tryDictDeleteGetRef(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTDELGETREF" "NULLSWAPIFNOT";
+(cell, cell, int) tryUdictDeleteGetRef(cell dict, int keyLen, int index) asm(index dict keyLen) "DICTUDELGETREF" "NULLSWAPIFNOT";
+(cell, cell, int) tryIdictDeleteGetRef(cell dict, int keyLen, int index) asm(index dict keyLen) "DICTIDELGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryDictDeleteGetRef(cell dict, int keyLen, slice index) asm(index dict keyLen) "DICTDELGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryUdictDeleteGetRef(cell dict, int keyLen, int index) asm(index dict keyLen) "DICTUDELGETREF" "NULLSWAPIFNOT";
+(cell, (cell, int)) ~tryIdictDeleteGetRef(cell dict, int keyLen, int index) asm(index dict keyLen) "DICTIDELGETREF" "NULLSWAPIFNOT";
+
+(cell, slice, cell, int) tryDictDeleteGetMinRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMINREF" "NULLSWAPIFNOT2";
+(cell, int, cell, int) tryUdictDeleteGetMinRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMINREF" "NULLSWAPIFNOT2";
+(cell, int, cell, int) tryIdictDeleteGetMinRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMINREF" "NULLSWAPIFNOT2";
+(cell, (slice, cell, int)) ~tryDictDeleteGetMinRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMINREF" "NULLSWAPIFNOT2";
+(cell, (int, cell, int)) ~tryUdictDeleteGetMinRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMINREF" "NULLSWAPIFNOT2";
+(cell, (int, cell, int)) ~tryIdictDeleteGetMinRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMINREF" "NULLSWAPIFNOT2";
+
+(cell, slice, cell, int) tryDictDeleteGetMaxRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMAXREF" "NULLSWAPIFNOT2";
+(cell, int, cell, int) tryUdictDeleteGetMaxRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMAXREF" "NULLSWAPIFNOT2";
+(cell, int, cell, int) tryIdictDeleteGetMaxRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMAXREF" "NULLSWAPIFNOT2";
+(cell, (slice, cell, int)) ~tryDictDeleteGetMaxRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTREMMAXREF" "NULLSWAPIFNOT2";
+(cell, (int, cell, int)) ~tryUdictDeleteGetMaxRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTUREMMAXREF" "NULLSWAPIFNOT2";
+(cell, (int, cell, int)) ~tryIdictDeleteGetMaxRef(cell dict, int keyLen) asm(-> 0 2 1 3) "DICTIREMMAXREF" "NULLSWAPIFNOT2";
+
+;; ===== HASHES =====
+
+int        sha256FromSnake(slice snake)    asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH HASHEXT_SHA256 }> 1 1 CALLXARGS";
+[int, int] sha512FromSnake(slice snake)    asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH HASHEXT_SHA512 }> 1 1 CALLXARGS";
+[int, int] blake2bFromSnake(slice snake)   asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH HASHEXT_BLAKE2B }> 1 1 CALLXARGS";
+int        keccak256FromSnake(slice snake) asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH HASHEXT_KECCAK256 }> 1 1 CALLXARGS";
+[int, int] keccak512FromSnake(slice snake) asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH HASHEXT_KECCAK512 }> 1 1 CALLXARGS";
+
+builder storeSha256FromSnake(builder b, slice snake)    asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH DEC HASHEXTA_SHA256 }> 2 1 CALLXARGS";
+builder storeSha512FromSnake(builder b, slice snake)    asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH DEC HASHEXTA_SHA512 }> 2 1 CALLXARGS";
+builder storeBlake2bFromSnake(builder b, slice snake)   asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH DEC HASHEXTA_BLAKE2B }> 2 1 CALLXARGS";
+builder storeKeccak256FromSnake(builder b, slice snake) asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH DEC HASHEXTA_KECCAK256 }> 2 1 CALLXARGS";
+builder storeKeccak512FromSnake(builder b, slice snake) asm "CONT:<{ WHILE:<{ DUP SREFS }>DO<{ LDREFRTOS }> DEPTH DEC HASHEXTA_KECCAK512 }> 2 1 CALLXARGS";
+
+;; ===== SIGNATURES =====
+
+int checkSecp256r1Signature(int hash, slice signature, int publicKey) asm "P256_CHKSIGNU";
+int checkSecp256r1DataSignature(slice data, slice signature, int publicKey) asm "P256_CHKSIGNS";
+int checkBlsSignature(slice data, slice signature, int publicKey) asm(publicKey data signature) "BLS_VERIFY";
+
