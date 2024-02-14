@@ -1556,7 +1556,7 @@ bool load_int256_q(CellSlice& cs, td::RefInt256& res, int len, bool sgnd, bool q
   return true;
 }
 bool load_long_q(CellSlice& cs, td::int64& res, int len, bool quiet) {
-  DCHECK(0 <= len && len <= 64);
+  CHECK(0 <= len && len <= 64);
   if (!cs.have(len)) {
     if (quiet) {
       return false;
@@ -1567,7 +1567,7 @@ bool load_long_q(CellSlice& cs, td::int64& res, int len, bool quiet) {
   return true;
 }
 bool load_ulong_q(CellSlice& cs, td::uint64& res, int len, bool quiet) {
-  DCHECK(0 <= len && len <= 64);
+  CHECK(0 <= len && len <= 64);
   if (!cs.have(len)) {
     if (quiet) {
       return false;
@@ -1662,35 +1662,45 @@ bool store_int256(CellBuilder& cb, const td::RefInt256& x, int len, bool sgnd, b
   return true;
 }
 bool store_long(CellBuilder& cb, td::int64 x, int len, bool quiet) {
-  DCHECK(0 <= len && len <= 64);
+  CHECK(len > 0);
   if (!cb.can_extend_by(len)) {
     if (quiet) {
       return false;
     }
     throw VmError{Excno::cell_ov};
   }
-  if (!cb.store_long_rchk_bool(x, len)) {
+  if (len < 64 && (x < td::int64(std::numeric_limits<td::uint64>::max() << (len - 1)) || x >= (1LL << (len - 1)))) {
     if (quiet) {
       return false;
     }
     throw VmError{Excno::range_chk};
   }
+  if (len > 64) {
+    cb.store_bits_same(len - 64, x < 0);
+    len = 64;
+  }
+  cb.store_long(x, len);
   return true;
 }
 bool store_ulong(CellBuilder& cb, td::uint64 x, int len, bool quiet) {
-  DCHECK(0 <= len && len <= 64);
+  CHECK(len > 0);
   if (!cb.can_extend_by(len)) {
     if (quiet) {
       return false;
     }
     throw VmError{Excno::cell_ov};
   }
-  if (!cb.store_ulong_rchk_bool(x, len)) {
+  if (len < 64 && x >= (1ULL << len)) {
     if (quiet) {
       return false;
     }
     throw VmError{Excno::range_chk};
   }
+  if (len > 64) {
+    cb.store_zeroes(len - 64);
+    len = 64;
+  }
+  cb.store_long(x, len);
   return true;
 }
 bool store_ref(CellBuilder& cb, td::Ref<Cell> x, bool quiet) {
