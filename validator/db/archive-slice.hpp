@@ -108,6 +108,7 @@ class ArchiveSlice : public td::actor::Actor {
 
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
 
+  void open_files();
   void close_files();
 
  private:

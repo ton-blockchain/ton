@@ -525,6 +525,10 @@ void ArchiveSlice::before_query() {
   }
 }
 
+void ArchiveSlice::open_files() {
+  before_query();
+}
+
 void ArchiveSlice::close_files() {
   if (status_ == st_open) {
     if (active_queries_ == 0) {
