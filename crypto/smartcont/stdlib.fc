@@ -1,5 +1,4 @@
 ;; Standard library for funC
-;;
 
 {-
     This file is part of TON FunC Standard Library.
@@ -13,7 +12,6 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU Lesser General Public License for more details.
-
 -}
 
 {-
@@ -172,7 +170,7 @@ int check_signature(int hash, slice signature, int public_key) asm "CHKSIGNU";
 ;;; with sha256 used to reduce [data] to the 256-bit number that is actually signed.
 int check_data_signature(slice data, slice signature, int public_key) asm "CHKSIGNS";
 
-{---
+{-
   # Computation of boc size
   The primitives below may be useful for computing storage fees of user-provided data.
 -}
@@ -202,7 +200,7 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 ;;; Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
 ;; () throw_if(int excno, int cond) impure asm "THROWARGIF";
 
-{--
+{-
   # Debug primitives
   Only works for local TVM execution with debug level verbosity
 -}
@@ -235,7 +233,7 @@ cont get_c3() impure asm "c3 PUSH";
 ;;; Transforms a `slice` [s] into a simple ordinary continuation `c`, with `c.code = s` and an empty stack and savelist.
 cont bless(slice s) impure asm "BLESS";
 
-{---
+{-
   # Gas related primitives
 -}
 
@@ -937,8 +935,11 @@ int slice_check_refs(slice s, int r) asm "SCHKREFSQ";
 ;;; Checks whether there are at least [l] data bits and [r] references in `slice` [s].
 int slice_check_bits_refs(slice s, int l, int r) asm "SCHKBITREFSQ";
 
+;;; Splits the first 0 ≤ [bits] ≤ 1023 data bits and first 0 ≤ [refs] ≤ 4 references from `slice` [cs]
+(slice, slice) slice_split(slice cs, int bits, int refs) asm(-> 1 0) "SPLIT";
+
 ;;; Checks whether `slice` [s] begins with (the data bits of) [pfx], and removes [pfx] from [s] on success.
-;;(slice, int) slice_begins_with(slice s, slice pfx) asm "SDBEGINSXQ";
+;;(slice, int) slice_begins_with?(slice s, slice pfx) asm "SDBEGINSXQ";
 
 ;;; Store `integer` [x] number as string (UTF-8) in decimal form in `builder` [b].
 builder store_number_dec(builder b, int x) asm """
