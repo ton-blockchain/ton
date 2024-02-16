@@ -24,12 +24,14 @@ if [ "$with_tests" = true ]; then
 else
   nix-build linux-arm64-static.nix
 fi
-mkdir artifacts
+
+mkdir -p artifacts/lib
 cp ./result/bin/* artifacts/
+test $? -eq 0 || { echo "No artifacts have been built..."; exit 1; }
 chmod +x artifacts/*
 rm -rf result
 nix-build linux-arm64-tonlib.nix
 cp ./result/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
 cp ./result/lib/libemulator.so artifacts/
-cp -r crypto/fift/lib artifacts/
-cp -r crypto/smartcont artifacts/
+cp ./result/lib/fift/* artifacts/lib/
+cp -r ./result/share/ton/smartcont artifacts/
