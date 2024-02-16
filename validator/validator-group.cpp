@@ -169,6 +169,8 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
                      std::move(approve_sig_set), src == local_id_, std::move(promise));
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   cached_collated_block_ = nullptr;
+  approved_candidates_cache_.clear();
+  approved_candidates_cache_.clear();
 }
 
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
@@ -185,36 +187,15 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
         return;
       }
       LOG_CHECK(R.error().code() == ErrorCode::timeout || R.error().code() == ErrorCode::notready) << R.move_as_error();
-      td::actor::send_closure(SelfId, &ValidatorGroup::retry_accept_block_query, block_id, std::move(block),
-                              std::move(prev), std::move(sig_set), std::move(approve_sig_set), std::move(promise));
+      td::actor::send_closure(SelfId, &ValidatorGroup::accept_block_query, block_id, std::move(block),
+                              std::move(prev), std::move(sig_set), std::move(approve_sig_set), send_broadcast,
+                              std::move(promise), true);
     } else {
       promise.set_value(R.move_as_ok());
     }
   });
 
-  run_accept_block_query(next_block_id, std::move(block), prev_block_ids_, validator_set_, std::move(sig_set),
-                         std::move(approve_sig_set), src == local_id_, manager_, std::move(P));
-  prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
-  cached_collated_block_ = nullptr;
-  approved_candidates_cache_.clear();
-}
-
-void ValidatorGroup::retry_accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block,
-                                              std::vector<BlockIdExt> prev, td::Ref<BlockSignatureSet> sig_set,
-                                              td::Ref<BlockSignatureSet> approve_sig_set,
-                                              td::Promise<td::Unit> promise) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id, block, prev, sig_set, approve_sig_set,
-                                       promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      LOG_CHECK(R.error().code() == ErrorCode::timeout) << R.move_as_error();
-      td::actor::send_closure(SelfId, &ValidatorGroup::retry_accept_block_query, block_id, std::move(block),
-                              std::move(prev), std::move(sig_set), std::move(approve_sig_set), std::move(promise));
-    } else {
-      promise.set_value(R.move_as_ok());
-    }
-  });
-
-  run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
+  run_accept_block_query(block_id, std::move(block), prev_block_ids_, validator_set_, std::move(sig_set),
                          std::move(approve_sig_set), send_broadcast,
                          shard_.is_masterchain() || mode_ == ValidatorManagerOptions::validator_normal, manager_,
                          std::move(P));

@@ -27,7 +27,7 @@
 #include "shard.hpp"
 #include "proof.hpp"
 #include "block/block-auto.h"
-
+#include "auto/tl/lite_api.h"
 
 namespace ton {
 
@@ -37,10 +37,15 @@ using td::Ref;
 class LiteQuery : public td::actor::Actor {
   td::BufferSlice query_;
   td::actor::ActorId<ton::validator::ValidatorManager> manager_;
+  td::actor::ActorId<LiteServerCache> cache_;
   td::Timestamp timeout_;
   td::Promise<td::BufferSlice> promise_;
 
   td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> acc_state_promise_;
+
+  tl_object_ptr<ton::lite_api::Function> query_obj_;
+  bool use_cache_{false};
+  td::Bits256 cache_key_;
 
   int pending_{0};
   int mode_{0};
@@ -75,11 +80,11 @@ class LiteQuery : public td::actor::Actor {
     ls_capabilities = 7
   };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-            td::Promise<td::BufferSlice> promise);
+            td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
   LiteQuery(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-                        td::Promise<td::BufferSlice> promise);
+                        td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
 
   static void fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
                                   td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
@@ -90,9 +95,10 @@ class LiteQuery : public td::actor::Actor {
   bool fatal_error(int err_code, std::string err_msg = "");
   void abort_query(td::Status reason);
   void abort_query_ext(td::Status reason, std::string err_msg);
-  bool finish_query(td::BufferSlice result);
+  bool finish_query(td::BufferSlice result, bool skip_cache_update = false);
   void alarm() override;
   void start_up() override;
+  void perform();
   void perform_getTime();
   void perform_getVersion();
   void perform_getMasterchainInfo(int mode);

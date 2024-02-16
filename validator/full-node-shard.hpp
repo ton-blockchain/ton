@@ -21,6 +21,7 @@
 #include "full-node-shard.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/port/Poll.h"
+#include <set>
 
 namespace ton {
 
@@ -280,6 +281,9 @@ class FullNodeShardImpl : public FullNodeShard {
   std::vector<adnl::AdnlNodeIdShort> collator_nodes_;
 
   FullNodeConfig config_;
+
+  std::set<td::Bits256> processed_ext_msg_broadcasts_;
+  td::Timestamp cleanup_processed_ext_msg_at_;
 };
 
 }  // namespace fullnode

@@ -115,6 +115,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::uint32 get_celldb_compress_depth() const override {
     return celldb_compress_depth_;
   }
+  size_t get_max_open_archive_files() const override {
+    return max_open_archive_files_;
+  }
+  double get_archive_preload_period() const override {
+    return archive_preload_period_;
+  }
   ValidatorMode validator_mode() const override {
     return validator_mode_;
   }
@@ -174,6 +180,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_celldb_compress_depth(td::uint32 value) override {
     celldb_compress_depth_ = value;
   }
+  void set_max_open_archive_files(size_t value) override {
+    max_open_archive_files_ = value;
+  }
+  void set_archive_preload_period(double value) override {
+    archive_preload_period_ = value;
+  }
   void set_validator_mode(ValidatorMode value) override {
     validator_mode_ = value;
   }
@@ -218,6 +230,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   BlockSeqno sync_upto_{0};
   std::string session_logs_file_;
   td::uint32 celldb_compress_depth_{0};
+  size_t max_open_archive_files_ = 0;
+  double archive_preload_period_ = 0.0;
   ValidatorMode validator_mode_ = validator_normal;
 };
 

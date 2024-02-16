@@ -3642,7 +3642,7 @@ void TestNode::continue_check_validator_load2(std::unique_ptr<TestNode::Validato
                                               std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
                                               std::string file_pfx) {
   LOG(INFO) << "continue_check_validator_load2 for blocks " << info1->blk_id.to_str() << " and "
-            << info1->blk_id.to_str() << " : requesting block creators data";
+            << info2->blk_id.to_str() << " : requesting block creators data";
   td::Status st = info1->unpack_vset();
   if (st.is_error()) {
     LOG(ERROR) << "cannot unpack validator set from block " << info1->blk_id.to_str() << " :" << st.move_as_error();
@@ -3740,7 +3740,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
     auto x1 = info2->created[i].first - info1->created[i].first;
     auto y1 = info2->created[i].second - info1->created[i].second;
     if (x1 < 0 || y1 < 0 || (x1 | y1) >= (1u << 31)) {
-      LOG(ERROR) << "impossible situation: validator #i created a negative amount of blocks: " << x1
+      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << x1
                  << " masterchain blocks, " << y1 << " shardchain blocks";
       return;
     }

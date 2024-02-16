@@ -22,6 +22,7 @@
 #include "td/utils/tl_storers.h"
 #include "td/utils/crypto.h"
 #include "crypto/common/bitstring.h"
+#include <map>
 
 namespace ton {
 
@@ -127,6 +128,39 @@ td::Bits256 get_tl_object_sha_bits256(const lite_api::Object *T) {
   td::sha256(B.as_slice(), id256.as_slice());
 
   return id256;
+}
+
+std::string lite_query_name_by_id(int id) {
+  static std::map<int, std::string> names = {
+      {lite_api::liteServer_getMasterchainInfo::ID, "getMasterchainInfo"},
+      {lite_api::liteServer_getMasterchainInfoExt::ID, "getMasterchainInfoExt"},
+      {lite_api::liteServer_getTime::ID, "getTime"},
+      {lite_api::liteServer_getVersion::ID, "getVersion"},
+      {lite_api::liteServer_getBlock::ID, "getBlock"},
+      {lite_api::liteServer_getState::ID, "getState"},
+      {lite_api::liteServer_getBlockHeader::ID, "getBlockHeader"},
+      {lite_api::liteServer_sendMessage::ID, "sendMessage"},
+      {lite_api::liteServer_getAccountState::ID, "getAccountState"},
+      {lite_api::liteServer_getAccountStatePrunned::ID, "getAccountStatePrunned"},
+      {lite_api::liteServer_runSmcMethod::ID, "runSmcMethod"},
+      {lite_api::liteServer_getShardInfo::ID, "getShardInfo"},
+      {lite_api::liteServer_getAllShardsInfo::ID, "getAllShardsInfo"},
+      {lite_api::liteServer_getOneTransaction::ID, "getOneTransaction"},
+      {lite_api::liteServer_getTransactions::ID, "getTransactions"},
+      {lite_api::liteServer_lookupBlock::ID, "lookupBlock"},
+      {lite_api::liteServer_listBlockTransactions::ID, "listBlockTransactions"},
+      {lite_api::liteServer_listBlockTransactionsExt::ID, "listBlockTransactionsExt"},
+      {lite_api::liteServer_getBlockProof::ID, "getBlockProof"},
+      {lite_api::liteServer_getConfigAll::ID, "getConfigAll"},
+      {lite_api::liteServer_getConfigParams::ID, "getConfigParams"},
+      {lite_api::liteServer_getValidatorStats::ID, "getValidatorStats"},
+      {lite_api::liteServer_getLibraries::ID, "getLibraries"},
+      {lite_api::liteServer_getShardBlockProof::ID, "getShardBlockProof"}};
+  auto it = names.find(id);
+  if (it == names.end()) {
+    return "unknown";
+  }
+  return it->second;
 }
 
 }  // namespace ton

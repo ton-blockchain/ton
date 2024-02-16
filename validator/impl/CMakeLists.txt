@@ -32,6 +32,7 @@ set(TON_VALIDATOR_SOURCE
   external-message.hpp
   ihr-message.hpp
   liteserver.hpp
+  liteserver-cache.hpp
   message-queue.hpp
   out-msg-queue-proof.hpp
   proof.hpp

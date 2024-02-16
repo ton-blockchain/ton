@@ -34,6 +34,7 @@
 #include "ton/ton-io.hpp"
 #include "liteserver.hpp"
 #include "validator/fabric.h"
+#include "liteserver-cache.hpp"
 
 namespace ton {
 
@@ -46,7 +47,7 @@ td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> man
 
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
                                                                    std::string db_root) {
-  return td::actor::create_actor<LiteServerCache>("cache");
+  return td::actor::create_actor<LiteServerCacheImpl>("cache");
 }
 
 td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data) {
@@ -246,7 +247,7 @@ void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_b
 
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise) {
-  LiteQuery::run_query(std::move(data), std::move(manager), std::move(promise));
+  LiteQuery::run_query(std::move(data), std::move(manager), std::move(cache), std::move(promise));
 }
 
 void run_fetch_account_state(WorkchainId wc, StdSmcAddress  addr, td::actor::ActorId<ValidatorManager> manager,

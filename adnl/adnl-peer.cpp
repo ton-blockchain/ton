@@ -212,7 +212,9 @@ void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPa
     VLOG(ADNL_NOTICE) << this << ": dropping IN message: outdated channel id" << id;
     return;
   }
-  channel_ready_ = true;
+  if (channel_inited_) {
+    channel_ready_ = true;
+  }
   receive_packet_checked(std::move(packet));
 }
 

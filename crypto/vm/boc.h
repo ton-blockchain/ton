@@ -53,7 +53,6 @@ class NewCellStorageStat {
     bool operator==(const Stat& other) const {
       return key() == other.key();
     }
-    Stat(const Stat& other) = default;
     Stat& operator=(const Stat& other) = default;
     Stat& operator+=(const Stat& other) {
       cells += other.cells;

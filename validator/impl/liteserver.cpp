@@ -54,8 +54,11 @@ td::int32 get_tl_tag(td::Slice slice) {
 }
 
 void LiteQuery::run_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
+                          td::actor::ActorId<LiteServerCache> cache,
                           td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<LiteQuery>("litequery", std::move(data), std::move(manager), std::move(promise)).release();
+  td::actor::create_actor<LiteQuery>("litequery", std::move(data), std::move(manager), std::move(cache),
+                                     std::move(promise))
+      .release();
 }
 
 void LiteQuery::fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
@@ -64,8 +67,8 @@ void LiteQuery::fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td:
 }
 
 LiteQuery::LiteQuery(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
-                     td::Promise<td::BufferSlice> promise)
-    : query_(std::move(data)), manager_(std::move(manager)), promise_(std::move(promise)) {
+                     td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise)
+    : query_(std::move(data)), manager_(std::move(manager)), cache_(std::move(cache)), promise_(std::move(promise)) {
   timeout_ = td::Timestamp::in(default_timeout_msec * 0.001);
 }
 
@@ -110,7 +113,10 @@ void LiteQuery::alarm() {
   fatal_error(-503, "timeout");
 }
 
-bool LiteQuery::finish_query(td::BufferSlice result) {
+bool LiteQuery::finish_query(td::BufferSlice result, bool skip_cache_update) {
+  if (use_cache_ && !skip_cache_update) {
+    td::actor::send_closure(cache_, &LiteServerCache::update, cache_key_, result.clone());
+  }
   if (promise_) {
     promise_.set_result(std::move(result));
     stop();
@@ -124,19 +130,53 @@ bool LiteQuery::finish_query(td::BufferSlice result) {
 void LiteQuery::start_up() {
   alarm_timestamp() = timeout_;
 
-  if(acc_state_promise_) {
-    td::actor::send_closure_later(actor_id(this),&LiteQuery::perform_fetchAccountState);
+  if (acc_state_promise_) {
+    td::actor::send_closure_later(actor_id(this), &LiteQuery::perform_fetchAccountState);
     return;
   }
 
-  auto F = fetch_tl_object<ton::lite_api::Function>(std::move(query_), true);
+  auto F = fetch_tl_object<ton::lite_api::Function>(query_, true);
   if (F.is_error()) {
+    td::actor::send_closure(manager_, &ValidatorManager::add_lite_query_stats, 0);  // unknown
     abort_query(F.move_as_error());
     return;
   }
+  query_obj_ = F.move_as_ok();
 
+  if (!cache_.empty() && query_obj_->get_id() == lite_api::liteServer_sendMessage::ID) {
+    // Dropping duplicate "sendMessage"
+    cache_key_ = td::sha256_bits256(query_);
+    td::actor::send_closure(cache_, &LiteServerCache::process_send_message, cache_key_,
+                            [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+                              if (R.is_ok()) {
+                                td::actor::send_closure(SelfId, &LiteQuery::perform);
+                              } else {
+                                td::actor::send_closure(SelfId, &LiteQuery::abort_query,
+                                                        R.move_as_error_prefix("cannot send external message : "));
+                              }
+                            });
+    return;
+  }
+  use_cache_ = !cache_.empty() && query_obj_->get_id() == lite_api::liteServer_runSmcMethod::ID;
+  if (use_cache_) {
+    cache_key_ = td::sha256_bits256(query_);
+    td::actor::send_closure(
+        cache_, &LiteServerCache::lookup, cache_key_, [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &LiteQuery::perform);
+          } else {
+            td::actor::send_closure(SelfId, &LiteQuery::finish_query, R.move_as_ok(), true);
+          }
+        });
+  } else {
+    perform();
+  }
+}
+
+void LiteQuery::perform() {
+  td::actor::send_closure(manager_, &ValidatorManager::add_lite_query_stats, query_obj_->get_id());
   lite_api::downcast_call(
-      *F.move_as_ok().get(),
+      *query_obj_,
       td::overloaded(
           [&](lite_api::liteServer_getTime& q) { this->perform_getTime(); },
           [&](lite_api::liteServer_getVersion& q) { this->perform_getVersion(); },
@@ -491,15 +531,18 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   auto copy = data.clone();
   td::actor::send_closure_later(
       manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Ref<ExtMessage>> res) mutable {
-        if(res.is_error()) {
-           td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                   res.move_as_error_prefix("cannot apply external message to current state : "s));
+      [Self = actor_id(this), data = std::move(data), manager = manager_, cache = cache_,
+       cache_key = cache_key_](td::Result<td::Ref<ExtMessage>> res) mutable {
+        if (res.is_error()) {
+          // Don't cache errors
+          td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
+          td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                  res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
           LOG(INFO) << "sending an external message to validator manager";
           td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
           auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
-          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b));
+          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
         }
       });
 }
