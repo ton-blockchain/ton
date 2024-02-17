@@ -333,8 +333,8 @@ TEST(Tonlib, ConfigParseBug) {
   unsigned char buff[128];
   int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), literal.begin(), literal.end());
   CHECK(bits >= 0);
-  auto slice = vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize();
-  block::Config::do_get_gas_limits_prices(std::move(slice), 21).ensure();
+  auto cell = vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize();
+  block::Config::do_get_gas_limits_prices(vm::load_cell_slice(cell), 21).ensure();
 }
 
 TEST(Tonlib, EncryptionApi) {

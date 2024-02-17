@@ -124,9 +124,39 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
   return params;
 }
 
+class NoopLog : public td::LogInterface {
+ public:
+  NoopLog() {
+  }
+
+  void append(td::CSlice new_slice, int log_level) override {
+  }
+
+  void rotate() override {
+  }
+};
+
 extern "C" {
 
-const char *emulate(const char *config, const char* libs, int verbosity, const char* account, const char* message, const char* params) {
+void* create_emulator(const char *config, int verbosity) {
+    NoopLog logger;
+
+    td::log_interface = &logger;
+
+    SET_VERBOSITY_LEVEL(verbosity_NEVER);
+    return transaction_emulator_create(config, verbosity);
+}
+
+void destroy_emulator(void* em) {
+    NoopLog logger;
+
+    td::log_interface = &logger;
+
+    SET_VERBOSITY_LEVEL(verbosity_NEVER);
+    transaction_emulator_destroy(em);
+}
+
+const char *emulate_with_emulator(void* em, const char* libs, const char* account, const char* message, const char* params) {
     StringLog logger;
 
     td::log_interface = &logger;
@@ -137,8 +167,6 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
         return strdup(R"({"fail":true,"message":"Can't decode other params"})");
     }
     auto decoded_params = decoded_params_res.move_as_ok();
-
-    auto em = transaction_emulator_create(config, verbosity);
 
     bool rand_seed_set = true;
     if (decoded_params.rand_seed_hex) {
@@ -162,8 +190,6 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
       result = transaction_emulator_emulate_transaction(em, account, message);
     }
 
-    transaction_emulator_destroy(em);
-
     const char* output = nullptr;
     {
         td::JsonBuilder jb;
@@ -176,6 +202,13 @@ const char *emulate(const char *config, const char* libs, int verbosity, const c
     free((void*) result);
 
     return output;
+}
+
+const char *emulate(const char *config, const char* libs, int verbosity, const char* account, const char* message, const char* params) {
+    auto em = transaction_emulator_create(config, verbosity);
+    auto result = emulate_with_emulator(em, libs, account, message, params);
+    transaction_emulator_destroy(em);
+    return result;
 }
 
 const char *run_get_method(const char *params, const char* stack, const char* config) {

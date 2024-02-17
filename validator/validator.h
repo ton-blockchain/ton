@@ -82,6 +82,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockSeqno sync_upto() const = 0;
   virtual std::string get_session_logs_file() const = 0;
   virtual td::uint32 get_celldb_compress_depth() const = 0;
+  virtual size_t get_max_open_archive_files() const = 0;
+  virtual double get_archive_preload_period() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -102,6 +104,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_sync_upto(BlockSeqno seqno) = 0;
   virtual void set_session_logs_file(std::string f) = 0;
   virtual void set_celldb_compress_depth(td::uint32 value) = 0;
+  virtual void set_max_open_archive_files(size_t value) = 0;
+  virtual void set_archive_preload_period(double value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,

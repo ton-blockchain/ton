@@ -1216,7 +1216,7 @@ class RemoteRunSmcMethod : public td::actor::Actor {
     client_.send_query(
         //liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountId method_id:long params:bytes = liteServer.RunMethodResult;
         ton::lite_api::liteServer_runSmcMethod(
-            0x1f, ton::create_tl_lite_block_id(query_.block_id.value()),
+            0x17, ton::create_tl_lite_block_id(query_.block_id.value()),
             ton::create_tl_object<ton::lite_api::liteServer_accountId>(query_.address.workchain, query_.address.addr),
             method_id, std::move(serialized_stack)),
         [self = this](auto r_state) { self->with_run_method_result(std::move(r_state)); },

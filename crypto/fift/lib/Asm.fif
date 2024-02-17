@@ -2,7 +2,7 @@ library TVM_Asm
 // simple TVM Assembler
 namespace Asm
 Asm definitions
-"0.4.4" constant asm-fif-version
+"0.4.5" constant asm-fif-version
 
 variable @atend
 variable @was-split
@@ -813,6 +813,12 @@ x{D761} @Defop LDONES
 x{D762} @Defop LDSAME
 x{D764} @Defop SDEPTH
 x{D765} @Defop CDEPTH
+x{D766} @Defop CLEVEL
+x{D767} @Defop CLEVELMASK
+{ <b x{D76A_} s, swap 2 u, @addopb } : CHASHI
+{ <b x{D76E_} s, swap 2 u, @addopb } : CDEPTHI
+x{D770} @Defop CHASHIX
+x{D771} @Defop CDEPTHIX
 //
 // continuation / flow control primitives
 x{D8} dup @Defop EXECUTE @Defop CALLX
@@ -1295,12 +1301,21 @@ x{F82A} @Defop MYCODE
 x{F82B} @Defop INCOMINGVALUE
 x{F82C} @Defop STORAGEFEES
 x{F82D} @Defop PREVBLOCKSINFOTUPLE
+x{F82E} @Defop UNPACKEDCONFIGTUPLE
+x{F82F} @Defop DUEPAYMENT
 x{F830} @Defop CONFIGDICT
 x{F832} @Defop CONFIGPARAM
 x{F833} @Defop CONFIGOPTPARAM
 x{F83400} @Defop PREVMCBLOCKS
 x{F83401} @Defop PREVKEYBLOCK
 x{F835} @Defop GLOBALID
+x{F836} @Defop GETGASFEE
+x{F837} @Defop GETSTORAGEFEE
+x{F838} @Defop GETFORWARDFEE
+x{F839} @Defop GETPRECOMPILEDGAS
+x{F83A} @Defop GETORIGINALFWDFEE
+x{F83B} @Defop GETGASFEESIMPLE
+x{F83C} @Defop GETFORWARDFEESIMPLE
 
 x{F840} @Defop GETGLOBVAR
 { dup 1 31 @rangechk <b x{F85_} s, swap 5 u, @addopb } : GETGLOB

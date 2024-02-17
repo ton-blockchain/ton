@@ -54,8 +54,11 @@ td::int32 get_tl_tag(td::Slice slice) {
 }
 
 void LiteQuery::run_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
+                          td::actor::ActorId<LiteServerCache> cache,
                           td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<LiteQuery>("litequery", std::move(data), std::move(manager), std::move(promise)).release();
+  td::actor::create_actor<LiteQuery>("litequery", std::move(data), std::move(manager), std::move(cache),
+                                     std::move(promise))
+      .release();
 }
 
 void LiteQuery::fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
@@ -64,8 +67,8 @@ void LiteQuery::fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td:
 }
 
 LiteQuery::LiteQuery(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
-                     td::Promise<td::BufferSlice> promise)
-    : query_(std::move(data)), manager_(std::move(manager)), promise_(std::move(promise)) {
+                     td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise)
+    : query_(std::move(data)), manager_(std::move(manager)), cache_(std::move(cache)), promise_(std::move(promise)) {
   timeout_ = td::Timestamp::in(default_timeout_msec * 0.001);
 }
 
@@ -110,7 +113,10 @@ void LiteQuery::alarm() {
   fatal_error(-503, "timeout");
 }
 
-bool LiteQuery::finish_query(td::BufferSlice result) {
+bool LiteQuery::finish_query(td::BufferSlice result, bool skip_cache_update) {
+  if (use_cache_ && !skip_cache_update) {
+    td::actor::send_closure(cache_, &LiteServerCache::update, cache_key_, result.clone());
+  }
   if (promise_) {
     promise_.set_result(std::move(result));
     stop();
@@ -124,19 +130,53 @@ bool LiteQuery::finish_query(td::BufferSlice result) {
 void LiteQuery::start_up() {
   alarm_timestamp() = timeout_;
 
-  if(acc_state_promise_) {
-    td::actor::send_closure_later(actor_id(this),&LiteQuery::perform_fetchAccountState);
+  if (acc_state_promise_) {
+    td::actor::send_closure_later(actor_id(this), &LiteQuery::perform_fetchAccountState);
     return;
   }
 
-  auto F = fetch_tl_object<ton::lite_api::Function>(std::move(query_), true);
+  auto F = fetch_tl_object<ton::lite_api::Function>(query_, true);
   if (F.is_error()) {
+    td::actor::send_closure(manager_, &ValidatorManager::add_lite_query_stats, 0);  // unknown
     abort_query(F.move_as_error());
     return;
   }
+  query_obj_ = F.move_as_ok();
 
+  if (!cache_.empty() && query_obj_->get_id() == lite_api::liteServer_sendMessage::ID) {
+    // Dropping duplicate "sendMessage"
+    cache_key_ = td::sha256_bits256(query_);
+    td::actor::send_closure(cache_, &LiteServerCache::process_send_message, cache_key_,
+                            [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+                              if (R.is_ok()) {
+                                td::actor::send_closure(SelfId, &LiteQuery::perform);
+                              } else {
+                                td::actor::send_closure(SelfId, &LiteQuery::abort_query,
+                                                        R.move_as_error_prefix("cannot send external message : "));
+                              }
+                            });
+    return;
+  }
+  use_cache_ = !cache_.empty() && query_obj_->get_id() == lite_api::liteServer_runSmcMethod::ID;
+  if (use_cache_) {
+    cache_key_ = td::sha256_bits256(query_);
+    td::actor::send_closure(
+        cache_, &LiteServerCache::lookup, cache_key_, [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &LiteQuery::perform);
+          } else {
+            td::actor::send_closure(SelfId, &LiteQuery::finish_query, R.move_as_ok(), true);
+          }
+        });
+  } else {
+    perform();
+  }
+}
+
+void LiteQuery::perform() {
+  td::actor::send_closure(manager_, &ValidatorManager::add_lite_query_stats, query_obj_->get_id());
   lite_api::downcast_call(
-      *F.move_as_ok().get(),
+      *query_obj_,
       td::overloaded(
           [&](lite_api::liteServer_getTime& q) { this->perform_getTime(); },
           [&](lite_api::liteServer_getVersion& q) { this->perform_getVersion(); },
@@ -491,15 +531,18 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   auto copy = data.clone();
   td::actor::send_closure_later(
       manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_](td::Result<td::Ref<ExtMessage>> res) mutable {
-        if(res.is_error()) {
-           td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                   res.move_as_error_prefix("cannot apply external message to current state : "s));
+      [Self = actor_id(this), data = std::move(data), manager = manager_, cache = cache_,
+       cache_key = cache_key_](td::Result<td::Ref<ExtMessage>> res) mutable {
+        if (res.is_error()) {
+          // Don't cache errors
+          td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
+          td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                  res.move_as_error_prefix("cannot apply external message to current state : "s));
         } else {
           LOG(INFO) << "sending an external message to validator manager";
           td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
           auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
-          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b));
+          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
         }
       });
 }
@@ -805,7 +848,7 @@ void LiteQuery::perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, St
     fatal_error("more than 64k parameter bytes passed");
     return;
   }
-  if (mode & ~0x1f) {
+  if (mode & ~0x3f) {
     fatal_error("unsupported mode in runSmcMethod");
     return;
   }
@@ -1240,25 +1283,45 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
 
 // same as in lite-client/lite-client-common.cpp
 static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, td::Ref<vm::CellSlice> my_addr,
-                                        const block::CurrencyCollection& balance) {
+                                        const block::CurrencyCollection& balance,
+                                        const block::ConfigInfo* config = nullptr, td::Ref<vm::Cell> my_code = {},
+                                        td::RefInt256 due_payment = td::zero_refint()) {
   td::BitArray<256> rand_seed;
   td::RefInt256 rand_seed_int{true};
   td::Random::secure_bytes(rand_seed.as_slice());
   if (!rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false)) {
     return {};
   }
-  auto tuple = vm::make_tuple_ref(td::make_refint(0x076ef1ea),  // [ magic:0x076ef1ea
-                                  td::make_refint(0),           //   actions:Integer
-                                  td::make_refint(0),           //   msgs_sent:Integer
-                                  td::make_refint(now),         //   unixtime:Integer
-                                  td::make_refint(lt),          //   block_lt:Integer
-                                  td::make_refint(lt),          //   trans_lt:Integer
-                                  std::move(rand_seed_int),     //   rand_seed:Integer
-                                  balance.as_vm_tuple(),        //   balance_remaining:[Integer (Maybe Cell)]
-                                  my_addr,                      //  myself:MsgAddressInt
-                                  vm::StackEntry());            //  global_config:(Maybe Cell) ] = SmartContractInfo;
-  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
-  return vm::make_tuple_ref(std::move(tuple));
+  std::vector<vm::StackEntry> tuple = {
+      td::make_refint(0x076ef1ea),                         // [ magic:0x076ef1ea
+      td::make_refint(0),                                  //   actions:Integer
+      td::make_refint(0),                                  //   msgs_sent:Integer
+      td::make_refint(now),                                //   unixtime:Integer
+      td::make_refint(lt),                                 //   block_lt:Integer
+      td::make_refint(lt),                                 //   trans_lt:Integer
+      std::move(rand_seed_int),                            //   rand_seed:Integer
+      balance.as_vm_tuple(),                               //   balance_remaining:[Integer (Maybe Cell)]
+      my_addr,                                             //  myself:MsgAddressInt
+      config ? config->get_root_cell() : vm::StackEntry()  //  global_config:(Maybe Cell) ] = SmartContractInfo;
+  };
+  if (config && config->get_global_version() >= 4) {
+    tuple.push_back(my_code);                                          // code:Cell
+    tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
+    tuple.push_back(td::zero_refint());                                // storage_fees:Integer
+
+    // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
+    // [ last_mc_blocks:[BlockId...]
+    //   prev_key_block:BlockId ] : PrevBlocksInfo
+    auto info = config->get_prev_blocks_info();
+    tuple.push_back(info.is_ok() ? info.move_as_ok() : vm::StackEntry());
+  }
+  if (config && config->get_global_version() >= 6) {
+    tuple.push_back(config->get_unpacked_config_tuple(now));  // unpacked_config_tuple:[...]
+    tuple.push_back(due_payment);                             // due_payment:Integer
+  }
+  auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
+  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
+  return vm::make_tuple_ref(std::move(tuple_ref));
 }
 
 void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice state_proof, Ref<vm::Cell> acc_root,
@@ -1277,12 +1340,14 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   }
   vm::MerkleProofBuilder pb{std::move(acc_root)};
   block::gen::Account::Record_account acc;
+  block::gen::StorageInfo::Record storage_info;
   block::gen::AccountStorage::Record store;
   block::CurrencyCollection balance;
   block::gen::StateInit::Record state_init;
   if (!(tlb::unpack_cell(pb.root(), acc) && tlb::csr_unpack(std::move(acc.storage), store) &&
         balance.validate_unpack(store.balance) && store.state->prefetch_ulong(1) == 1 &&
-        store.state.write().advance(1) && tlb::csr_unpack(std::move(store.state), state_init))) {
+        store.state.write().advance(1) && tlb::csr_unpack(std::move(store.state), state_init) &&
+        tlb::csr_unpack(std::move(acc.storage_stat), storage_info))) {
     LOG(INFO) << "error unpacking account state, or account is frozen or uninitialized";
     td::Result<td::BufferSlice> proof_boc;
     if (mode & 2) {
@@ -1303,12 +1368,35 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   }
   auto code = state_init.code->prefetch_ref();
   auto data = state_init.data->prefetch_ref();
+  auto acc_libs = state_init.library->prefetch_ref();
   long long gas_limit = client_method_gas_limit;
+  td::RefInt256 due_payment;
+  if (storage_info.due_payment.write().fetch_long(1)) {
+    due_payment = block::tlb::t_Grams.as_integer(storage_info.due_payment);
+  } else {
+    due_payment = td::zero_refint();
+  }
   LOG(DEBUG) << "creating VM with gas limit " << gas_limit;
   // **** INIT VM ****
+  auto r_config = block::ConfigInfo::extract_config(
+      mc_state_->root_cell(),
+      block::ConfigInfo::needLibraries | block::ConfigInfo::needCapabilities | block::ConfigInfo::needPrevBlocks);
+  if (r_config.is_error()) {
+    fatal_error(r_config.move_as_error());
+    return;
+  }
+  auto config = r_config.move_as_ok();
+  std::vector<td::Ref<vm::Cell>> libraries;
+  if (config->get_libraries_root().not_null()) {
+    libraries.push_back(config->get_libraries_root());
+  }
+  if (acc_libs.not_null()) {
+    libraries.push_back(acc_libs);
+  }
   vm::GasLimits gas{gas_limit, gas_limit};
-  vm::VmState vm{std::move(code), std::move(stack_), gas, 1, std::move(data), vm::VmLog::Null()};
-  auto c7 = prepare_vm_c7(gen_utime, gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()), balance);
+  vm::VmState vm{code, std::move(stack_), gas, 1, std::move(data), vm::VmLog::Null(), std::move(libraries)};
+  auto c7 = prepare_vm_c7(gen_utime, gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()), balance, config.get(),
+                          std::move(code), due_payment);
   vm.set_c7(c7);  // tuple with SmartContractInfo
   // vm.incr_stack_trace(1);    // enable stack dump after each step
   LOG(INFO) << "starting VM to run GET-method of smart contract " << acc_workchain_ << ":" << acc_addr_.to_hex();
@@ -1324,6 +1412,9 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   td::BufferSlice c7_info, result;
   if (mode & 8) {
     // serialize c7
+    if (!(mode & 32)) {
+      c7 = prepare_vm_c7(gen_utime, gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()), balance);
+    }
     vm::CellBuilder cb;
     if (!(vm::StackEntry{std::move(c7)}.serialize(cb) && cb.finalize_to(cell))) {
       fatal_error("cannot serialize c7");

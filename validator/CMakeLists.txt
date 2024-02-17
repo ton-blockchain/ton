@@ -43,6 +43,7 @@ set(VALIDATOR_HEADERS
   fabric.h
   interfaces/db.h
   interfaces/external-message.h
+  interfaces/liteserver.h
   interfaces/proof.h
   interfaces/shard.h
   interfaces/signature-set.h
@@ -143,7 +144,9 @@ set(FULL_NODE_SOURCE
   full-node-master.h
   full-node-master.hpp
   full-node-master.cpp
-  
+  full-node-private-overlay.hpp
+  full-node-private-overlay.cpp
+
   net/download-block.hpp
   net/download-block.cpp
   net/download-block-new.hpp
