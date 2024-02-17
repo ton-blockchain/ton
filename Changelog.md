@@ -1,3 +1,19 @@
+## 2024.02 Update
+
+1. Improvement of validator synchronisation:
+   * Better handling of block broadcasts -> faster sync
+   * Additional separate overlay among validators as second option for synchronisation
+2. Improvements in LS:
+   * c7 and library context is fully filled up for server-side rungetmethod
+   * Cache for runmethods and successfull external messages
+   * Logging of LS requests statistic
+3. Precise control of open files:
+   * almost instantaneous validator start
+   * `--max-archive-fd` option
+   * autoremoval of not used temp archive files
+   * `--archive-preload-period` option
+4. Preparatory (not enabled yet) code for addition on new TVM instructions for cheaper fee calculation onchain.
+
 ## 2024.01 Update
 
 1. Fixes in how gas in transactions on special accounts is accounted in block limit. Previously, gas was counted as usual, so to conduct elections that costs >30m gas block limit in masterchain was set to 37m gas. To lower the limit for safety reasons it is proposed to caunt gas on special accounts separately. Besides `gas_max` is set to `special_gas_limit` for all types of transactions on special accounts. New behavior is activated through setting `version >= 5` in `ConfigParam 8;`.
