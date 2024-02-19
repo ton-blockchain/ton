@@ -250,8 +250,6 @@ class Overlays : public td::actor::Actor {
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) = 0;
 
-  virtual void set_priority_broadcast_receivers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
-                                                std::vector<adnl::AdnlNodeIdShort> nodes) = 0;
   virtual void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) = 0;
 };
 

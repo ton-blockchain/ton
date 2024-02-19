@@ -102,8 +102,6 @@ class FullNodeImpl : public FullNode {
   };
 
   void add_shard_actor(ShardIdFull shard, FullNodeShardMode mode);
-  void update_collators(td::Ref<MasterchainState> state);
-  void update_shard_collators(ShardIdFull shard, ShardInfo& info);
 
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
@@ -131,8 +129,6 @@ class FullNodeImpl : public FullNode {
   std::set<PublicKeyHash> local_keys_;
 
   td::Promise<td::Unit> started_promise_;
-  bool collators_inited_ = false;
-  block::CollatorConfig collator_config_;
   FullNodeConfig config_;
 
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateOverlay>> private_block_overlays_;

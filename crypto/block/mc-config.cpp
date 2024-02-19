@@ -2333,12 +2333,7 @@ CollatorConfig Config::get_collator_config(bool need_collator_nodes) const {
       td::uint64 shard = key.get_uint(64);
       key.advance(64);
       td::Bits256 adnl_id(key);
-      td::Bits256 full_node_id = td::Bits256::zero();
-      gen::CollatorInfo::Record info;
-      if (tlb::csr_unpack(std::move(value), info) && info.full_node_id->size() == 257) {
-        full_node_id = td::Bits256(info.full_node_id->data_bits() + 1);
-      }
-      collator_config.collator_nodes.push_back({ton::ShardIdFull(workchain, shard), adnl_id, full_node_id});
+      collator_config.collator_nodes.push_back({ton::ShardIdFull(workchain, shard), adnl_id});
       return true;
     });
   }

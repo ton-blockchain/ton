@@ -218,33 +218,6 @@ void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, s
       ++it;
     }
   }
-
-  if (!collators_inited_ || state->is_key_state()) {
-    update_collators(state);
-  }
-}
-
-void FullNodeImpl::update_collators(td::Ref<MasterchainState> state) {
-  collators_inited_ = true;
-  collator_config_ = state->get_collator_config(true);
-  for (auto& s : shards_) {
-    update_shard_collators(s.first, s.second);
-  }
-}
-
-void FullNodeImpl::update_shard_collators(ShardIdFull shard, ShardInfo& info) {
-  if (info.actor.empty()) {
-    return;
-  }
-  std::vector<adnl::AdnlNodeIdShort> nodes;
-  for (const block::CollatorNodeDescr& desc : collator_config_.collator_nodes) {
-    if (!desc.full_node_id.is_zero() && shard_intersects(shard, desc.shard)) {
-      nodes.emplace_back(desc.full_node_id);
-    }
-  }
-  std::sort(nodes.begin(), nodes.end());
-  nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
-  td::actor::send_closure(info.actor, &FullNodeShard::update_collators, std::move(nodes));
 }
 
 void FullNodeImpl::add_shard_actor(ShardIdFull shard, FullNodeShardMode mode) {
@@ -258,9 +231,6 @@ void FullNodeImpl::add_shard_actor(ShardIdFull shard, FullNodeShardMode mode) {
   info.delete_at = mode != FullNodeShardMode::inactive ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
   if (all_validators_.size() > 0) {
     td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
-  }
-  if (collators_inited_) {
-    update_shard_collators(shard, info);
   }
 }
 

@@ -77,7 +77,6 @@ class FullNodeShard : public td::actor::Actor {
   virtual void set_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) = 0;
-  virtual void update_collators(std::vector<adnl::AdnlNodeIdShort> nodes) = 0;
 
   static td::actor::ActorOwn<FullNodeShard> create(
       ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
