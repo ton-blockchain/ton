@@ -197,9 +197,6 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 ;;; A non-quiet version of [slice_compute_data_size?] that throws a cell overflow exception (8) on failure.
 (int, int, int) slice_compute_data_size(slice s, int max_cells) impure asm "SDATASIZE";
 
-;;; Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
-;; () throw_if(int excno, int cond) impure asm "THROWARGIF";
-
 {-
   # Debug primitives
   Only works for local TVM execution with debug level verbosity
@@ -302,26 +299,6 @@ slice begin_parse(cell c) asm "CTOS";
 
 ;;; Preloads the first reference from the slice.
 cell preload_ref(slice s) asm "PLDREF";
-
-  {- Functions below are commented because are implemented on compilator level for optimisation -}
-
-;;; Loads a signed [len]-bit integer from a slice [s].
-;; (slice, int) ~load_int(slice s, int len) asm(s len -> 1 0) "LDIX";
-
-;;; Loads an unsigned [len]-bit integer from a slice [s].
-;; (slice, int) ~load_uint(slice s, int len) asm( -> 1 0) "LDUX";
-
-;;; Preloads a signed [len]-bit integer from a slice [s].
-;; int preload_int(slice s, int len) asm "PLDIX";
-
-;;; Preloads an unsigned [len]-bit integer from a slice [s].
-;; int preload_uint(slice s, int len) asm "PLDUX";
-
-;;; Loads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
-;; (slice, slice) load_bits(slice s, int len) asm(s len -> 1 0) "LDSLICEX";
-
-;;; Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
-;; slice preload_bits(slice s, int len) asm "PLDSLICEX";
 
 ;;; Loads serialized amount of TonCoins (any unsigned integer up to `2^120 - 1`).
 (slice, int) load_grams(slice s) asm( -> 1 0) "LDGRAMS";
@@ -428,16 +405,6 @@ cell end_cell(builder b) asm "ENDC";
 
 ;;; Stores a reference to `cell` [c] into `builder` [b].
 builder store_ref(builder b, cell c) asm(c b) "STREF";
-
-;;; Stores an unsigned [len]-bit integer `x` into `b` for `0 ≤ len ≤ 256`.
-;; builder store_uint(builder b, int x, int len) asm(x b len) "STUX";
-
-;;; Stores a signed [len]-bit integer `x` into `b` for` 0 ≤ len ≤ 257`.
-;; builder store_int(builder b, int x, int len) asm(x b len) "STIX";
-
-
-;;; Stores `slice` [s] into `builder` [b]
-;; builder store_slice(builder b, slice s) asm "STSLICER";
 
 ;;; Stores (serializes) an integer [x] in the range `0..2^120 − 1` into `builder` [b].
 ;;; The serialization of [x] consists of a 4-bit unsigned big-endian integer `l`,
@@ -671,6 +638,82 @@ int get_original_fwd_fee(int workchain, int fwd_fee) asm(fwd_fee workchain) "GET
 int my_storage_due() asm "DUEPAYMENT";
 
 tuple get_fee_cofigs() asm "UNPACKEDCONFIGTUPLE";
+
+;; ===== BUILTINS =====
+
+{- Functions are implemented on compilator level for optimisation -}
+
+(int, int) divmod(int x, int y);
+(int, (int)) ~divmod(int x, int y);
+(int, int) moddiv(int x, int y);
+(int, (int)) ~moddiv(int x, int y);
+int muldiv(int x, int y, int z);
+int muldivr(int x, int y, int z);
+int muldivc(int x, int y, int z);
+(int, int) muldivmod(int x, int y, int z);
+
+forall X -> int null?(X x);
+
+;;; Throws an exception with exit_code excno
+() throw(int excno) impure;
+
+;;; Throws an exception with exit_code excno if cond is true (!= 0)
+() throw_if(int excno, int cond) impure;
+
+;;; Throws an exception with exit_code excno if cond is false (== 0)
+() throw_unless(int excno, int cond) impure;
+
+forall X -> () throw_arg(X arg, int excno) impure;
+forall X -> () throw_arg_if(X arg, int excno, int cond) impure;
+forall X -> () throw_arg_unless(X arg, int excno, int cond) impure;
+
+;;; Loads a signed [len]-bit integer from a slice [s].
+(slice, int) load_int(slice s, int len);
+
+;;; Loads an unsigned [len]-bit integer from a slice [s].
+(slice, int) load_uint(slice s, int len);
+
+;;; Preloads a signed [len]-bit integer from a slice [s].
+int preload_int(slice s, int len);
+
+;;; Preloads an unsigned [len]-bit integer from a slice [s].
+int preload_uint(slice s, int len);
+
+;;; Stores a signed [len]-bit integer `x` into `b` for` 0 ≤ len ≤ 257`.
+builder store_int(builder b, int x, int len);
+(builder, ()) ~store_int(builder b, int x, int len);
+
+;;; Stores an unsigned [len]-bit integer `x` into `b` for `0 ≤ len ≤ 256`.
+builder store_uint(builder b, int x, int len);
+(builder, ()) ~store_uint(builder b, int x, int len);
+
+;;; Loads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
+(slice, slice) load_bits(slice s, int len);
+
+;;; Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
+slice preload_bits(slice s, int len);
+
+int int_at(tuple t, int k);
+cell cell_at(tuple t, int k);
+slice slice_at(tuple t, int k);
+tuple tuple_at(tuple t, int k);
+forall X -> X at(tuple t, int k);
+
+forall X -> X touch(X x) impure;
+forall X -> (X, ()) ~touch(X x) impure;
+forall X, Y -> (X, Y) touch2(X x, Y y) impure;
+forall X, Y -> ((X, Y), ()) ~touch2(X x, Y y) impure;
+forall X -> (X, ()) ~dump(X x) impure;
+forall X -> (X, ()) ~strdump(X x) impure;
+
+;;; Checks whether `slice` [s] begins with (the data bits of) [pfx], and removes [pfx] from [s] on success.
+(slice, int) slice_begins_with?(slice s, slice pfx);
+
+;;; Stores `slice` [s] into `builder` [b]
+builder store_slice(builder b, slice s);
+(builder, ()) ~store_slice(builder b, slice s);
+
+slice pack_address(int wc, int hash);
 
 ;; ===== ADDRESS =====
 
@@ -937,9 +980,6 @@ int slice_check_bits_refs(slice s, int l, int r) asm "SCHKBITREFSQ";
 
 ;;; Splits the first 0 ≤ [bits] ≤ 1023 data bits and first 0 ≤ [refs] ≤ 4 references from `slice` [cs]
 (slice, slice) slice_split(slice cs, int bits, int refs) asm(-> 1 0) "SPLIT";
-
-;;; Checks whether `slice` [s] begins with (the data bits of) [pfx], and removes [pfx] from [s] on success.
-;;(slice, int) slice_begins_with?(slice s, slice pfx) asm "SDBEGINSXQ";
 
 ;;; Store `integer` [x] number as string (UTF-8) in decimal form in `builder` [b].
 builder store_number_dec(builder b, int x) asm """

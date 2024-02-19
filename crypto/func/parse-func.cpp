@@ -1488,7 +1488,13 @@ void parse_func_def(Lexer& lex) {
   if (verbosity >= 1) {
     std::cerr << "function " << func_name.str << " : " << func_type << std::endl;
   }
-  SymDef* func_sym = sym::define_global_symbol(func_name.val, 0, loc);
+  SymDef* defined_func_sym = sym::lookup_symbol(func_name.val, 2);
+  SymDef* func_sym;
+  if (defined_func_sym) {
+    func_sym = defined_func_sym;
+  } else {
+    func_sym = sym::define_global_symbol(func_name.val, 0, loc);
+  }
   func_assert(func_sym);
   SymValFunc* func_sym_val = dynamic_cast<SymValFunc*>(func_sym->value);
   if (func_sym->value) {
@@ -1505,8 +1511,14 @@ void parse_func_def(Lexer& lex) {
     }
   }
   if (lex.tp() == ';') {
-    make_new_glob_func(func_sym, func_type, impure);
-    lex.next();
+    if (!defined_func_sym) {
+      make_new_glob_func(func_sym, func_type, impure);
+      lex.next();
+    } else {
+      lex.next();
+      sym::close_scope(lex);
+      return;
+    }
   } else if (lex.tp() == '{') {
     if (dynamic_cast<SymValAsmFunc*>(func_sym_val)) {
       lex.cur().error("function `"s + func_name.str + "` has been already defined as an assembler built-in");
