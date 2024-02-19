@@ -109,7 +109,8 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
   }
 
   auto q = B.move_as_ok();
-  if (!processed_ext_msg_broadcasts_.insert(td::sha256_bits256(q->message_->data_)).second) {
+  auto hash = td::sha256_bits256(q->message_->data_);
+  if (!processed_ext_msg_broadcasts_.insert(hash).second) {
     return promise.set_error(td::Status::Error("duplicate external message broadcast"));
   }
   if (config_.ext_messages_broadcast_disabled_) {
@@ -119,6 +120,11 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
         td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message));
       }
     };
+  }
+  if (my_ext_msg_broadcasts_.count(hash)) {
+    // Don't re-check messages that were sent by us
+    promise.set_result(td::Unit());
+    return;
   }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
                           std::move(q->message_->data_),
@@ -706,9 +712,11 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
                             });
     return;
   }
-  if (!processed_ext_msg_broadcasts_.insert(td::sha256_bits256(data)).second) {
+  td::Bits256 hash = td::sha256_bits256(data);
+  if (processed_ext_msg_broadcasts_.count(hash)) {
     return;
   }
+  my_ext_msg_broadcasts_.insert(hash);
   auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
       create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -860,6 +868,7 @@ void FullNodeShardImpl::alarm() {
   }
   if (cleanup_processed_ext_msg_at_ && cleanup_processed_ext_msg_at_.is_in_past()) {
     processed_ext_msg_broadcasts_.clear();
+    my_ext_msg_broadcasts_.clear();
     cleanup_processed_ext_msg_at_ = td::Timestamp::in(60.0);
   }
   alarm_timestamp().relax(sync_completed_at_);
