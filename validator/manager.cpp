@@ -3115,6 +3115,9 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   if (!out_msg_queue_importer_.empty()) {
     td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::update_options, opts);
   }
+  if (!queue_size_counter_.empty()) {
+    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::update_options, opts);
+  }
   opts_ = std::move(opts);
 }
 

@@ -591,13 +591,17 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+    if (last_masterchain_state_.is_null()) {
+      promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
+      return;
+    }
     if (queue_size_counter_.empty()) {
-      if (last_masterchain_state_.is_null()) {
-        promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
-        return;
-      }
-      queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter",
-                                                                      last_masterchain_state_, actor_id(this));
+      queue_size_counter_ =
+          td::actor::create_actor<QueueSizeCounter>("queuesizecounter", last_masterchain_state_, opts_, actor_id(this));
+    }
+    if (!opts_->need_monitor(block_id.shard_full(), last_masterchain_state_)) {
+      return promise.set_error(
+          td::Status::Error(PSTRING() << "not monitoring shard " << block_id.shard_full().to_str()));
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }

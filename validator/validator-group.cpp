@@ -195,7 +195,7 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
     }
   });
 
-  run_accept_block_query(block_id, std::move(block), prev_block_ids_, validator_set_, std::move(sig_set),
+  run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
                          std::move(approve_sig_set), send_broadcast,
                          shard_.is_masterchain() || mode_ == ValidatorManagerOptions::validator_normal, manager_,
                          std::move(P));

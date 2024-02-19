@@ -654,7 +654,7 @@ void FullNodeImpl::update_private_block_overlays() {
 }
 
 void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
-  CHECK(local_keys_.count(key));
+  /*CHECK(local_keys_.count(key));
   if (current_validators_.count(key)) {
     std::vector<adnl::AdnlNodeIdShort> nodes;
     for (const auto &p : current_validators_) {
@@ -663,7 +663,7 @@ void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
     private_block_overlays_[key] = td::actor::create_actor<FullNodePrivateOverlay>(
         "BlocksPrivateOverlay", current_validators_[key], std::move(nodes), zero_state_file_hash_, config_, keyring_,
         adnl_, rldp_, rldp2_, overlays_, validator_manager_);
-  }
+  }*/
 }
 
 FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,

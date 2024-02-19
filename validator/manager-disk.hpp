@@ -388,8 +388,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
     if (queue_size_counter_.empty()) {
-      queue_size_counter_ =
-          td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{}, actor_id(this));
+      queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{},
+                                                                      opts_, actor_id(this));
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }
