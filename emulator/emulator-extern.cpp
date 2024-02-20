@@ -543,6 +543,35 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   return strdup(jb.string_builder().as_cslice().c_str());
 }
 
+const char *tvm_emulator_run_get_method_optimized(void *tvm_emulator, int method_id, const char *stack_boc) {
+  auto stack_cell = boc_b64_to_cell(stack_boc);
+  if (stack_cell.is_error()) {
+    return nullptr;
+  }
+  auto stack_cs = vm::load_cell_slice(stack_cell.move_as_ok());
+  td::Ref<vm::Stack> stack;
+  if (!vm::Stack::deserialize_to(stack_cs, stack)) {
+    return nullptr;
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->run_get_method(method_id, stack);
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  vm::CellBuilder stack_cb;
+  if (!result.stack->serialize(stack_cb)) {
+     return nullptr;
+  }
+
+  vm::CellBuilder cb;
+  cb.store_long(result.code, 32);
+  cb.store_long(result.gas_used, 64);
+  cb.store_ref(stack_cb.finalize());
+
+  return strdup(cell_to_boc_b64(cb.finalize()).move_as_ok().c_str());
+}
+
 const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc) {
   auto message_body_cell = boc_b64_to_cell(message_body_boc);
   if (message_body_cell.is_error()) {
