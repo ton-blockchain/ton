@@ -22,4 +22,4 @@ _tvm_emulator_run_get_method_optimized
 _tvm_emulator_send_external_message
 _tvm_emulator_send_internal_message
 _tvm_emulator_destroy
-_tvm_emulate
+_tvm_emulator_emulate
