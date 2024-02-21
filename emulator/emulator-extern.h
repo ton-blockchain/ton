@@ -213,6 +213,7 @@ EMULATOR_EXPORT bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool deb
  */
 EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc);
 EMULATOR_EXPORT const char *tvm_emulator_run_get_method_optimized(void *tvm_emulator, int method_id, const char *stack_boc);
+EMULATOR_EXPORT const char *tvm_emulate(uint32_t len, const char *params_boc, int64_t gas_limit);
 
 /**
  * @brief Send external message
