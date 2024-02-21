@@ -1937,6 +1937,10 @@ void ValidatorEngine::start_full_node() {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                               [](td::Unit) {});
     }
+    for (auto &c : config_.collators) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_collator_adnl_id,
+                              ton::adnl::AdnlNodeIdShort(c.adnl_id));
+    }
   } else {
     started_full_node();
   }
@@ -3647,6 +3651,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_collator,
                             ton::adnl::AdnlNodeIdShort(id), shard);
   }
+  if (!full_node_.empty()) {
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_collator_adnl_id,
+                            ton::adnl::AdnlNodeIdShort(id));
+  }
   write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {
       promise.set_value(create_control_query_error(R.move_as_error()));
@@ -3721,6 +3729,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCollat
                             validator_options_);
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::del_collator,
                             ton::adnl::AdnlNodeIdShort(id), shard);
+  }
+  if (!full_node_.empty()) {
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::del_collator_adnl_id,
+                            ton::adnl::AdnlNodeIdShort(id));
   }
   write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {

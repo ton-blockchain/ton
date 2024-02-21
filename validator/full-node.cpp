@@ -20,6 +20,7 @@
 #include "ton/ton-io.hpp"
 #include "td/actor/MultiPromise.h"
 #include "full-node.h"
+#include "common/delay.h"
 
 namespace ton {
 
@@ -53,7 +54,7 @@ void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
       td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }
   }
-  create_private_block_overlay(key);
+  // create_private_block_overlay(key);
   promise.set_value(td::Unit());
 }
 
@@ -80,8 +81,18 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
       td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }
   }
-  private_block_overlays_.erase(key);
+  // private_block_overlays_.erase(key);
   promise.set_value(td::Unit());
+}
+
+void FullNodeImpl::add_collator_adnl_id(adnl::AdnlNodeIdShort id) {
+  ++local_collator_nodes_[id];
+}
+
+void FullNodeImpl::del_collator_adnl_id(adnl::AdnlNodeIdShort id) {
+  if (--local_collator_nodes_[id] == 0) {
+    local_collator_nodes_.erase(id);
+  }
 }
 
 void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
@@ -218,6 +229,19 @@ void FullNodeImpl::update_shard_configuration(td::Ref<MasterchainState> state, s
       ++it;
     }
   }
+
+  std::set<adnl::AdnlNodeIdShort> my_adnl_ids;
+  for (const auto &p : local_collator_nodes_) {
+    my_adnl_ids.insert(p.first);
+  }
+  for (auto key : local_keys_) {
+    auto it = current_validators_.find(key);
+    if (it != current_validators_.end()) {
+      my_adnl_ids.insert(it->second);
+    }
+  }
+  private_block_overlays_.update_overlays(state, std::move(my_adnl_ids), zero_state_file_hash_, keyring_, adnl_, rldp_,
+                                          rldp2_, overlays_, validator_manager_);
 }
 
 void FullNodeImpl::add_shard_actor(ShardIdFull shard, FullNodeShardMode mode) {
@@ -262,9 +286,10 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
     VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
     return;
   }
-  if (!private_block_overlays_.empty()) {
-    td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateOverlay::send_shard_block_info,
-                            block_id, cc_seqno, data.clone());
+  auto private_overlay = private_block_overlays_.choose_overlay(ShardIdFull(masterchainId));
+  if (!private_overlay.empty()) {
+    td::actor::send_closure(private_overlay, &FullNodePrivateOverlayV2::send_shard_block_info, block_id, cc_seqno,
+                            data.clone());
   }
   td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
 }
@@ -275,9 +300,9 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
   }
-  if (!private_block_overlays_.empty()) {
-    td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateOverlay::send_broadcast,
-                            broadcast.clone());
+  auto private_overlay = private_block_overlays_.choose_overlay(broadcast.block_id.shard_full());
+  if (!private_overlay.empty()) {
+    td::actor::send_closure(private_overlay, &FullNodePrivateOverlayV2::send_broadcast, broadcast.clone());
   }
   td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
 }
@@ -440,7 +465,7 @@ void FullNodeImpl::got_key_block_proof(td::Ref<ProofLink> proof) {
 
   if (current_validators != current_validators_) {
     current_validators_ = std::move(current_validators);
-    update_private_block_overlays();
+    // update_private_block_overlays();
   }
 
   if (keys == all_validators_) {
@@ -483,7 +508,7 @@ void FullNodeImpl::got_zero_block_state(td::Ref<ShardState> state) {
 
   if (current_validators != current_validators_) {
     current_validators_ = std::move(current_validators);
-    update_private_block_overlays();
+    // update_private_block_overlays();
   }
 
   if (keys == all_validators_) {
@@ -613,7 +638,7 @@ void FullNodeImpl::start_up() {
                           std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
 }
 
-void FullNodeImpl::update_private_block_overlays() {
+/* void FullNodeImpl::update_private_block_overlays() {
   private_block_overlays_.clear();
   if (local_keys_.empty()) {
     return;
@@ -624,7 +649,7 @@ void FullNodeImpl::update_private_block_overlays() {
 }
 
 void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
-  /*CHECK(local_keys_.count(key));
+  CHECK(local_keys_.count(key));
   if (current_validators_.count(key)) {
     std::vector<adnl::AdnlNodeIdShort> nodes;
     for (const auto &p : current_validators_) {
@@ -633,8 +658,8 @@ void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
     private_block_overlays_[key] = td::actor::create_actor<FullNodePrivateOverlay>(
         "BlocksPrivateOverlay", current_validators_[key], std::move(nodes), zero_state_file_hash_, config_, keyring_,
         adnl_, rldp_, rldp2_, overlays_, validator_manager_);
-  }*/
-}
+  }
+} */
 
 FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
                            FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,

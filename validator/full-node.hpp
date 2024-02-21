@@ -24,6 +24,7 @@
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
 #include "full-node-private-overlay.hpp"
+#include "full-node-private-overlay-v2.hpp"
 
 #include <map>
 #include <set>
@@ -42,6 +43,8 @@ class FullNodeImpl : public FullNode {
 
   void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
   void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
+  void add_collator_adnl_id(adnl::AdnlNodeIdShort id) override;
+  void del_collator_adnl_id(adnl::AdnlNodeIdShort id) override;
 
   void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                       td::uint32 expiry_at, td::uint32 max_size,
@@ -127,14 +130,20 @@ class FullNodeImpl : public FullNode {
   std::map<PublicKeyHash, adnl::AdnlNodeIdShort> current_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+  std::map<adnl::AdnlNodeIdShort, int> local_collator_nodes_;
 
   td::Promise<td::Unit> started_promise_;
   FullNodeConfig config_;
 
+  // TODO: Decide what to do with old private overlays. Maybe use old or new depending on some flag in config.
+  /*
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateOverlay>> private_block_overlays_;
 
   void update_private_block_overlays();
   void create_private_block_overlay(PublicKeyHash key);
+  */
+
+  FullNodePrivateBlockOverlays private_block_overlays_;
 };
 
 }  // namespace fullnode

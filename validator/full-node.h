@@ -63,6 +63,8 @@ class FullNode : public td::actor::Actor {
 
   virtual void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) = 0;
   virtual void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) = 0;
+  virtual void add_collator_adnl_id(adnl::AdnlNodeIdShort id) = 0;
+  virtual void del_collator_adnl_id(adnl::AdnlNodeIdShort id) = 0;
 
   virtual void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
                                               td::uint32 max_size, td::Promise<td::BufferSlice> promise) = 0;

@@ -149,6 +149,8 @@ set(FULL_NODE_SOURCE
   full-node-master.cpp
   full-node-private-overlay.hpp
   full-node-private-overlay.cpp
+  full-node-private-overlay-v2.hpp
+  full-node-private-overlay-v2.cpp
 
   net/download-block.hpp
   net/download-block.cpp

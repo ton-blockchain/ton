@@ -398,6 +398,7 @@ tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
+tonNode.privateBlockOverlayIdV2 zero_state_file_hash:int256 workchain:int shard:long nodes:(vector int256) senders:(vector int256) = tonNode.PrivateBlockOverlayIdV2;
 
 tonNode.keyBlocks blocks:(vector tonNode.blockIdExt) incomplete:Bool error:Bool = tonNode.KeyBlocks;
 
@@ -665,6 +666,7 @@ engine.validator.shardOverlayStats.neighbour id:string proto_verison:int capabil
     roundtrip:double unreliability:double has_state:string = engine.validator.shardOverlayStats.Neighbour;
 engine.validator.shardOverlayStats shard:string mode:string
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;
+engine.validator.privateBlockOverlayV2Stats shard:string nodes:(vector int256) senders:(vector int256) created_at:int = engine.validator.PrivateBlockOverlayV2Stats;
 
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
