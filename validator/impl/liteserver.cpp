@@ -157,7 +157,7 @@ void LiteQuery::start_up() {
                             });
     return;
   }
-  use_cache_ = !cache_.empty() && query_obj_->get_id() == lite_api::liteServer_runSmcMethod::ID;
+  use_cache_ = use_cache();
   if (use_cache_) {
     cache_key_ = td::sha256_bits256(query_);
     td::actor::send_closure(
@@ -171,6 +171,22 @@ void LiteQuery::start_up() {
   } else {
     perform();
   }
+}
+
+bool LiteQuery::use_cache()  {
+  if (cache_.empty()) {
+    return false;
+  }
+  bool use = false;
+  lite_api::downcast_call(
+      *query_obj_,
+      td::overloaded(
+          [&](lite_api::liteServer_runSmcMethod& q) {
+            // wc=-1, seqno=-1 means "use latest mc block"
+            use = q.id_->workchain_ != masterchainId || q.id_->seqno_ != -1;
+          },
+          [&](auto& obj) { use = false; }));
+  return use;
 }
 
 void LiteQuery::perform() {
@@ -1245,8 +1261,24 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
     return;
   }
   if (mode_ & 0x10000) {
-    finish_runSmcMethod(std::move(shard_proof), proof.move_as_ok(), std::move(acc_root), sstate.gen_utime,
-                        sstate.gen_lt);
+    if (!mc_state_.is_null()) {
+      finish_runSmcMethod(std::move(shard_proof), proof.move_as_ok(), std::move(acc_root), sstate.gen_utime,
+                          sstate.gen_lt);
+      return;
+    }
+    shard_proof_ = std::move(shard_proof);
+    proof_ = proof.move_as_ok();
+    set_continuation(
+        [&, base_blk_id = base_blk_id_, acc_root, utime = sstate.gen_utime, lt = sstate.gen_lt]() mutable -> void {
+          base_blk_id_ = base_blk_id;  // It gets overridden by request_mc_block_data_state
+          finish_runSmcMethod(std::move(shard_proof_), std::move(proof_), std::move(acc_root), utime, lt);
+        });
+    td::optional<BlockIdExt> master_ref = state_->get_master_ref();
+    if (!master_ref) {
+      fatal_error("masterchain ref block is not available");
+      return;
+    }
+    request_mc_block_data_state(master_ref.value());
     return;
   }
   td::BufferSlice data;

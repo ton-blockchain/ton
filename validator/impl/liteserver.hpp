@@ -62,7 +62,7 @@ class LiteQuery : public td::actor::Actor {
   td::BufferSlice buffer_;
   std::function<void()> continuation_;
   bool cont_set_{false};
-  td::BufferSlice shard_proof_;
+  td::BufferSlice shard_proof_, proof_;
   std::vector<Ref<vm::Cell>> roots_;
   std::vector<Ref<td::CntObject>> aux_objs_;
   std::vector<ton::BlockIdExt> blk_ids_;
@@ -98,6 +98,7 @@ class LiteQuery : public td::actor::Actor {
   bool finish_query(td::BufferSlice result, bool skip_cache_update = false);
   void alarm() override;
   void start_up() override;
+  bool use_cache();
   void perform();
   void perform_getTime();
   void perform_getVersion();
