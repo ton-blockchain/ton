@@ -130,7 +130,6 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
     return;
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
-  block.id = next_block_id;
   run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
                      td::Timestamp::in(15.0), std::move(P),
                      collator_config_.full_collated_data ? ValidateMode::full_collated_data : 0);
@@ -169,7 +168,6 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
                      std::move(approve_sig_set), src == local_id_, std::move(promise));
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   cached_collated_block_ = nullptr;
-  approved_candidates_cache_.clear();
   approved_candidates_cache_.clear();
 }
 
