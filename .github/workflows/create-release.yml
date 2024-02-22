@@ -196,7 +196,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-win-binaries/emulator.dll
-          asset_name: emulator.dll
+          asset_name: libemulator.dll
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Windows 2019 single artifact - tonlib-cli
