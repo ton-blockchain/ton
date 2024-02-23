@@ -240,7 +240,7 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
     }
     pragma_allow_post_modification.check_enable_in_libs();
     pragma_compute_asm_ltr.check_enable_in_libs();
-    pragma_camel_case.check_enable_in_libs();
+    // pragma_camel_case.check_enable_in_libs();
     return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
     errs << "fatal: " << fatal << std::endl;
