@@ -404,6 +404,13 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
     ++undef_func_cnt;
     make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
     return true;
+  } else {
+    auto str_func_name = symbols.get_name(func_name);
+    if (td::StringCase::is_snake_case(str_func_name) && pragma_camel_case.enabled_in_file(cur.loc.fdescr)) {
+      cur.loc.show_warning(std::string{"function `"} + str_func_name + "` does not match the current code style (camelCase pragma enabled)");
+    } else if (td::StringCase::is_camel_case(str_func_name) && !pragma_camel_case.enabled_in_file(cur.loc.fdescr)) {
+      cur.loc.show_warning(std::string{"function `"} + str_func_name + "` does not match the current code style (camelCase pragma disabled)");
+    }
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
   if (!val) {
@@ -1432,6 +1439,7 @@ TypeExpr* compute_type_closure(TypeExpr* expr, const std::vector<TypeExpr*>& typ
 
 void parse_func_def(Lexer& lex) {
   SrcLocation loc{lex.cur().loc};
+  bool camel_case = pragma_camel_case.enabled_in_file(loc.fdescr);
   sym::open_scope(lex);
   std::vector<TypeExpr*> type_vars;
   if (lex.tp() == _Forall) {
@@ -1449,13 +1457,20 @@ void parse_func_def(Lexer& lex) {
     lex.next();
   }
   int f = 0;
-  if (lex.tp() == _Inline || lex.tp() == _InlineRef) {
+  if (lex.tp() == _Inline || lex.tp() == _InlineRef || lex.tp() == _InlineRefCamel) {
+    if ((camel_case && lex.tp() == _InlineRef) || (!camel_case && lex.tp() == _InlineRefCamel)) {
+      lex.cur().loc.show_warning(std::string{"modifier `"} + lex.cur().str + "` does not match the current code style (camelCase pragma " + (camel_case ? "enabled)" : "disabled)"));
+    }
     f = (lex.tp() == _Inline) ? 1 : 2;
     lex.next();
   }
   td::RefInt256 method_id;
   std::string method_name;
-  if (lex.tp() == _MethodId) {
+  SrcLocation method_name_loc = func_name.loc;
+  if (lex.tp() == _MethodId || lex.tp() == _MethodIdCamel) {
+    if ((camel_case && lex.tp() == _MethodId) || (!camel_case && lex.tp() == _MethodIdCamel)) {
+      lex.cur().loc.show_warning(std::string{"modifier `"} + lex.cur().str + "` does not match the current code style (camelCase pragma " + (camel_case ? "enabled)" : "disabled)"));
+    }
     lex.next();
     if (lex.tp() == '(') {
       lex.expect('(');
@@ -1470,13 +1485,23 @@ void parse_func_def(Lexer& lex) {
       } else {
         throw src::ParseError{lex.cur().loc, "integer or string method identifier expected"};
       }
+      method_name_loc = lex.cur().loc;
       lex.next();
       lex.expect(')');
     } else {
       method_name = func_name.str;
     }
     if (method_id.is_null()) {
-      unsigned crc = td::crc16(td::StringCase::is_camel_case(method_name) ? td::StringCase::camel_to_snake(method_name) : method_name);
+      unsigned crc;
+      std::string formatted_method_name = method_name;
+      if (camel_case) {
+        if (td::StringCase::is_camel_case(method_name)) {
+          formatted_method_name = td::StringCase::camel_to_snake(method_name);
+        } else {
+          method_name_loc.show_warning(std::string{"method `"} + method_name + "` does not match the current code style (camelCase pragma enabled)");
+        }
+      }
+      crc = td::crc16(formatted_method_name);
       method_id = td::make_refint((crc & 0xffff) | 0x10000);
     }
   }
@@ -1719,6 +1744,9 @@ void parse_pragma(Lexer& lex) {
     pragma_allow_post_modification.enable(lex.cur().loc);
   } else if (pragma_name == pragma_compute_asm_ltr.name()) {
     pragma_compute_asm_ltr.enable(lex.cur().loc);
+  } else if (pragma_name == pragma_camel_case.name()) {
+    pragma_camel_case.enable(lex.cur().loc);
+    lex.set_cmts("//", "/*", "*/");
   } else {
     lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
   }

@@ -126,7 +126,6 @@ int Lexem::set(std::string _str, const SrcLocation& _loc, int _tp, int _val) {
 
 Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars,
              std::string eol_cmts, std::string open_cmts, std::string close_cmts,
-             std::string camel_eol_cmts, std::string camel_open_cmts, std::string camel_close_cmts,
              std::string quote_chars, std::string multiline_quote)
     : src(_src), eof(false), lexem("", src.here(), Lexem::Undefined), peek_lexem("", {}, Lexem::Undefined),
       multiline_quote(std::move(multiline_quote)) {
@@ -141,12 +140,7 @@ Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars,
       char_class[(unsigned)c] |= activity;
     }
   }
-  set_spec(eol_cmt, eol_cmts);
-  set_spec(cmt_op, open_cmts);
-  set_spec(cmt_cl, close_cmts);
-  set_spec(c_eol_cmt, camel_eol_cmts);
-  set_spec(c_cmt_op, camel_open_cmts);
-  set_spec(c_cmt_cl, camel_close_cmts);
+  set_cmts(eol_cmts, open_cmts, close_cmts);
   for (int c : quote_chars) {
     if (c > ' ' && c <= 0x7f) {
       char_class[(unsigned)c] |= cc::quote_char;
@@ -211,24 +205,24 @@ const Lexem& Lexer::next() {
   long long comm = 1;
   while (!src.seek_eof()) {
     int cc = src.cur_char(), nc = src.next_char();
-    if ((cc == eol_cmt[0] || (cc == eol_cmt[1] && nc == eol_cmt[2])) || (cc == c_eol_cmt[0] || (cc == c_eol_cmt[1] && nc == c_eol_cmt[2]))) {
+    if (cc == eol_cmt[0] || (cc == eol_cmt[1] && nc == eol_cmt[2])) {
       src.load_line();
-    } else if ((cc == cmt_op[1] && nc == cmt_op[2]) || (cc == c_cmt_op[1] && nc == c_cmt_op[2])) {
+    } else if (cc == cmt_op[1] && nc == cmt_op[2]) {
       src.advance(2);
       comm = comm * 2 + 1;
-    } else if ((cc == cmt_op[0]) || (cc == c_cmt_op[0])) {
+    } else if (cc == cmt_op[0]) {
       src.advance(1);
       comm *= 2;
     } else if (comm == 1) {
       break;
-    } else if ((cc == cmt_cl[1] && nc == cmt_cl[2]) || (cc == c_cmt_cl[1] && nc == c_cmt_cl[2])) {
+    } else if (cc == cmt_cl[1] && nc == cmt_cl[2]) {
       if (!(comm & 1)) {
         src.error(std::string{"a `"} + (char)cmt_op[0] + "` comment closed by `" + (char)cmt_cl[1] + (char)cmt_cl[2] +
                   "`");
       }
       comm >>= 1;
       src.advance(2);
-    } else if ((cc == cmt_cl[0]) || (cc == c_cmt_cl[0])) {
+    } else if (cc == cmt_cl[0]) {
       if (!(comm & 1)) {
         src.error(std::string{"a `"} + (char)cmt_op[1] + (char)cmt_op[2] + "` comment closed by `" + (char)cmt_cl[0] +
                   "`");
@@ -337,6 +331,12 @@ const Lexem& Lexer::peek() {
   lexem = std::move(keep);
   eof = false;
   return peek_lexem;
+}
+
+void Lexer::set_cmts(std::string eol_cmts, std::string open_cmts, std::string close_cmts) {
+  set_spec(eol_cmt, eol_cmts);
+  set_spec(cmt_op, open_cmts);
+  set_spec(cmt_cl, close_cmts);
 }
 
 }  // namespace src

@@ -80,7 +80,6 @@ class Lexer {
   }
   Lexer(SourceReader& _src, bool init = false, std::string active_chars = ";,() ~.",
         std::string eol_cmts = ";;", std::string open_cmts = "{-", std::string close_cmts = "-}",
-        std::string camel_eol_cmts = "//", std::string camel_open_cmts = "/*", std::string camel_close_cmts = "*/",
         std::string quote_chars = "\"", std::string multiline_quote = "\"\"\"");
   const Lexem& next();
   const Lexem& cur() const {
@@ -90,6 +89,7 @@ class Lexer {
   int tp() const {
     return lexem.tp;
   }
+  void set_cmts(std::string eol_cmts, std::string open_cmts, std::string close_cmts);
   void expect(int exp_tp, const char* msg = 0);
   int classify_char(unsigned c) const {
     return c < 0x80 ? char_class[c] : 0;
