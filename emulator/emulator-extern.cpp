@@ -552,36 +552,27 @@ const char *tvm_emulator_emulate(uint32_t len, const char *params_boc, int64_t g
   auto code = params_cs.fetch_ref();
   auto data = params_cs.fetch_ref();
 
-  ton::WorkchainId wc;
-  ton::StdSmcAddress addr;
-  if (!block::tlb::t_MsgAddressInt.extract_std_address(params_cs, wc, addr)) {
-    return nullptr;
-  }
-
   auto stack_cs = vm::load_cell_slice(params_cs.fetch_ref());
-  auto balance = params_cs.fetch_long(64);
   auto params = vm::load_cell_slice(params_cs.fetch_ref());
-  auto config_cell = params.fetch_ref();
+  auto c7_cs = vm::load_cell_slice(params.fetch_ref());
   auto libs = vm::Dictionary(params.fetch_ref(), 256);
 
-  auto global_config = std::make_shared<block::Config>(
-      config_cell, td::Bits256::zero(),
-      block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
-
   auto method_id = params_cs.fetch_long(32);
-  auto time = params_cs.fetch_long(32);
-  td::BitArray<256> seed = td::BitArray<256>();
-  params_cs.fetch_bits_to(seed.bits(), 256);
 
   td::Ref<vm::Stack> stack;
   if (!vm::Stack::deserialize_to(stack_cs, stack)) {
     return nullptr;
   }
 
+  td::Ref<vm::Stack> c7;
+  if (!vm::Stack::deserialize_to(c7_cs, c7)) {
+    return nullptr;
+  }
+
   auto emulator = new emulator::TvmEmulator(code, data);
   emulator->set_vm_verbosity_level(0);
   emulator->set_gas_limit(gas_limit);
-  emulator->set_c7(block::StdAddress(wc, addr), uint32_t(time), balance, seed, std::const_pointer_cast<const block::Config>(global_config));
+  emulator->set_c7_raw(c7->fetch(0).as_tuple());
   if (libs.is_empty()) {
     emulator->set_libraries(std::move(libs));
   }
