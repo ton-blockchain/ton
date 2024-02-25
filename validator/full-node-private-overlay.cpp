@@ -14,7 +14,6 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#pragma once
 
 #include "full-node-private-overlay.hpp"
 #include "ton/ton-tl.hpp"
