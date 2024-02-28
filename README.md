@@ -10,12 +10,15 @@
 </div>
 
 ## 
+
+[![Ton Research][tonresearch-badge]][tonresearch-url]
 [![TON Overflow Group][ton-overflow-badge]][ton-overflow-url]
 [![Stack Overflow Group][stack-overflow-badge]][stack-overflow-url]
 [![Telegram Community Chat][telegram-tondev-badge]][telegram-tondev-url]
 [![Telegram Community Group][telegram-community-badge]][telegram-community-url]
 [![Telegram Foundation Group][telegram-foundation-badge]][telegram-foundation-url]
 [![Twitter Group][twitter-badge]][twitter-url]
+
 
 [telegram-foundation-badge]: https://img.shields.io/badge/TON%20Foundation-2CA5E0?logo=telegram&logoColor=white&style=flat
 [telegram-community-badge]: https://img.shields.io/badge/TON%20Community-2CA5E0?logo=telegram&logoColor=white&style=flat
@@ -29,7 +32,8 @@
 [stack-overflow-url]: https://stackoverflow.com/questions/tagged/ton
 [ton-overflow-badge]: https://img.shields.io/badge/-TON%20Overflow-FE7A16?style=flat&logo=stack-overflow&logoColor=white
 [ton-overflow-url]: https://answers.ton.org
-
+[tonresearch-badge]: https://img.shields.io/badge/TON%20Research-0098EA?style=flat&logo=discourse&label=Forum&labelColor=gray
+[tonresearch-url]: https://tonresear.ch
 
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
