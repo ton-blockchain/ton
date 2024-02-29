@@ -182,7 +182,7 @@ pipeline {
                         timeout(time: 90, unit: 'MINUTES') {
                             bat '''
                                 copy assembly\\native\\build-windows.bat .
-                                build-windows.bat
+                                build-windows.bat -t
                             '''
                             bat '''
                                 cd artifacts
