@@ -543,7 +543,7 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   return strdup(jb.string_builder().as_cslice().c_str());
 }
 
-const char *tvm_emulator_emulate(uint32_t len, const char *params_boc, int64_t gas_limit) {
+const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit) {
   auto params_cell = vm::std_boc_deserialize(td::Slice(params_boc, len));
   if (params_cell.is_error()) {
     return nullptr;
