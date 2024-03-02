@@ -144,8 +144,8 @@ Then compile TON with Nix by executing below command from the root folder:
   export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
   nix-build linux-x86-64-static.nix
 ```
-More examples for other platforms can be found under `assembly/nix`.  
+More examples for other platforms can be found under [`assembly/nix`](https://github.com/ton-blockchain/ton/tree/master/assembly/nix).  
 
 ## Running tests
 
-Tests are executed by running `ctest` in the build directory. See `doc/Tests.md` for more information.
+Tests are executed by running `ctest` in the build directory. See [`doc/Tests.md`](https://github.com/ton-blockchain/ton/blob/master/doc/Tests.md) for more information.
