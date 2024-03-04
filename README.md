@@ -42,6 +42,8 @@
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
+Enter **in-source-documentation** via [CODE.md](CODE.md).
+
 ## The Open Network
 
 __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
