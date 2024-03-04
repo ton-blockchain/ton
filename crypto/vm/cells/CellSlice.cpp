@@ -595,7 +595,7 @@ td::RefInt256 CellSlice::fetch_int256(unsigned bits, bool sgnd) {
   if (!have(bits)) {
     return {};
   } else if (bits < td::BigInt256::word_shift) {
-    return td::make_refint(sgnd ? fetch_long(bits) : fetch_ulong(bits));
+    return td::make_refint(td::int64(sgnd ? fetch_long(bits) : fetch_ulong(bits)));
   } else {
     td::RefInt256 res{true};
     res.unique_write().import_bits(data_bits(), bits, sgnd);
@@ -608,7 +608,7 @@ td::RefInt256 CellSlice::prefetch_int256(unsigned bits, bool sgnd) const {
   if (!have(bits)) {
     return {};
   } else if (bits < td::BigInt256::word_shift) {
-    return td::make_refint(sgnd ? prefetch_long(bits) : prefetch_ulong(bits));
+    return td::make_refint(td::int64(sgnd ? prefetch_long(bits) : prefetch_ulong(bits)));
   } else {
     td::RefInt256 res{true};
     res.unique_write().import_bits(data_bits(), bits, sgnd);
