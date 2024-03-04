@@ -113,8 +113,6 @@ RefInt256 make_refint(Args&&... args) {
   return td::RefInt256{true, std::forward<Args>(args)...};
 }
 
-extern RefInt256 make_refint(long long x);
-
 extern RefInt256 zero_refint();
 extern RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd = false);
 
