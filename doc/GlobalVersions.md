@@ -58,7 +58,7 @@ See [this post](https://t.me/tonstatus/88) for details.
 ## Version 6
 
 ### c7 tuple
-**c7** tuple extended from 14 to 16 elements:
+**c7** tuple extended from 14 to 17 elements:
 * **14**: tuple that contains some config parameters as cell slices. If the parameter is absent from the config, the value is null. Asm opcode: `UNPACKEDCONFIGTUPLE`.
   * **0**: `StoragePrices` from `ConfigParam 18`. Not the whole dict, but only the one StoragePrices entry (one which corresponds to the current time).
   * **1**: `ConfigParam 19` (global id).
@@ -68,6 +68,7 @@ See [this post](https://t.me/tonstatus/88) for details.
   * **5**: `ConfigParam 25` (fwd fees).
   * **6**: `ConfigParam 43` (size limits).
 * **15**: "[due payment](https://github.com/ton-blockchain/ton/blob/8a9ff339927b22b72819c5125428b70c406da631/crypto/block/block.tlb#L237)" - current debt for storage fee (nanotons). Asm opcode: `DUEPAYMENT`.
+* **16**: "precompiled gas usage" - gas usage for the current contract if it is precompiled (see `ConfigParam 45`), `null` otherwise. Asm opcode: `GETPRECOMPILEDGAS`.
 
 ### New TVM instructions
 
@@ -75,7 +76,7 @@ See [this post](https://t.me/tonstatus/88) for details.
 * `GETGASFEE` (`gas_used is_mc - price`) - calculates gas fee.
 * `GETSTORAGEFEE` (`cells bits seconds is_mc - price`) - calculates storage fees (only current StoragePrices entry is used).
 * `GETFORWARDFEE` (`cells bits is_mc - price`) - calculates forward fee.
-* `GETPRECOMPILEDGAS` (`- null`) - reserved, currently returns `null`.
+* `GETPRECOMPILEDGAS` (`- x`) - returns gas usage for the current contract if it is precompiled, `null` otherwise.
 * `GETORIGINALFWDFEE` (`fwd_fee is_mc - orig_fwd_fee`) - calculate `fwd_fee * 2^16 / first_frac`. Can be used to get the original `fwd_fee` of the message.
 * `GETGASFEESIMPLE` (`gas_used is_mc - price`) - same as `GETGASFEE`, but without flat price (just `(gas_used * price) / 2^16`).
 * `GETFORWARDFEESIMPLE` (`cells bits is_mc - price`) - same as `GETFORWARDFEE`, but without lump price (just `(bits*bit_price + cells*cell_price) / 2^16`).

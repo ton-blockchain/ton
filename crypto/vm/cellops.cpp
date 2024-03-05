@@ -1544,4 +1544,193 @@ void register_cell_ops(OpcodeTable& cp0) {
   register_cell_deserialize_ops(cp0);
 }
 
+namespace util {
+
+bool load_int256_q(CellSlice& cs, td::RefInt256& res, int len, bool sgnd, bool quiet) {
+  if (!cs.fetch_int256_to(len, res, sgnd)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  return true;
+}
+bool load_long_q(CellSlice& cs, td::int64& res, int len, bool quiet) {
+  CHECK(0 <= len && len <= 64);
+  if (!cs.have(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  res = cs.fetch_long(len);
+  return true;
+}
+bool load_ulong_q(CellSlice& cs, td::uint64& res, int len, bool quiet) {
+  CHECK(0 <= len && len <= 64);
+  if (!cs.have(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  res = cs.fetch_ulong(len);
+  return true;
+}
+bool load_ref_q(CellSlice& cs, td::Ref<Cell>& res, bool quiet) {
+  if (!cs.have_refs(1)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  res = cs.fetch_ref();
+  return true;
+}
+bool load_maybe_ref_q(CellSlice& cs, td::Ref<Cell>& res, bool quiet) {
+  if (!cs.fetch_maybe_ref(res)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  return true;
+}
+bool skip_bits_q(CellSlice& cs, int bits, bool quiet) {
+  if (!cs.skip_first(bits)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  return true;
+}
+
+td::RefInt256 load_int256(CellSlice& cs, int len, bool sgnd) {
+  td::RefInt256 x;
+  load_int256_q(cs, x, len, sgnd, false);
+  return x;
+}
+td::int64 load_long(CellSlice& cs, int len) {
+  td::int64 x;
+  load_long_q(cs, x, len, false);
+  return x;
+}
+td::uint64 load_ulong(CellSlice& cs, int len) {
+  td::uint64 x;
+  load_ulong_q(cs, x, len, false);
+  return x;
+}
+td::Ref<Cell> load_ref(CellSlice& cs) {
+  td::Ref<Cell> x;
+  load_ref_q(cs, x, false);
+  return x;
+}
+td::Ref<Cell> load_maybe_ref(CellSlice& cs) {
+  td::Ref<Cell> x;
+  load_maybe_ref_q(cs, x, false);
+  return x;
+}
+void check_have_bits(const CellSlice& cs, int bits) {
+  if (!cs.have(bits)) {
+    throw VmError{Excno::cell_und};
+  }
+}
+void skip_bits(CellSlice& cs, int bits) {
+  skip_bits_q(cs, bits, false);
+}
+void end_parse(CellSlice& cs) {
+  if (cs.size() || cs.size_refs()) {
+    throw VmError{Excno::cell_und, "extra data remaining in deserialized cell"};
+  }
+}
+
+bool store_int256(CellBuilder& cb, const td::RefInt256& x, int len, bool sgnd, bool quiet) {
+  if (!cb.can_extend_by(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  if (!x->fits_bits(len, sgnd)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::range_chk};
+  }
+  cb.store_int256(*x, len, sgnd);
+  return true;
+}
+bool store_long(CellBuilder& cb, td::int64 x, int len, bool quiet) {
+  CHECK(len > 0);
+  if (!cb.can_extend_by(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  if (len < 64 && (x < td::int64(std::numeric_limits<td::uint64>::max() << (len - 1)) || x >= (1LL << (len - 1)))) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::range_chk};
+  }
+  if (len > 64) {
+    cb.store_bits_same(len - 64, x < 0);
+    len = 64;
+  }
+  cb.store_long(x, len);
+  return true;
+}
+bool store_ulong(CellBuilder& cb, td::uint64 x, int len, bool quiet) {
+  CHECK(len > 0);
+  if (!cb.can_extend_by(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  if (len < 64 && x >= (1ULL << len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::range_chk};
+  }
+  if (len > 64) {
+    cb.store_zeroes(len - 64);
+    len = 64;
+  }
+  cb.store_long(x, len);
+  return true;
+}
+bool store_ref(CellBuilder& cb, td::Ref<Cell> x, bool quiet) {
+  if (!cb.store_ref_bool(std::move(x))) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  return true;
+}
+bool store_maybe_ref(CellBuilder& cb, td::Ref<Cell> x, bool quiet) {
+  if (!cb.store_maybe_ref(std::move(x))) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  return true;
+}
+bool store_slice(CellBuilder& cb, const CellSlice& cs, bool quiet) {
+  if (!cell_builder_add_slice_bool(cb, cs)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  return true;
+}
+
+}  // namespace util
+
 }  // namespace vm

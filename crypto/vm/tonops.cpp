@@ -124,7 +124,7 @@ static const StackEntry& get_param(VmState* st, unsigned idx) {
 }
 
 // ConfigParams: 18 (only one entry), 19, 20, 21, 24, 25, 43
-static td::Ref<CellSlice> get_unpacked_config_param(VmState* st, unsigned idx) {
+static td::Ref<Tuple> get_unpacked_config_tuple(VmState* st) {
   auto tuple = st->get_c7();
   auto t1 = tuple_index(tuple, 0).as_tuple_range(255);
   if (t1.is_null()) {
@@ -134,7 +134,7 @@ static td::Ref<CellSlice> get_unpacked_config_param(VmState* st, unsigned idx) {
   if (t2.is_null()) {
     throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
   }
-  return tuple_index(t2, idx).as_slice();
+  return t2;
 }
 
 int exec_get_param(VmState* st, unsigned idx, const char* name) {
@@ -249,7 +249,7 @@ int exec_get_prev_blocks_info(VmState* st, unsigned idx, const char* name) {
 int exec_get_global_id(VmState* st) {
   VM_LOG(st) << "execute GLOBALID";
   if (st->get_global_version() >= 6) {
-    Ref<CellSlice> cs = get_unpacked_config_param(st, 1);
+    Ref<CellSlice> cs = tuple_index(get_unpacked_config_tuple(st), 1).as_slice();
     if (cs.is_null()) {
       throw VmError{Excno::type_chk, "intermediate value is not a slice"};
     }
@@ -276,36 +276,12 @@ int exec_get_global_id(VmState* st) {
   return 0;
 }
 
-static block::GasLimitsPrices get_gas_prices(VmState* st, bool is_masterchain) {
-  Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 2 : 3);
-  if (cs.is_null()) {
-    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
-  }
-  auto r_prices = block::Config::do_get_gas_limits_prices(*cs, is_masterchain ? 20 : 21);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  return r_prices.move_as_ok();
-}
-
-static block::MsgPrices get_msg_prices(VmState* st, bool is_masterchain) {
-  Ref<CellSlice> cs = get_unpacked_config_param(st, is_masterchain ? 4 : 5);
-  if (cs.is_null()) {
-    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
-  }
-  auto r_prices = block::Config::do_get_msg_prices(*cs, is_masterchain ? 24 : 25);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  return r_prices.move_as_ok();
-}
-
 int exec_get_gas_fee(VmState* st) {
   VM_LOG(st) << "execute GETGASFEE";
   Stack& stack = st->get_stack();
   bool is_masterchain = stack.pop_bool();
   td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::GasLimitsPrices prices = get_gas_prices(st, is_masterchain);
+  block::GasLimitsPrices prices = util::get_gas_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(prices.compute_gas_price(gas));
   return 0;
 }
@@ -317,27 +293,9 @@ int exec_get_storage_fee(VmState* st) {
   td::int64 delta = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  Ref<CellSlice> cs = get_unpacked_config_param(st, 0);
-  if (cs.is_null()) {
-    // null means tat no StoragePrices is active, so the price is 0
-    stack.push_smallint(0);
-    return 0;
-  }
-  auto r_prices = block::Config::do_get_one_storage_prices(*cs);
-  if (r_prices.is_error()) {
-    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
-  }
-  block::StoragePrices prices = r_prices.move_as_ok();
-  td::RefInt256 total;
-  if (is_masterchain) {
-    total = td::make_refint(cells) * prices.mc_cell_price;
-    total += td::make_refint(bits) * prices.mc_bit_price;
-  } else {
-    total = td::make_refint(cells) * prices.cell_price;
-    total += td::make_refint(bits) * prices.bit_price;
-  }
-  total *= delta;
-  stack.push_int(td::rshift(total, 16, 1));
+  td::optional<block::StoragePrices> maybe_prices =
+      util::get_storage_prices(get_unpacked_config_tuple(st));
+  stack.push_int(util::calculate_storage_fee(maybe_prices, is_masterchain, delta, bits, cells));
   return 0;
 }
 
@@ -347,7 +305,7 @@ int exec_get_forward_fee(VmState* st) {
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  block::MsgPrices prices = util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(prices.compute_fwd_fees256(cells, bits));
   return 0;
 }
@@ -355,7 +313,7 @@ int exec_get_forward_fee(VmState* st) {
 int exec_get_precompiled_gas(VmState* st) {
   VM_LOG(st) << "execute GETPRECOMPILEDGAS";
   Stack& stack = st->get_stack();
-  stack.push_null();
+  stack.push(get_param(st, 16));
   return 0;
 }
 
@@ -367,7 +325,7 @@ int exec_get_original_fwd_fee(VmState* st) {
   if (fwd_fee->sgn() < 0) {
     throw VmError{Excno::range_chk, "fwd_fee is negative"};
   }
-  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  block::MsgPrices prices = util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(td::muldiv(fwd_fee, td::make_refint(1 << 16), td::make_refint((1 << 16) - prices.first_frac)));
   return 0;
 }
@@ -377,7 +335,7 @@ int exec_get_gas_fee_simple(VmState* st) {
   Stack& stack = st->get_stack();
   bool is_masterchain = stack.pop_bool();
   td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::GasLimitsPrices prices = get_gas_prices(st, is_masterchain);
+  block::GasLimitsPrices prices = util::get_gas_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(td::rshift(td::make_refint(prices.gas_price) * gas, 16, 1));
   return 0;
 }
@@ -388,7 +346,7 @@ int exec_get_forward_fee_simple(VmState* st) {
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  block::MsgPrices prices = get_msg_prices(st, is_masterchain);
+  block::MsgPrices prices = util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain);
   stack.push_int(td::rshift(td::make_refint(prices.bit_price) * bits + td::make_refint(prices.cell_price) * cells, 16,
                             1));  // divide by 2^16 with ceil rounding
   return 0;
@@ -1349,19 +1307,14 @@ int exec_load_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
   Stack& stack = st->get_stack();
   auto csr = stack.pop_cellslice();
   td::RefInt256 x;
-  int len;
-  if (!(csr.write().fetch_uint_to(len_bits, len) && csr.unique_write().fetch_int256_to(len * 8, x, sgnd))) {
-    if (quiet) {
-      stack.push_bool(false);
-    } else {
-      throw VmError{Excno::cell_und, "cannot deserialize a variable-length integer"};
-    }
-  } else {
+  if (util::load_var_integer_q(csr.write(), x, len_bits, sgnd, quiet)) {
     stack.push_int(std::move(x));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
       stack.push_bool(true);
     }
+  } else {
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -1376,21 +1329,13 @@ int exec_store_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
   stack.check_underflow(2);
   auto x = stack.pop_int();
   auto cbr = stack.pop_builder();
-  unsigned len = (((unsigned)x->bit_size(sgnd) + 7) >> 3);
-  if (len >= (1u << len_bits)) {
-    throw VmError{Excno::range_chk};
-  }
-  if (!(cbr.write().store_long_bool(len, len_bits) && cbr.unique_write().store_int256_bool(*x, len * 8, sgnd))) {
-    if (quiet) {
-      stack.push_bool(false);
-    } else {
-      throw VmError{Excno::cell_ov, "cannot serialize a variable-length integer"};
-    }
-  } else {
+  if (util::store_var_integer(cbr.write(), x, len_bits, sgnd, quiet)) {
     stack.push_builder(std::move(cbr));
     if (quiet) {
       stack.push_bool(true);
     }
+  } else {
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -1433,22 +1378,17 @@ bool skip_message_addr(CellSlice& cs) {
 int exec_load_message_addr(VmState* st, bool quiet) {
   VM_LOG(st) << "execute LDMSGADDR" << (quiet ? "Q" : "");
   Stack& stack = st->get_stack();
-  auto csr = stack.pop_cellslice(), csr_copy = csr;
-  auto& cs = csr.write();
-  if (!(skip_message_addr(cs) && csr_copy.write().cut_tail(cs))) {
-    csr.clear();
-    if (quiet) {
-      stack.push_cellslice(std::move(csr_copy));
-      stack.push_bool(false);
-    } else {
-      throw VmError{Excno::cell_und, "cannot load a MsgAddress"};
-    }
-  } else {
-    stack.push_cellslice(std::move(csr_copy));
+  auto csr = stack.pop_cellslice();
+  td::Ref<CellSlice> addr{true};
+  if (util::load_msg_addr_q(csr.write(), addr.write(), quiet)) {
+    stack.push_cellslice(std::move(addr));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
       stack.push_bool(true);
     }
+  } else {
+    stack.push_cellslice(std::move(csr));
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -1747,7 +1687,7 @@ int exec_send_message(VmState* st) {
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
   td::Ref<CellSlice> prices_cs;
   if (st->get_global_version() >= 6) {
-    prices_cs = get_unpacked_config_param(st, is_masterchain ? 4 : 5);
+    prices_cs = tuple_index(get_unpacked_config_tuple(st), is_masterchain ? 4 : 5).as_slice();
   } else {
     Ref<Cell> config_dict = get_param(st, 9).as_cell();
     Dictionary config{config_dict, 32};
@@ -1769,7 +1709,8 @@ int exec_send_message(VmState* st) {
   // bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
   td::uint64 max_cells;
   if (st->get_global_version() >= 6) {
-    auto r_size_limits_config = block::Config::do_get_size_limits_config(get_unpacked_config_param(st, 6));
+    auto r_size_limits_config =
+        block::Config::do_get_size_limits_config(tuple_index(get_unpacked_config_tuple(st), 6).as_slice());
     if (r_size_limits_config.is_error()) {
       throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_size_limits_config.error().message()};
     }
@@ -2019,5 +1960,159 @@ void register_ton_ops(OpcodeTable& cp0) {
   register_ton_currency_address_ops(cp0);
   register_ton_message_ops(cp0);
 }
+
+namespace util {
+
+bool load_var_integer_q(CellSlice& cs, td::RefInt256& res, int len_bits, bool sgnd, bool quiet) {
+  CellSlice cs0 = cs;
+  int len;
+  if (!(cs.fetch_uint_to(len_bits, len) && cs.fetch_int256_to(len * 8, res, sgnd))) {
+    cs = std::move(cs0);
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot deserialize a variable-length integer"};
+  }
+  return true;
+}
+bool load_coins_q(CellSlice& cs, td::RefInt256& res, bool quiet) {
+  return load_var_integer_q(cs, res, 4, false, quiet);
+}
+bool load_msg_addr_q(CellSlice& cs, CellSlice& res, bool quiet) {
+  res = cs;
+  if (!skip_message_addr(cs)) {
+    cs = res;
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot load a MsgAddress"};
+  }
+  res.cut_tail(cs);
+  return true;
+}
+bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, bool quiet) {
+  // Like exec_rewrite_message_addr, but for std address case
+  std::vector<StackEntry> tuple;
+  if (!(parse_message_addr(cs, tuple) && cs.empty_ext())) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot parse a MsgAddress"};
+  }
+  int t = (int)std::move(tuple[0]).as_int()->to_long();
+  if (t != 2 && t != 3) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot parse a MsgAddressInt"};
+  }
+  auto addr = std::move(tuple[3]).as_slice();
+  auto prefix = std::move(tuple[1]).as_slice();
+  if (addr->size() != 256) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "MsgAddressInt is not a standard 256-bit address"};
+  }
+  res_wc = (int)tuple[2].as_int()->to_long();
+  CHECK(addr->prefetch_bits_to(res_addr) &&
+        (prefix.is_null() || prefix->prefetch_bits_to(res_addr.bits(), prefix->size())));
+  return true;
+}
+
+td::RefInt256 load_var_integer(CellSlice& cs, int len_bits, bool sgnd) {
+  td::RefInt256 x;
+  load_var_integer_q(cs, x, len_bits, sgnd, false);
+  return x;
+}
+td::RefInt256 load_coins(CellSlice& cs) {
+  return load_var_integer(cs, 4, false);
+}
+CellSlice load_msg_addr(CellSlice& cs) {
+  CellSlice addr;
+  load_msg_addr_q(cs, addr, false);
+  return addr;
+}
+std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs) {
+  std::pair<ton::WorkchainId, ton::StdSmcAddress> res;
+  parse_std_addr_q(std::move(cs), res.first, res.second, false);
+  return res;
+}
+
+bool store_var_integer(CellBuilder& cb, const td::RefInt256& x, int len_bits, bool sgnd, bool quiet) {
+  unsigned len = (((unsigned)x->bit_size(sgnd) + 7) >> 3);
+  if (len >= (1u << len_bits)) {
+    throw VmError{Excno::range_chk};  // throw even if quiet
+  }
+  if (!cb.can_extend_by(len_bits + len * 8)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov, "cannot serialize a variable-length integer"};
+  }
+  CHECK(cb.store_long_bool(len, len_bits) && cb.store_int256_bool(*x, len * 8, sgnd));
+  return true;
+}
+bool store_coins(CellBuilder& cb, const td::RefInt256& x, bool quiet) {
+  return store_var_integer(cb, x, 4, false, quiet);
+}
+
+block::GasLimitsPrices get_gas_prices(const Ref<Tuple>& unpacked_config, bool is_masterchain) {
+  Ref<CellSlice> cs = tuple_index(unpacked_config, is_masterchain ? 2 : 3).as_slice();
+  if (cs.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
+  }
+  auto r_prices = block::Config::do_get_gas_limits_prices(*cs, is_masterchain ? 20 : 21);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+block::MsgPrices get_msg_prices(const Ref<Tuple>& unpacked_config, bool is_masterchain) {
+  Ref<CellSlice> cs = tuple_index(unpacked_config, is_masterchain ? 4 : 5).as_slice();
+  if (cs.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a slice"};
+  }
+  auto r_prices = block::Config::do_get_msg_prices(*cs, is_masterchain ? 24 : 25);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+td::optional<block::StoragePrices> get_storage_prices(const Ref<Tuple>& unpacked_config) {
+  Ref<CellSlice> cs = tuple_index(unpacked_config, 0).as_slice();
+  if (cs.is_null()) {
+    // null means tat no StoragePrices is active, so the price is 0
+    return {};
+  }
+  auto r_prices = block::Config::do_get_one_storage_prices(*cs);
+  if (r_prices.is_error()) {
+    throw VmError{Excno::cell_und, PSTRING() << "cannot parse config: " << r_prices.error().message()};
+  }
+  return r_prices.move_as_ok();
+}
+
+td::RefInt256 calculate_storage_fee(const td::optional<block::StoragePrices>& maybe_prices, bool is_masterchain,
+                                    td::uint64 delta, td::uint64 bits, td::uint64 cells) {
+  if (!maybe_prices) {
+    // no StoragePrices is active, so the price is 0
+    return td::zero_refint();
+  }
+  const block::StoragePrices& prices = maybe_prices.value();
+  td::RefInt256 total;
+  if (is_masterchain) {
+    total = td::make_refint(cells) * prices.mc_cell_price;
+    total += td::make_refint(bits) * prices.mc_bit_price;
+  } else {
+    total = td::make_refint(cells) * prices.cell_price;
+    total += td::make_refint(bits) * prices.bit_price;
+  }
+  total *= delta;
+  return td::rshift(total, 16, 1);
+}
+
+}  // namespace util
 
 }  // namespace vm
