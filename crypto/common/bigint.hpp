@@ -169,8 +169,6 @@ class PropagateConstSpan {
   size_t size_{0};
 };
 
-struct Normalize {};
-
 template <class Tr = BigIntInfo>
 class AnyIntView {
  public:
@@ -290,6 +288,7 @@ class BigIntG {
  public:
   enum { word_bits = Tr::word_bits, word_shift = Tr::word_shift, max_bits = len, word_cnt = len / word_shift + 1 };
   typedef typename Tr::word_t word_t;
+  typedef typename Tr::uword_t uword_t;
   typedef Tr Traits;
   typedef BigIntG<len * 2, Tr> DoubleInt;
 
@@ -312,9 +311,6 @@ class BigIntG {
   BigIntG() : n(0) {
   }
   explicit BigIntG(word_t x) : n(1) {
-    digits[0] = x;
-  }
-  BigIntG(Normalize, word_t x) : n(1) {
     if (x >= -Tr::Half && x < Tr::Half) {
       digits[0] = x;
     } else if (len <= 1) {
@@ -324,6 +320,25 @@ class BigIntG {
       digits[0] = ((x ^ Tr::Half) & (Tr::Base - 1)) - Tr::Half;
       digits[n++] = (x >> Tr::word_shift) + (digits[0] < 0);
     }
+  }
+  explicit BigIntG(uword_t x) : n(1) {
+    if (x < (uword_t)Tr::Half) {
+      digits[0] = x;
+    } else if (len <= 1) {
+      digits[0] = x;
+      normalize_bool();
+    } else {
+      digits[0] = ((x ^ Tr::Half) & (Tr::Base - 1)) - Tr::Half;
+      digits[n++] = (x >> Tr::word_shift) + (digits[0] < 0);
+    }
+  }
+  explicit BigIntG(unsigned x) : BigIntG(uword_t(x)) {
+  }
+  explicit BigIntG(int x) : BigIntG(word_t(x)) {
+  }
+  explicit BigIntG(unsigned long x) : BigIntG(uword_t(x)) {
+  }
+  explicit BigIntG(long x) : BigIntG(word_t(x)) {
   }
   BigIntG(const BigIntG& x) : n(x.n) {
     std::memcpy(digits, x.digits, n * sizeof(word_t));
@@ -2556,7 +2571,7 @@ typedef BigIntG<257, BigIntInfo> BigInt256;
 
 template <int n = 257>
 BigIntG<n, BigIntInfo> make_bigint(long long x) {
-  return BigIntG<n, BigIntInfo>{Normalize(), x};
+  return BigIntG<n, BigIntInfo>{x};
 }
 
 namespace literals {

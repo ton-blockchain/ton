@@ -261,10 +261,6 @@ int sgn(RefInt256 x) {
   return x->sgn();
 }
 
-RefInt256 make_refint(long long x) {
-  return td::RefInt256{true, td::Normalize(), x};
-}
-
 RefInt256 zero_refint() {
   //  static RefInt256 Zero = td::RefInt256{true, 0};
   //  return Zero;

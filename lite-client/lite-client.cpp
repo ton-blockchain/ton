@@ -1275,7 +1275,7 @@ bool TestNode::after_parse_run_method(ton::WorkchainId workchain, ton::StdSmcAdd
       }
     }
   });
-  return start_run_method(workchain, addr, ref_blkid, method_name, std::move(params), ext_mode ? 0x1f : 0,
+  return start_run_method(workchain, addr, ref_blkid, method_name, std::move(params), ext_mode ? 0x17 : 0,
                           std::move(P));
 }
 
@@ -1449,7 +1449,7 @@ bool TestNode::send_past_vset_query(ton::StdSmcAddress elector_addr) {
     }
     register_past_vset_info(std::move(S.back()));
   });
-  return start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "past_elections_list", std::move(params), 0x1f,
+  return start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "past_elections_list", std::move(params), 0x17,
                           std::move(P));
 }
 
@@ -1510,7 +1510,7 @@ void TestNode::send_get_complaints_query(unsigned elect_id, ton::StdSmcAddress e
       LOG(ERROR) << "vm virtualization error: " << err.get_msg();
     }
   });
-  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "get_past_complaints", std::move(params), 0x1f,
+  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "get_past_complaints", std::move(params), 0x17,
                    std::move(P));
 }
 
@@ -1607,7 +1607,7 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
           LOG(ERROR) << "vm virtualization error: " << err.get_msg();
         }
       });
-  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "complaint_storage_price", std::move(params), 0x1f,
+  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "complaint_storage_price", std::move(params), 0x17,
                    std::move(P));
 }
 
@@ -1708,7 +1708,7 @@ bool TestNode::dns_resolve_send(ton::WorkchainId workchain, ton::StdSmcAddress a
     }
     return dns_resolve_finish(workchain, addr, blkid, domain, qdomain, cat, mode, (int)x->to_long(), std::move(cell));
   });
-  return start_run_method(workchain, addr, blkid, "dnsresolve", std::move(params), 0x1f, std::move(P));
+  return start_run_method(workchain, addr, blkid, "dnsresolve", std::move(params), 0x17, std::move(P));
 }
 
 bool TestNode::show_dns_record(std::ostream& os, td::Bits256 cat, Ref<vm::CellSlice> value, bool raw_dump) {
@@ -2142,21 +2142,29 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
       }
     }
     if (exit_code != 0) {
-      LOG(ERROR) << "VM terminated with error code " << exit_code;
       out << "result: error " << exit_code << std::endl;
-      promise.set_error(td::Status::Error(PSLICE() << "VM terminated with non-zero exit code " << exit_code));
-      return;
-    }
-    stack = vm.get_stack_ref();
-    {
+    } else {
+      stack = vm.get_stack_ref();
       std::ostringstream os;
       os << "result: ";
       stack->dump(os, 3);
       out << os.str();
     }
-    if (mode & 4) {
-      if (remote_result.empty()) {
-        out << "remote result: <none>, exit code " << remote_exit_code;
+    if (!(mode & 4)) {
+      if (exit_code != 0) {
+        LOG(ERROR) << "VM terminated with error code " << exit_code;
+        promise.set_error(td::Status::Error(PSLICE() << "VM terminated with non-zero exit code " << exit_code));
+      } else {
+        promise.set_result(stack->extract_contents());
+      }
+    } else {
+      if (remote_exit_code != 0) {
+        out << "remote result: error " << remote_exit_code << std::endl;
+        LOG(ERROR) << "VM terminated with error code " << exit_code;
+        promise.set_error(td::Status::Error(PSLICE() << "VM terminated with non-zero exit code " << exit_code));
+      } else if (remote_result.empty()) {
+        out << "remote result: <none>" << std::endl;
+        promise.set_value({});
       } else {
         auto res = vm::std_boc_deserialize(std::move(remote_result));
         if (res.is_error()) {
@@ -2177,10 +2185,10 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
         os << "remote result (not to be trusted): ";
         remote_stack->dump(os, 3);
         out << os.str();
+        promise.set_value(remote_stack->extract_contents());
       }
     }
     out.flush();
-    promise.set_result(stack->extract_contents());
   } catch (vm::VmVirtError& err) {
     out << "virtualization error while parsing runSmcMethod result: " << err.get_msg();
     promise.set_error(
