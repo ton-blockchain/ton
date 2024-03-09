@@ -2179,6 +2179,7 @@ void LiteQuery::continue_lookupBlockWithProof_gotPrevBlockData(Ref<BlockData> pr
       });
     });
   } else {
+    base_blk_id_alt_ = blk_id_;
     td::actor::send_closure(actor_id(this), &LiteQuery::continue_lookupBlockWithProof_getClientMcBlockDataState, std::vector<std::pair<BlockIdExt, Ref<vm::Cell>>>());
   }
 }
@@ -2239,6 +2240,7 @@ void LiteQuery::continue_lookupBlockWithProof_buildProofLinks(td::Ref<BlockData>
   if (prev_id == blk_id_) {
     CHECK(base_blk_id_alt_.is_masterchain());
     continue_lookupBlockWithProof_getClientMcBlockDataState(std::move(result));
+    return;
   }
   if (result.size() == 8) {
     // Chains of shardblocks between masterchain blocks can't be longer than 8 (see collator.cpp:991)
