@@ -2050,38 +2050,34 @@ void LiteQuery::perform_lookupBlockWithProof(BlockId blkid, BlockIdExt mc_blkid,
     [Self = actor_id(this), mc_blkid, manager = manager_, mode, pfx](td::Result<ConstBlockHandle> res) {
       if (res.is_error()) {
         td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
-      } else {
-        auto handle = res.move_as_ok();
-        if (!handle->is_applied()) {
-          td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error(ErrorCode::notready, "block is not applied"));
-          return;
-        }
-        if (!handle->inited_masterchain_ref_block()) {
-          td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error("block doesn't have masterchain ref"));
-          return;
-        }
-        if (handle->masterchain_ref_block() > mc_blkid.seqno()) {
-          td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error("specified mc block is older than block's masterchain ref"));
-          return;
-        }
-        LOG(DEBUG) << "requesting data for block " << handle->id().to_str();
-        td::actor::send_closure_later(manager, &ValidatorManager::get_block_data_from_db, handle,
-                                      [Self, mc_ref_blkid = handle->masterchain_ref_block(), mc_blkid, pfx, mode](td::Result<Ref<BlockData>> res) {
-          if (res.is_error()) {
-            td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
-          } else {
-            td::actor::send_closure_later(Self, &LiteQuery::continue_lookupBlockWithProof_getHeaderProof, res.move_as_ok(), pfx, mc_ref_blkid);
-          }
-        });
+        return;
       }
+      auto handle = res.move_as_ok();
+      if (!handle->inited_masterchain_ref_block()) {
+        td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error("block doesn't have masterchain ref"));
+        return;
+      }
+      if (handle->masterchain_ref_block() > mc_blkid.seqno()) {
+        td::actor::send_closure(Self, &LiteQuery::abort_query, td::Status::Error("specified mc block is older than block's masterchain ref"));
+        return;
+      }
+      LOG(DEBUG) << "requesting data for block " << handle->id().to_str();
+      td::actor::send_closure_later(manager, &ValidatorManager::get_block_data_from_db, handle,
+                                    [Self, mc_ref_blkid = handle->masterchain_ref_block(), mc_blkid, pfx, mode](td::Result<Ref<BlockData>> res) {
+        if (res.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+        } else {
+          td::actor::send_closure_later(Self, &LiteQuery::continue_lookupBlockWithProof_getHeaderProof, res.move_as_ok(), pfx, mc_ref_blkid);
+        }
+      });
   });
 
   if (mode & 2) {
-    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_lt_from_db, pfx, lt, std::move(P));
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_lt_from_db_for_litequery, pfx, lt, std::move(P));
   } else if (mode & 4) {
-    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_unix_time_from_db, pfx, utime, std::move(P));
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_unix_time_from_db_for_litequery, pfx, utime, std::move(P));
   } else {
-    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_seqno_from_db, pfx, blkid.seqno, std::move(P));
+    td::actor::send_closure_later(manager_, &ValidatorManager::get_block_by_seqno_from_db_for_litequery, pfx, blkid.seqno, std::move(P));
   }
 }
 
@@ -2239,7 +2235,11 @@ void LiteQuery::continue_lookupBlockWithProof_buildProofLinks(td::Ref<BlockData>
 
   if (prev_id == blk_id_) {
     CHECK(base_blk_id_alt_.is_masterchain());
-    continue_lookupBlockWithProof_getClientMcBlockDataState(std::move(result));
+    if (base_blk_id_alt_ != base_blk_id_) {
+      continue_lookupBlockWithProof_getClientMcBlockDataState(std::move(result));
+    } else {
+      continue_lookupBlockWithProof_getMcBlockPrev(std::move(result));
+    }
     return;
   }
   if (result.size() == 8) {
@@ -2267,22 +2267,40 @@ void LiteQuery::continue_lookupBlockWithProof_getClientMcBlockDataState(std::vec
   request_mc_block_data_state(base_blk_id_);
 }
 
-void LiteQuery::continue_lookupBlockWithProof_getMcBlockPrev(std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links)  {
-  vm::MerkleProofBuilder mpb{mc_state_->root_cell()};
-  auto prev_blocks_dict = block::get_prev_blocks_dict(mpb.root());
-  if (!prev_blocks_dict) {
-    fatal_error(td::Status::Error("cannot extract prev_blocks from mc state"));
-    return;
+void LiteQuery::continue_lookupBlockWithProof_getMcBlockPrev(std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links) {
+  td::BufferSlice mc_state_proof_buf, client_mc_blk_proof_buf;
+  
+  if (base_blk_id_alt_ != base_blk_id_) {
+    vm::MerkleProofBuilder mpb{mc_state_->root_cell()};
+    auto prev_blocks_dict = block::get_prev_blocks_dict(mpb.root());
+    if (!prev_blocks_dict) {
+      fatal_error(td::Status::Error("cannot extract prev_blocks from mc state"));
+      return;
+    }
+    if (!block::check_old_mc_block_id(*prev_blocks_dict, base_blk_id_alt_)) {
+      fatal_error(td::Status::Error("client mc blkid is not in prev_blocks"));
+      return;
+    }
+    auto client_mc_blk_proof = mpb.extract_proof_boc();
+    if (client_mc_blk_proof.is_error()) {
+      fatal_error(client_mc_blk_proof.move_as_error());
+      return;
+    }
+    client_mc_blk_proof_buf = client_mc_blk_proof.move_as_ok();
+
+    Ref<vm::Cell> mc_state_proof;
+    if (!make_mc_state_root_proof(mc_state_proof)) {
+      fatal_error(td::Status::Error("cannot create Merkle proof for mc state"));
+      return;
+    }
+    auto mc_state_proof_boc = vm::std_boc_serialize(std::move(mc_state_proof));
+    if (mc_state_proof_boc.is_error()) {
+      fatal_error(mc_state_proof_boc.move_as_error());
+      return;
+    }
+    mc_state_proof_buf = mc_state_proof_boc.move_as_ok();
   }
-  if (!block::check_old_mc_block_id(*prev_blocks_dict, base_blk_id_alt_)) {
-    fatal_error(td::Status::Error("client mc blkid is not in prev_blocks"));
-    return;
-  }
-  auto client_mc_blk_proof = mpb.extract_proof_boc();
-  if (client_mc_blk_proof.is_error()) {
-    fatal_error(client_mc_blk_proof.move_as_error());
-    return;
-  }
+
   std::vector<tl_object_ptr<lite_api::liteServer_shardBlockLink>> links_res;
   for (auto& p : links) {
     auto prev_block_proof = vm::std_boc_serialize(std::move(p.second));
@@ -2294,22 +2312,12 @@ void LiteQuery::continue_lookupBlockWithProof_getMcBlockPrev(std::vector<std::pa
         create_tl_object<lite_api::liteServer_shardBlockLink>(create_tl_lite_block_id(p.first), prev_block_proof.move_as_ok()));
   }
 
-  Ref<vm::Cell> mc_state_proof;
-  if (!make_mc_state_root_proof(mc_state_proof)) {
-    fatal_error(td::Status::Error("cannot create Merkle proof for mc state"));
-    return;
-  }
-  auto mc_state_proof_boc = vm::std_boc_serialize(std::move(mc_state_proof));
-  if (mc_state_proof_boc.is_error()) {
-    fatal_error(mc_state_proof_boc.move_as_error());
-    return;
-  }
-
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_lookupBlockResult>(ton::create_tl_lite_block_id(blk_id_),
-                                                mode_, ton::create_tl_lite_block_id(base_blk_id_alt_), mc_state_proof_boc.move_as_ok(), client_mc_blk_proof.move_as_ok(), 
+                                                mode_, ton::create_tl_lite_block_id(base_blk_id_alt_), std::move(mc_state_proof_buf), std::move(client_mc_blk_proof_buf), 
                                                 std::move(links_res), std::move(lookup_header_proof_), std::move(lookup_prev_header_proof_));
   finish_query(std::move(b));
 }
+
 
 void LiteQuery::perform_lookupBlock(BlockId blkid, int mode, LogicalTime lt, UnixTime utime) {
   if (!((1 << (mode & 7)) & 0x16)) {
