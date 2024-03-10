@@ -1000,6 +1000,7 @@ void LiteQuery::continue_getLibrariesWithProof(std::vector<td::Bits256> library_
   auto libraries_dict = vm::Dictionary(state.r1.libraries->prefetch_ref(), 256);
 
   std::vector<ton::tl_object_ptr<ton::lite_api::liteServer_libraryEntry>> result;
+  std::vector<td::Bits256> result_hashes;
   for (const auto& hash : library_list) {
     LOG(INFO) << "looking for library " << hash.to_hex();
 
@@ -1012,17 +1013,6 @@ void LiteQuery::continue_getLibrariesWithProof(std::vector<td::Bits256> library_
       fatal_error("cannot unpack LibDescr record "s + hash.to_hex());
       return;
     }
-    if (!libdescr.lib->get_hash().bits().equals(hash.bits(), 256)) {
-      LOG(ERROR) << "public library hash mismatch: expected " << hash.to_hex() << " , found "
-                << libdescr.lib->get_hash().to_hex();
-      continue;
-    }
-
-    auto data = vm::std_boc_serialize(libdescr.lib);
-    if (data.is_error()) {
-      LOG(WARNING) << "library serialization failed: " << data.move_as_error().to_string();
-      continue;
-    }
     if (mode & 1) {
       // include first 16 publishers in the proof
       auto publishers_dict = vm::Dictionary{vm::DictNonEmpty(), libdescr.publishers, 256};
@@ -1030,11 +1020,13 @@ void LiteQuery::continue_getLibrariesWithProof(std::vector<td::Bits256> library_
       constexpr int max_publishers = 15; // set to 15 because publishers_dict.begin() counts as the first visit
       for (int i = 0; i < max_publishers && iter != publishers_dict.end(); ++i, ++iter) {}
     }
-    result.push_back(ton::create_tl_object<ton::lite_api::liteServer_libraryEntry>(hash, data.move_as_ok()));
+
+    result_hashes.push_back(hash);
   }
 
-  if (!pb.extract_proof_to(data_proof)) {
-    fatal_error("error while constructing Merkle proof for library list");
+  auto data_proof_boc = pb.extract_proof_boc();
+  if (data_proof_boc.is_error()) {
+    fatal_error(data_proof_boc.move_as_error());
     return;
   }
   auto state_proof_boc = vm::std_boc_serialize(std::move(state_proof));
@@ -1042,10 +1034,29 @@ void LiteQuery::continue_getLibrariesWithProof(std::vector<td::Bits256> library_
     fatal_error(state_proof_boc.move_as_error());
     return;
   }
-  auto data_proof_boc = vm::std_boc_serialize(std::move(data_proof));
-  if (data_proof_boc.is_error()) {
-    fatal_error(data_proof_boc.move_as_error());
-    return;
+
+  for (const auto& hash : result_hashes) {
+    auto csr = libraries_dict.lookup(hash.bits(), 256);
+    block::gen::LibDescr::Record libdescr;
+    if (!tlb::csr_unpack(csr, libdescr)) {
+      fatal_error("cannot unpack LibDescr record "s + hash.to_hex());
+      return;
+    }
+    if (!libdescr.lib->get_hash().bits().equals(hash.bits(), 256)) {
+      LOG(ERROR) << "public library hash mismatch: expected " << hash.to_hex() << " , found "
+                << libdescr.lib->get_hash().to_hex();
+      continue;
+    }
+    td::BufferSlice libdata;
+    if (!(mode & 2)) {
+      auto data = vm::std_boc_serialize(libdescr.lib);
+      if (data.is_error()) {
+        LOG(WARNING) << "library serialization failed: " << data.move_as_error().to_string();
+        continue;
+      }
+      libdata = data.move_as_ok();
+    }
+    result.push_back(ton::create_tl_object<ton::lite_api::liteServer_libraryEntry>(hash, std::move(libdata)));
   }
 
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_libraryResultWithProof>(ton::create_tl_lite_block_id(base_blk_id_), mode, std::move(result), 
