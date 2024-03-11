@@ -1333,8 +1333,8 @@ static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, 
       td::make_refint(lt),                                 //   trans_lt:Integer
       std::move(rand_seed_int),                            //   rand_seed:Integer
       balance.as_vm_tuple(),                               //   balance_remaining:[Integer (Maybe Cell)]
-      my_addr,                                             //  myself:MsgAddressInt
-      config ? config->get_root_cell() : vm::StackEntry()  //  global_config:(Maybe Cell) ] = SmartContractInfo;
+      my_addr,                                             //   myself:MsgAddressInt
+      config ? config->get_root_cell() : vm::StackEntry()  //   global_config:(Maybe Cell) ] = SmartContractInfo;
   };
   if (config && config->get_global_version() >= 4) {
     tuple.push_back(my_code);                                          // code:Cell
@@ -1350,6 +1350,9 @@ static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, 
   if (config && config->get_global_version() >= 6) {
     tuple.push_back(config->get_unpacked_config_tuple(now));  // unpacked_config_tuple:[...]
     tuple.push_back(due_payment);                             // due_payment:Integer
+    // precomiled_gas_usage:(Maybe Integer)
+    auto precompiled = config->get_precompiled_contracts_config().get_contract(my_code->get_hash().bits());
+    tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
@@ -1430,6 +1433,7 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   auto c7 = prepare_vm_c7(gen_utime, gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()), balance, config.get(),
                           std::move(code), due_payment);
   vm.set_c7(c7);  // tuple with SmartContractInfo
+  vm.set_global_version(config->get_global_version());
   // vm.incr_stack_trace(1);    // enable stack dump after each step
   LOG(INFO) << "starting VM to run GET-method of smart contract " << acc_workchain_ << ":" << acc_addr_.to_hex();
   // **** RUN VM ****
