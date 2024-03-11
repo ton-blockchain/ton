@@ -1,3 +1,8 @@
+## 2024.03 Update
+
+1. Preparatory (not enabled yet) code for pre-compiled smart-contract.
+2. Minor fixes for fee-related opcodes.
+
 ## 2024.02 Update
 
 1. Improvement of validator synchronisation:

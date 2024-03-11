@@ -213,6 +213,7 @@ set(BLOCK_SOURCE
   block/mc-config.cpp
   block/output-queue-merger.cpp
   block/transaction.cpp
+  block/precompiled-smc/PrecompiledSmartContract.cpp
   ${TLB_BLOCK_AUTO}
 
   block/block-binlog.h
@@ -223,6 +224,8 @@ set(BLOCK_SOURCE
   block/check-proof.h
   block/output-queue-merger.h
   block/transaction.h
+  block/precompiled-smc/PrecompiledSmartContract.h
+  block/precompiled-smc/common.h
 )
 
 set(SMC_ENVELOPE_SOURCE
@@ -376,6 +379,10 @@ add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
+if (USE_EMSCRIPTEN)
+  target_link_options(ton_block PRIVATE -fexceptions)
+  target_compile_options(ton_block PRIVATE -fexceptions)
+endif()
 
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
