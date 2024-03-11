@@ -110,7 +110,7 @@ class LiteServerCacheImpl : public LiteServerCache {
   std::set<td::Bits256> send_message_cache_;
   size_t send_message_error_cnt_ = 0;
 
-  static const size_t MAX_CACHE_SIZE = 64 << 20;
+  static constexpr size_t MAX_CACHE_SIZE = 64 << 20;
 };
 
 }  // namespace ton::validator
