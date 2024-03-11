@@ -1341,6 +1341,9 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     tuple.push_back(cfg.unpacked_config_tuple.not_null() ? vm::StackEntry(cfg.unpacked_config_tuple)
                                                          : vm::StackEntry());   // unpacked_config_tuple:[...]
     tuple.push_back(due_payment.not_null() ? due_payment : td::zero_refint());  // due_payment:Integer
+    tuple.push_back(compute_phase->precompiled_gas_usage
+                        ? vm::StackEntry(td::make_refint(compute_phase->precompiled_gas_usage.value()))
+                        : vm::StackEntry());  // precompiled_gas_usage:Integer
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
@@ -1461,6 +1464,80 @@ bool Transaction::check_in_msg_state_hash() {
 }
 
 /**
+ * Runs the precompiled smart contract and prepares the compute phase.
+ *
+ * @param cfg The configuration for the compute phase.
+ * @param impl Implementation of the smart contract
+ *
+ * @returns True if the contract was successfully executed, false otherwise.
+ */
+bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& impl) {
+  ComputePhase& cp = *compute_phase;
+  CHECK(cp.precompiled_gas_usage);
+  td::uint64 gas_usage = cp.precompiled_gas_usage.value();
+  td::Timer timer;
+  auto result =
+      impl.run(my_addr, now, start_lt, balance, new_data, *in_msg_body, in_msg, msg_balance_remaining, in_msg_extern,
+               compute_vm_libraries(cfg), cfg.global_version, cfg.max_vm_data_depth, new_code,
+               cfg.unpacked_config_tuple, due_payment.not_null() ? due_payment : td::zero_refint(), gas_usage);
+  double elapsed = timer.elapsed();
+  cp.vm_init_state_hash = td::Bits256::zero();
+  cp.exit_code = result.exit_code;
+  cp.out_of_gas = false;
+  cp.vm_final_state_hash = td::Bits256::zero();
+  cp.vm_steps = 0;
+  cp.gas_used = gas_usage;
+  cp.accepted = result.accepted;
+  cp.success = (cp.accepted && result.committed);
+  LOG(INFO) << "Running precompiled smart contract " << impl.get_name() << ": exit_code=" << result.exit_code
+            << " accepted=" << result.accepted << " success=" << cp.success << " gas_used=" << gas_usage
+            << " time=" << elapsed << "s";
+  if (cp.accepted & use_msg_state) {
+    was_activated = true;
+    acc_status = Account::acc_active;
+  }
+  if (cfg.with_vm_log) {
+    cp.vm_log = PSTRING() << "Running precompiled smart contract " << impl.get_name()
+                          << ": exit_code=" << result.exit_code << " accepted=" << result.accepted
+                          << " success=" << cp.success << " gas_used=" << gas_usage << " time=" << elapsed << "s";
+  }
+  if (cp.success) {
+    cp.new_data = impl.get_c4();
+    cp.actions = impl.get_c5();
+    int out_act_num = output_actions_count(cp.actions);
+    if (verbosity > 2) {
+      std::cerr << "new smart contract data: ";
+      bool can_be_special = true;
+      load_cell_slice_special(cp.new_data, can_be_special).print_rec(std::cerr);
+      std::cerr << "output actions: ";
+      block::gen::OutList{out_act_num}.print_ref(std::cerr, cp.actions);
+    }
+  }
+  cp.mode = 0;
+  cp.exit_arg = 0;
+  if (!cp.success && result.exit_arg) {
+    auto value = td::narrow_cast_safe<td::int32>(result.exit_arg.value());
+    if (value.is_ok()) {
+      cp.exit_arg = value.ok();
+    }
+  }
+  if (cp.accepted) {
+    if (account.is_special) {
+      cp.gas_fees = td::zero_refint();
+    } else {
+      cp.gas_fees = cfg.compute_gas_price(cp.gas_used);
+      total_fees += cp.gas_fees;
+      balance -= cp.gas_fees;
+    }
+    LOG(DEBUG) << "gas fees: " << cp.gas_fees->to_dec_string() << " = " << cfg.gas_price256->to_dec_string() << " * "
+               << cp.gas_used << " /2^16 ; price=" << cfg.gas_price << "; flat rate=[" << cfg.flat_gas_price << " for "
+               << cfg.flat_gas_limit << "]; remaining balance=" << balance.to_str();
+    CHECK(td::sgn(balance.grams) >= 0);
+  }
+  return true;
+}
+
+/**
  * Prepares the compute phase of a transaction, which includes running TVM.
  *
  * @param cfg The configuration for the compute phase.
@@ -1528,6 +1605,33 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.skip_reason = ComputePhase::sk_bad_state;
     return true;
   }
+
+  td::optional<PrecompiledContractsConfig::Contract> precompiled;
+  if (new_code.not_null() && trans_type == tr_ord) {
+    precompiled = cfg.precompiled_contracts.get_contract(new_code->get_hash().bits());
+  }
+
+  vm::GasLimits gas{(long long)cp.gas_limit, (long long)cp.gas_max, (long long)cp.gas_credit};
+  if (precompiled) {
+    td::uint64 gas_usage = precompiled.value().gas_usage;
+    cp.precompiled_gas_usage = gas_usage;
+    if (gas_usage > cp.gas_limit) {
+      cp.skip_reason = ComputePhase::sk_no_gas;
+      return true;
+    }
+    auto impl = precompiled::get_implementation(new_code->get_hash().bits());
+    if (impl != nullptr && !cfg.dont_run_precompiled_ && impl->required_version() <= cfg.global_version) {
+      return run_precompiled_contract(cfg, *impl);
+    }
+
+    // Contract is marked as precompiled in global config, but implementation is not available
+    // In this case we run TVM and override gas_used
+    LOG(INFO) << "Unknown precompiled contract (code_hash=" << new_code->get_hash().to_hex()
+              << ", gas_usage=" << gas_usage << "), running VM";
+    long long limit = account.is_special ? cfg.special_gas_limit : cfg.gas_limit;
+    gas = vm::GasLimits{limit, limit, gas.gas_credit ? limit : 0};
+  }
+
   // initialize VM
   Ref<vm::Stack> stack = prepare_vm_stack(cp);
   if (stack.is_null()) {
@@ -1536,7 +1640,6 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   }
   // OstreamLogger ostream_logger(error_stream);
   // auto log = create_vm_log(error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{(long long)cp.gas_limit, (long long)cp.gas_max, (long long)cp.gas_credit};
   LOG(DEBUG) << "creating VM";
 
   std::unique_ptr<StringLoggerTail> logger;
@@ -1584,6 +1687,15 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   if (cp.accepted & use_msg_state) {
     was_activated = true;
     acc_status = Account::acc_active;
+  }
+  if (precompiled) {
+    cp.gas_used = precompiled.value().gas_usage;
+    cp.vm_steps = 0;
+    cp.vm_init_state_hash = cp.vm_final_state_hash = td::Bits256::zero();
+    if (cp.out_of_gas) {
+      LOG(ERROR) << "Precompiled smc got out_of_gas in TVM";
+      return false;
+    }
   }
   LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
@@ -3568,6 +3680,7 @@ td::Status FetchConfigParams::fetch_config_params(
     }
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
     compute_phase_cfg->size_limits = size_limits;
+    compute_phase_cfg->precompiled_contracts = config.get_precompiled_contracts_config();
   }
   {
     // compute action_phase_cfg

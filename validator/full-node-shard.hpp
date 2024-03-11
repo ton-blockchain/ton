@@ -280,6 +280,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   FullNodeConfig config_;
 
+  std::set<td::Bits256> my_ext_msg_broadcasts_;
   std::set<td::Bits256> processed_ext_msg_broadcasts_;
   td::Timestamp cleanup_processed_ext_msg_at_;
 };

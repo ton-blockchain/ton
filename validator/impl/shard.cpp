@@ -129,6 +129,15 @@ td::Status ShardStateQ::init() {
                                        " contains BlockId " + hdr_id.to_str() +
                                        " different from the one originally required");
   }
+  if (info.r1.master_ref.write().fetch_long(1)) {
+    BlockIdExt mc_id;
+    if (!block::tlb::t_ExtBlkRef.unpack(info.r1.master_ref, mc_id, nullptr)) {
+      return td::Status::Error(-668, "cannot unpack master_ref in shardchain state of "s + blkid.to_str());
+    }
+    master_ref = mc_id;
+  } else {
+    master_ref = {};
+  }
   return td::Status::OK();
 }
 

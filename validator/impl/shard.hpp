@@ -41,6 +41,7 @@ class ShardStateQ : virtual public ShardState {
   bool before_split_{false};
   bool fake_split_{false};
   bool fake_merge_{false};
+  td::optional<BlockIdExt> master_ref;
 
  protected:
   friend class Ref<ShardStateQ>;
@@ -79,6 +80,9 @@ class ShardStateQ : virtual public ShardState {
   }
   LogicalTime get_logical_time() const override {
     return lt;
+  }
+  td::optional<BlockIdExt> get_master_ref() const override {
+    return master_ref;
   }
   td::Status validate_deep() const override;
   ShardStateQ* make_copy() const override;

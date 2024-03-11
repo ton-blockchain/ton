@@ -797,6 +797,10 @@ _ SizeLimitsConfig = ConfigParam 43;
 suspended_address_list#00 addresses:(HashmapE 288 Unit) suspended_until:uint32 = SuspendedAddressList;
 _ SuspendedAddressList = ConfigParam 44;
 
+precompiled_smc#b0 gas_usage:uint64 = PrecompiledSmc;
+precompiled_contracts_config#c0 list:(HashmapE 256 PrecompiledSmc) = PrecompiledContractsConfig;
+_ PrecompiledContractsConfig = ConfigParam 45;
+
 oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;
 _ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
 _ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge

@@ -72,6 +72,7 @@
 #include "block-auto.h"
 #include "block-parse.h"
 #include "common/delay.h"
+#include "block/precompiled-smc/PrecompiledSmartContract.h"
 
 Config::Config() {
   out_port = 3278;
@@ -4123,6 +4124,9 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_preload_period, v); });
         return td::Status::OK();
       });
+  p.add_option('\0', "enable-precompiled-smc",
+               "enable exectuion of precompiled contracts (experimental, disabled by default)",
+               []() { block::precompiled::set_precompiled_execution_enabled(true); });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

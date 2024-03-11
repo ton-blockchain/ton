@@ -2032,6 +2032,17 @@ td::Ref<vm::Tuple> Config::get_unpacked_config_tuple(ton::UnixTime now) const {
   return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
 }
 
+PrecompiledContractsConfig Config::get_precompiled_contracts_config() const {
+  PrecompiledContractsConfig c;
+  td::Ref<vm::Cell> param = get_config_param(45);
+  gen::PrecompiledContractsConfig::Record rec;
+  if (param.is_null() || !tlb::unpack_cell(param, rec)) {
+    return c;
+  }
+  c.list = vm::Dictionary{rec.list->prefetch_ref(), 256};
+  return c;
+}
+
 td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set_start_stop(Ref<vm::Cell> vset_root) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set absent");
@@ -2314,6 +2325,22 @@ td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
   return vm::make_tuple_ref(
       td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks)),
       block_id_to_tuple(last_key_block));
+}
+
+td::optional<PrecompiledContractsConfig::Contract> PrecompiledContractsConfig::get_contract(
+    td::Bits256 code_hash) const {
+  auto list_copy = list;
+  auto cs = list_copy.lookup(code_hash);
+  if (cs.is_null()) {
+    return {};
+  }
+  gen::PrecompiledSmc::Record rec;
+  if (!tlb::csr_unpack(cs, rec)) {
+    return {};
+  }
+  Contract c;
+  c.gas_usage = rec.gas_usage;
+  return c;
 }
 
 CollatorConfig Config::get_collator_config(bool need_collator_nodes) const {
