@@ -12,9 +12,9 @@ Ideally, the folder-structure of the source-tree would provide the hierachical/a
 
 This is (for different reasons) not always possible. Find below a manually recreated overview:
 
-* system
-  * [TON Node Docker](docker)
-* executable
+* System
+  * [TON Node Docker Image](docker)
+* Main Executables
   * [blockchain-explorer](blockchain-explorer)
   * [dht-server](dht-server)
     * dth*
@@ -25,20 +25,21 @@ This is (for different reasons) not always possible. Find below a manually recre
   * [storage](storage)
   * [tdactor](tdactor)
     * td*
-  * [terminal](terminal)
   * [validator](validator)
     * validator-*
+* Tool Executables
+  * [create-hardfork](create-hardfork) 
 * libraries
   * [adnl](adnl)
   * [catchain](catchain)
   * [common](common)
-  * [create-hardfork](create-hardfork) 
   * [crypto](crypto)  
   * [emulator](emulator)
   * [fec](fec)
   * [keyring](keyring)
   * [keys](keys)
   * [overlay](overlay)
+  * [terminal](terminal)
   * [ton](ton) 
   * [tonlib](tonlib)
     * [example](example)
