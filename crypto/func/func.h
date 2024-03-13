@@ -690,7 +690,6 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
-  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;
@@ -699,7 +698,6 @@ struct CodeBlob {
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
-  int flags = 0;
   bool require_callxargs = false;
   CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
   }
@@ -1747,7 +1745,7 @@ td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* qu
 
 class GlobalPragma {
  public:
-  explicit GlobalPragma(std::string name) : name_(std::move(name)) {
+  explicit GlobalPragma(std::string name, bool deprecated = false) : name_(std::move(name)), deprecated_(deprecated) {
   }
   const std::string& name() const {
     return name_;
@@ -1756,10 +1754,16 @@ class GlobalPragma {
     return enabled_;
   }
   void enable_global() {
+    if (deprecated_) {
+      std::cerr << "warning: #pragma " << name_ << " is deprecated" << std::endl;
+    }
     enabled_ = true;
     enabled_globally_ = true;
   }
   void enable(SrcLocation loc) {
+    if (deprecated_) {
+      loc.show_warning(PSTRING() << "#pragma " << name_ << " is deprecated");
+    }
     enabled_ = true;
     locs_.push_back(std::move(loc));
   }
@@ -1779,6 +1783,7 @@ class GlobalPragma {
 
  private:
   std::string name_;
+  bool deprecated_ = false;
   bool enabled_ = false;
   bool enabled_globally_ = false;
   std::vector<SrcLocation> locs_;

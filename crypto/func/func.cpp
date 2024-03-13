@@ -38,8 +38,8 @@ namespace funC {
 int verbosity, indent, opt_level = 2;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
-GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
-GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
+GlobalPragma pragma_allow_post_modification{"allow-post-modification", true};
+GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr", true};
 GlobalPragma pragma_remove_unused_functions{"remove-unused-functions"};
 std::string generated_from, boc_output_filename;
 ReadCallback::Callback read_callback;
