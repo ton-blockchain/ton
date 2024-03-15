@@ -137,7 +137,6 @@ adnl.message.reinit date:int = adnl.Message;
 
 adnl.message.query query_id:int256 query:bytes = adnl.Message;
 adnl.message.answer query_id:int256 answer:bytes = adnl.Message;
-adnl.message.queryError query_id:int256 = adnl.Message;
 
 adnl.message.part hash:int256 total_size:int offset:int data:bytes = adnl.Message;
 
@@ -163,7 +162,6 @@ rldp.complete transfer_id:int256 part:int = rldp.MessagePart;
 rldp.message id:int256 data:bytes = rldp.Message;
 rldp.query query_id:int256 max_answer_size:long timeout:int data:bytes = rldp.Message;
 rldp.answer query_id:int256 data:bytes = rldp.Message;
-rldp.queryError query_id:int256 = rldp.Message;
 
 
 ---functions---

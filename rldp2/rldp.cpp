@@ -121,13 +121,6 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
   send_closure(create_connection(src, dst), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
 }
 
-void RldpIn::reject_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
-                          adnl::AdnlQueryId query_id, TransferId transfer_id) {
-  auto B = serialize_tl_object(create_tl_object<ton_api::rldp_queryError>(query_id), true);
-
-  send_closure(create_connection(src, dst), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
-}
-
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
   send_closure(create_connection(local_id, source), &RldpConnectionActor::receive_raw, std::move(data));
 }
@@ -187,16 +180,12 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
       auto data = R.move_as_ok();
       if (data.size() > max_answer_size) {
         VLOG(RLDP_NOTICE) << "rldp query failed: answer too big";
-        td::actor::send_closure(SelfId, &RldpIn::reject_query, local_id, source, timeout, query_id,
-                                transfer_id ^ TransferId::ones());
       } else {
         td::actor::send_closure(SelfId, &RldpIn::answer_query, local_id, source, timeout, query_id,
                                 transfer_id ^ TransferId::ones(), std::move(data));
       }
     } else {
       VLOG(RLDP_NOTICE) << "rldp query failed: " << R.move_as_error();
-      td::actor::send_closure(SelfId, &RldpIn::reject_query, local_id, source, timeout, query_id,
-                              transfer_id ^ TransferId::ones());
     }
   });
   VLOG(RLDP_DEBUG) << "delivering rldp query";
@@ -212,17 +201,6 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
     queries_.erase(it);
   } else {
     VLOG(RLDP_INFO) << "received answer to unknown query " << message.query_id_;
-  }
-}
-
-void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
-                             ton_api::rldp_queryError &message) {
-  auto it = queries_.find(transfer_id);
-  if (it != queries_.end()) {
-    it->second.set_error(td::Status::Error("rejected"));
-    queries_.erase(it);
-  } else {
-    VLOG(RLDP_INFO) << "received reject to unknown query " << message.query_id_;
   }
 }
 
