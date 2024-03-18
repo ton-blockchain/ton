@@ -23,6 +23,10 @@
 #include "fileref.hpp"
 #include <map>
 
+namespace rocksdb {
+class Statistics;
+}
+
 namespace ton {
 
 namespace validator {
@@ -81,7 +85,7 @@ class ArchiveLru;
 class ArchiveSlice : public td::actor::Actor {
  public:
   ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root,
-               td::actor::ActorId<ArchiveLru> archive_lru);
+               td::actor::ActorId<ArchiveLru> archive_lru, std::shared_ptr<rocksdb::Statistics> statistics = nullptr);
 
   void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
 
@@ -151,6 +155,7 @@ class ArchiveSlice : public td::actor::Actor {
 
   std::string db_root_;
   td::actor::ActorId<ArchiveLru> archive_lru_;
+  std::shared_ptr<rocksdb::Statistics> statistics_;
   std::unique_ptr<td::KeyValue> kv_;
 
   struct PackageInfo {

@@ -70,6 +70,7 @@ class ArchiveManager : public td::actor::Actor {
                          td::Promise<td::BufferSlice> promise);
 
   void start_up() override;
+  void alarm() override;
 
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
@@ -172,6 +173,8 @@ class ArchiveManager : public td::actor::Actor {
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;
+
+  std::shared_ptr<rocksdb::Statistics> statistics_;
 
   FileMap &get_file_map(const PackageId &p) {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
