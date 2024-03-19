@@ -33,6 +33,10 @@ public:
     }
   }
 
+  void set_c7_raw(td::Ref<vm::Tuple> c7) {
+    args_.set_c7(std::move(c7));
+  }
+
   void set_prev_blocks_info(td::Ref<vm::Tuple> tuple) {
     args_.set_prev_blocks_info(std::move(tuple));
   }
