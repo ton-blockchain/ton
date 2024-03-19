@@ -32,13 +32,43 @@ void LastBlockStorage::set_key_value(std::shared_ptr<KeyValue> kv) {
 }
 
 namespace {
+std::string buffer_to_hex_nibbles_reversed(td::Slice buffer) {
+  const char *hex = "0123456789ABCDEF";
+  std::string res(2 * buffer.size(), '\0');
+  for (std::size_t i = 0; i < buffer.size(); i++) {
+    unsigned char c = buffer[i];
+    res[2 * i + 1] = hex[c >> 4];
+    res[2 * i] = hex[c & 15];
+  }
+  return res;
+}
+
+std::string get_file_name_depr(td::Slice name) {
+  return buffer_to_hex_nibbles_reversed(name) + ".blkstate";
+}
+
 std::string get_file_name(td::Slice name) {
   return td::buffer_to_hex(name) + ".blkstate";
 }
 }  // namespace
 
 td::Result<LastBlockState> LastBlockStorage::get_state(td::Slice name) {
-  TRY_RESULT(data, kv_->get(get_file_name(name)));
+  // This migration addresses an issue in the old version of Tonlib, where the td::buffer_to_hex 
+  // incorrectly reversed the order of nibbles in hex representation.
+  auto data_r = kv_->get(get_file_name(name));
+  if (data_r.is_error()) {
+    auto key_depr = get_file_name_depr(name);
+    auto data_depr = kv_->get(key_depr);
+    if (data_depr.is_ok()) {
+      kv_->set(get_file_name(name), data_depr.move_as_ok());
+      kv_->erase(key_depr);
+      data_r = std::move(data_depr);
+    } else {
+      return td::Status::Error("not found");
+    }
+  }
+
+  auto data = data_r.move_as_ok();
   if (data.size() < 8) {
     return td::Status::Error("too short");
   }
