@@ -22,6 +22,7 @@
 #include "td/utils/port/path.h"
 #include "td/utils/PathView.h"
 
+#include <algorithm>
 #include <map>
 #include <utility>
 
