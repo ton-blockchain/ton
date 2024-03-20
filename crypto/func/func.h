@@ -45,7 +45,7 @@ extern std::string generated_from;
 
 constexpr int optimize_depth = 20;
 
-const std::string func_version{"0.4.4"};
+const std::string func_version{"0.5.0"};
 
 enum Keyword {
   _Eof = -1,
@@ -108,6 +108,7 @@ enum Keyword {
   _Forall,
   _Asm,
   _Impure,
+  _Pure,
   _Global,
   _Extern,
   _Inline,
@@ -689,7 +690,6 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
-  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;
@@ -698,7 +698,6 @@ struct CodeBlob {
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
-  int flags = 0;
   bool require_callxargs = false;
   CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
   }
@@ -1570,7 +1569,7 @@ struct Stack {
   AsmOpList& o;
   enum {
     _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
-    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
+    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048, _ConstDecl = 4096,
     _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
   };
@@ -1746,7 +1745,7 @@ td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* qu
 
 class GlobalPragma {
  public:
-  explicit GlobalPragma(std::string name) : name_(std::move(name)) {
+  explicit GlobalPragma(std::string name, bool deprecated = false) : name_(std::move(name)), deprecated_(deprecated) {
   }
   const std::string& name() const {
     return name_;
@@ -1754,12 +1753,22 @@ class GlobalPragma {
   bool enabled() const {
     return enabled_;
   }
+  void enable_global() {
+    if (deprecated_) {
+      std::cerr << "warning: #pragma " << name_ << " is deprecated" << std::endl;
+    }
+    enabled_ = true;
+    enabled_globally_ = true;
+  }
   void enable(SrcLocation loc) {
+    if (deprecated_) {
+      loc.show_warning(PSTRING() << "#pragma " << name_ << " is deprecated");
+    }
     enabled_ = true;
     locs_.push_back(std::move(loc));
   }
   void check_enable_in_libs() {
-    if (locs_.empty()) {
+    if (locs_.empty() || enabled_globally_) {
       return;
     }
     for (const SrcLocation& loc : locs_) {
@@ -1774,10 +1783,25 @@ class GlobalPragma {
 
  private:
   std::string name_;
+  bool deprecated_ = false;
   bool enabled_ = false;
+  bool enabled_globally_ = false;
   std::vector<SrcLocation> locs_;
 };
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
+
+inline GlobalPragma* pragma_by_name(const std::string& name) {
+  if (name == pragma_allow_post_modification.name()) {
+    return &pragma_allow_post_modification;
+  }
+  if (name == pragma_compute_asm_ltr.name()) {
+    return &pragma_compute_asm_ltr;
+  }
+  if (name == pragma_remove_unused_functions.name()) {
+    return &pragma_remove_unused_functions;
+  }
+  return nullptr;
+}
 
 /*
  *

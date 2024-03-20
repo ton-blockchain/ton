@@ -8,8 +8,8 @@
 #include "modules/store-validator.fc";
 #include "modules/model.fc";
 #include "modules/op-controller.fc";
-#include "modules/op-owner.fc";
 #include "modules/op-common.fc";
+#include "modules/op-owner.fc";
 #include "modules/op-nominators.fc";
 #include "modules/get.fc";
 

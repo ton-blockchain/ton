@@ -21,7 +21,7 @@ int parse_work_addr(slice cs) {
 ;; Custom Commands
 ;;
 
-(int) equal_slices (slice s1, slice s2) asm "SDEQ";
+(int) equal_slices (slice s1, slice s2) pure asm "SDEQ";
 builder store_builder(builder to, builder what) asm(what to) "STB";
 builder store_builder_ref(builder to, builder what) asm(what to) "STBREFR";
 (slice, cell) load_maybe_cell(slice s) asm( -> 1 0) "LDDICT";

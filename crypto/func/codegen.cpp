@@ -370,6 +370,9 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       }
     case _Let: {
+      if (stack.mode & Stack::_ConstDecl) {
+        throw src::ParseError{where, "assignments in const declatarion are not allowed"};
+      }
       func_assert(left.size() == right.size());
       int i = 0;
       std::vector<bool> active;
@@ -519,6 +522,9 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _SetGlob: {
+      if (stack.mode & Stack::_ConstDecl) {
+        throw src::ParseError{where, "assignments in const declatarion are not allowed"};
+      }
       func_assert(fun_ref && dynamic_cast<const SymValGlobVar*>(fun_ref->value));
       std::vector<bool> last;
       for (var_idx_t x : right) {
