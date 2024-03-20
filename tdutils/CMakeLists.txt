@@ -116,6 +116,7 @@ set(TDUTILS_SOURCE
   td/utils/StackAllocator.cpp
   td/utils/Status.cpp
   td/utils/StringBuilder.cpp
+  td/utils/StringCase.cpp
   td/utils/Time.cpp
   td/utils/Timer.cpp
   td/utils/TsFileLog.cpp
@@ -248,6 +249,7 @@ set(TDUTILS_SOURCE
   td/utils/Storer.h
   td/utils/StorerBase.h
   td/utils/StringBuilder.h
+  td/utils/StringCase.h
   td/utils/tests.h
   td/utils/ThreadLocalStorage.h
   td/utils/ThreadSafeCounter.h

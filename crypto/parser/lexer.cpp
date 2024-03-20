@@ -124,8 +124,9 @@ int Lexem::set(std::string _str, const SrcLocation& _loc, int _tp, int _val) {
   return classify();
 }
 
-Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars, std::string eol_cmts, std::string open_cmts,
-             std::string close_cmts, std::string quote_chars, std::string multiline_quote)
+Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars,
+             std::string eol_cmts, std::string open_cmts, std::string close_cmts,
+             std::string quote_chars, std::string multiline_quote)
     : src(_src), eof(false), lexem("", src.here(), Lexem::Undefined), peek_lexem("", {}, Lexem::Undefined),
       multiline_quote(std::move(multiline_quote)) {
   std::memset(char_class, 0, sizeof(char_class));
@@ -139,9 +140,7 @@ Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars, std::strin
       char_class[(unsigned)c] |= activity;
     }
   }
-  set_spec(eol_cmt, eol_cmts);
-  set_spec(cmt_op, open_cmts);
-  set_spec(cmt_cl, close_cmts);
+  set_cmts(eol_cmts, open_cmts, close_cmts);
   for (int c : quote_chars) {
     if (c > ' ' && c <= 0x7f) {
       char_class[(unsigned)c] |= cc::quote_char;
@@ -332,6 +331,12 @@ const Lexem& Lexer::peek() {
   lexem = std::move(keep);
   eof = false;
   return peek_lexem;
+}
+
+void Lexer::set_cmts(std::string eol_cmts, std::string open_cmts, std::string close_cmts) {
+  set_spec(eol_cmt, eol_cmts);
+  set_spec(cmt_op, open_cmts);
+  set_spec(cmt_cl, close_cmts);
 }
 
 }  // namespace src

@@ -40,6 +40,7 @@
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
 #include "td/utils/overloaded.h"
+#include "td/utils/StringCase.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/stacktrace.h"
 #include "td/utils/port/StdStreams.h"
@@ -1225,7 +1226,7 @@ bool TestNode::get_account_state(ton::WorkchainId workchain, ton::StdSmcAddress 
 td::int64 TestNode::compute_method_id(std::string method) {
   td::int64 method_id;
   if (!convert_int64(method, method_id)) {
-    method_id = (td::crc16(td::Slice{method}) & 0xffff) | 0x10000;
+    method_id = (td::crc16(td::Slice{td::StringCase::is_camel_case(method) ? td::StringCase::camel_to_snake(method) : method}) & 0xffff) | 0x10000;
   }
   return method_id;
 }

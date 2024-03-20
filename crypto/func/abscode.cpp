@@ -200,16 +200,19 @@ void VarDescr::operator&=(const VarDescr& y) {
 void VarDescr::set_value(const VarDescr& y) {
   val = y.val;
   int_const = y.int_const;
+  str_const = y.str_const;
 }
 
 void VarDescr::set_value(VarDescr&& y) {
   val = y.val;
   int_const = std::move(y.int_const);
+  str_const = std::move(y.str_const);
 }
 
 void VarDescr::clear_value() {
   val = 0;
   int_const.clear();
+  str_const.clear();
 }
 
 void VarDescrList::show(std::ostream& os) const {

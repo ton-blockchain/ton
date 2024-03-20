@@ -124,6 +124,8 @@ void define_keywords() {
       .add_keyword("inline_ref", Kw::_InlineRef)
       .add_keyword("auto_apply", Kw::_AutoApply)
       .add_keyword("method_id", Kw::_MethodId)
+      .add_keyword("inlineRef", Kw::_InlineRefCamel)
+      .add_keyword("methodId", Kw::_MethodIdCamel)
       .add_keyword("operator", Kw::_Operator)
       .add_keyword("infix", Kw::_Infix)
       .add_keyword("infixl", Kw::_Infixl)
