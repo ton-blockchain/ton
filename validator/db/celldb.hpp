@@ -60,6 +60,8 @@ class CellDbIn : public CellDbBase {
 
   void migrate_cell(td::Bits256 hash);
 
+  void flush_db_stats();
+
   CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
            td::Ref<ValidatorManagerOptions> opts);
 

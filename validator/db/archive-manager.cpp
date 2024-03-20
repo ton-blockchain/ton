@@ -915,7 +915,18 @@ void ArchiveManager::start_up() {
 void ArchiveManager::alarm() {
   alarm_timestamp() = td::Timestamp::in(60.0);
   auto stats = td::RocksDb::statistics_to_string(statistics_);
-  td::atomic_write_file(db_root_ + "/db_stats.txt", stats);
+  auto to_file_r = td::FileFd::open(db_root_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
+  if (to_file_r.is_error()) {
+    LOG(ERROR) << "Failed to open db_stats.txt: " << to_file_r.move_as_error();
+    return;
+  }
+  auto to_file = to_file_r.move_as_ok();
+  auto res = to_file.write(stats);
+  to_file.close();
+  if (res.is_error()) {
+    LOG(ERROR) << "Failed to write to db_stats.txt: " << res.move_as_error();
+    return;
+  }
   td::RocksDb::reset_statistics(statistics_);
 }
 
