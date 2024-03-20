@@ -829,7 +829,9 @@ void ArchiveManager::start_up() {
   if (opts_->get_max_open_archive_files() > 0) {
     archive_lru_ = td::actor::create_actor<ArchiveLru>("archive_lru", opts_->get_max_open_archive_files());
   }
-  statistics_ = td::RocksDb::create_statistics();
+  if (!opts_->get_disable_rocksdb_stats()) {
+    statistics_ = td::RocksDb::create_statistics();
+  }
   index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", statistics_).move_as_ok());
   std::string value;
   auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
@@ -905,7 +907,9 @@ void ArchiveManager::start_up() {
     }
   }
 
-  alarm_timestamp() = td::Timestamp::in(60.0);
+  if (!opts_->get_disable_rocksdb_stats()) {
+    alarm_timestamp() = td::Timestamp::in(60.0);
+  }
 }
 
 void ArchiveManager::alarm() {

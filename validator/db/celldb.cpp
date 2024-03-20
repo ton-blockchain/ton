@@ -84,9 +84,12 @@ void CellDbIn::start_up() {
   };
 
   CellDbBase::start_up();
-  statistics_ = td::RocksDb::create_statistics();
+  if (!opts_->get_disable_rocksdb_stats()) {
+    statistics_ = td::RocksDb::create_statistics();
+    statistics_flush_at_ = td::Timestamp::in(60.0);
+  }
   cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, statistics_).move_as_ok());
-  statistics_flush_at_ = td::Timestamp::in(60.0);
+  
 
   boc_ = vm::DynamicBagOfCellsDb::create();
   boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
@@ -159,7 +162,7 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
 }
 
 void CellDbIn::alarm() {
-  if (statistics_flush_at_.is_in_past()) {
+  if (statistics_flush_at_ && statistics_flush_at_.is_in_past()) {
     statistics_flush_at_ = td::Timestamp::in(60.0);
     auto stats = td::RocksDb::statistics_to_string(statistics_);
     td::atomic_write_file(path_ + "/db_stats.txt", stats);
