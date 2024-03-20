@@ -206,6 +206,7 @@ class ValidatorEngine : public td::actor::Actor {
   td::uint32 celldb_compress_depth_ = 0;
   size_t max_open_archive_files_ = 0;
   double archive_preload_period_ = 0.0;
+  bool disable_rocksdb_stats_ = false;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -271,6 +272,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_archive_preload_period(double value) {
     archive_preload_period_ = value;
+  }
+  void set_disable_rocksdb_stats(bool value) {
+    disable_rocksdb_stats_ = value;
   }
   void start_up() override;
   ValidatorEngine() {

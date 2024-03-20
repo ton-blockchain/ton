@@ -27,6 +27,10 @@
 #include "auto/tl/ton_api.h"
 #include "validator.h"
 
+namespace rocksdb {
+class Statistics;
+}
+
 namespace ton {
 
 namespace validator {
@@ -103,6 +107,8 @@ class CellDbIn : public CellDbBase {
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
+  std::shared_ptr<rocksdb::Statistics> statistics_;
+  td::Timestamp statistics_flush_at_ = td::Timestamp::never();
 
   std::function<void(const vm::CellLoader::LoadResult&)> on_load_callback_;
   std::set<td::Bits256> cells_to_migrate_;

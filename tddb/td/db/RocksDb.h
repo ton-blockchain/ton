@@ -38,7 +38,7 @@ class RocksDb : public KeyValue {
  public:
   static Status destroy(Slice path);
   RocksDb clone() const;
-  static Result<RocksDb> open(std::string path);
+  static Result<RocksDb> open(std::string path, std::shared_ptr<rocksdb::Statistics> statistics = nullptr);
 
   Result<GetStatus> get(Slice key, std::string &value) override;
   Status set(Slice key, Slice value) override;
@@ -59,6 +59,10 @@ class RocksDb : public KeyValue {
 
   std::unique_ptr<KeyValueReader> snapshot() override;
   std::string stats() const override;
+
+  static std::shared_ptr<rocksdb::Statistics> create_statistics();
+  static std::string statistics_to_string(const std::shared_ptr<rocksdb::Statistics> statistics);
+  static void reset_statistics(const std::shared_ptr<rocksdb::Statistics> statistics);
 
   RocksDb(RocksDb &&);
   RocksDb &operator=(RocksDb &&);
