@@ -207,6 +207,7 @@ class ValidatorEngine : public td::actor::Actor {
   size_t max_open_archive_files_ = 0;
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_ = false;
+  bool nonfinal_ls_queries_enabled_ = false;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -275,6 +276,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_disable_rocksdb_stats(bool value) {
     disable_rocksdb_stats_ = value;
+  }
+  void set_nonfinal_ls_queries_enabled() {
+    nonfinal_ls_queries_enabled_ = true;
   }
   void start_up() override;
   ValidatorEngine() {

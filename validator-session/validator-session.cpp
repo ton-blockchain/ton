@@ -929,6 +929,53 @@ void ValidatorSessionImpl::get_current_stats(td::Promise<ValidatorSessionStats> 
   promise.set_result(std::move(stats));
 }
 
+void ValidatorSessionImpl::get_validator_group_info_for_litequery(
+    td::uint32 cur_round,
+    td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) {
+  if (cur_round != cur_round_ || real_state_->cur_round_seqno() != cur_round) {
+    promise.set_value({});
+    return;
+  }
+  std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>> result;
+  real_state_->for_each_cur_round_sent_block([&](const SessionBlockCandidate *block) {
+    if (block->get_block() == nullptr) {
+      return;
+    }
+    auto candidate = create_tl_object<lite_api::liteServer_nonfinal_candidateInfo>();
+
+    candidate->id_ = create_tl_object<lite_api::liteServer_nonfinal_candidateId>();
+    candidate->id_->block_id_ = create_tl_object<lite_api::tonNode_blockIdExt>();
+    candidate->id_->block_id_->root_hash_ =
+        block->get_block()->get_root_hash();  // other fields will be filled in validator-group.cpp
+    candidate->id_->block_id_->file_hash_ = block->get_block()->get_file_hash();
+    candidate->id_->creator_ =
+        description().get_source_public_key(block->get_block()->get_src_idx()).ed25519_value().raw();
+    candidate->id_->collated_data_hash_ = block->get_block()->get_collated_data_file_hash();
+
+    candidate->total_weight_ = description().get_total_weight();
+    candidate->approved_weight_ = 0;
+    candidate->signed_weight_ = 0;
+    for (td::uint32 i = 0; i < description().get_total_nodes(); ++i) {
+      if (real_state_->check_block_is_approved_by(description(), i, block->get_id())) {
+        candidate->approved_weight_ += description().get_node_weight(i);
+      }
+    }
+    auto precommited = real_state_->get_cur_round_precommitted_block();
+    if (SentBlock::get_block_id(precommited) == SentBlock::get_block_id(block->get_block())) {
+      auto signatures = real_state_->get_cur_round_signatures();
+      if (signatures) {
+        for (td::uint32 i = 0; i < description().get_total_nodes(); ++i) {
+          if (signatures->at(i)) {
+            candidate->signed_weight_ += description().get_node_weight(i);
+          }
+        }
+      }
+    }
+    result.push_back(std::move(candidate));
+  });
+  promise.set_result(std::move(result));
+}
+
 void ValidatorSessionImpl::start_up() {
   CHECK(!rldp_.empty());
   cur_round_ = 0;
