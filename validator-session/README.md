@@ -1,3 +1,11 @@
 # validator-session
 
-see [validator](validator)
+## validatorsession lib
+
+### dependencies
+
+![void](../dev/png/ton.validatorsession.png)
+
+### dependers
+
+![void](../dev/png/ton.validatorsession.dependers.png)

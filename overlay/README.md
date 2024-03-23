@@ -5,3 +5,13 @@
 > Also, overlay subnetworks are used for the operation of TON Storage, TON Proxy and so on.
 
 https://docs.ton.org/learn/networking/overlay-subnetworks
+
+## overaly lib
+
+### dependencies
+
+![dht](../dev/png/ton.overlay.png)
+
+### dependers
+
+![dht](../dev/png/ton.overlay.dependers.png)

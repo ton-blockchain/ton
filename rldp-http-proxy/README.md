@@ -4,7 +4,8 @@
 
 https://docs.ton.org/develop/network/rldp#rldp-http
 
-## Uses
+## rldp-http-proxy exe
 
-* [rldp](rldp)
-* [rldp2](rldp2)
+### dependencies
+
+![dht](../dev/png/ton.rldp-http-proxy.png)

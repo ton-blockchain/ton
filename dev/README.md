@@ -4,7 +4,7 @@ The content of this folder affects developers that work on the TON source-code i
 
 ## dot
 
-[dot](dot) contains graphviz dot-files generated via cmake.
+[dot](dot) & [png](png) contains graphviz dot-files generated via cmake.
 
 ```sh
 # recreate the files on an ubuntu machine

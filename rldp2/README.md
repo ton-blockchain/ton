@@ -5,7 +5,13 @@
 * https://docs.ton.org/learn/networking/rldp
   * https://docs.ton.org/develop/network/rldp
 
-## Parent Module
 
-* [rldp-http-proxy](rldp-http-proxy)
+## rldp2 lib
 
+### dependencies
+
+![void](../dev/png/ton.rldp2.png)
+
+### dependers
+
+![void](../dev/png/ton.rldp2.dependers.png)

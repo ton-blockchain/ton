@@ -2,8 +2,41 @@
 
 A TON Validator Node Implementation
 
-## Units
+## full-node lib
 
-* [validator-engine](validator-engine)
-* [validator-engine-console](validator-engine-console)
-* [validator-session](validator-session)
+### dependencies
+
+![void](../dev/png/ton.full-node.png)
+
+### dependers
+
+![void](../dev/png/ton.full-node.dependers.png)
+## validator lib
+
+### dependencies
+
+![void](../dev/png/ton.validator.png)
+
+### dependers
+
+![void](../dev/png/ton.validator.dependers.png)
+
+## validator-disk lib
+
+### dependencies
+
+![void](../dev/png/ton.validator-disk.png)
+
+### dependers
+
+![void](../dev/png/ton.validator-disk.dependers.png)
+
+## validator-hardfork lib
+
+### dependencies
+
+![void](../dev/png/ton.validator-hardfork.png)
+
+### dependers
+
+![void](../dev/png/ton.validator-hardfork.dependers.png)

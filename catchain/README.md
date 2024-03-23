@@ -8,3 +8,11 @@ implementation uses some optimizations valid only for this specific
 problem.
 
 https://docs.ton.org/catchain.pdf
+
+### Dependencies
+
+![adnl](../dev/png/ton.catchain.png)
+
+### Dependers
+
+![adnl](../dev/png/ton.catchain.dependers.png)

@@ -12,7 +12,7 @@ docker pull ghcr.io/ton-blockchain/ton:latest
 
 ### Build Image
 
-You can build a (customized or not) ton docker image from source code on your local machine.
+You can build a (customized or not) TON docker image from source code on your local machine.
 
 ```sh
 docker build -t my/ton .

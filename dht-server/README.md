@@ -9,3 +9,23 @@ https://docs.ton.org/learn/networking/ton-dht
 ## Submodules
 
 * [dht](dht)
+
+## dht
+
+![dht](../dev/png/ton.dht.png)
+
+### dht dependers
+
+![dht](../dev/png/ton.dht.dependers.png)
+
+## dht-server
+
+![dht](../dev/png/ton.dht-server.png)
+
+## dht-resolve
+
+![dht](../dev/png/ton.dht-resolve.png)
+
+## dht-ping-servers
+
+![dht](../dev/png/ton.dht-ping-servers.png)

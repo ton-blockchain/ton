@@ -6,7 +6,7 @@ Related to
 
 https://github.com/tdlib/td
 
-## Modules
+## Code Units
 
 * [tdactor](tdactor) (this)
 * [tddb](tddb)
@@ -14,3 +14,13 @@ https://github.com/tdlib/td
 * [tdnet](tdnet)
 * [tdtl](tdtl)
 * [tdutils](tdutils)
+
+## tdactor lib
+
+### dependencies
+
+![void](../dev/png/ton.tdactor.png)
+
+### dependers
+
+![void](../dev/png/ton.tdactor.dependers.png)

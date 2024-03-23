@@ -2,6 +2,16 @@
 
 Memory profiling.
 
+## memproof lib
+
+### dependencies
+
+![dht](../dev/png/ton.memprof.png)
+
+### dependers
+
+![dht](../dev/png/ton.memprof.dependers.png)
+
 ### TODO:
 
 consider
