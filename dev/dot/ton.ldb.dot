@@ -1,0 +1,8 @@
+digraph "ldb" {
+node [
+  fontsize = "12"
+];
+    "node81" [ label = "ldb", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node81" -> "node50" [ style = dotted ] // ldb -> rocksdb-shared
+}

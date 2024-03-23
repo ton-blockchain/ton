@@ -1,0 +1,34 @@
+digraph "fift-lib" {
+node [
+  fontsize = "12"
+];
+    "node24" [ label = "fift-lib", shape = octagon ];
+    "node23" [ label = "fift", shape = egg ];
+    "node23" -> "node24" [ style = dotted ] // fift -> fift-lib
+    "node37" [ label = "adjust-block", shape = egg ];
+    "node37" -> "node24" [ style = dotted ] // adjust-block -> fift-lib
+    "node45" [ label = "all_tests", shape = pentagon ];
+    "node45" -> "node24" [ style = dashed ] // all_tests -> fift-lib
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node24" [ style = dotted ] // create-hardfork -> fift-lib
+    "node64" [ label = "create-state", shape = egg ];
+    "node64" -> "node24" [ style = dotted ] // create-state -> fift-lib
+    "node70" [ label = "dump-block", shape = egg ];
+    "node70" -> "node24" [ style = dotted ] // dump-block -> fift-lib
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node24" [ style = dotted ] // storage-cli -> fift-lib
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node24" [ style = dotted ] // storage-daemon -> fift-lib
+    "node108" [ label = "test-fift", shape = egg ];
+    "node108" -> "node24" [ style = dotted ] // test-fift -> fift-lib
+    "node115" [ label = "test-smartcont", shape = egg ];
+    "node115" -> "node24" [ style = dotted ] // test-smartcont -> fift-lib
+    "node123" [ label = "test-tonlib-offline", shape = egg ];
+    "node123" -> "node24" [ style = dotted ] // test-tonlib-offline -> fift-lib
+    "node125" [ label = "test-vm", shape = egg ];
+    "node125" -> "node24" [ style = dotted ] // test-vm -> fift-lib
+    "node126" [ label = "test-weight-distr", shape = egg ];
+    "node126" -> "node24" [ style = dotted ] // test-weight-distr -> fift-lib
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node24" [ style = dotted ] // validator-engine -> fift-lib
+}

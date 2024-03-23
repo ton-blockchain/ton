@@ -1,0 +1,8 @@
+digraph "validator-hardfork" {
+node [
+  fontsize = "12"
+];
+    "node63" [ label = "validator-hardfork", shape = octagon ];
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node63" [ style = dotted ] // create-hardfork -> validator-hardfork
+}

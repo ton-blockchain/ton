@@ -1,0 +1,8 @@
+digraph "validator-disk" {
+node [
+  fontsize = "12"
+];
+    "node121" [ label = "validator-disk", shape = octagon ];
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node121" [ style = dotted ] // test-ton-collator -> validator-disk
+}

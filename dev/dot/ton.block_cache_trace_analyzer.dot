@@ -1,0 +1,8 @@
+digraph "block_cache_trace_analyzer" {
+node [
+  fontsize = "12"
+];
+    "node49" [ label = "block_cache_trace_analyzer", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node49" -> "node50" [ style = dotted ] // block_cache_trace_analyzer -> rocksdb-shared
+}

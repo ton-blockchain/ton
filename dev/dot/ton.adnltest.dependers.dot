@@ -1,0 +1,16 @@
+digraph "adnltest" {
+node [
+  fontsize = "12"
+];
+    "node44" [ label = "adnltest", shape = octagon ];
+    "node99" [ label = "test-adnl", shape = egg ];
+    "node99" -> "node44" [ style = dotted ] // test-adnl -> adnltest
+    "node101" [ label = "test-catchain", shape = egg ];
+    "node101" -> "node44" [ style = dotted ] // test-catchain -> adnltest
+    "node104" [ label = "test-dht", shape = egg ];
+    "node104" -> "node44" [ style = dotted ] // test-dht -> adnltest
+    "node112" [ label = "test-rldp", shape = egg ];
+    "node112" -> "node44" [ style = dotted ] // test-rldp -> adnltest
+    "node113" [ label = "test-rldp2", shape = egg ];
+    "node113" -> "node44" [ style = dotted ] // test-rldp2 -> adnltest
+}

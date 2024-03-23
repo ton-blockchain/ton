@@ -1,0 +1,20 @@
+digraph "terminal" {
+node [
+  fontsize = "12"
+];
+    "node67" [ label = "terminal", shape = octagon ];
+    "node66" [ label = "dht-ping-servers", shape = egg ];
+    "node66" -> "node67" [ style = dotted ] // dht-ping-servers -> terminal
+    "node68" [ label = "dht-resolve", shape = egg ];
+    "node68" -> "node67" [ style = dotted ] // dht-resolve -> terminal
+    "node82" [ label = "lite-client", shape = egg ];
+    "node82" -> "node67" [ style = dotted ] // lite-client -> terminal
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node67" [ style = dotted ] // storage-cli -> terminal
+    "node95" [ label = "storage-daemon-cli", shape = egg ];
+    "node95" -> "node67" [ style = dotted ] // storage-daemon-cli -> terminal
+    "node127" [ label = "tonlib-cli", shape = egg ];
+    "node127" -> "node67" [ style = dotted ] // tonlib-cli -> terminal
+    "node132" [ label = "validator-engine-console", shape = egg ];
+    "node132" -> "node67" [ style = dotted ] // validator-engine-console -> terminal
+}

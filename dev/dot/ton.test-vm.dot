@@ -1,0 +1,74 @@
+digraph "test-vm" {
+node [
+  fontsize = "12"
+];
+    "node125" [ label = "test-vm", shape = egg ];
+    "node24" [ label = "fift-lib", shape = octagon ];
+    "node125" -> "node24" [ style = dotted ] // test-vm -> fift-lib
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node24" -> "node5"  // fift-lib -> tdutils
+    "node6" [ label = "crc32c", shape = doubleoctagon ];
+    "node5" -> "node6" [ style = dotted ] // tdutils -> crc32c
+    "node7" [ label = "crc32c_arm64", shape = hexagon ];
+    "node6" -> "node7"  // crc32c -> crc32c_arm64
+    "node8" [ label = "crc32c_sse42", shape = hexagon ];
+    "node6" -> "node8"  // crc32c -> crc32c_sse42
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node24" -> "node15"  // fift-lib -> ton_block
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node15" -> "node4"  // ton_block -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node4" -> "node5"  // tdactor -> tdutils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node15" -> "node5"  // ton_block -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node15" -> "node10"  // ton_block -> tl_api
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node10" -> "node5"  // tl_api -> tdutils
+    "node16" [ label = "tlbc", shape = egg ];
+    "node15" -> "node16"  // ton_block -> tlbc
+    "node17" [ label = "src_parser", shape = doubleoctagon ];
+    "node16" -> "node17" [ style = dotted ] // tlbc -> src_parser
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node17" -> "node18"  // src_parser -> ton_crypto_core
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node18" -> "node14"  // ton_crypto_core -> tddb_utils
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node14" -> "node4"  // tddb_utils -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node14" -> "node5"  // tddb_utils -> tdutils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node18" -> "node5"  // ton_crypto_core -> tdutils
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node16" -> "node18" [ style = dotted ] // tlbc -> ton_crypto_core
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node15" -> "node13"  // ton_block -> ton_crypto
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node13" -> "node14"  // ton_crypto -> tddb_utils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node13" -> "node5"  // ton_crypto -> tdutils
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node13" -> "node15"  // ton_crypto -> ton_block
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node13" -> "node18"  // ton_crypto -> ton_crypto_core
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node24" -> "node13"  // fift-lib -> ton_crypto
+    "node25" [ label = "ton_db", shape = octagon ];
+    "node24" -> "node25"  // fift-lib -> ton_db
+    "node26" [ label = "tddb", shape = octagon ];
+    "node25" -> "node26"  // ton_db -> tddb
+    "node27" [ label = "rocksdb", shape = octagon ];
+    "node26" -> "node27" [ style = dotted ] // tddb -> rocksdb
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node26" -> "node4"  // tddb -> tdactor
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node26" -> "node14"  // tddb -> tddb_utils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node26" -> "node5"  // tddb -> tdutils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node25" -> "node5"  // ton_db -> tdutils
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node25" -> "node13"  // ton_db -> ton_crypto
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node125" -> "node13" [ style = dotted ] // test-vm -> ton_crypto
+}

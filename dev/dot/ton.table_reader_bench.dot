@@ -1,0 +1,12 @@
+digraph "table_reader_bench" {
+node [
+  fontsize = "12"
+];
+    "node96" [ label = "table_reader_bench", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node96" -> "node50" [ style = dotted ] // table_reader_bench -> rocksdb-shared
+    "node97" [ label = "testharness", shape = octagon ];
+    "node96" -> "node97" [ style = dotted ] // table_reader_bench -> testharness
+    "node75" [ label = "gtest", shape = doubleoctagon ];
+    "node97" -> "node75"  // testharness -> gtest
+}

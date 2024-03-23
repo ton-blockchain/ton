@@ -1,0 +1,8 @@
+digraph "tonlibjson" {
+node [
+  fontsize = "12"
+];
+    "node34" [ label = "tonlibjson", shape = doubleoctagon ];
+    "node33" [ label = "TonlibJson\n(Tonlib::TonlibJson)", shape = pentagon ];
+    "node33" -> "node34" [ style = dashed ] // TonlibJson -> tonlibjson
+}

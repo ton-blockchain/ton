@@ -1,0 +1,50 @@
+digraph "git" {
+node [
+  fontsize = "12"
+];
+    "node28" [ label = "git", shape = octagon ];
+    "node23" [ label = "fift", shape = egg ];
+    "node23" -> "node28" [ style = dotted ] // fift -> git
+    "node29" [ label = "func", shape = egg ];
+    "node29" -> "node28" [ style = dotted ] // func -> git
+    "node37" [ label = "adjust-block", shape = egg ];
+    "node37" -> "node28" [ style = dotted ] // adjust-block -> git
+    "node41" [ label = "adnl-pong", shape = egg ];
+    "node41" -> "node28" [ style = dotted ] // adnl-pong -> git
+    "node43" [ label = "adnl-proxy", shape = egg ];
+    "node43" -> "node28" [ style = dotted ] // adnl-proxy -> git
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node28" [ style = dotted ] // create-hardfork -> git
+    "node64" [ label = "create-state", shape = egg ];
+    "node64" -> "node28" [ style = dotted ] // create-state -> git
+    "node69" [ label = "dht-server", shape = egg ];
+    "node69" -> "node28" [ style = dotted ] // dht-server -> git
+    "node70" [ label = "dump-block", shape = egg ];
+    "node70" -> "node28" [ style = dotted ] // dump-block -> git
+    "node74" [ label = "generate-random-id", shape = egg ];
+    "node74" -> "node28" [ style = dotted ] // generate-random-id -> git
+    "node77" [ label = "http-proxy", shape = egg ];
+    "node77" -> "node28" [ style = dotted ] // http-proxy -> git
+    "node80" [ label = "json2tlo", shape = egg ];
+    "node80" -> "node28" [ style = dotted ] // json2tlo -> git
+    "node82" [ label = "lite-client", shape = egg ];
+    "node82" -> "node28" [ style = dotted ] // lite-client -> git
+    "node87" [ label = "pow-miner", shape = egg ];
+    "node87" -> "node28" [ style = dotted ] // pow-miner -> git
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node28" [ style = dotted ] // rldp-http-proxy -> git
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node28" [ style = dotted ] // storage-cli -> git
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node28" [ style = dotted ] // storage-daemon -> git
+    "node95" [ label = "storage-daemon-cli", shape = egg ];
+    "node95" -> "node28" [ style = dotted ] // storage-daemon-cli -> git
+    "node126" [ label = "test-weight-distr", shape = egg ];
+    "node126" -> "node28" [ style = dotted ] // test-weight-distr -> git
+    "node127" [ label = "tonlib-cli", shape = egg ];
+    "node127" -> "node28" [ style = dotted ] // tonlib-cli -> git
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node28" [ style = dotted ] // validator-engine -> git
+    "node132" [ label = "validator-engine-console", shape = egg ];
+    "node132" -> "node28" [ style = dotted ] // validator-engine-console -> git
+}
