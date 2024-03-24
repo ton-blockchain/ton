@@ -1,0 +1,10 @@
+digraph "gtest" {
+node [
+  fontsize = "12"
+];
+    "node75" [ label = "gtest", shape = doubleoctagon ];
+    "node97" [ label = "testharness", shape = octagon ];
+    "node97" -> "node75"  // testharness -> gtest
+    "node96" [ label = "table_reader_bench", shape = egg ];
+    "node96" -> "node97" [ style = dotted ] // table_reader_bench -> testharness
+}

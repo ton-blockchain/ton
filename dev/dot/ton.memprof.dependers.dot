@@ -1,0 +1,26 @@
+digraph "memprof" {
+node [
+  fontsize = "12"
+];
+    "node61" [ label = "memprof", shape = octagon ];
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node61" [ style = dotted ] // create-hardfork -> memprof
+    "node69" [ label = "dht-server", shape = egg ];
+    "node69" -> "node61" [ style = dotted ] // dht-server -> memprof
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node61" [ style = dotted ] // storage-cli -> memprof
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node61" [ style = dotted ] // storage-daemon -> memprof
+    "node103" [ label = "test-db", shape = egg ];
+    "node103" -> "node61" [ style = dotted ] // test-db -> memprof
+    "node114" [ label = "test-rocksdb", shape = egg ];
+    "node114" -> "node61" [ style = dotted ] // test-rocksdb -> memprof
+    "node116" [ label = "test-storage", shape = egg ];
+    "node116" -> "node61" [ style = dotted ] // test-storage -> memprof
+    "node118" [ label = "test-tddb", shape = egg ];
+    "node118" -> "node61" [ style = dotted ] // test-tddb -> memprof
+    "node119" [ label = "test-tdutils", shape = egg ];
+    "node119" -> "node61" [ style = dotted ] // test-tdutils -> memprof
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node61" [ style = dotted ] // validator-engine -> memprof
+}

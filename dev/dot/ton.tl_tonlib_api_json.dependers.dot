@@ -1,0 +1,12 @@
+digraph "tl_tonlib_api_json" {
+node [
+  fontsize = "12"
+];
+    "node36" [ label = "tl_tonlib_api_json", shape = octagon ];
+    "node35" [ label = "tonlibjson_private", shape = octagon ];
+    "node35" -> "node36" [ style = dotted ] // tonlibjson_private -> tl_tonlib_api_json
+    "node34" [ label = "tonlibjson", shape = doubleoctagon ];
+    "node34" -> "node35" [ style = dotted ] // tonlibjson -> tonlibjson_private
+    "node33" [ label = "TonlibJson\n(Tonlib::TonlibJson)", shape = pentagon ];
+    "node33" -> "node34" [ style = dashed ] // TonlibJson -> tonlibjson
+}

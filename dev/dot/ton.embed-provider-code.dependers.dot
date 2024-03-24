@@ -1,0 +1,8 @@
+digraph "embed-provider-code" {
+node [
+  fontsize = "12"
+];
+    "node71" [ label = "embed-provider-code", shape = egg ];
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node71"  // storage-daemon -> embed-provider-code
+}

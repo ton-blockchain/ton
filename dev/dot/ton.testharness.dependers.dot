@@ -1,0 +1,8 @@
+digraph "testharness" {
+node [
+  fontsize = "12"
+];
+    "node97" [ label = "testharness", shape = octagon ];
+    "node96" [ label = "table_reader_bench", shape = egg ];
+    "node96" -> "node97" [ style = dotted ] // table_reader_bench -> testharness
+}

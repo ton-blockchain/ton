@@ -1,0 +1,136 @@
+digraph "fec" {
+node [
+  fontsize = "12"
+];
+    "node55" [ label = "fec", shape = octagon ];
+    "node54" [ label = "overlay", shape = octagon ];
+    "node54" -> "node55" [ style = dotted ] // overlay -> fec
+    "node53" [ label = "catchain", shape = octagon ];
+    "node53" -> "node54" [ style = dotted ] // catchain -> overlay
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node53" [ style = dotted ] // create-hardfork -> catchain
+    "node57" [ label = "full-node", shape = octagon ];
+    "node57" -> "node53" [ style = dotted ] // full-node -> catchain
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node57" [ style = dotted ] // create-hardfork -> full-node
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node57" [ style = dotted ] // validator-engine -> full-node
+    "node60" [ label = "validatorsession", shape = octagon ];
+    "node60" -> "node53" [ style = dotted ] // validatorsession -> catchain
+    "node57" [ label = "full-node", shape = octagon ];
+    "node57" -> "node60" [ style = dotted ] // full-node -> validatorsession
+    "node62" [ label = "ton_validator", shape = octagon ];
+    "node62" -> "node60" [ style = dotted ] // ton_validator -> validatorsession
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node62" [ style = dotted ] // create-hardfork -> ton_validator
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node62" [ style = dotted ] // test-ton-collator -> ton_validator
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node62" [ style = dotted ] // validator-engine -> ton_validator
+    "node63" [ label = "validator-hardfork", shape = octagon ];
+    "node63" -> "node60" [ style = dotted ] // validator-hardfork -> validatorsession
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node63" [ style = dotted ] // create-hardfork -> validator-hardfork
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node60" [ style = dotted ] // create-hardfork -> validatorsession
+    "node86" [ label = "validator", shape = octagon ];
+    "node86" -> "node60" [ style = dotted ] // validator -> validatorsession
+    "node85" [ label = "pack-viewer", shape = egg ];
+    "node85" -> "node86" [ style = dotted ] // pack-viewer -> validator
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node86" [ style = dotted ] // validator-engine -> validator
+    "node121" [ label = "validator-disk", shape = octagon ];
+    "node121" -> "node60" [ style = dotted ] // validator-disk -> validatorsession
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node121" [ style = dotted ] // test-ton-collator -> validator-disk
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node60" [ style = dotted ] // test-ton-collator -> validatorsession
+    "node124" [ label = "test-validator-session-state", shape = egg ];
+    "node124" -> "node60" [ style = dotted ] // test-validator-session-state -> validatorsession
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node60" [ style = dotted ] // validator-engine -> validatorsession
+    "node62" [ label = "ton_validator", shape = octagon ];
+    "node62" -> "node53" [ style = dotted ] // ton_validator -> catchain
+    "node63" [ label = "validator-hardfork", shape = octagon ];
+    "node63" -> "node53" [ style = dotted ] // validator-hardfork -> catchain
+    "node86" [ label = "validator", shape = octagon ];
+    "node86" -> "node53" [ style = dotted ] // validator -> catchain
+    "node101" [ label = "test-catchain", shape = egg ];
+    "node101" -> "node53" [ style = dotted ] // test-catchain -> catchain
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node53" [ style = dotted ] // test-ton-collator -> catchain
+    "node121" [ label = "validator-disk", shape = octagon ];
+    "node121" -> "node53" [ style = dotted ] // validator-disk -> catchain
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node53" [ style = dotted ] // validator-engine -> catchain
+    "node57" [ label = "full-node", shape = octagon ];
+    "node57" -> "node54" [ style = dotted ] // full-node -> overlay
+    "node60" [ label = "validatorsession", shape = octagon ];
+    "node60" -> "node54" [ style = dotted ] // validatorsession -> overlay
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node54" [ style = dotted ] // create-hardfork -> overlay
+    "node62" [ label = "ton_validator", shape = octagon ];
+    "node62" -> "node54" [ style = dotted ] // ton_validator -> overlay
+    "node63" [ label = "validator-hardfork", shape = octagon ];
+    "node63" -> "node54" [ style = dotted ] // validator-hardfork -> overlay
+    "node86" [ label = "validator", shape = octagon ];
+    "node86" -> "node54" [ style = dotted ] // validator -> overlay
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node54" [ style = dotted ] // storage-cli -> overlay
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node54" [ style = dotted ] // storage-daemon -> overlay
+    "node101" [ label = "test-catchain", shape = egg ];
+    "node101" -> "node54" [ style = dotted ] // test-catchain -> overlay
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node54" [ style = dotted ] // test-ton-collator -> overlay
+    "node121" [ label = "validator-disk", shape = octagon ];
+    "node121" -> "node54" [ style = dotted ] // validator-disk -> overlay
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node54" [ style = dotted ] // validator-engine -> overlay
+    "node58" [ label = "rldp", shape = octagon ];
+    "node58" -> "node55" [ style = dotted ] // rldp -> fec
+    "node57" [ label = "full-node", shape = octagon ];
+    "node57" -> "node58" [ style = dotted ] // full-node -> rldp
+    "node60" [ label = "validatorsession", shape = octagon ];
+    "node60" -> "node58" [ style = dotted ] // validatorsession -> rldp
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node58" [ style = dotted ] // create-hardfork -> rldp
+    "node63" [ label = "validator-hardfork", shape = octagon ];
+    "node63" -> "node58" [ style = dotted ] // validator-hardfork -> rldp
+    "node86" [ label = "validator", shape = octagon ];
+    "node86" -> "node58" [ style = dotted ] // validator -> rldp
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node58" [ style = dotted ] // rldp-http-proxy -> rldp
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node58" [ style = dotted ] // storage-cli -> rldp
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node58" [ style = dotted ] // storage-daemon -> rldp
+    "node101" [ label = "test-catchain", shape = egg ];
+    "node101" -> "node58" [ style = dotted ] // test-catchain -> rldp
+    "node112" [ label = "test-rldp", shape = egg ];
+    "node112" -> "node58" [ style = dotted ] // test-rldp -> rldp
+    "node121" [ label = "validator-disk", shape = octagon ];
+    "node121" -> "node58" [ style = dotted ] // validator-disk -> rldp
+    "node124" [ label = "test-validator-session-state", shape = egg ];
+    "node124" -> "node58" [ style = dotted ] // test-validator-session-state -> rldp
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node58" [ style = dotted ] // validator-engine -> rldp
+    "node59" [ label = "rldp2", shape = octagon ];
+    "node59" -> "node55"  // rldp2 -> fec
+    "node57" [ label = "full-node", shape = octagon ];
+    "node57" -> "node59" [ style = dotted ] // full-node -> rldp2
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node59" [ style = dotted ] // rldp-http-proxy -> rldp2
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node59" [ style = dotted ] // storage-cli -> rldp2
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node59" [ style = dotted ] // storage-daemon -> rldp2
+    "node113" [ label = "test-rldp2", shape = egg ];
+    "node113" -> "node59" [ style = dotted ] // test-rldp2 -> rldp2
+    "node116" [ label = "test-storage", shape = egg ];
+    "node116" -> "node59" [ style = dotted ] // test-storage -> rldp2
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node59" [ style = dotted ] // validator-engine -> rldp2
+    "node116" [ label = "test-storage", shape = egg ];
+    "node116" -> "node55" [ style = dotted ] // test-storage -> fec
+}

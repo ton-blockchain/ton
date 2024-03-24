@@ -1,0 +1,10 @@
+digraph "pow-miner-lib" {
+node [
+  fontsize = "12"
+];
+    "node88" [ label = "pow-miner-lib", shape = doubleoctagon ];
+    "node87" [ label = "pow-miner", shape = egg ];
+    "node87" -> "node88" [ style = dotted ] // pow-miner -> pow-miner-lib
+    "node127" [ label = "tonlib-cli", shape = egg ];
+    "node127" -> "node88" [ style = dotted ] // tonlib-cli -> pow-miner-lib
+}

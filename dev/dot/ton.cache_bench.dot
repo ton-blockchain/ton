@@ -1,0 +1,8 @@
+digraph "cache_bench" {
+node [
+  fontsize = "12"
+];
+    "node52" [ label = "cache_bench", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node52" -> "node50" [ style = dotted ] // cache_bench -> rocksdb-shared
+}

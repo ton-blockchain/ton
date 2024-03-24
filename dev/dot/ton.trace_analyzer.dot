@@ -1,0 +1,8 @@
+digraph "trace_analyzer" {
+node [
+  fontsize = "12"
+];
+    "node129" [ label = "trace_analyzer", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node129" -> "node50" [ style = dotted ] // trace_analyzer -> rocksdb-shared
+}

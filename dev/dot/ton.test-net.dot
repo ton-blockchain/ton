@@ -1,0 +1,20 @@
+digraph "test-net" {
+node [
+  fontsize = "12"
+];
+    "node111" [ label = "test-net", shape = egg ];
+    "node19" [ label = "tdnet", shape = octagon ];
+    "node111" -> "node19" [ style = dotted ] // test-net -> tdnet
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node19" -> "node4"  // tdnet -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node4" -> "node5"  // tdactor -> tdutils
+    "node6" [ label = "crc32c", shape = doubleoctagon ];
+    "node5" -> "node6" [ style = dotted ] // tdutils -> crc32c
+    "node7" [ label = "crc32c_arm64", shape = hexagon ];
+    "node6" -> "node7"  // crc32c -> crc32c_arm64
+    "node8" [ label = "crc32c_sse42", shape = hexagon ];
+    "node6" -> "node8"  // crc32c -> crc32c_sse42
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node111" -> "node5" [ style = dotted ] // test-net -> tdutils
+}

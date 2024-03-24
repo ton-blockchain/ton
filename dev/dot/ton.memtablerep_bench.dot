@@ -1,0 +1,8 @@
+digraph "memtablerep_bench" {
+node [
+  fontsize = "12"
+];
+    "node83" [ label = "memtablerep_bench", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node83" -> "node50" [ style = dotted ] // memtablerep_bench -> rocksdb-shared
+}

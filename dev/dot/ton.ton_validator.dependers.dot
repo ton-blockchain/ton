@@ -1,0 +1,12 @@
+digraph "ton_validator" {
+node [
+  fontsize = "12"
+];
+    "node62" [ label = "ton_validator", shape = octagon ];
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node62" [ style = dotted ] // create-hardfork -> ton_validator
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node62" [ style = dotted ] // test-ton-collator -> ton_validator
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node62" [ style = dotted ] // validator-engine -> ton_validator
+}

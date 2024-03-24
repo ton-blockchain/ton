@@ -1,0 +1,26 @@
+digraph "tonlib" {
+node [
+  fontsize = "12"
+];
+    "node1" [ label = "tonlib", shape = octagon ];
+    "node0" [ label = "Tonlib\n(Tonlib::Tonlib)", shape = pentagon ];
+    "node0" -> "node1" [ style = dashed ] // Tonlib -> tonlib
+    "node35" [ label = "tonlibjson_private", shape = octagon ];
+    "node35" -> "node1"  // tonlibjson_private -> tonlib
+    "node34" [ label = "tonlibjson", shape = doubleoctagon ];
+    "node34" -> "node35" [ style = dotted ] // tonlibjson -> tonlibjson_private
+    "node33" [ label = "TonlibJson\n(Tonlib::TonlibJson)", shape = pentagon ];
+    "node33" -> "node34" [ style = dashed ] // TonlibJson -> tonlibjson
+    "node64" [ label = "create-state", shape = egg ];
+    "node64" -> "node1" [ style = dotted ] // create-state -> tonlib
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node1" [ style = dotted ] // rldp-http-proxy -> tonlib
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node1" [ style = dotted ] // storage-daemon -> tonlib
+    "node122" [ label = "test-tonlib", shape = egg ];
+    "node122" -> "node1" [ style = dotted ] // test-tonlib -> tonlib
+    "node123" [ label = "test-tonlib-offline", shape = egg ];
+    "node123" -> "node1" [ style = dotted ] // test-tonlib-offline -> tonlib
+    "node127" [ label = "tonlib-cli", shape = egg ];
+    "node127" -> "node1" [ style = dotted ] // tonlib-cli -> tonlib
+}

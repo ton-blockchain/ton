@@ -1,0 +1,28 @@
+digraph "rocksdb-shared" {
+node [
+  fontsize = "12"
+];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node49" [ label = "block_cache_trace_analyzer", shape = egg ];
+    "node49" -> "node50" [ style = dotted ] // block_cache_trace_analyzer -> rocksdb-shared
+    "node52" [ label = "cache_bench", shape = egg ];
+    "node52" -> "node50" [ style = dotted ] // cache_bench -> rocksdb-shared
+    "node65" [ label = "db_bench", shape = egg ];
+    "node65" -> "node50" [ style = dotted ] // db_bench -> rocksdb-shared
+    "node73" [ label = "filter_bench", shape = egg ];
+    "node73" -> "node50" [ style = dotted ] // filter_bench -> rocksdb-shared
+    "node76" [ label = "hash_table_bench", shape = egg ];
+    "node76" -> "node50" [ style = dotted ] // hash_table_bench -> rocksdb-shared
+    "node81" [ label = "ldb", shape = egg ];
+    "node81" -> "node50" [ style = dotted ] // ldb -> rocksdb-shared
+    "node83" [ label = "memtablerep_bench", shape = egg ];
+    "node83" -> "node50" [ style = dotted ] // memtablerep_bench -> rocksdb-shared
+    "node89" [ label = "range_del_aggregator_bench", shape = egg ];
+    "node89" -> "node50" [ style = dotted ] // range_del_aggregator_bench -> rocksdb-shared
+    "node91" [ label = "sst_dump", shape = egg ];
+    "node91" -> "node50" [ style = dotted ] // sst_dump -> rocksdb-shared
+    "node96" [ label = "table_reader_bench", shape = egg ];
+    "node96" -> "node50" [ style = dotted ] // table_reader_bench -> rocksdb-shared
+    "node129" [ label = "trace_analyzer", shape = egg ];
+    "node129" -> "node50" [ style = dotted ] // trace_analyzer -> rocksdb-shared
+}

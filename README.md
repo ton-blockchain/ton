@@ -42,6 +42,8 @@
 
 Main TON monorepo, which includes the code of the node/validator, lite-client, tonlib, FunC compiler, etc.
 
+Enter **in-source-documentation** via [CODE.md](CODE.md).
+
 ## The Open Network
 
 __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
@@ -70,6 +72,10 @@ Usually, the response to your pull request will indicate which section it falls 
 * Thou shall make sure that workflows are cleanly completed for your PR before considering merge
 
 ## Build TON blockchain
+
+### Docker
+
+Instructions within [docker](docker)
 
 ### Ubuntu 20.4, 22.04 (x86-64, aarch64)
 Install additional system libraries

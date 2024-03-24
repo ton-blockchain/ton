@@ -1,0 +1,10 @@
+digraph "full-node" {
+node [
+  fontsize = "12"
+];
+    "node57" [ label = "full-node", shape = octagon ];
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node57" [ style = dotted ] // create-hardfork -> full-node
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node57" [ style = dotted ] // validator-engine -> full-node
+}

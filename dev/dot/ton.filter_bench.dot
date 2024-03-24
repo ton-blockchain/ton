@@ -1,0 +1,8 @@
+digraph "filter_bench" {
+node [
+  fontsize = "12"
+];
+    "node73" [ label = "filter_bench", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node73" -> "node50" [ style = dotted ] // filter_bench -> rocksdb-shared
+}

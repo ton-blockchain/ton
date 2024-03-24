@@ -1,0 +1,132 @@
+digraph "tonlib" {
+node [
+  fontsize = "12"
+];
+    "node1" [ label = "tonlib", shape = octagon ];
+    "node2" [ label = "adnllite", shape = octagon ];
+    "node1" -> "node2" [ style = dotted ] // tonlib -> adnllite
+    "node3" [ label = "keys", shape = octagon ];
+    "node2" -> "node3"  // adnllite -> keys
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node3" -> "node4"  // keys -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node4" -> "node5"  // tdactor -> tdutils
+    "node6" [ label = "crc32c", shape = doubleoctagon ];
+    "node5" -> "node6" [ style = dotted ] // tdutils -> crc32c
+    "node7" [ label = "crc32c_arm64", shape = hexagon ];
+    "node6" -> "node7"  // crc32c -> crc32c_arm64
+    "node8" [ label = "crc32c_sse42", shape = hexagon ];
+    "node6" -> "node8"  // crc32c -> crc32c_sse42
+    "node9" [ label = "tl-utils", shape = octagon ];
+    "node3" -> "node9"  // keys -> tl-utils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node9" -> "node10"  // tl-utils -> tl_api
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node10" -> "node5"  // tl_api -> tdutils
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node9" -> "node13"  // tl-utils -> ton_crypto
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node13" -> "node14"  // ton_crypto -> tddb_utils
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node14" -> "node4"  // tddb_utils -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node14" -> "node5"  // tddb_utils -> tdutils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node13" -> "node5"  // ton_crypto -> tdutils
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node13" -> "node15"  // ton_crypto -> ton_block
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node15" -> "node4"  // ton_block -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node15" -> "node5"  // ton_block -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node15" -> "node10"  // ton_block -> tl_api
+    "node16" [ label = "tlbc", shape = egg ];
+    "node15" -> "node16"  // ton_block -> tlbc
+    "node17" [ label = "src_parser", shape = doubleoctagon ];
+    "node16" -> "node17" [ style = dotted ] // tlbc -> src_parser
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node17" -> "node18"  // src_parser -> ton_crypto_core
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node18" -> "node14"  // ton_crypto_core -> tddb_utils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node18" -> "node5"  // ton_crypto_core -> tdutils
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node16" -> "node18" [ style = dotted ] // tlbc -> ton_crypto_core
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node15" -> "node13"  // ton_block -> ton_crypto
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node13" -> "node18"  // ton_crypto -> ton_crypto_core
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node3" -> "node10"  // keys -> tl_api
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node3" -> "node13"  // keys -> ton_crypto
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node2" -> "node4"  // adnllite -> tdactor
+    "node19" [ label = "tdnet", shape = octagon ];
+    "node2" -> "node19"  // adnllite -> tdnet
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node19" -> "node4"  // tdnet -> tdactor
+    "node20" [ label = "tl_lite_api", shape = octagon ];
+    "node2" -> "node20"  // adnllite -> tl_lite_api
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node20" -> "node5"  // tl_lite_api -> tdutils
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node2" -> "node13"  // adnllite -> ton_crypto
+    "node21" [ label = "emulator_static", shape = octagon ];
+    "node1" -> "node21" [ style = dotted ] // tonlib -> emulator_static
+    "node22" [ label = "smc-envelope", shape = octagon ];
+    "node21" -> "node22"  // emulator_static -> smc-envelope
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node22" -> "node5" [ style = dotted ] // smc-envelope -> tdutils
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node22" -> "node15" [ style = dotted ] // smc-envelope -> ton_block
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node22" -> "node13"  // smc-envelope -> ton_crypto
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node21" -> "node15"  // emulator_static -> ton_block
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node21" -> "node13"  // emulator_static -> ton_crypto
+    "node30" [ label = "lite-client-common", shape = octagon ];
+    "node1" -> "node30" [ style = dotted ] // tonlib -> lite-client-common
+    "node2" [ label = "adnllite", shape = octagon ];
+    "node30" -> "node2"  // lite-client-common -> adnllite
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node30" -> "node4"  // lite-client-common -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node30" -> "node5"  // lite-client-common -> tdutils
+    "node31" [ label = "tl-lite-utils", shape = octagon ];
+    "node30" -> "node31"  // lite-client-common -> tl-lite-utils
+    "node20" [ label = "tl_lite_api", shape = octagon ];
+    "node31" -> "node20"  // tl-lite-utils -> tl_lite_api
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node31" -> "node13"  // tl-lite-utils -> ton_crypto
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node30" -> "node10"  // lite-client-common -> tl_api
+    "node20" [ label = "tl_lite_api", shape = octagon ];
+    "node30" -> "node20"  // lite-client-common -> tl_lite_api
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node30" -> "node15"  // lite-client-common -> ton_block
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node30" -> "node13"  // lite-client-common -> ton_crypto
+    "node22" [ label = "smc-envelope", shape = octagon ];
+    "node1" -> "node22" [ style = dotted ] // tonlib -> smc-envelope
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node1" -> "node4" [ style = dotted ] // tonlib -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node1" -> "node5"  // tonlib -> tdutils
+    "node31" [ label = "tl-lite-utils", shape = octagon ];
+    "node1" -> "node31" [ style = dotted ] // tonlib -> tl-lite-utils
+    "node20" [ label = "tl_lite_api", shape = octagon ];
+    "node1" -> "node20" [ style = dotted ] // tonlib -> tl_lite_api
+    "node32" [ label = "tl_tonlib_api", shape = octagon ];
+    "node1" -> "node32"  // tonlib -> tl_tonlib_api
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node32" -> "node5"  // tl_tonlib_api -> tdutils
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node1" -> "node15" [ style = dotted ] // tonlib -> ton_block
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node1" -> "node13" [ style = dotted ] // tonlib -> ton_crypto
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node1" -> "node18" [ style = dotted ] // tonlib -> ton_crypto_core
+}

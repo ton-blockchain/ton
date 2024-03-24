@@ -1,0 +1,24 @@
+digraph "rldp2" {
+node [
+  fontsize = "12"
+];
+    "node59" [ label = "rldp2", shape = octagon ];
+    "node57" [ label = "full-node", shape = octagon ];
+    "node57" -> "node59" [ style = dotted ] // full-node -> rldp2
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node57" [ style = dotted ] // create-hardfork -> full-node
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node57" [ style = dotted ] // validator-engine -> full-node
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node59" [ style = dotted ] // rldp-http-proxy -> rldp2
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node59" [ style = dotted ] // storage-cli -> rldp2
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node59" [ style = dotted ] // storage-daemon -> rldp2
+    "node113" [ label = "test-rldp2", shape = egg ];
+    "node113" -> "node59" [ style = dotted ] // test-rldp2 -> rldp2
+    "node116" [ label = "test-storage", shape = egg ];
+    "node116" -> "node59" [ style = dotted ] // test-storage -> rldp2
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node59" [ style = dotted ] // validator-engine -> rldp2
+}

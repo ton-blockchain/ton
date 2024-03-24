@@ -1,0 +1,8 @@
+digraph "testharness" {
+node [
+  fontsize = "12"
+];
+    "node97" [ label = "testharness", shape = octagon ];
+    "node75" [ label = "gtest", shape = doubleoctagon ];
+    "node97" -> "node75"  // testharness -> gtest
+}

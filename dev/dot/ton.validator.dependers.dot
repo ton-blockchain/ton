@@ -1,0 +1,10 @@
+digraph "validator" {
+node [
+  fontsize = "12"
+];
+    "node86" [ label = "validator", shape = octagon ];
+    "node85" [ label = "pack-viewer", shape = egg ];
+    "node85" -> "node86" [ style = dotted ] // pack-viewer -> validator
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node86" [ style = dotted ] // validator-engine -> validator
+}

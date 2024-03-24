@@ -1,0 +1,84 @@
+digraph "tl_lite_api" {
+node [
+  fontsize = "12"
+];
+    "node20" [ label = "tl_lite_api", shape = octagon ];
+    "node2" [ label = "adnllite", shape = octagon ];
+    "node2" -> "node20"  // adnllite -> tl_lite_api
+    "node1" [ label = "tonlib", shape = octagon ];
+    "node1" -> "node2" [ style = dotted ] // tonlib -> adnllite
+    "node0" [ label = "Tonlib\n(Tonlib::Tonlib)", shape = pentagon ];
+    "node0" -> "node1" [ style = dashed ] // Tonlib -> tonlib
+    "node35" [ label = "tonlibjson_private", shape = octagon ];
+    "node35" -> "node1"  // tonlibjson_private -> tonlib
+    "node34" [ label = "tonlibjson", shape = doubleoctagon ];
+    "node34" -> "node35" [ style = dotted ] // tonlibjson -> tonlibjson_private
+    "node33" [ label = "TonlibJson\n(Tonlib::TonlibJson)", shape = pentagon ];
+    "node33" -> "node34" [ style = dashed ] // TonlibJson -> tonlibjson
+    "node64" [ label = "create-state", shape = egg ];
+    "node64" -> "node1" [ style = dotted ] // create-state -> tonlib
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node1" [ style = dotted ] // rldp-http-proxy -> tonlib
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node1" [ style = dotted ] // storage-daemon -> tonlib
+    "node122" [ label = "test-tonlib", shape = egg ];
+    "node122" -> "node1" [ style = dotted ] // test-tonlib -> tonlib
+    "node123" [ label = "test-tonlib-offline", shape = egg ];
+    "node123" -> "node1" [ style = dotted ] // test-tonlib-offline -> tonlib
+    "node127" [ label = "tonlib-cli", shape = egg ];
+    "node127" -> "node1" [ style = dotted ] // tonlib-cli -> tonlib
+    "node30" [ label = "lite-client-common", shape = octagon ];
+    "node30" -> "node2"  // lite-client-common -> adnllite
+    "node1" [ label = "tonlib", shape = octagon ];
+    "node1" -> "node30" [ style = dotted ] // tonlib -> lite-client-common
+    "node82" [ label = "lite-client", shape = egg ];
+    "node82" -> "node30" [ style = dotted ] // lite-client -> lite-client-common
+    "node51" [ label = "blockchain-explorer", shape = egg ];
+    "node51" -> "node2" [ style = dotted ] // blockchain-explorer -> adnllite
+    "node82" [ label = "lite-client", shape = egg ];
+    "node82" -> "node2" [ style = dotted ] // lite-client -> adnllite
+    "node95" [ label = "storage-daemon-cli", shape = egg ];
+    "node95" -> "node2" [ style = dotted ] // storage-daemon-cli -> adnllite
+    "node122" [ label = "test-tonlib", shape = egg ];
+    "node122" -> "node2" [ style = dotted ] // test-tonlib -> adnllite
+    "node123" [ label = "test-tonlib-offline", shape = egg ];
+    "node123" -> "node2" [ style = dotted ] // test-tonlib-offline -> adnllite
+    "node132" [ label = "validator-engine-console", shape = egg ];
+    "node132" -> "node2" [ style = dotted ] // validator-engine-console -> adnllite
+    "node31" [ label = "tl-lite-utils", shape = octagon ];
+    "node31" -> "node20"  // tl-lite-utils -> tl_lite_api
+    "node30" [ label = "lite-client-common", shape = octagon ];
+    "node30" -> "node31"  // lite-client-common -> tl-lite-utils
+    "node1" [ label = "tonlib", shape = octagon ];
+    "node1" -> "node31" [ style = dotted ] // tonlib -> tl-lite-utils
+    "node51" [ label = "blockchain-explorer", shape = egg ];
+    "node51" -> "node31" [ style = dotted ] // blockchain-explorer -> tl-lite-utils
+    "node62" [ label = "ton_validator", shape = octagon ];
+    "node62" -> "node31" [ style = dotted ] // ton_validator -> tl-lite-utils
+    "node56" [ label = "create-hardfork", shape = egg ];
+    "node56" -> "node62" [ style = dotted ] // create-hardfork -> ton_validator
+    "node120" [ label = "test-ton-collator", shape = egg ];
+    "node120" -> "node62" [ style = dotted ] // test-ton-collator -> ton_validator
+    "node131" [ label = "validator-engine", shape = egg ];
+    "node131" -> "node62" [ style = dotted ] // validator-engine -> ton_validator
+    "node82" [ label = "lite-client", shape = egg ];
+    "node82" -> "node31" [ style = dotted ] // lite-client -> tl-lite-utils
+    "node95" [ label = "storage-daemon-cli", shape = egg ];
+    "node95" -> "node31" [ style = dotted ] // storage-daemon-cli -> tl-lite-utils
+    "node132" [ label = "validator-engine-console", shape = egg ];
+    "node132" -> "node31" [ style = dotted ] // validator-engine-console -> tl-lite-utils
+    "node30" [ label = "lite-client-common", shape = octagon ];
+    "node30" -> "node20"  // lite-client-common -> tl_lite_api
+    "node1" [ label = "tonlib", shape = octagon ];
+    "node1" -> "node20" [ style = dotted ] // tonlib -> tl_lite_api
+    "node51" [ label = "blockchain-explorer", shape = egg ];
+    "node51" -> "node20" [ style = dotted ] // blockchain-explorer -> tl_lite_api
+    "node62" [ label = "ton_validator", shape = octagon ];
+    "node62" -> "node20" [ style = dotted ] // ton_validator -> tl_lite_api
+    "node82" [ label = "lite-client", shape = egg ];
+    "node82" -> "node20" [ style = dotted ] // lite-client -> tl_lite_api
+    "node95" [ label = "storage-daemon-cli", shape = egg ];
+    "node95" -> "node20" [ style = dotted ] // storage-daemon-cli -> tl_lite_api
+    "node132" [ label = "validator-engine-console", shape = egg ];
+    "node132" -> "node20" [ style = dotted ] // validator-engine-console -> tl_lite_api
+}

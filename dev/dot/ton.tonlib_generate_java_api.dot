@@ -1,0 +1,8 @@
+digraph "tonlib_generate_java_api" {
+node [
+  fontsize = "12"
+];
+    "node128" [ label = "tonlib_generate_java_api", shape = egg ];
+    "node12" [ label = "tdtl", shape = octagon ];
+    "node128" -> "node12" [ style = dotted ] // tonlib_generate_java_api -> tdtl
+}

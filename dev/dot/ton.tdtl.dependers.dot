@@ -1,0 +1,10 @@
+digraph "tdtl" {
+node [
+  fontsize = "12"
+];
+    "node12" [ label = "tdtl", shape = octagon ];
+    "node11" [ label = "generate_common", shape = egg ];
+    "node11" -> "node12" [ style = dotted ] // generate_common -> tdtl
+    "node128" [ label = "tonlib_generate_java_api", shape = egg ];
+    "node128" -> "node12" [ style = dotted ] // tonlib_generate_java_api -> tdtl
+}

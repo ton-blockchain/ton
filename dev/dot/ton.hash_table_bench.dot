@@ -1,0 +1,8 @@
+digraph "hash_table_bench" {
+node [
+  fontsize = "12"
+];
+    "node76" [ label = "hash_table_bench", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node76" -> "node50" [ style = dotted ] // hash_table_bench -> rocksdb-shared
+}

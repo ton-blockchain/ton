@@ -1,0 +1,8 @@
+digraph "sst_dump" {
+node [
+  fontsize = "12"
+];
+    "node91" [ label = "sst_dump", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node91" -> "node50" [ style = dotted ] // sst_dump -> rocksdb-shared
+}

@@ -1,0 +1,8 @@
+digraph "range_del_aggregator_bench" {
+node [
+  fontsize = "12"
+];
+    "node89" [ label = "range_del_aggregator_bench", shape = egg ];
+    "node50" [ label = "rocksdb-shared", shape = doubleoctagon ];
+    "node89" -> "node50" [ style = dotted ] // range_del_aggregator_bench -> rocksdb-shared
+}
