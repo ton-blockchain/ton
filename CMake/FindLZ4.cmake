@@ -34,6 +34,11 @@ else()
     NAMES lz4 lz4_static
     PATHS ${LZ4_LIBRARY_DIRS}
     NO_DEFAULT_PATH)
+
+  if(LZ4_LIBRARY)
+    set(LZ4_LIBRARIES ${LZ4_LIBRARY})
+    get_filename_component(LZ4_LIBRARY_DIRS ${LZ4_LIBRARY} DIRECTORY)
+  endif()
 endif()
 
 mark_as_advanced(LZ4_LIBRARY LZ4_INCLUDE_DIRS LZ4_LIBRARY_DIRS LZ4_LIBRARIES)
