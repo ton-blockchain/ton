@@ -20,6 +20,7 @@
 #include "rootdb.hpp"
 
 #include "td/db/RocksDb.h"
+#include "td/utils/filesystem.h"
 
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
@@ -83,7 +84,12 @@ void CellDbIn::start_up() {
   };
 
   CellDbBase::start_up();
-  cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_).move_as_ok());
+  if (!opts_->get_disable_rocksdb_stats()) {
+    statistics_ = td::RocksDb::create_statistics();
+    statistics_flush_at_ = td::Timestamp::in(60.0);
+  }
+  cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, statistics_).move_as_ok());
+  
 
   boc_ = vm::DynamicBagOfCellsDb::create();
   boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
@@ -155,7 +161,29 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
   promise.set_result(boc_->get_cell_db_reader());
 }
 
+void CellDbIn::flush_db_stats() {
+  auto stats = td::RocksDb::statistics_to_string(statistics_);
+  auto to_file_r = td::FileFd::open(path_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
+  if (to_file_r.is_error()) {
+    LOG(ERROR) << "Failed to open db_stats.txt: " << to_file_r.move_as_error();
+    return;
+  }
+  auto to_file = to_file_r.move_as_ok();
+  auto res = to_file.write(stats);
+  to_file.close();
+  if (res.is_error()) {
+    LOG(ERROR) << "Failed to write to db_stats.txt: " << res.move_as_error();
+    return;
+  }
+  td::RocksDb::reset_statistics(statistics_);
+}
+
 void CellDbIn::alarm() {
+  if (statistics_flush_at_ && statistics_flush_at_.is_in_past()) {
+    statistics_flush_at_ = td::Timestamp::in(60.0);
+    flush_db_stats();
+  }
+
   if (migrate_after_ && migrate_after_.is_in_past()) {
     migrate_cells();
   }

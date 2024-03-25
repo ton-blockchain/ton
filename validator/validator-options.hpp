@@ -121,6 +121,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   double get_archive_preload_period() const override {
     return archive_preload_period_;
   }
+  bool get_disable_rocksdb_stats() const override {
+    return disable_rocksdb_stats_;
+  }
   ValidatorMode validator_mode() const override {
     return validator_mode_;
   }
@@ -186,6 +189,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_archive_preload_period(double value) override {
     archive_preload_period_ = value;
   }
+  void set_disable_rocksdb_stats(bool value) override {
+    disable_rocksdb_stats_ = value;
+  }
   void set_validator_mode(ValidatorMode value) override {
     validator_mode_ = value;
   }
@@ -232,6 +238,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::uint32 celldb_compress_depth_{0};
   size_t max_open_archive_files_ = 0;
   double archive_preload_period_ = 0.0;
+  bool disable_rocksdb_stats_;
   ValidatorMode validator_mode_ = validator_normal;
 };
 

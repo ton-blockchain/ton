@@ -314,7 +314,8 @@ bool AsyncStateSerializer::need_serialize(BlockHandle handle) {
   if (handle->id().id.seqno == 0 || !handle->is_key_block()) {
     return false;
   }
-  return ValidatorManager::is_persistent_state(handle->unix_time(), last_key_block_ts_);
+  return ValidatorManager::is_persistent_state(handle->unix_time(), last_key_block_ts_) &&
+         ValidatorManager::persistent_state_ttl(handle->unix_time()) > (UnixTime)td::Clocks::system();
 }
 
 }  // namespace validator

@@ -331,6 +331,7 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::smc_getLibraries& request,
                         td::Promise<object_ptr<tonlib_api::smc_libraryResult>>&& promise);
+  void get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256> library_list_, td::Promise<object_ptr<tonlib_api::smc_libraryResult>>&& promise);
 
   td::Status do_request(const tonlib_api::smc_getLibrariesExt& request,
                         td::Promise<object_ptr<tonlib_api::smc_libraryResultExt>>&& promise);

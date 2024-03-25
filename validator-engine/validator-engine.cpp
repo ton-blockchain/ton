@@ -1427,6 +1427,7 @@ td::Status ValidatorEngine::load_global_config() {
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
+  validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -4127,6 +4128,9 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "enable-precompiled-smc",
                "enable exectuion of precompiled contracts (experimental, disabled by default)",
                []() { block::precompiled::set_precompiled_execution_enabled(true); });
+  p.add_option('\0', "disable-rocksdb-stats", "disable gathering rocksdb statistics (enabled by default)", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_disable_rocksdb_stats, true); });
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

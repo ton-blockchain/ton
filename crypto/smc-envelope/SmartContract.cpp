@@ -174,7 +174,9 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
   if (args.config && args.config.value()->get_global_version() >= 6) {
     tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
     tuple.push_back(td::zero_refint());                                    // due_payment
-    tuple.push_back(vm::StackEntry());                                     // precompiled_gas_usage:Integer
+    // precomiled_gas_usage:(Maybe Integer)
+    auto precompiled = args.config.value()->get_precompiled_contracts_config().get_contract(code->get_hash().bits());
+    tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();

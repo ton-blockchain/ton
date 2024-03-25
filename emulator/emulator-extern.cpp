@@ -543,6 +543,66 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   return strdup(jb.string_builder().as_cslice().c_str());
 }
 
+const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit) {
+  auto params_cell = vm::std_boc_deserialize(td::Slice(params_boc, len));
+  if (params_cell.is_error()) {
+    return nullptr;
+  }
+  auto params_cs = vm::load_cell_slice(params_cell.move_as_ok());
+  auto code = params_cs.fetch_ref();
+  auto data = params_cs.fetch_ref();
+
+  auto stack_cs = vm::load_cell_slice(params_cs.fetch_ref());
+  auto params = vm::load_cell_slice(params_cs.fetch_ref());
+  auto c7_cs = vm::load_cell_slice(params.fetch_ref());
+  auto libs = vm::Dictionary(params.fetch_ref(), 256);
+
+  auto method_id = params_cs.fetch_long(32);
+
+  td::Ref<vm::Stack> stack;
+  if (!vm::Stack::deserialize_to(stack_cs, stack)) {
+    return nullptr;
+  }
+
+  td::Ref<vm::Stack> c7;
+  if (!vm::Stack::deserialize_to(c7_cs, c7)) {
+    return nullptr;
+  }
+
+  auto emulator = new emulator::TvmEmulator(code, data);
+  emulator->set_vm_verbosity_level(0);
+  emulator->set_gas_limit(gas_limit);
+  emulator->set_c7_raw(c7->fetch(0).as_tuple());
+  if (libs.is_empty()) {
+    emulator->set_libraries(std::move(libs));
+  }
+  auto result = emulator->run_get_method(int(method_id), stack);
+  delete emulator;
+
+  vm::CellBuilder stack_cb;
+  if (!result.stack->serialize(stack_cb)) {
+    return nullptr;
+  }
+
+  vm::CellBuilder cb;
+  cb.store_long(result.code, 32);
+  cb.store_long(result.gas_used, 64);
+  cb.store_ref(stack_cb.finalize());
+
+  auto ser = vm::std_boc_serialize(cb.finalize());
+  if (!ser.is_ok()) {
+    return nullptr;
+  }
+  auto sok = ser.move_as_ok();
+
+  auto sz = uint32_t(sok.size());
+  char* rn = (char*)malloc(sz + 4);
+  memcpy(rn, &sz, 4);
+  memcpy(rn+4, sok.data(), sz);
+
+  return rn;
+}
+
 const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc) {
   auto message_body_cell = boc_b64_to_cell(message_body_boc);
   if (message_body_cell.is_error()) {

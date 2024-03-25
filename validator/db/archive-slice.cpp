@@ -465,7 +465,7 @@ void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::
 void ArchiveSlice::before_query() {
   if (status_ == st_closed) {
     LOG(DEBUG) << "Opening archive slice " << db_path_;
-    kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_).move_as_ok());
+    kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_, statistics_).move_as_ok());
     std::string value;
     auto R2 = kv_->get("status", value);
     R2.ensure();
@@ -604,14 +604,15 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
 }
 
 ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root,
-                           td::actor::ActorId<ArchiveLru> archive_lru)
+                           td::actor::ActorId<ArchiveLru> archive_lru, std::shared_ptr<rocksdb::Statistics> statistics)
     : archive_id_(archive_id)
     , key_blocks_only_(key_blocks_only)
     , temp_(temp)
     , finalized_(finalized)
     , p_id_(archive_id_, key_blocks_only_, temp_)
     , db_root_(std::move(db_root))
-    , archive_lru_(std::move(archive_lru)) {
+    , archive_lru_(std::move(archive_lru))
+    , statistics_(statistics) {
   db_path_ = PSTRING() << db_root_ << p_id_.path() << p_id_.name() << ".index";
 }
 

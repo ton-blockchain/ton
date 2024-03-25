@@ -601,7 +601,7 @@ void ArchiveManager::load_package(PackageId id) {
   }
 
   desc.file =
-      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get());
+      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get(), statistics_);
 
   m.emplace(id, std::move(desc));
   update_permanent_slices();
@@ -636,7 +636,7 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
   new_desc.file =
-      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get());
+      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get(), statistics_);
   const FileDescription &desc = f.emplace(id, std::move(new_desc));
   if (!id.temp) {
     update_desc(f, desc, shard, seqno, ts, lt);
@@ -829,7 +829,10 @@ void ArchiveManager::start_up() {
   if (opts_->get_max_open_archive_files() > 0) {
     archive_lru_ = td::actor::create_actor<ArchiveLru>("archive_lru", opts_->get_max_open_archive_files());
   }
-  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex").move_as_ok());
+  if (!opts_->get_disable_rocksdb_stats()) {
+    statistics_ = td::RocksDb::create_statistics();
+  }
+  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", statistics_).move_as_ok());
   std::string value;
   auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
   v.ensure();
@@ -903,6 +906,28 @@ void ArchiveManager::start_up() {
       break;
     }
   }
+
+  if (!opts_->get_disable_rocksdb_stats()) {
+    alarm_timestamp() = td::Timestamp::in(60.0);
+  }
+}
+
+void ArchiveManager::alarm() {
+  alarm_timestamp() = td::Timestamp::in(60.0);
+  auto stats = td::RocksDb::statistics_to_string(statistics_);
+  auto to_file_r = td::FileFd::open(db_root_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
+  if (to_file_r.is_error()) {
+    LOG(ERROR) << "Failed to open db_stats.txt: " << to_file_r.move_as_error();
+    return;
+  }
+  auto to_file = to_file_r.move_as_ok();
+  auto res = to_file.write(stats);
+  to_file.close();
+  if (res.is_error()) {
+    LOG(ERROR) << "Failed to write to db_stats.txt: " << res.move_as_error();
+    return;
+  }
+  td::RocksDb::reset_statistics(statistics_);
 }
 
 void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
