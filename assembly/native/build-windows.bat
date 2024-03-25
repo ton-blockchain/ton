@@ -42,6 +42,25 @@ cd ..\..\..\..
 echo Using zlib...
 )
 
+if not exist "lz4" (
+git clone https://github.com/lz4/lz4.git
+cd lz4
+git checkout v1.9.4
+cmake -G "Visual Studio 17 2022" -A x64 -S . -B build -DBUILD_SHARED_LIBS=OFF
+IF %errorlevel% NEQ 0 (
+  echo Can't configure lz4
+  exit /b %errorlevel%
+)
+cmake --build build --config Release
+IF %errorlevel% NEQ 0 (
+  echo Can't install lz4
+  exit /b %errorlevel%
+)
+cd ..
+) else (
+echo Using lz4...
+)
+
 if not exist "secp256k1" (
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
@@ -119,6 +138,9 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DSECP256K1_FOUND=1 ^
 -DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
 -DSECP256K1_LIBRARY=%root%\secp256k1\build\src\Release\libsecp256k1.lib ^
+-DLZ4_FOUND=1 ^
+-DLZ4_INCLUDE_DIR=%root%\lz4\include ^
+-DLZ4_LIBRARIES=%root%\lz4\build\src\Release\liblz4.lib ^
 -DMHD_FOUND=1 ^
 -DMHD_LIBRARY=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib ^
 -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static ^
