@@ -15,6 +15,7 @@ if (NOT DEFINED CMAKE_INSTALL_LIBDIR)
 endif()
 
 find_package(PkgConfig REQUIRED)
+find_package(LZ4)
 if (NOT ZLIB_FOUND)
   pkg_check_modules(ZLIB zlib)
 endif()
@@ -280,6 +281,15 @@ if (TDUTILS_MIME_TYPE)
   )
 endif()
 
+if (LZ4_FOUND)
+  set(TD_HAVE_LZ4 1)
+  set(TDUTILS_SOURCE
+    ${TDUTILS_SOURCE}
+    td/utils/lz4.cpp
+    td/utils/lz4.h
+    )
+endif()
+
 set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/buffer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/ConcurrentHashMap.cpp
@@ -338,6 +348,11 @@ endif()
 if (CRC32C_FOUND)
   target_link_libraries(tdutils PRIVATE crc32c)
 endif()
+
+if (LZ4_FOUND)
+  target_link_libraries(tdutils PRIVATE ${LZ4_LIBRARIES})
+endif()
+
 if (ABSL_FOUND)
   target_link_libraries_system(tdutils absl::flat_hash_map absl::flat_hash_set absl::hash)
 endif()

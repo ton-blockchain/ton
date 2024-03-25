@@ -19,6 +19,7 @@
 #include "validator-session.hpp"
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
+#include "candidate-serializer.h"
 
 namespace ton {
 
@@ -221,7 +222,9 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   // Note: src is not necessarily equal to the sender of this message:
   // If requested using get_broadcast_p2p, src is the creator of the block, sender possibly is some other node.
   auto src_idx = description().get_source_idx(src);
-  auto R = fetch_tl_object<ton_api::validatorSession_candidate>(data.clone(), true);
+  auto R =
+      deserialize_candidate(data, compress_block_candidates_,
+                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())
                                     << "]: failed to parse: " << R.move_as_error();
@@ -343,17 +346,17 @@ void ValidatorSessionImpl::process_query(PublicKeyHash src, td::BufferSlice data
   }
   CHECK(block);
 
-  auto P = td::PromiseCreator::lambda(
-      [promise = std::move(promise), src = f->id_->src_, round_id](td::Result<BlockCandidate> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error_prefix("failed to get candidate: "));
-        } else {
-          auto c = R.move_as_ok();
-          auto obj = create_tl_object<ton_api::validatorSession_candidate>(
-              src, round_id, c.id.root_hash, std::move(c.data), std::move(c.collated_data));
-          promise.set_value(serialize_tl_object(obj, true));
-        }
-      });
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise), src = f->id_->src_, round_id,
+                                       compress = compress_block_candidates_](td::Result<BlockCandidate> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error_prefix("failed to get candidate: "));
+    } else {
+      auto c = R.move_as_ok();
+      auto obj = create_tl_object<ton_api::validatorSession_candidate>(src, round_id, c.id.root_hash, std::move(c.data),
+                                                                       std::move(c.collated_data));
+      promise.set_result(serialize_candidate(obj, compress));
+    }
+  });
 
   callback_->get_approved_candidate(description().get_source_public_key(block->get_src_idx()), f->id_->root_hash_,
                                     f->id_->file_hash_, f->id_->collated_data_file_hash_, std::move(P));
@@ -431,7 +434,7 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, ValidatorSessionCan
   auto b = create_tl_object<ton_api::validatorSession_candidate>(local_id().tl(), round, root_hash, std::move(data),
                                                                  std::move(collated_data));
 
-  auto B = serialize_tl_object(b, true);
+  auto B = serialize_candidate(b, compress_block_candidates_).move_as_ok();
 
   auto block_id = description().candidate_id(local_idx(), root_hash, file_hash, collated_data_file_hash);
 
@@ -862,7 +865,8 @@ void ValidatorSessionImpl::on_catchain_started() {
     if (x) {
       auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), round = virtual_state_->cur_round_seqno(),
                                            src = description().get_source_id(x->get_src_idx()),
-                                           root_hash = x->get_root_hash()](td::Result<BlockCandidate> R) {
+                                           root_hash = x->get_root_hash(),
+                                           compress = compress_block_candidates_](td::Result<BlockCandidate> R) {
         if (R.is_error()) {
           LOG(ERROR) << "failed to get candidate: " << R.move_as_error();
         } else {
@@ -870,7 +874,7 @@ void ValidatorSessionImpl::on_catchain_started() {
           auto broadcast = create_tl_object<ton_api::validatorSession_candidate>(
               src.tl(), round, root_hash, std::move(B.data), std::move(B.collated_data));
           td::actor::send_closure(SelfId, &ValidatorSessionImpl::process_broadcast, src,
-                                  serialize_tl_object(broadcast, true), td::optional<ValidatorSessionCandidateId>(),
+                                  serialize_candidate(broadcast, compress).move_as_ok(), td::optional<ValidatorSessionCandidateId>(),
                                   false);
         }
       });
@@ -898,6 +902,7 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
     , rldp_(rldp)
     , overlay_manager_(overlays)
     , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
+  compress_block_candidates_ = opts.proto_version >= 3;
   description_ = ValidatorSessionDescription::create(std::move(opts), nodes, local_id);
   src_round_candidate_.resize(description_->get_total_nodes());
 }
