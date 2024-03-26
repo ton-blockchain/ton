@@ -940,6 +940,12 @@ bool ValidateQuery::fetch_config_params() {
                                                   storage_phase_cfg_.delete_due_limit)) {
       return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
+    auto mc_gas_prices = config_->get_gas_limits_prices(true);
+    if (mc_gas_prices.is_error()) {
+      return fatal_error(mc_gas_prices.move_as_error_prefix("cannot unpack masterchain gas prices and limits: "));
+    }
+    compute_phase_cfg_.mc_gas_prices = mc_gas_prices.move_as_ok();
+    compute_phase_cfg_.special_gas_full = config_->get_global_version() >= 5;
     storage_phase_cfg_.enable_due_payment = config_->get_global_version() >= 4;
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
@@ -954,8 +960,12 @@ bool ValidateQuery::fetch_config_params() {
       }
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
+    if (compute_phase_cfg_.global_version >= 6) {
+      compute_phase_cfg_.unpacked_config_tuple = config_->get_unpacked_config_tuple(now_);
+    }
     compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
     compute_phase_cfg_.size_limits = size_limits;
+    compute_phase_cfg_.precompiled_contracts = config_->get_precompiled_contracts_config();
   }
   {
     // compute action_phase_cfg
@@ -4679,6 +4689,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   bool external{false}, ihr_delivered{false}, need_credit_phase{false};
   // check input message
   block::CurrencyCollection money_imported(0), money_exported(0);
+  bool is_special_tx = false;  // recover/mint transaction
   if (in_msg_root.not_null()) {
     auto in_descr_cs = in_msg_dict_->lookup(in_msg_root->get_hash().as_bitslice());
     if (in_descr_cs.is_null()) {
@@ -4694,6 +4705,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                     << " has an invalid InMsg record (not one of msg_import_ext, msg_import_fin, "
                                        "msg_import_imm or msg_import_ihr)");
     }
+    is_special_tx = is_special_in_msg(*in_descr_cs);
     // once we know there is a InMsg with correct hash, we already know that it contains a message with this hash (by the verification of InMsg), so it is our message
     // have still to check its destination address and imported value
     // and that it refers to this transaction
@@ -4711,7 +4723,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                       << " processed inbound message created later at logical time "
                                       << info.created_lt);
       }
-      if (info.created_lt != start_lt_ || !is_special_in_msg(*in_descr_cs)) {
+      if (info.created_lt != start_lt_ || !is_special_tx) {
         msg_proc_lt_.emplace_back(addr, lt, info.created_lt);
       }
       dest = std::move(info.dest);
@@ -4904,13 +4916,6 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   int trans_type = block::transaction::Transaction::tr_none;
   switch (tag) {
     case block::gen::TransactionDescr::trans_ord: {
-      if (!block_limit_status_->fits(block::ParamLimits::cl_medium)) {
-        return reject_query(PSTRING() << "cannod add ordinary transaction because hard block limits are exceeded: "
-                                      << "gas_used=" << block_limit_status_->gas_used
-                                      << "(limit=" << block_limits_->gas.hard() << "), "
-                                      << "lt_delta=" << block_limit_status_->cur_lt - block_limits_->start_lt
-                                      << "(limit=" << block_limits_->lt_delta.hard() << ")");
-      }
       trans_type = block::transaction::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
@@ -5058,10 +5063,31 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (!trs->update_limits(*block_limit_status_, false)) {
+  if (!trs->update_limits(*block_limit_status_, /* with_gas = */ false, /* with_size = */ false)) {
     return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
                                  << addr.to_hex());
   }
+
+  // Collator should stop if total gas usage exceeds limits, including transactions on special accounts, but without
+  // ticktocks and mint/recover.
+  // Here Validator checks a weaker condition
+  if (!is_special_tx && !trs->gas_limit_overridden && trans_type == block::transaction::Transaction::tr_ord) {
+    (account.is_special ? total_special_gas_used_ : total_gas_used_) += trs->gas_used();
+  }
+  if (total_gas_used_ > block_limits_->gas.hard() + compute_phase_cfg_.gas_limit) {
+    return reject_query(PSTRING() << "gas block limits are exceeded: total_gas_used > gas_limit_hard + trx_gas_limit ("
+                                  << "total_gas_used=" << total_gas_used_
+                                  << ", gas_limit_hard=" << block_limits_->gas.hard()
+                                  << ", trx_gas_limit=" << compute_phase_cfg_.gas_limit << ")");
+  }
+  if (total_special_gas_used_ > block_limits_->gas.hard() + compute_phase_cfg_.special_gas_limit) {
+    return reject_query(
+        PSTRING() << "gas block limits are exceeded: total_special_gas_used > gas_limit_hard + special_gas_limit ("
+                  << "total_special_gas_used=" << total_special_gas_used_
+                  << ", gas_limit_hard=" << block_limits_->gas.hard()
+                  << ", special_gas_limit=" << compute_phase_cfg_.special_gas_limit << ")");
+  }
+
   auto trans_root2 = trs->commit(account);
   if (trans_root2.is_null()) {
     return reject_query(PSTRING() << "the re-created transaction " << lt << " for smart contract " << addr.to_hex()

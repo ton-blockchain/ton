@@ -28,7 +28,7 @@ class RootDb;
 
 class ArchiveManager : public td::actor::Actor {
  public:
-  ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root);
+  ArchiveManager(td::actor::ActorId<RootDb> root, std::string db_root, td::Ref<ValidatorManagerOptions> opts);
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
@@ -58,7 +58,7 @@ class ArchiveManager : public td::actor::Actor {
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
   //void truncate_continue(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
 
-  void run_gc(UnixTime ts, UnixTime archive_ttl);
+  void run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl);
 
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
@@ -70,6 +70,7 @@ class ArchiveManager : public td::actor::Actor {
                          td::Promise<td::BufferSlice> promise);
 
   void start_up() override;
+  void alarm() override;
 
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
@@ -123,6 +124,9 @@ class ArchiveManager : public td::actor::Actor {
     size_t size() const {
       return files_.size();
     }
+    bool empty() const {
+      return files_.empty();
+    }
     std::map<PackageId, FileDescription>::const_iterator lower_bound(const PackageId &x) const {
       return files_.lower_bound(x);
     }
@@ -164,10 +168,13 @@ class ArchiveManager : public td::actor::Actor {
     void shard_index_del(const FileDescription &desc);
   };
   FileMap files_, key_files_, temp_files_;
+  td::actor::ActorOwn<ArchiveLru> archive_lru_;
   BlockSeqno finalized_up_to_{0};
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;
+
+  std::shared_ptr<rocksdb::Statistics> statistics_;
 
   FileMap &get_file_map(const PackageId &p) {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
@@ -206,6 +213,7 @@ class ArchiveManager : public td::actor::Actor {
   void got_gc_masterchain_handle(ConstBlockHandle handle, FileHash hash);
 
   std::string db_root_;
+  td::Ref<ValidatorManagerOptions> opts_;
 
   std::shared_ptr<td::KeyValue> index_;
 
@@ -215,6 +223,10 @@ class ArchiveManager : public td::actor::Actor {
   PackageId get_temp_package_id() const;
   PackageId get_key_package_id(BlockSeqno seqno) const;
   PackageId get_temp_package_id_by_unixtime(UnixTime ts) const;
+
+  void update_permanent_slices();
+
+  static const td::uint32 TEMP_PACKAGES_TTL = 86400 * 7;
 };
 
 }  // namespace validator

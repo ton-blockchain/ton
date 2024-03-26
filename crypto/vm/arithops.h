@@ -18,10 +18,20 @@
 */
 #pragma once
 
+#include "common/refint.h"
 namespace vm {
 
 class OpcodeTable;
 
 void register_arith_ops(OpcodeTable& cp0);
+
+namespace util {
+
+// throw on error
+const td::RefInt256& check_signed_fits(const td::RefInt256& x, int bits);
+const td::RefInt256& check_unsigned_fits(const td::RefInt256& x, int bits);
+const td::RefInt256& check_finite(const td::RefInt256& x);
+
+}  // namespace util
 
 }  // namespace vm

@@ -213,6 +213,7 @@ set(BLOCK_SOURCE
   block/mc-config.cpp
   block/output-queue-merger.cpp
   block/transaction.cpp
+  block/precompiled-smc/PrecompiledSmartContract.cpp
   ${TLB_BLOCK_AUTO}
 
   block/block-binlog.h
@@ -223,6 +224,8 @@ set(BLOCK_SOURCE
   block/check-proof.h
   block/output-queue-merger.h
   block/transaction.h
+  block/precompiled-smc/PrecompiledSmartContract.h
+  block/precompiled-smc/common.h
 )
 
 set(SMC_ENVELOPE_SOURCE
@@ -325,23 +328,20 @@ endif()
 if (MSVC)
   find_package(Sodium REQUIRED)
   target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
-  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIRS}>)
-  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
-elseif (ANDROID)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
+elseif (ANDROID OR EMSCRIPTEN)
   target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
   target_link_libraries(ton_crypto PUBLIC $<BUILD_INTERFACE:${SECP256K1_LIBRARY}>)
 else()
-  if (NOT USE_EMSCRIPTEN)
+  if (NOT SODIUM_FOUND)
     find_package(Sodium REQUIRED)
-    target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIRS}>)
-    target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARIES})
   else()
-    target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
-    target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
+    message(STATUS "Using Sodium ${SODIUM_LIBRARY_RELEASE}")
   endif()
-  if (NOT APPLE AND NOT USE_EMSCRIPTEN)
-    target_link_libraries(ton_crypto_core PUBLIC secp256k1)
-  endif()
+  target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
+  target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
+  target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
 endif()
 
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
@@ -356,7 +356,7 @@ add_executable(test-ed25519-crypto test/test-ed25519-crypto.cpp)
 target_include_directories(test-ed25519-crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(test-ed25519-crypto PUBLIC ton_crypto)
 
-add_library(fift-lib ${FIFT_SOURCE})
+add_library(fift-lib STATIC ${FIFT_SOURCE})
 target_include_directories(fift-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(fift-lib PUBLIC ton_crypto ton_db tdutils ton_block)
 if (USE_EMSCRIPTEN)
@@ -379,6 +379,10 @@ add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
+if (USE_EMSCRIPTEN)
+  target_link_options(ton_block PRIVATE -fexceptions)
+  target_compile_options(ton_block PRIVATE -fexceptions)
+endif()
 
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -400,9 +404,11 @@ if (USE_EMSCRIPTEN)
   target_link_options(funcfiftlib PRIVATE -sIGNORE_MISSING_MAIN=1)
   target_link_options(funcfiftlib PRIVATE -sAUTO_NATIVE_LIBRARIES=0)
   target_link_options(funcfiftlib PRIVATE -sMODULARIZE=1)
+  target_link_options(funcfiftlib PRIVATE -sTOTAL_MEMORY=33554432)
   target_link_options(funcfiftlib PRIVATE -sALLOW_MEMORY_GROWTH=1)
   target_link_options(funcfiftlib PRIVATE -sALLOW_TABLE_GROWTH=1)
   target_link_options(funcfiftlib PRIVATE --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/fift/lib@/fiftlib)
+  target_link_options(funcfiftlib PRIVATE --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/funcfiftlib/funcfiftlib-prejs.js)
   target_link_options(funcfiftlib PRIVATE -fexceptions)
   target_compile_options(funcfiftlib PRIVATE -fexceptions -fno-stack-protector)
 endif()
@@ -506,7 +512,7 @@ if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
   GenFif(DEST smartcont/auto/simple-wallet-ext-code SOURCE smartcont/simple-wallet-ext-code.fc NAME simple-wallet-ext)
 endif()
 
-add_library(smc-envelope ${SMC_ENVELOPE_SOURCE})
+add_library(smc-envelope STATIC ${SMC_ENVELOPE_SOURCE})
 target_include_directories(smc-envelope PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(smc-envelope PUBLIC ton_crypto PRIVATE tdutils ton_block)
 if (NOT CMAKE_CROSSCOMPILING)

@@ -205,6 +205,10 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_ttl_ = 0;
   double key_proof_ttl_ = 0;
   td::uint32 celldb_compress_depth_ = 0;
+  size_t max_open_archive_files_ = 0;
+  double archive_preload_period_ = 0.0;
+  bool disable_rocksdb_stats_ = false;
+  bool nonfinal_ls_queries_enabled_ = false;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -264,6 +268,18 @@ class ValidatorEngine : public td::actor::Actor {
   void schedule_shutdown(double at);
   void set_celldb_compress_depth(td::uint32 value) {
     celldb_compress_depth_ = value;
+  }
+  void set_max_open_archive_files(size_t value) {
+    max_open_archive_files_ = value;
+  }
+  void set_archive_preload_period(double value) {
+    archive_preload_period_ = value;
+  }
+  void set_disable_rocksdb_stats(bool value) {
+    disable_rocksdb_stats_ = value;
+  }
+  void set_nonfinal_ls_queries_enabled() {
+    nonfinal_ls_queries_enabled_ = true;
   }
   void start_up() override;
   ValidatorEngine() {

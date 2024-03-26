@@ -973,6 +973,7 @@ bool TestNode::show_help(std::string command) {
          "savecomplaints <election-id> <filename-pfx>\tSaves all complaints registered for specified validator set id "
          "into files <filename-pfx><complaint-hash>.boc\n"
          "complaintprice <expires-in> <complaint-boc>\tComputes the price (in nanograms) for creating a complaint\n"
+         "msgqueuesizes\tShows current sizes of outbound message queues in all shards\n"
          "known\tShows the list of all known block ids\n"
          "knowncells\tShows the list of hashes of all known (cached) cells\n"
          "dumpcell <hex-hash-pfx>\nDumps a cached cell by a prefix of its hash\n"
@@ -1108,6 +1109,8 @@ bool TestNode::do_parse_line() {
     std::string filename;
     return parse_uint32(expire_in) && get_word_to(filename) && seekeoln() &&
            set_error(get_complaint_price(expire_in, filename));
+  } else if (word == "msgqueuesizes") {
+    return get_msg_queue_sizes();
   } else if (word == "known") {
     return eoln() && show_new_blkids(true);
   } else if (word == "knowncells") {
@@ -1275,7 +1278,7 @@ bool TestNode::after_parse_run_method(ton::WorkchainId workchain, ton::StdSmcAdd
       }
     }
   });
-  return start_run_method(workchain, addr, ref_blkid, method_name, std::move(params), ext_mode ? 0x1f : 0,
+  return start_run_method(workchain, addr, ref_blkid, method_name, std::move(params), ext_mode ? 0x17 : 0,
                           std::move(P));
 }
 
@@ -1449,7 +1452,7 @@ bool TestNode::send_past_vset_query(ton::StdSmcAddress elector_addr) {
     }
     register_past_vset_info(std::move(S.back()));
   });
-  return start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "past_elections_list", std::move(params), 0x1f,
+  return start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "past_elections_list", std::move(params), 0x17,
                           std::move(P));
 }
 
@@ -1510,7 +1513,7 @@ void TestNode::send_get_complaints_query(unsigned elect_id, ton::StdSmcAddress e
       LOG(ERROR) << "vm virtualization error: " << err.get_msg();
     }
   });
-  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "get_past_complaints", std::move(params), 0x1f,
+  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "get_past_complaints", std::move(params), 0x17,
                    std::move(P));
 }
 
@@ -1607,8 +1610,32 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
           LOG(ERROR) << "vm virtualization error: " << err.get_msg();
         }
       });
-  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "complaint_storage_price", std::move(params), 0x1f,
+  start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "complaint_storage_price", std::move(params), 0x17,
                    std::move(P));
+}
+
+bool TestNode::get_msg_queue_sizes() {
+  auto q = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getOutMsgQueueSizes>(0, 0, 0), true);
+  return envelope_send_query(std::move(q), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "liteServer.getOutMsgQueueSizes error: " << res.move_as_error();
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_outMsgQueueSizes>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getOutMsgQueueSizes";
+      return;
+    }
+    td::actor::send_closure_later(Self, &TestNode::got_msg_queue_sizes, F.move_as_ok());
+  });
+}
+
+void TestNode::got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f) {
+  td::TerminalIO::out() << "Outbound message queue sizes:" << std::endl;
+  for (auto &x : f->shards_) {
+    td::TerminalIO::out() << ton::create_block_id(x->id_).id.to_str() << "    " << x->size_ << std::endl;
+  }
+  td::TerminalIO::out() << "External message queue size limit: " << f->ext_msg_queue_size_limit_ << std::endl;
 }
 
 bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
@@ -1708,7 +1735,7 @@ bool TestNode::dns_resolve_send(ton::WorkchainId workchain, ton::StdSmcAddress a
     }
     return dns_resolve_finish(workchain, addr, blkid, domain, qdomain, cat, mode, (int)x->to_long(), std::move(cell));
   });
-  return start_run_method(workchain, addr, blkid, "dnsresolve", std::move(params), 0x1f, std::move(P));
+  return start_run_method(workchain, addr, blkid, "dnsresolve", std::move(params), 0x17, std::move(P));
 }
 
 bool TestNode::show_dns_record(std::ostream& os, td::Bits256 cat, Ref<vm::CellSlice> value, bool raw_dump) {
@@ -2142,21 +2169,29 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
       }
     }
     if (exit_code != 0) {
-      LOG(ERROR) << "VM terminated with error code " << exit_code;
       out << "result: error " << exit_code << std::endl;
-      promise.set_error(td::Status::Error(PSLICE() << "VM terminated with non-zero exit code " << exit_code));
-      return;
-    }
-    stack = vm.get_stack_ref();
-    {
+    } else {
+      stack = vm.get_stack_ref();
       std::ostringstream os;
       os << "result: ";
       stack->dump(os, 3);
       out << os.str();
     }
-    if (mode & 4) {
-      if (remote_result.empty()) {
-        out << "remote result: <none>, exit code " << remote_exit_code;
+    if (!(mode & 4)) {
+      if (exit_code != 0) {
+        LOG(ERROR) << "VM terminated with error code " << exit_code;
+        promise.set_error(td::Status::Error(PSLICE() << "VM terminated with non-zero exit code " << exit_code));
+      } else {
+        promise.set_result(stack->extract_contents());
+      }
+    } else {
+      if (remote_exit_code != 0) {
+        out << "remote result: error " << remote_exit_code << std::endl;
+        LOG(ERROR) << "VM terminated with error code " << exit_code;
+        promise.set_error(td::Status::Error(PSLICE() << "VM terminated with non-zero exit code " << exit_code));
+      } else if (remote_result.empty()) {
+        out << "remote result: <none>" << std::endl;
+        promise.set_value({});
       } else {
         auto res = vm::std_boc_deserialize(std::move(remote_result));
         if (res.is_error()) {
@@ -2177,10 +2212,10 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
         os << "remote result (not to be trusted): ";
         remote_stack->dump(os, 3);
         out << os.str();
+        promise.set_value(remote_stack->extract_contents());
       }
     }
     out.flush();
-    promise.set_result(stack->extract_contents());
   } catch (vm::VmVirtError& err) {
     out << "virtualization error while parsing runSmcMethod result: " << err.get_msg();
     promise.set_error(
@@ -3529,7 +3564,7 @@ void TestNode::continue_check_validator_load2(std::unique_ptr<TestNode::Validato
                                               std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
                                               std::string file_pfx) {
   LOG(INFO) << "continue_check_validator_load2 for blocks " << info1->blk_id.to_str() << " and "
-            << info1->blk_id.to_str() << " : requesting block creators data";
+            << info2->blk_id.to_str() << " : requesting block creators data";
   td::Status st = info1->unpack_vset();
   if (st.is_error()) {
     LOG(ERROR) << "cannot unpack validator set from block " << info1->blk_id.to_str() << " :" << st.move_as_error();
@@ -3627,7 +3662,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
     auto x1 = info2->created[i].first - info1->created[i].first;
     auto y1 = info2->created[i].second - info1->created[i].second;
     if (x1 < 0 || y1 < 0 || (x1 | y1) >= (1u << 31)) {
-      LOG(ERROR) << "impossible situation: validator #i created a negative amount of blocks: " << x1
+      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << x1
                  << " masterchain blocks, " << y1 << " shardchain blocks";
       return;
     }

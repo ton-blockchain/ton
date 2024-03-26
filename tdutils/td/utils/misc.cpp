@@ -153,9 +153,9 @@ string buffer_to_hex(Slice buffer) {
   const char *hex = "0123456789ABCDEF";
   string res(2 * buffer.size(), '\0');
   for (std::size_t i = 0; i < buffer.size(); i++) {
-    auto c = buffer.ubegin()[i];
-    res[2 * i] = hex[c & 15];
-    res[2 * i + 1] = hex[c >> 4];
+    unsigned char c = buffer[i];
+    res[2 * i] = hex[c >> 4];
+    res[2 * i + 1] = hex[c & 15];
   }
   return res;
 }

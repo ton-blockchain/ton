@@ -20,6 +20,7 @@
 
 #include "validator/validator.h"
 #include "ton/ton-tl.hpp"
+#include "full-node-serializer.hpp"
 
 namespace ton {
 
@@ -38,8 +39,8 @@ class BlockFullSender : public td::actor::Actor {
     stop();
   }
   void finish_query() {
-    promise_.set_value(create_serialize_tl_object<ton_api::tonNode_dataFull>(
-        create_tl_block_id(block_id_), std::move(proof_), std::move(data_), is_proof_link_));
+    promise_.set_result(
+        serialize_block_full(block_id_, proof_, data_, is_proof_link_, false));  // compression_enabled = false
     stop();
   }
   void start_up() override {

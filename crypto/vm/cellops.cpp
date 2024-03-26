@@ -892,6 +892,40 @@ int exec_load_special_cell(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute XLOAD" << (quiet ? "Q" : "");
   auto cell = stack.pop_cell();
+  if (st->get_global_version() >= 5) {
+    st->register_cell_load(cell->get_hash());
+    auto r_loaded_cell = cell->load_cell();
+    if (r_loaded_cell.is_error()) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      } else {
+        throw VmError{Excno::cell_und, "failed to load cell"};
+      }
+    }
+    auto loaded_cell = r_loaded_cell.move_as_ok();
+    if (loaded_cell.data_cell->is_special()) {
+      if (loaded_cell.data_cell->special_type() != CellTraits::SpecialType::Library) {
+        if (quiet) {
+          stack.push_bool(false);
+          return 0;
+        } else {
+          throw VmError{Excno::cell_und, "unexpected special cell"};
+        }
+      }
+      CellSlice cs(std::move(loaded_cell));
+      DCHECK(cs.size() == Cell::hash_bits + 8);
+      cell = st->load_library(cs.data_bits() + 8);
+      if (cell.is_null()) {
+        if (quiet) {
+          stack.push_bool(false);
+          return 0;
+        } else {
+          throw VmError{Excno::cell_und, "failed to load library cell"};
+        }
+      }
+    }
+  }
   stack.push_cell(cell);
   if (quiet) {
     stack.push_bool(true);
@@ -1357,6 +1391,55 @@ int exec_slice_depth(VmState* st) {
   return 0;
 }
 
+int exec_cell_level(VmState* st) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute CLEVEL";
+  auto cell = stack.pop_cell();
+  stack.push_smallint(cell->get_level());
+  return 0;
+}
+
+int exec_cell_level_mask(VmState* st) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute CLEVELMASK";
+  auto cell = stack.pop_cell();
+  stack.push_smallint(cell->get_level_mask().get_mask());
+  return 0;
+}
+
+int exec_cell_hash_i(VmState* st, unsigned args, bool var) {
+  unsigned i;
+  Stack& stack = st->get_stack();
+  if (var) {
+    VM_LOG(st) << "execute CHASHIX";
+    i = stack.pop_smallint_range(3);
+  } else {
+    i = args & 3;
+    VM_LOG(st) << "execute CHASHI " << i;
+  }
+  auto cell = stack.pop_cell();
+  std::array<unsigned char, 32> hash = cell->get_hash(i).as_array();
+  td::RefInt256 res{true};
+  CHECK(res.write().import_bytes(hash.data(), hash.size(), false));
+  stack.push_int(std::move(res));
+  return 0;
+}
+
+int exec_cell_depth_i(VmState* st, unsigned args, bool var) {
+  unsigned i;
+  Stack& stack = st->get_stack();
+  if (var) {
+    VM_LOG(st) << "execute CDEPTHIX";
+    i = stack.pop_smallint_range(3);
+  } else {
+    i = args & 3;
+    VM_LOG(st) << "execute CDEPTHI " << i;
+  }
+  auto cell = stack.pop_cell();
+  stack.push_smallint(cell->get_depth(i));
+  return 0;
+}
+
 void register_cell_deserialize_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xd0, 8, "CTOS", exec_cell_to_slice))
@@ -1445,7 +1528,13 @@ void register_cell_deserialize_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xd761, 16, "LDONES", std::bind(exec_load_same, _1, "LDONES", 1)))
       .insert(OpcodeInstr::mksimple(0xd762, 16, "LDSAME", std::bind(exec_load_same, _1, "LDSAME", -1)))
       .insert(OpcodeInstr::mksimple(0xd764, 16, "SDEPTH", exec_slice_depth))
-      .insert(OpcodeInstr::mksimple(0xd765, 16, "CDEPTH", exec_cell_depth));
+      .insert(OpcodeInstr::mksimple(0xd765, 16, "CDEPTH", exec_cell_depth))
+      .insert(OpcodeInstr::mksimple(0xd766, 16, "CLEVEL", exec_cell_level)->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd767, 16, "CLEVELMASK", exec_cell_level_mask)->require_version(6))
+      .insert(OpcodeInstr::mkfixed(0xd768 >> 2, 14, 2, instr::dump_1c_and(3, "CHASHI "), std::bind(exec_cell_hash_i, _1, _2, false))->require_version(6))
+      .insert(OpcodeInstr::mkfixed(0xd76c >> 2, 14, 2, instr::dump_1c_and(3, "CDEPTHI "), std::bind(exec_cell_depth_i, _1, _2, false))->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd770, 16, "CHASHIX ", std::bind(exec_cell_hash_i, _1, 0, true))->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd771, 16, "CDEPTHIX ", std::bind(exec_cell_depth_i, _1, 0, true))->require_version(6));
 }
 
 void register_cell_ops(OpcodeTable& cp0) {
@@ -1454,5 +1543,194 @@ void register_cell_ops(OpcodeTable& cp0) {
   register_cell_serialize_ops(cp0);
   register_cell_deserialize_ops(cp0);
 }
+
+namespace util {
+
+bool load_int256_q(CellSlice& cs, td::RefInt256& res, int len, bool sgnd, bool quiet) {
+  if (!cs.fetch_int256_to(len, res, sgnd)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  return true;
+}
+bool load_long_q(CellSlice& cs, td::int64& res, int len, bool quiet) {
+  CHECK(0 <= len && len <= 64);
+  if (!cs.have(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  res = cs.fetch_long(len);
+  return true;
+}
+bool load_ulong_q(CellSlice& cs, td::uint64& res, int len, bool quiet) {
+  CHECK(0 <= len && len <= 64);
+  if (!cs.have(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  res = cs.fetch_ulong(len);
+  return true;
+}
+bool load_ref_q(CellSlice& cs, td::Ref<Cell>& res, bool quiet) {
+  if (!cs.have_refs(1)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  res = cs.fetch_ref();
+  return true;
+}
+bool load_maybe_ref_q(CellSlice& cs, td::Ref<Cell>& res, bool quiet) {
+  if (!cs.fetch_maybe_ref(res)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  return true;
+}
+bool skip_bits_q(CellSlice& cs, int bits, bool quiet) {
+  if (!cs.skip_first(bits)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und};
+  }
+  return true;
+}
+
+td::RefInt256 load_int256(CellSlice& cs, int len, bool sgnd) {
+  td::RefInt256 x;
+  load_int256_q(cs, x, len, sgnd, false);
+  return x;
+}
+td::int64 load_long(CellSlice& cs, int len) {
+  td::int64 x;
+  load_long_q(cs, x, len, false);
+  return x;
+}
+td::uint64 load_ulong(CellSlice& cs, int len) {
+  td::uint64 x;
+  load_ulong_q(cs, x, len, false);
+  return x;
+}
+td::Ref<Cell> load_ref(CellSlice& cs) {
+  td::Ref<Cell> x;
+  load_ref_q(cs, x, false);
+  return x;
+}
+td::Ref<Cell> load_maybe_ref(CellSlice& cs) {
+  td::Ref<Cell> x;
+  load_maybe_ref_q(cs, x, false);
+  return x;
+}
+void check_have_bits(const CellSlice& cs, int bits) {
+  if (!cs.have(bits)) {
+    throw VmError{Excno::cell_und};
+  }
+}
+void skip_bits(CellSlice& cs, int bits) {
+  skip_bits_q(cs, bits, false);
+}
+void end_parse(CellSlice& cs) {
+  if (cs.size() || cs.size_refs()) {
+    throw VmError{Excno::cell_und, "extra data remaining in deserialized cell"};
+  }
+}
+
+bool store_int256(CellBuilder& cb, const td::RefInt256& x, int len, bool sgnd, bool quiet) {
+  if (!cb.can_extend_by(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  if (!x->fits_bits(len, sgnd)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::range_chk};
+  }
+  cb.store_int256(*x, len, sgnd);
+  return true;
+}
+bool store_long(CellBuilder& cb, td::int64 x, int len, bool quiet) {
+  CHECK(len > 0);
+  if (!cb.can_extend_by(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  if (len < 64 && (x < td::int64(std::numeric_limits<td::uint64>::max() << (len - 1)) || x >= (1LL << (len - 1)))) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::range_chk};
+  }
+  if (len > 64) {
+    cb.store_bits_same(len - 64, x < 0);
+    len = 64;
+  }
+  cb.store_long(x, len);
+  return true;
+}
+bool store_ulong(CellBuilder& cb, td::uint64 x, int len, bool quiet) {
+  CHECK(len > 0);
+  if (!cb.can_extend_by(len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  if (len < 64 && x >= (1ULL << len)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::range_chk};
+  }
+  if (len > 64) {
+    cb.store_zeroes(len - 64);
+    len = 64;
+  }
+  cb.store_long(x, len);
+  return true;
+}
+bool store_ref(CellBuilder& cb, td::Ref<Cell> x, bool quiet) {
+  if (!cb.store_ref_bool(std::move(x))) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  return true;
+}
+bool store_maybe_ref(CellBuilder& cb, td::Ref<Cell> x, bool quiet) {
+  if (!cb.store_maybe_ref(std::move(x))) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  return true;
+}
+bool store_slice(CellBuilder& cb, const CellSlice& cs, bool quiet) {
+  if (!cell_builder_add_slice_bool(cb, cs)) {
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_ov};
+  }
+  return true;
+}
+
+}  // namespace util
 
 }  // namespace vm

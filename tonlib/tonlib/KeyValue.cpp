@@ -22,6 +22,7 @@
 #include "td/utils/port/path.h"
 #include "td/utils/PathView.h"
 
+#include <algorithm>
 #include <map>
 #include <utility>
 
@@ -42,7 +43,11 @@ class KeyValueDir : public KeyValue {
   }
 
   td::Status add(td::Slice key, td::Slice value) override {
-    auto path = to_file_path(key.str());
+    auto key_str = key.str();
+    if (!is_valid_key(key_str)) {
+      return td::Status::Error("Invalid key");
+    }
+    auto path = to_file_path(key_str);
     if (td::stat(path).is_ok()) {
       return td::Status::Error(PSLICE() << "File " << path << "already exists");
     }
@@ -50,15 +55,27 @@ class KeyValueDir : public KeyValue {
   }
 
   td::Status set(td::Slice key, td::Slice value) override {
-    return td::atomic_write_file(to_file_path(key.str()), value);
+    auto key_str = key.str();
+    if (!is_valid_key(key_str)) {
+      return td::Status::Error("Invalid key");
+    }
+    return td::atomic_write_file(to_file_path(key_str), value);
   }
 
   td::Result<td::SecureString> get(td::Slice key) override {
-    return td::read_file_secure(to_file_path(key.str()));
+    auto key_str = key.str();
+    if (!is_valid_key(key_str)) {
+      return td::Status::Error("Invalid key");
+    }
+    return td::read_file_secure(to_file_path(key_str));
   }
 
   td::Status erase(td::Slice key) override {
-    return td::unlink(to_file_path(key.str()));
+    auto key_str = key.str();
+    if (!is_valid_key(key_str)) {
+      return td::Status::Error("Invalid key");
+    }
+    return td::unlink(to_file_path(key_str));
   }
 
   void foreach_key(std::function<void(td::Slice)> f) override {
@@ -82,6 +99,20 @@ class KeyValueDir : public KeyValue {
 
   std::string to_file_path(std::string key) {
     return directory_ + TD_DIR_SLASH + key;
+  }
+
+  bool is_valid_key(const std::string& key) {
+    if (key.empty()) {
+      return false;
+    }
+
+    if (key.find(TD_DIR_SLASH) != std::string::npos || key.find("..") != std::string::npos) {
+      return false;
+    }
+
+    return std::all_of(key.begin(), key.end(), [](char c) {
+      return std::isalnum(c) || c == '_' || c == '-' || c == '.';
+    });
   }
 };
 

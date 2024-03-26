@@ -7,6 +7,7 @@ endif()
 set(TON_VALIDATOR_SOURCE
   accept-block.cpp
   block.cpp
+  candidates-buffer.cpp
   check-proof.cpp
   collator.cpp
   config.cpp
@@ -24,6 +25,7 @@ set(TON_VALIDATOR_SOURCE
 
   accept-block.hpp
   block.hpp
+  candidates-buffer.hpp
   check-proof.hpp
   collate-query-impl.h
   collator-impl.h
@@ -32,6 +34,7 @@ set(TON_VALIDATOR_SOURCE
   external-message.hpp
   ihr-message.hpp
   liteserver.hpp
+  liteserver-cache.hpp
   message-queue.hpp
   proof.hpp
   shard.hpp

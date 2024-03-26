@@ -163,3 +163,7 @@ TEST(Fift, test_bls) {
 TEST(Fift, test_bls_ops) {
   run_fift("bls_ops.fif");
 }
+
+TEST(Fift, test_levels) {
+  run_fift("levels.fif");
+}

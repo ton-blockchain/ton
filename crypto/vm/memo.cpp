@@ -18,6 +18,7 @@
 */
 #include "vm/memo.h"
 #include "vm/excno.hpp"
+#include "vm/vm.h"
 
 namespace vm {
 using td::Ref;
@@ -28,6 +29,20 @@ bool FakeVmStateLimits::register_op(int op_units) {
     throw VmError{Excno::out_of_gas, "too many operations"};
   }
   return ok;
+}
+
+Ref<Cell> DummyVmState::load_library(td::ConstBitPtr hash) {
+  std::unique_ptr<VmStateInterface> tmp_ctx;
+  // install temporary dummy vm state interface to prevent charging for cell load operations during library lookup
+  VmStateInterface::Guard guard{global_version >= 4 ? tmp_ctx.get() : VmStateInterface::get()};
+  for (const auto& lib_collection : libraries) {
+    auto lib = lookup_library_in(hash, lib_collection);
+    if (lib.not_null()) {
+      return lib;
+    }
+  }
+  missing_library = td::Bits256{hash};
+  return {};
 }
 
 }  // namespace vm

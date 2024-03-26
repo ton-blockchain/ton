@@ -1,4 +1,4 @@
-name: Docker Ubuntu 20.04 image
+name: Docker Ubuntu 22.04 image
 
 on:
   workflow_dispatch:
@@ -12,10 +12,12 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
@@ -35,5 +37,5 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          context: ./docker
+          context: ./
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

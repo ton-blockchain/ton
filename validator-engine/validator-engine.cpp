@@ -72,6 +72,7 @@
 #include "block-auto.h"
 #include "block-parse.h"
 #include "common/delay.h"
+#include "block/precompiled-smc/PrecompiledSmartContract.h"
 
 Config::Config() {
   out_port = 3278;
@@ -1364,6 +1365,10 @@ td::Status ValidatorEngine::load_global_config() {
     validator_options_.write().set_session_logs_file(session_logs_file_);
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
+  validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
+  validator_options_.write().set_archive_preload_period(archive_preload_period_);
+  validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
+  validator_options_.write().set_nonfinal_ls_queries_enabled(nonfinal_ls_queries_enabled_);
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -3943,6 +3948,32 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
+  p.add_checked_option(
+      '\0', "max-archive-fd", "limit for a number of open file descriptirs in archive manager. 0 is unlimited (default)",
+      [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_open_archive_files, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "archive-preload-period", "open archive slices for the past X second on startup (default: 0)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v < 0) {
+          return td::Status::Error("sync-before should be non-negative");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_archive_preload_period, v); });
+        return td::Status::OK();
+      });
+  p.add_option('\0', "enable-precompiled-smc",
+               "enable exectuion of precompiled contracts (experimental, disabled by default)",
+               []() { block::precompiled::set_precompiled_execution_enabled(true); });
+  p.add_option('\0', "disable-rocksdb-stats", "disable gathering rocksdb statistics (enabled by default)", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_disable_rocksdb_stats, true); });
+  });
+  p.add_option('\0', "nonfinal-ls", "enable special LS queries to non-finalized blocks", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_nonfinal_ls_queries_enabled); });
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

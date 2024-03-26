@@ -287,7 +287,9 @@ void CatChainReceiverImpl::add_block_cont_3(tl_object_ptr<ton_api::catchain_bloc
 
   run_scheduler();
   if (!intentional_fork_) {
-    CHECK(last_sent_block_->delivered());
+    LOG_CHECK(last_sent_block_->delivered())
+        << "source=" << last_sent_block_->get_source_id() << " ill=" << last_sent_block_->is_ill()
+        << " height=" << last_sent_block_->get_height();
   }
 
   active_send_ = false;

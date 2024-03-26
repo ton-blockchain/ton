@@ -46,7 +46,7 @@ jobs:
       - name: Download Windows artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: win-2019-compile.yml
+          workflow: ton-x86-64-windows.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
@@ -54,7 +54,7 @@ jobs:
       - name: Download and unzip Windows artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: win-2019-compile.yml
+          workflow: ton-x86-64-windows.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: false
@@ -62,7 +62,7 @@ jobs:
       - name: Download WASM artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: ton-wasm-emscripten.yml
+          workflow: build-ton-wasm-emscripten.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
@@ -191,6 +191,14 @@ jobs:
           asset_name: tonlibjson.dll
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Windows 2019 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/emulator.dll
+          asset_name: libemulator.dll
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Windows 2019 single artifact - tonlib-cli
         uses: svenstaro/upload-release-action@v2
         with:
@@ -273,6 +281,14 @@ jobs:
           asset_name: tonlibjson-mac-x86-64.dylib
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Mac x86-64 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/libemulator.dylib
+          asset_name: libemulator-mac-x86-64.dylib
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Mac x86-64 single artifact - tonlib-cli
         uses: svenstaro/upload-release-action@v2
         with:
@@ -353,6 +369,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux-binaries/libtonlibjson.so
           asset_name: tonlibjson-linux-x86_64.so
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/libemulator.so
+          asset_name: libemulator-linux-x86_64.so
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Linux x86-64 single artifact - tonlib-cli
