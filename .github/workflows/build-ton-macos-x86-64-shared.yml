@@ -14,6 +14,10 @@ jobs:
 
       - name: Build TON
         run: |
+          git clone https://github.com/lz4/lz4
+          cd lz4
+          git checkout v1.9.4
+          sudo make install
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
           ./build-macos-shared.sh -t -a
