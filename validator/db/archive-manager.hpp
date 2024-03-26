@@ -174,7 +174,7 @@ class ArchiveManager : public td::actor::Actor {
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;
 
-  std::shared_ptr<rocksdb::Statistics> statistics_;
+  DbStatistics statistics_;
 
   FileMap &get_file_map(const PackageId &p) {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
