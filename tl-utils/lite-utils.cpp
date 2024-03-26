@@ -155,7 +155,9 @@ std::string lite_query_name_by_id(int id) {
       {lite_api::liteServer_getConfigParams::ID, "getConfigParams"},
       {lite_api::liteServer_getValidatorStats::ID, "getValidatorStats"},
       {lite_api::liteServer_getLibraries::ID, "getLibraries"},
-      {lite_api::liteServer_getShardBlockProof::ID, "getShardBlockProof"}};
+      {lite_api::liteServer_getShardBlockProof::ID, "getShardBlockProof"},
+      {lite_api::liteServer_nonfinal_getCandidate::ID, "nonfinal.getCandidate"},
+      {lite_api::liteServer_nonfinal_getValidatorGroups::ID, "nonfinal.getValidatorGroups"}};
   auto it = names.find(id);
   if (it == names.end()) {
     return "unknown";

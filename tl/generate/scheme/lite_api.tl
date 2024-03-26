@@ -60,6 +60,12 @@ liteServer.lookupBlockResult id:tonNode.blockIdExt mode:# mc_block_id:tonNode.bl
 
 liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 
+liteServer.nonfinal.candidateId block_id:tonNode.blockIdExt creator:int256 collated_data_hash:int256 = liteServer.nonfinal.CandidateId;
+liteServer.nonfinal.candidate id:liteServer.nonfinal.candidateId data:bytes collated_data:bytes = liteServer.nonfinal.Candidate;
+liteServer.nonfinal.candidateInfo id:liteServer.nonfinal.candidateId available:Bool approved_weight:long signed_weight:long total_weight:long = liteServer.nonfinal.CandidateInfo;
+liteServer.nonfinal.validatorGroupInfo next_block_id:tonNode.blockId cc_seqno:int prev:(vector tonNode.blockIdExt) candidates:(vector liteServer.nonfinal.candidateInfo) = liteServer.nonfinal.ValidatorGroupInfo;
+liteServer.nonfinal.validatorGroups groups:(vector liteServer.nonfinal.validatorGroupInfo) = liteServer.nonfinal.ValidatorGroups;
+
 ---functions---
 
 liteServer.getMasterchainInfo = liteServer.MasterchainInfo;
@@ -88,6 +94,9 @@ liteServer.getValidatorStats#091a58bc mode:# id:tonNode.blockIdExt limit:int sta
 liteServer.getLibraries library_list:(vector int256) = liteServer.LibraryResult;
 liteServer.getLibrariesWithProof id:tonNode.blockIdExt mode:# library_list:(vector int256) = liteServer.LibraryResultWithProof;
 liteServer.getShardBlockProof id:tonNode.blockIdExt = liteServer.ShardBlockProof;
+
+liteServer.nonfinal.getValidatorGroups mode:# wc:mode.0?int shard:mode.1?long = liteServer.nonfinal.ValidatorGroups;
+liteServer.nonfinal.getCandidate id:liteServer.nonfinal.candidateId = liteServer.nonfinal.Candidate;
 
 liteServer.queryPrefix = Object; 
 liteServer.query data:bytes = Object;

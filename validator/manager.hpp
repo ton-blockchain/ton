@@ -29,6 +29,7 @@
 #include "rldp/rldp.h"
 #include "token-manager.h"
 #include "queue-size-counter.hpp"
+#include "impl/candidates-buffer.hpp"
 
 #include <map>
 #include <set>
@@ -235,8 +236,12 @@ class ValidatorManagerImpl : public ValidatorManager {
                                                              td::Ref<ValidatorSet> validator_set,
                                                              validatorsession::ValidatorSessionOptions opts,
                                                              bool create_catchain);
-  std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> validator_groups_;
-  std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> next_validator_groups_;
+  struct ValidatorGroupEntry {
+    td::actor::ActorOwn<ValidatorGroup> actor;
+    ShardIdFull shard;
+  };
+  std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
+  std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
 
   std::set<ValidatorSessionId> check_gc_list_;
   std::vector<ValidatorSessionId> gc_list_;
@@ -563,17 +568,24 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+  void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) override;
+  void get_block_state_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) override;
+  void get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
                                              td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+  void get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
                                                     td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+  void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
                                                 td::Promise<ConstBlockHandle> promise) override;
   void process_block_handle_for_litequery_error(BlockIdExt block_id, td::Result<BlockHandle> r_handle,
                                                 td::Promise<ConstBlockHandle> promise);
   void process_lookup_block_for_litequery_error(AccountIdPrefixFull account, int type, td::uint64 value,
                                                 td::Result<ConstBlockHandle> r_handle,
                                                 td::Promise<ConstBlockHandle> promise);
+  void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,
+                                         td::Promise<BlockCandidate> promise) override;
+  void get_validator_groups_info_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override;
 
   void add_lite_query_stats(int lite_query_id) override {
     ++ls_stats_[lite_query_id];
@@ -648,6 +660,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::Timestamp log_ls_stats_at_;
   std::map<int, td::uint32> ls_stats_;  // lite_api ID -> count, 0 for unknown
   td::uint32 ls_stats_check_ext_messages_{0};
+
+  td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
 };
 
 }  // namespace validator
