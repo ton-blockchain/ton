@@ -280,7 +280,7 @@ if (TDUTILS_MIME_TYPE)
   )
 endif()
 
-if (NOT ZL4_FOUND)
+if (NOT LZ4_FOUND)
   pkg_check_modules(LZ4 REQUIRED liblz4)
 endif()
 if (LZ4_FOUND)
