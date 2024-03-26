@@ -255,7 +255,7 @@ struct ParamLimits {
 };
 
 struct BlockLimits {
-  ParamLimits bytes, gas, lt_delta;
+  ParamLimits bytes, gas, lt_delta, collated_data;
   ton::LogicalTime start_lt{0};
   ImportedMsgQueueLimits imported_msg_queue;
   const vm::CellUsageTree* usage_tree{nullptr};

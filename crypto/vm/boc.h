@@ -41,7 +41,6 @@ class NewCellStorageStat {
     Stat(td::uint64 cells_, td::uint64 bits_, td::uint64 internal_refs_ = 0, td::uint64 external_refs_ = 0)
         : cells(cells_), bits(bits_), internal_refs(internal_refs_), external_refs(external_refs_) {
     }
-    Stat(const Stat&) = default;
     td::uint64 cells{0};
     td::uint64 bits{0};
     td::uint64 internal_refs{0};
@@ -53,6 +52,7 @@ class NewCellStorageStat {
     bool operator==(const Stat& other) const {
       return key() == other.key();
     }
+    Stat(const Stat& other) = default;
     Stat& operator=(const Stat& other) = default;
     Stat& operator+=(const Stat& other) {
       cells += other.cells;
