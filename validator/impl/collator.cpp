@@ -5140,6 +5140,10 @@ void Collator::after_get_external_messages(td::Result<std::vector<Ref<ExtMessage
   check_pending();
 }
 
+td::uint32 Collator::get_skip_externals_queue_size() {
+  return SKIP_EXTERNALS_QUEUE_SIZE;
+}
+
 }  // namespace validator
 
 }  // namespace ton

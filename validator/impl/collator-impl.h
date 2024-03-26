@@ -322,6 +322,9 @@ class Collator final : public td::actor::Actor {
   bool create_block_candidate();
   void return_block_candidate(td::Result<td::Unit> saved);
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);
+
+ public:
+  static td::uint32 get_skip_externals_queue_size();
 };
 
 }  // namespace validator
