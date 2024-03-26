@@ -408,8 +408,7 @@ tonNode.dataList data:(vector bytes) = tonNode.DataList;
 tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullEmpty = tonNode.DataFull;
 
-tonNode.capabilities version:int capabilities:long = tonNode.Capabilities;
-tonNode.capabilitiesV2 version:int capabilities:long have_state:Bool = tonNode.Capabilities;
+tonNode.capabilities#f5bf60c0 version_major:int version_minor:int flags:# = tonNode.Capabilities;
 
 tonNode.success = tonNode.Success;
 
@@ -457,7 +456,6 @@ tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blo
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
 
 tonNode.getCapabilities = tonNode.Capabilities;
-tonNode.getCapabilitiesV2 = tonNode.Capabilities;
 
 tonNode.slave.sendExtMessage message:tonNode.externalMessage = tonNode.Success;
 
@@ -660,7 +658,7 @@ engine.validator.overlayStatsNode adnl_id:int256 ip_addr:string bdcst_errors:int
 engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 scope:string nodes:(vector engine.validator.overlayStatsNode) stats:(vector engine.validator.oneStat) extra:string = engine.validator.OverlayStats;
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 
-engine.validator.shardOverlayStats.neighbour id:string proto_verison:int capabilities:long
+engine.validator.shardOverlayStats.neighbour id:string verison_major:int version_minor:int flags:#
     roundtrip:double unreliability:double has_state:string = engine.validator.shardOverlayStats.Neighbour;
 engine.validator.shardOverlayStats shard:string mode:string
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;

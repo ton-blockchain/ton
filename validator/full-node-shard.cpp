@@ -51,21 +51,10 @@ namespace fullnode {
 
 Neighbour Neighbour::zero = Neighbour{adnl::AdnlNodeIdShort::zero()};
 
-void Neighbour::update_proto_version(ton_api::tonNode_Capabilities &q) {
-  ton_api::downcast_call(q, td::overloaded(
-      [&](ton_api::tonNode_capabilities &x) {
-        proto_version = x.version_;
-        capabilities = x.capabilities_;
-        if (!supports_v2()) {
-          has_state_known = has_state = true;
-        }
-      },
-      [&](ton_api::tonNode_capabilitiesV2 &x) {
-        proto_version = x.version_;
-        capabilities = x.capabilities_;
-        has_state_known = true;
-        has_state = x.have_state_;
-      }));
+void Neighbour::update_proto_version(ton_api::tonNode_capabilities &q) {
+  version_major = q.version_major_;
+  version_minor = q.version_minor_;
+  flags = q.flags_;
 }
 
 void Neighbour::query_success(double t) {
@@ -188,7 +177,7 @@ void FullNodeShardImpl::try_get_next_block(td::Timestamp timeout, td::Promise<Re
   }
 
   auto &b = choose_neighbour();
-  if (!b.adnl_id.is_zero() && b.proto_version >= 1) {
+  if (!b.adnl_id.is_zero() && b.version_major >= 1) {
     VLOG(FULL_NODE_DEBUG) << "using new download method with adnlid=" << b.adnl_id;
     td::actor::create_actor<DownloadBlockNew>("downloadnext", adnl_id_, overlay_id_, handle_->id(), b.adnl_id,
                                               download_next_priority(), timeout, validator_manager_, rldp_, overlays_,
@@ -631,14 +620,12 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                                       td::Promise<td::BufferSlice> promise) {
   VLOG(FULL_NODE_DEBUG) << "Got query getCapabilities from " << src;
-  promise.set_value(create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version(), proto_capabilities()));
-}
-
-void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilitiesV2 &query,
-                                      td::Promise<td::BufferSlice> promise) {
-  VLOG(FULL_NODE_DEBUG) << "Got query getCapabilitiesV2 from " << src;
-  promise.set_value(create_serialize_tl_object<ton_api::tonNode_capabilitiesV2>(proto_version(), proto_capabilities(),
-                                                                                mode_ == FullNodeShardMode::active));
+  td::uint32 flags = 0;
+  if (mode_ != FullNodeShardMode::active) {
+    flags |= Neighbour::FLAG_NO_STATE;
+  }
+  promise.set_value(
+      create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version_major(), proto_version_minor(), flags));
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
@@ -878,7 +865,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
 void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                        td::Promise<ReceivedBlock> promise) {
   auto &b = choose_neighbour();
-  if (!b.adnl_id.is_zero() && b.proto_version >= 1) {
+  if (!b.adnl_id.is_zero() && b.version_major >= 1) {
     VLOG(FULL_NODE_DEBUG) << "new block download";
     td::actor::create_actor<DownloadBlockNew>("downloadreq", id, adnl_id_, overlay_id_, b.adnl_id, priority, timeout,
                                               validator_manager_, rldp_, overlays_, adnl_, client_,
@@ -1173,7 +1160,7 @@ void FullNodeShardImpl::got_neighbours(std::vector<adnl::AdnlNodeIdShort> vec) {
     if (neighbours_.size() == max_neighbours()) {
       td::uint32 neighbours_with_state = 0;
       for (const auto &n : neighbours_) {
-        if (n.second.has_state) {
+        if (n.second.has_state_known() && n.second.has_state()) {
           ++neighbours_with_state;
         }
       }
@@ -1183,7 +1170,8 @@ void FullNodeShardImpl::got_neighbours(std::vector<adnl::AdnlNodeIdShort> vec) {
       td::uint32 cnt = 0;
       double u = 0;
       for (auto &n : neighbours_) {
-        if (neighbours_with_state <= min_neighbours_with_state() && n.second.has_state) {
+        if (neighbours_with_state <= min_neighbours_with_state() && n.second.has_state_known() &&
+            n.second.has_state()) {
           continue;
         }
         if (n.second.unreliability > u) {
@@ -1224,18 +1212,18 @@ const Neighbour &FullNodeShardImpl::choose_neighbour(bool require_state) const {
 
     for (auto &x : neighbours_) {
       if (require_state) {
-        if (attempt == 0 && !x.second.has_state) {
+        if (attempt == 0 && !(x.second.has_state_known() && x.second.has_state())) {
           continue;
         }
-        if (attempt == 1 && x.second.has_state_known) {
+        if (attempt == 1 && x.second.has_state_known()) {
           continue;
         }
       }
       auto unr = static_cast<td::uint32>(x.second.unreliability - min_unreliability);
 
-      if (x.second.proto_version < proto_version()) {
+      if (x.second.version_major < proto_version_major()) {
         unr += 4;
-      } else if (x.second.proto_version == proto_version() && x.second.capabilities < proto_capabilities()) {
+      } else if (x.second.version_major == proto_version_major() && x.second.version_minor < proto_version_minor()) {
         unr += 2;
       }
 
@@ -1272,7 +1260,7 @@ void FullNodeShardImpl::got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id
   if (it == neighbours_.end()) {
     return;
   }
-  auto F = fetch_tl_object<ton_api::tonNode_Capabilities>(std::move(data), true);
+  auto F = fetch_tl_object<ton_api::tonNode_capabilities>(std::move(data), true);
   if (F.is_error()) {
     it->second.query_failed();
   } else {
@@ -1305,12 +1293,7 @@ void FullNodeShardImpl::ping_neighbours() {
                                     td::Time::now() - start_time, R.move_as_ok());
           }
         });
-    td::BufferSlice q;
-    if (it->second.supports_v2()) {
-      q = create_serialize_tl_object<ton_api::tonNode_getCapabilitiesV2>();
-    } else {
-      q = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
-    }
+    td::BufferSlice q = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query, it->first, adnl_id_, overlay_id_,
                             "get_prepare_block", std::move(P), td::Timestamp::in(1.0), std::move(q));
 
@@ -1338,11 +1321,12 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
     const auto &n = p.second;
     auto f = create_tl_object<ton_api::engine_validator_shardOverlayStats_neighbour>();
     f->id_ = n.adnl_id.bits256_value().to_hex();
-    f->proto_verison_ = n.proto_version;
-    f->capabilities_ = n.capabilities;
+    f->verison_major_ = n.version_major;
+    f->version_minor_ = n.version_minor;
+    f->flags_ = n.flags;
     f->roundtrip_ = n.roundtrip;
     f->unreliability_ = n.unreliability;
-    f->has_state_ = (n.has_state_known ? (n.has_state ? "true" : "false") : "undefined");
+    f->has_state_ = (n.has_state_known() ? (n.has_state() ? "true" : "false") : "undefined");
     res->neighbours_.push_back(std::move(f));
   }
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));

@@ -31,30 +31,33 @@ namespace fullnode {
 
 struct Neighbour {
   adnl::AdnlNodeIdShort adnl_id;
-  td::uint32 proto_version = 0;
-  td::uint64 capabilities = 0;
+  td::uint32 version_major = 0;
+  td::uint32 version_minor = 0;
+  td::uint32 flags = 0;
   double roundtrip = 0;
   double roundtrip_relax_at = 0;
   double roundtrip_weight = 0;
   double unreliability = 0;
-  bool has_state_known = false;
-  bool has_state = false;
 
   Neighbour(adnl::AdnlNodeIdShort adnl_id) : adnl_id(std::move(adnl_id)) {
   }
-  void update_proto_version(ton_api::tonNode_Capabilities &q);
+  void update_proto_version(ton_api::tonNode_capabilities &q);
   void query_success(double t);
   void query_failed();
   void update_roundtrip(double t);
 
   bool use_rldp2() const {
-    return std::make_pair(proto_version, capabilities) >= std::make_pair<td::uint32, td::uint64>(2, 2);
+    return std::make_pair(version_major, version_minor) >= std::make_pair<td::uint32, td::uint32>(2, 2);
   }
-  bool supports_v2() const {
-    return proto_version >= 3;
+  bool has_state() const {
+    return !(flags & FLAG_NO_STATE);
+  }
+  bool has_state_known() const {
+    return version_major != 0;
   }
 
   static Neighbour zero;
+  static constexpr td::uint32 FLAG_NO_STATE = 1;
 };
 
 class FullNodeShardImpl : public FullNodeShard {
@@ -72,11 +75,11 @@ class FullNodeShardImpl : public FullNodeShard {
   static constexpr td::uint32 download_next_priority() {
     return 1;
   }
-  static constexpr td::uint32 proto_version() {
+  static constexpr td::uint32 proto_version_major() {
     return 3;
   }
-  static constexpr td::uint64 proto_capabilities() {
-    return 2;
+  static constexpr td::uint32 proto_version_minor() {
+    return 0;
   }
   static constexpr td::uint32 max_neighbours() {
     return 16;
@@ -146,8 +149,6 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                      td::Promise<td::BufferSlice> promise);
-  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilitiesV2 &query,
-                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
@@ -216,7 +217,7 @@ class FullNodeShardImpl : public FullNodeShard {
   template <typename T>
   td::Promise<T> create_neighbour_promise(const Neighbour &x, td::Promise<T> p, bool require_state = false) {
     return td::PromiseCreator::lambda([id = x.adnl_id, SelfId = actor_id(this), p = std::move(p), ts = td::Time::now(),
-                                       ignore_error = require_state && !x.has_state_known](td::Result<T> R) mutable {
+                                       ignore_error = require_state && !x.has_state_known()](td::Result<T> R) mutable {
       if (R.is_error() && R.error().code() != ErrorCode::notready && R.error().code() != ErrorCode::cancelled) {
         if (!ignore_error) {
           td::actor::send_closure(SelfId, &FullNodeShardImpl::update_neighbour_stats, id, td::Time::now() - ts, false);
