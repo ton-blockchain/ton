@@ -1100,6 +1100,7 @@ bool TestNode::show_help(std::string command) {
          "savecomplaints <election-id> <filename-pfx>\tSaves all complaints registered for specified validator set id "
          "into files <filename-pfx><complaint-hash>.boc\n"
          "complaintprice <expires-in> <complaint-boc>\tComputes the price (in nanograms) for creating a complaint\n"
+         "msgqueuesizes\tShows current sizes of outbound message queues in all shards\n"
          "known\tShows the list of all known block ids\n"
          "knowncells\tShows the list of hashes of all known (cached) cells\n"
          "dumpcell <hex-hash-pfx>\nDumps a cached cell by a prefix of its hash\n"
@@ -1235,6 +1236,8 @@ bool TestNode::do_parse_line() {
     std::string filename;
     return parse_uint32(expire_in) && get_word_to(filename) && seekeoln() &&
            set_error(get_complaint_price(expire_in, filename));
+  } else if (word == "msgqueuesizes") {
+    return get_msg_queue_sizes();
   } else if (word == "known") {
     return eoln() && show_new_blkids(true);
   } else if (word == "knowncells") {
@@ -1742,6 +1745,31 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
       });
   start_run_method(ton::masterchainId, elector_addr, mc_last_id_, "complaint_storage_price", std::move(params), 0x17,
                    std::move(P));
+}
+
+bool TestNode::get_msg_queue_sizes() {
+  // TODO: rework for separated liteservers
+  auto q = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getOutMsgQueueSizes>(0, 0, 0), true);
+  return envelope_send_query_to_any(std::move(q), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "liteServer.getOutMsgQueueSizes error: " << res.move_as_error();
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_outMsgQueueSizes>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getOutMsgQueueSizes";
+      return;
+    }
+    td::actor::send_closure_later(Self, &TestNode::got_msg_queue_sizes, F.move_as_ok());
+  });
+}
+
+void TestNode::got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f) {
+  td::TerminalIO::out() << "Outbound message queue sizes:" << std::endl;
+  for (auto &x : f->shards_) {
+    td::TerminalIO::out() << ton::create_block_id(x->id_).id.to_str() << "    " << x->size_ << std::endl;
+  }
+  td::TerminalIO::out() << "External message queue size limit: " << f->ext_msg_queue_size_limit_ << std::endl;
 }
 
 bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,

@@ -29,6 +29,7 @@
 #include "liteserver.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "validator-session/validator-session-types.h"
+#include "auto/tl/lite_api.h"
 #include "impl/out-msg-queue-proof.hpp"
 
 namespace ton {
@@ -171,12 +172,19 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
 
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
-  virtual void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
-                                                     td::Promise<ConstBlockHandle> promise) = 0;
-  virtual void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
-                                                            td::Promise<ConstBlockHandle> promise) = 0;
-  virtual void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                        td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
+  virtual void get_block_state_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+                                             td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+                                                    td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+                                                td::Promise<ConstBlockHandle> promise) = 0;
+  virtual void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,
+                                                 td::Promise<BlockCandidate> promise) = 0;
+  virtual void get_validator_groups_info_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
 
   virtual void add_lite_query_stats(int lite_query_id) {
   }

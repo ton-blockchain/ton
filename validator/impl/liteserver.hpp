@@ -168,6 +168,11 @@ class LiteQuery : public td::actor::Actor {
   void perform_getShardBlockProof(BlockIdExt blkid);
   void continue_getShardBlockProof(Ref<BlockData> cur_block,
                                    std::vector<std::pair<BlockIdExt, td::BufferSlice>> result);
+  void perform_getOutMsgQueueSizes(td::optional<ShardIdFull> shard);
+  void continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Ref<MasterchainState> state);
+
+  void perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash);
+  void perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard);
 
   void load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);
   void continue_loadPrevKeyBlock(ton::BlockIdExt blkid, td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res,

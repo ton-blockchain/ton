@@ -85,6 +85,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual size_t get_max_open_archive_files() const = 0;
   virtual double get_archive_preload_period() const = 0;
   virtual bool get_disable_rocksdb_stats() const = 0;
+  virtual bool nonfinal_ls_queries_enabled() const = 0;
   virtual ValidatorMode validator_mode() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
@@ -108,6 +109,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_max_open_archive_files(size_t value) = 0;
   virtual void set_archive_preload_period(double value) = 0;
   virtual void set_disable_rocksdb_stats(bool value) = 0;
+  virtual void set_nonfinal_ls_queries_enabled(bool value) = 0;
   virtual void set_validator_mode(ValidatorMode value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(

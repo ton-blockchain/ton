@@ -7,6 +7,7 @@ endif()
 set(TON_VALIDATOR_SOURCE
   accept-block.cpp
   block.cpp
+  candidates-buffer.cpp
   check-proof.cpp
   collator.cpp
   config.cpp
@@ -25,6 +26,7 @@ set(TON_VALIDATOR_SOURCE
 
   accept-block.hpp
   block.hpp
+  candidates-buffer.hpp
   check-proof.hpp
   collator-impl.h
   collator.h

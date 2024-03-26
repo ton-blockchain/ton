@@ -27,6 +27,9 @@ namespace fullnode {
 class FullNodePrivateOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
+  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {

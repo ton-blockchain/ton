@@ -173,7 +173,7 @@ class Torrent {
   size_t not_ready_pending_piece_count_{0};
   size_t header_pieces_count_{0};
   std::map<td::uint64, td::string> pending_pieces_;
-  bool enabled_wirte_to_files_ = false;
+  bool enabled_write_to_files_ = false;
   struct InMemoryPiece {
     std::string data;
     std::set<size_t> pending_chunks;

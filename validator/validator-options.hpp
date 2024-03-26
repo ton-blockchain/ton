@@ -124,6 +124,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_disable_rocksdb_stats() const override {
     return disable_rocksdb_stats_;
   }
+  bool nonfinal_ls_queries_enabled() const override {
+    return nonfinal_ls_queries_enabled_;
+  }
   ValidatorMode validator_mode() const override {
     return validator_mode_;
   }
@@ -192,6 +195,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_disable_rocksdb_stats(bool value) override {
     disable_rocksdb_stats_ = value;
   }
+  void set_nonfinal_ls_queries_enabled(bool value) override {
+    nonfinal_ls_queries_enabled_ = value;
+  }
   void set_validator_mode(ValidatorMode value) override {
     validator_mode_ = value;
   }
@@ -239,6 +245,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   size_t max_open_archive_files_ = 0;
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_;
+  bool nonfinal_ls_queries_enabled_ = false;
   ValidatorMode validator_mode_ = validator_normal;
 };
 

@@ -324,7 +324,7 @@ td::Status Torrent::add_piece(td::uint64 piece_i, td::Slice data, td::Ref<vm::Ce
   piece_is_ready_[piece_i] = true;
   ready_parts_count_++;
 
-  if (chunks_.empty() || !enabled_wirte_to_files_) {
+  if (chunks_.empty() || !enabled_write_to_files_) {
     return add_pending_piece(piece_i, data);
   }
   return add_validated_piece(piece_i, data);
@@ -357,7 +357,7 @@ td::Status Torrent::add_pending_piece(td::uint64 piece_i, td::Slice data) {
         fatal_error_ = S.clone();
         return S;
       }
-      if (enabled_wirte_to_files_) {
+      if (enabled_write_to_files_) {
         add_pending_pieces();
       }
     }
@@ -367,10 +367,10 @@ td::Status Torrent::add_pending_piece(td::uint64 piece_i, td::Slice data) {
 }
 
 void Torrent::enable_write_to_files() {
-  if (enabled_wirte_to_files_) {
+  if (enabled_write_to_files_) {
     return;
   }
-  enabled_wirte_to_files_ = true;
+  enabled_write_to_files_ = true;
   if (header_) {
     add_pending_pieces();
   }
@@ -441,7 +441,7 @@ td::Status Torrent::add_validated_piece(td::uint64 piece_i, td::Slice data) {
 }
 
 bool Torrent::is_completed() const {
-  return inited_info_ && enabled_wirte_to_files_ && included_ready_size_ == included_size_;
+  return inited_info_ && enabled_write_to_files_ && included_ready_size_ == included_size_;
 }
 
 td::Result<td::BufferSlice> Torrent::read_file(td::Slice name) {
@@ -488,7 +488,7 @@ Torrent::Torrent(Info info, td::optional<TorrentHeader> header, ton::MerkleTree 
     , info_(info)
     , root_dir_(std::move(root_dir))
     , header_(std::move(header))
-    , enabled_wirte_to_files_(true)
+    , enabled_write_to_files_(true)
     , merkle_tree_(std::move(tree))
     , piece_is_ready_(info_.pieces_count(), true)
     , ready_parts_count_{info_.pieces_count()}
@@ -586,7 +586,7 @@ void Torrent::set_file_excluded(size_t i, bool excluded) {
     included_ready_size_ += chunk.ready_size;
   }
   chunk.excluded = excluded;
-  if (!enabled_wirte_to_files_ || excluded) {
+  if (!enabled_write_to_files_ || excluded) {
     return;
   }
   auto range = get_file_parts_range(i);

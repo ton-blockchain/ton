@@ -21,6 +21,7 @@
 #include "ton/ton-io.hpp"
 #include "td/utils/overloaded.h"
 #include "common/delay.h"
+#include "ton/lite-tl.hpp"
 #include "ton/ton-tl.hpp"
 #include "td/utils/Random.h"
 
@@ -70,7 +71,9 @@ void ValidatorGroup::generated_block_candidate(std::shared_ptr<CachedCollatedBlo
       cached_collated_block_ = nullptr;
     }
   } else {
-    cache->result = R.move_as_ok();
+    auto candidate = R.move_as_ok();
+    add_available_block_candidate(candidate.pubkey.as_bits256(), candidate.id, candidate.collated_file_hash);
+    cache->result = std::move(candidate);
     for (auto &p : cache->promises) {
       p.set_value(cache->result.value().clone());
     }
@@ -117,6 +120,8 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
           [&](UnixTime ts) {
             td::actor::send_closure(SelfId, &ValidatorGroup::update_approve_cache, block_to_cache_key(block),
                                     ts);
+            td::actor::send_closure(SelfId, &ValidatorGroup::add_available_block_candidate, block.pubkey.as_bits256(),
+                                    block.id, block.collated_file_hash);
             promise.set_result(ts);
           },
           [&](CandidateReject reject) {
@@ -213,6 +218,10 @@ void ValidatorGroup::get_approved_candidate(PublicKey source, RootHash root_hash
                           std::move(promise));
 }
 
+BlockIdExt ValidatorGroup::create_next_block_id(RootHash root_hash, FileHash file_hash) const {
+  return BlockIdExt{create_next_block_id_simple(), root_hash, file_hash};
+}
+
 BlockId ValidatorGroup::create_next_block_id_simple() const {
   BlockSeqno seqno = 0;
   for (auto &p : prev_block_ids_) {
@@ -221,10 +230,6 @@ BlockId ValidatorGroup::create_next_block_id_simple() const {
     }
   }
   return BlockId{shard_.workchain, shard_.shard, seqno + 1};
-}
-
-BlockIdExt ValidatorGroup::create_next_block_id(RootHash root_hash, FileHash file_hash) const {
-  return BlockIdExt{create_next_block_id_simple(), root_hash, file_hash};
 }
 
 std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::make_validator_session_callback() {
@@ -380,6 +385,47 @@ void ValidatorGroup::destroy() {
                  td::Timestamp::in(10.0));
   }
   stop();
+}
+
+void ValidatorGroup::get_validator_group_info_for_litequery(
+    td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) {
+  if (session_.empty()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not started"));
+    return;
+  }
+  td::actor::send_closure(
+      session_, &validatorsession::ValidatorSession::get_validator_group_info_for_litequery, last_known_round_id_,
+      [SelfId = actor_id(this), promise = std::move(promise), round = last_known_round_id_](
+          td::Result<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> R) mutable {
+        TRY_RESULT_PROMISE(promise, result, std::move(R));
+        td::actor::send_closure(SelfId, &ValidatorGroup::get_validator_group_info_for_litequery_cont, round,
+                                std::move(result), std::move(promise));
+      });
+}
+
+void ValidatorGroup::get_validator_group_info_for_litequery_cont(
+    td::uint32 expected_round, std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>> candidates,
+    td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) {
+  if (expected_round != last_known_round_id_) {
+    candidates.clear();
+  }
+
+  BlockId next_block_id = create_next_block_id_simple();
+  for (auto &candidate : candidates) {
+    BlockIdExt id{next_block_id, candidate->id_->block_id_->root_hash_, candidate->id_->block_id_->file_hash_};
+    candidate->id_->block_id_ = create_tl_lite_block_id(id);
+    candidate->available_ =
+        available_block_candidates_.count({candidate->id_->creator_, id, candidate->id_->collated_data_hash_});
+  }
+
+  auto result = create_tl_object<lite_api::liteServer_nonfinal_validatorGroupInfo>();
+  result->next_block_id_ = create_tl_lite_block_id_simple(next_block_id);
+  for (const BlockIdExt& prev : prev_block_ids_) {
+    result->prev_.push_back(create_tl_lite_block_id(prev));
+  }
+  result->cc_seqno_ = validator_set_->get_catchain_seqno();
+  result->candidates_ = std::move(candidates);
+  promise.set_result(std::move(result));
 }
 
 void ValidatorGroup::get_session_info(

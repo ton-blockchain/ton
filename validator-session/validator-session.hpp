@@ -156,6 +156,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   bool started_ = false;
   bool catchain_started_ = false;
   bool allow_unsafe_self_blocks_resync_;
+  bool compress_block_candidates_ = false;
 
   ValidatorSessionStats cur_stats_;
   void stats_init();
@@ -177,6 +178,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   void start() override;
   void destroy() override;
   void get_current_stats(td::Promise<ValidatorSessionStats> promise) override;
+  void get_validator_group_info_for_litequery(
+      td::uint32 cur_round,
+      td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) override;
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();

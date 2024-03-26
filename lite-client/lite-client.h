@@ -35,6 +35,7 @@
 #include "block/block.h"
 #include "block/mc-config.h"
 #include "td/utils/filesystem.h"
+#include "auto/tl/lite_api.h"
 
 using td::Ref;
 
@@ -315,6 +316,8 @@ class TestNode : public td::actor::Actor {
                                  td::Bits256 chash = td::Bits256::zero(), std::string filename = "");
   void send_compute_complaint_price_query(ton::StdSmcAddress elector_addr, unsigned expires_in, unsigned bits,
                                           unsigned refs, td::Bits256 chash, std::string filename);
+  bool get_msg_queue_sizes();
+  void got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f);
   bool cache_cell(Ref<vm::Cell> cell);
   bool list_cached_cells() const;
   bool dump_cached_cell(td::Slice hash_pfx, td::Slice type_name = {});
