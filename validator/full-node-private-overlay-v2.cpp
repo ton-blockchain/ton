@@ -22,23 +22,24 @@
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
 #include "auto/tl/ton_api_json.h"
+#include "full-node-serializer.hpp"
 
 namespace ton::validator::fullnode {
 
-void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash, ton_api::tonNode_blockBroadcast &query) {
-  std::vector<BlockSignature> signatures;
-  for (auto &sig : query.signatures_) {
-    signatures.emplace_back(BlockSignature{sig->who_, std::move(sig->signature_)});
+void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
+  process_block_broadcast(src, query);
+}
+
+void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
+  process_block_broadcast(src, query);
+}
+
+void FullNodePrivateOverlayV2::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
+  if (B.is_error()) {
+    LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
+    return;
   }
-
-  BlockIdExt block_id = create_block_id(query.id_);
-  BlockBroadcast B{block_id,
-                   std::move(signatures),
-                   static_cast<UnixTime>(query.catchain_seqno_),
-                   static_cast<td::uint32>(query.validator_set_hash_),
-                   std::move(query.data_),
-                   std::move(query.proof_)};
-
   auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
     if (R.is_error()) {
       if (R.error().code() == ErrorCode::notready) {
@@ -48,8 +49,8 @@ void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash, ton_api::tonNode
       }
     }
   });
-  LOG(FULL_NODE_DEBUG) << "Got block broadcast in private overlay: " << B.block_id.to_str();
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, std::move(B),
+  LOG(FULL_NODE_DEBUG) << "Got block broadcast in private overlay: " << B.ok().block_id.to_str();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, B.move_as_ok(),
                           std::move(P));
 }
 
@@ -89,15 +90,13 @@ void FullNodePrivateOverlayV2::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
-  std::vector<tl_object_ptr<ton_api::tonNode_blockSignature>> sigs;
-  for (auto &sig : broadcast.signatures) {
-    sigs.emplace_back(create_tl_object<ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
+  auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
+  if (B.is_error()) {
+    VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
+    return;
   }
-  auto B = create_serialize_tl_object<ton_api::tonNode_blockBroadcast>(
-      create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, std::move(sigs),
-      broadcast.proof.clone(), broadcast.data.clone());
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
 void FullNodePrivateOverlayV2::start_up() {
