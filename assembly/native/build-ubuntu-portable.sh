@@ -136,8 +136,8 @@ cmake -GNinja .. \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
 -DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
 -DLZ4_FOUND=1 \
--DLZ4_INCLUDE_DIR=$lz4Path/lib \
--DLZ4_LIBRARY=$lz4Path/lib/liblz4.a
+-DLZ4_INCLUDE_DIRS=$lz4Path/lib \
+-DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a
 
 
 

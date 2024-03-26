@@ -51,6 +51,19 @@ else
   echo "Using compiled secp256k1"
 fi
 
+if [ ! -d "lz4" ]; then
+  git clone https://github.com/lz4/lz4
+  cd lz4
+  lz4Path=`pwd`
+  git checkout v1.9.4
+  make -j12
+  test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
+  cd ..
+else
+  lz4Path=$(pwd)/lz4
+  echo "Using compiled lz4"
+fi
+
 brew unlink openssl@1.1
 brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
@@ -59,7 +72,10 @@ cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
 -DSECP256K1_FOUND=1 \
 -DSECP256K1_INCLUDE_DIR=$secp256k1Path/include \
--DSECP256K1_LIBRARY=$secp256k1Path/.libs/libsecp256k1.a
+-DSECP256K1_LIBRARY=$secp256k1Path/.libs/libsecp256k1.a \
+-DLZ4_FOUND=1 \
+-DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
+-DLZ4_INCLUDE_DIRS=$lz4Path/lib
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
