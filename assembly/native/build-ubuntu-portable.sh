@@ -31,7 +31,7 @@ export CCACHE_DISABLE=1
 if [ ! -d "lz4" ]; then
 git clone https://github.com/lz4/lz4.git
 cd lz4
-secp256k1Path=`pwd`
+lz4Path=`pwd`
 git checkout v1.9.4
 make -j12
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
