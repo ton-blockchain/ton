@@ -42,6 +42,8 @@
 #include "signature-set.hpp"
 #include "fabric.h"
 #include <ctime>
+#include "td/actor/MultiPromise.h"
+#include "collator-impl.h"
 
 namespace ton {
 
@@ -281,6 +283,9 @@ void LiteQuery::perform() {
           },
           [&](lite_api::liteServer_nonfinal_getValidatorGroups& q) {
             this->perform_nonfinal_getValidatorGroups(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
+          },
+          [&](lite_api::liteServer_getOutMsgQueueSizes& q) {
+            this->perform_getOutMsgQueueSizes(q.mode_ & 1 ? ShardIdFull(q.wc_, q.shard_) : td::optional<ShardIdFull>());
           },
           [&](auto& obj) { this->abort_query(td::Status::Error(ErrorCode::protoviolation, "unknown query")); }));
 }
@@ -3214,6 +3219,53 @@ void LiteQuery::continue_getShardBlockProof(Ref<BlockData> cur_block,
                                         std::move(result));
         }
       });
+}
+
+void LiteQuery::perform_getOutMsgQueueSizes(td::optional<ShardIdFull> shard) {
+  LOG(INFO) << "started a getOutMsgQueueSizes" << (shard ? shard.value().to_str() : "") << " liteserver query";
+  td::actor::send_closure_later(
+      manager_, &ton::validator::ValidatorManager::get_last_liteserver_state_block,
+      [Self = actor_id(this), shard](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+        if (res.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+        } else {
+          td::actor::send_closure_later(Self, &LiteQuery::continue_getOutMsgQueueSizes, shard, res.ok().first);
+        }
+      });
+}
+
+void LiteQuery::continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Ref<MasterchainState> state) {
+  std::vector<BlockIdExt> blocks;
+  if (!shard || shard_intersects(shard.value(), state->get_shard())) {
+    blocks.push_back(state->get_block_id());
+  }
+  for (auto& x : state->get_shards()) {
+    if (!shard || shard_intersects(shard.value(), x->shard())) {
+      blocks.push_back(x->top_block_id());
+    }
+  }
+  auto res = std::make_shared<std::vector<tl_object_ptr<lite_api::liteServer_outMsgQueueSize>>>(blocks.size());
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  for (size_t i = 0; i < blocks.size(); ++i) {
+    td::actor::send_closure(manager_, &ValidatorManager::get_out_msg_queue_size, blocks[i],
+                            [promise = ig.get_promise(), res, i, id = blocks[i]](td::Result<td::uint32> R) mutable {
+                              TRY_RESULT_PROMISE(promise, value, std::move(R));
+                              res->at(i) = create_tl_object<lite_api::liteServer_outMsgQueueSize>(
+                                  create_tl_lite_block_id(id), value);
+                              promise.set_value(td::Unit());
+                            });
+  }
+  ig.add_promise([Self = actor_id(this), res](td::Result<td::Unit> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
+      return;
+    }
+    td::actor::send_closure(Self, &LiteQuery::finish_query,
+                            create_serialize_tl_object<lite_api::liteServer_outMsgQueueSizes>(
+                                std::move(*res), Collator::get_skip_externals_queue_size()),
+                            false);
+  });
 }
 
 void LiteQuery::perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash) {
