@@ -42,6 +42,22 @@ cd ..\..\..\..
 echo Using zlib...
 )
 
+if not exist "lz4" (
+git clone https://github.com/lz4/lz4.git
+cd lz4
+git checkout v1.9.4
+cd build\VS2017\liblz4
+msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
+dir /s
+IF %errorlevel% NEQ 0 (
+  echo Can't install lz4
+  exit /b %errorlevel%
+)
+cd ..\..\..\..
+) else (
+echo Using lz4...
+)
+
 if not exist "secp256k1" (
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
@@ -119,6 +135,9 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DSECP256K1_FOUND=1 ^
 -DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
 -DSECP256K1_LIBRARY=%root%\secp256k1\build\src\Release\libsecp256k1.lib ^
+-DLZ4_FOUND=1 ^
+-DLZ4_INCLUDE_DIRS=%root%\lz4\lib ^
+-DLZ4_LIBRARIES=%root%\lz4\build\VS2017\liblz4\bin\x64_Release\liblz4_static.lib ^
 -DMHD_FOUND=1 ^
 -DMHD_LIBRARY=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib ^
 -DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static ^
