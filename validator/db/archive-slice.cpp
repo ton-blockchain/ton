@@ -90,7 +90,7 @@ class PackageStatistics {
       temp_write_time_sum = write_time_sum;
       write_time_sum = 0;
     }
-    auto write_stats = calculate_statistics(write_time);
+    auto write_stats = calculate_statistics(temp_write_time);
     ss << "ton.pack.write.micros P50 : " << write_stats[0] << 
                                " P95 : " << write_stats[1] << 
                                " P99 : " << write_stats[2] << 
