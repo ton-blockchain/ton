@@ -38,7 +38,7 @@ then
   SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-armv8-a/lib/libsodium.a
   SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/armv8/libsecp256k1.a
   BLST_LIBRARY=$(pwd)/third_party/blst/armv8/libblst.a
-  LZ4_LIBRARY=$(pwd)/third_party/lz4/arm8/liblz4.a
+  LZ4_LIBRARY=$(pwd)/third_party/lz4/armv8/liblz4.a
 fi
 
 ORIG_ARCH=$ARCH
