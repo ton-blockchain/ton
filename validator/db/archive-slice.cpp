@@ -1024,7 +1024,7 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handl
     td::unlink(packages_[idx].path).ensure();
   }
   statistics_.pack_statistics->record_close(packages_.size() - pack->idx - 1);
-  packages_.erase(packages_.begin() + pack->idx + 1);
+  packages_.erase(packages_.begin() + pack->idx + 1, packages_.end());
 
   kv_->commit_transaction().ensure();
 
