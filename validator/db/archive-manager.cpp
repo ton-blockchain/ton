@@ -914,7 +914,7 @@ void ArchiveManager::start_up() {
 
 void ArchiveManager::alarm() {
   alarm_timestamp() = td::Timestamp::in(60.0);
-  auto stats = statistics_.to_string();
+  auto stats = statistics_.to_string_and_reset();
   auto to_file_r = td::FileFd::open(db_root_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
   if (to_file_r.is_error()) {
     LOG(ERROR) << "Failed to open db_stats.txt: " << to_file_r.move_as_error();
@@ -927,7 +927,6 @@ void ArchiveManager::alarm() {
     LOG(ERROR) << "Failed to write to db_stats.txt: " << res.move_as_error();
     return;
   }
-  statistics_.reset();
 }
 
 void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {

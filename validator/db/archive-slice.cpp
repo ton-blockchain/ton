@@ -53,45 +53,52 @@ class PackageStatistics {
     write_time_sum += time;
   }
 
-  std::string to_string() const {
+  std::string to_string_and_reset() {
     std::stringstream ss;
     ss.setf(std::ios::fixed);
     ss.precision(6);
     
-    ss << "ton.pack.open COUNT : " << open_count.load(std::memory_order_relaxed) << "\n";
-    ss << "ton.pack.close COUNT : " << close_count.load(std::memory_order_relaxed) << "\n";
+    ss << "ton.pack.open COUNT : " << open_count.exchange(0, std::memory_order_relaxed) << "\n";
+    ss << "ton.pack.close COUNT : " << close_count.exchange(0, std::memory_order_relaxed) << "\n";
     
-    ss << "ton.pack.read.bytes COUNT : " << read_bytes.load(std::memory_order_relaxed) << "\n";
-    ss << "ton.pack.write.bytes COUNT : " << write_bytes.load(std::memory_order_relaxed) << "\n";
+    ss << "ton.pack.read.bytes COUNT : " << read_bytes.exchange(0, std::memory_order_relaxed) << "\n";
+    ss << "ton.pack.write.bytes COUNT : " << write_bytes.exchange(0, std::memory_order_relaxed) << "\n";
 
+    std::multiset<double> temp_read_time;
+    double temp_read_time_sum;
     {
       std::lock_guard<std::mutex> guard(read_mutex);
-      auto stats = calculate_statistics(read_time);
-      ss << "ton.pack.read.micros P50 : " << stats[0] << " P95 : " << stats[1] << " P99 : " << stats[2] << " P100 : " << stats[3] << " COUNT : " << read_time.size() << " SUM : " << read_time_sum << "\n";
+      temp_read_time = std::move(read_time);
+      read_time.clear();
+      temp_read_time_sum = read_time_sum;
+      read_time_sum = 0;
     }
+    auto read_stats = calculate_statistics(temp_read_time);
+    ss << "ton.pack.read.micros P50 : " << read_stats[0] << 
+                              " P95 : " << read_stats[1] << 
+                              " P99 : " << read_stats[2] << 
+                              " P100 : " << read_stats[3] << 
+                              " COUNT : " << temp_read_time.size() << 
+                              " SUM : " << temp_read_time_sum << "\n";
 
+    std::multiset<double> temp_write_time;
+    double temp_write_time_sum;
     {
       std::lock_guard<std::mutex> guard(write_mutex);
-      auto stats = calculate_statistics(write_time);
-      ss << "ton.pack.write.micros P50 : " << stats[0] << " P95 : " << stats[1] << " P99 : " << stats[2] << " P100 : " << stats[3] << " COUNT : " << write_time.size() << " SUM : " << write_time_sum << "\n";
+      temp_write_time = std::move(write_time);
+      write_time.clear();
+      temp_write_time_sum = write_time_sum;
+      write_time_sum = 0;
     }
+    auto write_stats = calculate_statistics(write_time);
+    ss << "ton.pack.write.micros P50 : " << write_stats[0] << 
+                               " P95 : " << write_stats[1] << 
+                               " P99 : " << write_stats[2] << 
+                               " P100 : " << write_stats[3] << 
+                               " COUNT : " << temp_write_time.size() << 
+                               " SUM : " << temp_write_time_sum << "\n";
 
     return ss.str();
-  }
-
-  void reset() {
-    open_count.store(0, std::memory_order_relaxed);
-    close_count.store(0, std::memory_order_relaxed);
-    {
-      std::lock_guard<std::mutex> guard(read_mutex);
-      read_time.clear();
-    }
-    {
-      std::lock_guard<std::mutex> guard(write_mutex);
-      write_time.clear();
-    }
-    read_time_sum = 0;
-    write_time_sum = 0;
   }
 
   private:
@@ -126,19 +133,11 @@ void DbStatistics::init() {
   pack_statistics = std::make_shared<PackageStatistics>();
 }
 
-std::string DbStatistics::to_string() const {
+std::string DbStatistics::to_string_and_reset() {
   std::stringstream ss;
-  ss << td::RocksDb::statistics_to_string(rocksdb_statistics) << pack_statistics->to_string();
+  ss << td::RocksDb::statistics_to_string(rocksdb_statistics) << pack_statistics->to_string_and_reset();
+  td::RocksDb::reset_statistics(rocksdb_statistics);
   return ss.str();
-}
-
-void DbStatistics::reset() {
-  if (rocksdb_statistics) {
-    td::RocksDb::reset_statistics(rocksdb_statistics);
-  }
-  if (pack_statistics) {
-    pack_statistics->reset();
-  }
 }
 
 void PackageWriter::append(std::string filename, td::BufferSlice data,
