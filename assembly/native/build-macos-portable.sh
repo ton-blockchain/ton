@@ -37,6 +37,21 @@ else
 fi
 export CCACHE_DISABLE=1
 
+if [ ! -d "lz4" ]; then
+git clone https://github.com/lz4/lz4.git
+cd lz4
+lz4Path=`pwd`
+git checkout v1.9.4
+make -j12
+test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
+cd ..
+# ./lib/liblz4.a
+# ./lib
+else
+  lz4Path=$(pwd)/lz4
+  echo "Using compiled lz4"
+fi
+
 if [ ! -d "secp256k1" ]; then
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
@@ -128,7 +143,10 @@ cmake -GNinja .. \
 -DSODIUM_LIBRARY_RELEASE=$sodiumPath/src/libsodium/.libs/libsodium.a \
 -DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a
+-DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
+-DLZ4_FOUND=1 \
+-DLZ4_INCLUDE_DIRS=$lz4Path/lib \
+-DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
