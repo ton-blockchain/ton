@@ -41,6 +41,11 @@ cd zlib
 ZLIB_DIR=`pwd`
 cd ..
 
+git clone https://github.com/lz4/lz4.git
+cd lz4
+LZ4_DIR=`pwd`
+cd ..
+
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
 ./autogen.sh
@@ -101,7 +106,10 @@ cd ../zlib
 emconfigure ./configure --static
 emmake make -j16
 test $? -eq 0 || { echo "Can't compile zlib with emmake "; exit 1; }
-ZLIB_DIR=`pwd`
+
+cd ../lz4
+emmake make -j16
+test $? -eq 0 || { echo "Can't compile lz4 with emmake "; exit 1; }
 
 cd ../secp256k1
 
@@ -121,6 +129,9 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release \
 -DZLIB_FOUND=1 \
 -DZLIB_LIBRARIES=$ZLIB_DIR/libz.a \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
+-DLZ4_FOUND=1 \
+-DLZ4_LIBRARIES=$LZ4_DIR/lib/liblz4.a \
+-DLZ4_INCLUDE_DIRS=$LZ4_DIR/lib \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
 -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \

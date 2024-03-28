@@ -15,7 +15,6 @@ if (NOT DEFINED CMAKE_INSTALL_LIBDIR)
 endif()
 
 find_package(PkgConfig REQUIRED)
-find_package(LZ4)
 if (NOT ZLIB_FOUND)
   pkg_check_modules(ZLIB zlib)
 endif()
@@ -281,6 +280,10 @@ if (TDUTILS_MIME_TYPE)
   )
 endif()
 
+if (NOT LZ4_FOUND)
+  pkg_check_modules(LZ4 REQUIRED liblz4)
+endif()
+
 if (LZ4_FOUND)
   set(TD_HAVE_LZ4 1)
   set(TDUTILS_SOURCE
@@ -350,7 +353,9 @@ if (CRC32C_FOUND)
 endif()
 
 if (LZ4_FOUND)
+  message(STATUS "Found LZ4 ${LZ4_LIBRARIES} ${LZ4_INCLUDE_DIRS}")
   target_link_libraries(tdutils PRIVATE ${LZ4_LIBRARIES})
+  target_include_directories(tdutils SYSTEM PRIVATE ${LZ4_INCLUDE_DIRS})
 endif()
 
 if (ABSL_FOUND)

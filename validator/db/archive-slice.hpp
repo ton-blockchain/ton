@@ -21,6 +21,7 @@
 #include "validator/interfaces/db.h"
 #include "package.hpp"
 #include "fileref.hpp"
+#include "td/db/RocksDb.h"
 #include <map>
 
 namespace rocksdb {
@@ -57,10 +58,20 @@ struct PackageId {
   }
 };
 
+class PackageStatistics;
+
+struct DbStatistics {
+  void init();
+  std::string to_string_and_reset();
+
+  std::shared_ptr<PackageStatistics> pack_statistics;
+  std::shared_ptr<rocksdb::Statistics> rocksdb_statistics;
+};
+
 class PackageWriter : public td::actor::Actor {
  public:
-  PackageWriter(std::weak_ptr<Package> package, bool async_mode = false)
-      : package_(std::move(package)), async_mode_(async_mode) {
+  PackageWriter(std::weak_ptr<Package> package, bool async_mode = false, std::shared_ptr<PackageStatistics> statistics = nullptr)
+      : package_(std::move(package)), async_mode_(async_mode), statistics_(std::move(statistics)) {
   }
 
   void append(std::string filename, td::BufferSlice data, td::Promise<std::pair<td::uint64, td::uint64>> promise);
@@ -78,6 +89,7 @@ class PackageWriter : public td::actor::Actor {
  private:
   std::weak_ptr<Package> package_;
   bool async_mode_ = false;
+  std::shared_ptr<PackageStatistics> statistics_;
 };
 
 class ArchiveLru;
@@ -85,7 +97,7 @@ class ArchiveLru;
 class ArchiveSlice : public td::actor::Actor {
  public:
   ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root,
-               td::actor::ActorId<ArchiveLru> archive_lru, std::shared_ptr<rocksdb::Statistics> statistics = nullptr);
+               td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics = {});
 
   void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
 
@@ -155,7 +167,7 @@ class ArchiveSlice : public td::actor::Actor {
 
   std::string db_root_;
   td::actor::ActorId<ArchiveLru> archive_lru_;
-  std::shared_ptr<rocksdb::Statistics> statistics_;
+  DbStatistics statistics_;
   std::unique_ptr<td::KeyValue> kv_;
 
   struct PackageInfo {
