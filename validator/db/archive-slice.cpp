@@ -670,7 +670,9 @@ void ArchiveSlice::do_close() {
   LOG(DEBUG) << "Closing archive slice " << db_path_;
   status_ = st_closed;
   kv_ = {};
-  statistics_.pack_statistics->record_close(packages_.size());
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_close(packages_.size());
+  }
   packages_.clear();
 }
 
@@ -774,7 +776,9 @@ void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 ver
     LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
     return;
   }
-  statistics_.pack_statistics->record_open();
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_open();
+  }
   auto idx = td::narrow_cast<td::uint32>(packages_.size());
   if (finalized_) {
     packages_.emplace_back(nullptr, td::actor::ActorOwn<PackageWriter>(), seqno, path, idx, version);
@@ -817,7 +821,9 @@ void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
   for (auto &p : packages_) {
     td::unlink(p.path).ensure();
   }
-  statistics_.pack_statistics->record_close(packages_.size());
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_close(packages_.size());
+  }
   packages_.clear();
   kv_ = nullptr;
 
@@ -1023,7 +1029,9 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handl
   for (auto idx = pack->idx + 1; idx < packages_.size(); idx++) {
     td::unlink(packages_[idx].path).ensure();
   }
-  statistics_.pack_statistics->record_close(packages_.size() - pack->idx - 1);
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_close(packages_.size() - pack->idx - 1);
+  }
   packages_.erase(packages_.begin() + pack->idx + 1, packages_.end());
 
   kv_->commit_transaction().ensure();
