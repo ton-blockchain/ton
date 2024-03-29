@@ -19,10 +19,11 @@
 #include "fabric.h"
 #include "block-auto.h"
 #include "block-db.h"
+#include "td/utils/lz4.h"
+#include "checksum.h"
+#include "validator-session/candidate-serializer.h"
 
-namespace ton {
-
-namespace validator {
+namespace ton::validator {
 
 CollatorNode::CollatorNode(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<ValidatorManager> manager,
                            td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp)
@@ -110,12 +111,6 @@ static td::BufferSlice serialize_error(td::Status error) {
   return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
 }
 
-static td::BufferSlice serialize_response(BlockCandidate block) {
-  return create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(create_tl_object<ton_api::db_candidate>(
-      PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), std::move(block.data),
-      std::move(block.collated_data)));
-}
-
 static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator) {
   CHECK(!block.id.is_masterchain());
   if (block.pubkey == creator) {
@@ -145,7 +140,8 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
       promise.set_result(serialize_error(R.move_as_error()));
     } else {
       LOG(INFO) << "Query from " << src << ", success";
-      promise.set_result(serialize_response(R.move_as_ok()));
+      promise.set_result(create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(
+          serialize_candidate(R.move_as_ok(), true)));
     }
   };
   if (!last_masterchain_block_.is_valid()) {
@@ -263,14 +259,62 @@ void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::R
 }
 
 bool CollatorNode::can_collate_shard(ShardIdFull shard) const {
-  for (ShardIdFull our_shard : shards_) {
-    if (shard_intersects(shard, our_shard)) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(shards_.begin(), shards_.end(),
+                     [&](const ShardIdFull& our_shard) { return shard_intersects(shard, our_shard); });
 }
 
-}  // namespace validator
+tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate(const BlockCandidate& block,
+                                                                                 bool compress) {
+  if (!compress) {
+    return create_tl_object<ton_api::collatorNode_candidate>(
+        PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), block.data.clone(),
+        block.collated_data.clone());
+  }
+  size_t decompressed_size;
+  td::BufferSlice compressed =
+      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size).move_as_ok();
+  return create_tl_object<ton_api::collatorNode_compressedCandidate>(
+      0, PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id),
+      (int)decompressed_size, std::move(compressed));
+}
 
-}  // namespace ton
+td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
+                                                               int max_decompressed_data_size) {
+  td::Result<BlockCandidate> res;
+  ton_api::downcast_call(*f, td::overloaded(
+                                 [&](ton_api::collatorNode_candidate& c) {
+                                   res = [&]() -> td::Result<BlockCandidate> {
+                                     auto hash = td::sha256_bits256(c.collated_data_);
+                                     auto key = ton::PublicKey{c.source_};
+                                     if (!key.is_ed25519()) {
+                                       return td::Status::Error("invalid pubkey");
+                                     }
+                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                                     return BlockCandidate{e_key, create_block_id(c.id_), hash, std::move(c.data_),
+                                                           std::move(c.collated_data_)};
+                                   }();
+                                 },
+                                 [&](ton_api::collatorNode_compressedCandidate& c) {
+                                   res = [&]() -> td::Result<BlockCandidate> {
+                                     if (c.decompressed_size_ <= 0) {
+                                       return td::Status::Error("invalid decompressed size");
+                                     }
+                                     if (c.decompressed_size_ > max_decompressed_data_size) {
+                                       return td::Status::Error("decompressed size is too big");
+                                     }
+                                     TRY_RESULT(
+                                         p, validatorsession::decompress_candidate_data(c.data_, c.decompressed_size_));
+                                     auto collated_data_hash = td::sha256_bits256(p.second);
+                                     auto key = ton::PublicKey{c.source_};
+                                     if (!key.is_ed25519()) {
+                                       return td::Status::Error("invalid pubkey");
+                                     }
+                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                                     return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash,
+                                                           std::move(p.first), std::move(p.second)};
+                                   }();
+                                 }));
+  return res;
+}
+
+}  // namespace ton::validator

@@ -24,6 +24,7 @@
 #include "ton/lite-tl.hpp"
 #include "ton/ton-tl.hpp"
 #include "td/utils/Random.h"
+#include "collator-node.hpp"
 
 namespace ton {
 
@@ -506,7 +507,7 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
                                 std::move(promise));
       });
   LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to " << collator;
-  size_t max_answer_size = config_.max_block_size + config_.max_collated_data_size + 256;
+  size_t max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
   td::Timestamp query_timeout = td::Timestamp::in(10.0);
   query_timeout.relax(timeout);
   td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_adnl_id_, collator, "collatequery", std::move(P),
@@ -520,29 +521,26 @@ void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::Buf
     return;
   }
   TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::collatorNode_GenerateBlockResult>(data, true));
-  tl_object_ptr<ton_api::db_candidate> b;
+  td::Result<BlockCandidate> res;
   ton_api::downcast_call(*f, td::overloaded(
-                                 [&](ton_api::collatorNode_generateBlockError &r) {
-                                   td::Status error = td::Status::Error(r.code_, r.message_);
-                                   promise.set_error(error.move_as_error_prefix("collate query: "));
-                                 },
-                                 [&](ton_api::collatorNode_generateBlockSuccess &r) { b = std::move(r.candidate_); }));
-  if (!b) {
-    return;
-  }
-  auto key = PublicKey{b->source_};
-  if (key != local_id_full_) {
+      [&](ton_api::collatorNode_generateBlockError &r) {
+        td::Status error = td::Status::Error(r.code_, r.message_);
+        res = error.move_as_error_prefix("collate query: ");
+      },
+      [&](ton_api::collatorNode_generateBlockSuccess &r) {
+        res = CollatorNode::deserialize_candidate(
+            std::move(r.candidate_),
+            config_.max_block_size + config_.max_collated_data_size + 1024);
+      }));
+  TRY_RESULT_PROMISE(promise, candidate, std::move(res));
+  if (candidate.pubkey.as_bits256() != local_id_full_.ed25519_value().raw()) {
     promise.set_error(td::Status::Error("collate query: block candidate source mismatch"));
     return;
   }
-  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-  auto block_id = ton::create_block_id(b->id_);
-  if (block_id.shard_full() != shard_) {
+  if (candidate.id.shard_full() != shard_) {
     promise.set_error(td::Status::Error("collate query: shard mismatch"));
     return;
   }
-  auto collated_data_hash = td::sha256_bits256(b->collated_data_);
-  BlockCandidate candidate(e_key, block_id, collated_data_hash, std::move(b->data_), std::move(b->collated_data_));
 
   auto P = td::PromiseCreator::lambda(
       [candidate = candidate.clone(), promise = std::move(promise)](td::Result<UnixTime> R) mutable {

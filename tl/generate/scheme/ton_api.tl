@@ -789,7 +789,9 @@ validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:long self:in
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
 
-collatorNode.generateBlockSuccess candidate:db.Candidate = collatorNode.GenerateBlockResult;
+collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
+collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
+collatorNode.generateBlockSuccess candidate:collatorNode.Candidate = collatorNode.GenerateBlockResult;
 collatorNode.generateBlockError code:int message:string = collatorNode.GenerateBlockResult;
 
 ---functions---

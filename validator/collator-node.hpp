@@ -20,9 +20,7 @@
 #include "rldp/rldp.h"
 #include <map>
 
-namespace ton {
-
-namespace validator {
+namespace ton::validator {
 
 class ValidatorManager;
 
@@ -77,8 +75,11 @@ class CollatorNode : public td::actor::Actor {
   }
 
   void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
+
+ public:
+  static tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);
+  static td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
+                                                          int max_decompressed_data_size);
 };
 
-}  // namespace validator
-
-}  // namespace ton
+}  // namespace ton::validator

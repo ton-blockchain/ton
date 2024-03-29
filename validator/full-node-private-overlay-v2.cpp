@@ -90,7 +90,7 @@ void FullNodePrivateOverlayV2::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
-  auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
+  auto B = serialize_block_broadcast(broadcast, true);  // compression_enabled = true
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
