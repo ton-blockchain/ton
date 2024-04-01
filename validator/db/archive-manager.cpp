@@ -830,9 +830,9 @@ void ArchiveManager::start_up() {
     archive_lru_ = td::actor::create_actor<ArchiveLru>("archive_lru", opts_->get_max_open_archive_files());
   }
   if (!opts_->get_disable_rocksdb_stats()) {
-    statistics_ = td::RocksDb::create_statistics();
+    statistics_.init();
   }
-  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", statistics_).move_as_ok());
+  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", statistics_.rocksdb_statistics).move_as_ok());
   std::string value;
   auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
   v.ensure();
@@ -914,7 +914,7 @@ void ArchiveManager::start_up() {
 
 void ArchiveManager::alarm() {
   alarm_timestamp() = td::Timestamp::in(60.0);
-  auto stats = td::RocksDb::statistics_to_string(statistics_);
+  auto stats = statistics_.to_string_and_reset();
   auto to_file_r = td::FileFd::open(db_root_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
   if (to_file_r.is_error()) {
     LOG(ERROR) << "Failed to open db_stats.txt: " << to_file_r.move_as_error();
@@ -927,7 +927,6 @@ void ArchiveManager::alarm() {
     LOG(ERROR) << "Failed to write to db_stats.txt: " << res.move_as_error();
     return;
   }
-  td::RocksDb::reset_statistics(statistics_);
 }
 
 void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
