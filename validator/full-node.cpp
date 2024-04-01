@@ -579,7 +579,7 @@ void FullNodeImpl::update_ext_msg_overlay(const std::string &name, ExtMsgOverlay
         old_actors.erase(it);
       } else {
         overlay.actors_[local_id] = td::actor::create_actor<FullNodePrivateExtMsgOverlay>(
-            "ExtMsgPrivateOverlay", adnl_id_, overlay.nodes_, overlay.senders_, name, zero_state_file_hash_, config_,
+            "ExtMsgPrivateOverlay", local_id, overlay.nodes_, overlay.senders_, name, zero_state_file_hash_, config_,
             keyring_, adnl_, rldp_, rldp2_, overlays_, validator_manager_);
       }
     }

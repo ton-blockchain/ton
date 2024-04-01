@@ -168,6 +168,8 @@ void FullNodePrivateExtMsgOverlay::process_broadcast(PublicKeyHash src,
   if (it == senders_.end()) {
     return;
   }
+  LOG(FULL_NODE_DEBUG) << "Got external message in private overlay \"" << name_ << "\" from " << src
+                       << " (priority=" << it->second << ")";
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
                           std::move(query.message_->data_), it->second);
 }
@@ -184,6 +186,7 @@ void FullNodePrivateExtMsgOverlay::send_external_message(td::BufferSlice data) {
   if (config_.ext_messages_broadcast_disabled_) {
     return;
   }
+  LOG(FULL_NODE_DEBUG) << "Sending external message to private overlay \"" << name_ << "\"";
   auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
       create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
