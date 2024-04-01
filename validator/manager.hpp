@@ -220,9 +220,19 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   // DATA FOR COLLATOR
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
-  std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
-  std::map<std::pair<ton::WorkchainId,ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>> ext_addr_messages_;
-  std::map<ExtMessage::Hash, MessageId<ExtMessage>> ext_messages_hashes_;
+  struct ExtMessages {
+    std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
+    std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>>
+        ext_addr_messages_;
+    void erase(const MessageId<ExtMessage>& id) {
+      auto it = ext_messages_.find(id);
+      CHECK(it != ext_messages_.end());
+      ext_addr_messages_[it->second->address()].erase(id.hash);
+      ext_messages_.erase(it);
+    }
+  };
+  std::map<int, ExtMessages> ext_msgs_;  // priority -> messages
+  std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
   std::map<IhrMessage::Hash, MessageId<IhrMessage>> ihr_messages_hashes_;
@@ -349,8 +359,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
-  void new_external_message(td::BufferSlice data) override;
-  void add_external_message(td::Ref<ExtMessage> message);
+  void new_external_message(td::BufferSlice data, int priority) override;
+  void add_external_message(td::Ref<ExtMessage> message, int priority);
   void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override;
 
   void new_ihr_message(td::BufferSlice data) override;
@@ -410,7 +420,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Ref<MessageQueue>> promise) override;
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
-  void get_external_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<ExtMessage>>> promise) override;
+  void get_external_messages(ShardIdFull shard,
+                             td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) override;
   void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks(BlockIdExt masterchain_block_id,
                         td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;

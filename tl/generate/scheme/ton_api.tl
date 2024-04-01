@@ -400,6 +400,7 @@ tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
+tonNode.privateExtMsgsOverlayId zero_state_file_hash:int256 name:string nodes:(vector int256) = tonNode.PrivateExtMsgsOverlayId;
 
 tonNode.keyBlocks blocks:(vector tonNode.blockIdExt) incomplete:Bool error:Bool = tonNode.KeyBlocks;
 
@@ -594,6 +595,10 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
+engine.validator.privateExtMsgOverlayNode adnl_id:int256 sender:Bool sender_priority:int = engine.validator.PrivateExtMsgOverlayNode;
+engine.validator.privateExtMsgOverlay name:string nodes:(vector engine.validator.privateExtMsgOverlayNode) = engine.validator.PrivateExtMsgOverlay;
+engine.validator.privateExtMsgOverlaysConfig overlays:(vector engine.validator.privateExtMsgOverlay) = engine.validator.PrivateExtMsgOverlaysConfig;
+
 ---functions---
 ---types---
 
@@ -696,6 +701,10 @@ engine.validator.importShardOverlayCertificate workchain:int shard:long signed_k
 engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats;
 engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
 engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validator.Success;
+
+engine.validator.addPrivateExtMsgOverlay overlay:engine.validator.privateExtMsgOverlay = engine.validator.Success;
+engine.validator.delPrivateExtMsgOverlay name:string = engine.validator.Success;
+engine.validator.showPrivateExtMsgOverlays = engine.validator.PrivateExtMsgOverlaysConfig;
 
 ---types---
 

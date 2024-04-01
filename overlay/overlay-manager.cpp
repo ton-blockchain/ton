@@ -108,11 +108,12 @@ void OverlayManager::create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, Ov
 
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                             std::vector<adnl::AdnlNodeIdShort> nodes,
-                                            std::unique_ptr<Callback> callback, OverlayPrivacyRules rules) {
+                                            std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
+                                            std::string scope) {
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id,
                    Overlay::create(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                   std::move(nodes), std::move(callback), std::move(rules)));
+                                   std::move(nodes), std::move(callback), std::move(rules), std::move(scope)));
 }
 
 void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {

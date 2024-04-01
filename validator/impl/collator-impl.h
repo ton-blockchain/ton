@@ -183,7 +183,12 @@ class Collator final : public td::actor::Actor {
   block::ValueFlow value_flow_{block::ValueFlow::SetZero()};
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
   std::map<ton::Bits256, int> ext_msg_map;
-  std::vector<std::pair<Ref<vm::Cell>, ExtMessage::Hash>> ext_msg_list_;
+  struct ExtMsg {
+    Ref<vm::Cell> cell;
+    ExtMessage::Hash hash;
+    int priority;
+  };
+  std::vector<ExtMsg> ext_msg_list_;
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
@@ -268,8 +273,9 @@ class Collator final : public td::actor::Actor {
   bool is_our_address(Ref<vm::CellSlice> addr_ref) const;
   bool is_our_address(ton::AccountIdPrefixFull addr_prefix) const;
   bool is_our_address(const ton::StdSmcAddress& addr) const;
-  void after_get_external_messages(td::Result<std::vector<Ref<ExtMessage>>> res);
-  td::Result<bool> register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash);
+  void after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res);
+  td::Result<bool> register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,
+                                                  int priority);
   // td::Result<bool> register_external_message(td::Slice ext_msg_boc);
   void register_new_msg(block::NewOutMsg msg);
   void register_new_msgs(block::transaction::Transaction& trans);

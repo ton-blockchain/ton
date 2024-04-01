@@ -18,13 +18,9 @@
 
 #include "full-node.h"
 
-namespace ton {
+namespace ton::validator::fullnode {
 
-namespace validator {
-
-namespace fullnode {
-
-class FullNodePrivateOverlay : public td::actor::Actor {
+class FullNodePrivateBlockOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
@@ -40,17 +36,87 @@ class FullNodePrivateOverlay : public td::actor::Actor {
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
 
+  void set_config(FullNodeConfig config) {
+    config_ = std::move(config);
+  }
+
+  void set_enable_compression(bool value) {
+    enable_compression_ = value;
+  }
+
   void start_up() override;
   void tear_down() override;
 
-  FullNodePrivateOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
-                         FileHash zero_state_file_hash, FullNodeConfig config,
-                         td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                         td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-                         td::actor::ActorId<overlay::Overlays> overlays,
-                         td::actor::ActorId<ValidatorManagerInterface> validator_manager)
+  FullNodePrivateBlockOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
+                              FileHash zero_state_file_hash, FullNodeConfig config, bool enable_compression,
+                              td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                              td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+                              td::actor::ActorId<overlay::Overlays> overlays,
+                              td::actor::ActorId<ValidatorManagerInterface> validator_manager)
       : local_id_(local_id)
       , nodes_(std::move(nodes))
+      , zero_state_file_hash_(zero_state_file_hash)
+      , config_(config)
+      , enable_compression_(enable_compression)
+      , keyring_(keyring)
+      , adnl_(adnl)
+      , rldp_(rldp)
+      , rldp2_(rldp2)
+      , overlays_(overlays)
+      , validator_manager_(validator_manager) {
+  }
+
+ private:
+  adnl::AdnlNodeIdShort local_id_;
+  std::vector<adnl::AdnlNodeIdShort> nodes_;
+  FileHash zero_state_file_hash_;
+  FullNodeConfig config_;
+  bool enable_compression_;
+
+  td::actor::ActorId<keyring::Keyring> keyring_;
+  td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<overlay::Overlays> overlays_;
+  td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+
+  bool inited_ = false;
+  overlay::OverlayIdFull overlay_id_full_;
+  overlay::OverlayIdShort overlay_id_;
+
+  void try_init();
+  void init();
+};
+
+class FullNodePrivateExtMsgOverlay : public td::actor::Actor {
+ public:
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
+  template <class T>
+  void process_broadcast(PublicKeyHash, T &) {
+    VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
+  }
+  void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
+
+  void send_external_message(td::BufferSlice data);
+
+  void set_config(FullNodeConfig config) {
+    config_ = std::move(config);
+  }
+
+  void start_up() override;
+  void tear_down() override;
+
+  FullNodePrivateExtMsgOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
+                               std::map<adnl::AdnlNodeIdShort, int> senders, std::string name,
+                               FileHash zero_state_file_hash, FullNodeConfig config,
+                               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+                               td::actor::ActorId<overlay::Overlays> overlays,
+                               td::actor::ActorId<ValidatorManagerInterface> validator_manager)
+      : local_id_(local_id)
+      , nodes_(std::move(nodes))
+      , senders_(std::move(senders))
+      , name_(std::move(name))
       , zero_state_file_hash_(zero_state_file_hash)
       , config_(config)
       , keyring_(keyring)
@@ -64,6 +130,8 @@ class FullNodePrivateOverlay : public td::actor::Actor {
  private:
   adnl::AdnlNodeIdShort local_id_;
   std::vector<adnl::AdnlNodeIdShort> nodes_;
+  std::map<adnl::AdnlNodeIdShort, int> senders_;
+  std::string name_;
   FileHash zero_state_file_hash_;
   FullNodeConfig config_;
 
@@ -82,8 +150,4 @@ class FullNodePrivateOverlay : public td::actor::Actor {
   void init();
 };
 
-}  // namespace fullnode
-
-}  // namespace validator
-
-}  // namespace ton
+}  // namespace ton::validator::fullnode

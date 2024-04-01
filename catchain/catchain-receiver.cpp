@@ -520,7 +520,8 @@ void CatChainReceiverImpl::start_up() {
   }
   td::actor::send_closure(overlay_manager_, &overlay::Overlays::create_private_overlay,
                           get_source(local_idx_)->get_adnl_id(), overlay_full_id_.clone(), std::move(ids),
-                          make_callback(), overlay::OverlayPrivacyRules{0, 0, std::move(root_keys)});
+                          make_callback(), overlay::OverlayPrivacyRules{0, 0, std::move(root_keys)},
+                          R"({ "type": "catchain" })");
 
   CHECK(root_block_);
 
