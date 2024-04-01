@@ -400,7 +400,7 @@ tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
-tonNode.privateExtMsgsOverlayId zero_state_file_hash:int256 name:string nodes:(vector int256) = tonNode.PrivateExtMsgsOverlayId;
+tonNode.customOverlayId zero_state_file_hash:int256 name:string nodes:(vector int256) = tonNode.CustomOverlayId;
 
 tonNode.keyBlocks blocks:(vector tonNode.blockIdExt) incomplete:Bool error:Bool = tonNode.KeyBlocks;
 
@@ -595,9 +595,9 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
-engine.validator.privateExtMsgOverlayNode adnl_id:int256 sender:Bool sender_priority:int = engine.validator.PrivateExtMsgOverlayNode;
-engine.validator.privateExtMsgOverlay name:string nodes:(vector engine.validator.privateExtMsgOverlayNode) = engine.validator.PrivateExtMsgOverlay;
-engine.validator.privateExtMsgOverlaysConfig overlays:(vector engine.validator.privateExtMsgOverlay) = engine.validator.PrivateExtMsgOverlaysConfig;
+engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int = engine.validator.CustomOverlayNode;
+engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) = engine.validator.CustomOverlay;
+engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
 ---functions---
 ---types---
@@ -702,9 +702,9 @@ engine.validator.getPerfTimerStats name:string = engine.validator.PerfTimerStats
 engine.validator.getShardOutQueueSize flags:# block_id:tonNode.blockId dest_wc:flags.0?int dest_shard:flags.0?long = engine.validator.ShardOutQueueSize;
 engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validator.Success;
 
-engine.validator.addPrivateExtMsgOverlay overlay:engine.validator.privateExtMsgOverlay = engine.validator.Success;
-engine.validator.delPrivateExtMsgOverlay name:string = engine.validator.Success;
-engine.validator.showPrivateExtMsgOverlays = engine.validator.PrivateExtMsgOverlaysConfig;
+engine.validator.addCustomOverlay overlay:engine.validator.customOverlay = engine.validator.Success;
+engine.validator.delCustomOverlay name:string = engine.validator.Success;
+engine.validator.showCustomOverlays = engine.validator.CustomOverlaysConfig;
 
 ---types---
 
