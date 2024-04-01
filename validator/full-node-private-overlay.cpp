@@ -19,21 +19,18 @@
 #include "common/delay.h"
 #include "full-node-serializer.hpp"
 
-namespace ton {
-
-namespace validator {
-
-namespace fullnode {
+namespace ton::validator::fullnode {
 
 void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
   process_block_broadcast(src, query);
 }
 
-void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
+void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
+                                                    ton_api::tonNode_blockBroadcastCompressed &query) {
   process_block_broadcast(src, query);
 }
 
-void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
+void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
@@ -86,7 +83,7 @@ void FullNodePrivateBlockOverlay::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
-  auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
+  auto B = serialize_block_broadcast(broadcast, true);  // compression_enabled = true
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
@@ -165,9 +162,14 @@ void FullNodePrivateBlockOverlay::tear_down() {
   }
 }
 
-void FullNodePrivateExtMsgOverlay::process_broadcast(PublicKeyHash, ton_api::tonNode_externalMessageBroadcast &query) {
+void FullNodePrivateExtMsgOverlay::process_broadcast(PublicKeyHash src,
+                                                     ton_api::tonNode_externalMessageBroadcast &query) {
+  auto it = senders_.find(adnl::AdnlNodeIdShort{src});
+  if (it == senders_.end()) {
+    return;
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
-                          std::move(query.message_->data_), priority_);
+                          std::move(query.message_->data_), it->second);
 }
 
 void FullNodePrivateExtMsgOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -194,18 +196,37 @@ void FullNodePrivateExtMsgOverlay::send_external_message(td::BufferSlice data) {
 }
 
 void FullNodePrivateExtMsgOverlay::start_up() {
+  std::sort(nodes_.begin(), nodes_.end());
+  nodes_.erase(std::unique(nodes_.begin(), nodes_.end()), nodes_.end());
   std::vector<td::Bits256> nodes;
   for (const adnl::AdnlNodeIdShort &id : nodes_) {
     nodes.push_back(id.bits256_value());
   }
-  auto X = create_hash_tl_object<ton_api::tonNode_privateExtMsgsOverlayId>(zero_state_file_hash_, std::move(nodes));
+  auto X =
+      create_hash_tl_object<ton_api::tonNode_privateExtMsgsOverlayId>(zero_state_file_hash_, name_, std::move(nodes));
   td::BufferSlice b{32};
   b.as_slice().copy_from(as_slice(X));
   overlay_id_full_ = overlay::OverlayIdFull{std::move(b)};
   overlay_id_ = overlay_id_full_.compute_short_id();
+  try_init();
+}
 
+void FullNodePrivateExtMsgOverlay::try_init() {
+  // Sometimes adnl id is added to validator engine later (or not at all)
+  td::actor::send_closure(
+      adnl_, &adnl::Adnl::check_id_exists, local_id_, [SelfId = actor_id(this)](td::Result<bool> R) {
+        if (R.is_ok() && R.ok()) {
+          td::actor::send_closure(SelfId, &FullNodePrivateExtMsgOverlay::init);
+        } else {
+          delay_action([SelfId]() { td::actor::send_closure(SelfId, &FullNodePrivateExtMsgOverlay::try_init); },
+                       td::Timestamp::in(30.0));
+        }
+      });
+}
+
+void FullNodePrivateExtMsgOverlay::init() {
   LOG(FULL_NODE_WARNING) << "Creating private ext msg overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
-                         << nodes_.size() << " nodes, priority=" << priority_ << ", overlay_id=" << overlay_id_;
+                         << nodes_.size() << " nodes, overlay_id=" << overlay_id_;
   class Callback : public overlay::Overlays::Callback {
    public:
     void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
@@ -227,8 +248,8 @@ void FullNodePrivateExtMsgOverlay::start_up() {
   };
 
   std::map<PublicKeyHash, td::uint32> authorized_keys;
-  for (const adnl::AdnlNodeIdShort &sender : senders_) {
-    authorized_keys[sender.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
+  for (const auto &sender : senders_) {
+    authorized_keys[sender.first.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
   }
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
   td::actor::send_closure(
@@ -245,8 +266,4 @@ void FullNodePrivateExtMsgOverlay::tear_down() {
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
 }
 
-}  // namespace fullnode
-
-}  // namespace validator
-
-}  // namespace ton
+}  // namespace ton::validator::fullnode

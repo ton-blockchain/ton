@@ -2357,16 +2357,16 @@ void ValidatorEngine::load_private_ext_msg_overlays_config() {
   }
 
   for (auto &overlay : private_ext_msg_overlays_config_->overlays_) {
-    std::vector<ton::adnl::AdnlNodeIdShort> nodes, senders;
+    std::vector<ton::adnl::AdnlNodeIdShort> nodes;
+    std::map<ton::adnl::AdnlNodeIdShort, int> senders;
     for (const auto &node : overlay->nodes_) {
       nodes.emplace_back(node->adnl_id_);
       if (node->sender_) {
-        senders.emplace_back(node->adnl_id_);
+        senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->sender_priority_;
       }
     }
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes),
-                            std::move(senders), overlay->priority_, overlay->name_,
-                            [](td::Result<td::Unit> R) { R.ensure(); });
+                            std::move(senders), overlay->name_, [](td::Result<td::Unit> R) { R.ensure(); });
   }
 }
 
@@ -2376,7 +2376,8 @@ td::Status ValidatorEngine::write_private_ext_msg_overlays_config() {
   return td::Status::OK();
 }
 
-void ValidatorEngine::add_private_ext_msg_overlay_to_config(ton::tl_object_ptr<ton::ton_api::engine_validator_privateExtMsgOverlay> overlay, td::Promise<td::Unit> promise) {
+void ValidatorEngine::add_private_ext_msg_overlay_to_config(
+    ton::tl_object_ptr<ton::ton_api::engine_validator_privateExtMsgOverlay> overlay, td::Promise<td::Unit> promise) {
   private_ext_msg_overlays_config_->overlays_.push_back(std::move(overlay));
   TRY_STATUS_PROMISE(promise, write_private_ext_msg_overlays_config());
   promise.set_result(td::Unit());
@@ -3562,18 +3563,18 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addPrivat
   }
 
   auto &overlay = query.overlay_;
-  std::vector<ton::adnl::AdnlNodeIdShort> nodes, senders;
+  std::vector<ton::adnl::AdnlNodeIdShort> nodes;
+  std::map<ton::adnl::AdnlNodeIdShort, int> senders;
   for (const auto &node : overlay->nodes_) {
     nodes.emplace_back(node->adnl_id_);
     if (node->sender_) {
-      senders.emplace_back(node->adnl_id_);
+      senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->sender_priority_;
     }
   }
-  int priority = overlay->priority_;
   std::string name = overlay->name_;
   td::actor::send_closure(
       full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes), std::move(senders),
-      priority, std::move(name),
+      std::move(name),
       [SelfId = actor_id(this), overlay = std::move(overlay),
        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {

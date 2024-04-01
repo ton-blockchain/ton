@@ -1169,10 +1169,11 @@ td::Status ShowPrivateExtMsgOverlaysQuery::receive(td::BufferSlice data) {
       "received incorrect answer: ");
   td::TerminalIO::out() << f->overlays_.size() << " private overlays:\n\n";
   for (const auto &overlay : f->overlays_) {
-    td::TerminalIO::out() << "Overlay \"" << overlay->name_ << "\": priority=" << overlay->priority_ << ", "
-                          << overlay->nodes_.size() << " nodes\n";
+    td::TerminalIO::out() << "Overlay \"" << overlay->name_ << "\": " << overlay->nodes_.size() << " nodes\n";
     for (const auto &node : overlay->nodes_) {
-      td::TerminalIO::out() << "  " << node->adnl_id_ << (node->sender_ ? " (sender)" : "") << "\n";
+      td::TerminalIO::out() << "  " << node->adnl_id_
+                            << (node->sender_ ? (PSTRING() << " (sender, p=" << node->sender_priority_ << ")") : "")
+                            << "\n";
     }
     td::TerminalIO::out() << "\n";
   }
