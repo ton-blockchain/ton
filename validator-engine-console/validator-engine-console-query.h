@@ -1145,20 +1145,19 @@ class SetExtMessagesBroadcastDisabledQuery : public Query {
   bool value;
 };
 
-class AddPrivateExtMsgOverlayQuery : public Query {
+class AddCustomOverlayQuery : public Query {
  public:
-  AddPrivateExtMsgOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  AddCustomOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addprivateextmsgoverlay";
+    return "addcustomoverlay";
   }
   static std::string get_help() {
-    return "addprivateextmsgoverlay <filename>\tadd private overlay for external messages with config from file "
-           "<filename>";
+    return "addcustomoverlay <filename>\tadd custom overlay with config from file <filename>";
   }
   std::string name() const override {
     return get_name();
@@ -1168,19 +1167,19 @@ class AddPrivateExtMsgOverlayQuery : public Query {
   std::string file_name_;
 };
 
-class DelPrivateExtMsgOverlayQuery : public Query {
+class DelCustomOverlayQuery : public Query {
  public:
-  DelPrivateExtMsgOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  DelCustomOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "delprivateextmsgoverlay";
+    return "delcustomoverlay";
   }
   static std::string get_help() {
-    return "delprivateextmsgoverlay <name>\tdelete private overlay for external messages with name <name>";
+    return "delcustomoverlay <name>\tdelete custom overlay with name <name>";
   }
   std::string name() const override {
     return get_name();
@@ -1190,19 +1189,19 @@ class DelPrivateExtMsgOverlayQuery : public Query {
   std::string name_;
 };
 
-class ShowPrivateExtMsgOverlaysQuery : public Query {
+class ShowCustomOverlaysQuery : public Query {
  public:
-  ShowPrivateExtMsgOverlaysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  ShowCustomOverlaysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "showprivateextmsgoverlays";
+    return "showcustomoverlays";
   }
   static std::string get_help() {
-    return "showprivateextmsgoverlays\tshow all private overlay for external messages";
+    return "showcustomoverlays\tshow all custom overlays";
   }
   std::string name() const override {
     return get_name();

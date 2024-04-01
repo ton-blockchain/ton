@@ -1944,7 +1944,7 @@ void ValidatorEngine::start_full_node() {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_collator_adnl_id,
                               ton::adnl::AdnlNodeIdShort(c.adnl_id));
     }
-    load_private_ext_msg_overlays_config();
+    load_custom_overlays_config();
   } else {
     started_full_node();
   }
@@ -2445,33 +2445,33 @@ void ValidatorEngine::try_del_proxy(td::uint32 ip, td::int32 port, std::vector<A
   write_config(std::move(promise));
 }
 
-void ValidatorEngine::load_private_ext_msg_overlays_config() {
-  private_ext_msg_overlays_config_ =
-      ton::create_tl_object<ton::ton_api::engine_validator_privateExtMsgOverlaysConfig>();
-  auto data_R = td::read_file(private_ext_msg_overlays_config_file());
+void ValidatorEngine::load_custom_overlays_config() {
+  custom_overlays_config_ =
+      ton::create_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>();
+  auto data_R = td::read_file(custom_overlays_config_file());
   if (data_R.is_error()) {
     return;
   }
   auto data = data_R.move_as_ok();
   auto json_R = td::json_decode(data.as_slice());
   if (json_R.is_error()) {
-    LOG(ERROR) << "Failed to parse private ext msg overlays config: " << json_R.move_as_error();
+    LOG(ERROR) << "Failed to parse custom overlays config: " << json_R.move_as_error();
     return;
   }
   auto json = json_R.move_as_ok();
-  auto S = ton::ton_api::from_json(*private_ext_msg_overlays_config_, json.get_object());
+  auto S = ton::ton_api::from_json(*custom_overlays_config_, json.get_object());
   if (S.is_error()) {
-    LOG(ERROR) << "Failed to parse private ext msg overlays config: " << S;
+    LOG(ERROR) << "Failed to parse custom overlays config: " << S;
     return;
   }
 
-  for (auto &overlay : private_ext_msg_overlays_config_->overlays_) {
+  for (auto &overlay : custom_overlays_config_->overlays_) {
     std::vector<ton::adnl::AdnlNodeIdShort> nodes;
     std::map<ton::adnl::AdnlNodeIdShort, int> senders;
     for (const auto &node : overlay->nodes_) {
       nodes.emplace_back(node->adnl_id_);
-      if (node->sender_) {
-        senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->sender_priority_;
+      if (node->msg_sender_) {
+        senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
       }
     }
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes),
@@ -2479,25 +2479,25 @@ void ValidatorEngine::load_private_ext_msg_overlays_config() {
   }
 }
 
-td::Status ValidatorEngine::write_private_ext_msg_overlays_config() {
-  auto s = td::json_encode<std::string>(td::ToJson(*private_ext_msg_overlays_config_), true);
-  TRY_STATUS_PREFIX(td::write_file(private_ext_msg_overlays_config_file(), s), "failed to write config: ");
+td::Status ValidatorEngine::write_custom_overlays_config() {
+  auto s = td::json_encode<std::string>(td::ToJson(*custom_overlays_config_), true);
+  TRY_STATUS_PREFIX(td::write_file(custom_overlays_config_file(), s), "failed to write config: ");
   return td::Status::OK();
 }
 
-void ValidatorEngine::add_private_ext_msg_overlay_to_config(
-    ton::tl_object_ptr<ton::ton_api::engine_validator_privateExtMsgOverlay> overlay, td::Promise<td::Unit> promise) {
-  private_ext_msg_overlays_config_->overlays_.push_back(std::move(overlay));
-  TRY_STATUS_PROMISE(promise, write_private_ext_msg_overlays_config());
+void ValidatorEngine::add_custom_overlay_to_config(
+    ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlay> overlay, td::Promise<td::Unit> promise) {
+  custom_overlays_config_->overlays_.push_back(std::move(overlay));
+  TRY_STATUS_PROMISE(promise, write_custom_overlays_config());
   promise.set_result(td::Unit());
 }
 
-void ValidatorEngine::del_private_ext_msg_overlay_from_config(std::string name, td::Promise<td::Unit> promise) {
-  auto &overlays = private_ext_msg_overlays_config_->overlays_;
+void ValidatorEngine::del_custom_overlay_from_config(std::string name, td::Promise<td::Unit> promise) {
+  auto &overlays = custom_overlays_config_->overlays_;
   for (size_t i = 0; i < overlays.size(); ++i) {
     if (overlays[i]->name_ == name) {
       overlays.erase(overlays.begin() + i);
-      TRY_STATUS_PROMISE(promise, write_private_ext_msg_overlays_config());
+      TRY_STATUS_PROMISE(promise, write_custom_overlays_config());
       promise.set_result(td::Unit());
       return;
     }
@@ -3659,7 +3659,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setExtMes
   });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addPrivateExtMsgOverlay &query,
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCustomOverlay &query,
                                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
@@ -3676,8 +3676,8 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addPrivat
   std::map<ton::adnl::AdnlNodeIdShort, int> senders;
   for (const auto &node : overlay->nodes_) {
     nodes.emplace_back(node->adnl_id_);
-    if (node->sender_) {
-      senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->sender_priority_;
+    if (node->msg_sender_) {
+      senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
     }
   }
   std::string name = overlay->name_;
@@ -3691,7 +3691,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addPrivat
           return;
         }
         td::actor::send_closure(
-            SelfId, &ValidatorEngine::add_private_ext_msg_overlay_to_config, std::move(overlay),
+            SelfId, &ValidatorEngine::add_custom_overlay_to_config, std::move(overlay),
             [promise = std::move(promise)](td::Result<td::Unit> R) mutable {
               if (R.is_error()) {
                 promise.set_value(create_control_query_error(R.move_as_error()));
@@ -3702,7 +3702,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addPrivat
       });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delPrivateExtMsgOverlay &query,
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCustomOverlay &query,
                                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
@@ -3721,7 +3721,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delPrivat
           return;
         }
         td::actor::send_closure(
-            SelfId, &ValidatorEngine::del_private_ext_msg_overlay_from_config, std::move(name),
+            SelfId, &ValidatorEngine::del_custom_overlay_from_config, std::move(name),
             [promise = std::move(promise)](td::Result<td::Unit> R) mutable {
               if (R.is_error()) {
                 promise.set_value(create_control_query_error(R.move_as_error()));
@@ -3732,7 +3732,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delPrivat
       });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showPrivateExtMsgOverlays &query,
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showCustomOverlays &query,
                                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
@@ -3744,8 +3744,8 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showPriva
     return;
   }
 
-  promise.set_value(ton::serialize_tl_object<ton::ton_api::engine_validator_privateExtMsgOverlaysConfig>(
-      private_ext_msg_overlays_config_, true));
+  promise.set_value(ton::serialize_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>(
+      custom_overlays_config_, true));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getValidatorSessionsInfo &query,

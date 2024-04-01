@@ -169,8 +169,7 @@ void FullNodePrivateBlockOverlay::tear_down() {
   }
 }
 
-void FullNodePrivateExtMsgOverlay::process_broadcast(PublicKeyHash src,
-                                                     ton_api::tonNode_externalMessageBroadcast &query) {
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
   auto it = senders_.find(adnl::AdnlNodeIdShort{src});
   if (it == senders_.end()) {
     return;
@@ -181,7 +180,7 @@ void FullNodePrivateExtMsgOverlay::process_broadcast(PublicKeyHash src,
                           std::move(query.message_->data_), it->second);
 }
 
-void FullNodePrivateExtMsgOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
+void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
   auto B = fetch_tl_object<ton_api::tonNode_Broadcast>(std::move(broadcast), true);
   if (B.is_error()) {
     return;
@@ -189,7 +188,7 @@ void FullNodePrivateExtMsgOverlay::receive_broadcast(PublicKeyHash src, td::Buff
   ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
 }
 
-void FullNodePrivateExtMsgOverlay::send_external_message(td::BufferSlice data) {
+void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
   if (config_.ext_messages_broadcast_disabled_) {
     return;
   }
@@ -205,15 +204,14 @@ void FullNodePrivateExtMsgOverlay::send_external_message(td::BufferSlice data) {
   }
 }
 
-void FullNodePrivateExtMsgOverlay::start_up() {
+void FullNodeCustomOverlay::start_up() {
   std::sort(nodes_.begin(), nodes_.end());
   nodes_.erase(std::unique(nodes_.begin(), nodes_.end()), nodes_.end());
   std::vector<td::Bits256> nodes;
   for (const adnl::AdnlNodeIdShort &id : nodes_) {
     nodes.push_back(id.bits256_value());
   }
-  auto X =
-      create_hash_tl_object<ton_api::tonNode_privateExtMsgsOverlayId>(zero_state_file_hash_, name_, std::move(nodes));
+  auto X = create_hash_tl_object<ton_api::tonNode_customOverlayId>(zero_state_file_hash_, name_, std::move(nodes));
   td::BufferSlice b{32};
   b.as_slice().copy_from(as_slice(X));
   overlay_id_full_ = overlay::OverlayIdFull{std::move(b)};
@@ -221,21 +219,21 @@ void FullNodePrivateExtMsgOverlay::start_up() {
   try_init();
 }
 
-void FullNodePrivateExtMsgOverlay::try_init() {
+void FullNodeCustomOverlay::try_init() {
   // Sometimes adnl id is added to validator engine later (or not at all)
   td::actor::send_closure(
       adnl_, &adnl::Adnl::check_id_exists, local_id_, [SelfId = actor_id(this)](td::Result<bool> R) {
         if (R.is_ok() && R.ok()) {
-          td::actor::send_closure(SelfId, &FullNodePrivateExtMsgOverlay::init);
+          td::actor::send_closure(SelfId, &FullNodeCustomOverlay::init);
         } else {
-          delay_action([SelfId]() { td::actor::send_closure(SelfId, &FullNodePrivateExtMsgOverlay::try_init); },
+          delay_action([SelfId]() { td::actor::send_closure(SelfId, &FullNodeCustomOverlay::try_init); },
                        td::Timestamp::in(30.0));
         }
       });
 }
 
-void FullNodePrivateExtMsgOverlay::init() {
-  LOG(FULL_NODE_WARNING) << "Creating private ext msg overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
+void FullNodeCustomOverlay::init() {
+  LOG(FULL_NODE_WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
                          << nodes_.size() << " nodes, overlay_id=" << overlay_id_;
   class Callback : public overlay::Overlays::Callback {
    public:
@@ -245,16 +243,16 @@ void FullNodePrivateExtMsgOverlay::init() {
                        td::Promise<td::BufferSlice> promise) override {
     }
     void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
-      td::actor::send_closure(node_, &FullNodePrivateExtMsgOverlay::receive_broadcast, src, std::move(data));
+      td::actor::send_closure(node_, &FullNodeCustomOverlay::receive_broadcast, src, std::move(data));
     }
     void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                          td::Promise<td::Unit> promise) override {
     }
-    Callback(td::actor::ActorId<FullNodePrivateExtMsgOverlay> node) : node_(node) {
+    Callback(td::actor::ActorId<FullNodeCustomOverlay> node) : node_(node) {
     }
 
    private:
-    td::actor::ActorId<FullNodePrivateExtMsgOverlay> node_;
+    td::actor::ActorId<FullNodeCustomOverlay> node_;
   };
 
   std::map<PublicKeyHash, td::uint32> authorized_keys;
@@ -265,14 +263,14 @@ void FullNodePrivateExtMsgOverlay::init() {
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay, local_id_, overlay_id_full_.clone(), nodes_,
       std::make_unique<Callback>(actor_id(this)), rules,
-      PSTRING() << R"({ "type": "private-ext-msg", "name": ")" << td::format::Escaped{name_} << R"(" })");
+      PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })");
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
 }
 
-void FullNodePrivateExtMsgOverlay::tear_down() {
-  LOG(FULL_NODE_WARNING) << "Destroying private ext msg overlay \"" << name_ << "\" for adnl id " << local_id_;
+void FullNodeCustomOverlay::tear_down() {
+  LOG(FULL_NODE_WARNING) << "Destroying custom overlay \"" << name_ << "\" for adnl id " << local_id_;
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
 }
 

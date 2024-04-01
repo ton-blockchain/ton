@@ -149,10 +149,11 @@ class FullNodeImpl : public FullNode {
   struct ExtMsgOverlayInfo {
     std::vector<adnl::AdnlNodeIdShort> nodes_;
     std::map<adnl::AdnlNodeIdShort, int> senders_;
-    std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodePrivateExtMsgOverlay>>
+    std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodeCustomOverlay>>
         actors_;  // our local id -> actor
   };
-  std::map<std::string, ExtMsgOverlayInfo> private_ext_msg_overlays_;
+  std::map<std::string, ExtMsgOverlayInfo> private_custom_overlays_;
+
   void update_private_overlays();
   void update_ext_msg_overlay(const std::string& name, ExtMsgOverlayInfo& overlay);
 
