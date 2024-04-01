@@ -30,12 +30,14 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
   process_block_broadcast(src, query);
 }
 
-void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash, ton_api::tonNode_Broadcast &query) {
+void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in private overlay from " << src << ": "
+                        << B.ok().block_id.to_str();
   auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
     if (R.is_error()) {
       if (R.error().code() == ErrorCode::notready) {
@@ -49,10 +51,12 @@ void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash, ton_api
                           std::move(P));
 }
 
-void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash, ton_api::tonNode_newShardBlockBroadcast &query) {
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block,
-                          create_block_id(query.block_->block_), query.block_->cc_seqno_,
-                          std::move(query.block_->data_));
+void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
+  BlockIdExt block_id = create_block_id(query.block_->block_);
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in private overlay from " << src << ": "
+                        << block_id.to_str();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block, block_id,
+                          query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
 void FullNodePrivateBlockOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -68,6 +72,7 @@ void FullNodePrivateBlockOverlay::send_shard_block_info(BlockIdExt block_id, Cat
   if (!inited_) {
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in private overlay: " << block_id.to_str();
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -83,6 +88,8 @@ void FullNodePrivateBlockOverlay::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay"
+                        << (enable_compression_ ? " (with compression)" : "") << ": " << broadcast.block_id.to_str();
   auto B = serialize_block_broadcast(broadcast, enable_compression_);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();

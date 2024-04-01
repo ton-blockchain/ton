@@ -640,9 +640,10 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block,
-                          create_block_id(query.block_->block_), query.block_->cc_seqno_,
-                          std::move(query.block_->data_));
+  BlockIdExt block_id = create_block_id(query.block_->block_);
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id.to_str();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block, block_id,
+                          query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
@@ -659,6 +660,7 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
   auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
     if (R.is_error()) {
       if (R.error().code() == ErrorCode::notready) {
@@ -734,6 +736,7 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
     UNREACHABLE();
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast: " << block_id.to_str();
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -750,6 +753,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     UNREACHABLE();
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id.to_str();
   auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
