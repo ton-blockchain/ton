@@ -50,10 +50,11 @@ td::actor::ActorOwn<Overlay> Overlay::create(td::actor::ActorId<keyring::Keyring
                                              td::actor::ActorId<OverlayManager> manager,
                                              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                                              OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes,
-                                             std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules) {
-  auto R =
-      td::actor::create_actor<OverlayImpl>("overlay", keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
-                                           false, std::move(nodes), std::move(callback), std::move(rules));
+                                             std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+                                             std::string scope) {
+  auto R = td::actor::create_actor<OverlayImpl>("overlay", keyring, adnl, manager, dht_node, local_id,
+                                                std::move(overlay_id), false, std::move(nodes), std::move(callback),
+                                                std::move(rules), std::move(scope));
   return td::actor::ActorOwn<Overlay>(std::move(R));
 }
 

@@ -124,7 +124,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
-  void new_external_message(td::BufferSlice data) override;
+  void new_external_message(td::BufferSlice data, int priority) override;
   void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override {
     UNREACHABLE();
   }
@@ -192,7 +192,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Ref<MessageQueue>> promise) override;
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
-  void get_external_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<ExtMessage>>> promise) override;
+  void get_external_messages(ShardIdFull shard,
+                             td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) override;
   void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
@@ -248,7 +249,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void send_external_message(td::Ref<ExtMessage> message) override {
-    new_external_message(message->serialize());
+    new_external_message(message->serialize(), 0);
   }
   void send_ihr_message(td::Ref<IhrMessage> message) override {
     new_ihr_message(message->serialize());

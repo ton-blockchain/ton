@@ -213,7 +213,7 @@ class HardforkCreator : public td::actor::Actor {
         ton::validator::ValidatorManagerHardforkFactory::create(opts, shard_, shard_top_block_id_, db_root_);
     for (auto &msg : ext_msgs_) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManager::new_external_message,
-                              std::move(msg));
+                              std::move(msg), 0);
     }
     for (auto &topmsg : top_shard_descrs_) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManager::new_shard_block, ton::BlockIdExt{},

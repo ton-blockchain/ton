@@ -14,7 +14,6 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#pragma once
 
 #include "full-node-private-overlay-v2.hpp"
 #include "ton/ton-tl.hpp"
@@ -40,6 +39,8 @@ void FullNodePrivateOverlayV2::process_block_broadcast(PublicKeyHash src, ton_ap
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in private overlay from " << src << ": "
+                        << B.ok().block_id.to_str();
   auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
     if (R.is_error()) {
       if (R.error().code() == ErrorCode::notready) {
@@ -49,14 +50,14 @@ void FullNodePrivateOverlayV2::process_block_broadcast(PublicKeyHash src, ton_ap
       }
     }
   });
-  LOG(FULL_NODE_DEBUG) << "Got block broadcast in private overlay: " << B.ok().block_id.to_str();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, B.move_as_ok(),
                           std::move(P));
 }
 
-void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash, ton_api::tonNode_newShardBlockBroadcast &query) {
+void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
   BlockIdExt block_id = create_block_id(query.block_->block_);
-  LOG(FULL_NODE_DEBUG) << "Got block description broadcast in private overlay: " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in private overlay from " << src << ": "
+                        << block_id.to_str();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block, block_id,
                           query.block_->cc_seqno_, std::move(query.block_->data_));
 }
@@ -75,6 +76,7 @@ void FullNodePrivateOverlayV2::send_shard_block_info(BlockIdExt block_id, Catcha
   if (!inited_) {
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in private overlay: " << block_id.to_str();
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -90,6 +92,8 @@ void FullNodePrivateOverlayV2::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay (with compression): "
+                        << broadcast.block_id.to_str();
   auto B = serialize_block_broadcast(broadcast, true);  // compression_enabled = true
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
@@ -164,8 +168,10 @@ void FullNodePrivateOverlayV2::init() {
     authorized_keys[sender.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
   }
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
+  std::string scope = PSTRING() << R"({ "type": "private-blocks-v2", "shard_id": )" << shard_.shard
+                                << ", \"workchain_id\": " << shard_.workchain << " }";
   td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay, local_id_, overlay_id_full_.clone(),
-                          nodes_, std::make_unique<Callback>(actor_id(this)), rules);
+                          nodes_, std::make_unique<Callback>(actor_id(this)), rules, std::move(scope));
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);

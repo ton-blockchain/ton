@@ -181,6 +181,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
   td::Ref<ton::validator::ValidatorManagerOptions> validator_options_;
   Config config_;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_privateExtMsgOverlaysConfig> private_ext_msg_overlays_config_;
 
   std::set<ton::PublicKeyHash> running_gc_;
 
@@ -389,6 +390,16 @@ class ValidatorEngine : public td::actor::Actor {
   void try_del_proxy(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats,
                      td::Promise<td::Unit> promise);
 
+  std::string private_ext_msg_overlays_config_file() const {
+    return db_root_ + "/private-ext-msg-overlays.json";
+  }
+
+  void load_private_ext_msg_overlays_config();
+  td::Status write_private_ext_msg_overlays_config();
+  void add_private_ext_msg_overlay_to_config(
+      ton::tl_object_ptr<ton::ton_api::engine_validator_privateExtMsgOverlay> overlay, td::Promise<td::Unit> promise);
+  void del_private_ext_msg_overlay_from_config(std::string name, td::Promise<td::Unit> promise);
+
   void check_key(ton::PublicKeyHash id, td::Promise<td::Unit> promise);
 
   static td::BufferSlice create_control_query_error(td::Status error);
@@ -476,6 +487,12 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_getShardOutQueueSize &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addPrivateExtMsgOverlay &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_delPrivateExtMsgOverlay &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_showPrivateExtMsgOverlays &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

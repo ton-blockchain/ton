@@ -49,6 +49,7 @@ static const td::uint32 FORCE_SPLIT_QUEUE_SIZE = 4096;
 static const td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
 static const td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
 static const td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
+static const int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
 
 #define DBG(__n) dbg(__n)&&
 #define DSTART int __dcnt = 0;
@@ -255,11 +256,10 @@ void Collator::start_up() {
     LOG(DEBUG) << "sending get_external_messages() query to Manager";
     ++pending;
     td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_,
-                                  [self = get_self()](td::Result<std::vector<Ref<ExtMessage>>> res) -> void {
-                                    LOG(DEBUG) << "got answer to get_external_messages() query";
-                                    td::actor::send_closure_later(
-                                        std::move(self), &Collator::after_get_external_messages, std::move(res));
-                                  });
+        [self = get_self()](td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) -> void {
+          LOG(DEBUG) << "got answer to get_external_messages() query";
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages, std::move(res));
+        });
   }
   if (is_masterchain() && !is_hardfork_) {
     // 5. load shard block info messages
@@ -3548,12 +3548,15 @@ bool Collator::process_inbound_external_messages() {
     return true;
   }
   if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE) {
-    LOG(INFO) << "skipping processing of inbound external messages because out_msg_queue is too big ("
+    LOG(INFO) << "skipping processing of inbound external messages (except for high-priority) because out_msg_queue is "
+                 "too big ("
               << out_msg_queue_size_ << " > " << SKIP_EXTERNALS_QUEUE_SIZE << ")";
-    return true;
   }
   bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
-  for (auto& ext_msg_pair : ext_msg_list_) {
+  for (auto& ext_msg_struct : ext_msg_list_) {
+    if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE && ext_msg_struct.priority < HIGH_PRIORITY_EXTERNAL) {
+      continue;
+    }
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
       break;
@@ -3562,15 +3565,15 @@ bool Collator::process_inbound_external_messages() {
       LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       break;
     }
-    auto ext_msg = ext_msg_pair.first;
+    auto ext_msg = ext_msg_struct.cell;
     ton::Bits256 hash{ext_msg->get_hash().bits()};
     int r = process_external_message(std::move(ext_msg));
     if (r < 0) {
-      bad_ext_msgs_.emplace_back(ext_msg_pair.second);
+      bad_ext_msgs_.emplace_back(ext_msg_struct.hash);
       return false;
     }
     if (!r) {
-      delay_ext_msgs_.emplace_back(ext_msg_pair.second);
+      delay_ext_msgs_.emplace_back(ext_msg_struct.hash);
     }
     if (r > 0) {
       full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
@@ -5274,7 +5277,8 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved) {
  *          - If the external message has been previuosly registered and accepted, returns false.
  *          - Otherwise returns true.
  */
-td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash) {
+td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,
+                                                          int priority) {
   if (ext_msg->get_level() != 0) {
     return td::Status::Error("external message must have zero level");
   }
@@ -5318,7 +5322,7 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
     block::gen::t_Message_Any.print_ref(std::cerr, ext_msg);
   }
   ext_msg_map.emplace(hash, 1);
-  ext_msg_list_.emplace_back(std::move(ext_msg), ext_hash);
+  ext_msg_list_.push_back({std::move(ext_msg), ext_hash, priority});
   return true;
 }
 
@@ -5327,18 +5331,21 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
  *
  * @param res The result of the external message retrieval operation.
  */
-void Collator::after_get_external_messages(td::Result<std::vector<Ref<ExtMessage>>> res) {
+void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) {
+  // res: pair {ext msg, priority}
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
   }
   auto vect = res.move_as_ok();
-  for (auto&& ext_msg : vect) {
+  for (auto& p : vect) {
+    auto& ext_msg = p.first;
+    int priority = p.second;
     Ref<vm::Cell> ext_msg_cell = ext_msg->root_cell();
     bool err = ext_msg_cell.is_null();
     if (!err) {
-      auto reg_res = register_external_message_cell(std::move(ext_msg_cell), ext_msg->hash());
+      auto reg_res = register_external_message_cell(std::move(ext_msg_cell), ext_msg->hash(), priority);
       if (reg_res.is_error() || !reg_res.move_as_ok()) {
         err = true;
       }
