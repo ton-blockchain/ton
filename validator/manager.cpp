@@ -1503,8 +1503,8 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
   }
 }
 
-void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast) {
-  callback_->send_broadcast(std::move(broadcast));
+void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) {
+  callback_->send_broadcast(std::move(broadcast), custom_overlays_only);
 }
 
 void ValidatorManagerImpl::start_up() {
