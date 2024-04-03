@@ -189,7 +189,7 @@ void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice
 }
 
 void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
-  if (config_.ext_messages_broadcast_disabled_) {
+  if (!inited_ || config_.ext_messages_broadcast_disabled_) {
     return;
   }
   LOG(FULL_NODE_DEBUG) << "Sending external message to private overlay \"" << name_ << "\"";
@@ -267,6 +267,7 @@ void FullNodeCustomOverlay::init() {
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
+  inited_ = true;
 }
 
 void FullNodeCustomOverlay::tear_down() {
