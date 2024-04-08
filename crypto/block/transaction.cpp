@@ -1321,7 +1321,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
       vm::StackEntry::maybe(cfg.global_config)    //   global_config:(Maybe Cell) ] = SmartContractInfo;
   };
   if (cfg.global_version >= 4) {
-    tuple.push_back(new_code);                            // code:Cell
+    tuple.push_back(vm::StackEntry::maybe(new_code));  // code:Cell
     if (msg_balance_remaining.is_valid()) {
       tuple.push_back(msg_balance_remaining.as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
     } else {
@@ -1338,11 +1338,10 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // Inside validator, collator and liteserver checking external message  contexts
     // prev_blocks_info is always not null, since get_prev_blocks_info()  
     // may only return tuple or raise Error (See crypto/block/mc-config.cpp#2223)
-    tuple.push_back(cfg.prev_blocks_info.not_null() ? vm::StackEntry(cfg.prev_blocks_info) : vm::StackEntry());
+    tuple.push_back(vm::StackEntry::maybe(cfg.prev_blocks_info));
   }
   if (cfg.global_version >= 6) {
-    tuple.push_back(cfg.unpacked_config_tuple.not_null() ? vm::StackEntry(cfg.unpacked_config_tuple)
-                                                         : vm::StackEntry());   // unpacked_config_tuple:[...]
+    tuple.push_back(vm::StackEntry::maybe(cfg.unpacked_config_tuple));          // unpacked_config_tuple:[...]
     tuple.push_back(due_payment.not_null() ? due_payment : td::zero_refint());  // due_payment:Integer
     tuple.push_back(compute_phase->precompiled_gas_usage
                         ? vm::StackEntry(td::make_refint(compute_phase->precompiled_gas_usage.value()))
