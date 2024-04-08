@@ -930,7 +930,7 @@ void ArchiveManager::alarm() {
 }
 
 void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
-  auto p = get_temp_package_id_by_unixtime(std::max(gc_ts, mc_ts - TEMP_PACKAGES_TTL));
+  auto p = get_temp_package_id_by_unixtime(mc_ts - TEMP_PACKAGES_TTL);
   std::vector<PackageId> vec;
   for (auto &x : temp_files_) {
     if (x.first < p) {

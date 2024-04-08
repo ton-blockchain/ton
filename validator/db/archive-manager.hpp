@@ -226,7 +226,7 @@ class ArchiveManager : public td::actor::Actor {
 
   void update_permanent_slices();
 
-  static const td::uint32 TEMP_PACKAGES_TTL = 86400 * 7;
+  static const td::uint32 TEMP_PACKAGES_TTL = 3600;
 };
 
 }  // namespace validator

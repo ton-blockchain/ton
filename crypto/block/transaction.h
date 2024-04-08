@@ -82,6 +82,7 @@ struct StoragePhaseConfig {
   td::RefInt256 freeze_due_limit;
   td::RefInt256 delete_due_limit;
   bool enable_due_payment{false};
+  int global_version = 0;
   StoragePhaseConfig() = default;
   StoragePhaseConfig(const std::vector<block::StoragePrices>* _pricing, td::RefInt256 freeze_limit = {},
                      td::RefInt256 delete_limit = {})
