@@ -898,6 +898,9 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
     res->fees_collected = to_pay;
     res->fees_due = td::zero_refint();
     balance -= std::move(to_pay);
+    if (cfg.global_version >= 7) {
+      due_payment = td::zero_refint();
+    }
   } else if (acc_status == Account::acc_frozen && !force_collect && to_pay < cfg.delete_due_limit) {
     // do not collect fee
     res->last_paid_updated = (res->is_special ? 0 : account.last_paid);
@@ -3668,6 +3671,7 @@ td::Status FetchConfigParams::fetch_config_params(
     compute_phase_cfg->mc_gas_prices = std::move(mc_gas_prices);
     compute_phase_cfg->special_gas_full = config.get_global_version() >= 5;
     storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
+    storage_phase_cfg->global_version = config.get_global_version();
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg->global_config = config.get_root_cell();
