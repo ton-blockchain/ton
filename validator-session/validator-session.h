@@ -28,6 +28,7 @@
 #include "catchain/catchain-types.h"
 
 #include "validator-session-types.h"
+#include "auto/tl/lite_api.h"
 
 namespace ton {
 
@@ -92,6 +93,9 @@ class ValidatorSession : public td::actor::Actor {
   virtual void start() = 0;
   virtual void destroy() = 0;
   virtual void get_current_stats(td::Promise<ValidatorSessionStats> promise) = 0;
+  virtual void get_validator_group_info_for_litequery(
+      td::uint32 cur_round,
+      td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,

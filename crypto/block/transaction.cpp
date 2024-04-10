@@ -898,6 +898,9 @@ bool Transaction::prepare_storage_phase(const StoragePhaseConfig& cfg, bool forc
     res->fees_collected = to_pay;
     res->fees_due = td::zero_refint();
     balance -= std::move(to_pay);
+    if (cfg.global_version >= 7) {
+      due_payment = td::zero_refint();
+    }
   } else if (acc_status == Account::acc_frozen && !force_collect && to_pay < cfg.delete_due_limit) {
     // do not collect fee
     res->last_paid_updated = (res->is_special ? 0 : account.last_paid);
@@ -1318,7 +1321,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
       vm::StackEntry::maybe(cfg.global_config)    //   global_config:(Maybe Cell) ] = SmartContractInfo;
   };
   if (cfg.global_version >= 4) {
-    tuple.push_back(new_code);                            // code:Cell
+    tuple.push_back(vm::StackEntry::maybe(new_code));  // code:Cell
     if (msg_balance_remaining.is_valid()) {
       tuple.push_back(msg_balance_remaining.as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
     } else {
@@ -1335,11 +1338,10 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // Inside validator, collator and liteserver checking external message  contexts
     // prev_blocks_info is always not null, since get_prev_blocks_info()  
     // may only return tuple or raise Error (See crypto/block/mc-config.cpp#2223)
-    tuple.push_back(cfg.prev_blocks_info.not_null() ? vm::StackEntry(cfg.prev_blocks_info) : vm::StackEntry());
+    tuple.push_back(vm::StackEntry::maybe(cfg.prev_blocks_info));
   }
   if (cfg.global_version >= 6) {
-    tuple.push_back(cfg.unpacked_config_tuple.not_null() ? vm::StackEntry(cfg.unpacked_config_tuple)
-                                                         : vm::StackEntry());   // unpacked_config_tuple:[...]
+    tuple.push_back(vm::StackEntry::maybe(cfg.unpacked_config_tuple));          // unpacked_config_tuple:[...]
     tuple.push_back(due_payment.not_null() ? due_payment : td::zero_refint());  // due_payment:Integer
     tuple.push_back(compute_phase->precompiled_gas_usage
                         ? vm::StackEntry(td::make_refint(compute_phase->precompiled_gas_usage.value()))
@@ -3668,6 +3670,7 @@ td::Status FetchConfigParams::fetch_config_params(
     compute_phase_cfg->mc_gas_prices = std::move(mc_gas_prices);
     compute_phase_cfg->special_gas_full = config.get_global_version() >= 5;
     storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
+    storage_phase_cfg->global_version = config.get_global_version();
     compute_phase_cfg->block_rand_seed = *rand_seed;
     compute_phase_cfg->max_vm_data_depth = size_limits.max_vm_data_depth;
     compute_phase_cfg->global_config = config.get_root_cell();

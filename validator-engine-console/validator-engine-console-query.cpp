@@ -33,6 +33,8 @@
 #include "td/utils/filesystem.h"
 #include "overlay/overlays.h"
 #include "ton/ton-tl.hpp"
+#include "td/utils/JsonBuilder.h"
+#include "auto/tl/ton_api_json.h"
 
 #include <cctype>
 #include <fstream>
@@ -1105,5 +1107,75 @@ td::Status SetExtMessagesBroadcastDisabledQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status AddCustomOverlayQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status AddCustomOverlayQuery::send() {
+  TRY_RESULT(data, td::read_file(file_name_));
+  TRY_RESULT(json, td::json_decode(data.as_slice()));
+  auto overlay = ton::create_tl_object<ton::ton_api::engine_validator_customOverlay>();
+  TRY_STATUS(ton::ton_api::from_json(*overlay, json.get_object()));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addCustomOverlay>(std::move(overlay));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status AddCustomOverlayQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status DelCustomOverlayQuery::run() {
+  TRY_RESULT_ASSIGN(name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status DelCustomOverlayQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delCustomOverlay>(name_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelCustomOverlayQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status ShowCustomOverlaysQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status ShowCustomOverlaysQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_showCustomOverlays>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << f->overlays_.size() << " custom overlays:\n\n";
+  for (const auto &overlay : f->overlays_) {
+    td::TerminalIO::out() << "Overlay \"" << overlay->name_ << "\": " << overlay->nodes_.size() << " nodes\n";
+    for (const auto &node : overlay->nodes_) {
+      td::TerminalIO::out() << "  " << node->adnl_id_
+                            << (node->msg_sender_ ? (PSTRING() << " (sender, p=" << node->msg_sender_priority_ << ")")
+                                                  : "")
+                            << "\n";
+    }
+    td::TerminalIO::out() << "\n";
+  }
   return td::Status::OK();
 }

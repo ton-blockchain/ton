@@ -1144,3 +1144,66 @@ class SetExtMessagesBroadcastDisabledQuery : public Query {
  private:
   bool value;
 };
+
+class AddCustomOverlayQuery : public Query {
+ public:
+  AddCustomOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "addcustomoverlay";
+  }
+  static std::string get_help() {
+    return "addcustomoverlay <filename>\tadd custom overlay with config from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class DelCustomOverlayQuery : public Query {
+ public:
+  DelCustomOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "delcustomoverlay";
+  }
+  static std::string get_help() {
+    return "delcustomoverlay <name>\tdelete custom overlay with name <name>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string name_;
+};
+
+class ShowCustomOverlaysQuery : public Query {
+ public:
+  ShowCustomOverlaysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "showcustomoverlays";
+  }
+  static std::string get_help() {
+    return "showcustomoverlays\tshow all custom overlays";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};

@@ -48,7 +48,8 @@ class Overlay : public td::actor::Actor {
                                              td::actor::ActorId<OverlayManager> manager,
                                              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                                              OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes,
-                                             std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules);
+                                             std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+                                             std::string scope);
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 

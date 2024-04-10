@@ -29,6 +29,7 @@
 #include "rldp/rldp.h"
 #include "token-manager.h"
 #include "queue-size-counter.hpp"
+#include "impl/candidates-buffer.hpp"
 
 #include <map>
 #include <set>
@@ -219,9 +220,19 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   // DATA FOR COLLATOR
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
-  std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
-  std::map<std::pair<ton::WorkchainId,ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>> ext_addr_messages_;
-  std::map<ExtMessage::Hash, MessageId<ExtMessage>> ext_messages_hashes_;
+  struct ExtMessages {
+    std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
+    std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>>
+        ext_addr_messages_;
+    void erase(const MessageId<ExtMessage>& id) {
+      auto it = ext_messages_.find(id);
+      CHECK(it != ext_messages_.end());
+      ext_addr_messages_[it->second->address()].erase(id.hash);
+      ext_messages_.erase(it);
+    }
+  };
+  std::map<int, ExtMessages> ext_msgs_;  // priority -> messages
+  std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
   std::map<IhrMessage::Hash, MessageId<IhrMessage>> ihr_messages_hashes_;
@@ -235,8 +246,12 @@ class ValidatorManagerImpl : public ValidatorManager {
                                                              td::Ref<ValidatorSet> validator_set,
                                                              validatorsession::ValidatorSessionOptions opts,
                                                              bool create_catchain);
-  std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> validator_groups_;
-  std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> next_validator_groups_;
+  struct ValidatorGroupEntry {
+    td::actor::ActorOwn<ValidatorGroup> actor;
+    ShardIdFull shard;
+  };
+  std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
+  std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
 
   std::set<ValidatorSessionId> check_gc_list_;
   std::vector<ValidatorSessionId> gc_list_;
@@ -344,8 +359,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
-  void new_external_message(td::BufferSlice data) override;
-  void add_external_message(td::Ref<ExtMessage> message);
+  void new_external_message(td::BufferSlice data, int priority) override;
+  void add_external_message(td::Ref<ExtMessage> message, int priority);
   void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override;
 
   void new_ihr_message(td::BufferSlice data) override;
@@ -405,7 +420,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Ref<MessageQueue>> promise) override;
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
-  void get_external_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<ExtMessage>>> promise) override;
+  void get_external_messages(ShardIdFull shard,
+                             td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) override;
   void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks(BlockIdExt masterchain_block_id,
                         td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
@@ -563,17 +579,24 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_lt_from_db_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
+  void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) override;
+  void get_block_state_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) override;
+  void get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
                                              td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_unix_time_from_db_for_litequery(AccountIdPrefixFull account, UnixTime ts,
+  void get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
                                                     td::Promise<ConstBlockHandle> promise) override;
-  void get_block_by_seqno_from_db_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
+  void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
                                                 td::Promise<ConstBlockHandle> promise) override;
   void process_block_handle_for_litequery_error(BlockIdExt block_id, td::Result<BlockHandle> r_handle,
                                                 td::Promise<ConstBlockHandle> promise);
   void process_lookup_block_for_litequery_error(AccountIdPrefixFull account, int type, td::uint64 value,
                                                 td::Result<ConstBlockHandle> r_handle,
                                                 td::Promise<ConstBlockHandle> promise);
+  void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,
+                                         td::Promise<BlockCandidate> promise) override;
+  void get_validator_groups_info_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override;
 
   void add_lite_query_stats(int lite_query_id) override {
     ++ls_stats_[lite_query_id];
@@ -648,6 +671,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::Timestamp log_ls_stats_at_;
   std::map<int, td::uint32> ls_stats_;  // lite_api ID -> count, 0 for unknown
   td::uint32 ls_stats_check_ext_messages_{0};
+
+  td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
 };
 
 }  // namespace validator

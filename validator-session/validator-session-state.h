@@ -376,6 +376,15 @@ class ValidatorSessionRoundState : public ValidatorSessionDescription::RootObjec
   void dump(ValidatorSessionDescription& desc, td::StringBuilder& sb, td::uint32 att) const;
   void dump_cur_attempt(ValidatorSessionDescription& desc, td::StringBuilder& sb) const;
 
+  void for_each_sent_block(std::function<void(const SessionBlockCandidate*)> foo) const {
+    if (!sent_blocks_) {
+      return;
+    }
+    for (td::uint32 i = 0; i < sent_blocks_->size(); ++i) {
+      foo(sent_blocks_->at(i));
+    }
+  }
+
  private:
   const SentBlock* precommitted_block_;
   const td::uint32 seqno_;
@@ -514,6 +523,19 @@ class ValidatorSessionState : public ValidatorSessionDescription::RootObject {
   void dump(ValidatorSessionDescription& desc, td::StringBuilder& sb, td::uint32 att) const;
   void dump_cur_attempt(ValidatorSessionDescription& desc, td::StringBuilder& sb) const {
     cur_round_->dump_cur_attempt(desc, sb);
+  }
+
+  void for_each_cur_round_sent_block(std::function<void(const SessionBlockCandidate*)> foo) const {
+    cur_round_->for_each_sent_block(std::move(foo));
+  }
+
+  const SentBlock* get_cur_round_precommitted_block() const {
+    bool found;
+    return cur_round_->get_precommitted_block(found);
+  }
+
+  const CntVector<const SessionBlockCandidateSignature*>* get_cur_round_signatures() const {
+    return cur_round_->get_signatures();
   }
 
   static const ValidatorSessionState* make_one(ValidatorSessionDescription& desc, const ValidatorSessionState* state,

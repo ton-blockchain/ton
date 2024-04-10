@@ -8,7 +8,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/native/build-ubuntu-shared.sh .
                                 chmod +x build-ubuntu-shared.sh
@@ -27,7 +27,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/nix/build-linux-x86-64-nix.sh .
                                 chmod +x build-linux-x86-64-nix.sh
@@ -46,7 +46,7 @@ pipeline {
                         label 'Ubuntu_arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/native/build-ubuntu-shared.sh .
                                 chmod +x build-ubuntu-shared.sh
@@ -65,7 +65,7 @@ pipeline {
                         label 'Ubuntu_arm64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/nix/build-linux-arm64-nix.sh .
                                 chmod +x build-linux-arm64-nix.sh
@@ -84,7 +84,7 @@ pipeline {
                         label 'macOS_12.7_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/native/build-macos-shared.sh .
                                 chmod +x build-macos-shared.sh
@@ -103,7 +103,7 @@ pipeline {
                         label 'macOS_12.7_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/nix/build-macos-nix.sh .
                                 chmod +x build-macos-nix.sh
@@ -122,7 +122,7 @@ pipeline {
                         label 'macOS_12.6-arm64-m1'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/native/build-macos-shared.sh .
                                 chmod +x build-macos-shared.sh
@@ -141,7 +141,7 @@ pipeline {
                         label 'macOS_12.6-arm64-m1'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/nix/build-macos-nix.sh .
                                 chmod +x build-macos-nix.sh
@@ -160,7 +160,7 @@ pipeline {
                         label 'macOS_13.2-arm64-m2'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/native/build-macos-shared.sh .
                                 chmod +x build-macos-shared.sh
@@ -179,10 +179,10 @@ pipeline {
                         label 'Windows_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             bat '''
                                 copy assembly\\native\\build-windows.bat .
-                                build-windows.bat
+                                build-windows.bat -t
                             '''
                             bat '''
                                 cd artifacts
@@ -197,7 +197,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cp assembly/android/build-android-tonlib.sh .
                                 chmod +x build-android-tonlib.sh
@@ -216,7 +216,7 @@ pipeline {
                         label 'Ubuntu_x86-64'
                     }
                     steps {
-                        timeout(time: 90, unit: 'MINUTES') {
+                        timeout(time: 180, unit: 'MINUTES') {
                             sh '''
                                 cd assembly/wasm
                                 chmod +x fift-func-wasm-build-ubuntu.sh

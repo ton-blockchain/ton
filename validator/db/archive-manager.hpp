@@ -70,6 +70,7 @@ class ArchiveManager : public td::actor::Actor {
                          td::Promise<td::BufferSlice> promise);
 
   void start_up() override;
+  void alarm() override;
 
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
@@ -173,6 +174,8 @@ class ArchiveManager : public td::actor::Actor {
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;
 
+  DbStatistics statistics_;
+
   FileMap &get_file_map(const PackageId &p) {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
   }
@@ -223,7 +226,7 @@ class ArchiveManager : public td::actor::Actor {
 
   void update_permanent_slices();
 
-  static const td::uint32 TEMP_PACKAGES_TTL = 86400 * 7;
+  static const td::uint32 TEMP_PACKAGES_TTL = 3600;
 };
 
 }  // namespace validator

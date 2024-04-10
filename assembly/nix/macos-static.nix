@@ -25,6 +25,7 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
       (openssl.override { static = true; }).dev
       (zlib.override { shared = false; }).dev
       (libiconv.override { enableStatic = true; enableShared = false; })
+      (lz4.override { enableStatic = true; enableShared = false; }).dev
    ];
 
 

@@ -21,6 +21,7 @@
 #include "td/utils/SharedSlice.h"
 #include "full-node-shard.hpp"
 #include "full-node-shard-queries.hpp"
+#include "full-node-serializer.hpp"
 
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
@@ -117,7 +118,7 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
     promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
     promise = [manager = validator_manager_, message = q->message_->data_.clone()](td::Result<td::Unit> R) mutable {
       if (R.is_ok()) {
-        td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message));
+        td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message), 0);
       }
     };
   }
@@ -635,29 +636,31 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ih
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
-                          std::move(query.message_->data_));
+                          std::move(query.message_->data_), 0);
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block,
-                          create_block_id(query.block_->block_), query.block_->cc_seqno_,
-                          std::move(query.block_->data_));
+  BlockIdExt block_id = create_block_id(query.block_->block_);
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id.to_str();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block, block_id,
+                          query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
-  std::vector<BlockSignature> signatures;
-  for (auto &sig : query.signatures_) {
-    signatures.emplace_back(BlockSignature{sig->who_, std::move(sig->signature_)});
+  process_block_broadcast(src, query);
+}
+
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
+  process_block_broadcast(src, query);
+}
+
+void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
+  if (B.is_error()) {
+    LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
+    return;
   }
-
-  BlockIdExt block_id = create_block_id(query.id_);
-  BlockBroadcast B{block_id,
-                   std::move(signatures),
-                   static_cast<UnixTime>(query.catchain_seqno_),
-                   static_cast<td::uint32>(query.validator_set_hash_),
-                   std::move(query.data_),
-                   std::move(query.proof_)};
-
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
   auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
     if (R.is_error()) {
       if (R.error().code() == ErrorCode::notready) {
@@ -667,7 +670,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
       }
     }
   });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, std::move(B),
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, B.move_as_ok(),
                           std::move(P));
 }
 
@@ -733,6 +736,7 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
     UNREACHABLE();
     return;
   }
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast: " << block_id.to_str();
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -749,15 +753,14 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     UNREACHABLE();
     return;
   }
-  std::vector<tl_object_ptr<ton_api::tonNode_blockSignature>> sigs;
-  for (auto &sig : broadcast.signatures) {
-    sigs.emplace_back(create_tl_object<ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id.to_str();
+  auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
+  if (B.is_error()) {
+    VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
+    return;
   }
-  auto B = create_serialize_tl_object<ton_api::tonNode_blockBroadcast>(
-      create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, std::move(sigs),
-      broadcast.proof.clone(), broadcast.data.clone());
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
-                          overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+                          overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
 void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,

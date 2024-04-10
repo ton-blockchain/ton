@@ -13,6 +13,15 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
+#pragma once
+
+#include "td/utils/buffer.h"
+#include "td/utils/Status.h"
+
+namespace td {
+
+td::BufferSlice lz4_compress(td::Slice data);
+td::Result<td::BufferSlice> lz4_decompress(td::Slice data, int max_decompressed_size);
+
+}  // namespace td

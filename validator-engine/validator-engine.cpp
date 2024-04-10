@@ -1367,6 +1367,8 @@ td::Status ValidatorEngine::load_global_config() {
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
+  validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
+  validator_options_.write().set_nonfinal_ls_queries_enabled(nonfinal_ls_queries_enabled_);
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -1841,6 +1843,7 @@ void ValidatorEngine::start_full_node() {
         config_.full_node_config, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
+    load_custom_overlays_config();
   }
 
   for (auto &v : config_.validators) {
@@ -2331,6 +2334,66 @@ void ValidatorEngine::try_del_proxy(td::uint32 ip, td::int32 port, std::vector<A
   reload_adnl_addrs();
 
   write_config(std::move(promise));
+}
+
+void ValidatorEngine::load_custom_overlays_config() {
+  custom_overlays_config_ =
+      ton::create_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>();
+  auto data_R = td::read_file(custom_overlays_config_file());
+  if (data_R.is_error()) {
+    return;
+  }
+  auto data = data_R.move_as_ok();
+  auto json_R = td::json_decode(data.as_slice());
+  if (json_R.is_error()) {
+    LOG(ERROR) << "Failed to parse custom overlays config: " << json_R.move_as_error();
+    return;
+  }
+  auto json = json_R.move_as_ok();
+  auto S = ton::ton_api::from_json(*custom_overlays_config_, json.get_object());
+  if (S.is_error()) {
+    LOG(ERROR) << "Failed to parse custom overlays config: " << S;
+    return;
+  }
+
+  for (auto &overlay : custom_overlays_config_->overlays_) {
+    std::vector<ton::adnl::AdnlNodeIdShort> nodes;
+    std::map<ton::adnl::AdnlNodeIdShort, int> senders;
+    for (const auto &node : overlay->nodes_) {
+      nodes.emplace_back(node->adnl_id_);
+      if (node->msg_sender_) {
+        senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
+      }
+    }
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes),
+                            std::move(senders), overlay->name_, [](td::Result<td::Unit> R) { R.ensure(); });
+  }
+}
+
+td::Status ValidatorEngine::write_custom_overlays_config() {
+  auto s = td::json_encode<std::string>(td::ToJson(*custom_overlays_config_), true);
+  TRY_STATUS_PREFIX(td::write_file(custom_overlays_config_file(), s), "failed to write config: ");
+  return td::Status::OK();
+}
+
+void ValidatorEngine::add_custom_overlay_to_config(
+    ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlay> overlay, td::Promise<td::Unit> promise) {
+  custom_overlays_config_->overlays_.push_back(std::move(overlay));
+  TRY_STATUS_PROMISE(promise, write_custom_overlays_config());
+  promise.set_result(td::Unit());
+}
+
+void ValidatorEngine::del_custom_overlay_from_config(std::string name, td::Promise<td::Unit> promise) {
+  auto &overlays = custom_overlays_config_->overlays_;
+  for (size_t i = 0; i < overlays.size(); ++i) {
+    if (overlays[i]->name_ == name) {
+      overlays.erase(overlays.begin() + i);
+      TRY_STATUS_PROMISE(promise, write_custom_overlays_config());
+      promise.set_result(td::Unit());
+      return;
+    }
+  }
+  promise.set_error(td::Status::Error(PSTRING() << "no overlay \"" << name << "\" in config"));
 }
 
 void ValidatorEngine::check_key(ton::PublicKeyHash id, td::Promise<td::Unit> promise) {
@@ -3460,7 +3523,8 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getShardO
       });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
@@ -3484,6 +3548,95 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setExtMes
       promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
     }
   });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCustomOverlay &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_ || full_node_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto &overlay = query.overlay_;
+  std::vector<ton::adnl::AdnlNodeIdShort> nodes;
+  std::map<ton::adnl::AdnlNodeIdShort, int> senders;
+  for (const auto &node : overlay->nodes_) {
+    nodes.emplace_back(node->adnl_id_);
+    if (node->msg_sender_) {
+      senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
+    }
+  }
+  std::string name = overlay->name_;
+  td::actor::send_closure(
+      full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes), std::move(senders),
+      std::move(name),
+      [SelfId = actor_id(this), overlay = std::move(overlay),
+       promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+          return;
+        }
+        td::actor::send_closure(
+            SelfId, &ValidatorEngine::add_custom_overlay_to_config, std::move(overlay),
+            [promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+              if (R.is_error()) {
+                promise.set_value(create_control_query_error(R.move_as_error()));
+                return;
+              }
+              promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+            });
+      });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCustomOverlay &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_ || full_node_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  td::actor::send_closure(
+      full_node_, &ton::validator::fullnode::FullNode::del_ext_msg_overlay, query.name_,
+      [SelfId = actor_id(this), name = query.name_, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+          return;
+        }
+        td::actor::send_closure(
+            SelfId, &ValidatorEngine::del_custom_overlay_from_config, std::move(name),
+            [promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+              if (R.is_error()) {
+                promise.set_value(create_control_query_error(R.move_as_error()));
+                return;
+              }
+              promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+            });
+      });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showCustomOverlays &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_ || full_node_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  promise.set_value(ton::serialize_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>(
+      custom_overlays_config_, true));
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
@@ -3816,6 +3969,12 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "enable-precompiled-smc",
                "enable exectuion of precompiled contracts (experimental, disabled by default)",
                []() { block::precompiled::set_precompiled_execution_enabled(true); });
+  p.add_option('\0', "disable-rocksdb-stats", "disable gathering rocksdb statistics (enabled by default)", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_disable_rocksdb_stats, true); });
+  });
+  p.add_option('\0', "nonfinal-ls", "enable special LS queries to non-finalized blocks", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_nonfinal_ls_queries_enabled); });
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

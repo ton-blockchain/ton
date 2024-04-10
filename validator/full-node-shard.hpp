@@ -71,7 +71,7 @@ class FullNodeShardImpl : public FullNodeShard {
     return 2;
   }
   static constexpr td::uint64 proto_capabilities() {
-    return 2;
+    return 3;
   }
   static constexpr td::uint32 max_neighbours() {
     return 16;
@@ -146,6 +146,9 @@ class FullNodeShardImpl : public FullNodeShard {
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
+  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);

@@ -84,6 +84,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::uint32 get_celldb_compress_depth() const = 0;
   virtual size_t get_max_open_archive_files() const = 0;
   virtual double get_archive_preload_period() const = 0;
+  virtual bool get_disable_rocksdb_stats() const = 0;
+  virtual bool nonfinal_ls_queries_enabled() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -106,6 +108,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_compress_depth(td::uint32 value) = 0;
   virtual void set_max_open_archive_files(size_t value) = 0;
   virtual void set_archive_preload_period(double value) = 0;
+  virtual void set_disable_rocksdb_stats(bool value) = 0;
+  virtual void set_nonfinal_ls_queries_enabled(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -194,7 +198,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) = 0;
   virtual void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
-  virtual void new_external_message(td::BufferSlice data) = 0;
+  virtual void new_external_message(td::BufferSlice data, int priority) = 0;
   virtual void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) = 0;
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;

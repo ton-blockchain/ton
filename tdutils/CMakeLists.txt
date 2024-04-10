@@ -280,6 +280,19 @@ if (TDUTILS_MIME_TYPE)
   )
 endif()
 
+if (NOT LZ4_FOUND)
+  pkg_check_modules(LZ4 REQUIRED liblz4)
+endif()
+
+if (LZ4_FOUND)
+  set(TD_HAVE_LZ4 1)
+  set(TDUTILS_SOURCE
+    ${TDUTILS_SOURCE}
+    td/utils/lz4.cpp
+    td/utils/lz4.h
+    )
+endif()
+
 set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/buffer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/ConcurrentHashMap.cpp
@@ -338,6 +351,13 @@ endif()
 if (CRC32C_FOUND)
   target_link_libraries(tdutils PRIVATE crc32c)
 endif()
+
+if (LZ4_FOUND)
+  message(STATUS "Found LZ4 ${LZ4_LIBRARIES} ${LZ4_INCLUDE_DIRS}")
+  target_link_libraries(tdutils PRIVATE ${LZ4_LIBRARIES})
+  target_include_directories(tdutils SYSTEM PRIVATE ${LZ4_INCLUDE_DIRS})
+endif()
+
 if (ABSL_FOUND)
   target_link_libraries_system(tdutils absl::flat_hash_map absl::flat_hash_set absl::hash)
 endif()

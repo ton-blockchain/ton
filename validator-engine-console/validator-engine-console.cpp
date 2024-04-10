@@ -143,6 +143,9 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<GetPerfTimerStatsJsonQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetShardOutQueueSizeQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetExtMessagesBroadcastDisabledQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<AddCustomOverlayQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<DelCustomOverlayQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ShowCustomOverlaysQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

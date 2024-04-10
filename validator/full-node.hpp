@@ -53,6 +53,10 @@ class FullNodeImpl : public FullNode {
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
   void set_config(FullNodeConfig config) override;
 
+  void add_ext_msg_overlay(std::vector<adnl::AdnlNodeIdShort> nodes, std::map<adnl::AdnlNodeIdShort, int> senders,
+                           std::string name, td::Promise<td::Unit> promise) override;
+  void del_ext_msg_overlay(std::string name, td::Promise<td::Unit> promise) override;
+
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
 
@@ -76,8 +80,7 @@ class FullNodeImpl : public FullNode {
   void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                         td::Promise<std::string> promise);
 
-  void got_key_block_proof(td::Ref<ProofLink> proof);
-  void got_zero_block_state(td::Ref<ShardState> state);
+  void got_key_block_state(td::Ref<ShardState> state);
   void new_key_block(BlockHandle handle);
 
   void start_up() override;
@@ -117,10 +120,21 @@ class FullNodeImpl : public FullNode {
   std::set<PublicKeyHash> local_keys_;
   FullNodeConfig config_;
 
-  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateOverlay>> private_block_overlays_;
+  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
+  bool private_block_overlays_enable_compression_ = false;
 
-  void update_private_block_overlays();
+  struct ExtMsgOverlayInfo {
+    std::vector<adnl::AdnlNodeIdShort> nodes_;
+    std::map<adnl::AdnlNodeIdShort, int> senders_;
+    std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodeCustomOverlay>>
+        actors_;  // our local id -> actor
+  };
+  std::map<std::string, ExtMsgOverlayInfo> private_custom_overlays_;
+
+  void update_private_overlays();
+  void set_private_block_overlays_enable_compression(bool value);
   void create_private_block_overlay(PublicKeyHash key);
+  void update_ext_msg_overlay(const std::string& name, ExtMsgOverlayInfo& overlay);
 };
 
 }  // namespace fullnode
