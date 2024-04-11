@@ -1,0 +1,208 @@
+digraph "full-node" {
+node [
+  fontsize = "12"
+];
+    "node57" [ label = "full-node", shape = octagon ];
+    "node38" [ label = "adnl", shape = octagon ];
+    "node57" -> "node38" [ style = dotted ] // full-node -> adnl
+    "node39" [ label = "keyring", shape = octagon ];
+    "node38" -> "node39"  // adnl -> keyring
+    "node40" [ label = "common", shape = octagon ];
+    "node39" -> "node40"  // keyring -> common
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node40" -> "node5" [ style = dotted ] // common -> tdutils
+    "node6" [ label = "crc32c", shape = doubleoctagon ];
+    "node5" -> "node6" [ style = dotted ] // tdutils -> crc32c
+    "node7" [ label = "crc32c_arm64", shape = hexagon ];
+    "node6" -> "node7"  // crc32c -> crc32c_arm64
+    "node8" [ label = "crc32c_sse42", shape = hexagon ];
+    "node6" -> "node8"  // crc32c -> crc32c_sse42
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node40" -> "node13" [ style = dotted ] // common -> ton_crypto
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node13" -> "node14"  // ton_crypto -> tddb_utils
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node14" -> "node4"  // tddb_utils -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node4" -> "node5"  // tdactor -> tdutils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node14" -> "node5"  // tddb_utils -> tdutils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node13" -> "node5"  // ton_crypto -> tdutils
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node13" -> "node15"  // ton_crypto -> ton_block
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node15" -> "node4"  // ton_block -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node15" -> "node5"  // ton_block -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node15" -> "node10"  // ton_block -> tl_api
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node10" -> "node5"  // tl_api -> tdutils
+    "node16" [ label = "tlbc", shape = egg ];
+    "node15" -> "node16"  // ton_block -> tlbc
+    "node17" [ label = "src_parser", shape = doubleoctagon ];
+    "node16" -> "node17" [ style = dotted ] // tlbc -> src_parser
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node17" -> "node18"  // src_parser -> ton_crypto_core
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node18" -> "node14"  // ton_crypto_core -> tddb_utils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node18" -> "node5"  // ton_crypto_core -> tdutils
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node16" -> "node18" [ style = dotted ] // tlbc -> ton_crypto_core
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node15" -> "node13"  // ton_block -> ton_crypto
+    "node18" [ label = "ton_crypto_core", shape = octagon ];
+    "node13" -> "node18"  // ton_crypto -> ton_crypto_core
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node39" -> "node4"  // keyring -> tdactor
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node39" -> "node10"  // keyring -> tl_api
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node39" -> "node13"  // keyring -> ton_crypto
+    "node3" [ label = "keys", shape = octagon ];
+    "node38" -> "node3"  // adnl -> keys
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node3" -> "node4"  // keys -> tdactor
+    "node9" [ label = "tl-utils", shape = octagon ];
+    "node3" -> "node9"  // keys -> tl-utils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node9" -> "node10"  // tl-utils -> tl_api
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node9" -> "node13"  // tl-utils -> ton_crypto
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node3" -> "node10"  // keys -> tl_api
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node3" -> "node13"  // keys -> ton_crypto
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node38" -> "node4"  // adnl -> tdactor
+    "node26" [ label = "tddb", shape = octagon ];
+    "node38" -> "node26"  // adnl -> tddb
+    "node27" [ label = "rocksdb", shape = octagon ];
+    "node26" -> "node27" [ style = dotted ] // tddb -> rocksdb
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node26" -> "node4"  // tddb -> tdactor
+    "node14" [ label = "tddb_utils", shape = octagon ];
+    "node26" -> "node14"  // tddb -> tddb_utils
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node26" -> "node5"  // tddb -> tdutils
+    "node19" [ label = "tdnet", shape = octagon ];
+    "node38" -> "node19"  // adnl -> tdnet
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node19" -> "node4"  // tdnet -> tdactor
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node38" -> "node10"  // adnl -> tl_api
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node38" -> "node13"  // adnl -> ton_crypto
+    "node53" [ label = "catchain", shape = octagon ];
+    "node57" -> "node53" [ style = dotted ] // full-node -> catchain
+    "node38" [ label = "adnl", shape = octagon ];
+    "node53" -> "node38" [ style = dotted ] // catchain -> adnl
+    "node42" [ label = "dht", shape = octagon ];
+    "node53" -> "node42" [ style = dotted ] // catchain -> dht
+    "node38" [ label = "adnl", shape = octagon ];
+    "node42" -> "node38" [ style = dotted ] // dht -> adnl
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node42" -> "node4" [ style = dotted ] // dht -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node42" -> "node5" [ style = dotted ] // dht -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node42" -> "node10" [ style = dotted ] // dht -> tl_api
+    "node54" [ label = "overlay", shape = octagon ];
+    "node53" -> "node54" [ style = dotted ] // catchain -> overlay
+    "node38" [ label = "adnl", shape = octagon ];
+    "node54" -> "node38" [ style = dotted ] // overlay -> adnl
+    "node42" [ label = "dht", shape = octagon ];
+    "node54" -> "node42" [ style = dotted ] // overlay -> dht
+    "node55" [ label = "fec", shape = octagon ];
+    "node54" -> "node55" [ style = dotted ] // overlay -> fec
+    "node46" [ label = "tdfec", shape = octagon ];
+    "node55" -> "node46"  // fec -> tdfec
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node46" -> "node5"  // tdfec -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node55" -> "node10" [ style = dotted ] // fec -> tl_api
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node54" -> "node4" [ style = dotted ] // overlay -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node54" -> "node5" [ style = dotted ] // overlay -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node54" -> "node10" [ style = dotted ] // overlay -> tl_api
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node53" -> "node4" [ style = dotted ] // catchain -> tdactor
+    "node46" [ label = "tdfec", shape = octagon ];
+    "node53" -> "node46" [ style = dotted ] // catchain -> tdfec
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node53" -> "node5" [ style = dotted ] // catchain -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node53" -> "node10" [ style = dotted ] // catchain -> tl_api
+    "node42" [ label = "dht", shape = octagon ];
+    "node57" -> "node42" [ style = dotted ] // full-node -> dht
+    "node54" [ label = "overlay", shape = octagon ];
+    "node57" -> "node54" [ style = dotted ] // full-node -> overlay
+    "node58" [ label = "rldp", shape = octagon ];
+    "node57" -> "node58" [ style = dotted ] // full-node -> rldp
+    "node38" [ label = "adnl", shape = octagon ];
+    "node58" -> "node38" [ style = dotted ] // rldp -> adnl
+    "node55" [ label = "fec", shape = octagon ];
+    "node58" -> "node55" [ style = dotted ] // rldp -> fec
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node58" -> "node4" [ style = dotted ] // rldp -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node58" -> "node5" [ style = dotted ] // rldp -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node58" -> "node10" [ style = dotted ] // rldp -> tl_api
+    "node59" [ label = "rldp2", shape = octagon ];
+    "node57" -> "node59" [ style = dotted ] // full-node -> rldp2
+    "node38" [ label = "adnl", shape = octagon ];
+    "node59" -> "node38"  // rldp2 -> adnl
+    "node55" [ label = "fec", shape = octagon ];
+    "node59" -> "node55"  // rldp2 -> fec
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node59" -> "node4"  // rldp2 -> tdactor
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node59" -> "node5"  // rldp2 -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node59" -> "node10"  // rldp2 -> tl_api
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node57" -> "node4" [ style = dotted ] // full-node -> tdactor
+    "node46" [ label = "tdfec", shape = octagon ];
+    "node57" -> "node46" [ style = dotted ] // full-node -> tdfec
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node57" -> "node5" [ style = dotted ] // full-node -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node57" -> "node10" [ style = dotted ] // full-node -> tl_api
+    "node15" [ label = "ton_block", shape = octagon ];
+    "node57" -> "node15" [ style = dotted ] // full-node -> ton_block
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node57" -> "node13" [ style = dotted ] // full-node -> ton_crypto
+    "node25" [ label = "ton_db", shape = octagon ];
+    "node57" -> "node25" [ style = dotted ] // full-node -> ton_db
+    "node26" [ label = "tddb", shape = octagon ];
+    "node25" -> "node26"  // ton_db -> tddb
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node25" -> "node5"  // ton_db -> tdutils
+    "node13" [ label = "ton_crypto", shape = octagon ];
+    "node25" -> "node13"  // ton_db -> ton_crypto
+    "node60" [ label = "validatorsession", shape = octagon ];
+    "node57" -> "node60" [ style = dotted ] // full-node -> validatorsession
+    "node38" [ label = "adnl", shape = octagon ];
+    "node60" -> "node38" [ style = dotted ] // validatorsession -> adnl
+    "node53" [ label = "catchain", shape = octagon ];
+    "node60" -> "node53" [ style = dotted ] // validatorsession -> catchain
+    "node42" [ label = "dht", shape = octagon ];
+    "node60" -> "node42" [ style = dotted ] // validatorsession -> dht
+    "node54" [ label = "overlay", shape = octagon ];
+    "node60" -> "node54" [ style = dotted ] // validatorsession -> overlay
+    "node58" [ label = "rldp", shape = octagon ];
+    "node60" -> "node58" [ style = dotted ] // validatorsession -> rldp
+    "node4" [ label = "tdactor", shape = octagon ];
+    "node60" -> "node4" [ style = dotted ] // validatorsession -> tdactor
+    "node46" [ label = "tdfec", shape = octagon ];
+    "node60" -> "node46" [ style = dotted ] // validatorsession -> tdfec
+    "node5" [ label = "tdutils", shape = octagon ];
+    "node60" -> "node5" [ style = dotted ] // validatorsession -> tdutils
+    "node10" [ label = "tl_api", shape = octagon ];
+    "node60" -> "node10" [ style = dotted ] // validatorsession -> tl_api
+}

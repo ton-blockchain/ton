@@ -30,3 +30,18 @@ Emulator output contains:
 TVM emulator is intended to run get methods or emulate sending message on TVM level. It is initialized with smart contract code and data cells. 
 - To run get method you pass *initial stack* and *method id* (as integer).
 - To emulate sending message you pass *message body* and in case of internal message *amount* in nanograms.
+
+## emulator
+
+![dht](../dev/png/ton.emulator.png)
+
+## emulator_static
+
+![dht](../dev/png/ton.emulator_static.png)
+
+### emulator_static dependers
+
+![dht](../dev/png/ton.emulator_static.dependers.png)
+
+
+

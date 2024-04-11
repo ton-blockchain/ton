@@ -1,0 +1,12 @@
+digraph "storage" {
+node [
+  fontsize = "12"
+];
+    "node92" [ label = "storage", shape = octagon ];
+    "node93" [ label = "storage-cli", shape = egg ];
+    "node93" -> "node92" [ style = dotted ] // storage-cli -> storage
+    "node94" [ label = "storage-daemon", shape = egg ];
+    "node94" -> "node92" [ style = dotted ] // storage-daemon -> storage
+    "node116" [ label = "test-storage", shape = egg ];
+    "node116" -> "node92" [ style = dotted ] // test-storage -> storage
+}

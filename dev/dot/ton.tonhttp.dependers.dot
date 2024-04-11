@@ -1,0 +1,12 @@
+digraph "tonhttp" {
+node [
+  fontsize = "12"
+];
+    "node78" [ label = "tonhttp", shape = octagon ];
+    "node77" [ label = "http-proxy", shape = egg ];
+    "node77" -> "node78" [ style = dotted ] // http-proxy -> tonhttp
+    "node90" [ label = "rldp-http-proxy", shape = egg ];
+    "node90" -> "node78" [ style = dotted ] // rldp-http-proxy -> tonhttp
+    "node110" [ label = "test-http", shape = egg ];
+    "node110" -> "node78" [ style = dotted ] // test-http -> tonhttp
+}
