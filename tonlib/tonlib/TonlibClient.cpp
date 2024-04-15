@@ -1890,7 +1890,9 @@ class RunEmulator : public TonlibQueryActor {
     if (stopped_) {
       return;
     }
-    get_block_id([self = this](td::Result<FullBlockId>&& block_id) { self->set_block_id(std::move(block_id)); });
+    get_block_id([SelfId = actor_id(this)](td::Result<FullBlockId>&& block_id) {
+      td::actor::send_closure(SelfId, &RunEmulator::set_block_id, std::move(block_id));
+    });
   }
 
   void set_block_id(td::Result<FullBlockId>&& block_id) {
@@ -1899,8 +1901,12 @@ class RunEmulator : public TonlibQueryActor {
     } else {
       block_id_ = block_id.move_as_ok();
 
-      get_mc_state_root([self = this](td::Result<td::Ref<vm::Cell>>&& mc_state_root) { self->set_mc_state_root(std::move(mc_state_root)); });
-      get_account_state([self = this](td::Result<td::unique_ptr<AccountState>>&& state) { self->set_account_state(std::move(state)); });
+      get_mc_state_root([SelfId = actor_id(this)](td::Result<td::Ref<vm::Cell>>&& mc_state_root) {
+        td::actor::send_closure(SelfId, &RunEmulator::set_mc_state_root, std::move(mc_state_root));
+      });
+      get_account_state([SelfId = actor_id(this)](td::Result<td::unique_ptr<AccountState>>&& state) {
+        td::actor::send_closure(SelfId, &RunEmulator::set_account_state, std::move(state));
+      });
       check(get_transactions(0));
 
       inc();
@@ -1922,7 +1928,9 @@ class RunEmulator : public TonlibQueryActor {
     } else {
       account_state_ = account_state.move_as_ok();
       send_query(int_api::ScanAndLoadGlobalLibs{account_state_->get_raw_state()},
-                 [self = this](td::Result<vm::Dictionary> R) { self->set_global_libraries(std::move(R)); });
+                 [SelfId = actor_id(this)](td::Result<vm::Dictionary> R) {
+                   td::actor::send_closure(SelfId, &RunEmulator::set_global_libraries, std::move(R));
+                 });
     }
   }
 
@@ -5517,7 +5525,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                           }
 
                           block::ShardConfig sh_conf;
-                          if (!sh_conf.unpack(mc_extra.shard_hashes)) {
+                          if (!sh_conf.unpack(data_csr)) {
                             return td::Status::Error("cannot extract shard block list from shard configuration");
                           }
                           auto ids = sh_conf.get_shard_hash_ids(true);
@@ -5540,7 +5548,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
   return td::Status::OK();
 }
 
-td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>& result, int mode, ton::BlockId blkid, ton::BlockIdExt client_mc_blkid, td::uint64 lt, td::uint32 utime);
+td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>& result, int mode,
+                                    ton::BlockId blkid, ton::BlockIdExt client_mc_blkid, td::uint64 lt,
+                                    td::uint32 utime);
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& request,
                         td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise) {
@@ -5726,7 +5736,7 @@ auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid)
 
 td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer_blockTransactions>& bTxes, int32_t mode,
     ton::LogicalTime start_lt, td::Bits256 start_addr, td::Bits256 root_hash, int req_count) {
-  if (mode & ton::lite_api::liteServer_listBlockTransactions::WANT_PROOF_MASK == 0) {
+  if ((mode & ton::lite_api::liteServer_listBlockTransactions::WANT_PROOF_MASK) == 0) {
     return td::Status::OK();
   }
   constexpr int max_answer_transactions = 256;
