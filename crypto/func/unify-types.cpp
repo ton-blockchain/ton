@@ -209,7 +209,7 @@ std::ostream& operator<<(std::ostream& os, TypeExpr* type_expr) {
   return type_expr->print(os);
 }
 
-std::ostream& TypeExpr::print(std::ostream& os, int lex_level) {
+std::ostream& TypeExpr::print(std::ostream& os, int lex_level) const {
   switch (constr) {
     case te_Unknown:
       return os << "??" << value;

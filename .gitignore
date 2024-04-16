@@ -13,6 +13,8 @@ test/regression-tests.cache/
 **/*build*/
 .idea
 .vscode
+dev/
+.DS_Store
 zlib/
 libsodium/
 libmicrohttpd-0.9.77-w32-bin/

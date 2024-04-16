@@ -37,7 +37,7 @@ Expr* Expr::copy() const {
   return res;
 }
 
-Expr::Expr(int c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
+Expr::Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
   sym = sym::lookup_symbol(name_idx);
   if (!sym) {
   }
@@ -233,7 +233,7 @@ void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& g
   }
 }
 
-std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
+std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
   while (lhs->is_type_apply()) {
     lhs = lhs->args.at(0);
   }
@@ -249,7 +249,7 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
     auto unpacked_type = rhs->e_type->args.at(0);
     std::vector<var_idx_t> tmp{code.create_tmp_var(unpacked_type, &rhs->here)};
     code.emplace_back(lhs->here, Op::_UnTuple, tmp, std::move(right));
-    auto tvar = new Expr{_Var};
+    auto tvar = new Expr{Expr::_Var};
     tvar->set_val(tmp[0]);
     tvar->set_location(rhs->here);
     tvar->e_type = unpacked_type;

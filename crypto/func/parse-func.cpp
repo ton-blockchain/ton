@@ -580,7 +580,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
   if (t == '_') {
     Expr* res = new Expr{Expr::_Hole, lex.cur().loc};
     res->val = -1;
-    res->flags = (Expr::_IsLvalue | Expr::_IsHole | Expr::_IsNewVar);
+    res->flags = Expr::_IsLvalue;
     res->e_type = TypeExpr::new_hole();
     lex.next();
     return res;
@@ -642,7 +642,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     if (nv) {
       res->val = ~lex.cur().val;
       res->e_type = TypeExpr::new_hole();
-      res->flags = Expr::_IsLvalue | Expr::_IsNewVar;
+      res->flags = Expr::_IsLvalue;
       // std::cerr << "defined new variable " << lex.cur().str << " : " << res->e_type << std::endl;
     } else {
       if (!sym) {

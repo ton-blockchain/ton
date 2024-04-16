@@ -149,8 +149,8 @@ class IdSc {
  */
 
 struct TypeExpr {
-  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_Type, te_ForAll } constr;
-  enum {
+  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_ForAll } constr;
+  enum AtomicType {
     _Int = Keyword::_Int,
     _Cell = Keyword::_Cell,
     _Slice = Keyword::_Slice,
@@ -216,7 +216,7 @@ struct TypeExpr {
   void compute_width();
   bool recompute_width();
   void show_width(std::ostream& os);
-  std::ostream& print(std::ostream& os, int prio = 0);
+  std::ostream& print(std::ostream& os, int prio = 0) const;
   void replace_with(TypeExpr* te2);
   int extract_components(std::vector<TypeExpr*>& comp_list);
   static int holes, type_vars;
@@ -535,7 +535,7 @@ class ListIterator {
 struct Stack;
 
 struct Op {
-  enum {
+  enum OpKind {
     _Undef,
     _Nop,
     _Call,
@@ -554,10 +554,10 @@ struct Op {
     _Repeat,
     _Again,
     _TryCatch,
-    _SliceConst
+    _SliceConst,
   };
-  int cl;
-  enum { _Disabled = 1, _Reachable = 2, _NoReturn = 4, _ImpureR = 8, _ImpureW = 16, _Impure = 24 };
+  OpKind cl;
+  enum { _Disabled = 1, _NoReturn = 4, _Impure = 24 };
   int flags;
   std::unique_ptr<Op> next;
   SymDef* fun_ref;
@@ -568,25 +568,25 @@ struct Op {
   std::unique_ptr<Op> block0, block1;
   td::RefInt256 int_const;
   std::string str_const;
-  Op(const SrcLocation& _where = {}, int _cl = _Undef) : cl(_cl), flags(0), fun_ref(nullptr), where(_where) {
+  Op(const SrcLocation& _where = {}, OpKind _cl = _Undef) : cl(_cl), flags(0), fun_ref(nullptr), where(_where) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left)
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left) {
   }
-  Op(const SrcLocation& _where, int _cl, std::vector<var_idx_t>&& _left)
+  Op(const SrcLocation& _where, OpKind _cl, std::vector<var_idx_t>&& _left)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(std::move(_left)) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left), int_const(_const) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left, std::string _const)
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, std::string _const)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left), str_const(_const) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(_left), right(_right) {
   }
-  Op(const SrcLocation& _where, int _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
+  Op(const SrcLocation& _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
@@ -598,9 +598,6 @@ struct Op {
   }
   void disable() {
     flags |= _Disabled;
-  }
-  bool unreachable() {
-    return !(flags & _Reachable);
   }
   void flags_set_clear(int set, int clear);
   void show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx = "", int mode = 0) const;
@@ -898,7 +895,7 @@ extern std::stack<src::SrcLocation> inclusion_locations;
  */
 
 struct Expr {
-  enum {
+  enum ExprCls {
     _None,
     _Apply,
     _VarApply,
@@ -914,11 +911,11 @@ struct Expr {
     _Hole,
     _Type,
     _CondExpr,
-    _SliceConst
+    _SliceConst,
   };
-  int cls;
+  ExprCls cls;
   int val{0};
-  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsHole = 8, _IsNewVar = 16, _IsImpure = 32 };
+  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32 };
   int flags{0};
   SrcLocation here;
   td::RefInt256 intval;
@@ -926,19 +923,19 @@ struct Expr {
   SymDef* sym{nullptr};
   TypeExpr* e_type{nullptr};
   std::vector<Expr*> args;
-  Expr(int c = _None) : cls(c) {
+  explicit Expr(ExprCls c = _None) : cls(c) {
   }
-  Expr(int c, const SrcLocation& loc) : cls(c), here(loc) {
+  Expr(ExprCls c, const SrcLocation& loc) : cls(c), here(loc) {
   }
-  Expr(int c, std::vector<Expr*> _args) : cls(c), args(std::move(_args)) {
+  Expr(ExprCls c, std::vector<Expr*> _args) : cls(c), args(std::move(_args)) {
   }
-  Expr(int c, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
+  Expr(ExprCls c, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
   }
-  Expr(int c, SymDef* _sym, std::initializer_list<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
+  Expr(ExprCls c, SymDef* _sym, std::initializer_list<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
   }
-  Expr(int c, SymDef* _sym, std::vector<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
+  Expr(ExprCls c, SymDef* _sym, std::vector<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
   }
-  Expr(int c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist);
+  Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist);
   ~Expr() {
     for (auto& arg_ptr : args) {
       delete arg_ptr;
@@ -979,7 +976,6 @@ struct Expr {
   int define_new_vars(CodeBlob& code);
   int predefine_vars();
   std::vector<var_idx_t> pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs = nullptr) const;
-  static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here);
   var_idx_t new_tmp(CodeBlob& code) const;
   std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
     return {new_tmp(code)};
@@ -1000,9 +996,9 @@ using Const = td::RefInt256;
 
 struct AsmOp {
   enum Type { a_none, a_xchg, a_push, a_pop, a_const, a_custom, a_magic };
-  int t{a_none};
+  Type t{a_none};
   int indent{0};
-  int a, b, c;
+  int a, b;
   bool gconst{false};
   std::string op;
   td::RefInt256 origin;
@@ -1012,25 +1008,21 @@ struct AsmOp {
     }
   };
   AsmOp() = default;
-  AsmOp(int _t) : t(_t) {
+  AsmOp(Type _t) : t(_t) {
   }
-  AsmOp(int _t, std::string _op) : t(_t), op(std::move(_op)) {
+  AsmOp(Type _t, std::string _op) : t(_t), op(std::move(_op)) {
   }
-  AsmOp(int _t, int _a) : t(_t), a(_a) {
+  AsmOp(Type _t, int _a) : t(_t), a(_a) {
   }
-  AsmOp(int _t, int _a, std::string _op) : t(_t), a(_a), op(std::move(_op)) {
+  AsmOp(Type _t, int _a, std::string _op) : t(_t), a(_a), op(std::move(_op)) {
   }
-  AsmOp(int _t, int _a, int _b) : t(_t), a(_a), b(_b) {
+  AsmOp(Type _t, int _a, int _b) : t(_t), a(_a), b(_b) {
   }
-  AsmOp(int _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
+  AsmOp(Type _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
     compute_gconst();
   }
-  AsmOp(int _t, int _a, int _b, std::string _op, td::RefInt256 x) : t(_t), a(_a), b(_b), op(std::move(_op)), origin(x) {
+  AsmOp(Type _t, int _a, int _b, std::string _op, td::RefInt256 x) : t(_t), a(_a), b(_b), op(std::move(_op)), origin(x) {
     compute_gconst();
-  }
-  AsmOp(int _t, int _a, int _b, int _c) : t(_t), a(_a), b(_b), c(_c) {
-  }
-  AsmOp(int _t, int _a, int _b, int _c, std::string _op) : t(_t), a(_a), b(_b), c(_c), op(std::move(_op)) {
   }
   void out(std::ostream& os) const;
   void out_indent_nl(std::ostream& os, bool no_nl = false) const;
