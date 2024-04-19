@@ -1,5 +1,13 @@
+# Usage: `legacy_tests.py` from current dir, providing some env (see getenv() calls).
+# Unlike run_tests.py, it launches tests from legacy_tests/ folder (which are real-world contracts)
+# and checks that code hashes are expected (that contracts are compiled exactly the same way).
+# In other words, it doesn't execute TVM, it just compiles fift to acquire a contract hash.
+# In the future, we may merge these tests with regular ones (when the testing framework becomes richer).
+# Note, that there is also legacy_tester.js to test FunC compiled to WASM.
+
 import os
 import os.path
+import re
 import subprocess
 import sys
 import tempfile
@@ -7,39 +15,6 @@ import shutil
 
 add_pragmas = [] #["allow-post-modification", "compute-asm-ltr"];
 
-tests = [
-    # note, that deployed version of elector,config and multisig differ since it is compilled with func-0.1.0.
-    # Newer compillators optimize arithmetic and logic expression that can be calculated at the compile time
-    ["elector/elector-code.fc", 115226404411715505328583639896096915745686314074575650766750648324043316883483],
-    ["config/config-code.fc", 10913070768607625342121305745084703121685937915388357634624451844356456145601],
-    ["eth-bridge-multisig/multisig-code.fc", 101509909129354488841890823627011033360100627957439967918234053299675481277954],
-
-    ["bsc-bridge-collector/votes-collector.fc", 62190447221288642706570413295807615918589884489514159926097051017036969900417],
-    ["uni-lock-wallet/uni-lockup-wallet.fc", 61959738324779104851267145467044677651344601417998258530238254441977103654381],
-    ["nft-collection/nft-collection-editable.fc", 45561997735512210616567774035540357815786262097548276229169737015839077731274],
-    ["dns-collection/nft-collection.fc", 107999822699841936063083742021519765435859194241091312445235370766165379261859],
-
-
-    # note, that deployed version of tele-nft-item differs since it is compilled with func-0.3.0.
-    # After introducing of try/catch construction, c2 register is not always the default one.
-    # Thus it is necessary to save it upon jumps, differences of deployed and below compilled is that
-    # "c2 SAVE" is added to the beginning of recv_internal. It does not change behavior.
-    ["tele-nft-item/nft-item.fc", 69777543125381987786450436977742010705076866061362104025338034583422166453344],
-
-    ["storage/storage-contract.fc", 91377830060355733016937375216020277778264560226873154627574229667513068328151],
-    ["storage/storage-provider.fc", 13618336676213331164384407184540461509022654507176709588621016553953760588122],
-    ["nominator-pool/pool.fc", 69767057279163099864792356875696330339149706521019810113334238732928422055375],
-    ["jetton-minter/jetton-minter.fc", 9028309926287301331466371999814928201427184114165428257502393474125007156494],
-    ["gg-marketplace/nft-marketplace-v2.fc", 92199806964112524639740773542356508485601908152150843819273107618799016205930],
-    ["jetton-wallet/jetton-wallet.fc", 86251125787443633057458168028617933212663498001665054651523310772884328206542],
-    ["whales-nominators/nominators.fc", 8941364499854379927692172316865293429893094891593442801401542636695127885153],
-
-
-    ["tact-examples/treasure_Treasure.code.fc", 13962538639825790677138656603323869918938565499584297120566680287245364723897],
-    ["tact-examples/jetton_SampleJetton.code.fc", 94076762218493729104783735200107713211245710256802265203823917715299139499110],
-    ["tact-examples/jetton_JettonDefaultWallet.code.fc", 29421313492520031238091587108198906058157443241743283101866538036369069620563],
-    ["tact-examples/maps_MapTestContract.code.fc", 22556550222249123835909180266811414538971143565993192846012583552876721649744],
-]
 
 def getenv(name, default=None):
     if name in os.environ:
@@ -49,14 +24,27 @@ def getenv(name, default=None):
         exit(1)
     return default
 
+
 FUNC_EXECUTABLE = getenv("FUNC_EXECUTABLE", "func")
 FIFT_EXECUTABLE = getenv("FIFT_EXECUTABLE", "fift")
+FIFT_LIBS_FOLDER = getenv("FIFTPATH")  # this env is needed for fift to work properly
 TMP_DIR = tempfile.mkdtemp()
 
 COMPILED_FIF = os.path.join(TMP_DIR, "compiled.fif")
 RUNNER_FIF = os.path.join(TMP_DIR, "runner.fif")
 
 TESTS_DIR = "legacy_tests"
+
+
+def load_legacy_tests_list(jsonl_filename: str) -> list[tuple[str, int]]:
+    with open(jsonl_filename) as fd:
+        contents = fd.read()
+    results = re.findall('^\[\s*"(.*?)"\s*,\s*(.*?)\s*]', contents, re.MULTILINE)
+    return list(map(lambda line: (line[0], int(line[1])), results))
+
+
+tests = load_legacy_tests_list('legacy_tests.jsonl')
+
 
 class ExecutionError(Exception):
     pass
@@ -119,12 +107,11 @@ def get_version():
     return s.strip()
 
 success = 0
-for ti, t in enumerate(tests):
-    tf, th = t
-    print("  Running test %d/%d: %s" % (ti + 1, len(tests), tf), file=sys.stderr)
-    tf = os.path.join(TESTS_DIR, tf)
+for ti, (filename_rel, code_hash) in enumerate(tests):
+    print("Running test %d/%d: %s" % (ti + 1, len(tests), filename_rel), file=sys.stderr)
     try:
-        compile_func(tf)
+        filename = os.path.join(TESTS_DIR, filename_rel)
+        compile_func(filename)
     except ExecutionError as e:
         print(file=sys.stderr)
         print("Compilation error", file=sys.stderr)
@@ -136,8 +123,8 @@ for ti, t in enumerate(tests):
 
     try:
         func_out = run_runner()
-        if func_out != th:
-            raise ExecutionError("Error : expected '%d', found '%d'" % (th, func_out))
+        if func_out != code_hash:
+            raise ExecutionError("Error : expected '%d', found '%d'" % (code_hash, func_out))
         success += 1
     except ExecutionError as e:
         print(e, file=sys.stderr)

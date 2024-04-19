@@ -17,7 +17,8 @@ const copyFromCString = (mod, ptr) => {
     return mod.UTF8ToString(ptr);
 };
 
-async function compileFile(mod, filename) {
+/** @return {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string}} */
+function compileFile(mod, filename) {
     const callbackPtr = mod.addFunction((_kind, _data, contents, error) => {
         const kind = copyFromCString(mod, _kind);
         const data = copyFromCString(mod, _data);
@@ -28,7 +29,7 @@ async function compileFile(mod, filename) {
             try {
                 copyToCStringPtr(mod, fsSync.readFileSync(path).toString('utf-8'), contents);
             } catch (err) {
-                copyToCStringPtr(mod, e.message, error);
+                copyToCStringPtr(mod, err.message, error);
             }
         } else {
             copyToCStringPtr(mod, 'Unknown callback kind ' + kind, error);
@@ -47,14 +48,11 @@ async function compileFile(mod, filename) {
     return JSON.parse(copyFromCString(mod, responsePtr));
 }
 
-const wasmModule = require(process.env.FUNCFIFTLIB_MODULE)
+async function compileWasm(fiftFuncLibJsFileName, fiftFuncLibWasmFileName) {
+    const wasmModule = require(fiftFuncLibJsFileName)
+    const wasmBinary = new Uint8Array(fsSync.readFileSync(fiftFuncLibWasmFileName))
 
-const wasmBinary = new Uint8Array(fsSync.readFileSync(process.env.FUNCFIFTLIB_WASM))
-
-async function compileWasm() {
-    const mod = await wasmModule({ wasmBinary })
-
-    return mod
+    return await wasmModule({ wasmBinary })
 }
 
 module.exports = {

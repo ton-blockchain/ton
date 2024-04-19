@@ -1,0 +1,8 @@
+_ main(s) {
+  var (z, t) = ;
+
+{-
+@compilation_should_fail
+@stderr identifier expected instead of `;`
+@stderr var (z, t) = ;
+-}
