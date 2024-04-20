@@ -230,6 +230,9 @@ void parse_global_var_decl(Lexer& lex) {
     }
   } else {
     sym_def->value = new SymValGlobVar{glob_var_cnt++, var_type};
+#ifdef FUNC_DEBUG
+    dynamic_cast<SymValGlobVar*>(sym_def->value)->name = lex.cur().str;
+#endif
     glob_vars.push_back(sym_def);
   }
   lex.next();
@@ -384,6 +387,9 @@ void parse_global_var_decls(Lexer& lex) {
 
 SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false) {
   SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, impure};
+#ifdef FUNC_DEBUG
+  res->name = func_sym->name();
+#endif
   func_sym->value = res;
   glob_func.push_back(func_sym);
   glob_func_cnt++;
@@ -1530,6 +1536,9 @@ void parse_func_def(Lexer& lex) {
   } else {
     Lexem asm_lexem = lex.cur();
     SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
+#ifdef FUNC_DEBUG
+    asm_func->name = func_name.str;
+#endif
     if (func_sym_val) {
       if (dynamic_cast<SymValCodeFunc*>(func_sym_val)) {
         asm_lexem.error("function `"s + func_name.str + "` was already declared as an ordinary function");

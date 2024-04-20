@@ -773,6 +773,9 @@ struct SymVal : sym::SymValBase {
 
 struct SymValFunc : SymVal {
   std::vector<int> arg_order, ret_order;
+#ifdef FUNC_DEBUG
+  std::string name; // seeing function name in debugger makes it much easier to delve into FunC sources
+#endif
   ~SymValFunc() override = default;
   SymValFunc(int val, TypeExpr* _ft, bool _impure = false) : SymVal(_Func, val, _ft, _impure) {
   }
@@ -809,6 +812,9 @@ struct SymValType : sym::SymValBase {
 struct SymValGlobVar : sym::SymValBase {
   TypeExpr* sym_type;
   int out_idx{0};
+#ifdef FUNC_DEBUG
+  std::string name; // seeing variable name in debugger makes it much easier to delve into FunC sources
+#endif
   SymValGlobVar(int val, TypeExpr* gvtype, int oidx = 0)
       : sym::SymValBase(_GlobVar, val), sym_type(gvtype), out_idx(oidx) {
   }

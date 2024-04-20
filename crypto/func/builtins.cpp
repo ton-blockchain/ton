@@ -51,6 +51,9 @@ template <typename T>
 SymDef* define_builtin_func(std::string name, TypeExpr* func_type, const T& func, bool impure = false) {
   SymDef* def = predefine_builtin_func(name, func_type);
   def->value = new SymValAsmFunc{func_type, func, impure};
+#ifdef FUNC_DEBUG
+  dynamic_cast<SymValAsmFunc*>(def->value)->name = name;
+#endif
   return def;
 }
 
@@ -59,6 +62,9 @@ SymDef* define_builtin_func(std::string name, TypeExpr* func_type, const T& func
                             std::initializer_list<int> ret_order = {}, bool impure = false) {
   SymDef* def = predefine_builtin_func(name, func_type);
   def->value = new SymValAsmFunc{func_type, func, arg_order, ret_order, impure};
+#ifdef FUNC_DEBUG
+  dynamic_cast<SymValAsmFunc*>(def->value)->name = name;
+#endif
   return def;
 }
 
@@ -67,6 +73,9 @@ SymDef* define_builtin_func(std::string name, TypeExpr* func_type, const AsmOp& 
                             bool impure = false) {
   SymDef* def = predefine_builtin_func(name, func_type);
   def->value = new SymValAsmFunc{func_type, make_simple_compile(macro), arg_order, ret_order, impure};
+#ifdef FUNC_DEBUG
+  dynamic_cast<SymValAsmFunc*>(def->value)->name = name;
+#endif
   return def;
 }
 
