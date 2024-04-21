@@ -89,6 +89,9 @@ class CompareOutputError extends Error {
     }
 }
 
+class CompareFifCodegenError extends Error {
+}
+
 
 /*
  * In positive tests, there are several testcases "input X should produce output Y".
@@ -124,34 +127,136 @@ class FuncTestCaseInputOutput {
 
 /*
  * @stderr checks, when compilation fails, that stderr (compilation error) is expected.
+ * If it's multiline, all lines must be present in specified order.
  */
-class FuncTestCaseStderrIncludes {
-    constructor(/**string*/ expected_substr) {
-        this.expected_substr = expected_substr
+class FuncTestCaseStderr {
+    constructor(/**string[]*/ stderr_pattern, /**boolean*/ avoid) {
+        this.stderr_pattern = stderr_pattern
+        this.avoid = avoid
     }
 
     check(/**string*/ stderr) {
-        if (!stderr.includes(this.expected_substr))
-            throw new CompareOutputError(`pattern '${this.expected_substr}' not found in stderr`, stderr)
+        const line_match = this.find_pattern_in_stderr(stderr.split(/\n/))
+        if (line_match === -1 && !this.avoid)
+            throw new CompareOutputError("pattern not found in stderr:\n" +
+                this.stderr_pattern.map(x => "    " + x).join("\n"), stderr)
+        else if (line_match !== -1 && this.avoid)
+            throw new CompareOutputError(`pattern found (line ${line_match + 1}), but not expected to be:\n` +
+                this.stderr_pattern.map(x => "    " + x).join("\n"), stderr)
+    }
+
+    find_pattern_in_stderr(/**string[]*/ stderr) {
+        for (let line_start = 0; line_start < stderr.length; ++line_start)
+            if (this.try_match_pattern(0, stderr, line_start))
+                return line_start
+        return -1
+    }
+
+    try_match_pattern(/**number*/ pattern_offset, /**string[]*/ stderr, /**number*/ offset) {
+        if (pattern_offset >= this.stderr_pattern.length)
+            return true
+        if (offset >= stderr.length)
+            return false
+
+        const line_pattern = this.stderr_pattern[pattern_offset]
+        const line_output = stderr[offset]
+        return line_output.includes(line_pattern) && this.try_match_pattern(pattern_offset + 1, stderr, offset + 1)
     }
 }
 
+/*
+ * @fif_codegen checks that contents of compiled.fif matches the expected pattern.
+ * @fif_codegen_avoid checks that is does not match the pattern.
+ * See comments in run_tests.py.
+ */
+class FuncTestCaseFifCodegen {
+    constructor(/**string[]*/ fif_pattern, /**boolean*/ avoid) {
+        /** @type {string[]} */
+        this.fif_pattern = fif_pattern.map(s => s.trim())
+        this.avoid = avoid
+    }
+
+    check(/**string[]*/ fif_output) {
+        // in case there are no comments at all (typically for wasm), drop them from fif_pattern
+        const has_comments = fif_output.some(line => line.includes("//") && !line.includes("generated from"))
+        if (!has_comments) {
+            this.fif_pattern = this.fif_pattern.map(s => FuncTestCaseFifCodegen.split_line_to_cmd_and_comment(s)[0])
+            this.fif_pattern = this.fif_pattern.filter(s => s !== '')
+        }
+
+        const line_match = this.find_pattern_in_fif_output(fif_output)
+        if (line_match === -1 && !this.avoid)
+            throw new CompareFifCodegenError("pattern not found:\n" +
+                this.fif_pattern.map(x => "    " + x).join("\n"))
+        else if (line_match !== -1 && this.avoid)
+            throw new CompareFifCodegenError(`pattern found (line ${line_match + 1}), but not expected to be:\n` +
+                this.fif_pattern.map(x => "    " + x).join("\n"))
+    }
+
+    find_pattern_in_fif_output(/**string[]*/ fif_output) {
+        for (let line_start = 0; line_start < fif_output.length; ++line_start)
+            if (this.try_match_pattern(0, fif_output, line_start))
+                return line_start
+        return -1
+    }
+
+    try_match_pattern(/**number*/ pattern_offset, /**string[]*/ fif_output, /**number*/ offset) {
+        if (pattern_offset >= this.fif_pattern.length)
+            return true
+        if (offset >= fif_output.length)
+            return false
+        const line_pattern = this.fif_pattern[pattern_offset]
+        const line_output = fif_output[offset]
+
+        if (line_pattern !== "...") {
+            if (!FuncTestCaseFifCodegen.does_line_match(line_pattern, line_output))
+                return false
+            return this.try_match_pattern(pattern_offset + 1, fif_output, offset + 1)
+        }
+        while (offset < fif_output.length) {
+            if (this.try_match_pattern(pattern_offset + 1, fif_output, offset))
+                return true
+            offset = offset + 1
+        }
+        return false
+    }
+
+    static split_line_to_cmd_and_comment(/**string*/ trimmed_line) {
+        const pos = trimmed_line.indexOf("//")
+        if (pos === -1)
+            return [trimmed_line, null]
+        else
+            return [trimmed_line.substring(0, pos).trimEnd(), trimmed_line.substring(pos + 2).trimStart()]
+    }
+
+    static does_line_match(/**string*/ line_pattern, /**string*/ line_output) {
+        const [cmd_pattern, comment_pattern] = FuncTestCaseFifCodegen.split_line_to_cmd_and_comment(line_pattern)
+        const [cmd_output, comment_output] = FuncTestCaseFifCodegen.split_line_to_cmd_and_comment(line_output.trim())
+        return cmd_pattern === cmd_output && (comment_pattern === null || comment_pattern === comment_output)
+    }
+}
+
+
 class FuncTestFile {
     constructor(/**string*/ func_filename, /**string*/ artifacts_folder) {
+        this.line_idx = 0
         this.func_filename = func_filename
         this.artifacts_folder = artifacts_folder
         this.compilation_should_fail = false
-        /** @type {FuncTestCaseStderrIncludes[]} */
+        /** @type {FuncTestCaseStderr[]} */
         this.stderr_includes = []
         /** @type {FuncTestCaseInputOutput[]} */
         this.input_output = []
+        /** @type {FuncTestCaseFifCodegen[]} */
+        this.fif_codegen = []
     }
 
     parse_input_from_func_file() {
         const lines = fs.readFileSync(this.func_filename, 'utf-8').split(/\r?\n/)
-        let i = 0
-        while (i < lines.length) {
-            const line = lines[i]
+        this.line_idx = 0
+
+        while (this.line_idx < lines.length) {
+            const line = lines[this.line_idx]
             if (line.startsWith('TESTCASE')) {
                 let s = line.split("|").map(p => p.trim())
                 if (s.length !== 4)
@@ -160,15 +265,44 @@ class FuncTestFile {
             } else if (line.startsWith('@compilation_should_fail')) {
                 this.compilation_should_fail = true
             } else if (line.startsWith('@stderr')) {
-                this.stderr_includes.push(new FuncTestCaseStderrIncludes(line.substring(7).trim()))
+                this.stderr_includes.push(new FuncTestCaseStderr(this.parse_string_value(lines), false))
+            } else if (line.startsWith("@fif_codegen_avoid")) {
+                this.fif_codegen.push(new FuncTestCaseFifCodegen(this.parse_string_value(lines), true))
+            } else if (line.startsWith("@fif_codegen")) {
+                this.fif_codegen.push(new FuncTestCaseFifCodegen(this.parse_string_value(lines), false))
             }
-            i++
+            this.line_idx++
         }
 
         if (this.input_output.length === 0 && !this.compilation_should_fail)
             throw new ParseInputError("no TESTCASE present")
         if (this.input_output.length !== 0 && this.compilation_should_fail)
             throw new ParseInputError("TESTCASE present, but compilation_should_fail")
+    }
+
+    /** @return {string[]} */
+    parse_string_value(/**string[]*/ lines) {
+        // a tag must be followed by a space (single-line), e.g. '@stderr some text'
+        // or be a multi-line value, surrounded by """
+        const line = lines[this.line_idx]
+        const pos_sp = line.indexOf(' ')
+        const is_multi_line = lines[this.line_idx + 1] === '"""'
+        const is_single_line = pos_sp !== -1
+        if (!is_single_line && !is_multi_line)
+            throw new ParseInputError(`${line} value is empty (not followed by a string or a multiline """)`)
+        if (is_single_line && is_multi_line)
+            throw new ParseInputError(`${line.substring(0, pos_sp)} value is both single-line and followed by """`)
+
+        if (is_single_line)
+            return [line.substring(pos_sp + 1).trim()]
+
+        this.line_idx += 2
+        let s_multiline = []
+        while (this.line_idx < lines.length && lines[this.line_idx] !== '"""') {
+            s_multiline.push(lines[this.line_idx])
+            this.line_idx = this.line_idx + 1
+        }
+        return s_multiline
     }
 
     get_compiled_fif_filename() {
@@ -220,6 +354,12 @@ class FuncTestFile {
 
         for (let i = 0; i < stdout_lines.length; ++i)
             this.input_output[i].check(stdout_lines, i)
+
+        if (this.fif_codegen.length) {
+            const fif_output = fs.readFileSync(this.get_compiled_fif_filename(), 'utf-8').split(/\r?\n/)
+            for (let fif_codegen of this.fif_codegen)
+                fif_codegen.check(fif_output)
+        }
     }
 }
 
@@ -244,7 +384,7 @@ async function run_all_tests(/**string[]*/ tests) {
                 print(`  OK, ${testcase.input_output.length} cases`)
         } catch (e) {
             if (e instanceof ParseInputError) {
-                print("  Error parsing input:", e.message)
+                print(`  Error parsing input (cur line #${testcase.line_idx + 1}):`, e.message)
                 process.exit(2)
             } else if (e instanceof FuncCompilationFailedError) {
                 print("  Error compiling func:", e.message)
@@ -262,6 +402,11 @@ async function run_all_tests(/**string[]*/ tests) {
                 print("  Full output:")
                 print(e.output.trimEnd())
                 print("  Was compiled to:", testcase.get_compiled_fif_filename())
+                process.exit(2)
+            } else if (e instanceof CompareFifCodegenError) {
+                print("  Mismatch in fif codegen:", e.message)
+                print("  Was compiled to:", testcase.get_compiled_fif_filename())
+                print(fs.readFileSync(testcase.get_compiled_fif_filename(), 'utf-8'))
                 process.exit(2)
             }
             throw e
