@@ -225,9 +225,11 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   // Note: src is not necessarily equal to the sender of this message:
   // If requested using get_broadcast_p2p, src is the creator of the block, sender possibly is some other node.
   auto src_idx = description().get_source_idx(src);
+  td::Timer deserialize_timer;
   auto R =
       deserialize_candidate(data, compress_block_candidates_,
                             description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
+  double deserialize_time = deserialize_timer.elapsed();
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())
                                     << "]: failed to parse: " << R.move_as_error();
@@ -266,6 +268,8 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
     if (stat->block_timestamp <= 0.0) {
       stat->block_timestamp = td::Clocks::system();
     }
+    stat->deserialize_time = deserialize_time;
+    stat->serialized_size = data.size();
   }
 
   if ((td::int32)block_round < (td::int32)cur_round_ - MAX_PAST_ROUND_BLOCK ||
@@ -468,9 +472,14 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, ValidatorSessionCan
   if (round != cur_round_) {
     return;
   }
+  td::Timer serialize_timer;
   auto b = create_tl_object<ton_api::validatorSession_candidate>(local_id().tl(), round, root_hash, std::move(data),
                                                                  std::move(collated_data));
   auto B = serialize_candidate(b, compress_block_candidates_).move_as_ok();
+  if (stat) {
+    stat->serialize_time = serialize_timer.elapsed();
+    stat->serialized_size = B.size();
+  }
 
   td::actor::send_closure(catchain_, &catchain::CatChain::send_broadcast, std::move(B));
 
@@ -861,18 +870,18 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
     if (!have_block) {
       callback_->on_block_skipped(cur_round_);
     } else {
-      auto stats = cur_stats_;
-      stats.success = true;
-      stats.timestamp = (td::uint64)td::Clocks::system();
-      stats.signatures = (td::uint32)export_sigs.size();
-      stats.signatures_weight = signatures_weight;
-      stats.approve_signatures = (td::uint32)export_approve_sigs.size();
-      stats.approve_signatures_weight = approve_signatures_weight;
-      stats.creator = description().get_source_id(block->get_src_idx());
-      auto stat = stats_get_candidate_stat(cur_round_, stats.creator);
+      cur_stats_.success = true;
+      cur_stats_.timestamp = (td::uint64)td::Clocks::system();
+      cur_stats_.signatures = (td::uint32)export_sigs.size();
+      cur_stats_.signatures_weight = signatures_weight;
+      cur_stats_.approve_signatures = (td::uint32)export_approve_sigs.size();
+      cur_stats_.approve_signatures_weight = approve_signatures_weight;
+      cur_stats_.creator = description().get_source_id(block->get_src_idx());
+      auto stat = stats_get_candidate_stat(cur_round_, cur_stats_.creator);
       if (stat) {
         stat->is_accepted = true;
       }
+      auto stats = cur_stats_;
       while (!stats.rounds.empty() && stats.rounds.size() + stats.first_round - 1 > cur_round_) {
         stats.rounds.pop_back();
       }

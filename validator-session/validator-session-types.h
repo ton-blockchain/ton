@@ -98,6 +98,10 @@ struct ValidatorSessionStats {
     double signed_33pct_at = -1.0;
     double signed_66pct_at = -1.0;
 
+    double serialize_time = -1.0;
+    double deserialize_time = -1.0;
+    td::int32 serialized_size = -1;
+
     void set_approved_by(td::uint32 id, ValidatorWeight weight, ValidatorWeight total_weight) {
       if (!approvers.at(id)) {
         approvers.at(id) = true;
