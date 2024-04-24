@@ -752,7 +752,12 @@ http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.se
 
 ---types---
 
-validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int block_timestamp:long comment:string = validatorSession.StatsProducer;
+validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int comment:string
+  block_timestamp:double is_accepted:Bool is_ours:Bool collation_time:double collated_at:double
+  validation_time:double validated_at:double
+  gen_utime:double
+  approved_weight:long approved_33pct_at:double approved_66pct_at:double
+  signed_weight:long signed_33pct_at:double signed_66pct_at:double = validatorSession.StatsProducer;
 
 validatorSession.statsRound timestamp:long producers:(vector validatorSession.statsProducer) = validatorSession.StatsRound;
 

@@ -87,4 +87,8 @@ void PerfWarningTimer::reset() {
   start_at_ = 0;
 }
 
+double PerfWarningTimer::elapsed() const {
+  return Time::now() - start_at_;
+}
+
 }  // namespace td
