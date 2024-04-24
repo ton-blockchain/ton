@@ -34,8 +34,10 @@ class ValidatorManager;
 
 class ValidatorGroup : public td::actor::Actor {
  public:
-  void generate_block_candidate(td::uint32 round_id, td::Promise<BlockCandidate> promise);
-  void validate_block_candidate(td::uint32 round_id, BlockCandidate block, td::Promise<td::uint32> promise);
+  void generate_block_candidate(td::uint32 round_id,
+                                td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise);
+  void validate_block_candidate(td::uint32 round_id, BlockCandidate block,
+                                td::Promise<std::pair<UnixTime, bool>> promise);
   void accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
                               std::vector<BlockSignature> approve_signatures,

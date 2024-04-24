@@ -159,6 +159,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   bool compress_block_candidates_ = false;
 
   ValidatorSessionStats cur_stats_;
+  bool stats_inited_ = false;
   std::map<std::pair<td::uint32, ValidatorSessionCandidateId>, std::vector<td::uint32>>
       stats_pending_approve_;  // round, candidate_id -> approvers
   std::map<std::pair<td::uint32, ValidatorSessionCandidateId>, std::vector<td::uint32>>
@@ -170,7 +171,7 @@ class ValidatorSessionImpl : public ValidatorSession {
       ValidatorSessionCandidateId candidate_id = ValidatorSessionCandidateId::zero());
   ValidatorSessionStats::Producer *stats_get_candidate_stat_by_id(td::uint32 round,
                                                                   ValidatorSessionCandidateId candidate_id);
-  void stats_process_actions(td::uint32 node_id, ton_api::validatorSession_round_Message &action);
+  void stats_process_action(td::uint32 node_id, ton_api::validatorSession_round_Message &action);
 
  public:
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
@@ -199,15 +200,15 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   void try_approve_block(const SentBlock *block);
 
-  void candidate_decision_fail(td::uint32 round, ValidatorSessionCandidateId hash, std::string result,
-                               td::uint32 src, td::BufferSlice proof, double validation_time);
+  void candidate_decision_fail(td::uint32 round, ValidatorSessionCandidateId hash, std::string result, td::uint32 src,
+                               td::BufferSlice proof, double validation_time, bool validation_cached);
   void candidate_decision_ok(td::uint32 round, ValidatorSessionCandidateId hash, RootHash root_hash, FileHash file_hash,
-                             td::uint32 src, td::uint32 ok_from, double validation_time);
+                             td::uint32 src, td::uint32 ok_from, double validation_time, bool validation_cached);
   void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, td::uint32 ok_from,
                                  td::BufferSlice signature);
 
   void generated_block(td::uint32 round, ValidatorSessionRootHash root_hash, td::BufferSlice data,
-                       td::BufferSlice collated, double collation_time);
+                       td::BufferSlice collated, double collation_time, bool collation_cached);
   void signed_block(td::uint32 round, ValidatorSessionCandidateId hash, td::BufferSlice signature);
 
   void end_request(td::uint32 round, ValidatorSessionCandidateId block_id) {

@@ -81,10 +81,13 @@ struct ValidatorSessionStats {
 
     bool is_accepted = false;
     bool is_ours = false;
+    double got_submit_at = -1.0;
     double collation_time = -1.0;
     double validation_time = -1.0;
     double collated_at = -1.0;
     double validated_at = -1.0;
+    bool collation_cached = false;
+    bool validation_cached = false;
     double gen_utime = -1.0;
 
     std::vector<bool> approvers, signers;
