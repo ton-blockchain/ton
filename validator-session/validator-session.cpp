@@ -584,6 +584,16 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
       it->second->round_ = std::max<td::uint32>(it->second->round_, cur_round_);
       td::PerfWarningTimer timer{"too long block validation", 1.0};
       auto &B = it->second;
+      auto stat = stats_get_candidate_stat(B->round_, PublicKeyHash{B->src_});
+      if (stat) {
+        // Can happen if block is cached from previous round
+        if (stat->block_status == ValidatorSessionStats::status_none) {
+          stat->block_status = ValidatorSessionStats::status_received;
+        }
+        if (stat->block_timestamp <= 0.0) {
+          stat->block_timestamp = td::Clocks::system();
+        }
+      }
 
       auto P = td::PromiseCreator::lambda([round = cur_round_, hash = block_id, root_hash = block->get_root_hash(),
                                            file_hash = block->get_file_hash(), timer = std::move(timer),
