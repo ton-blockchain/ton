@@ -27,7 +27,8 @@ namespace ton {
 
 namespace validator {
 
-void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<BlockCandidate> promise) {
+void ValidatorGroup::generate_block_candidate(
+    td::uint32 round_id, td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise) {
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
   }
@@ -37,14 +38,18 @@ void ValidatorGroup::generate_block_candidate(td::uint32 round_id, td::Promise<B
   }
   if (cached_collated_block_) {
     if (cached_collated_block_->result) {
-      promise.set_result(cached_collated_block_->result.value().clone());
+      promise.set_value({cached_collated_block_->result.value().clone(), true});
     } else {
-      cached_collated_block_->promises.push_back(std::move(promise));
+      cached_collated_block_->promises.push_back(promise.wrap([](BlockCandidate &&res) {
+        return validatorsession::ValidatorSession::GeneratedCandidate{std::move(res), true};
+      }));
     }
     return;
   }
   cached_collated_block_ = std::make_shared<CachedCollatedBlock>();
-  cached_collated_block_->promises.push_back(std::move(promise));
+  cached_collated_block_->promises.push_back(promise.wrap([](BlockCandidate &&res) {
+    return validatorsession::ValidatorSession::GeneratedCandidate{std::move(res), false};
+  }));
   run_collate_query(
       shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
       Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_, td::Timestamp::in(10.0),
@@ -73,7 +78,7 @@ void ValidatorGroup::generated_block_candidate(std::shared_ptr<CachedCollatedBlo
 }
 
 void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidate block,
-                                              td::Promise<UnixTime> promise) {
+                                              td::Promise<std::pair<UnixTime, bool>> promise) {
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
   }
@@ -88,7 +93,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   CacheKey cache_key = block_to_cache_key(block);
   auto it = approved_candidates_cache_.find(cache_key);
   if (it != approved_candidates_cache_.end()) {
-    promise.set_result(it->second);
+    promise.set_value({it->second, true});
     return;
   }
 
@@ -113,7 +118,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
                                     ts);
             td::actor::send_closure(SelfId, &ValidatorGroup::add_available_block_candidate, block.pubkey.as_bits256(),
                                     block.id, block.collated_file_hash);
-            promise.set_result(ts);
+            promise.set_value({ts, false});
           },
           [&](CandidateReject reject) {
             promise.set_error(
@@ -247,15 +252,18 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
     void on_candidate(td::uint32 round, PublicKey source, validatorsession::ValidatorSessionRootHash root_hash,
                       td::BufferSlice data, td::BufferSlice collated_data,
                       td::Promise<validatorsession::ValidatorSession::CandidateDecision> promise) override {
-      auto P = td::PromiseCreator::lambda([id = id_, promise = std::move(promise)](td::Result<td::uint32> R) mutable {
-        if (R.is_ok()) {
-          promise.set_value(validatorsession::ValidatorSession::CandidateDecision{R.move_as_ok()});
-        } else {
-          auto S = R.move_as_error();
-          promise.set_value(
-              validatorsession::ValidatorSession::CandidateDecision{S.message().c_str(), td::BufferSlice()});
-        }
-      });
+      auto P =
+          td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<std::pair<td::uint32, bool>> R) mutable {
+            if (R.is_ok()) {
+              validatorsession::ValidatorSession::CandidateDecision decision(R.ok().first);
+              decision.set_is_cached(R.ok().second);
+              promise.set_value(std::move(decision));
+            } else {
+              auto S = R.move_as_error();
+              promise.set_value(
+                  validatorsession::ValidatorSession::CandidateDecision{S.message().c_str(), td::BufferSlice()});
+            }
+          });
 
       BlockCandidate candidate{Ed25519_PublicKey{source.ed25519_value().raw()},
                                BlockIdExt{0, 0, 0, root_hash, sha256_bits256(data.as_slice())},
@@ -264,7 +272,8 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
       td::actor::send_closure(id_, &ValidatorGroup::validate_block_candidate, round, std::move(candidate),
                               std::move(P));
     }
-    void on_generate_slot(td::uint32 round, td::Promise<BlockCandidate> promise) override {
+    void on_generate_slot(td::uint32 round,
+                          td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise) override {
       td::actor::send_closure(id_, &ValidatorGroup::generate_block_candidate, round, std::move(promise));
     }
     void on_block_committed(td::uint32 round, PublicKey source, validatorsession::ValidatorSessionRootHash root_hash,

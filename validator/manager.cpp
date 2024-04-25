@@ -2714,8 +2714,12 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
     std::vector<tl_object_ptr<ton_api::validatorSession_statsProducer>> producers;
     for (const auto &producer : round.producers) {
       producers.push_back(create_tl_object<ton_api::validatorSession_statsProducer>(
-          producer.id.bits256_value(), producer.candidate_id, producer.block_status, producer.block_timestamp,
-          producer.comment));
+          producer.id.bits256_value(), producer.candidate_id, producer.block_status, producer.comment,
+          producer.block_timestamp, producer.is_accepted, producer.is_ours, producer.got_submit_at,
+          producer.collation_time, producer.collated_at, producer.collation_cached, producer.validation_time,
+          producer.validated_at, producer.validation_cached, producer.gen_utime, producer.approved_weight,
+          producer.approved_33pct_at, producer.approved_66pct_at, producer.signed_weight, producer.signed_33pct_at,
+          producer.signed_66pct_at, producer.serialize_time, producer.deserialize_time, producer.serialized_size));
     }
     rounds.push_back(create_tl_object<ton_api::validatorSession_statsRound>(round.timestamp, std::move(producers)));
   }
