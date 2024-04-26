@@ -320,6 +320,9 @@ void AsmOpList::show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t>
     os << '_' << i;
   } else {
     var_names_->at(i).show(os, 2);
+    // if (!var_names_->at(i).v_type->is_int()) {
+    //   os << '<'; var_names_->at(i).v_type->print(os); os << '>';
+    // }
   }
   if ((unsigned)j < constants_.size() && constants_[j].not_null()) {
     os << '=' << constants_[j];

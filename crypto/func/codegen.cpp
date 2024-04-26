@@ -439,6 +439,7 @@ bool Op::generate_code_step(Stack& stack) {
       if (disabled()) {
         return true;
       }
+      // fun_ref can be nullptr for Op::_CallInd (invoke a variable, not a function)
       SymValFunc* func = (fun_ref ? dynamic_cast<SymValFunc*>(fun_ref->value) : nullptr);
       auto arg_order = (func ? func->get_arg_order() : nullptr);
       auto ret_order = (func ? func->get_ret_order() : nullptr);
@@ -488,27 +489,24 @@ bool Op::generate_code_step(Stack& stack) {
       };
       if (cl == _CallInd) {
         exec_callxargs((int)right.size() - 1, (int)left.size());
+      } else if (auto asm_fv = dynamic_cast<const SymValAsmFunc*>(fun_ref->value)) {
+        std::vector<VarDescr> res;
+        res.reserve(left.size());
+        for (var_idx_t i : left) {
+          res.emplace_back(i);
+        }
+        asm_fv->compile(stack.o, res, args, where);  // compile res := f (args)
       } else {
-        auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
-        if (func) {
-          std::vector<VarDescr> res;
-          res.reserve(left.size());
-          for (var_idx_t i : left) {
-            res.emplace_back(i);
-          }
-          func->compile(stack.o, res, args, where);  // compile res := f (args)
+        auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
+        // todo can be fv == nullptr?
+        std::string name = sym::symbols.get_name(fun_ref->sym_idx);
+        if (fv && (fv->is_inline() || fv->is_inline_ref())) {
+          stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
+        } else if (fv && fv->code && fv->code->require_callxargs) {
+          stack.o << AsmOp::Custom(name + (" PREPAREDICT"), 0, 2);
+          exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {
-          auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
-          std::string name = sym::symbols.get_name(fun_ref->sym_idx);
-          bool is_inline = (fv && (fv->flags & 3));
-          if (is_inline) {
-            stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
-          } else if (fv && fv->code && fv->code->require_callxargs) {
-            stack.o << AsmOp::Custom(name + (" PREPAREDICT"), 0, 2);
-            exec_callxargs((int)right.size() + 1, (int)left.size());
-          } else {
-            stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
-          }
+          stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
         }
       }
       stack.s.resize(k);

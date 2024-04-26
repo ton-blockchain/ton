@@ -340,16 +340,36 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
     }
     case _Apply: {
       func_assert(sym);
-      auto func = dynamic_cast<SymValFunc*>(sym->value);
       std::vector<var_idx_t> res;
-      if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
+      SymDef* applied_sym = sym;
+      auto func = dynamic_cast<SymValFunc*>(applied_sym->value);
+      // replace `beginCell()` with `begin_cell()`
+      if (func && func->is_just_wrapper_for_another_f()) {
+        // body is { Op::_Import; Op::_Call; Op::_Return; }
+        const Op *op_call = dynamic_cast<SymValCodeFunc*>(func)->code->ops.get();
+        while (op_call->cl != Op::_Call) {
+          op_call = op_call->next.get();
+        }
+        applied_sym = op_call->fun_ref;
+        func = dynamic_cast<SymValFunc*>(applied_sym->value);
+        // soon we'll get rid of this pragma: it will be always on, we'll pass just {} here and below
+        bool compute_asm_ltr = code.flags & CodeBlob::_ComputeAsmLtr;
+        // a function may call anotherF with shuffled arguments: f(x,y) { return anotherF(y,x) }
+        // then op_call looks like (_1,_0), so use op_call->right for correct positions in Op::_Call below
+        // it's correct, since every argument has width 1
+        std::vector<var_idx_t> res_inner = pre_compile_tensor(args, code, lval_globs, compute_asm_ltr ? std::vector<var_idx_t>{} : func->arg_order);
+        res.reserve(res_inner.size());
+        for (var_idx_t right_idx : op_call->right) {
+          res.emplace_back(res_inner[right_idx]);
+        }
+      } else if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
         //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
         res = pre_compile_tensor(args, code, lval_globs, func->arg_order);
       } else {
         res = pre_compile_tensor(args, code, lval_globs, {});
       }
       auto rvect = new_tmp_vect(code);
-      auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
+      auto& op = code.emplace_back(here, Op::_Call, rvect, res, applied_sym);
       if (flags & _IsImpure) {
         op.flags |= Op::_Impure;
       }
@@ -364,7 +384,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       }
       return {val};
     case _VarApply:
-      if (args[0]->cls == _Glob) {
+      if (args[0]->cls == _GlobFunc) {
         auto res = args[1]->pre_compile(code);
         auto rvect = new_tmp_vect(code);
         auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), args[0]->sym);
@@ -388,8 +408,14 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       code.emplace_back(here, Op::_IntConst, rvect, intval);
       return rvect;
     }
-    case _Glob:
+    case _GlobFunc:
     case _GlobVar: {
+      if (auto fun_ref = dynamic_cast<SymValFunc*>(sym->value)) {
+        fun_ref->flags |= SymValFunc::flagUsedAsNonCall;
+        if (!fun_ref->arg_order.empty() || !fun_ref->ret_order.empty()) {
+          throw src::ParseError(here, "Saving " + sym->name() + " into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
+        }
+      }
       auto rvect = new_tmp_vect(code);
       if (lval_globs) {
         lval_globs->push_back({ sym, rvect[0] });

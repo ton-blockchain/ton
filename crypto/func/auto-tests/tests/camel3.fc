@@ -1,0 +1,104 @@
+;; Here we test that if you declare a wrapper like
+;; >  builder beginCell() { return begin_cell(); }
+;; but use it NOT only as a direct call, BUT as a 1-st class function
+;; (save to a variable, return from a function, etc.)
+;; it also works, since a function becomes codegenerated (though direct calls are expectedly inlined).
+
+builder begin_cell() asm "NEWC";
+cell end_cell(builder b) asm "ENDC";
+builder store_ref(builder b, cell c) asm(c b) "STREF";
+
+builder beginCell() { return begin_cell(); }
+cell endCell(builder b) { return end_cell(b); }
+builder storeRef(builder b, cell c) { return store_ref(b, c); }
+builder storeUint3(int i, int bw, builder b) { return store_uint(b, i, bw); }
+
+(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
+(int, int, int) computeDataSize2(int maxCells, cell c) impure { return compute_data_size(c, maxCells); }
+
+tuple empty_tuple() asm "NIL";
+forall X -> tuple tpush(tuple t, X value) asm "TPUSH";
+forall X -> (tuple, ()) ~tpush(tuple t, X value) asm "TPUSH";
+forall X -> X first(tuple t) asm "FIRST";
+
+tuple emptyTuple() { return empty_tuple(); }
+forall X -> tuple tuplePush(tuple t, X value) { return tpush(t, value); }
+forall X -> (tuple, ()) ~tuplePush(tuple t, X value) { return ~tpush(t, value); }
+forall X -> X tupleGetFirst(tuple t) { return first(t); }
+
+
+(var, var) getBeginEnd() inline {
+    return (beginCell, endCell);
+}
+
+(builder) begAndStore(beg, store, int x) {
+    return store(x, 8, beg());
+}
+
+(int, int, int) test1() {
+    var (_, computer) = (0, computeDataSize2);
+    var (beg, end) = getBeginEnd();
+
+    tuple t = emptyTuple();
+    t~tuplePush(storeRef);
+    var refStorer = tupleGetFirst(t);
+
+    int x = 1;
+    int y = 1;
+    cell to_be_ref = beginCell().endCell();
+    builder in_c = begAndStore(beg, storeUint3, 123);
+    in_c = refStorer(in_c, to_be_ref);
+    var (a, b, c) = computer(10, end(in_c));
+    return (a, b + x, c + y);
+}
+
+(int, int, int) main() {
+    return test1();
+}
+
+{-
+    method_id | in | out
+TESTCASE | 0  |    | 2 9 2
+
+@fif_codegen DECLPROC beginCell
+@fif_codegen DECLPROC computeDataSize2
+
+@fif_codegen
+"""
+  storeUint3 PROC:<{
+    //  i bw b
+    SWAP        //  i b bw
+    STUX        //  _3
+  }>
+"""
+
+@fif_codegen
+"""
+  storeRef PROC:<{
+    //  b c
+    SWAP        //  c b
+    STREF       //  _2
+  }>
+"""
+
+@fif_codegen
+"""
+    CONT:<{
+      computeDataSize2 CALLDICT
+    }>  //  computer
+    getBeginEnd INLINECALLDICT  //  computer beg end
+    NIL //  computer beg end t
+    ...
+    NEWC        //  computer beg end refStorer _19
+    ENDC        //  computer beg end refStorer to_be_ref
+    ...
+    CONT:<{
+      storeUint3 CALLDICT
+    }>
+    ...
+    begAndStore CALLDICT        //  computer to_be_ref end refStorer in_c
+"""
+
+@fif_codegen_avoid emptyTuple
+@fif_codegen_avoid tuplePush
+-}

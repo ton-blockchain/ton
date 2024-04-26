@@ -1,0 +1,239 @@
+;; Here we test "functions that just wrap other functions" (camelCase in particular):
+;; > builder beginCell() { return begin_cell(); }
+;; Such functions, when called, are explicitly inlined during code generation (even without `inline` modifier).
+;; It means, that `beginCell()` is replaced to `begin_cell()` (and effectively to `NEWC`).
+;; Moreover, body of `beginCell` is NOT codegenerated at all.
+;; Hence, we can write camelCase wrappers (as well as more intelligible namings around stdlib functions)
+;; without affecting performance and even bytecode hashes.
+;; This works with ~functions also. And even works with wrappers of wrappers.
+;; Moreover, such wrappers can reorder input parameters, see a separate test camel2.fc.
+
+builder begin_cell() asm "NEWC";
+cell end_cell(builder b) asm "ENDC";
+builder store_ref(builder b, cell c) asm(c b) "STREF";
+slice begin_parse(cell c) asm "CTOS";
+slice skip_bits(slice s, int len) asm "SDSKIPFIRST";
+(slice, ()) ~skip_bits(slice s, int len) asm "SDSKIPFIRST";
+
+builder beginCell() { return begin_cell(); }
+cell endCell(builder b) { return end_cell(b); }
+builder storeRef(builder b, cell c) { return store_ref(b, c); }
+builder storeUint(builder b, int i, int bw) { return store_uint(b, i, bw); }
+
+;; 'inline' is not needed actually, but if it exists, it's just ignored
+slice beginParse(cell c) inline { return begin_parse(c); }
+slice skipBits(slice s, int len) inline { return skip_bits(s, len); }
+(slice, ()) ~skipBits(slice s, int len) inline { return ~skip_bits(s, len); }
+(slice, int) ~loadUint(slice s, int len) inline { return load_uint(s, len); }
+
+(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
+(int, int, int) computeDataSize(cell c, int maxCells) impure { return compute_data_size(c, maxCells); }
+
+cell new_dict() asm "NEWDICT";
+cell idict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTISET";
+(cell, ()) ~idict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTISET";
+(slice, int) idict_get?(cell dict, int key_len, int index) asm(index dict key_len) "DICTIGET" "NULLSWAPIFNOT";
+(int, slice, int) idict_get_min?(cell dict, int key_len) asm (-> 1 0 2) "DICTIMIN" "NULLSWAPIFNOT2";
+
+cell dict::new() { return new_dict(); }
+cell dict::iset(cell dict, int keyLen, int index, slice value) { return idict_set(dict, keyLen, index, value); }
+(cell, ()) ~dict::iset(cell dict, int keyLen, int index, slice value) { return ~idict_set(dict, keyLen, index, value); }
+(slice, int) dict::tryIGet(cell dict, int keyLen, int index) { return idict_get?(dict, keyLen, index); }
+(int, slice, int) dict::tryIGetMin(cell dict, int keyLen) { return idict_get_min?(dict, keyLen); }
+
+tuple empty_tuple() asm "NIL";
+forall X -> tuple tpush(tuple t, X value) asm "TPUSH";
+forall X -> (tuple, ()) ~tpush(tuple t, X value) asm "TPUSH";
+forall X, Y, Z -> Y triple_second([X, Y, Z] p) asm "SECOND";
+forall X -> X null() asm "PUSHNULL";
+
+tuple emptyTuple() { return empty_tuple(); }
+tuple emptyTuple1() { return emptyTuple(); }
+tuple emptyTuple11() { return emptyTuple1(); }
+forall X -> tuple tuplePush(tuple t, X value) { return tpush(t, value); }
+forall X -> (tuple, ()) ~tuplePush(tuple t, X value) { return ~tpush(t, value); }
+forall X -> X tupleAt(tuple t, int index) { return at(t, index); }
+forall X1, Y2, Z3 -> Y2 tripleSecond([X1, Y2, Z3] p) { return triple_second(p); }
+forall X -> X nullValue() asm "PUSHNULL";
+
+() throwIf(int excNo, int condition) impure { return throw_if(excNo, condition); }
+
+tuple initial1(tuple x) { return x; }
+_ initial2(x) { return initial1(x); }
+
+int add(int x, int y) { return x + y; } ;; this is also a wrapper, as its body is _+_(x,y)
+
+() fake1(int a, int b, int c) impure asm(a b c) "DROP DROP DROP";
+() fake2(int a, int b, int c) impure asm(b c a) "DROP DROP DROP";
+() fake3(int a, int b, int c) impure asm(c a b) "DROP DROP DROP";
+() fake4(int a, int b, int c) impure asm(c b a) "DROP DROP DROP";
+
+() fake1Wrapper(int a, int b, int c) { return fake1(a, b, c); }
+() fake2Wrapper(int a, int b, int c) { return fake2(a, b, c); }
+() fake3Wrapper(int a, int b, int c) { return fake3(a, b, c); }
+() fake4Wrapper(int a, int b, int c) { return fake4(a, b, c); }
+
+[int, int, int] test1() method_id(101) {
+    int x = 1;
+    int y = 1;
+    cell to_be_ref = beginCell().endCell();
+    builder in_c = beginCell().storeUint(123, 8);
+    in_c = storeRef(in_c, to_be_ref);
+    var (a, b, c) = computeDataSize(in_c.endCell(), 10);
+    throwIf(101, b != 8);
+    throwIf(101, c != 1);
+    return [a, add(b, x), add(c, y)];
+}
+
+[[int, int, int], int, int, int] test2() method_id(102) {
+    cell dict = dict::new();
+    dict = dict::iset(dict, 32, 456, beginCell().storeUint(4560, 32).endCell().beginParse());
+    dict.dict::iset(32, 789, beginCell().storeUint(7890, 32).endCell().beginParse());
+    dict~dict::iset(32, 123, beginCell().storeUint(0, 64).storeUint(1230, 32).storeUint(1231, 32).storeUint(1232, 32).endCell().beginParse());
+
+    var (mink, minv, _) = dict::tryIGetMin(dict, 32);
+    ;; skip 64 bits
+    minv~skipBits(16);
+    minv = minv.skipBits(16);
+    minv.skipBits(16000);             ;; does nothing
+    (minv, _) = ~skipBits(minv, 16);
+    skipBits(minv, 16000);         ;; does nothing
+    minv~skipBits(16);
+    ;; load 3*32
+    var minv1 = minv~loadUint(32);
+    var minv2 = minv~loadUint(32);
+    var minv3 = minv~loadUint(32);
+
+    var (_, found123) = dict::tryIGet(dict, 32, 123);
+    var (_, found456) = dict::tryIGet(dict, 32, 456);
+    var (_, found789) = dict::tryIGet(dict, 32, 789);
+    return [[minv1, minv2, minv3], found123, found456, found789];
+}
+
+tuple test3() method_id(103) {
+    tuple with34 = initial2(emptyTuple1());
+    with34~tuplePush(34);
+
+    tuple t = emptyTuple11();
+    t = tuplePush(t, 12);
+    tuplePush(t, emptyTuple11());    ;; does nothing
+    t~tuplePush(emptyTuple1());
+    t~tuplePush(with34.tupleAt(0));
+    t.tuplePush("123"s);   ;; does nothing
+
+    [cell, int, cell] tri = [nullValue(), 90 + 1, null()];
+    int f = tripleSecond(tri);
+    (t, _) = ~tuplePush(t, f);
+
+    return t;
+}
+
+(int) test4(int a, int b, int c) method_id(104) {
+    fake1Wrapper(a, b, c);
+    fake2Wrapper(a, b, c);
+    fake3Wrapper(a, b, c);
+    fake4Wrapper(a, b, c);
+    return 10;
+}
+
+int main() {
+    return 0;
+}
+
+{-
+    method_id  | in | out
+TESTCASE | 101 |    | [ 2 9 2 ]
+TESTCASE | 102 |    | [ [ 1230 1231 1232 ] -1 -1 0 ]
+TESTCASE | 103 |    | [ 12 [] 34 91 ]
+
+@fif_codegen
+"""
+  test1 PROC:<{
+    //
+    NEWC        //  _5
+    ENDC        //  to_be_ref
+    123 PUSHINT //  to_be_ref _8=123
+    NEWC        //  to_be_ref _8=123 _9
+    8 STU       //  to_be_ref in_c
+    STREF       //  in_c
+    ENDC        //  _16
+    10 PUSHINT  //  _16 _17=10
+    CDATASIZE   //  a b c
+    OVER        //  a b c b
+    8 NEQINT    //  a b c _21
+    101 THROWIF
+    DUP //  a b c c
+    1 NEQINT    //  a b c _25
+    101 THROWIF
+    SWAP        //  a c b
+    INC //  a c _28
+    SWAP        //  a _28 c
+    INC //  a _28 _29
+    TRIPLE      //  _27
+  }>
+"""
+
+@fif_codegen
+"""
+  test2 PROC:<{
+    ...
+    16 PUSHINT	//  dict minv _45=16
+    SDSKIPFIRST	//  dict minv
+    16 PUSHINT	//  dict minv _47=16
+    SDSKIPFIRST	//  dict minv
+    16 PUSHINT	//  dict minv _52=16
+    SDSKIPFIRST	//  dict minv
+    16 PUSHINT	//  dict minv _57=16
+    SDSKIPFIRST	//  dict minv
+    ...
+    32 PUSHINT	//  dict minv1 minv2 minv3 found123 _78=456 dict _79=32
+    DICTIGET
+    NULLSWAPIFNOT	//  dict minv1 minv2 minv3 found123 _99 _100
+    789 PUSHINT
+    s2 POP
+    s0 s6 XCHG
+    32 PUSHINT	//  found456 minv1 minv2 minv3 found123 _83=789 dict _84=32
+    ...
+    4 TUPLE	//  _86
+  }>
+"""
+
+@fif_codegen
+"""
+  test3 PROC:<{
+    //
+    NIL	//  _1
+    initial1 CALLDICT // with34
+    ...
+    TRIPLE	//  t tri
+    SECOND	//  t f
+    TPUSH	//  t
+  }>
+"""
+
+@fif_codegen
+"""
+  test4 PROC:<{
+    //  a b c
+    s2 s1 s0 PUSH3	//  a b c a b c
+    DROP DROP DROP
+    s1 s0 s2 PUSH3	//  a b c b c a
+    DROP DROP DROP
+    s0 s2 s1 PUSH3	//  a b c c a b
+    DROP DROP DROP
+    s0 s2 XCHG	//  c b a
+    DROP DROP DROP
+    10 PUSHINT	//  _7=10
+  }>
+"""
+
+@fif_codegen_avoid DECLPROC beginCell
+@fif_codegen_avoid DECLPROC storeUint
+@fif_codegen_avoid DECLPROC storeRef
+@fif_codegen_avoid DECLPROC computeDataSize
+@fif_codegen_avoid DECLPROC tryIdictGet
+@fif_codegen_avoid DECLPROC emptyTuple
+@fif_codegen_avoid DECLPROC storeUint1
+@fif_codegen_avoid DECLPROC initial2
+@fif_codegen_avoid DECLPROC add
+-}

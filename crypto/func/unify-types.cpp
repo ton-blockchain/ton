@@ -115,6 +115,39 @@ int TypeExpr::extract_components(std::vector<TypeExpr*>& comp_list) {
   return res;
 }
 
+bool TypeExpr::equals_to(const TypeExpr *rhs) const {
+  const TypeExpr *l = this;
+  const TypeExpr *r = rhs;
+  while (l->constr == te_Indirect)
+    l = l->args[0];
+  while (r->constr == te_Indirect)
+    r = r->args[0];
+
+  bool eq = l->constr == r->constr && l->value == r->value &&
+            l->minw == r->minw && l->maxw == r->maxw &&
+            l->was_forall_var == r->was_forall_var &&
+            l->args.size() == r->args.size();
+  if (!eq)
+    return false;
+
+  for (int i = 0; i < l->args.size(); ++i) {
+    if (!l->args[i]->equals_to(r->args[i]))
+      return false;
+  }
+  return true;
+}
+
+bool TypeExpr::has_unknown_inside() const {
+  if (constr == te_Unknown)
+    return true;
+
+  for (const TypeExpr* inner : args) {
+    if (inner->has_unknown_inside())
+      return true;
+  }
+  return false;
+}
+
 TypeExpr* TypeExpr::new_map(TypeExpr* from, TypeExpr* to) {
   return new TypeExpr{te_Map, std::vector<TypeExpr*>{from, to}};
 }

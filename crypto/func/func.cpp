@@ -43,6 +43,35 @@ GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
 std::string generated_from, boc_output_filename;
 ReadCallback::Callback read_callback;
 
+// returns argument type of a function
+// note, that when a function has multiple arguments, its arg type is a tensor (no arguments — an empty tensor)
+// in other words, `f(int a, int b)` and `f((int,int) ab)` is the same when we speak about types
+const TypeExpr *SymValFunc::get_arg_type() const {
+  if (!sym_type)
+    return nullptr;
+
+  func_assert(sym_type->constr == TypeExpr::te_Map || sym_type->constr == TypeExpr::te_ForAll);
+  const TypeExpr *te_map = sym_type->constr == TypeExpr::te_ForAll ? sym_type->args[0] : sym_type;
+  const TypeExpr *arg_type = te_map->args[0];
+
+  while (arg_type->constr == TypeExpr::te_Indirect) {
+    arg_type = arg_type->args[0];
+  }
+  return arg_type;
+}
+
+
+bool SymValCodeFunc::does_need_codegen() const {
+  if (flags & flagUsedAsNonCall) {
+    return true;
+  }
+  // when a function f() is just `return anotherF(...args)`, it doesn't need to be codegenerated at all,
+  // since all its usages are inlined
+  return !is_just_wrapper_for_another_f();
+  // in the future, we may want to implement a true AST inlining for `inline` functions also
+  // in the future, unused functions may also be excluded from codegen
+}
+
 td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
   switch (kind) {
     case ReadCallback::Kind::ReadFile: {
@@ -124,12 +153,10 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     if (verbosity >= 2) {
       errs << "\n---------- resulting code for " << name << " -------------\n";
     }
-    bool inline_func = (func_val->flags & 1);
-    bool inline_ref = (func_val->flags & 2);
     const char* modifier = "";
-    if (inline_func) {
+    if (func_val->is_inline()) {
       modifier = "INLINE";
-    } else if (inline_ref) {
+    } else if (func_val->is_inline_ref()) {
       modifier = "REF";
     }
     outs << std::string(indent * 2, ' ') << name << " PROC" << modifier << ":<{\n";
@@ -140,12 +167,10 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     if (opt_level < 2) {
       mode |= Stack::_DisableOpt;
     }
-    auto fv = dynamic_cast<const SymValCodeFunc*>(func_sym->value);
-    // Flags: 1 - inline, 2 - inline_ref
-    if (fv && (fv->flags & 1) && code.ops->noreturn()) {
+    if (func_val->is_inline() && code.ops->noreturn()) {
       mode |= Stack::_InlineFunc;
     }
-    if (fv && (fv->flags & 3)) {
+    if (func_val->is_inline() || func_val->is_inline_ref()) {
       mode |= Stack::_InlineAny;
     }
     code.generate_code(outs, mode, indent + 1);
@@ -167,6 +192,13 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     func_assert(func_val);
+    if (!func_val->does_need_codegen()) {
+      if (verbosity >= 2) {
+        errs << func_sym->name() << ": code not generated, function does not need codegen\n";
+      }
+      continue;
+    }
+
     std::string name = sym::symbols.get_name(func_sym->sym_idx);
     outs << std::string(indent * 2, ' ');
     if (func_val->method_id.is_null()) {
@@ -182,6 +214,10 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   }
   int errors = 0;
   for (SymDef* func_sym : glob_func) {
+    SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
+    if (!func_val->does_need_codegen()) {
+      continue;
+    }
     try {
       generate_output_func(func_sym, outs, errs);
     } catch (src::Error& err) {

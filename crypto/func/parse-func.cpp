@@ -423,8 +423,8 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
 }
 
 Expr* make_func_apply(Expr* fun, Expr* x) {
-  Expr* res;
-  if (fun->cls == Expr::_Glob) {
+  Expr* res{nullptr};
+  if (fun->cls == Expr::_GlobFunc) {
     if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, fun->sym, x->args};
     } else {
@@ -664,7 +664,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         lex.cur().error_at("undefined identifier `", "`");
       } else if (val->type == SymVal::_Func) {
         res->e_type = val->get_type();
-        res->cls = Expr::_Glob;
+        res->cls = Expr::_GlobFunc;
         auto_apply = val->auto_apply;
       } else if (val->idx < 0) {
         lex.cur().error_at("accessing variable `", "` being defined");
@@ -1435,6 +1435,78 @@ TypeExpr* compute_type_closure(TypeExpr* expr, const std::vector<TypeExpr*>& typ
   return expr;
 }
 
+// if a function looks like `T f(...args) { return anotherF(...args); }`,
+// set a bit to flags
+// then, all calls to `f(...)` will be effectively replaced with `anotherF(...)`
+void detect_if_function_just_wraps_another(SymValCodeFunc* v_current, const td::RefInt256 &method_id) {
+  const std::string& function_name = v_current->code->name;
+
+  // in "AST" representation, the first is Op::_Import (input arguments, even if none)
+  const auto& op_import = v_current->code->ops;
+  func_assert(op_import && op_import->cl == Op::_Import);
+
+  // then Op::_Call (anotherF)
+  // when pragma allow-post-modification, it might be prepended with empty Op::_Let todo I don't like this
+  const Op* op_call = op_import->next.get();
+  while (op_call && op_call->cl == Op::_Let && op_call->disabled())
+    op_call = op_call->next.get();
+  if (!op_call || op_call->cl != Op::_Call)
+    return;
+  func_assert(op_call->left.size() == 1);
+
+  const auto& op_return = op_call->next;
+  if (!op_return || op_return->cl != Op::_Return || op_return->left.size() != 1)
+    return;
+
+  bool indices_expected = op_import->left.size() == op_call->left[0] && op_call->left[0] == op_return->left[0];
+  if (!indices_expected)
+    return;
+
+  const SymDef* f_called = op_call->fun_ref;
+  const SymValFunc* v_called = dynamic_cast<SymValFunc*>(f_called->value);
+  if (!v_called)
+    return;
+
+  // `return` must use all arguments, e.g. `return (_0,_2,_1)`, not `return (_0,_1,_1)`
+  int args_used_mask = 0;
+  for (var_idx_t arg_idx : op_call->right) {
+    args_used_mask |= 1 << arg_idx;
+  }
+  if (args_used_mask != (1 << op_call->right.size()) - 1)
+    return;
+
+  // detect getters (having method_id), they should not be treated as wrappers
+  // v_current->method_id will be assigned later; todo refactor function parsing completely, it's weird
+  // moreover, `recv_external()` and others are also exported, but FunC is unaware of method_id
+  // (it's assigned by Fift later)
+  // so, for now, just handle "special" function names, the same as in Asm.fif
+  if (!method_id.is_null())
+    return;
+  if (function_name == "main" || function_name == "recv_internal" || function_name == "recv_external" ||
+      function_name == "run_ticktock" || function_name == "split_prepare" || function_name == "split_install")
+    return;
+
+  // all types must be strictly defined (on mismatch, a compilation error will be triggered anyway)
+  if (v_called->sym_type->has_unknown_inside() || v_current->sym_type->has_unknown_inside())
+    return;
+  // avoid situations like `f(int a, (int,int) b)`, inlining will be cumbersome
+  if (v_current->get_arg_type()->get_width() != op_call->right.size())
+    return;
+  // 'return true;' (false, nil) are (surprisingly) also function calls, with auto_apply=true
+  if (v_called->auto_apply)
+    return;
+
+  // they must have the same pureness
+  if (v_called->impure != v_current->impure || v_current->is_inline_ref())
+    return;
+
+  // ok, f_current is a wrapper
+  v_current->flags |= SymValFunc::flagWrapsAnotherF;
+  if (verbosity >= 2) {
+    std::cerr << function_name << " -> " << f_called->name() << std::endl;
+  }
+}
+
 void parse_func_def(Lexer& lex) {
   SrcLocation loc{lex.cur().loc};
   sym::open_scope(lex);
@@ -1453,9 +1525,12 @@ void parse_func_def(Lexer& lex) {
   if (impure) {
     lex.next();
   }
-  int f = 0;
-  if (lex.tp() == _Inline || lex.tp() == _InlineRef) {
-    f = (lex.tp() == _Inline) ? 1 : 2;
+  int flags_inline = 0;
+  if (lex.tp() == _Inline) {
+    flags_inline = SymValFunc::flagInline;
+    lex.next();
+  } else if (lex.tp() == _InlineRef) {
+    flags_inline = SymValFunc::flagInlineRef;
     lex.next();
   }
   td::RefInt256 method_id;
@@ -1533,6 +1608,7 @@ void parse_func_def(Lexer& lex) {
     code->loc = loc;
     // code->print(std::cerr);  // !!!DEBUG!!!
     func_sym_code->code = code;
+    detect_if_function_just_wraps_another(func_sym_code, method_id);
   } else {
     Lexem asm_lexem = lex.cur();
     SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
@@ -1555,7 +1631,7 @@ void parse_func_def(Lexer& lex) {
     func_sym->value = asm_func;
   }
   if (method_id.not_null()) {
-    auto val = dynamic_cast<SymVal*>(func_sym->value);
+    auto val = dynamic_cast<SymValFunc*>(func_sym->value);
     if (!val) {
       lex.cur().error("cannot set method id for unknown function `"s + func_name.str + "`");
     }
@@ -1566,14 +1642,14 @@ void parse_func_def(Lexer& lex) {
                       val->method_id->to_dec_string() + " to a different value " + method_id->to_dec_string());
     }
   }
-  if (f) {
-    auto val = dynamic_cast<SymVal*>(func_sym->value);
+  if (flags_inline) {
+    auto val = dynamic_cast<SymValFunc*>(func_sym->value);
     if (!val) {
       lex.cur().error("cannot set unknown function `"s + func_name.str + "` as an inline");
     }
-    if (!(val->flags & 3)) {
-      val->flags = (short)(val->flags | f);
-    } else if ((val->flags & 3) != f) {
+    if (!val->is_inline() && !val->is_inline_ref()) {
+      val->flags |= flags_inline;
+    } else if ((val->flags & (SymValFunc::flagInline | SymValFunc::flagInlineRef)) != flags_inline) {
       lex.cur().error("inline mode for `"s + func_name.str + "` changed with respect to a previous declaration");
     }
   }

@@ -219,6 +219,8 @@ struct TypeExpr {
   std::ostream& print(std::ostream& os, int prio = 0) const;
   void replace_with(TypeExpr* te2);
   int extract_components(std::vector<TypeExpr*>& comp_list);
+  bool equals_to(const TypeExpr* rhs) const;
+  bool has_unknown_inside() const;
   static int holes, type_vars;
   static TypeExpr* new_hole() {
     return new TypeExpr{te_Unknown, ++holes};
@@ -752,26 +754,27 @@ struct CodeBlob {
 
 struct SymVal : sym::SymValBase {
   TypeExpr* sym_type;
-  td::RefInt256 method_id;
   bool impure;
   bool auto_apply{false};
-  short flags;  // +1 = inline, +2 = inline_ref
   SymVal(int _type, int _idx, TypeExpr* _stype = nullptr, bool _impure = false)
-      : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure), flags(0) {
+      : sym::SymValBase(_type, _idx), sym_type(_stype), impure(_impure) {
   }
   ~SymVal() override = default;
   TypeExpr* get_type() const {
     return sym_type;
   }
-  virtual const std::vector<int>* get_arg_order() const {
-    return nullptr;
-  }
-  virtual const std::vector<int>* get_ret_order() const {
-    return nullptr;
-  }
 };
 
 struct SymValFunc : SymVal {
+  enum SymValFlag {
+    flagInline = 1,             // function marked `inline`
+    flagInlineRef = 2,          // function marked `inline_ref`
+    flagWrapsAnotherF = 4,      // (T) thisF(...args) { return anotherF(...args); } (calls to thisF will be replaced)
+    flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
+  };
+
+  td::RefInt256 method_id;  // todo why int256? it's small
+  int flags{0};
   std::vector<int> arg_order, ret_order;
 #ifdef FUNC_DEBUG
   std::string name; // seeing function name in debugger makes it much easier to delve into FunC sources
@@ -784,11 +787,22 @@ struct SymValFunc : SymVal {
       : SymVal(_Func, val, _ft, _impure), arg_order(_arg_order), ret_order(_ret_order) {
   }
 
-  const std::vector<int>* get_arg_order() const override {
+  const std::vector<int>* get_arg_order() const {
     return arg_order.empty() ? nullptr : &arg_order;
   }
-  const std::vector<int>* get_ret_order() const override {
+  const std::vector<int>* get_ret_order() const {
     return ret_order.empty() ? nullptr : &ret_order;
+  }
+  const TypeExpr* get_arg_type() const;
+
+  bool is_inline() const {
+    return flags & flagInline;
+  }
+  bool is_inline_ref() const {
+    return flags & flagInlineRef;
+  }
+  bool is_just_wrapper_for_another_f() const {
+    return flags & flagWrapsAnotherF;
   }
 };
 
@@ -797,6 +811,7 @@ struct SymValCodeFunc : SymValFunc {
   ~SymValCodeFunc() override = default;
   SymValCodeFunc(int val, TypeExpr* _ft, bool _impure = false) : SymValFunc(val, _ft, _impure), code(nullptr) {
   }
+  bool does_need_codegen() const;
 };
 
 struct SymValType : sym::SymValBase {
@@ -910,7 +925,7 @@ struct Expr {
     _Tensor,
     _Const,
     _Var,
-    _Glob,
+    _GlobFunc,
     _GlobVar,
     _Letop,
     _LetFirst,

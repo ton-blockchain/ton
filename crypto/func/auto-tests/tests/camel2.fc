@@ -1,0 +1,208 @@
+;; Here we also test "functions that just wrap other functions" like in camel1.fc,
+;; but when they reorder arguments, e.g.
+;; > T f(x,y) { return anotherF(y,x); }
+;; This also works, even for wrappers of wrappers, even if anotherF is asm(with reorder).
+;; But swapping arguments may sometimes lead to bytecode changes (see test2),
+;; both with compute-asm-ltr and without it.
+
+#pragma compute-asm-ltr;
+
+builder begin_cell() asm "NEWC";
+cell end_cell(builder b) asm "ENDC";
+slice begin_parse(cell c) asm "CTOS";
+builder store_ref(builder b, cell c) asm(c b) "STREF";
+
+builder beginCell() { return begin_cell(); }
+cell endCell(builder b) { return end_cell(b); }
+builder storeRef1(builder b, cell c) { return store_ref(b, c); }
+builder storeRef2(cell c, builder b) { return store_ref(b, c); }
+builder storeUint1(builder b, int x, int bw) { return store_uint(b, x, bw); }
+builder storeUint2(builder b, int bw, int x) { return store_uint(b, x, bw); }
+
+(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
+(int, int, int) computeDataSize1(cell c, int maxCells) impure { return compute_data_size(c, maxCells); }
+(int, int, int) computeDataSize2(int maxCells, cell c) impure { return compute_data_size(c, maxCells); }
+
+() throwIf(int condition, int excNo) impure { return throw_if(excNo, condition); }
+
+() fake(int a, int b, int c) impure asm "DROP DROP DROP";
+() fake2(int b, int c, int a) { return fake(a,b,c); }
+() fake3(int c, int a, int b) { return fake(a,b,c); }
+() fake4(int c, int b, int a) { return fake(a,b,c); }
+
+(int, int, int) test1() method_id(101) {
+    int x = 1;
+    int y = 1;
+    cell to_be_ref = beginCell().endCell();
+    builder in_c = beginCell().storeUint1(123, 8);
+    in_c = storeRef1(in_c, to_be_ref);
+    var (a, b, c) = computeDataSize1(in_c.endCell(), 10);
+    throwIf(0, 101);
+    return (a, b + x, c + y);
+}
+
+(int, int, int) test2() method_id(102) {
+    int x = 1;
+    int y = 1;
+    cell to_be_ref = beginCell().endCell();
+    builder in_c = beginCell().storeUint2(8, 123);
+    in_c = storeRef2(to_be_ref, in_c);
+    var (a, b, c) = computeDataSize2(10, in_c.endCell());
+    return (a, b + x, c + y);
+}
+
+(int, int, int) test3() method_id(103) {
+    int x = 1;
+    int y = 1;
+    cell to_be_ref = begin_cell().end_cell();
+    builder in_c = begin_cell().store_uint(123, 8);
+    in_c = store_ref(in_c, to_be_ref);
+    var (a, b, c) = compute_data_size(in_c.end_cell(), 10);
+    return (a, b + x, c + y);
+}
+
+builder beginCell1() { return begin_cell(); }
+builder beginCell11() { return beginCell1(); }
+builder beginCell111() { return beginCell11(); }
+
+cell endCell1(builder b) { return end_cell(b); }
+cell endCell11(builder b) { return endCell1(b); }
+
+slice beginParse1(cell c) { return begin_parse(c); }
+slice beginParse11(cell c) { return beginParse1(c); }
+
+builder storeInt1(builder b, int bw, int x) { return store_int(b, x, bw); }
+builder storeInt11(int bw, int x, builder b) { return storeInt1(b, bw, x); }
+builder storeInt111(builder b, int x, int bw) { return storeInt11(bw, x, b); }
+
+slice test4() method_id(104) {
+    builder b = beginCell111();
+    b = storeInt11(32, 1, b);
+    b = storeInt111(b, 2, 32).storeInt111(3, 32);
+    return b.endCell11().beginParse11();
+}
+
+(int) test5(int a, int b, int c) method_id(105) {
+    fake(a, b, c);
+    fake2(b, c, a);
+    fake3(c, a, b);
+    fake4(c, b, a);
+    return a;
+}
+
+() main() {
+    throw(0);
+}
+
+{-
+    method_id  | in | out
+TESTCASE | 101 |    | 2 9 2
+TESTCASE | 102 |    | 2 9 2
+TESTCASE | 103 |    | 2 9 2
+TESTCASE | 104 |    | CS{Cell{0018000000010000000200000003} bits: 0..96; refs: 0..0}
+
+test1 and test3 fif code is absolutely identical, test2 (due to reorder) is a bit different:
+
+@fif_codegen
+"""
+  test1 PROC:<{
+    //
+    NEWC        //  _5
+    ENDC        //  to_be_ref
+    NEWC        //  to_be_ref _8
+    123 PUSHINT //  to_be_ref _8 _9=123
+    SWAP        //  to_be_ref _9=123 _8
+    8 STU       //  to_be_ref in_c
+    STREF       //  in_c
+    ENDC        //  _16
+    10 PUSHINT  //  _16 _17=10
+    CDATASIZE   //  a b c
+    SWAP        //  a c b
+    INC //  a c _22
+    SWAP        //  a _22 c
+    INC //  a _22 _23
+  }>
+"""
+
+@fif_codegen
+"""
+  test2 PROC:<{
+    //
+    NEWC        //  _5
+    ENDC        //  to_be_ref
+    NEWC        //  to_be_ref _8
+    123 PUSHINT //  to_be_ref _8 _10=123
+    SWAP        //  to_be_ref _10=123 _8
+    8 STU       //  to_be_ref in_c
+    STREF       //  in_c
+    10 PUSHINT
+    SWAP
+    ENDC
+    SWAP
+    CDATASIZE   //  a b c
+    SWAP        //  a c b
+    INC         //  a c _19
+    SWAP        //  a _19 c
+    INC         //  a _19 _20
+  }>
+"""
+
+@fif_codegen
+"""
+  test3 PROC:<{
+    //
+    NEWC        //  _5
+    ENDC        //  to_be_ref
+    NEWC        //  to_be_ref _8
+    123 PUSHINT //  to_be_ref _8 _9=123
+    SWAP        //  to_be_ref _9=123 _8
+    8 STU       //  to_be_ref in_c
+    STREF       //  in_c
+    ENDC        //  _16
+    10 PUSHINT  //  _16 _17=10
+    CDATASIZE   //  a b c
+    SWAP        //  a c b
+    INC //  a c _19
+    SWAP        //  a _19 c
+    INC //  a _19 _20
+  }>
+"""
+
+@fif_codegen
+"""
+  test4 PROC:<{
+    //
+    NEWC	//  b
+    1 PUSHINT	//  b _3=1
+    SWAP	//  _3=1 b
+    32 STI	//  b
+    2 PUSHINT
+    SWAP       // _5=2 b
+    32 STI
+    3 PUSHINT
+    SWAP
+    32 STI	//  b
+    ENDC	//  _11
+    CTOS	//  _12
+  }>
+"""
+
+@fif_codegen
+"""
+  test5 PROC:<{
+    //  a b c
+    s2 s1 s0 PUSH3	//  a b c a b c
+    DROP DROP DROP
+    s2 s1 s0 PUSH3	//  a b c a b c
+    DROP DROP DROP
+    s2 s1 s0 PUSH3	//  a b c a b c
+    DROP DROP DROP
+    s2 PUSH
+    -ROT            // a a b c
+    DROP DROP DROP
+  }>
+"""
+
+@fif_codegen_avoid storeUint1
+@fif_codegen_avoid storeUint2
+-}

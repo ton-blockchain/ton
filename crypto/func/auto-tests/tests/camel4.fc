@@ -1,0 +1,130 @@
+;; Here we test that a just-return function is not a valid wrapper, it will not be inlined.
+;; (doesn't use all arguments, has different pureness, has method_id, etc.)
+
+builder begin_cell() asm "NEWC";
+cell end_cell(builder b) asm "ENDC";
+slice begin_parse(cell c) asm "CTOS";
+() set_data(cell c) impure asm "c4 POP";
+cell get_data() asm "c4 PUSH";
+tuple empty_tuple() asm "NIL";
+forall X -> (tuple, ()) tpush(tuple t, X x) asm "TPUSH";
+
+builder storeUint(builder b, int x, int unused) { return store_uint(b, x, x); }
+() throwIf(int excNo, int cond) impure { throw_if(excNo, cond); }
+() throwIf2(int excNo, int cond) { return throw_if(excNo, cond); }
+
+_ initial1(x) { return x; }
+_ initial2(x) { return initial1(x); }
+
+tuple asm_func_4(int a, (int, (int, int)) b, int c) asm (b a c -> 0) "5 TUPLE";
+_ asmFunc4(int a, (int, (int, int)) b, int c) { return asm_func_4(a, b, c); }
+
+int postpone_elections() {
+    return false;
+}
+
+(int) setAndGetData(int ret) {
+    cell c = begin_cell().store_uint(ret, 8).end_cell();
+    set_data(c);
+    slice s = get_data().begin_parse();
+    throwIf(101, 0);
+    var unused = throwIf2(101, 0);
+    return s~load_uint(8);
+}
+
+int setAndGetDataWrapper(int ret) {
+    return setAndGetData(ret);
+}
+
+int test1() method_id(101) {
+    cell c = begin_cell().storeUint(32, 10000000).end_cell();
+    slice s = c.begin_parse();
+    return s~load_uint(32);
+}
+
+int test2(int ret) method_id {
+    return setAndGetDataWrapper(ret);
+}
+
+int test3() method_id(103) {
+    return initial2(10);
+}
+
+global tuple t;
+
+int foo(int x) {
+    t~tpush(x);
+    return x * 10;
+}
+
+(tuple, tuple) test4() method_id(104) {
+    t = empty_tuple();
+    tuple t2 = asmFunc4(foo(11), (foo(22), (foo(33), foo(44))), foo(55));
+    return (t, t2);
+}
+
+int test5() method_id(105) {
+    if (1) {
+        return postpone_elections();
+    }
+    return 123;
+}
+
+int main(int ret) {
+    return setAndGetDataWrapper(ret);
+}
+
+int recv_external(int ret) {
+    return setAndGetData(ret);
+}
+
+{-
+    method_id  | in  | out
+TESTCASE | 101 |     | 32
+TESTCASE | 103 |     | 10
+TESTCASE | 104 |     | [ 11 22 33 44 55 ] [ 220 330 440 110 550 ]
+TESTCASE | 105 |     | 0
+TESTCASE | 74435 | 99 | 99
+TESTCASE | 0   | 98 | 98
+TESTCASE | -1  | 97 | 97
+
+@fif_codegen DECLPROC storeUint
+@fif_codegen DECLPROC throwIf
+@fif_codegen DECLPROC throwIf2
+@fif_codegen DECLPROC postpone_elections
+@fif_codegen 74435 DECLMETHOD test2
+
+@fif_codegen
+"""
+  test3 PROC:<{
+    //
+    10 PUSHINT  //  _0=10
+    initial2 CALLDICT   //  _1
+  }>
+"""
+
+@fif_codegen
+"""
+  test2 PROC:<{
+    //  ret
+    setAndGetData CALLDICT       //  _1
+  }>
+"""
+
+@fif_codegen
+"""
+    11 PUSHINT
+    foo CALLDICT
+    22 PUSHINT
+    foo CALLDICT
+    33 PUSHINT
+    foo CALLDICT
+    44 PUSHINT
+    foo CALLDICT
+    55 PUSHINT
+    foo CALLDICT
+    asmFunc4 CALLDICT   //  t2
+"""
+
+@fif_codegen_avoid setAndGetDataWrapper
+-}
