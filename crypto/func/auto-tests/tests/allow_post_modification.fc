@@ -61,6 +61,15 @@ global int xx;
   return (xx, xx~inc(xx / 20), xx, xx = xx * 2, xx, xx += 1, xx);
 }
 
+(int, int, int, int, int) test_if_else(int x) method_id(20) {
+  if (x > 10) {
+    return (x~inc(8), x + 1, x = 1, x <<= 3, x);
+  } else {
+    xx = 9;
+    return (x, x~inc(-4), x~inc(-1), x >= 1, x = x + xx);
+  }
+}
+
 () main() {
 }
 
@@ -75,4 +84,8 @@ TESTCASE | 16 | 100 | 100 50 105 210 210 211 211
 TESTCASE | 17 | 100 | 100 50 105 210 210 211 211
 TESTCASE | 18 | 100 | 210 210 211 211 100 50 105
 TESTCASE | 19 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 20 | 80  | 80 89 1 8 8
+TESTCASE | 20 | 9   | 9 -40 -10 -1 13
+
+@code_hash 67078680159561921827850021610104736412668316252257881932102553152922274405210
 -}

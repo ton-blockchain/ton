@@ -92,6 +92,9 @@ class CompareOutputError extends Error {
 class CompareFifCodegenError extends Error {
 }
 
+class CompareCodeHashError extends Error {
+}
+
 
 /*
  * In positive tests, there are several testcases "input X should produce output Y".
@@ -236,6 +239,22 @@ class FuncTestCaseFifCodegen {
     }
 }
 
+/*
+ * @code_hash checks that hash of compiled output.fif matches the provided value.
+ * It's used to "record" code boc hash and to check that it remains the same on compiler modifications.
+ * Being much less flexible than @fif_codegen, it nevertheless gives a guarantee of bytecode stability.
+ */
+class FuncTestCaseExpectedHash {
+    constructor(/**string*/ expected_hash) {
+        this.code_hash = expected_hash
+    }
+
+    check(fif_code_hash) {
+        if (this.code_hash !== fif_code_hash)
+            throw new CompareCodeHashError(`expected ${this.code_hash}, actual ${fif_code_hash}`)
+    }
+}
+
 
 class FuncTestFile {
     constructor(/**string*/ func_filename, /**string*/ artifacts_folder) {
@@ -249,6 +268,8 @@ class FuncTestFile {
         this.input_output = []
         /** @type {FuncTestCaseFifCodegen[]} */
         this.fif_codegen = []
+        /** @type {FuncTestCaseExpectedHash | null} */
+        this.expected_hash = null
     }
 
     parse_input_from_func_file() {
@@ -270,6 +291,8 @@ class FuncTestFile {
                 this.fif_codegen.push(new FuncTestCaseFifCodegen(this.parse_string_value(lines), true))
             } else if (line.startsWith("@fif_codegen")) {
                 this.fif_codegen.push(new FuncTestCaseFifCodegen(this.parse_string_value(lines), false))
+            } else if (line.startsWith("@code_hash")) {
+                this.expected_hash = new FuncTestCaseExpectedHash(this.parse_string_value(lines, false)[0])
             }
             this.line_idx++
         }
@@ -281,7 +304,7 @@ class FuncTestFile {
     }
 
     /** @return {string[]} */
-    parse_string_value(/**string[]*/ lines) {
+    parse_string_value(/**string[]*/ lines, allow_multiline = true) {
         // a tag must be followed by a space (single-line), e.g. '@stderr some text'
         // or be a multi-line value, surrounded by """
         const line = lines[this.line_idx]
@@ -292,6 +315,8 @@ class FuncTestFile {
             throw new ParseInputError(`${line} value is empty (not followed by a string or a multiline """)`)
         if (is_single_line && is_multi_line)
             throw new ParseInputError(`${line.substring(0, pos_sp)} value is both single-line and followed by """`)
+        if (is_multi_line && !allow_multiline)
+            throw new ParseInputError(`${line} value should be single-line`);
 
         if (is_single_line)
             return [line.substring(pos_sp + 1).trim()]
@@ -337,6 +362,8 @@ class FuncTestFile {
             let runner = `"${this.get_compiled_fif_filename()}" include <s constant code\n`
             for (let t of this.input_output)
                 runner += `${t.input} ${t.method_id} code 1 runvmx abort"exitcode is not 0" .s cr { drop } depth 1- times\n`
+            if (this.expected_hash !== null)
+                runner += `"${this.get_compiled_fif_filename()}" include hash .s\n`
             fs.writeFileSync(this.get_runner_fif_filename(), runner)
         }
 
@@ -345,6 +372,11 @@ class FuncTestFile {
         stderr = (res.stderr || res.error).toString()
         stdout = (res.stdout || '').toString()
         let stdout_lines = stdout.split("\n").map(x => x.trim()).filter(s => s.length > 0)
+        let fif_code_hash = null
+        if (this.expected_hash !== null) { // then the last stdout line is a hash
+            fif_code_hash = stdout_lines[stdout_lines.length - 1]
+            stdout_lines = stdout_lines.slice(0, stdout_lines.length - 1)
+        }
 
         if (exit_code)
             throw new FiftExecutionFailedError(`fift exit_code = ${exit_code}`, stderr)
@@ -360,6 +392,9 @@ class FuncTestFile {
             for (let fif_codegen of this.fif_codegen)
                 fif_codegen.check(fif_output)
         }
+
+        if (this.expected_hash !== null)
+            this.expected_hash.check(fif_code_hash)
     }
 }
 
@@ -407,6 +442,10 @@ async function run_all_tests(/**string[]*/ tests) {
                 print("  Mismatch in fif codegen:", e.message)
                 print("  Was compiled to:", testcase.get_compiled_fif_filename())
                 print(fs.readFileSync(testcase.get_compiled_fif_filename(), 'utf-8'))
+                process.exit(2)
+            } else if (e instanceof CompareCodeHashError) {
+                print("  Mismatch in code hash:", e.message)
+                print("  Was compiled to:", testcase.get_compiled_fif_filename())
                 process.exit(2)
             }
             throw e
