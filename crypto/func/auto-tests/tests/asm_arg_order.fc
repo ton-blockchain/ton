@@ -1,28 +1,34 @@
 tuple empty_tuple() asm "NIL";
 forall X -> (tuple, ()) tpush(tuple t, X x) asm "TPUSH";
+tuple emptyTuple() { return empty_tuple(); }
+forall X -> (tuple, ()) tuplePush(tuple t, X value) { return tpush(t, value); }
 
 tuple asm_func_1(int x, int y, int z) asm "3 TUPLE";
 tuple asm_func_2(int x, int y, int z) asm (z y x -> 0) "3 TUPLE";
 tuple asm_func_3(int x, int y, int z) asm (y z x -> 0) "3 TUPLE";
 tuple asm_func_4(int a, (int, (int, int)) b, int c) asm (b a c -> 0) "5 TUPLE";
 
+_ asmFunc1(int x, int y, int z) { return asm_func_1(x, y, z); }
+_ asmFunc3(int x, int y, int z) { return asm_func_3(x, y, z); }
+
 (tuple, ()) asm_func_modify(tuple a, int b, int c) asm (c b a -> 0) "SWAP TPUSH SWAP TPUSH";
+(tuple, ()) asmFuncModify(tuple a, int b, int c) { return asm_func_modify(a, b, c); }
 
 global tuple t;
 
 int foo(int x) {
-  t~tpush(x);
+  t~tuplePush(x);
   return x * 10;
 }
 
 (tuple, tuple) test_old_1() method_id(11) {
   t = empty_tuple();
-  tuple t2 = asm_func_1(foo(11), foo(22), foo(33));
+  tuple t2 = asmFunc1(foo(11), foo(22), foo(33));
   return (t, t2);
 }
 
 (tuple, tuple) test_old_2() method_id(12) {
-  t = empty_tuple();
+  t = emptyTuple();
   tuple t2 = asm_func_2(foo(11), foo(22), foo(33));
   return (t, t2);
 }
@@ -34,7 +40,7 @@ int foo(int x) {
 }
 
 (tuple, tuple) test_old_4() method_id(14) {
-  t = empty_tuple();
+  t = emptyTuple();
   tuple t2 = empty_tuple();
   ;; This actually computes left-to-right even without compute-asm-ltr
   tuple t2 = asm_func_4(foo(11), (foo(22), (foo(33), foo(44))), foo(55));
@@ -44,13 +50,13 @@ int foo(int x) {
 (tuple, tuple) test_old_modify() method_id(15) {
   t = empty_tuple();
   tuple t2 = empty_tuple();
-  t2~asm_func_modify(foo(22), foo(33));
+  t2~asmFuncModify(foo(22), foo(33));
   return (t, t2);
 }
 
 (tuple, tuple) test_old_dot() method_id(16) {
   t = empty_tuple();
-  tuple t2 = foo(11).asm_func_3(foo(22), foo(33));
+  tuple t2 = foo(11).asmFunc3(foo(22), foo(33));
   return (t, t2);
 }
 
@@ -58,7 +64,7 @@ int foo(int x) {
 
 (tuple, tuple) test_new_1() method_id(21) {
   t = empty_tuple();
-  tuple t2 = asm_func_1(foo(11), foo(22), foo(33));
+  tuple t2 = asmFunc1(foo(11), foo(22), foo(33));
   return (t, t2);
 }
 

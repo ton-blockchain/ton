@@ -6,8 +6,12 @@ forall X -> tuple unsafe_tuple(X x) asm "NOP";
   return (x + y, y * 10);
 }
 
+(int, int) incWrap(int x, int y) {
+  return inc(x, y);
+}
+
 (int, int, int, int, int, int, int) test_return(int x) method_id(11) {
-  return (x, x~inc(x / 20), x, x = x * 2, x, x += 1, x);
+  return (x, x~incWrap(x / 20), x, x = x * 2, x, x += 1, x);
 }
 
 (int, int, int, int, int, int, int) test_assign(int x) method_id(12) {
@@ -16,7 +20,7 @@ forall X -> tuple unsafe_tuple(X x) asm "NOP";
 }
 
 tuple test_tuple(int x) method_id(13) {
-  tuple t = unsafe_tuple([x, x~inc(x / 20), x, x = x * 2, x, x += 1, x]);
+  tuple t = unsafe_tuple([x, x~incWrap(x / 20), x, x = x * 2, x, x += 1, x]);
   return t;
 }
 
@@ -39,7 +43,7 @@ tuple test_tuple(int x) method_id(13) {
 }
 
 (int, int, int, int, int, int, int) test_call_2(int x) method_id(16) {
-  return foo2(x, x~inc(x / 20), (x, x = x * 2, x, x += 1), x);
+  return foo2(x, x~incWrap(x / 20), (x, x = x * 2, x, x += 1), x);
 }
 
 (int, int, int, int, int, int, int) asm_func(int x1, int x2, int x3, int x4, int x5, int x6, int x7) asm
@@ -52,13 +56,13 @@ tuple test_tuple(int x) method_id(13) {
 #pragma compute-asm-ltr;
 
 (int, int, int, int, int, int, int) test_call_asm_new(int x) method_id(18) {
-  return asm_func(x, x~inc(x / 20), x, x = x * 2, x, x += 1, x);
+  return asm_func(x, x~incWrap(x / 20), x, x = x * 2, x, x += 1, x);
 }
 
 global int xx;
 (int, int, int, int, int, int, int) test_global(int x) method_id(19) {
   xx = x;
-  return (xx, xx~inc(xx / 20), xx, xx = xx * 2, xx, xx += 1, xx);
+  return (xx, xx~incWrap(xx / 20), xx, xx = xx * 2, xx, xx += 1, xx);
 }
 
 (int, int, int, int, int) test_if_else(int x) method_id(20) {

@@ -6,6 +6,8 @@
   return (Dx / D, Dy / D);
 }
 
+int mulDivR(int x, int y, int z) { return muldivr(x, y, z); }
+
 int calc_phi() {
   var n = 1;
   repeat (70) { n *= 10; }
@@ -13,7 +15,7 @@ int calc_phi() {
   do {
     (p, q) = (q, p + q);
   } until (q > n);
-  return muldivr(p, n, q);
+  return mulDivR(p, n, q);
 }
 
 int calc_sqrt2() {
@@ -24,7 +26,7 @@ int calc_sqrt2() {
     var t = p + q;
     (p, q) = (q, t + q);
   } until (q > n);
-  return muldivr(p, n, q);
+  return mulDivR(p, n, q);
 }
 
 var calc_root(m) {
@@ -73,14 +75,18 @@ int ataninv(int base, int q) { ;; computes base*atan(1/q)
   return sum;
 }
 
+int arctanInv(int base, int q) { return ataninv(base, q); }
+
 int calc_pi() {
   int base = 64;
   repeat (70) { base *= 10; }
-  return (ataninv(base << 2, 5) - ataninv(base, 239)) ~>> 4;
+  return (arctanInv(base << 2, 5) - arctanInv(base, 239)) ~>> 4;
 }
 
+int calcPi() { return calc_pi(); }
+
 int main() {
-  return calc_pi();
+  return calcPi();
 }
 
 {-

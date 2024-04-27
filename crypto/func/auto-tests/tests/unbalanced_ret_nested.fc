@@ -17,8 +17,11 @@ int foo(int y) {
   }
   return (x + 1, y);
 }
+(int,int) bar2(int x, int y) {
+  return bar(x, y);
+}
 (int, int) main(int x, int y) {
-  (x, y) = bar(x, y);
+  (x, y) = bar2(x, y);
   return (x, y * 10);
 }
 {-

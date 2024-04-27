@@ -33,6 +33,10 @@ slice endcs(builder b) asm "ENDC" "CTOS";
 int sdeq (slice s1, slice s2) asm "SDEQ";
 builder stslicer(builder b, slice s) asm "STSLICER";
 
+builder storeUint(builder b, int x, int len) { return store_uint(b, x, len); }
+_ endSlice(builder b) { return endcs(b); }
+() throwUnless(int excno, int cond) impure { return throw_unless(excno, cond); }
+
 _ main() {
     int i1 = iget1();
     int i2 = iget2();
@@ -46,8 +50,8 @@ _ main() {
     slice s2 = sget2();
     slice s3 = newc().stslicer(str1).stslicer(str2r).endcs();
 
-    throw_unless(int111, sdeq(s1, newc().store_uint(str1int, 12 * nibbles).endcs()));
-    throw_unless(112, sdeq(s2, newc().store_uint(str2int, 6 * nibbles).endcs()));
+    throw_unless(int111, sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs()));
+    throwUnless(112, sdeq(s2, newc().store_uint(str2int, 6 * nibbles).endSlice()));
     throw_unless(113, sdeq(s3, newc().store_uint(0x636f6e737431AABBCC, 18 * nibbles).endcs()));
 
     int i4 = iget240();

@@ -12,8 +12,16 @@ cell load_data() inline_ref {
   set_data(st);
 }
 
+cell loadData() {
+    return load_data();
+}
+
+() saveData(cell c) impure {
+    return save_data(c);
+}
+
 () vote_on_external_chain(slice s_addr, int query_id, int voting_id, slice signature) impure {
-    cell external_votings = load_data();
+    cell external_votings = loadData();
     (_, int oracles_address, cell oracles) = get_bridge_config();
     (int wc, int addr) = parse_std_addr(s_addr);
     throw_if(301, wc + 1);
@@ -39,12 +47,12 @@ cell load_data() inline_ref {
                                .store_dict(signatures);
     external_votings~udict_set_builder(256, voting_id, new_voting_data);
 
-    save_data(external_votings);
+    saveData(external_votings);
     return send_receipt_message(s_addr, 0x10000 + 5, query_id, voting_id, 0, 64);
 }
 
 () remove_outdated_votings(slice s_addr, int query_id, slice external_ids) impure {
-    cell external_votings = load_data();
+    cell external_votings = loadData();
 
     int bound = now() - 60 * 60 * 24 * 7;
     while (~ external_ids.slice_empty?()) {
@@ -62,7 +70,7 @@ cell load_data() inline_ref {
       }
     }
 
-    save_data(external_votings);
+    saveData(external_votings);
     return send_receipt_message(s_addr, 0x10000 + 6, query_id, 0, 0, 64); ;; thanks 
 }
 
@@ -96,7 +104,7 @@ cell load_data() inline_ref {
 }
 
 (tuple) get_external_voting_data(int voting_id) method_id {
-    cell external_votings = load_data();
+    cell external_votings = loadData();
     (slice voting_data, int found?) = external_votings.udict_get?(256, voting_id);
     throw_unless(309, found?);
     (int time, int old_oracles_address, cell signatures) = (voting_data~load_uint(32),

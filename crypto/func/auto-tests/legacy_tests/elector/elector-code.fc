@@ -2,23 +2,35 @@
 
 #include "stdlib.fc";
 
+(slice, cell) loadDict(slice s) { return load_dict(s); }
+(slice, int) loadGrams(slice s) { return load_grams(s); }
+(slice, int) loadUint(slice s, int len) { return load_uint(s, len); }
+() endParse(slice s) impure { return end_parse(s); }
+builder storeDict(builder b, cell c) { return store_dict(b, c); }
+builder storeUint(builder b, int x, int len) { return store_uint(b, x, len); }
+() throwUnless(int excno, int cond) impure { return throw_unless(excno, cond); }
+cell configParam(int paramNo) { return config_param(paramNo); }
+forall X -> int isNull(X x) { return null?(x); }
+(slice, int) tryUDictGet(cell dict, int keyLen, int index) { return udict_get?(dict, keyLen, index); }
+
+
 ;; cur_elect credits past_elections grams active_id active_hash
 (cell, cell, cell, int, int, int) load_data() inline_ref {
   var cs = get_data().begin_parse();
-  var res = (cs~load_dict(), cs~load_dict(), cs~load_dict(), cs~load_grams(), cs~load_uint(32), cs~load_uint(256));
-  cs.end_parse();
+  var res = (cs~loadDict(), cs~loadDict(), cs~load_dict(), cs~loadGrams(), cs~loadUint(32), cs~load_uint(256));
+  cs.endParse();
   return res;
 }
 
 ;; cur_elect credits past_elections grams active_id active_hash
 () store_data(elect, credits, past_elections, grams, active_id, active_hash) impure inline_ref {
   set_data(begin_cell()
-    .store_dict(elect)
+    .storeDict(elect)
     .store_dict(credits)
-    .store_dict(past_elections)
+    .storeDict(past_elections)
     .store_grams(grams)
     .store_uint(active_id, 32)
-    .store_uint(active_hash, 256)
+    .storeUint(active_hash, 256)
   .end_cell());
 }
 
@@ -63,7 +75,7 @@ builder pack_past_election(int unfreeze_at, int stake_held, int vset_hash, cell 
 ;; complaint_status#2d complaint:^ValidatorComplaint voters:(HashmapE 16 True)
 ;;   vset_id:uint256 weight_remaining:int64 = ValidatorComplaintStatus;
 _ unpack_complaint_status(slice cs) inline_ref {
-  throw_unless(9, cs~load_uint(8) == 0x2d);
+  throwUnless(9, cs~load_uint(8) == 0x2d);
   var res = (cs~load_ref(), cs~load_dict(), cs~load_uint(256), cs~load_int(64));
   cs.end_parse();
   return res;
@@ -71,7 +83,7 @@ _ unpack_complaint_status(slice cs) inline_ref {
 
 builder pack_complaint_status(cell complaint, cell voters, int vset_id, int weight_remaining) inline_ref {
   return begin_cell()
-    .store_uint(0x2d, 8)
+    .storeUint(0x2d, 8)
     .store_ref(complaint)
     .store_dict(voters)
     .store_uint(vset_id, 256)
@@ -112,8 +124,8 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
 
 ;; deposit bit_price cell_price
 (int, int, int) get_complaint_prices() inline_ref {
-  var info = config_param(13);
-  return info.null?() ? (1 << 36, 1, 512) : info.parse_complaint_prices();
+  var info = configParam(13);
+  return info.isNull() ? (1 << 36, 1, 512) : info.parse_complaint_prices();
 }
 
 ;; elected_for elections_begin_before elections_end_before stake_held_for
@@ -189,7 +201,7 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
 
 ;; credits 'amount' to 'addr' inside credit dictionary 'credits'
 _ ~credit_to(credits, addr, amount) inline_ref {
-  var (val, f) = credits.udict_get?(256, addr);
+  var (val, f) = credits.tryUDictGet(256, addr);
   if (f) {
     amount += val~load_grams();
   }
@@ -352,7 +364,7 @@ _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
   var config_addr = config_param(0).begin_parse().preload_uint(256);
   var ds = get_data().begin_parse();
   var elect = ds~load_dict();
-  if ((src_wc + 1) | (src_addr != config_addr) | elect.null?()) {
+  if ((src_wc + 1) | (src_addr != config_addr) | elect.isNull()) {
     ;; not from config smc, somebody's joke?
     ;; or no elections active (or just completed)
     return ();
