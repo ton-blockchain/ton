@@ -124,8 +124,7 @@ int Lexem::set(std::string _str, const SrcLocation& _loc, int _tp, int _val) {
   return classify();
 }
 
-Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars, std::string eol_cmts, std::string open_cmts,
-             std::string close_cmts, std::string quote_chars, std::string multiline_quote)
+Lexer::Lexer(SourceReader& _src, std::string active_chars, std::string quote_chars, std::string multiline_quote)
     : src(_src), eof(false), lexem("", src.here(), Lexem::Undefined), peek_lexem("", {}, Lexem::Undefined),
       multiline_quote(std::move(multiline_quote)) {
   std::memset(char_class, 0, sizeof(char_class));
@@ -139,17 +138,27 @@ Lexer::Lexer(SourceReader& _src, bool init, std::string active_chars, std::strin
       char_class[(unsigned)c] |= activity;
     }
   }
-  set_spec(eol_cmt, eol_cmts);
-  set_spec(cmt_op, open_cmts);
-  set_spec(cmt_cl, close_cmts);
   for (int c : quote_chars) {
     if (c > ' ' && c <= 0x7f) {
       char_class[(unsigned)c] |= cc::quote_char;
     }
   }
-  if (init) {
-    next();
-  }
+}
+
+void Lexer::set_comment_tokens(const std::string &eol_cmts, const std::string &open_cmts, const std::string &close_cmts) {
+  set_spec(eol_cmt, eol_cmts);
+  set_spec(cmt_op, open_cmts);
+  set_spec(cmt_cl, close_cmts);
+}
+
+void Lexer::set_comment2_tokens(const std::string &eol_cmts2, const std::string &open_cmts2, const std::string &close_cmts2) {
+  set_spec(eol_cmt2, eol_cmts2);
+  set_spec(cmt_op2, open_cmts2);
+  set_spec(cmt_cl2, close_cmts2);
+}
+
+void Lexer::start_parsing() {
+  next();
 }
 
 void Lexer::set_spec(std::array<int, 3>& arr, std::string setup) {
@@ -206,24 +215,30 @@ const Lexem& Lexer::next() {
   long long comm = 1;
   while (!src.seek_eof()) {
     int cc = src.cur_char(), nc = src.next_char();
-    if (cc == eol_cmt[0] || (cc == eol_cmt[1] && nc == eol_cmt[2])) {
-      src.load_line();
-    } else if (cc == cmt_op[1] && nc == cmt_op[2]) {
+    // note, that in practice (both in FunC and tlbc), [0]-th element is -256, condition for [0]-th is always false
+    if (cc == eol_cmt[0] || (cc == eol_cmt[1] && nc == eol_cmt[2]) || cc == eol_cmt2[0] || (cc == eol_cmt2[1] && nc == eol_cmt2[2])) {
+      if (comm == 1) {    // just "//" — skip a whole line
+        src.load_line();
+      } else {            // if "//" is nested into "/*", continue reading, since "*/" may be met
+        src.advance(1);
+      }
+    } else if (cc == cmt_op[1] && nc == cmt_op[2] || cc == cmt_op2[1] && nc == cmt_op2[2]) {
       src.advance(2);
       comm = comm * 2 + 1;
-    } else if (cc == cmt_op[0]) {
+    } else if (cc == cmt_op[0] || cc == cmt_op2[0]) {  // always false
       src.advance(1);
       comm *= 2;
     } else if (comm == 1) {
-      break;
-    } else if (cc == cmt_cl[1] && nc == cmt_cl[2]) {
-      if (!(comm & 1)) {
+      break; // means that we are not inside a comment
+    } else if (cc == cmt_cl[1] && nc == cmt_cl[2] || cc == cmt_cl2[1] && nc == cmt_cl2[2]) {
+      if (!(comm & 1)) { // always false
         src.error(std::string{"a `"} + (char)cmt_op[0] + "` comment closed by `" + (char)cmt_cl[1] + (char)cmt_cl[2] +
                   "`");
       }
+      // note that in FunC, {- may be closed with */, but assume it's ok (we'll get rid of {- in the future)
       comm >>= 1;
       src.advance(2);
-    } else if (cc == cmt_cl[0]) {
+    } else if (cc == cmt_cl[0] || cc == cmt_cl2[0]) { // always false
       if (!(comm & 1)) {
         src.error(std::string{"a `"} + (char)cmt_op[1] + (char)cmt_op[2] + "` comment closed by `" + (char)cmt_cl[0] +
                   "`");
@@ -240,11 +255,7 @@ const Lexem& Lexer::next() {
   if (src.seek_eof()) {
     eof = true;
     if (comm > 1) {
-      if (comm & 1) {
-        src.error(std::string{"`"} + (char)cmt_op[1] + (char)cmt_op[2] + "` comment extends past end of file");
-      } else {
-        src.error(std::string{"`"} + (char)cmt_op[0] + "` comment extends past end of file");
-      }
+      src.error("comment extends past end of file");
     }
     return lexem.clear(src.here(), Lexem::Eof);
   }

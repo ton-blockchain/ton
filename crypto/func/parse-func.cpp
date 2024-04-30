@@ -1822,7 +1822,14 @@ void parse_include(Lexer& lex, const src::FileDescr* fdescr) {
 
 bool parse_source(std::istream* is, src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
-  Lexer lex{reader, true, ";,()[] ~."};
+  Lexer lex{reader, ";,()[] ~."};
+  // previously, FunC had lisp-style comments,
+  // but starting from v0.5.0, it supports traditional (slash) comments alongside
+  // (in IDE, the user has a setting, what comment style he prefers)
+  // maybe, in some far future, we'll stop supporting lisp-style comments
+  lex.set_comment_tokens(";;", "{-", "-}");
+  lex.set_comment2_tokens("//", "/*", "*/");
+  lex.start_parsing();
   while (lex.tp() != _Eof) {
     if (lex.tp() == _PragmaHashtag) {
       parse_pragma(lex);

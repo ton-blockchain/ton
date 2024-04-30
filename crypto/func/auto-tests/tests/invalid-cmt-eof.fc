@@ -1,0 +1,11 @@
+int main() {
+    return 0;
+}
+
+{-
+int ...
+
+/*
+@compilation_should_fail
+@stderr comment extends past end of file
+*/

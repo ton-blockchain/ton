@@ -65,12 +65,16 @@ struct Lexem {
   static std::string lexem_name_str(int idx);
 };
 
+// todo this class (like all sources in /ton/crypto/parser) is shared between FunC and tlbc
+// this "shareness" and "generalization" is weird and annoying rather than solves any problems
+// later on, I'll get rid of this (parser/) folder, copying and adapting its sources to FunC and tlbc
 class Lexer {
   SourceReader& src;
   bool eof;
   Lexem lexem, peek_lexem;
   unsigned char char_class[128];
-  std::array<int, 3> eol_cmt, cmt_op, cmt_cl;
+  std::array<int, 3> eol_cmt, cmt_op, cmt_cl;    // for FunC <  0.5.0: ;; {- -}
+  std::array<int, 3> eol_cmt2, cmt_op2, cmt_cl2; // for FunC >= 0.5.0: // /* */
   std::string multiline_quote;
   enum cc { left_active = 2, right_active = 1, active = 3, allow_repeat = 4, quote_char = 8 };
 
@@ -78,9 +82,13 @@ class Lexer {
   bool eof_found() const {
     return eof;
   }
-  Lexer(SourceReader& _src, bool init = false, std::string active_chars = ";,() ~.", std::string eol_cmts = ";;",
-        std::string open_cmts = "{-", std::string close_cmts = "-}", std::string quote_chars = "\"",
-        std::string multiline_quote = "\"\"\"");
+  explicit Lexer(SourceReader& _src, std::string active_chars = ";,() ~.",
+    std::string quote_chars = "\"", std::string multiline_quote = "\"\"\"");
+
+  void set_comment_tokens(const std::string &eol_cmts, const std::string &open_cmts, const std::string &close_cmts);
+  void set_comment2_tokens(const std::string &eol_cmts2, const std::string &open_cmts2, const std::string &close_cmts2);
+  void start_parsing();
+
   const Lexem& next();
   const Lexem& cur() const {
     return lexem;

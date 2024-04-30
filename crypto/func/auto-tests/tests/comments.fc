@@ -1,0 +1,39 @@
+
+_ get10();
+
+int {-
+    block comment
+    /*
+        nested
+        */
+;;;; -} main()
+
+// inside a comment, {- doesn't start a new one
+{- but if ;; is inside, a comment may end at this line-} {
+    var cc = "a string may contain {- or // or /*, not parsed";
+    // return 1;
+    return get10() + /*
+    traditional comment /* may be also nested */
+    // line comment
+    // ends */1 +
+    1;
+    {- moreover, different comment styles
+        may be used for opening and closing
+    */
+}
+
+/*
+    first line
+//* nested
+     //two-lined*/
+*/
+
+int get10() method_id(10) {
+    return 10;
+}
+
+
+/*
+TESTCASE | 0  | | 12
+TESTCASE | 10 | | 10
+*/
