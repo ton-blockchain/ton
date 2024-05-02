@@ -396,19 +396,11 @@ SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool i
   return res;
 }
 
-bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
-  if (!func_name) {
-    func_name = cur.val;
-  }
+bool check_global_func(const Lexem& cur, sym_idx_t func_name) {
   SymDef* def = sym::lookup_symbol(func_name);
   if (!def) {
-    cur.loc.show_error(std::string{"undefined function `"} + symbols.get_name(func_name) +
-                       "`, defining a global function of unknown type");
-    def = sym::define_global_symbol(func_name, 0, cur.loc);
-    func_assert(def && "cannot define global function");
-    ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
-    return true;
+    cur.error("undefined symbol `" + symbols.get_name(func_name) + "`");
+    return false;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
   if (!val) {
@@ -652,7 +644,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       // std::cerr << "defined new variable " << lex.cur().str << " : " << res->e_type << std::endl;
     } else {
       if (!sym) {
-        check_global_func(lex.cur());
+        check_global_func(lex.cur(), lex.cur().val);
         sym = sym::lookup_symbol(lex.cur().val);
       }
       res->sym = sym;

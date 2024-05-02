@@ -1,0 +1,12 @@
+int main(int x) {
+    return 1 + demo();
+}
+
+int demo() {
+    return 2;
+}
+
+{-
+@compilation_should_fail
+@stderr undefined symbol `demo`
+-}

@@ -1,0 +1,10 @@
+int demo(int x);
+
+int main(int x) {
+    return 1 + demo(x);
+}
+
+{-
+@compilation_should_fail
+@stderr function `demo` is just declared, not implemented
+-}

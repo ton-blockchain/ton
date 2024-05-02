@@ -107,8 +107,7 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     errs << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
   }
   if (!func_val->code) {
-    errs << "( function `" << name << "` undefined )\n";
-    throw src::ParseError(func_sym->loc, name);
+    throw src::ParseError(func_sym->loc, "function `" + name + "` is just declared, not implemented");
   } else {
     CodeBlob& code = *(func_val->code);
     if (verbosity >= 3) {
