@@ -26,9 +26,9 @@ int string_crc32() method_id {
   return "transfer(slice, int)"c;
 }
 
-builder newc() asm "NEWC";
+builder newc() pure asm "NEWC";
 slice endcs(builder b) asm "ENDC" "CTOS";
-int sdeq (slice s1, slice s2) asm "SDEQ";
+int sdeq (slice s1, slice s2) pure asm "SDEQ";
 
 _ main() {
   slice s_ascii = ascii_slice();

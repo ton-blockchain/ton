@@ -21,7 +21,7 @@
   );
 }
 
-() save_data(int total_supply, slice admin_address, cell content, cell jetton_wallet_code) impure inline {
+() save_data(int total_supply, slice admin_address, cell content, cell jetton_wallet_code) inline {
   set_data(begin_cell()
             .store_coins(total_supply)
             .store_slice(admin_address)
@@ -31,7 +31,7 @@
           );
 }
 
-() mint_tokens(slice to_address, cell jetton_wallet_code, int amount, cell master_msg) impure {
+() mint_tokens(slice to_address, cell jetton_wallet_code, int amount, cell master_msg) {
   cell state_init = calculate_jetton_wallet_state_init(to_address, my_address(), jetton_wallet_code);
   slice to_wallet_address = calculate_jetton_wallet_address(state_init);
   var msg = begin_cell()
@@ -44,7 +44,7 @@
   send_raw_message(msg.end_cell(), 1); ;; pay transfer fees separately, revert on errors
 }
 
-() recv_internal(int msg_value, cell in_msg_full, slice in_msg_body) impure {
+() recv_internal(int msg_value, cell in_msg_full, slice in_msg_body) {
     if (in_msg_body.slice_empty?()) { ;; ignore empty messages
         return ();
     }

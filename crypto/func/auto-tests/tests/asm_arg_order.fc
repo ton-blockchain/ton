@@ -1,17 +1,17 @@
-tuple empty_tuple() asm "NIL";
-forall X -> (tuple, ()) tpush(tuple t, X x) asm "TPUSH";
+tuple empty_tuple() pure asm "NIL";
+forall X -> (tuple, ()) tpush(tuple t, X x) pure asm "TPUSH";
 tuple emptyTuple() { return empty_tuple(); }
 forall X -> (tuple, ()) tuplePush(tuple t, X value) { return tpush(t, value); }
 
-tuple asm_func_1(int x, int y, int z) asm "3 TUPLE";
-tuple asm_func_2(int x, int y, int z) asm (z y x -> 0) "3 TUPLE";
-tuple asm_func_3(int x, int y, int z) asm (y z x -> 0) "3 TUPLE";
-tuple asm_func_4(int a, (int, (int, int)) b, int c) asm (b a c -> 0) "5 TUPLE";
+tuple asm_func_1(int x, int y, int z) pure asm "3 TUPLE";
+tuple asm_func_2(int x, int y, int z) pure asm (z y x -> 0) "3 TUPLE";
+tuple asm_func_3(int x, int y, int z) pure asm (y z x -> 0) "3 TUPLE";
+tuple asm_func_4(int a, (int, (int, int)) b, int c) pure asm (b a c -> 0) "5 TUPLE";
 
 _ asmFunc1(int x, int y, int z) { return asm_func_1(x, y, z); }
 _ asmFunc3(int x, int y, int z) { return asm_func_3(x, y, z); }
 
-(tuple, ()) asm_func_modify(tuple a, int b, int c) asm (c b a -> 0) "SWAP TPUSH SWAP TPUSH";
+(tuple, ()) asm_func_modify(tuple a, int b, int c) pure asm (c b a -> 0) "SWAP TPUSH SWAP TPUSH";
 (tuple, ()) asmFuncModify(tuple a, int b, int c) { return asm_func_modify(a, b, c); }
 
 global tuple t;

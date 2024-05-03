@@ -21,13 +21,13 @@ int parse_work_addr(slice cs) {
 ;; Custom Commands
 ;;
 
-(int) equal_slices (slice s1, slice s2) asm "SDEQ";
-builder store_builder(builder to, builder what) asm(what to) "STB";
-builder store_builder_ref(builder to, builder what) asm(what to) "STBREFR";
-(slice, cell) load_maybe_cell(slice s) asm( -> 1 0) "LDDICT";
-(int) mod (int x, int y) asm "MOD";
-builder store_coins(builder b, int x) asm "STGRAMS";
-(slice, int) load_coins(slice s) asm( -> 1 0) "LDGRAMS";
+(int) equal_slices (slice s1, slice s2) pure asm "SDEQ";
+builder store_builder(builder to, builder what) pure asm(what to) "STB";
+builder store_builder_ref(builder to, builder what) pure asm(what to) "STBREFR";
+(slice, cell) load_maybe_cell(slice s) pure asm( -> 1 0) "LDDICT";
+(int) mod (int x, int y) pure asm "MOD";
+builder store_coins(builder b, int x) pure asm "STGRAMS";
+(slice, int) load_coins(slice s) pure asm( -> 1 0) "LDGRAMS";
 
 
 ;;

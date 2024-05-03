@@ -2,16 +2,16 @@
 
 #include "stdlib.fc";
 
-(slice, cell) loadDict(slice s) { return load_dict(s); }
-(slice, int) loadGrams(slice s) { return load_grams(s); }
-(slice, int) loadUint(slice s, int len) { return load_uint(s, len); }
-() endParse(slice s) impure { return end_parse(s); }
-builder storeDict(builder b, cell c) { return store_dict(b, c); }
-builder storeUint(builder b, int x, int len) { return store_uint(b, x, len); }
-() throwUnless(int excno, int cond) impure { return throw_unless(excno, cond); }
-cell configParam(int paramNo) { return config_param(paramNo); }
-forall X -> int isNull(X x) { return null?(x); }
-(slice, int) tryUDictGet(cell dict, int keyLen, int index) { return udict_get?(dict, keyLen, index); }
+(slice, cell) loadDict(slice s) pure { return load_dict(s); }
+(slice, int) loadGrams(slice s) pure { return load_grams(s); }
+(slice, int) loadUint(slice s, int len) pure { return load_uint(s, len); }
+() endParse(slice s) { return end_parse(s); }
+builder storeDict(builder b, cell c) pure { return store_dict(b, c); }
+builder storeUint(builder b, int x, int len) pure { return store_uint(b, x, len); }
+() throwUnless(int excno, int cond) { return throw_unless(excno, cond); }
+cell configParam(int paramNo) pure { return config_param(paramNo); }
+forall X -> int isNull(X x) pure { return null?(x); }
+(slice, int) tryUDictGet(cell dict, int keyLen, int index) pure { return udict_get?(dict, keyLen, index); }
 
 
 ;; cur_elect credits past_elections grams active_id active_hash
@@ -23,7 +23,7 @@ forall X -> int isNull(X x) { return null?(x); }
 }
 
 ;; cur_elect credits past_elections grams active_id active_hash
-() store_data(elect, credits, past_elections, grams, active_id, active_hash) impure inline_ref {
+() store_data(elect, credits, past_elections, grams, active_id, active_hash) inline_ref {
   set_data(begin_cell()
     .storeDict(elect)
     .store_dict(credits)
@@ -164,7 +164,7 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
   return (cs~load_uint(256), cs~load_uint(64));
 }
 
-() send_message_back(addr, ans_tag, query_id, body, grams, mode) impure inline_ref {
+() send_message_back(addr, ans_tag, query_id, body, grams, mode) inline_ref {
   ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
   var msg = begin_cell()
     .store_uint(0x18, 6)
@@ -179,15 +179,15 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
   send_raw_message(msg.end_cell(), mode);
 }
 
-() return_stake(addr, query_id, reason) impure inline_ref {
+() return_stake(addr, query_id, reason) inline_ref {
   return send_message_back(addr, 0xee6f454c, query_id, reason, 0, 64);
 }
 
-() send_confirmation(addr, query_id, comment) impure inline_ref {
+() send_confirmation(addr, query_id, comment) inline_ref {
   return send_message_back(addr, 0xf374484c, query_id, comment, 1000000000, 2);
 }
 
-() send_validator_set_to_config(config_addr, vset, query_id) impure inline_ref {
+() send_validator_set_to_config(config_addr, vset, query_id) inline_ref {
   var msg = begin_cell()
     .store_uint(0xc4ff, 17)   ;; 0 11000100 0xff 
     .store_uint(config_addr, 256)
@@ -209,7 +209,7 @@ _ ~credit_to(credits, addr, amount) inline_ref {
   return (credits, ());
 }
 
-() process_new_stake(s_addr, msg_value, cs, query_id) impure inline_ref {
+() process_new_stake(s_addr, msg_value, cs, query_id) inline_ref {
   var (src_wc, src_addr) = parse_std_addr(s_addr);
   var ds = get_data().begin_parse();
   var elect = ds~load_dict();
@@ -359,7 +359,7 @@ _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
   return (credits, past_elections, unused_prizes);
 }
 
-() config_set_confirmed(s_addr, cs, query_id, ok) impure inline_ref {
+() config_set_confirmed(s_addr, cs, query_id, ok) inline_ref {
   var (src_wc, src_addr) = parse_std_addr(s_addr);
   var config_addr = config_param(0).begin_parse().preload_uint(256);
   var ds = get_data().begin_parse();
@@ -390,7 +390,7 @@ _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
   ;; ... do not remove elect until we see this set as the next elected validator set
 }
 
-() process_simple_transfer(s_addr, msg_value) impure inline_ref {
+() process_simple_transfer(s_addr, msg_value) inline_ref {
   var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
   (int src_wc, int src_addr) = parse_std_addr(s_addr);
   if (src_addr | (src_wc + 1) | (active_id == 0)) {
@@ -414,7 +414,7 @@ _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
   return store_data(elect, credits, past_elections, grams, active_id, active_hash);
 }
 
-() recover_stake(op, s_addr, cs, query_id) impure inline_ref {
+() recover_stake(op, s_addr, cs, query_id) inline_ref {
   (int src_wc, int src_addr) = parse_std_addr(s_addr);
   if (src_wc + 1) {
     ;; not from masterchain, return error
@@ -442,7 +442,7 @@ _ unfreeze_all(credits, past_elections, elect_id) inline_ref {
   .end_cell(), 64);
 }
 
-() after_code_upgrade(slice s_addr, slice cs, int query_id) impure method_id(1666) {
+() after_code_upgrade(slice s_addr, slice cs, int query_id) method_id(1666) {
   var op = 0x4e436f64;
   return send_message_back(s_addr, 0xce436f64, query_id, op, 0, 64);
 }
@@ -592,7 +592,7 @@ int register_complaint(s_addr, complaint, msg_value) {
   return (complaints, complaint, 2);
 }
 
-int proceed_register_vote(election_id, chash, idx, weight) impure inline_ref {
+int proceed_register_vote(election_id, chash, idx, weight) inline_ref {
   var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
   var (fs, f) = past_elections.udict_get?(32, election_id);
   ifnot (f) {  ;; election not found
@@ -613,7 +613,7 @@ int proceed_register_vote(election_id, chash, idx, weight) impure inline_ref {
   return status;
 }
 
-() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) {
   ;; do nothing for internal messages
   var cs = in_msg_cell.begin_parse();
   var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
@@ -685,7 +685,7 @@ int proceed_register_vote(election_id, chash, idx, weight) impure inline_ref {
   return ();
 }
 
-int postpone_elections() impure {
+int postpone_elections() {
   return false;
 }
 
@@ -813,7 +813,7 @@ _ compute_total_stake(l, n, m_stake) inline_ref {
   return (credits, vset, tot_weight, frozen, tot_stake, m); 
 }
 
-int conduct_elections(ds, elect, credits) impure {
+int conduct_elections(ds, elect, credits) {
   var (elect_at, elect_close, min_stake, total_stake, members, failed, finished) = elect.unpack_elect();
   if (now() < elect_close) {
     ;; elections not finished yet
@@ -882,7 +882,7 @@ int conduct_elections(ds, elect, credits) impure {
   return true;
 }
 
-int update_active_vset_id() impure {
+int update_active_vset_id() {
   var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
   var cur_hash = config_param(34).cell_hash();
   if (cur_hash == active_hash) {
@@ -940,7 +940,7 @@ int cell_hash_eq?(cell vset, int expected_vset_hash) inline_ref {
   return vset.null?() ? false : cell_hash(vset) == expected_vset_hash;
 }
 
-int validator_set_installed(ds, elect, credits) impure {
+int validator_set_installed(ds, elect, credits) {
   var (elect_at, elect_close, min_stake, total_stake, members, failed, finished) = elect.unpack_elect();
   ifnot (finished) {
     ;; elections not finished yet
@@ -968,7 +968,7 @@ int validator_set_installed(ds, elect, credits) impure {
   return false;
 }
 
-int check_unfreeze() impure {
+int check_unfreeze() {
   var (elect, credits, past_elections, grams, active_id, active_hash) = load_data();
   int id = -1;
   do {
@@ -1029,7 +1029,7 @@ int announce_new_elections(ds, elect, credits) {
   return true;
 }
 
-() run_ticktock(int is_tock) impure {
+() run_ticktock(int is_tock) {
   ;; check whether an election is being conducted
   var ds = get_data().begin_parse();
   var (elect, credits) = (ds~load_dict(), ds~load_dict());

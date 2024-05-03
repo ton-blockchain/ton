@@ -1,4 +1,4 @@
-(cell) recv_external(slice in_msg) impure {
+(cell) recv_external(slice in_msg) {
    cell mydict = new_dict();
    builder r = begin_cell().store_int(10, 16);
    mydict~udict_set_builder(32, 1, r );
@@ -9,6 +9,6 @@
   return mydict;
 }
 
-() recv_internal() impure {
+() recv_internal() {
   ;; Nothing
 }

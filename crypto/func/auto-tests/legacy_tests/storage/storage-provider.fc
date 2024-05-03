@@ -42,7 +42,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
 }
 
 () deploy_storage_contract (slice client, int query_id, int file_size, int merkle_hash, int torrent_hash,
-        int expected_rate, int expected_max_span) impure {
+        int expected_rate, int expected_max_span) {
     var ds = get_data().begin_parse();
     var (wallet_data,
             accept_new_contracts?,
@@ -74,7 +74,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
     send_raw_message(msg, 64);
 }
 
-() recv_internal(int msg_value, cell in_msg_full, slice in_msg_body) impure {
+() recv_internal(int msg_value, cell in_msg_full, slice in_msg_body) {
     slice cs = in_msg_full.begin_parse();
     int flags = cs~load_uint(4);
 
@@ -156,7 +156,7 @@ cell build_storage_contract_stateinit(int merkle_hash, int file_size, int rate_p
     }
 }
 
-() recv_external(slice in_msg) impure {
+() recv_external(slice in_msg) {
     var signature = in_msg~load_bits(512);
     var cs = in_msg;
     var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));

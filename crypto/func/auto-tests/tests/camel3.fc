@@ -4,22 +4,22 @@
 ;; (save to a variable, return from a function, etc.)
 ;; it also works, since a function becomes codegenerated (though direct calls are expectedly inlined).
 
-builder begin_cell() asm "NEWC";
-cell end_cell(builder b) asm "ENDC";
-builder store_ref(builder b, cell c) asm(c b) "STREF";
+builder begin_cell() pure asm "NEWC";
+cell end_cell(builder b) pure asm "ENDC";
+builder store_ref(builder b, cell c) pure asm(c b) "STREF";
 
 builder beginCell() { return begin_cell(); }
 cell endCell(builder b) { return end_cell(b); }
 builder storeRef(builder b, cell c) { return store_ref(b, c); }
 builder storeUint3(int i, int bw, builder b) { return store_uint(b, i, bw); }
 
-(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
-(int, int, int) computeDataSize2(int maxCells, cell c) impure { return compute_data_size(c, maxCells); }
+(int, int, int) compute_data_size(cell c, int max_cells) asm "CDATASIZE";
+(int, int, int) computeDataSize2(int maxCells, cell c) { return compute_data_size(c, maxCells); }
 
-tuple empty_tuple() asm "NIL";
-forall X -> tuple tpush(tuple t, X value) asm "TPUSH";
-forall X -> (tuple, ()) ~tpush(tuple t, X value) asm "TPUSH";
-forall X -> X first(tuple t) asm "FIRST";
+tuple empty_tuple() pure asm "NIL";
+forall X -> tuple tpush(tuple t, X value) pure asm "TPUSH";
+forall X -> (tuple, ()) ~tpush(tuple t, X value) pure asm "TPUSH";
+forall X -> X first(tuple t) pure asm "FIRST";
 
 tuple emptyTuple() { return empty_tuple(); }
 forall X -> tuple tuplePush(tuple t, X value) { return tpush(t, value); }

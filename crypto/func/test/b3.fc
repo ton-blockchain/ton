@@ -5,7 +5,7 @@ _ unpack() inline {
   return res;
 }
 
-() pack(a, x, y) impure inline_ref {
+() pack(a, x, y) inline_ref {
   set_data(begin_cell()
     .store_uint(a, 8)
     .store_int(x, 32)
@@ -13,7 +13,7 @@ _ unpack() inline {
   .end_cell());
 }
 
-() main() impure {
+() main() {
   var (a, x, y) = unpack();
   x += y;
   pack(a, x, y);

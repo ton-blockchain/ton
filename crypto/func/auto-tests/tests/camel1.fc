@@ -8,12 +8,12 @@
 ;; This works with ~functions also. And even works with wrappers of wrappers.
 ;; Moreover, such wrappers can reorder input parameters, see a separate test camel2.fc.
 
-builder begin_cell() asm "NEWC";
-cell end_cell(builder b) asm "ENDC";
-builder store_ref(builder b, cell c) asm(c b) "STREF";
-slice begin_parse(cell c) asm "CTOS";
-slice skip_bits(slice s, int len) asm "SDSKIPFIRST";
-(slice, ()) ~skip_bits(slice s, int len) asm "SDSKIPFIRST";
+builder begin_cell() pure asm "NEWC";
+cell end_cell(builder b) pure asm "ENDC";
+builder store_ref(builder b, cell c) pure asm(c b) "STREF";
+slice begin_parse(cell c) pure asm "CTOS";
+slice skip_bits(slice s, int len) pure asm "SDSKIPFIRST";
+(slice, ()) ~skip_bits(slice s, int len) pure asm "SDSKIPFIRST";
 
 builder beginCell() { return begin_cell(); }
 cell endCell(builder b) { return end_cell(b); }
@@ -21,19 +21,19 @@ builder storeRef(builder b, cell c) { return store_ref(b, c); }
 builder storeUint(builder b, int i, int bw) { return store_uint(b, i, bw); }
 
 ;; 'inline' is not needed actually, but if it exists, it's just ignored
-slice beginParse(cell c) inline { return begin_parse(c); }
-slice skipBits(slice s, int len) inline { return skip_bits(s, len); }
-(slice, ()) ~skipBits(slice s, int len) inline { return ~skip_bits(s, len); }
-(slice, int) ~loadUint(slice s, int len) inline { return load_uint(s, len); }
+slice beginParse(cell c) pure inline { return begin_parse(c); }
+slice skipBits(slice s, int len) pure inline { return skip_bits(s, len); }
+(slice, ()) ~skipBits(slice s, int len) pure inline { return ~skip_bits(s, len); }
+(slice, int) ~loadUint(slice s, int len) pure inline { return load_uint(s, len); }
 
-(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
-(int, int, int) computeDataSize(cell c, int maxCells) impure { return compute_data_size(c, maxCells); }
+(int, int, int) compute_data_size(cell c, int max_cells) asm "CDATASIZE";
+(int, int, int) computeDataSize(cell c, int maxCells) { return compute_data_size(c, maxCells); }
 
-cell new_dict() asm "NEWDICT";
-cell idict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTISET";
-(cell, ()) ~idict_set(cell dict, int key_len, int index, slice value) asm(value index dict key_len) "DICTISET";
-(slice, int) idict_get?(cell dict, int key_len, int index) asm(index dict key_len) "DICTIGET" "NULLSWAPIFNOT";
-(int, slice, int) idict_get_min?(cell dict, int key_len) asm (-> 1 0 2) "DICTIMIN" "NULLSWAPIFNOT2";
+cell new_dict() pure asm "NEWDICT";
+cell idict_set(cell dict, int key_len, int index, slice value) pure asm(value index dict key_len) "DICTISET";
+(cell, ()) ~idict_set(cell dict, int key_len, int index, slice value) pure asm(value index dict key_len) "DICTISET";
+(slice, int) idict_get?(cell dict, int key_len, int index) pure asm(index dict key_len) "DICTIGET" "NULLSWAPIFNOT";
+(int, slice, int) idict_get_min?(cell dict, int key_len) pure asm (-> 1 0 2) "DICTIMIN" "NULLSWAPIFNOT2";
 
 cell dict::new() { return new_dict(); }
 cell dict::iset(cell dict, int keyLen, int index, slice value) { return idict_set(dict, keyLen, index, value); }
@@ -41,11 +41,11 @@ cell dict::iset(cell dict, int keyLen, int index, slice value) { return idict_se
 (slice, int) dict::tryIGet(cell dict, int keyLen, int index) { return idict_get?(dict, keyLen, index); }
 (int, slice, int) dict::tryIGetMin(cell dict, int keyLen) { return idict_get_min?(dict, keyLen); }
 
-tuple empty_tuple() asm "NIL";
-forall X -> tuple tpush(tuple t, X value) asm "TPUSH";
-forall X -> (tuple, ()) ~tpush(tuple t, X value) asm "TPUSH";
-forall X, Y, Z -> Y triple_second([X, Y, Z] p) asm "SECOND";
-forall X -> X null() asm "PUSHNULL";
+tuple empty_tuple() pure asm "NIL";
+forall X -> tuple tpush(tuple t, X value) pure asm "TPUSH";
+forall X -> (tuple, ()) ~tpush(tuple t, X value) pure asm "TPUSH";
+forall X, Y, Z -> Y triple_second([X, Y, Z] p) pure asm "SECOND";
+forall X -> X null() pure asm "PUSHNULL";
 
 tuple emptyTuple() { return empty_tuple(); }
 tuple emptyTuple1() { return emptyTuple(); }
@@ -54,19 +54,19 @@ forall X -> tuple tuplePush(tuple t, X value) { return tpush(t, value); }
 forall X -> (tuple, ()) ~tuplePush(tuple t, X value) { return ~tpush(t, value); }
 forall X -> X tupleAt(tuple t, int index) { return at(t, index); }
 forall X1, Y2, Z3 -> Y2 tripleSecond([X1, Y2, Z3] p) { return triple_second(p); }
-forall X -> X nullValue() asm "PUSHNULL";
+forall X -> X nullValue() pure asm "PUSHNULL";
 
-() throwIf(int excNo, int condition) impure { return throw_if(excNo, condition); }
+() throwIf(int excNo, int condition) { return throw_if(excNo, condition); }
 
 tuple initial1(tuple x) { return x; }
 _ initial2(x) { return initial1(x); }
 
 int add(int x, int y) { return x + y; } ;; this is also a wrapper, as its body is _+_(x,y)
 
-() fake1(int a, int b, int c) impure asm(a b c) "DROP DROP DROP";
-() fake2(int a, int b, int c) impure asm(b c a) "DROP DROP DROP";
-() fake3(int a, int b, int c) impure asm(c a b) "DROP DROP DROP";
-() fake4(int a, int b, int c) impure asm(c b a) "DROP DROP DROP";
+() fake1(int a, int b, int c) asm(a b c) "DROP DROP DROP";
+() fake2(int a, int b, int c) asm(b c a) "DROP DROP DROP";
+() fake3(int a, int b, int c) asm(c a b) "DROP DROP DROP";
+() fake4(int a, int b, int c) asm(c b a) "DROP DROP DROP";
 
 () fake1Wrapper(int a, int b, int c) { return fake1(a, b, c); }
 () fake2Wrapper(int a, int b, int c) { return fake2(a, b, c); }
@@ -95,9 +95,9 @@ int add(int x, int y) { return x + y; } ;; this is also a wrapper, as its body i
     ;; skip 64 bits
     minv~skipBits(16);
     minv = minv.skipBits(16);
-    minv.skipBits(16000);             ;; does nothing
+    minv.skipBits(11);             ;; does nothing
     (minv, _) = ~skipBits(minv, 16);
-    skipBits(minv, 16000);         ;; does nothing
+    skipBits(minv, 11);         ;; does nothing
     minv~skipBits(16);
     ;; load 3*32
     var minv1 = minv~loadUint(32);

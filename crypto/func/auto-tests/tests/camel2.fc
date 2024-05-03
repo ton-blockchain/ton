@@ -7,10 +7,10 @@
 
 #pragma compute-asm-ltr;
 
-builder begin_cell() asm "NEWC";
-cell end_cell(builder b) asm "ENDC";
-slice begin_parse(cell c) asm "CTOS";
-builder store_ref(builder b, cell c) asm(c b) "STREF";
+builder begin_cell() pure asm "NEWC";
+cell end_cell(builder b) pure asm "ENDC";
+slice begin_parse(cell c) pure asm "CTOS";
+builder store_ref(builder b, cell c) pure asm(c b) "STREF";
 
 builder beginCell() { return begin_cell(); }
 cell endCell(builder b) { return end_cell(b); }
@@ -19,13 +19,13 @@ builder storeRef2(cell c, builder b) { return store_ref(b, c); }
 builder storeUint1(builder b, int x, int bw) { return store_uint(b, x, bw); }
 builder storeUint2(builder b, int bw, int x) { return store_uint(b, x, bw); }
 
-(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
-(int, int, int) computeDataSize1(cell c, int maxCells) impure { return compute_data_size(c, maxCells); }
-(int, int, int) computeDataSize2(int maxCells, cell c) impure { return compute_data_size(c, maxCells); }
+(int, int, int) compute_data_size(cell c, int max_cells) pure asm "CDATASIZE";
+(int, int, int) computeDataSize1(cell c, int maxCells) { return compute_data_size(c, maxCells); }
+(int, int, int) computeDataSize2(int maxCells, cell c) { return compute_data_size(c, maxCells); }
 
-() throwIf(int condition, int excNo) impure { return throw_if(excNo, condition); }
+() throwIf(int condition, int excNo) { return throw_if(excNo, condition); }
 
-() fake(int a, int b, int c) impure asm "DROP DROP DROP";
+() fake(int a, int b, int c) asm "DROP DROP DROP";
 () fake2(int b, int c, int a) { return fake(a,b,c); }
 () fake3(int c, int a, int b) { return fake(a,b,c); }
 () fake4(int c, int b, int a) { return fake(a,b,c); }

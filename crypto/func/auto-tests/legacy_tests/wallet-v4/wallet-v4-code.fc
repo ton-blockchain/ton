@@ -10,7 +10,7 @@ _ skipBits(slice s, int len) { return skip_bits(s, len); }
 
 (cell, int) tryDictDelete(cell dict, int keyLen, slice index) { return dict_delete?(dict, keyLen, index); }
 
-() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) {
   var cs = in_msg_cell.begin_parse();
   var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   if (flags & 1) {
@@ -74,7 +74,7 @@ _ skipBits(slice s, int len) { return skip_bits(s, len); }
   }
 }
 
-() recv_external(slice in_msg) impure {
+() recv_external(slice in_msg) {
   var signature = in_msg~load_bits(512);
   var cs = in_msg;
   var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));

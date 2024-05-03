@@ -1,6 +1,6 @@
 #include "../../../smartcont/mathlib.fc";
 
-forall X -> (tuple, ()) ~tset(tuple t, int idx, X val) asm(t val idx) "SETINDEXVAR";
+forall X -> (tuple, ()) ~tset(tuple t, int idx, X val) pure asm(t val idx) "SETINDEXVAR";
 
 ;; computes 1-acos(x)/Pi by a very simple, extremely slow (~70k gas) and imprecise method
 ;; fixed256 acos_prepare_slow(fixed255 x);

@@ -3,6 +3,6 @@
 
 #include "i1sub1.fc";
 
-() sub1() impure {
+() sub1() {
   i = 1;
 }

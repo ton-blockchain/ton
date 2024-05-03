@@ -3,7 +3,7 @@
 
 #include "./i1sub1.fc";
 
-() sub2() impure {
+() sub2() {
   sub1();
   sub0();
   i = 2;

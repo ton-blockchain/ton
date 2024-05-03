@@ -385,8 +385,8 @@ void parse_global_var_decls(Lexer& lex) {
   lex.expect(';');
 }
 
-SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false) {
-  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, impure};
+SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool marked_as_pure) {
+  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, marked_as_pure};
 #ifdef FUNC_DEBUG
   res->name = func_sym->name();
 #endif
@@ -649,6 +649,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       }
       res->sym = sym;
       SymVal* val = nullptr;
+      bool impure = false;
       if (sym) {
         val = dynamic_cast<SymVal*>(sym->value);
       }
@@ -658,6 +659,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         res->e_type = val->get_type();
         res->cls = Expr::_GlobFunc;
         auto_apply = val->auto_apply;
+        impure = !dynamic_cast<SymValFunc*>(val)->is_marked_as_pure();
       } else if (val->idx < 0) {
         lex.cur().error_at("accessing variable `", "` being defined");
       } else {
@@ -666,7 +668,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         // std::cerr << "accessing variable " << lex.cur().str << " : " << res->e_type << std::endl;
       }
       // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
-      res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
+      res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (impure ? Expr::_IsImpure : 0);
     }
     if (auto_apply) {
       int impure = res->flags & Expr::_IsImpure;
@@ -757,7 +759,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
       res = new Expr{Expr::_Apply, name, {obj, x}};
     }
     res->here = loc;
-    res->flags = Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
+    res->flags = Expr::_IsRvalue | (val->is_marked_as_pure() ? 0 : Expr::_IsImpure);
     res->deduce_type(lex.cur());
     if (modify) {
       auto tmp = res;
@@ -1242,7 +1244,7 @@ CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type
 }
 
 SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const FormalArgList& arg_list, TypeExpr* ret_type,
-                                   bool impure = false) {
+                                   bool marked_as_pure) {
   auto loc = lex.cur().loc;
   lex.expect(_Asm);
   int cnt = (int)arg_list.size();
@@ -1346,14 +1348,14 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
   for (const AsmOp& asm_op : asm_ops) {
     crc_s += asm_op.op;
   }
-  crc_s.push_back(impure);
+  crc_s.push_back(!marked_as_pure);
   for (const int& x : arg_order) {
     crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
   }
   for (const int& x : ret_order) {
     crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
   }
-  auto res = new SymValAsmFunc{func_type, asm_ops, impure};
+  auto res = new SymValAsmFunc{func_type, asm_ops, marked_as_pure};
   res->arg_order = std::move(arg_order);
   res->ret_order = std::move(ret_order);
   res->crc = td::crc64(crc_s);
@@ -1487,9 +1489,8 @@ void detect_if_function_just_wraps_another(SymValCodeFunc* v_current, const td::
   // 'return true;' (false, nil) are (surprisingly) also function calls, with auto_apply=true
   if (v_called->auto_apply)
     return;
-
-  // they must have the same pureness
-  if (v_called->impure != v_current->impure || v_current->is_inline_ref())
+  // if an original is marked `pure`, and this one doesn't, it's okay; just check for inline_ref storage
+  if (v_current->is_inline_ref())
     return;
 
   // ok, f_current is a wrapper
@@ -1513,8 +1514,16 @@ void parse_func_def(Lexer& lex) {
   Lexem func_name = lex.cur();
   lex.next();
   FormalArgList arg_list = parse_formal_args(lex);
-  bool impure = (lex.tp() == _Impure);
-  if (impure) {
+  bool marked_as_pure = false;
+  if (lex.tp() == _Impure) {
+    static bool warning_shown = false;
+    if (!warning_shown) {
+      lex.cur().loc.show_warning("`impure` specifier is deprecated. All functions are impure by default, use `pure` to mark a function as pure");
+      warning_shown = true;
+    }
+    lex.next();
+  } else if (lex.tp() == _Pure) {
+    marked_as_pure = true;
     lex.next();
   }
   int flags_inline = 0;
@@ -1577,7 +1586,7 @@ void parse_func_def(Lexer& lex) {
     }
   }
   if (lex.tp() == ';') {
-    make_new_glob_func(func_sym, func_type, impure);
+    make_new_glob_func(func_sym, func_type, marked_as_pure);
     lex.next();
   } else if (lex.tp() == '{') {
     if (dynamic_cast<SymValAsmFunc*>(func_sym_val)) {
@@ -1590,7 +1599,7 @@ void parse_func_def(Lexer& lex) {
         lex.cur().error("function `"s + func_name.str + "` has been already defined in an yet-unknown way");
       }
     } else {
-      func_sym_code = make_new_glob_func(func_sym, func_type, impure);
+      func_sym_code = make_new_glob_func(func_sym, func_type, marked_as_pure);
     }
     if (func_sym_code->code) {
       lex.cur().error("redefinition of function `"s + func_name.str + "`");
@@ -1603,7 +1612,7 @@ void parse_func_def(Lexer& lex) {
     detect_if_function_just_wraps_another(func_sym_code, method_id);
   } else {
     Lexem asm_lexem = lex.cur();
-    SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
+    SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, marked_as_pure);
 #ifdef FUNC_DEBUG
     asm_func->name = func_name.str;
 #endif

@@ -28,14 +28,14 @@ const int int240 = ((int1 + int2) * 10) << 3;
 
 int iget240() { return int240; }
 
-builder newc() asm "NEWC";
-slice endcs(builder b) asm "ENDC" "CTOS";
-int sdeq (slice s1, slice s2) asm "SDEQ";
-builder stslicer(builder b, slice s) asm "STSLICER";
+builder newc() pure asm "NEWC";
+slice endcs(builder b) pure asm "ENDC" "CTOS";
+int sdeq (slice s1, slice s2) pure asm "SDEQ";
+builder stslicer(builder b, slice s) pure asm "STSLICER";
 
 builder storeUint(builder b, int x, int len) { return store_uint(b, x, len); }
 _ endSlice(builder b) { return endcs(b); }
-() throwUnless(int excno, int cond) impure { return throw_unless(excno, cond); }
+() throwUnless(int excno, int cond) { return throw_unless(excno, cond); }
 
 _ main() {
     int i1 = iget1();

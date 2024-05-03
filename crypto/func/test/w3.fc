@@ -1,4 +1,4 @@
-() main(cs) impure {
+() main(cs) {
   int i = 0;
   if (cs.slice_refs()) {
     do {

@@ -1,4 +1,4 @@
-() send_grams(slice address, int amount) impure {
+() send_grams(slice address, int amount) {
   cell msg = begin_cell()
     .store_uint (0x18, 6) ;; bounce
     .store_slice(address) ;; 267 bit address

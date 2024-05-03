@@ -1,22 +1,21 @@
 ;; Here we test that a just-return function is not a valid wrapper, it will not be inlined.
 ;; (doesn't use all arguments, has different pureness, has method_id, etc.)
 
-builder begin_cell() asm "NEWC";
-cell end_cell(builder b) asm "ENDC";
-slice begin_parse(cell c) asm "CTOS";
-() set_data(cell c) impure asm "c4 POP";
-cell get_data() asm "c4 PUSH";
-tuple empty_tuple() asm "NIL";
-forall X -> (tuple, ()) tpush(tuple t, X x) asm "TPUSH";
+builder begin_cell() pure asm "NEWC";
+cell end_cell(builder b) pure asm "ENDC";
+slice begin_parse(cell c) pure asm "CTOS";
+() set_data(cell c) asm "c4 POP";
+cell get_data() pure asm "c4 PUSH";
+tuple empty_tuple() pure asm "NIL";
+forall X -> (tuple, ()) tpush(tuple t, X x) pure asm "TPUSH";
 
 builder storeUint(builder b, int x, int unused) { return store_uint(b, x, x); }
-() throwIf(int excNo, int cond) impure { throw_if(excNo, cond); }
-() throwIf2(int excNo, int cond) { return throw_if(excNo, cond); }
+() throwIf(int excNo, int cond) { throw_if(excNo, cond); }
 
 _ initial1(x) { return x; }
 _ initial2(x) { return initial1(x); }
 
-tuple asm_func_4(int a, (int, (int, int)) b, int c) asm (b a c -> 0) "5 TUPLE";
+tuple asm_func_4(int a, (int, (int, int)) b, int c) pure asm (b a c -> 0) "5 TUPLE";
 _ asmFunc4(int a, (int, (int, int)) b, int c) { return asm_func_4(a, b, c); }
 
 int postpone_elections() {
@@ -28,7 +27,6 @@ int postpone_elections() {
     set_data(c);
     slice s = get_data().begin_parse();
     throwIf(101, 0);
-    var unused = throwIf2(101, 0);
     return s~load_uint(8);
 }
 
@@ -90,7 +88,6 @@ TESTCASE | -1  | 97 | 97
 
 @fif_codegen DECLPROC storeUint
 @fif_codegen DECLPROC throwIf
-@fif_codegen DECLPROC throwIf2
 @fif_codegen DECLPROC postpone_elections
 @fif_codegen 74435 DECLMETHOD test2
 

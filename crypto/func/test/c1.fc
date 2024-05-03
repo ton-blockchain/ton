@@ -11,12 +11,12 @@ _ pre_next() {
   return x + 1;
 }
 
-() init() impure {
+() init() {
   ;; global x;
   x = 0;
 }
 
-int next() impure {
+int next() {
   ;; global x;
   return x += 1;
 }
@@ -25,7 +25,7 @@ _ set_y(x, w) {
   y = (w, x);
 }
 
-_ get_y() impure {
+_ get_y() {
   return y;
 }
 

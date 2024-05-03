@@ -1,4 +1,4 @@
-int check_signatures(msg_hash, signatures, signers, bitmask_size) impure {
+int check_signatures(msg_hash, signatures, signers, bitmask_size) {
   var bitmask = 0;
   var id = -1;
   do {

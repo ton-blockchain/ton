@@ -120,6 +120,7 @@ void define_keywords() {
       .add_keyword("global", Kw::_Global)
       .add_keyword("asm", Kw::_Asm)
       .add_keyword("impure", Kw::_Impure)
+      .add_keyword("pure", Kw::_Pure)
       .add_keyword("inline", Kw::_Inline)
       .add_keyword("inline_ref", Kw::_InlineRef)
       .add_keyword("auto_apply", Kw::_AutoApply)

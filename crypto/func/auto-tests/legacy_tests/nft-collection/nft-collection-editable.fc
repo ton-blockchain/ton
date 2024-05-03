@@ -23,7 +23,7 @@
      );
 }
 
-() save_data(slice owner_address, int next_item_index, cell content, cell nft_item_code, cell royalty_params) impure inline {
+() save_data(slice owner_address, int next_item_index, cell content, cell nft_item_code, cell royalty_params) inline {
   set_data(begin_cell()
     .store_slice(owner_address)
     .store_uint(next_item_index, 64)
@@ -46,7 +46,7 @@ slice calculate_nft_item_address(int wc, cell state_init) {
                      .begin_parse();
 }
 
-() deploy_nft_item(int item_index, cell nft_item_code, int amount, cell nft_content) impure {
+() deploy_nft_item(int item_index, cell nft_item_code, int amount, cell nft_content) {
   cell state_init = calculate_nft_item_state_init(item_index, nft_item_code);
   slice nft_address = calculate_nft_item_address(workchain(), state_init);
   var msg = begin_cell()
@@ -59,7 +59,7 @@ slice calculate_nft_item_address(int wc, cell state_init) {
   send_raw_message(msg.end_cell(), 1); ;; pay transfer fees separately, revert on errors
 }
 
-() send_royalty_params(slice to_address, int query_id, slice data) impure inline {
+() send_royalty_params(slice to_address, int query_id, slice data) inline {
   var msg = begin_cell()
     .store_uint(0x10, 6) ;; nobounce - int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool packages:MsgAddress -> 011000
     .store_slice(to_address)
@@ -71,7 +71,7 @@ slice calculate_nft_item_address(int wc, cell state_init) {
   send_raw_message(msg.end_cell(), 64); ;; carry all the remaining value of the inbound message
 }
 
-() recv_internal(cell in_msg_full, slice in_msg_body) impure {
+() recv_internal(cell in_msg_full, slice in_msg_body) {
     if (in_msg_body.slice_empty?()) { ;; ignore empty messages
         return ();
     }

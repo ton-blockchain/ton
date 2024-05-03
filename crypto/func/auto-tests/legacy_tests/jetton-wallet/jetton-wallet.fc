@@ -33,7 +33,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   return (ds~load_coins(), ds~load_msg_addr(), ds~load_msg_addr(), ds~load_ref());
 }
 
-() save_data (int balance, slice owner_address, slice jetton_master_address, cell jetton_wallet_code) impure inline {
+() save_data (int balance, slice owner_address, slice jetton_master_address, cell jetton_wallet_code) inline {
   set_data(pack_jetton_wallet_data(balance, owner_address, jetton_master_address, jetton_wallet_code));
 }
 
@@ -49,7 +49,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
                      = InternalMsgBody;
 -}
 
-() send_tokens (slice in_msg_body, slice sender_address, int msg_value, int fwd_fee) impure {
+() send_tokens (slice in_msg_body, slice sender_address, int msg_value, int fwd_fee) {
   int query_id = in_msg_body~load_uint(64);
   int jetton_amount = in_msg_body~load_coins();
   slice to_owner_address = in_msg_body~load_msg_addr();
@@ -107,7 +107,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
                      = InternalMsgBody;
 -}
 
-() receive_tokens (slice in_msg_body, slice sender_address, int my_ton_balance, int fwd_fee, int msg_value) impure {
+() receive_tokens (slice in_msg_body, slice sender_address, int my_ton_balance, int fwd_fee, int msg_value) {
   ;; NOTE we can not allow fails in action phase since in that case there will be
   ;; no bounce. Thus check and throw in computation phase.
   (int balance, slice owner_address, slice jetton_master_address, cell jetton_wallet_code) = load_data();
@@ -162,7 +162,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   save_data(balance, owner_address, jetton_master_address, jetton_wallet_code);
 }
 
-() burn_tokens (slice in_msg_body, slice sender_address, int msg_value, int fwd_fee) impure {
+() burn_tokens (slice in_msg_body, slice sender_address, int msg_value, int fwd_fee) {
   ;; NOTE we can not allow fails in action phase since in that case there will be
   ;; no bounce. Thus check and throw in computation phase.
   (int balance, slice owner_address, slice jetton_master_address, cell jetton_wallet_code) = load_data();
@@ -196,7 +196,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   save_data(balance, owner_address, jetton_master_address, jetton_wallet_code);
 }
 
-() on_bounce (slice in_msg_body) impure {
+() on_bounce (slice in_msg_body) {
   in_msg_body~skip_bits(32); ;; 0xFFFFFFFF
   (int balance, slice owner_address, slice jetton_master_address, cell jetton_wallet_code) = load_data();
   int op = in_msg_body~load_uint(32);
@@ -207,7 +207,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   save_data(balance, owner_address, jetton_master_address, jetton_wallet_code);
 }
 
-() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) {
   if (in_msg_body.slice_empty?()) { ;; ignore empty messages
     return ();
   }

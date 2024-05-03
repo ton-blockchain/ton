@@ -1,4 +1,4 @@
-int now() asm "NOW";
+int now() pure asm "NOW";
 
 int cell_hash(cell c)
 asm "HASHCU";
@@ -9,36 +9,36 @@ asm "HASHSU";
 int check_signature(int hash, slice signature, int public_key)
 asm "CHKSIGNU";
 
-;; () throw_if(int excno, int cond) impure
+;; () throw_if(int excno, int cond)
 ;; asm "THROWARGIF";
 
-cell get_data() asm "c4 PUSH";
-() set_data(cell c) impure asm "c4 POP";
-() accept_message() impure asm "ACCEPT";
+cell get_data() pure asm "c4 PUSH";
+() set_data(cell c) asm "c4 POP";
+() accept_message() asm "ACCEPT";
 
-slice begin_parse(cell c) asm "CTOS";
-() end_parse(slice s) impure asm "ENDS";
-(cell, slice) load_ref(slice s) asm "LDREF";
-(int, slice) zload_int(slice s, int len) asm "LDIX";
-(int, slice) zload_uint(slice s, int len) asm "LDUX";
-int zpreload_int(slice s, int len) asm "PLDIX";
-int zpreload_uint(slice s, int len) asm "PLDUX";
-(slice, slice) load_bits(slice s, int len) asm "LDSLICEX";
-slice preload_bits(slice s, int len) asm "PLDSLICEX";
-cell set_idict_ref(cell value, int index, cell dict, int key_len) asm "DICTISETREF";
-builder begin_cell() asm "NEWC";
-builder store_ref(cell c, builder b) asm "STREF";
-builder zstore_uint(int x, builder b, int len) asm "STUX";
-builder zstore_int(int x, builder b, int len) asm "STIX";
-cell end_cell(builder b) asm "ENDC";
+slice begin_parse(cell c) pure asm "CTOS";
+() end_parse(slice s) asm "ENDS";
+(cell, slice) load_ref(slice s) pure asm "LDREF";
+(int, slice) zload_int(slice s, int len) pure asm "LDIX";
+(int, slice) zload_uint(slice s, int len) pure asm "LDUX";
+int zpreload_int(slice s, int len) pure asm "PLDIX";
+int zpreload_uint(slice s, int len) pure asm "PLDUX";
+(slice, slice) load_bits(slice s, int len) pure asm "LDSLICEX";
+slice preload_bits(slice s, int len) pure asm "PLDSLICEX";
+cell set_idict_ref(cell value, int index, cell dict, int key_len) pure asm "DICTISETREF";
+builder begin_cell() pure asm "NEWC";
+builder store_ref(cell c, builder b) pure asm "STREF";
+builder zstore_uint(int x, builder b, int len) pure asm "STUX";
+builder zstore_int(int x, builder b, int len) pure asm "STIX";
+cell end_cell(builder b) pure asm "ENDC";
 
 ;; Simple configuration smart contract
 
-() recv_internal(cell in_msg) impure {
+() recv_internal(cell in_msg) {
   ;; do nothing for internal messages
 }
 
-() recv_external(cell in_msg) impure {
+() recv_external(cell in_msg) {
   var (signature, cs0) = load_bits(begin_parse(in_msg), 512);
   var (msg_seqno, cs) = zload_uint(cs0, 32);
   (var valid_until, cs) = zload_uint(cs, 32);

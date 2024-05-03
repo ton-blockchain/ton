@@ -1,4 +1,4 @@
-() test1() impure {
+() test1() {
   int i = 3;
   repeat (3) {
     try {
@@ -22,7 +22,7 @@ int divide_by_ten(int num) {
   return 0;
 }
 
-() test2() impure {
+() test2() {
   int n = divide_by_ten(37);
   throw_unless(502, n == 3);
 }
@@ -39,7 +39,7 @@ int divide_by_ten(int num) {
   return (0, a);
 }
 
-() test3() impure {
+() test3() {
   int a = 0;
   int b = 57;
   try {
@@ -68,7 +68,7 @@ int get_y(int x, int y) {
   return y;
 }
 
-() test4() impure {
+() test4() {
   throw_unless(504, get_x(3, 4) == 3);
   throw_unless(504, get_y(3, 4) == -1);
 }
@@ -86,12 +86,12 @@ int get_y(int x, int y) {
   return (a, b, c, d, e);
 }
 
-() test5() impure {
+() test5() {
   var (a, b, c, d, e) = foo(10, 20, 30, 40, 50);
   throw_unless(505, (a == 11) & (b == 22) & (c == 33) & (d == 44) & (e == 55));
 }
 
-() test6() impure {
+() test6() {
   int a = 0;
   int b = 0;
   int c = 0;

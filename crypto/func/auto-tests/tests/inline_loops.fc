@@ -1,13 +1,13 @@
 global int g;
 
-_ foo_repeat() impure inline {
+_ foo_repeat() inline {
   g = 1;
   repeat(5) {
     g *= 2;
   }
 }
 
-int foo_until() impure inline {
+int foo_until() inline {
   g = 1;
   int i = 0;
   do {
@@ -17,7 +17,7 @@ int foo_until() impure inline {
   return i;
 }
 
-int foo_while() impure inline {
+int foo_while() inline {
   g = 1;
   int i = 0;
   while (i < 10) {

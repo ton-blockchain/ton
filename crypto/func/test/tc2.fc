@@ -14,7 +14,7 @@ _ test1_body() {
   return (0, null());
 }
 
-() test1() impure {
+() test1() {
   var (x, y) = test1_body();
   throw_unless(101, x == 104);
   throw_unless(102, y.builder_refs() == y.builder_bits());
@@ -67,7 +67,7 @@ _ test2_body(int a, int b, int c) {
   return null();
 }
 
-() test2() impure {
+() test2() {
   throw_unless(201, test2_body(0, 4, 0) == 1);
   throw_unless(202, test2_body(0, 5, 0) == 2);
   throw_unless(203, test2_body(3, 4, 0) == 3);
