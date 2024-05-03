@@ -360,10 +360,10 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     case _Tuple:
     case _UnTuple: {
       // left = EXEC right;
-      if (!next_var_info.count_used(left) && is_pure()) {
+      if (!next_var_info.count_used(left) && !impure()) {
         // all variables in `left` are not needed
         if (edit) {
-          disable();
+          set_disabled();
         }
         return std_compute_used_vars(true);
       }
@@ -372,7 +372,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     case _SetGlob: {
       // GLOB = right
       if (right.empty() && edit) {
-        disable();
+        set_disabled();
       }
       return std_compute_used_vars(right.empty());
     }
@@ -399,7 +399,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       }
       if (!cnt && edit) {
         // all variables in `left` are not needed
-        disable();
+        set_disabled();
       }
       return set_var_info(std::move(new_var_info));
     }
@@ -860,14 +860,44 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
   }
 }
 
-bool Op::set_noreturn(bool nr) {
-  if (nr) {
+void Op::set_disabled(bool flag) {
+  if (flag) {
+    flags |= _Disabled;
+  } else {
+    flags &= ~_Disabled;
+  }
+}
+
+
+bool Op::set_noreturn(bool flag) {
+  if (flag) {
     flags |= _NoReturn;
   } else {
     flags &= ~_NoReturn;
   }
-  return nr;
+  return flag;
 }
+
+void Op::set_impure(const CodeBlob &code) {
+  // todo calling this function with `code` is a bad design (flags are assigned after Op is constructed)
+  // later it's better to check this somewhere in code.emplace_back()
+  if (code.flags & CodeBlob::_ForbidImpure) {
+    throw src::ParseError(where, "An impure operation in a pure function");
+  }
+  flags |= _Impure;
+}
+
+void Op::set_impure(const CodeBlob &code, bool flag) {
+  if (flag) {
+    if (code.flags & CodeBlob::_ForbidImpure) {
+      throw src::ParseError(where, "An impure operation in a pure function");
+    }
+    flags |= _Impure;
+  } else {
+    flags &= ~_Impure;
+  }
+}
+
 
 bool Op::mark_noreturn() {
   switch (cl) {
@@ -888,13 +918,14 @@ bool Op::mark_noreturn() {
     case _Call:
       return set_noreturn(next->mark_noreturn());
     case _Return:
-      return set_noreturn(true);
+      return set_noreturn();
     case _If:
     case _TryCatch:
+      // note, that & | (not && ||) here and below is mandatory to invoke both left and right calls
       return set_noreturn((block0->mark_noreturn() & (block1 && block1->mark_noreturn())) | next->mark_noreturn());
     case _Again:
       block0->mark_noreturn();
-      return set_noreturn(true);
+      return set_noreturn();
     case _Until:
       return set_noreturn(block0->mark_noreturn() | next->mark_noreturn());
     case _While:

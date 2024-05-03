@@ -1,0 +1,25 @@
+builder begin_cell() pure asm "NEWC";
+
+global int g;
+
+(builder) f_pure() pure {
+    var g;  // strange, but this doesn't make a variable local, it still refers to a global one
+    builder b = begin_cell();
+    g = g + 1;
+    return b;
+}
+
+int main() {
+    g = 0;
+    f_pure();
+    return g;
+}
+
+{-
+@compilation_should_fail
+@stderr
+"""
+An impure operation in a pure function
+g = g + 1;
+"""
+-}

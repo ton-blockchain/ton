@@ -1,0 +1,18 @@
+int f_impure();
+
+int f_pure() pure {
+    return f_impure();
+}
+
+int main() {
+    return f_pure();
+}
+
+{-
+@compilation_should_fail
+@stderr
+"""
+An impure operation in a pure function
+return f_impure();
+"""
+-}

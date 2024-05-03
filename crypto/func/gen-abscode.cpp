@@ -229,7 +229,7 @@ var_idx_t Expr::new_tmp(CodeBlob& code) const {
 void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
   for (const auto& p : globs) {
     auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
-    op.flags |= Op::_Impure;
+    op.set_impure(code);
   }
 }
 
@@ -289,7 +289,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
       if (code.flags & CodeBlob::_AllowPostModification) {
         if (!lval_globs && (var.cls & TmpVar::_Named)) {
           Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
-          op->flags |= Op::_Disabled;
+          op->set_disabled();
           var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
             if (!done) {
               done = true;
@@ -319,7 +319,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
     var_idx_t v2 = code.create_tmp_var(code.vars[v].v_type, code.vars[v].where.get());
     m.op->left = {v2};
     m.op->right = {v};
-    m.op->flags &= ~Op::_Disabled;
+    m.op->set_disabled(false);
     v = v2;
   }
   std::vector<var_idx_t> res;
@@ -371,7 +371,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, res, applied_sym);
       if (flags & _IsImpure) {
-        op.flags |= Op::_Impure;
+        op.set_impure(code);
       }
       return rvect;
     }
@@ -389,7 +389,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
         auto rvect = new_tmp_vect(code);
         auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), args[0]->sym);
         if (args[0]->flags & _IsImpure) {
-          op.flags |= Op::_Impure;
+          op.set_impure(code);
         }
         return rvect;
       } else {

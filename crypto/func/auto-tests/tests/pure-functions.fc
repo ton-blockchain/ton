@@ -1,0 +1,47 @@
+cell get_data() pure asm "c4 PUSH";
+slice begin_parse(cell c) pure asm "CTOS";
+builder begin_cell() pure asm "NEWC";
+cell end_cell(builder b) pure asm "ENDC";
+() set_data(cell c) asm "c4 POP";
+
+int f_pure2() pure;
+
+int f_pure1() pure {
+    return f_pure2();
+}
+
+int f_pure2() pure {
+    return 2;
+}
+
+(int, int) get_contract_data() pure {
+    cell c = get_data();
+    slice cs = c.begin_parse();
+    cs~load_bits(32);
+    int value = cs~load_uint(16);
+    return (1, value);
+}
+
+() save_contract_data(int value) {
+    builder b = begin_cell().store_int(1, 32).store_uint(value, 16);
+    set_data(b.end_cell());
+}
+
+int test1() pure method_id(101) {
+    return f_pure1();
+}
+
+int test2(int value) method_id(102) {
+    save_contract_data(value);
+    (_, var restored) = get_contract_data();
+    return restored;
+}
+
+() main() { return (); }
+
+{-
+
+TESTCASE | 101 |     | 2
+TESTCASE | 102 |  44 | 44
+
+-}

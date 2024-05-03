@@ -1216,7 +1216,7 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
   }
 }
 
-CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type) {
+CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type, bool marked_as_pure) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
   if (pragma_allow_post_modification.enabled()) {
@@ -1224,6 +1224,9 @@ CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type
   }
   if (pragma_compute_asm_ltr.enabled()) {
     blob->flags |= CodeBlob::_ComputeAsmLtr;
+  }
+  if (marked_as_pure) {
+    blob->flags |= CodeBlob::_ForbidImpure;
   }
   blob->import_params(std::move(arg_list));
   blk_fl::val res = blk_fl::init;
@@ -1604,7 +1607,10 @@ void parse_func_def(Lexer& lex) {
     if (func_sym_code->code) {
       lex.cur().error("redefinition of function `"s + func_name.str + "`");
     }
-    CodeBlob* code = parse_func_body(lex, arg_list, ret_type);
+    if (marked_as_pure && ret_type->get_width() == 0) {
+      lex.cur().error("a pure function should return something, otherwise it will be optimized out anyway");
+    }
+    CodeBlob* code = parse_func_body(lex, arg_list, ret_type, marked_as_pure);
     code->name = func_name.str;
     code->loc = loc;
     // code->print(std::cerr);  // !!!DEBUG!!!

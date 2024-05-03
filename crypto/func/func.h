@@ -593,16 +593,19 @@ struct Op {
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
-  bool disabled() const {
-    return flags & _Disabled;
-  }
-  bool enabled() const {
-    return !disabled();
-  }
-  void disable() {
-    flags |= _Disabled;
-  }
-  void flags_set_clear(int set, int clear);
+
+  bool disabled() const { return flags & _Disabled; }
+  void set_disabled() { flags |= _Disabled; }
+  void set_disabled(bool flag);
+
+  bool noreturn() const { return flags & _NoReturn; }
+  bool set_noreturn() { flags |= _NoReturn; return true; }
+  bool set_noreturn(bool flag);
+
+  bool impure() const { return flags & _Impure; }
+  void set_impure(const CodeBlob &code);
+  void set_impure(const CodeBlob &code, bool flag);
+
   void show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx = "", int mode = 0) const;
   void show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list, const std::vector<TmpVar>& vars) const;
   void show_var_list(std::ostream& os, const std::vector<VarDescr>& list, const std::vector<TmpVar>& vars) const;
@@ -618,16 +621,9 @@ struct Op {
   bool set_var_info_except(VarDescrList&& new_var_info, const std::vector<var_idx_t>& var_list);
   void prepare_args(VarDescrList values);
   VarDescrList fwd_analyze(VarDescrList values);
-  bool set_noreturn(bool nr);
   bool mark_noreturn();
-  bool noreturn() const {
-    return flags & _NoReturn;
-  }
   bool is_empty() const {
     return cl == _Nop && !next;
-  }
-  bool is_pure() const {
-    return !(flags & _Impure);
   }
   bool generate_code_step(Stack& stack);
   void generate_code_all(Stack& stack);
@@ -689,7 +685,7 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
-  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2 };
+  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2, _ForbidImpure = 4 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;
@@ -733,7 +729,6 @@ struct CodeBlob {
     pop_cur();
   }
   void simplify_var_types();
-  void flags_set_clear(int set, int clear);
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();

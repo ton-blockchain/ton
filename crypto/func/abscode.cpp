@@ -223,15 +223,6 @@ void VarDescrList::show(std::ostream& os) const {
   os << " ]\n";
 }
 
-void Op::flags_set_clear(int set, int clear) {
-  flags = (flags | set) & ~clear;
-  for (auto& op : block0) {
-    op.flags_set_clear(set, clear);
-  }
-  for (auto& op : block1) {
-    op.flags_set_clear(set, clear);
-  }
-}
 void Op::split_vars(const std::vector<TmpVar>& vars) {
   split_var_list(left, vars);
   split_var_list(right, vars);
@@ -296,7 +287,7 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
   if (noreturn()) {
     dis += "<noret> ";
   }
-  if (!is_pure()) {
+  if (impure()) {
     dis += "<impure> ";
   }
   switch (cl) {
@@ -467,12 +458,6 @@ void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>
     op.show(os, vars, pfx2, mode);
   }
   os << pfx << "}";
-}
-
-void CodeBlob::flags_set_clear(int set, int clear) {
-  for (auto& op : ops) {
-    op.flags_set_clear(set, clear);
-  }
 }
 
 std::ostream& operator<<(std::ostream& os, const CodeBlob& code) {

@@ -1,0 +1,23 @@
+(int, int, int, int) compute_data_size?(cell c, int max_cells) pure asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+builder begin_cell() pure asm "NEWC";
+cell end_cell(builder b) pure asm "ENDC";
+
+(int, int) validate_input(cell input) pure {
+    var (x, y, z, correct) = compute_data_size?(input, 10);
+    throw_unless(102, correct);
+}
+
+int main() pure {
+    cell c = begin_cell().end_cell();
+    validate_input(c);
+    return 0;
+}
+
+{-
+@compilation_should_fail
+@stderr
+"""
+An impure operation in a pure function
+throw_unless
+"""
+-}
