@@ -53,9 +53,9 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 
 cell get_data() asm "c4 PUSH";
 () set_data(cell c) impure asm "c4 POP";
-cont get_c3() impure asm "c3 PUSH";
+cont get_c3() asm "c3 PUSH";
 () set_c3(cont c) impure asm "c3 POP";
-cont bless(slice s) impure asm "BLESS";
+cont bless(slice s) asm "BLESS";
 
 () accept_message() impure asm "ACCEPT";
 () set_gas_limit(int limit) impure asm "SETGASLIMIT";
@@ -202,7 +202,7 @@ int cell_null?(cell c) asm "ISNULL";
 
 int random() impure asm "RANDU256";
 int rand(int range) impure asm "RAND";
-int get_seed() impure asm "RANDSEED";
+int get_seed() asm "RANDSEED";
 int set_seed() impure asm "SETRAND";
 () randomize(int x) impure asm "ADDRAND";
 () randomize_lt() impure asm "LTIME" "ADDRAND";

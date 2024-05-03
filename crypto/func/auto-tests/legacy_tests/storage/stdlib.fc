@@ -209,7 +209,7 @@ cell get_data() asm "c4 PUSH";
 */
 /// Usually `c3` has a continuation initialized by the whole code of the contract. It is used for function calls.
 /// The primitive returns the current value of `c3`.
-cont get_c3() impure asm "c3 PUSH";
+cont get_c3() asm "c3 PUSH";
 
 /// Updates the current value of `c3`. Usually, it is used for updating smart contract code in run-time.
 /// Note that after execution of this primitive the current code
@@ -218,7 +218,7 @@ cont get_c3() impure asm "c3 PUSH";
 () set_c3(cont c) impure asm "c3 POP";
 
 /// Transforms a `slice` [s] into a simple ordinary continuation `c`, with `c.code = s` and an empty stack and savelist.
-cont bless(slice s) impure asm "BLESS";
+cont bless(slice s) asm "BLESS";
 
 /*--
   # Gas related primitives
@@ -609,7 +609,7 @@ int random() impure asm "RANDU256";
 /// Generates a new pseudo-random integer z in the range 0..range−1 (or range..−1, if range < 0). More precisely, an unsigned random value x is generated as in random; then z := x * range / 2^256 is computed.
 int rand(int range) impure asm "RAND";
 /// Returns the current random seed as an unsigned 256-bit Integer.
-int get_seed() impure asm "RANDSEED";
+int get_seed() asm "RANDSEED";
 /// Sets the random seed to unsigned 256-bit seed.
 () set_seed(int) impure asm "SETRAND";
 /// Mixes unsigned 256-bit integer x into the random seed r by setting the random seed to sha256 of the concatenation of two 32-byte strings: the first with the big-endian representation of the old seed r, and the second with the big-endian representation of x.

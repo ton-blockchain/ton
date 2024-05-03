@@ -177,6 +177,12 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
   The primitives below may be useful for computing storage fees of user-provided data.
 */
 
+/// A non-quiet version of [compute_data_size?] that throws a cell overflow exception (`8`) on failure.
+(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
+
+/// A non-quiet version of [slice_compute_data_size?] that throws a cell overflow exception (`8`) on failure.
+(int, int, int) slice_compute_data_size(slice s, int max_cells) impure asm "SDATASIZE";
+
 /// Returns `(x, y, z, -1)` or `(null, null, null, 0)`.
 /// Recursively computes the count of distinct cells `x`, data bits `y`, and cell references `z`
 /// in the DAG rooted at `cell` [c], effectively returning the total storage used by this DAG taking into account
@@ -186,18 +192,12 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 /// The total count of visited cells `x` cannot exceed non-negative [max_cells];
 /// otherwise the computation is aborted before visiting the `(max_cells + 1)`-st cell and
 /// a zero flag is returned to indicate failure. If [c] is `null`, returns `x = y = z = 0`.
-(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
+(int, int, int, int) compute_data_size?(cell c, int max_cells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 /// Similar to [compute_data_size?], but accepting a `slice` [s] instead of a `cell`.
 /// The returned value of `x` does not take into account the cell that contains the `slice` [s] itself;
 /// however, the data bits and the cell references of [s] are accounted for in `y` and `z`.
-(int, int, int) slice_compute_data_size(slice s, int max_cells) impure asm "SDATASIZE";
-
-/// A non-quiet version of [compute_data_size?] that throws a cell overflow exception (`8`) on failure.
-(int, int, int, int) compute_data_size?(cell c, int max_cells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
-
-/// A non-quiet version of [slice_compute_data_size?] that throws a cell overflow exception (8) on failure.
-(int, int, int, int) slice_compute_data_size?(cell c, int max_cells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+(int, int, int, int) slice_compute_data_size?(slice s, int max_cells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 /// Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
 // () throw_if(int excno, int cond) impure asm "THROWARGIF";
@@ -224,7 +224,7 @@ cell get_data() asm "c4 PUSH";
 */
 /// Usually `c3` has a continuation initialized by the whole code of the contract. It is used for function calls.
 /// The primitive returns the current value of `c3`.
-cont get_c3() impure asm "c3 PUSH";
+cont get_c3() asm "c3 PUSH";
 
 /// Updates the current value of `c3`. Usually, it is used for updating smart contract code in run-time.
 /// Note that after execution of this primitive the current code
@@ -233,7 +233,7 @@ cont get_c3() impure asm "c3 PUSH";
 () set_c3(cont c) impure asm "c3 POP";
 
 /// Transforms a `slice` [s] into a simple ordinary continuation `c`, with `c.code = s` and an empty stack and savelist.
-cont bless(slice s) impure asm "BLESS";
+cont bless(slice s) asm "BLESS";
 
 /***
   # Gas related primitives
@@ -624,7 +624,7 @@ int random() impure asm "RANDU256";
 /// Generates a new pseudo-random integer z in the range 0..range−1 (or range..−1, if range < 0). More precisely, an unsigned random value x is generated as in random; then z := x * range / 2^256 is computed.
 int rand(int range) impure asm "RAND";
 /// Returns the current random seed as an unsigned 256-bit Integer.
-int get_seed() impure asm "RANDSEED";
+int get_seed() asm "RANDSEED";
 /// Sets the random seed to unsigned 256-bit seed.
 () set_seed(int) impure asm "SETRAND";
 /// Mixes unsigned 256-bit integer x into the random seed r by setting the random seed to sha256 of the concatenation of two 32-byte strings: the first with the big-endian representation of the old seed r, and the second with the big-endian representation of x.
