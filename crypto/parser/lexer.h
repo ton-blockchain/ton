@@ -70,7 +70,7 @@ class Lexer {
   bool eof;
   Lexem lexem, peek_lexem;
   unsigned char char_class[128];
-  std::array<int, 3> eol_cmt, cmt_op, cmt_cl;
+  std::array<int, 3> eol_cmt, cmt_op, cmt_cl, c_eol_cmt, c_cmt_op, c_cmt_cl;
   std::string multiline_quote;
   enum cc { left_active = 2, right_active = 1, active = 3, allow_repeat = 4, quote_char = 8 };
 
@@ -78,9 +78,9 @@ class Lexer {
   bool eof_found() const {
     return eof;
   }
-  Lexer(SourceReader& _src, bool init = false, std::string active_chars = ";,() ~.", std::string eol_cmts = ";;",
-        std::string open_cmts = "{-", std::string close_cmts = "-}", std::string quote_chars = "\"",
-        std::string multiline_quote = "\"\"\"");
+  Lexer(SourceReader& _src, bool init = false, std::string active_chars = ";,() ~.",
+        std::string eol_cmts = ";;", std::string open_cmts = "{-", std::string close_cmts = "-}",
+        std::string quote_chars = "\"", std::string multiline_quote = "\"\"\"");
   const Lexem& next();
   const Lexem& cur() const {
     return lexem;
@@ -89,6 +89,7 @@ class Lexer {
   int tp() const {
     return lexem.tp;
   }
+  void set_cmts(std::string eol_cmts, std::string open_cmts, std::string close_cmts);
   void expect(int exp_tp, const char* msg = 0);
   int classify_char(unsigned c) const {
     return c < 0x80 ? char_class[c] : 0;

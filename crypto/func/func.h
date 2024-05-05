@@ -112,8 +112,10 @@ enum Keyword {
   _Extern,
   _Inline,
   _InlineRef,
+  _InlineRefCamel,
   _AutoApply,
   _MethodId,
+  _MethodIdCamel,
   _Operator,
   _Infix,
   _Infixl,
@@ -1754,6 +1756,14 @@ class GlobalPragma {
   bool enabled() const {
     return enabled_;
   }
+  bool enabled_in_file(const src::FileDescr* fdescr) {
+    for (const SrcLocation& loc : locs_) {
+      if (loc.fdescr->filename == fdescr->filename) {
+        return true;
+      }
+    }
+    return false;
+  }
   void enable(SrcLocation loc) {
     enabled_ = true;
     locs_.push_back(std::move(loc));
@@ -1777,7 +1787,7 @@ class GlobalPragma {
   bool enabled_ = false;
   std::vector<SrcLocation> locs_;
 };
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_camel_case;
 
 /*
  *
