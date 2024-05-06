@@ -1,0 +1,47 @@
+#pragma remove-unused-functions;
+
+int unused1() { return 2; }
+int unused2() { return unused1(); }
+int unused3(int x) { return x * 2 + unused2(); }
+
+int used_from_noncall1() { return 10; }
+int used_as_noncall1() { return used_from_noncall1(); }
+
+const int int20 = 20;
+int used_from_noncall2() { return int20; }
+int used_as_noncall2() { return 0 * 0 + used_from_noncall2() + (0 << 0); }
+
+global int unused_gv;
+global _ used_gv;
+
+(() -> int) receiveGetter() { return used_as_noncall2; }
+
+(int) usedButOptimizedOut(int x) pure { return x + 2; }
+
+(int, int, int) main() {
+    used_gv = 1;
+    used_gv = used_gv + 2;
+    var getter1 = used_as_noncall1;
+    var getter2 = receiveGetter();
+    usedButOptimizedOut(used_gv);
+    return (used_gv, getter1(), getter2());
+}
+
+{-
+TESTCASE | 0 | | 3 10 20
+
+@fif_codegen DECLPROC used_as_noncall1
+@fif_codegen DECLGLOBVAR used_gv
+
+@fif_codegen_avoid DECLPROC unused1
+@fif_codegen_avoid DECLPROC unused2
+@fif_codegen_avoid DECLPROC unused3
+@fif_codegen_avoid DECLGLOBVAR unused_gv
+
+Note, that `usedButOptimizedOut()` (a pure function which result is unused)
+is currently codegenerated, since it's formally reachable.
+This is because optimizing code is a moment of codegen for now (later than marking unused symbols).
+
+@fif_codegen DECLPROC usedButOptimizedOut
+@fif_codegen_avoid usedButOptimizedOut CALLDICT
+-}

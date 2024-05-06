@@ -563,7 +563,7 @@ struct Op {
   enum { _Disabled = 1, _NoReturn = 4, _Impure = 24 };
   int flags;
   std::unique_ptr<Op> next;
-  SymDef* fun_ref;
+  SymDef* fun_ref;   // despite its name, it may actually ref global var; applicable not only to Op::_Call, but for other kinds also
   SrcLocation where;
   VarDescrList var_info;
   std::vector<VarDescr> args;
@@ -806,6 +806,7 @@ struct SymValFunc : SymVal {
 
 struct SymValCodeFunc : SymValFunc {
   CodeBlob* code;
+  bool is_really_used{false};   // calculated via dfs; unused functions are not codegenerated
   ~SymValCodeFunc() override = default;
   SymValCodeFunc(int val, TypeExpr* _ft, bool marked_as_pure) : SymValFunc(val, _ft, marked_as_pure), code(nullptr) {
   }
@@ -825,6 +826,7 @@ struct SymValType : sym::SymValBase {
 struct SymValGlobVar : sym::SymValBase {
   TypeExpr* sym_type;
   int out_idx{0};
+  bool is_really_used{false};   // calculated via dfs from used functions; unused globals are not codegenerated
 #ifdef FUNC_DEBUG
   std::string name; // seeing variable name in debugger makes it much easier to delve into FunC sources
 #endif
@@ -1788,7 +1790,7 @@ class GlobalPragma {
   bool enabled_ = false;
   std::vector<SrcLocation> locs_;
 };
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
 
 /*
  *

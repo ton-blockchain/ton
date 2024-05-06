@@ -40,6 +40,7 @@ bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
 GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
 GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
+GlobalPragma pragma_remove_unused_functions{"remove-unused-functions"};
 std::string generated_from, boc_output_filename;
 ReadCallback::Callback read_callback;
 
@@ -62,6 +63,11 @@ const TypeExpr *SymValFunc::get_arg_type() const {
 
 
 bool SymValCodeFunc::does_need_codegen() const {
+  // when a function is declared, but not referenced from code in any way, don't generate its body
+  if (!is_really_used && pragma_remove_unused_functions.enabled()) {
+    return false;
+  }
+  // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
   if (flags & flagUsedAsNonCall) {
     return true;
   }
@@ -69,7 +75,6 @@ bool SymValCodeFunc::does_need_codegen() const {
   // since all its usages are inlined
   return !is_just_wrapper_for_another_f();
   // in the future, we may want to implement a true AST inlining for `inline` functions also
-  // in the future, unused functions may also be excluded from codegen
 }
 
 td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
@@ -89,6 +94,55 @@ td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* qu
     }
     default: {
       return td::Status::Error("Unknown query kind");
+    }
+  }
+}
+
+void mark_function_used_dfs(const std::unique_ptr<Op>& op);
+
+void mark_function_used(SymValCodeFunc* func_val) {
+  if (!func_val->code || func_val->is_really_used) { // already handled
+    return;
+  }
+
+  func_val->is_really_used = true;
+  mark_function_used_dfs(func_val->code->ops);
+}
+
+void mark_global_var_used(SymValGlobVar* glob_val) {
+  glob_val->is_really_used = true;
+}
+
+void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
+  if (!op) {
+    return;
+  }
+  // op->fun_ref, despite its name, may actually ref global var
+  // note, that for non-calls, e.g. `var a = some_fn` (Op::_Let), some_fn is Op::_GlobVar
+  // (in other words, fun_ref exists not only for direct Op::_Call, but for non-call references also)
+  if (op->fun_ref) {
+    if (auto* func_val = dynamic_cast<SymValCodeFunc*>(op->fun_ref->value)) {
+      mark_function_used(func_val);
+    } else if (auto* glob_val = dynamic_cast<SymValGlobVar*>(op->fun_ref->value)) {
+      mark_global_var_used(glob_val);
+    } else if (auto* asm_val = dynamic_cast<SymValAsmFunc*>(op->fun_ref->value)) {
+    } else {
+      func_assert(false);
+    }
+  }
+  mark_function_used_dfs(op->next);
+  mark_function_used_dfs(op->block0);
+  mark_function_used_dfs(op->block1);
+}
+
+void mark_used_symbols() {
+  for (SymDef* func_sym : glob_func) {
+    auto* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
+    std::string name = sym::symbols.get_name(func_sym->sym_idx);
+    if (func_val->method_id.not_null() ||
+        name == "main" || name == "recv_internal" || name == "recv_external" ||
+        name == "run_ticktock" || name == "split_prepare" || name == "split_install") {
+      mark_function_used(func_val);
     }
   }
 }
@@ -188,6 +242,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
   if (program_envelope) {
     outs << "PROGRAM{\n";
   }
+  mark_used_symbols();
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     func_assert(func_val);
@@ -207,7 +262,14 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
     }
   }
   for (SymDef* gvar_sym : glob_vars) {
-    func_assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
+    auto* glob_val = dynamic_cast<SymValGlobVar*>(gvar_sym->value);
+    func_assert(glob_val);
+    if (!glob_val->is_really_used && pragma_remove_unused_functions.enabled()) {
+      if (verbosity >= 2) {
+        errs << gvar_sym->name() << ": variable not generated, it's unused\n";
+      }
+      continue;
+    }
     std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
     outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
@@ -274,6 +336,7 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
     }
     pragma_allow_post_modification.check_enable_in_libs();
     pragma_compute_asm_ltr.check_enable_in_libs();
+    pragma_remove_unused_functions.check_enable_in_libs();
     return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
     errs << "fatal: " << fatal << std::endl;

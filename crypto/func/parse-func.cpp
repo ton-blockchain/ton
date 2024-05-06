@@ -287,7 +287,7 @@ void parse_const_decl(Lexer& lex) {
     new_value = new SymValConst{const_cnt++, x->intval};
   } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
     new_value = new SymValConst{const_cnt++, x->strval};
-  } else if (x->cls == Expr::_Apply) {
+  } else if (x->cls == Expr::_Apply) {  // even "1 + 2" is Expr::_Apply (it applies `_+_`)
     code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
     auto tmp_vars = x->pre_compile(code);
     code.emplace_back(loc, Op::_Return, std::move(tmp_vars));
@@ -1798,6 +1798,8 @@ void parse_pragma(Lexer& lex) {
     pragma_allow_post_modification.enable(lex.cur().loc);
   } else if (pragma_name == pragma_compute_asm_ltr.name()) {
     pragma_compute_asm_ltr.enable(lex.cur().loc);
+  } else if (pragma_name == pragma_remove_unused_functions.name()) {
+    pragma_remove_unused_functions.enable(lex.cur().loc);
   } else {
     lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
   }
