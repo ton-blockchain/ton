@@ -113,6 +113,7 @@ enum Keyword {
   _Extern,
   _Inline,
   _InlineRef,
+  _Builtin,
   _AutoApply,
   _MethodId,
   _Operator,
@@ -767,6 +768,7 @@ struct SymValFunc : SymVal {
     flagWrapsAnotherF = 4,      // (T) thisF(...args) { return anotherF(...args); } (calls to thisF will be replaced)
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
+    flagBuiltinFunction = 32,   // was created via `define_builtin_func()`, not from source code
   };
 
   td::RefInt256 method_id;  // todo why int256? it's small
@@ -801,6 +803,9 @@ struct SymValFunc : SymVal {
   }
   bool is_marked_as_pure() const {
     return flags & flagMarkedAsPure;
+  }
+  bool is_builtin() const {
+    return flags & flagBuiltinFunction;
   }
 };
 
@@ -1700,8 +1705,8 @@ inline simple_compile_func_t make_simple_compile(AsmOp op) {
   return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation&) -> AsmOp { return op; };
 }
 
-inline compile_func_t make_ext_compile(std::vector<AsmOp> ops) {
-  return [ops = std::move(ops)](AsmOpList & dest, std::vector<VarDescr> & out, std::vector<VarDescr> & in)->bool {
+inline compile_func_t make_ext_compile(std::vector<AsmOp>&& ops) {
+  return [ops = std::move(ops)](AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in)->bool {
     return dest.append(ops);
   };
 }
@@ -1716,10 +1721,7 @@ struct SymValAsmFunc : SymValFunc {
   compile_func_t ext_compile;
   td::uint64 crc;
   ~SymValAsmFunc() override = default;
-  SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool marked_as_pure)
-      : SymValFunc(-1, ft, marked_as_pure), simple_compile(make_simple_compile(_macro)) {
-  }
-  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp> _macro, bool marked_as_pure)
+  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp>&& _macro, bool marked_as_pure)
       : SymValFunc(-1, ft, marked_as_pure), ext_compile(make_ext_compile(std::move(_macro))) {
   }
   SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool marked_as_pure)

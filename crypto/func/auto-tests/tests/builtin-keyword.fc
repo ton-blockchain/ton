@@ -1,0 +1,33 @@
+(int, int) moddiv(int x, int y) pure builtin;
+() throw_if(int excno, int cond) builtin;
+
+() throwIf(int excNo, int cond) { return throw_if(excNo, cond); }
+
+forall X -> int null?(X x) pure builtin;
+
+_ test1() method_id(101) {
+    try {
+        var (rem, _) = moddiv(1, 1);
+        throwIf(101, rem != 100500);
+        return 0;
+    } catch(_, excNo) {
+        return excNo;
+    }
+}
+
+(int, int, int) main() {
+    int x = 112;
+    int y = 3;
+    var wh = x~moddiv(y);
+    throwIf(103, wh != 37);
+    var cc = nil;
+    return (wh, x, null?(cc));
+}
+
+{-
+TESTCASE | 0   | | 37 1 -1
+TESTCASE | 101 | | 101
+
+@fif_codegen_avoid DECLPROC moddiv
+@fif_codegen_avoid DECLPROC throwIf
+-}

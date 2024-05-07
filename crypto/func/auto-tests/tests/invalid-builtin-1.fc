@@ -1,0 +1,10 @@
+(int, int) moddiv2(int x, int y) builtin;
+
+{-
+@compilation_should_fail
+@stderr
+"""
+`builtin` used for non-builtin function
+(int, int) moddiv2
+"""
+-}

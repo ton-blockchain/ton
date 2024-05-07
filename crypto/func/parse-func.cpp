@@ -1358,7 +1358,7 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
   for (const int& x : ret_order) {
     crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
   }
-  auto res = new SymValAsmFunc{func_type, asm_ops, marked_as_pure};
+  auto res = new SymValAsmFunc{func_type, std::move(asm_ops), marked_as_pure};
   res->arg_order = std::move(arg_order);
   res->ret_order = std::move(ret_order);
   res->crc = td::crc64(crc_s);
@@ -1564,11 +1564,27 @@ void parse_func_def(Lexer& lex) {
       method_id = td::make_refint((crc & 0xffff) | 0x10000);
     }
   }
-  if (lex.tp() != ';' && lex.tp() != '{' && lex.tp() != _Asm) {
-    lex.expect('{', "function body block expected");
-  }
   TypeExpr* func_type = TypeExpr::new_map(extract_total_arg_type(arg_list), ret_type);
   func_type = compute_type_closure(func_type, type_vars);
+  if (lex.tp() == _Builtin) {
+    const SymDef* builtin_func = sym::lookup_symbol(func_name.str);
+    const SymValFunc* func_val = builtin_func ? dynamic_cast<SymValFunc*>(builtin_func->value) : nullptr;
+    if (!func_val || !func_val->is_builtin()) {
+      lex.cur().error("`builtin` used for non-builtin function");
+    }
+#ifdef FUNC_DEBUG
+    // in release, we don't need this check, since `builtin` is used only in stdlib.fc, which is our responsibility
+    if (!func_val->sym_type->equals_to(func_type) || func_val->is_marked_as_pure() != marked_as_pure) {
+      lex.cur().error("declaration for `builtin` function doesn't match an actual one");
+    }
+#endif
+    lex.next();
+    lex.expect(';');
+    return;
+  }
+  if (lex.tp() != ';' && lex.tp() != '{' && lex.tp() != _Asm) {
+    lex.expect('{', "function body block");
+  }
   if (verbosity >= 1) {
     std::cerr << "function " << func_name.str << " : " << func_type << std::endl;
   }

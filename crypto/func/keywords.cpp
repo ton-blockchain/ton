@@ -123,6 +123,7 @@ void define_keywords() {
       .add_keyword("pure", Kw::_Pure)
       .add_keyword("inline", Kw::_Inline)
       .add_keyword("inline_ref", Kw::_InlineRef)
+      .add_keyword("builtin", Kw::_Builtin)
       .add_keyword("auto_apply", Kw::_AutoApply)
       .add_keyword("method_id", Kw::_MethodId)
       .add_keyword("operator", Kw::_Operator)
