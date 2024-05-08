@@ -93,6 +93,9 @@ forall X -> X third(tuple t) pure asm "THIRD";
 /// Returns the fourth element of a tuple (with unknown element types).
 forall X -> X fourth(tuple t) pure asm "3 INDEX";
 
+/// Returns the [`index`]-th element of tuple [`t`].
+forall X -> X at(tuple t, int index) pure builtin;
+
 /// Returns the first element of a pair tuple.
 forall X, Y -> X pair_first([X, Y] p) pure asm "FIRST";
 
@@ -114,7 +117,16 @@ forall X, Y, Z -> Z triple_third([X, Y, Z] p) pure asm "THIRD";
 /// So `null` can actually have any atomic type.
 forall X -> X null() pure asm "PUSHNULL";
 
-/// Moves a variable [x] to the top of the stack
+/// Checks whether the argument is null.
+forall X -> int null?(X x) pure builtin;
+
+/// Moves a variable [x] to the top of the stack.
+forall X -> X touch(X x) pure builtin;
+
+/// Moves a variable [x] to the top of the stack.
+forall X -> (X, ()) ~touch(X x) pure builtin;
+
+/// Mark a variable as used, such that the code which produced it won't be deleted even if it is not impure.
 forall X -> (X, ()) ~impure_touch(X x) asm "NOP";
 
 
@@ -199,13 +211,38 @@ int check_data_signature(slice data, slice signature, int public_key) pure asm "
 /// however, the data bits and the cell references of [s] are accounted for in `y` and `z`.
 (int, int, int, int) slice_compute_data_size?(slice s, int max_cells) pure asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
-/// Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
-// () throw_if(int excno, int cond) asm "THROWARGIF";
+/// Throws exception [`excno`] with parameter zero.
+/// In other words, it transfers control to the continuation in `c2`,
+/// pushing `0` and [`excno`] into it's stack, and discarding the old stack altogether.
+() throw(int excno) builtin;
+
+/// Throws exception [`excno`] with parameter zero only if [`cond`] != `0`.
+() throw_if(int excno, int cond) builtin;
+
+/// Throws exception [`excno`] with parameter zero only if [`cond`] == `0`.
+() throw_unless(int excno, int cond) builtin;
+
+/// Throws exception [`excno`] with parameter [`x`],
+/// by copying [`x`] and [`excno`] into the stack of `c2` and transferring control to `c2`.
+forall X -> () throw_arg(X x, int excno) builtin;
+
+/// Throws exception [`excno`] with parameter [`x`] only if [`cond`] != `0`.
+forall X -> () throw_arg_if(X x, int excno, int cond) builtin;
+
+/// Throws exception [`excno`] with parameter [`x`] only if [`cond`] == `0`.
+forall X -> () throw_arg_unless(X x, int excno, int cond) builtin;
 
 /***
   # Debug primitives
   Only works for local TVM execution with debug level verbosity
 */
+
+/// Dump a variable [x] to the debug log.
+forall X -> (X, ()) ~dump(X x) builtin;
+
+/// Dump a string [x] to the debug log.
+forall X -> (X, ()) ~strdump(X x) builtin;
+
 /// Dumps the stack (at most the top 255 values) and shows the total stack depth.
 () dump_stack() asm "DUMPSTK";
 
@@ -277,6 +314,25 @@ int max(int x, int y) pure asm "MAX";
 /// Computes the absolute value of an integer [x].
 int abs(int x) pure asm "ABS";
 
+/// Computes the quotient and remainder of [x] / [y]. Example: divmod(112,3) = (37,1)
+(int, int) divmod(int x, int y) pure builtin;
+
+/// Computes the remainder and quotient of [x] / [y]. Example: moddiv(112,3) = (1,37)
+(int, int) moddiv(int x, int y) pure builtin;
+
+/// Computes multiple-then-divide: floor([x] * [y] / [z]).
+/// The intermediate result is stored in a 513-bit integer to prevent precision loss.
+int muldiv(int x, int y, int z) pure builtin;
+
+/// Similar to `muldiv`, but rounds the result: round([x] * [y] / [z]).
+int muldivr(int x, int y, int z) pure builtin;
+
+/// Similar to `muldiv`, but ceils the result: ceil([x] * [y] / [z]).
+int muldivc(int x, int y, int z) pure builtin;
+
+/// Computes the quotient and remainder of ([x] * [y] / [z]). Example: muldivmod(112,3,10) = (33,6)
+(int, int) muldivmod(int x, int y, int z) pure builtin;
+
 /*
   # Slice primitives
 
@@ -305,25 +361,23 @@ slice begin_parse(cell c) pure asm "CTOS";
 /// Preloads the first reference from the slice.
 cell preload_ref(slice s) pure asm "PLDREF";
 
-  /* Functions below are commented because are implemented on compilator level for optimisation */
-
 /// Loads a signed [len]-bit integer from a slice [s].
-// (slice, int) ~load_int(slice s, int len) pure asm(s len -> 1 0) "LDIX";
+(slice, int) load_int(slice s, int len) pure builtin;
 
 /// Loads an unsigned [len]-bit integer from a slice [s].
-// (slice, int) ~load_uint(slice s, int len) pure asm( -> 1 0) "LDUX";
+(slice, int) load_uint(slice s, int len) pure builtin;
 
 /// Preloads a signed [len]-bit integer from a slice [s].
-// int preload_int(slice s, int len) pure asm "PLDIX";
+int preload_int(slice s, int len) pure builtin;
 
 /// Preloads an unsigned [len]-bit integer from a slice [s].
-// int preload_uint(slice s, int len) pure asm "PLDUX";
+int preload_uint(slice s, int len) pure builtin;
 
-/// Loads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
-// (slice, slice) load_bits(slice s, int len) pure asm(s len -> 1 0) "LDSLICEX";
+/// Loads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate slice `s''`.
+(slice, slice) load_bits(slice s, int len) pure builtin;
 
-/// Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate `slice s''`.
-// slice preload_bits(slice s, int len) pure asm "PLDSLICEX";
+/// Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate slice `s''`.
+slice preload_bits(slice s, int len) pure builtin;
 
 /// Loads serialized amount of TonCoins (any unsigned integer up to `2^120 - 1`).
 (slice, int) load_grams(slice s) pure asm( -> 1 0) "LDGRAMS";
@@ -432,13 +486,12 @@ cell end_cell(builder b) pure asm "ENDC";
 builder store_ref(builder b, cell c) pure asm(c b) "STREF";
 
 /// Stores an unsigned [len]-bit integer `x` into `b` for `0 ≤ len ≤ 256`.
-// builder store_uint(builder b, int x, int len) pure asm(x b len) "STUX";
+builder store_uint(builder b, int x, int len) pure builtin;
 
-/// Stores a signed [len]-bit integer `x` into `b` for` 0 ≤ len ≤ 257`.
-// builder store_int(builder b, int x, int len) pure asm(x b len) "STIX";
+/// Stores a signed [len]-bit integer `x` into `b` for `0 ≤ len ≤ 257`.
+builder store_int(builder b, int x, int len) pure builtin;
 
-
-/// Stores `slice` [s] into `builder` [b]
+/// Stores `slice` [s] into `builder` [b].
 builder store_slice(builder b, slice s) pure asm "STSLICER";
 
 /// Stores (serializes) an integer [x] in the range `0..2^120 − 1` into `builder` [b].
