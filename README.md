@@ -48,7 +48,7 @@ __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on han
 
 ## Running Node
 
-There are several types of nodes you can check in [Participate section](https://docs.ton.org/participate/nodes/node-types).
+There are several types of nodes you can check in [Participate section](https://docs.ton.org/participate/nodes/node-types). To install and manage your own node, use the [MyTonCtrl](https://github.com/ton-blockchain/mytonctrl) open-source tool developed by the TON Foundation.
 
 * **[Full Node](https://docs.ton.org/participate/nodes/node-types#full-node)** - maintains synchronization with the blockchain.
 * **[Liteserver](https://docs.ton.org/participate/nodes/node-types#full-node--liteserver)** - allowing to seamlessly interract with the TON Blockchain.
