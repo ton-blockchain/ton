@@ -129,7 +129,7 @@ struct ValidatorSessionStats {
     }
   };
   struct Round {
-    td::uint64 timestamp = 0;
+    double timestamp = -1.0;
     std::vector<Producer> producers;
   };
 
@@ -139,7 +139,7 @@ struct ValidatorSessionStats {
   bool success = false;
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   CatchainSeqno cc_seqno = 0;
-  td::uint64 timestamp = 0;
+  double timestamp = -1.0;
   PublicKeyHash self = PublicKeyHash::zero();
   PublicKeyHash creator = PublicKeyHash::zero();
   td::uint32 total_validators = 0;
@@ -148,6 +148,20 @@ struct ValidatorSessionStats {
   ValidatorWeight signatures_weight = 0;
   td::uint32 approve_signatures = 0;
   ValidatorWeight approve_signatures_weight = 0;
+};
+
+struct NewValidatorGroupStats {
+  struct Node {
+    PublicKeyHash id = PublicKeyHash::zero();
+    ValidatorWeight weight = 0;
+  };
+
+  ValidatorSessionId session_id = ValidatorSessionId::zero();
+  ShardIdFull shard{masterchainId};
+  CatchainSeqno cc_seqno = 0;
+  double timestamp = -1.0;
+  td::uint32 self_idx = 0;
+  std::vector<Node> nodes;
 };
 
 }  // namespace validatorsession

@@ -377,6 +377,22 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
     prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   }
   postponed_accept_.clear();
+
+  validatorsession::NewValidatorGroupStats stats;
+  stats.session_id = session_id_;
+  stats.shard = shard_;
+  stats.cc_seqno = validator_set_->get_catchain_seqno();
+  stats.timestamp = td::Clocks::system();
+  td::uint32 idx = 0;
+  for (const auto& node : validator_set_->export_vector()) {
+    PublicKeyHash id = ValidatorFullId{node.key}.compute_short_id();
+    if (id == local_id_) {
+      stats.self_idx = idx;
+    }
+    stats.nodes.push_back(validatorsession::NewValidatorGroupStats::Node{id, node.weight});
+    ++idx;
+  }
+  td::actor::send_closure(manager_, &ValidatorManager::log_new_validator_group_stats, std::move(stats));
 }
 
 void ValidatorGroup::destroy() {
@@ -390,6 +406,9 @@ void ValidatorGroup::destroy() {
                                 return;
                               }
                               auto stats = R.move_as_ok();
+                              if (stats.rounds.empty()) {
+                                return;
+                              }
                               stats.cc_seqno = cc_seqno;
                               td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats, block_id,
                                                       std::move(stats));
