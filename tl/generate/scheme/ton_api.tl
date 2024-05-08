@@ -761,12 +761,16 @@ validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int co
   signed_weight:long signed_33pct_at:double signed_66pct_at:double
   serialize_time:double deserialize_time:double serialized_size:int = validatorSession.StatsProducer;
 
-validatorSession.statsRound timestamp:long producers:(vector validatorSession.statsProducer) = validatorSession.StatsRound;
+validatorSession.statsRound timestamp:double producers:(vector validatorSession.statsProducer) = validatorSession.StatsRound;
 
-validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:long self:int256 session_id:int256 cc_seqno:int
+validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:double self:int256 session_id:int256 cc_seqno:int
     creator:int256 total_validators:int total_weight:long
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
+
+validatorSession.newValidatorGroupStats.node id:int256 weight:long = validatorSession.newValidatorGroupStats.Node;
+validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:long cc_seqno:int timestamp:double
+    self_idx:int nodes:(vector validatorSession.newValidatorGroupStats.node) = validatorSession.NewValidatorGroupStats;
 
 ---functions---
 
