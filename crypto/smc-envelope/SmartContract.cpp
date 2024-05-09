@@ -157,11 +157,11 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
       td::make_refint(0),              //TODO:                //   trans_lt:Integer
       std::move(rand_seed_int),                               //   rand_seed:Integer
       block::CurrencyCollection(args.balance).as_vm_tuple(),  //   balance_remaining:[Integer (Maybe Cell)]
-      vm::load_cell_slice_ref(address),                       //  myself:MsgAddressInt
-      vm::StackEntry::maybe(config)                           //vm::StackEntry::maybe(td::Ref<vm::Cell>())
+      vm::load_cell_slice_ref(address),                       //   myself:MsgAddressInt
+      vm::StackEntry::maybe(config)                           //   vm::StackEntry::maybe(td::Ref<vm::Cell>())
   };
   if (args.config && args.config.value()->get_global_version() >= 4) {
-    tuple.push_back(code.not_null() ? code : vm::StackEntry{});        // code:Cell
+    tuple.push_back(vm::StackEntry::maybe(code));                      // code:Cell
     tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
     tuple.push_back(td::zero_refint());                                // storage_fees:Integer
 
@@ -175,7 +175,10 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
     tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
     tuple.push_back(td::zero_refint());                                    // due_payment
     // precomiled_gas_usage:(Maybe Integer)
-    auto precompiled = args.config.value()->get_precompiled_contracts_config().get_contract(code->get_hash().bits());
+    td::optional<block::PrecompiledContractsConfig::Contract> precompiled;
+    if (code.not_null()) {
+      precompiled = args.config.value()->get_precompiled_contracts_config().get_contract(code->get_hash().bits());
+    }
     tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));

@@ -565,6 +565,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
 
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
+  void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
     if (queue_size_counter_.empty()) {

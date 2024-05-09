@@ -76,11 +76,60 @@ struct ValidatorSessionStats {
     PublicKeyHash id = PublicKeyHash::zero();
     ValidatorSessionCandidateId candidate_id = ValidatorSessionCandidateId::zero();
     int block_status = status_none;
-    td::uint64 block_timestamp = 0;
+    double block_timestamp = -1.0;
     std::string comment;
+
+    bool is_accepted = false;
+    bool is_ours = false;
+    double got_submit_at = -1.0;
+    double collation_time = -1.0;
+    double validation_time = -1.0;
+    double collated_at = -1.0;
+    double validated_at = -1.0;
+    bool collation_cached = false;
+    bool validation_cached = false;
+    double gen_utime = -1.0;
+
+    std::vector<bool> approvers, signers;
+    ValidatorWeight approved_weight = 0;
+    ValidatorWeight signed_weight = 0;
+    double approved_33pct_at = -1.0;
+    double approved_66pct_at = -1.0;
+    double signed_33pct_at = -1.0;
+    double signed_66pct_at = -1.0;
+
+    double serialize_time = -1.0;
+    double deserialize_time = -1.0;
+    td::int32 serialized_size = -1;
+
+    void set_approved_by(td::uint32 id, ValidatorWeight weight, ValidatorWeight total_weight) {
+      if (!approvers.at(id)) {
+        approvers.at(id) = true;
+        approved_weight += weight;
+        if (approved_33pct_at <= 0.0 && approved_weight >= total_weight / 3 + 1) {
+          approved_33pct_at = td::Clocks::system();
+        }
+        if (approved_66pct_at <= 0.0 && approved_weight >= (total_weight * 2) / 3 + 1) {
+          approved_66pct_at = td::Clocks::system();
+        }
+      }
+    }
+
+    void set_signed_by(td::uint32 id, ValidatorWeight weight, ValidatorWeight total_weight) {
+      if (!signers.at(id)) {
+        signers.at(id) = true;
+        signed_weight += weight;
+        if (signed_33pct_at <= 0.0 && signed_weight >= total_weight / 3 + 1) {
+          signed_33pct_at = td::Clocks::system();
+        }
+        if (signed_66pct_at <= 0.0 && signed_weight >= (total_weight * 2) / 3 + 1) {
+          signed_66pct_at = td::Clocks::system();
+        }
+      }
+    }
   };
   struct Round {
-    td::uint64 timestamp = 0;
+    double timestamp = -1.0;
     std::vector<Producer> producers;
   };
 
@@ -90,7 +139,7 @@ struct ValidatorSessionStats {
   bool success = false;
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   CatchainSeqno cc_seqno = 0;
-  td::uint64 timestamp = 0;
+  double timestamp = -1.0;
   PublicKeyHash self = PublicKeyHash::zero();
   PublicKeyHash creator = PublicKeyHash::zero();
   td::uint32 total_validators = 0;
@@ -99,6 +148,20 @@ struct ValidatorSessionStats {
   ValidatorWeight signatures_weight = 0;
   td::uint32 approve_signatures = 0;
   ValidatorWeight approve_signatures_weight = 0;
+};
+
+struct NewValidatorGroupStats {
+  struct Node {
+    PublicKeyHash id = PublicKeyHash::zero();
+    ValidatorWeight weight = 0;
+  };
+
+  ValidatorSessionId session_id = ValidatorSessionId::zero();
+  ShardIdFull shard{masterchainId};
+  CatchainSeqno cc_seqno = 0;
+  double timestamp = -1.0;
+  td::uint32 self_idx = 0;
+  std::vector<Node> nodes;
 };
 
 }  // namespace validatorsession

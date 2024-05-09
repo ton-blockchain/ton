@@ -26,6 +26,7 @@
 #include "interfaces/block-handle.h"
 #include "auto/tl/ton_api.h"
 #include "validator.h"
+#include "db-utils.h"
 
 namespace rocksdb {
 class Statistics;
@@ -42,9 +43,11 @@ class CellDbAsyncExecutor;
 
 class CellDbBase : public td::actor::Actor {
  public:
-  virtual void start_up();
+  void start_up() override;
+
  protected:
   std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> async_executor;
+
  private:
   void execute_sync(std::function<void()> f);
   friend CellDbAsyncExecutor;
@@ -76,8 +79,7 @@ class CellDbIn : public CellDbBase {
     RootHash root_hash;
 
     DbEntry(tl_object_ptr<ton_api::db_celldb_value> entry);
-    DbEntry() {
-    }
+    DbEntry() = default;
     DbEntry(BlockIdExt block_id, KeyHash prev, KeyHash next, RootHash root_hash)
         : block_id(block_id), prev(prev), next(next), root_hash(root_hash) {
     }
@@ -109,8 +111,6 @@ class CellDbIn : public CellDbBase {
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
-  std::shared_ptr<rocksdb::Statistics> statistics_;
-  td::Timestamp statistics_flush_at_ = td::Timestamp::never();
 
   std::function<void(const vm::CellLoader::LoadResult&)> on_load_callback_;
   std::set<td::Bits256> cells_to_migrate_;
@@ -126,6 +126,21 @@ class CellDbIn : public CellDbBase {
     double total_time_ = 0.0;
   };
   std::unique_ptr<MigrationStats> migration_stats_;
+
+  struct CellDbStatistics {
+    PercentileStats store_cell_time_;
+    PercentileStats gc_cell_time_;
+    td::Timestamp stats_start_time_ = td::Timestamp::now();
+
+    std::string to_string();
+    void clear() {
+      *this = CellDbStatistics{};
+    }
+  };
+
+  std::shared_ptr<rocksdb::Statistics> statistics_;
+  CellDbStatistics cell_db_statistics_;
+  td::Timestamp statistics_flush_at_ = td::Timestamp::never();
 
  public:
   class MigrationProxy : public td::actor::Actor {

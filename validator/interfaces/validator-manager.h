@@ -171,6 +171,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
+  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) = 0;
 
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;

@@ -2418,9 +2418,9 @@ void ValidatorManagerImpl::state_serializer_update(BlockSeqno seqno) {
 void ValidatorManagerImpl::alarm() {
   try_advance_gc_masterchain_block();
   alarm_timestamp() = td::Timestamp::in(1.0);
-  if (last_masterchain_block_handle_ && gc_masterchain_handle_) {
-    td::actor::send_closure(db_, &Db::run_gc, last_masterchain_block_handle_->unix_time(),
-                            gc_masterchain_handle_->unix_time(), static_cast<UnixTime>(opts_->archive_ttl()));
+  if (shard_client_handle_ && gc_masterchain_handle_) {
+    td::actor::send_closure(db_, &Db::run_gc, shard_client_handle_->unix_time(), gc_masterchain_handle_->unix_time(),
+                            static_cast<UnixTime>(opts_->archive_ttl()));
   }
   if (log_status_at_.is_in_past()) {
     if (last_masterchain_block_handle_) {
@@ -2714,8 +2714,12 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
     std::vector<tl_object_ptr<ton_api::validatorSession_statsProducer>> producers;
     for (const auto &producer : round.producers) {
       producers.push_back(create_tl_object<ton_api::validatorSession_statsProducer>(
-          producer.id.bits256_value(), producer.candidate_id, producer.block_status, producer.block_timestamp,
-          producer.comment));
+          producer.id.bits256_value(), producer.candidate_id, producer.block_status, producer.comment,
+          producer.block_timestamp, producer.is_accepted, producer.is_ours, producer.got_submit_at,
+          producer.collation_time, producer.collated_at, producer.collation_cached, producer.validation_time,
+          producer.validated_at, producer.validation_cached, producer.gen_utime, producer.approved_weight,
+          producer.approved_33pct_at, producer.approved_66pct_at, producer.signed_weight, producer.signed_33pct_at,
+          producer.signed_66pct_at, producer.serialize_time, producer.deserialize_time, producer.serialized_size));
     }
     rounds.push_back(create_tl_object<ton_api::validatorSession_statsRound>(round.timestamp, std::move(producers)));
   }
@@ -2725,7 +2729,7 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
       stats.cc_seqno, stats.creator.bits256_value(), stats.total_validators, stats.total_weight, stats.signatures,
       stats.signatures_weight, stats.approve_signatures, stats.approve_signatures_weight, stats.first_round,
       std::move(rounds));
-  std::string s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
   s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
 
   std::ofstream file;
@@ -2733,7 +2737,31 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
   file << s << "\n";
   file.close();
 
-  LOG(INFO) << "Writing validator session stats for " << block_id.id;
+  LOG(INFO) << "Writing validator session stats for " << block_id.id.to_str();
+}
+
+void ValidatorManagerImpl::log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) {
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
+    return;
+  }
+  std::vector<tl_object_ptr<ton_api::validatorSession_newValidatorGroupStats_node>> nodes;
+  for (const auto &node : stats.nodes) {
+    nodes.push_back(
+        create_tl_object<ton_api::validatorSession_newValidatorGroupStats_node>(node.id.bits256_value(), node.weight));
+  }
+  auto obj = create_tl_object<ton_api::validatorSession_newValidatorGroupStats>(
+      stats.session_id, stats.shard.workchain, stats.shard.shard, stats.cc_seqno, stats.timestamp, stats.self_idx,
+      std::move(nodes));
+  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
+
+  LOG(INFO) << "Writing new validator group stats for " << stats.shard.to_str();
 }
 
 void ValidatorManagerImpl::get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) {

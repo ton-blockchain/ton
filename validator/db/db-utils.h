@@ -15,10 +15,19 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+#include <set>
+#include <string>
 
-namespace ton {
+namespace ton::validator {
 
-// See doc/GlobalVersions.md
-const int SUPPORTED_VERSION = 7;
+class PercentileStats {
+ public:
+  void insert(double value);
+  std::string to_string() const;
+  void clear();
 
-}
+ private:
+  std::multiset<double> values_;
+};
+
+}  // namespace ton::validator

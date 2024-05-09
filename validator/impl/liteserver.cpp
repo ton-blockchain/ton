@@ -1419,7 +1419,7 @@ static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, 
       config ? config->get_root_cell() : vm::StackEntry()  //   global_config:(Maybe Cell) ] = SmartContractInfo;
   };
   if (config && config->get_global_version() >= 4) {
-    tuple.push_back(my_code);                                          // code:Cell
+    tuple.push_back(vm::StackEntry::maybe(my_code));                   // code:Cell
     tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
     tuple.push_back(td::zero_refint());                                // storage_fees:Integer
 
@@ -1430,10 +1430,13 @@ static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, 
     tuple.push_back(info.is_ok() ? info.move_as_ok() : vm::StackEntry());
   }
   if (config && config->get_global_version() >= 6) {
-    tuple.push_back(config->get_unpacked_config_tuple(now));  // unpacked_config_tuple:[...]
-    tuple.push_back(due_payment);                             // due_payment:Integer
+    tuple.push_back(vm::StackEntry::maybe(config->get_unpacked_config_tuple(now)));  // unpacked_config_tuple:[...]
+    tuple.push_back(due_payment);                                                    // due_payment:Integer
     // precomiled_gas_usage:(Maybe Integer)
-    auto precompiled = config->get_precompiled_contracts_config().get_contract(my_code->get_hash().bits());
+    td::optional<block::PrecompiledContractsConfig::Contract> precompiled;
+    if (my_code.not_null()) {
+      precompiled = config->get_precompiled_contracts_config().get_contract(my_code->get_hash().bits());
+    }
     tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));

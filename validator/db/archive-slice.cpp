@@ -24,6 +24,7 @@
 #include "td/utils/port/path.h"
 #include "common/delay.h"
 #include "files-async.hpp"
+#include "db-utils.h"
 
 namespace ton {
 
@@ -41,16 +42,14 @@ class PackageStatistics {
   
   void record_read(double time, uint64_t bytes) {
     read_bytes.fetch_add(bytes, std::memory_order_relaxed);
-    std::lock_guard<std::mutex> guard(read_mutex);
+    std::lock_guard guard(read_mutex);
     read_time.insert(time);
-    read_time_sum += time;
   }
 
   void record_write(double time, uint64_t bytes) {
     write_bytes.fetch_add(bytes, std::memory_order_relaxed);
-    std::lock_guard<std::mutex> guard(write_mutex);
+    std::lock_guard guard(write_mutex);
     write_time.insert(time);
-    write_time_sum += time;
   }
 
   std::string to_string_and_reset() {
@@ -64,68 +63,35 @@ class PackageStatistics {
     ss << "ton.pack.read.bytes COUNT : " << read_bytes.exchange(0, std::memory_order_relaxed) << "\n";
     ss << "ton.pack.write.bytes COUNT : " << write_bytes.exchange(0, std::memory_order_relaxed) << "\n";
 
-    std::multiset<double> temp_read_time;
-    double temp_read_time_sum;
+    PercentileStats temp_read_time;
     {
-      std::lock_guard<std::mutex> guard(read_mutex);
+      std::lock_guard guard(read_mutex);
       temp_read_time = std::move(read_time);
       read_time.clear();
-      temp_read_time_sum = read_time_sum;
-      read_time_sum = 0;
     }
-    auto read_stats = calculate_statistics(temp_read_time);
-    ss << "ton.pack.read.micros P50 : " << read_stats[0] << 
-                              " P95 : " << read_stats[1] << 
-                              " P99 : " << read_stats[2] << 
-                              " P100 : " << read_stats[3] << 
-                              " COUNT : " << temp_read_time.size() << 
-                              " SUM : " << temp_read_time_sum << "\n";
+    ss << "ton.pack.read.micros " << temp_read_time.to_string() << "\n";
 
-    std::multiset<double> temp_write_time;
-    double temp_write_time_sum;
+    PercentileStats temp_write_time;
     {
-      std::lock_guard<std::mutex> guard(write_mutex);
+      std::lock_guard guard(write_mutex);
       temp_write_time = std::move(write_time);
       write_time.clear();
-      temp_write_time_sum = write_time_sum;
-      write_time_sum = 0;
     }
-    auto write_stats = calculate_statistics(temp_write_time);
-    ss << "ton.pack.write.micros P50 : " << write_stats[0] << 
-                               " P95 : " << write_stats[1] << 
-                               " P99 : " << write_stats[2] << 
-                               " P100 : " << write_stats[3] << 
-                               " COUNT : " << temp_write_time.size() << 
-                               " SUM : " << temp_write_time_sum << "\n";
+    ss << "ton.pack.write.micros " << temp_write_time.to_string() << "\n";
 
     return ss.str();
   }
 
   private:
-  std::atomic_uint64_t open_count;
-  std::atomic_uint64_t close_count;
-  std::multiset<double> read_time;
-  std::atomic_uint64_t read_bytes;
-  std::multiset<double> write_time;
-  std::atomic_uint64_t write_bytes;
-  double read_time_sum;
-  double write_time_sum;
+  std::atomic_uint64_t open_count{0};
+  std::atomic_uint64_t close_count{0};
+  PercentileStats read_time;
+  std::atomic_uint64_t read_bytes{0};
+  PercentileStats write_time;
+  std::atomic_uint64_t write_bytes{0};
 
   mutable std::mutex read_mutex;
   mutable std::mutex write_mutex;
-
-  std::vector<double> calculate_statistics(const std::multiset<double>& data) const {
-    if (data.empty()) return {0, 0, 0, 0};
-
-    auto size = data.size();
-    auto calc_percentile = [&](double p) -> double {
-      auto it = data.begin();
-      std::advance(it, static_cast<int>(std::ceil(p * double(size)) - 1));
-      return *it;
-    };
-
-    return {calc_percentile(0.5), calc_percentile(0.95), calc_percentile(0.99), *data.rbegin()};
-  }
 };
 
 void DbStatistics::init() {
