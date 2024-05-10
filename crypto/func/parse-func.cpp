@@ -1431,10 +1431,7 @@ void detect_if_function_just_wraps_another(SymValCodeFunc* v_current, const td::
   func_assert(op_import && op_import->cl == Op::_Import);
 
   // then Op::_Call (anotherF)
-  // when pragma allow-post-modification, it might be prepended with empty Op::_Let todo I don't like this
   const Op* op_call = op_import->next.get();
-  while (op_call && op_call->cl == Op::_Let && op_call->disabled())
-    op_call = op_call->next.get();
   if (!op_call || op_call->cl != Op::_Call)
     return;
   func_assert(op_call->left.size() == 1);

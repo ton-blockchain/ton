@@ -269,24 +269,29 @@ std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, con
 
 std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeBlob &code,
                                           std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs) {
-  std::vector<std::vector<var_idx_t>> res_lists(args.size());
+  const size_t n = args.size();
+  if (n == 0) {  // just `()`
+    return {};
+  }
+  if (n == 1) {  // just `(x)`: even if x is modified (e.g. `f(x=x+2)`), there are no next arguments
+    return args[0]->pre_compile(code, lval_globs);
+  }
+  std::vector<std::vector<var_idx_t>> res_lists(n);
 
   struct ModifiedVar {
     size_t i, j;
-    Op* op;
+    std::unique_ptr<Op>* cur_ops; // `LET tmp = v_ij` will be inserted before this
   };
-  auto modified_vars = std::make_shared<std::vector<ModifiedVar>>();
-  for (size_t i = 0; i < args.size(); ++i) {
+  std::vector<ModifiedVar> modified_vars;
+  for (size_t i = 0; i < n; ++i) {
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
       if (!lval_globs && (var.cls & TmpVar::_Named)) {
-        Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
-        op->set_disabled();
-        var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
+        var.on_modification.push_back([&modified_vars, i, j, cur_ops = code.cur_ops, done = false](const SrcLocation &here) mutable {
           if (!done) {
             done = true;
-            modified_vars->push_back({i, j, op});
+            modified_vars.push_back({i, j, cur_ops});
           }
         });
       } else {
@@ -301,13 +306,16 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeB
       code.vars.at(v).on_modification.pop_back();
     }
   }
-  for (const ModifiedVar &m : *modified_vars) {
-    var_idx_t& v = res_lists[m.i][m.j];
-    var_idx_t v2 = code.create_tmp_var(code.vars[v].v_type, code.vars[v].where.get());
-    m.op->left = {v2};
-    m.op->right = {v};
-    m.op->set_disabled(false);
-    v = v2;
+  for (size_t idx = modified_vars.size(); idx--; ) {
+    const ModifiedVar &m = modified_vars[idx];
+    var_idx_t orig_v = res_lists[m.i][m.j];
+    var_idx_t tmp_v = code.create_tmp_var(code.vars[orig_v].v_type, code.vars[orig_v].where.get());
+    std::unique_ptr<Op> op = std::make_unique<Op>(*code.vars[orig_v].where, Op::_Let);
+    op->left = {tmp_v};
+    op->right = {orig_v};
+    op->next = std::move((*m.cur_ops));
+    *m.cur_ops = std::move(op);
+    res_lists[m.i][m.j] = tmp_v;
   }
   std::vector<var_idx_t> res;
   for (const auto& list : res_lists) {
@@ -333,10 +341,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       // replace `beginCell()` with `begin_cell()`
       if (func && func->is_just_wrapper_for_another_f()) {
         // body is { Op::_Import; Op::_Call; Op::_Return; }
-        const Op *op_call = dynamic_cast<SymValCodeFunc*>(func)->code->ops.get();
-        while (op_call->cl != Op::_Call) {
-          op_call = op_call->next.get();
-        }
+        const std::unique_ptr<Op>& op_call = dynamic_cast<SymValCodeFunc*>(func)->code->ops->next;
         applied_sym = op_call->fun_ref;
         // a function may call anotherF with shuffled arguments: f(x,y) { return anotherF(y,x) }
         // then op_call looks like (_1,_0), so use op_call->right for correct positions in Op::_Call below
