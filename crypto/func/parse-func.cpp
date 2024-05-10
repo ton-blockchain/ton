@@ -266,9 +266,6 @@ void parse_const_decl(Lexer& lex) {
   }
   lex.next();
   CodeBlob code;
-  if (pragma_compute_asm_ltr.enabled()) {
-    code.flags |= CodeBlob::_ComputeAsmLtr;
-  }
   // Handles processing and resolution of literals and consts
   auto x = parse_expr(lex, code, false); // also does lex.next() !
   if (x->flags != Expr::_IsRvalue) {
@@ -1216,9 +1213,6 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
 CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type, bool marked_as_pure) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
-  if (pragma_compute_asm_ltr.enabled()) {
-    blob->flags |= CodeBlob::_ComputeAsmLtr;
-  }
   if (marked_as_pure) {
     blob->flags |= CodeBlob::_ForbidImpure;
   }

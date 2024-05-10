@@ -348,6 +348,7 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
   funC::define_keywords();
   funC::define_builtins();
   pragma_allow_post_modification.always_on_and_deprecated("0.5.0");
+  pragma_compute_asm_ltr.always_on_and_deprecated("0.5.0");
 
   int ok = 0, proc = 0;
   try {
@@ -366,7 +367,6 @@ int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, st
     if (!proc) {
       throw src::Fatal{"no source files, no output"};
     }
-    pragma_compute_asm_ltr.check_enable_in_libs();
     pragma_remove_unused_functions.check_enable_in_libs();
     return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {

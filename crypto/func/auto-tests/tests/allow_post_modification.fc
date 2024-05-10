@@ -51,8 +51,6 @@ tuple test_tuple(int x) method_id(13) {
   return asm_func(x, x += 1, x, x, x~inc(x / 20), x, x = x * 2);
 }
 
-#pragma compute-asm-ltr;
-
 (int, int, int, int, int, int, int) test_call_asm_new(int x) method_id(18) {
   return asm_func(x, x~incWrap(x / 20), x, x = x * 2, x, x += 1, x);
 }
@@ -83,11 +81,11 @@ TESTCASE | 13 | 100 | [ 100 50 105 210 210 211 211 ]
 TESTCASE | 14 | 100 | 100 50 105 210 210 211 211
 TESTCASE | 15 | 100 | 100 50 105 210 210 211 211
 TESTCASE | 16 | 100 | 100 50 105 210 210 211 211
-TESTCASE | 17 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 17 | 100 | 101 50 106 212 100 101 101
 TESTCASE | 18 | 100 | 210 210 211 211 100 50 105
 TESTCASE | 19 | 100 | 100 50 105 210 210 211 211
 TESTCASE | 20 | 80  | 80 89 1 8 8
 TESTCASE | 20 | 9   | 9 -40 -10 -1 13
 
-@code_hash 67078680159561921827850021610104736412668316252257881932102553152922274405210
+@code_hash 91381947614024372269097215913018978221053550615790649489637387647848569490128
 -}

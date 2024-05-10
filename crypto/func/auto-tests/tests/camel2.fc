@@ -5,8 +5,6 @@
 ;; But swapping arguments may sometimes lead to bytecode changes (see test2),
 ;; both with compute-asm-ltr and without it.
 
-#pragma compute-asm-ltr;
-
 builder begin_cell() pure asm "NEWC";
 cell end_cell(builder b) pure asm "ENDC";
 slice begin_parse(cell c) pure asm "CTOS";

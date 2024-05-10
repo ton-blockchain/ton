@@ -267,14 +267,8 @@ std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, con
   return right;
 }
 
-std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBlob &code,
-                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs,
-                                          std::vector<int> arg_order) {
-  if (arg_order.empty()) {
-    arg_order.resize(args.size());
-    std::iota(arg_order.begin(), arg_order.end(), 0);
-  }
-  func_assert(args.size() == arg_order.size());
+std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeBlob &code,
+                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs) {
   std::vector<std::vector<var_idx_t>> res_lists(args.size());
 
   struct ModifiedVar {
@@ -282,7 +276,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
     Op* op;
   };
   auto modified_vars = std::make_shared<std::vector<ModifiedVar>>();
-  for (size_t i : arg_order) {
+  for (size_t i = 0; i < args.size(); ++i) {
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
@@ -329,7 +323,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
   }
   switch (cls) {
     case _Tensor: {
-      return pre_compile_tensor(args, code, lval_globs, {});
+      return pre_compile_tensor(args, code, lval_globs);
     }
     case _Apply: {
       func_assert(sym);
@@ -344,22 +338,16 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
           op_call = op_call->next.get();
         }
         applied_sym = op_call->fun_ref;
-        func = dynamic_cast<SymValFunc*>(applied_sym->value);
-        // soon we'll get rid of this pragma: it will be always on, we'll pass just {} here and below
-        bool compute_asm_ltr = code.flags & CodeBlob::_ComputeAsmLtr;
         // a function may call anotherF with shuffled arguments: f(x,y) { return anotherF(y,x) }
         // then op_call looks like (_1,_0), so use op_call->right for correct positions in Op::_Call below
         // it's correct, since every argument has width 1
-        std::vector<var_idx_t> res_inner = pre_compile_tensor(args, code, lval_globs, compute_asm_ltr ? std::vector<var_idx_t>{} : func->arg_order);
+        std::vector<var_idx_t> res_inner = pre_compile_tensor(args, code, lval_globs);
         res.reserve(res_inner.size());
         for (var_idx_t right_idx : op_call->right) {
           res.emplace_back(res_inner[right_idx]);
         }
-      } else if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
-        //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
-        res = pre_compile_tensor(args, code, lval_globs, func->arg_order);
       } else {
-        res = pre_compile_tensor(args, code, lval_globs, {});
+        res = pre_compile_tensor(args, code, lval_globs);
       }
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, res, applied_sym);

@@ -152,8 +152,9 @@ TESTCASE | 103 |    | [ 12 [] 34 91 ]
     //
     NEWC        //  _5
     ENDC        //  to_be_ref
-    123 PUSHINT //  to_be_ref _8=123
-    NEWC        //  to_be_ref _8=123 _9
+    NEWC        //  to_be_ref _8
+    123 PUSHINT //  to_be_ref _8 _9=123
+    SWAP        //  to_be_ref _9=123 _8
     8 STU       //  to_be_ref in_c
     STREF       //  in_c
     ENDC        //  _16
@@ -186,13 +187,12 @@ TESTCASE | 103 |    | [ 12 [] 34 91 ]
     16 PUSHINT	//  dict minv _57=16
     SDSKIPFIRST	//  dict minv
     ...
-    32 PUSHINT	//  dict minv1 minv2 minv3 found123 _78=456 dict _79=32
+    32 PUSHINT  //  dict minv1 minv2 minv3 found123 found456 _83=32
+    789 PUSHINT //  dict minv1 minv2 minv3 found123 found456 _83=32 _84=789
+    s0 s7 s7 XCHG3      //  found456 minv1 minv2 minv3 found123 _84=789 dict _83=32
     DICTIGET
-    NULLSWAPIFNOT	//  dict minv1 minv2 minv3 found123 _99 _100
-    789 PUSHINT
-    s2 POP
-    s0 s6 XCHG
-    32 PUSHINT	//  found456 minv1 minv2 minv3 found123 _83=789 dict _84=32
+    NULLSWAPIFNOT       //  found456 minv1 minv2 minv3 found123 _101 _102
+    NIP //  found456 minv1 minv2 minv3 found123 found789
     ...
     4 TUPLE	//  _86
   }>
