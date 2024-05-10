@@ -686,7 +686,7 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
-  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2, _ForbidImpure = 4 };
+  enum { _ComputeAsmLtr = 2, _ForbidImpure = 4 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;

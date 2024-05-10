@@ -1,5 +1,3 @@
-#pragma allow-post-modification;
-
 forall X -> tuple unsafe_tuple(X x) asm "NOP";
 
 (int, int) inc(int x, int y) {

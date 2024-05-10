@@ -286,24 +286,17 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
-      if (code.flags & CodeBlob::_AllowPostModification) {
-        if (!lval_globs && (var.cls & TmpVar::_Named)) {
-          Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
-          op->set_disabled();
-          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
-            if (!done) {
-              done = true;
-              modified_vars->push_back({i, j, op});
-            }
-          });
-        } else {
-          var.on_modification.push_back([](const SrcLocation &) {
-          });
-        }
+      if (!lval_globs && (var.cls & TmpVar::_Named)) {
+        Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
+        op->set_disabled();
+        var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
+          if (!done) {
+            done = true;
+            modified_vars->push_back({i, j, op});
+          }
+        });
       } else {
-        var.on_modification.push_back([name = var.to_string()](const SrcLocation &here) {
-            throw src::ParseError{here, PSTRING() << "Modifying local variable " << name
-                                                  << " after using it in the same expression"};
+        var.on_modification.push_back([](const SrcLocation &) {
         });
       }
     }

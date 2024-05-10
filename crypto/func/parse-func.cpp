@@ -266,9 +266,6 @@ void parse_const_decl(Lexer& lex) {
   }
   lex.next();
   CodeBlob code;
-  if (pragma_allow_post_modification.enabled()) {
-    code.flags |= CodeBlob::_AllowPostModification;
-  }
   if (pragma_compute_asm_ltr.enabled()) {
     code.flags |= CodeBlob::_ComputeAsmLtr;
   }
@@ -1219,9 +1216,6 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
 CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type, bool marked_as_pure) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
-  if (pragma_allow_post_modification.enabled()) {
-    blob->flags |= CodeBlob::_AllowPostModification;
-  }
   if (pragma_compute_asm_ltr.enabled()) {
     blob->flags |= CodeBlob::_ComputeAsmLtr;
   }
