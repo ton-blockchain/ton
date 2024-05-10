@@ -77,6 +77,37 @@ bool SymValCodeFunc::does_need_codegen() const {
   // in the future, we may want to implement a true AST inlining for `inline` functions also
 }
 
+void GlobalPragma::enable(SrcLocation loc) {
+  if (deprecated_from_v_) {
+    loc.show_warning(PSTRING() << "#pragma " << name_ <<
+                     " is deprecated since FunC v" << deprecated_from_v_ <<
+                     ". Please, remove this line from your code.");
+    return;
+  }
+
+  enabled_ = true;
+  locs_.push_back(std::move(loc));
+}
+
+void GlobalPragma::check_enable_in_libs() {
+  if (locs_.empty()) {
+    return;
+  }
+  for (const SrcLocation& loc : locs_) {
+    if (loc.fdescr->is_main) {
+      return;
+    }
+  }
+  locs_[0].show_warning(PSTRING() << "#pragma " << name_
+                        << " is enabled in included libraries, it may change the behavior of your code. "
+                        << "Add this #pragma to the main source file to suppress this warning.");
+}
+
+void GlobalPragma::always_on_and_deprecated(const char *deprecated_from_v) {
+  deprecated_from_v_ = deprecated_from_v;
+  enabled_ = true;
+}
+
 td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
   switch (kind) {
     case ReadCallback::Kind::ReadFile: {
