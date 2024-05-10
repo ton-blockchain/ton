@@ -55,6 +55,15 @@ struct FullNodeConfig {
   bool ext_messages_broadcast_disabled_ = false;
 };
 
+struct CustomOverlayParams {
+  std::string name_;
+  std::vector<adnl::AdnlNodeIdShort> nodes_;
+  std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
+  std::set<adnl::AdnlNodeIdShort> block_senders_;
+
+  static CustomOverlayParams fetch(const ton_api::engine_validator_customOverlay& f);
+};
+
 class FullNode : public td::actor::Actor {
  public:
   virtual ~FullNode() = default;
@@ -74,10 +83,10 @@ class FullNode : public td::actor::Actor {
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
   virtual void set_config(FullNodeConfig config) = 0;
 
-  virtual void add_ext_msg_overlay(std::vector<adnl::AdnlNodeIdShort> nodes,
-                                   std::map<adnl::AdnlNodeIdShort, int> senders, std::string name,
-                                   td::Promise<td::Unit> promise) = 0;
-  virtual void del_ext_msg_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
+  virtual void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) = 0;
+  virtual void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
+
+  virtual void process_block_broadcast(BlockBroadcast broadcast) = 0;
 
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;

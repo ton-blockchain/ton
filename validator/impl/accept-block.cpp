@@ -899,11 +899,6 @@ void AcceptBlockQuery::written_block_info_2() {
 }
 
 void AcceptBlockQuery::applied() {
-  if (!send_broadcast_) {
-    finish_query();
-    return;
-  }
-
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
@@ -923,7 +918,8 @@ void AcceptBlockQuery::applied() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b));
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b),
+                                /* custom_overlays_only = */ !send_broadcast_);
 
   finish_query();
 }

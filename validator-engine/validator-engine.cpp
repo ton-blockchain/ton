@@ -2357,16 +2357,9 @@ void ValidatorEngine::load_custom_overlays_config() {
   }
 
   for (auto &overlay : custom_overlays_config_->overlays_) {
-    std::vector<ton::adnl::AdnlNodeIdShort> nodes;
-    std::map<ton::adnl::AdnlNodeIdShort, int> senders;
-    for (const auto &node : overlay->nodes_) {
-      nodes.emplace_back(node->adnl_id_);
-      if (node->msg_sender_) {
-        senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
-      }
-    }
-    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes),
-                            std::move(senders), overlay->name_, [](td::Result<td::Unit> R) { R.ensure(); });
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_custom_overlay,
+                            ton::validator::fullnode::CustomOverlayParams::fetch(*overlay),
+                            [](td::Result<td::Unit> R) { R.ensure(); });
   }
 }
 
@@ -3571,11 +3564,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCustom
       senders[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
     }
   }
-  std::string name = overlay->name_;
+  auto params = ton::validator::fullnode::CustomOverlayParams::fetch(*query.overlay_);
   td::actor::send_closure(
-      full_node_, &ton::validator::fullnode::FullNode::add_ext_msg_overlay, std::move(nodes), std::move(senders),
-      std::move(name),
-      [SelfId = actor_id(this), overlay = std::move(overlay),
+      full_node_, &ton::validator::fullnode::FullNode::add_custom_overlay, std::move(params),
+      [SelfId = actor_id(this), overlay = std::move(query.overlay_),
        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
           promise.set_value(create_control_query_error(R.move_as_error()));
@@ -3605,7 +3597,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCustom
     return;
   }
   td::actor::send_closure(
-      full_node_, &ton::validator::fullnode::FullNode::del_ext_msg_overlay, query.name_,
+      full_node_, &ton::validator::fullnode::FullNode::del_custom_overlay, query.name_,
       [SelfId = actor_id(this), name = query.name_, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
           promise.set_value(create_control_query_error(R.move_as_error()));

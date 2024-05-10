@@ -133,7 +133,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_external_message(td::Ref<ExtMessage> message) = 0;
   virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
-  virtual void send_block_broadcast(BlockBroadcast broadcast) = 0;
+  virtual void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) = 0;
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;

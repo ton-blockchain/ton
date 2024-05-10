@@ -317,7 +317,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override {
     UNREACHABLE();
   }
-  void send_block_broadcast(BlockBroadcast broadcast) override {
+  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
   }
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override {

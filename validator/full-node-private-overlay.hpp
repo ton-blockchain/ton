@@ -52,7 +52,8 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
                               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                               td::actor::ActorId<overlay::Overlays> overlays,
-                              td::actor::ActorId<ValidatorManagerInterface> validator_manager)
+                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                              td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
       , nodes_(std::move(nodes))
       , zero_state_file_hash_(zero_state_file_hash)
@@ -63,7 +64,8 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
       , rldp_(rldp)
       , rldp2_(rldp2)
       , overlays_(overlays)
-      , validator_manager_(validator_manager) {
+      , validator_manager_(validator_manager)
+      , full_node_(full_node) {
   }
 
  private:
@@ -79,6 +81,7 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorId<FullNode> full_node_;
 
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
@@ -90,6 +93,10 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
 
 class FullNodeCustomOverlay : public td::actor::Actor {
  public:
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
+  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
@@ -98,6 +105,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
 
   void send_external_message(td::BufferSlice data);
+  void send_broadcast(BlockBroadcast broadcast);
 
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);
@@ -106,16 +114,17 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void start_up() override;
   void tear_down() override;
 
-  FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
-                        std::map<adnl::AdnlNodeIdShort, int> senders, std::string name, FileHash zero_state_file_hash,
+  FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
                         FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
                         td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                         td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
-                        td::actor::ActorId<ValidatorManagerInterface> validator_manager)
+                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                        td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
-      , nodes_(std::move(nodes))
-      , senders_(std::move(senders))
-      , name_(std::move(name))
+      , name_(std::move(params.name_))
+      , nodes_(std::move(params.nodes_))
+      , msg_senders_(std::move(params.msg_senders_))
+      , block_senders_(std::move(params.block_senders_))
       , zero_state_file_hash_(zero_state_file_hash)
       , config_(config)
       , keyring_(keyring)
@@ -123,14 +132,16 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , rldp_(rldp)
       , rldp2_(rldp2)
       , overlays_(overlays)
-      , validator_manager_(validator_manager) {
+      , validator_manager_(validator_manager)
+      , full_node_(full_node) {
   }
 
  private:
   adnl::AdnlNodeIdShort local_id_;
-  std::vector<adnl::AdnlNodeIdShort> nodes_;
-  std::map<adnl::AdnlNodeIdShort, int> senders_;
   std::string name_;
+  std::vector<adnl::AdnlNodeIdShort> nodes_;
+  std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
+  std::set<adnl::AdnlNodeIdShort> block_senders_;
   FileHash zero_state_file_hash_;
   FullNodeConfig config_;
 
@@ -140,6 +151,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorId<FullNode> full_node_;
 
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
