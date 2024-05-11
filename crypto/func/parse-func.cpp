@@ -787,11 +787,11 @@ Expr* parse_expr75(Lexer& lex, CodeBlob& code, bool nv) {
   }
 }
 
-// parse E { (* | / | % | /% ) E }
+// parse E { (* | / | % | /% | ^/ | ~/ | ^% | ~% ) E }
 Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr75(lex, code, nv);
   while (lex.tp() == '*' || lex.tp() == '/' || lex.tp() == '%' || lex.tp() == _DivMod || lex.tp() == _DivC ||
-         lex.tp() == _DivR || lex.tp() == _ModC || lex.tp() == _ModR || lex.tp() == '&') {
+         lex.tp() == _DivR || lex.tp() == _ModC || lex.tp() == _ModR) {
     res->chk_rvalue(lex.cur());
     int t = lex.tp();
     sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
@@ -809,7 +809,7 @@ Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse [-] E { (+ | - | `|` | ^) E }
+// parse [-] E { (+ | -) E }
 Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res;
   int t = lex.tp();
@@ -828,7 +828,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   } else {
     res = parse_expr30(lex, code, nv);
   }
-  while (lex.tp() == '-' || lex.tp() == '+' || lex.tp() == '|' || lex.tp() == '^') {
+  while (lex.tp() == '-' || lex.tp() == '+') {
     res->chk_rvalue(lex.cur());
     t = lex.tp();
     sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
@@ -846,7 +846,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse E { ( << | >> | >>~ | >>^ ) E }
+// parse E { ( << | >> | ~>> | ^>> ) E }
 Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr20(lex, code, nv);
   while (lex.tp() == _Lshift || lex.tp() == _Rshift || lex.tp() == _RshiftC || lex.tp() == _RshiftR) {
@@ -889,9 +889,30 @@ Expr* parse_expr15(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
+// parse E { ( & | `|` | ^ ) E }
+Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
+  Expr* res = parse_expr15(lex, code, nv);
+  while (lex.tp() == '&' || lex.tp() == '|' || lex.tp() == '^') {
+    res->chk_rvalue(lex.cur());
+    int t = lex.tp();
+    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
+    check_global_func(lex.cur(), name);
+    SrcLocation loc{lex.cur().loc};
+    lex.next();
+    auto x = parse_expr15(lex, code, false);
+    x->chk_rvalue(lex.cur());
+    res = new Expr{Expr::_Apply, name, {res, x}};
+    res->here = loc;
+    res->set_val(t);
+    res->flags = Expr::_IsRvalue;
+    res->deduce_type(lex.cur());
+  }
+  return res;
+}
+
 // parse E [ ? E : E ]
 Expr* parse_expr13(Lexer& lex, CodeBlob& code, bool nv) {
-  Expr* res = parse_expr15(lex, code, nv);
+  Expr* res = parse_expr14(lex, code, nv);
   if (lex.tp() == '?') {
     res->chk_rvalue(lex.cur());
     SrcLocation loc{lex.cur().loc};

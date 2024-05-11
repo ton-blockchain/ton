@@ -137,7 +137,7 @@ int apply_profit(int value, int value_profit, int profit) {
     }
 
     ;; Try to withdraw from withdraw balance
-    if ((remaining > 0) & ctx_member_withdraw > 0) {
+    if (((remaining > 0) & ctx_member_withdraw) > 0) { ;; such strange brackets to remain hash stable after & priority fix
         int delta = min(ctx_member_withdraw, remaining);
         ctx_member_withdraw = ctx_member_withdraw - delta;
         ctx_balance_withdraw = ctx_balance_withdraw - delta;
