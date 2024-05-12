@@ -1,6 +1,6 @@
 FROM ubuntu:22.04 as builder
 RUN apt-get update && \
-	DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git ninja-build libsecp256k1-dev libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git ninja-build libsecp256k1-dev libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool libjemalloc-dev && \
 	rm -rf /var/lib/apt/lists/*
 ENV CC clang
 ENV CXX clang++
@@ -14,12 +14,12 @@ COPY ./ ./
 
 RUN mkdir build && \
 	cd build && \
-	cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= .. && \
+	cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DTON_USE_JEMALLOC=ON .. && \
 	ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console generate-random-id dht-server lite-client
 
 FROM ubuntu:22.04
 RUN apt-get update && \
-    apt-get install -y wget libatomic1 openssl libsecp256k1-dev libsodium-dev libmicrohttpd-dev liblz4-dev && \
+    apt-get install -y wget libatomic1 openssl libsecp256k1-dev libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/ton-work/db && \
