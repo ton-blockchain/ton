@@ -234,7 +234,7 @@ if (THREADS_HAVE_PTHREAD_ARG)
 endif()
 
 if (TON_USE_JEMALLOC)
-  find_package(JeMalloc REQUIRED)
+  find_package(jemalloc REQUIRED)
 endif()
 
 set(MEMPROF "" CACHE STRING "Use one of \"ON\", \"FAST\" or \"SAFE\" to enable memory profiling. \
