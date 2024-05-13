@@ -34,11 +34,17 @@ class Statistics;
 }  // namespace rocksdb
 
 namespace td {
+
+struct RocksDbOptions {
+  std::shared_ptr<rocksdb::Statistics> statistics = nullptr;
+  uint64 block_cache_size = 1 << 30;
+};
+
 class RocksDb : public KeyValue {
  public:
   static Status destroy(Slice path);
   RocksDb clone() const;
-  static Result<RocksDb> open(std::string path, std::shared_ptr<rocksdb::Statistics> statistics = nullptr);
+  static Result<RocksDb> open(std::string path, RocksDbOptions options = {});
 
   Result<GetStatus> get(Slice key, std::string &value) override;
   Status set(Slice key, Slice value) override;
