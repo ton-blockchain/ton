@@ -18,10 +18,14 @@
 */
 #pragma once
 
+#include "common/refcnt.hpp"
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/buffer.h"
 #include "td/utils/port/Poll.h"
+#include "td/utils/port/StdStreams.h"
 #include "validator-group.hpp"
 #include "shard-client.hpp"
 #include "manager-init.h"
@@ -220,18 +224,22 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   // DATA FOR COLLATOR
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
+
+  std::map<BlockIdExt, ReceivedBlock> cached_block_candidates_;
+  std::list<BlockIdExt> cached_block_candidates_lru_;
+
   struct ExtMessages {
     std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
     std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>>
         ext_addr_messages_;
-    void erase(const MessageId<ExtMessage>& id) {
+    void erase(const MessageId<ExtMessage> &id) {
       auto it = ext_messages_.find(id);
       CHECK(it != ext_messages_.end());
       ext_addr_messages_[it->second->address()].erase(id.hash);
       ext_messages_.erase(it);
     }
   };
-  std::map<int, ExtMessages> ext_msgs_;  // priority -> messages
+  std::map<int, ExtMessages> ext_msgs_;                                                    // priority -> messages
   std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
@@ -365,6 +373,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
+  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -378,7 +387,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                    td::Promise<td::Unit> promise) override;
   void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                       std::function<td::Status(td::FileFd&)> write_data,
+                                       std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
@@ -409,7 +418,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<BlockSignatureSet>> promise) override;
 
-  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) override;
+  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -503,6 +513,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
+  void add_cached_block_candidate(ReceivedBlock block);
 
   void register_block_handle(BlockHandle handle);
 
@@ -573,8 +584,8 @@ class ValidatorManagerImpl : public ValidatorManager {
         promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
         return;
       }
-      queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter",
-                                                                      last_masterchain_state_, actor_id(this));
+      queue_size_counter_ =
+          td::actor::create_actor<QueueSizeCounter>("queuesizecounter", last_masterchain_state_, actor_id(this));
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }
@@ -583,11 +594,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) override;
   void get_block_state_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) override;
   void get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
-                                             td::Promise<ConstBlockHandle> promise) override;
+                                     td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
-                                                    td::Promise<ConstBlockHandle> promise) override;
+                                            td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                td::Promise<ConstBlockHandle> promise) override;
+                                        td::Promise<ConstBlockHandle> promise) override;
   void process_block_handle_for_litequery_error(BlockIdExt block_id, td::Result<BlockHandle> r_handle,
                                                 td::Promise<ConstBlockHandle> promise);
   void process_lookup_block_for_litequery_error(AccountIdPrefixFull account, int type, td::uint64 value,
@@ -663,6 +674,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   double max_mempool_num() const {
     return opts_->max_mempool_num();
+  }
+  size_t max_cached_candidates() const {
+    return 128;
   }
 
  private:

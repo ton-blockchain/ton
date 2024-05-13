@@ -17,12 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "auto/tl/ton_api.h"
+#include "checksum.h"
 #include "overlays.h"
 #include "td/utils/SharedSlice.h"
 #include "full-node-shard.hpp"
 #include "full-node-shard-queries.hpp"
 #include "full-node-serializer.hpp"
 
+#include "td/utils/buffer.h"
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
@@ -94,7 +96,9 @@ void FullNodeShardImpl::create_overlay() {
   };
 
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay, adnl_id_, overlay_id_full_.clone(),
-                          std::make_unique<Callback>(actor_id(this)), rules_, PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard() << ", \"workchain_id\": " << get_workchain() << " }");
+                          std::make_unique<Callback>(actor_id(this)), rules_,
+                          PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
+                                    << ", \"workchain_id\": " << get_workchain() << " }");
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, adnl_id_);
@@ -128,8 +132,7 @@ void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broad
     return;
   }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
-                          std::move(q->message_->data_),
-                          promise.wrap([](td::Ref<ExtMessage>) { return td::Unit(); }));
+                          std::move(q->message_->data_), promise.wrap([](td::Ref<ExtMessage>) { return td::Unit(); }));
 }
 
 void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
@@ -646,6 +649,25 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ne
                           query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
+  if (query.data_.size() > FullNode::max_block_size()) {
+    VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
+    return;
+  }
+  BlockIdExt block_id = create_block_id(query.id_);
+  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id.to_str();
+
+  if (td::sha256_bits256(query.data_.as_slice()) != block_id.file_hash) {
+    VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
+    return;
+  }
+
+  // ignore cc_seqno and validator_hash for now
+
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
+                          std::move(query.data_));
+}
+
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
   process_block_broadcast(src, query);
 }
@@ -738,6 +760,20 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
   }
 }
 
+void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                             td::BufferSlice data) {
+  if (!client_.empty()) {
+    UNREACHABLE();
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id.to_str();
+  auto B = create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcast>(
+      create_tl_block_id(block_id), cc_seqno, validator_set_hash,
+      create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), std::move(data));
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
+                          overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+}
+
 void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
   if (!client_.empty()) {
     UNREACHABLE();
@@ -801,17 +837,17 @@ void FullNodeShardImpl::download_block_proof(BlockIdExt block_id, td::uint32 pri
 void FullNodeShardImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                                   td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, false, adnl_id_, overlay_id_,
-                                         b.adnl_id, priority, timeout, validator_manager_, rldp_,
-                                         overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
+  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, false, adnl_id_, overlay_id_, b.adnl_id,
+                                         priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+                                         create_neighbour_promise(b, std::move(promise)))
       .release();
 }
 
 void FullNodeShardImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                                             td::Promise<std::vector<BlockIdExt>> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<GetNextKeyBlocks>("next", block_id, 16, adnl_id_, overlay_id_, b.adnl_id,
-                                            1, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+  td::actor::create_actor<GetNextKeyBlocks>("next", block_id, 16, adnl_id_, overlay_id_, b.adnl_id, 1, timeout,
+                                            validator_manager_, rldp_, overlays_, adnl_, client_,
                                             create_neighbour_promise(b, std::move(promise)))
       .release();
 }
@@ -922,25 +958,28 @@ void FullNodeShardImpl::signed_new_certificate(ton::overlay::Certificate cert) {
   td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
 }
 
-void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) {
+void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size,
+                                                 td::Promise<td::BufferSlice> promise) {
   auto sign_by = sign_cert_by_;
   if (sign_by.is_zero()) {
     promise.set_error(td::Status::Error("Node has no key with signing authority"));
     return;
   }
 
-  ton::overlay::Certificate cert{
-      sign_by, static_cast<td::int32>(expire_at), max_size,
-      overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec, td::BufferSlice{}};
+  ton::overlay::Certificate cert{sign_by, static_cast<td::int32>(expire_at), max_size,
+                                 overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec,
+                                 td::BufferSlice{}};
   auto to_sign = cert.to_sign(overlay_id_, signed_key);
 
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), expire_at = expire_at, max_size = max_size, promise = std::move(promise)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
+      [SelfId = actor_id(this), expire_at = expire_at, max_size = max_size,
+       promise = std::move(promise)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
         if (R.is_error()) {
           promise.set_error(R.move_as_error_prefix("failed to create certificate: failed to sign: "));
         } else {
           auto p = R.move_as_ok();
-          auto c = ton::create_serialize_tl_object<ton::ton_api::overlay_certificate>(p.second.tl(), static_cast<td::int32>(expire_at), max_size, std::move(p.first));
+          auto c = ton::create_serialize_tl_object<ton::ton_api::overlay_certificate>(
+              p.second.tl(), static_cast<td::int32>(expire_at), max_size, std::move(p.first));
           promise.set_value(std::move(c));
         }
       });
@@ -948,10 +987,12 @@ void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::u
                           std::move(P));
 }
 
-void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert, td::Promise<td::Unit> promise) {
-  td::actor::send_closure(overlays_, &ton::overlay::Overlays::update_certificate,
-                                     adnl_id_, overlay_id_, signed_key, cert);
-  promise.set_value( td::Unit()  );
+void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
+                                                   std::shared_ptr<ton::overlay::Certificate> cert,
+                                                   td::Promise<td::Unit> promise) {
+  td::actor::send_closure(overlays_, &ton::overlay::Overlays::update_certificate, adnl_id_, overlay_id_, signed_key,
+                          cert);
+  promise.set_value(td::Unit());
 }
 
 void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) {
@@ -969,7 +1010,8 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
     authorized_keys.emplace(key, overlay::Overlays::max_fec_broadcast_size());
   }
 
-  rules_ = overlay::OverlayPrivacyRules{overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec, std::move(authorized_keys)};
+  rules_ = overlay::OverlayPrivacyRules{overlay::Overlays::max_fec_broadcast_size(),
+                                        overlay::CertificateFlags::AllowFec, std::move(authorized_keys)};
   td::actor::send_closure(overlays_, &overlay::Overlays::set_privacy_rules, adnl_id_, overlay_id_, rules_);
 
   if (update_cert) {

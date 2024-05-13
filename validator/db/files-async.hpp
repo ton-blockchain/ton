@@ -57,7 +57,7 @@ class WriteFile : public td::actor::Actor {
       status = file.sync();
     }
     if (status.is_error()) {
-      td::unlink(old_name);
+      td::unlink(old_name).ignore();
       promise_.set_error(std::move(status));
       stop();
       return;
@@ -80,7 +80,7 @@ class WriteFile : public td::actor::Actor {
   }
   WriteFile(std::string tmp_dir, std::string new_name, td::BufferSlice data, td::Promise<std::string> promise)
       : tmp_dir_(tmp_dir), new_name_(new_name), promise_(std::move(promise)) {
-    write_data_ = [data_ptr = std::make_shared<td::BufferSlice>(std::move(data))] (td::FileFd& fd) {
+    write_data_ = [data_ptr = std::make_shared<td::BufferSlice>(std::move(data))](td::FileFd& fd) {
       auto data = std::move(*data_ptr);
       while (data.size() > 0) {
         auto piece_size = std::min<size_t>(data.size(), 1 << 30);

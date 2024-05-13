@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "auto/tl/ton_api.h"
 #include "full-node-shard.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/port/Poll.h"
@@ -152,12 +153,15 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
   void check_broadcast(PublicKeyHash src, td::BufferSlice query, td::Promise<td::Unit> promise);
 
   void send_ihr_message(td::BufferSlice data) override;
   void send_external_message(td::BufferSlice data) override;
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
+  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                            td::BufferSlice data) override;
   void send_broadcast(BlockBroadcast broadcast) override;
 
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -183,8 +187,10 @@ class FullNodeShardImpl : public FullNodeShard {
 
   void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) override;
 
-  void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) override;
-  void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert, td::Promise<td::Unit> promise) override;
+  void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size,
+                                td::Promise<td::BufferSlice> promise) override;
+  void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert,
+                                  td::Promise<td::Unit> promise) override;
 
   void sign_new_certificate(PublicKeyHash sign_by);
   void signed_new_certificate(ton::overlay::Certificate cert);

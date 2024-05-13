@@ -48,7 +48,7 @@ class DownloadToken {
 
 struct PerfTimerStats {
   std::string name;
-  std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
+  std::deque<std::pair<double, double>> stats;  // <Time::now(), duration>
 };
 
 struct ValidatorManagerOptions : public td::CntObject {
@@ -121,8 +121,7 @@ struct ValidatorManagerOptions : public td::CntObject {
                                                                                        ShardCheckMode) { return true; },
       bool allow_blockchain_init = false, double sync_blocks_before = 86400, double block_ttl = 86400 * 7,
       double state_ttl = 3600, double archive_ttl = 86400 * 365, double key_proof_ttl = 86400 * 3650,
-      double max_mempool_num = 999999,
-      bool initial_sync_disabled = false);
+      double max_mempool_num = 999999, bool initial_sync_disabled = false);
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {
@@ -138,6 +137,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
+    virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data) = 0;
     virtual void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only = false) = 0;
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) = 0;
@@ -206,6 +207,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) = 0;
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
+  virtual void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) = 0;
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;
@@ -241,7 +243,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
   virtual void add_perf_timer_stat(std::string name, double duration) = 0;
   virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) = 0;
-
 };
 
 }  // namespace validator

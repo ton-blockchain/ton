@@ -47,7 +47,6 @@
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
 
-
 #include "validator/fabric.h"
 #include "validator/impl/collator.h"
 #include "crypto/vm/vm.h"
@@ -231,12 +230,12 @@ class TestNode : public td::actor::Actor {
   }
 
   td::Status create_validator_options() {
-    if(!global_config_.length()) {
+    if (!global_config_.length()) {
       LOG(INFO) << "no global config file passed. Using zero-init config";
       opts_ = ton::validator::ValidatorManagerOptions::create(
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
-     return td::Status::OK();
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+      return td::Status::OK();
     }
     TRY_RESULT_PREFIX(conf_data, td::read_file(global_config_), "failed to read: ");
     TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
@@ -256,7 +255,7 @@ class TestNode : public td::actor::Actor {
     std::vector<ton::BlockIdExt> h;
     for (auto &x : conf.validator_->hardforks_) {
       auto b = ton::create_block_id(x);
-       if (!b.is_masterchain()) {
+      if (!b.is_masterchain()) {
         return td::Status::Error(ton::ErrorCode::error,
                                  "[validator/hardforks] section contains not masterchain block id");
       }
@@ -272,11 +271,9 @@ class TestNode : public td::actor::Actor {
     }
     opts_.write().set_hardforks(std::move(h));
 
-
-    LOG(INFO) << "Hardforks num in config: "<< opts_->get_hardforks().size();
+    LOG(INFO) << "Hardforks num in config: " << opts_->get_hardforks().size();
     return td::Status::OK();
   }
-
 
   void run() {
     zero_id_.workchain = ton::masterchainId;
@@ -346,6 +343,9 @@ class TestNode : public td::actor::Actor {
                        << res.move_as_error().to_string();
           }
         }
+      }
+      void send_block_candidate(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                td::BufferSlice data) override {
       }
       void send_broadcast(ton::BlockBroadcast broadcast, bool custom_overlays_only) override {
       }
