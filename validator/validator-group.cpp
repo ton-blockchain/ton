@@ -348,6 +348,10 @@ void ValidatorGroup::create_session() {
                   << ".",
         allow_unsafe_self_blocks_resync_);
   }
+  if (opts_->get_catchain_max_block_delay()) {
+    td::actor::send_closure(session_, &validatorsession::ValidatorSession::set_catchain_max_block_delay,
+                            opts_->get_catchain_max_block_delay().value());
+  }
   if (started_) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }

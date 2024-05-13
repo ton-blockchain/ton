@@ -210,6 +210,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool disable_rocksdb_stats_ = false;
   bool nonfinal_ls_queries_enabled_ = false;
   td::optional<td::uint64> celldb_cache_size_;
+  td::optional<double> catchain_max_block_delay_;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -284,6 +285,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_celldb_cache_size(td::uint64 value) {
     celldb_cache_size_ = value;
+  }
+  void set_catchain_max_block_delay(double value) {
+    catchain_max_block_delay_ = value;
   }
   void start_up() override;
   ValidatorEngine() {

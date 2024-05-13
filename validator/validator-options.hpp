@@ -132,6 +132,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::optional<td::uint64> get_celldb_cache_size() const override {
     return celldb_cache_size_;
   }
+  td::optional<double> get_catchain_max_block_delay() const override {
+    return catchain_max_block_delay_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -203,6 +206,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_celldb_cache_size(td::uint64 value) override {
     celldb_cache_size_ = value;
   }
+  void set_catchain_max_block_delay(double value) override {
+    catchain_max_block_delay_ = value;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -251,6 +257,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool disable_rocksdb_stats_;
   bool nonfinal_ls_queries_enabled_ = false;
   td::optional<td::uint64> celldb_cache_size_;
+  td::optional<double> catchain_max_block_delay_;
 };
 
 }  // namespace validator

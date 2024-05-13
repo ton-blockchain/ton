@@ -87,6 +87,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool get_disable_rocksdb_stats() const = 0;
   virtual bool nonfinal_ls_queries_enabled() const = 0;
   virtual td::optional<td::uint64> get_celldb_cache_size() const = 0;
+  virtual td::optional<double> get_catchain_max_block_delay() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -112,6 +113,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_disable_rocksdb_stats(bool value) = 0;
   virtual void set_nonfinal_ls_queries_enabled(bool value) = 0;
   virtual void set_celldb_cache_size(td::uint64 value) = 0;
+  virtual void set_catchain_max_block_delay(double value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
