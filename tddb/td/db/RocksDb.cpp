@@ -64,10 +64,14 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   {
     rocksdb::Options db_options;
 
-    static auto cache = rocksdb::NewLRUCache(options.block_cache_size);
+    static auto cache = rocksdb::NewLRUCache(1 << 30);
 
     rocksdb::BlockBasedTableOptions table_options;
-    table_options.block_cache = cache;
+    if (options.block_cache_size) {
+      table_options.block_cache = rocksdb::NewLRUCache(options.block_cache_size.value());
+    } else {
+      table_options.block_cache = cache;
+    }
     db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
     db_options.manual_wal_flush = true;
