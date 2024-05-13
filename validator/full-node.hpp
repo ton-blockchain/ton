@@ -28,6 +28,7 @@
 
 #include <map>
 #include <set>
+#include <queue>
 
 namespace ton {
 
@@ -56,9 +57,8 @@ class FullNodeImpl : public FullNode {
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
   void set_config(FullNodeConfig config) override;
 
-  void add_ext_msg_overlay(std::vector<adnl::AdnlNodeIdShort> nodes, std::map<adnl::AdnlNodeIdShort, int> senders,
-                           std::string name, td::Promise<td::Unit> promise) override;
-  void del_ext_msg_overlay(std::string name, td::Promise<td::Unit> promise) override;
+  void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) override;
+  void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) override;
 
   void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor,
                                   std::set<ShardIdFull> temporary_shards);
@@ -69,7 +69,7 @@ class FullNodeImpl : public FullNode {
   void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqnp, td::BufferSlice data);
-  void send_broadcast(BlockBroadcast broadcast);
+  void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
@@ -88,6 +88,8 @@ class FullNodeImpl : public FullNode {
 
   void got_key_block_state(td::Ref<ShardState> state);
   void new_key_block(BlockHandle handle);
+
+  void process_block_broadcast(BlockBroadcast broadcast) override;
 
   void start_up() override;
 
@@ -146,16 +148,19 @@ class FullNodeImpl : public FullNode {
   void create_private_block_overlay(PublicKeyHash key);
   */
 
-  struct ExtMsgOverlayInfo {
-    std::vector<adnl::AdnlNodeIdShort> nodes_;
-    std::map<adnl::AdnlNodeIdShort, int> senders_;
-    std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodeCustomOverlay>>
-        actors_;  // our local id -> actor
+  struct CustomOverlayInfo {
+    CustomOverlayParams params_;
+    std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodeCustomOverlay>> actors_;  // our local id -> actor
   };
-  std::map<std::string, ExtMsgOverlayInfo> private_custom_overlays_;
+  std::map<std::string, CustomOverlayInfo> custom_overlays_;
+  std::set<BlockIdExt> custom_overlays_sent_broadcasts_;
+  std::queue<BlockIdExt> custom_overlays_sent_broadcasts_lru_;
 
   void update_private_overlays();
-  void update_ext_msg_overlay(const std::string& name, ExtMsgOverlayInfo& overlay);
+  // void set_private_block_overlays_enable_compression(bool value);
+
+  void update_custom_overlay(CustomOverlayInfo& overlay);
+  void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
 
   FullNodePrivateBlockOverlays private_block_overlays_;
 };

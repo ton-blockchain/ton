@@ -255,7 +255,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     new_ihr_message(message->serialize());
   }
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast) override {
+  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
@@ -385,6 +385,9 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
+    UNREACHABLE();
+  }
+  void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override {
     UNREACHABLE();
   }
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {

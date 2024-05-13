@@ -41,17 +41,7 @@ void FullNodePrivateOverlayV2::process_block_broadcast(PublicKeyHash src, ton_ap
   }
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast in private overlay from " << src << ": "
                         << B.ok().block_id.to_str();
-  auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
-    if (R.is_error()) {
-      if (R.error().code() == ErrorCode::notready) {
-        LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
-      } else {
-        LOG(INFO) << "dropped broadcast: " << R.move_as_error();
-      }
-    }
-  });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, B.move_as_ok(),
-                          std::move(P));
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
 void FullNodePrivateOverlayV2::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
@@ -220,7 +210,8 @@ void FullNodePrivateBlockOverlays::update_overlays(
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
     const td::actor::ActorId<rldp::Rldp> &rldp, const td::actor::ActorId<rldp2::Rldp> &rldp2,
     const td::actor::ActorId<overlay::Overlays> &overlays,
-    const td::actor::ActorId<ValidatorManagerInterface> &validator_manager) {
+    const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
+    const td::actor::ActorId<FullNode> &full_node) {
   if (my_adnl_ids.empty()) {
     id_to_overlays_.clear();
     return;
@@ -314,7 +305,7 @@ void FullNodePrivateBlockOverlays::update_overlays(
         new_overlay.is_sender_ = std::binary_search(new_overlay.senders_.begin(), new_overlay.senders_.end(), local_id);
         new_overlay.overlay_ = td::actor::create_actor<FullNodePrivateOverlayV2>(
             "BlocksPrivateOverlay", local_id, shard, new_overlay.nodes_, new_overlay.senders_, zero_state_file_hash,
-            keyring, adnl, rldp, rldp2, overlays, validator_manager);
+            keyring, adnl, rldp, rldp2, overlays, validator_manager, full_node);
       }
     }
   }

@@ -90,6 +90,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   td::actor::ActorOwn<catchain::CatChain> catchain_;
   std::unique_ptr<ValidatorSessionDescription> description_;
 
+  double catchain_max_block_delay_ = 0.5;
+
   void on_new_round(td::uint32 round);
   void on_catchain_started();
   void check_vote_for_slot(td::uint32 att);
@@ -190,6 +192,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   void get_validator_group_info_for_litequery(
       td::uint32 cur_round,
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) override;
+  void set_catchain_max_block_delay(double value) override {
+    catchain_max_block_delay_ = value;
+  }
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();

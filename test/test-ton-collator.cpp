@@ -347,7 +347,7 @@ class TestNode : public td::actor::Actor {
           }
         }
       }
-      void send_broadcast(ton::BlockBroadcast broadcast) override {
+      void send_broadcast(ton::BlockBroadcast broadcast, bool custom_overlays_only) override {
       }
       void download_block(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                           td::Promise<ton::ReceivedBlock> promise) override {

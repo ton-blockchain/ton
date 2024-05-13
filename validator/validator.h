@@ -86,6 +86,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual double get_archive_preload_period() const = 0;
   virtual bool get_disable_rocksdb_stats() const = 0;
   virtual bool nonfinal_ls_queries_enabled() const = 0;
+  virtual td::optional<td::uint64> get_celldb_cache_size() const = 0;
+  virtual td::optional<double> get_catchain_max_block_delay() const = 0;
   virtual ValidatorMode validator_mode() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
@@ -110,6 +112,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_archive_preload_period(double value) = 0;
   virtual void set_disable_rocksdb_stats(bool value) = 0;
   virtual void set_nonfinal_ls_queries_enabled(bool value) = 0;
+  virtual void set_celldb_cache_size(td::uint64 value) = 0;
+  virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_validator_mode(ValidatorMode value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
@@ -135,7 +139,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
-    virtual void send_broadcast(BlockBroadcast broadcast) = 0;
+    virtual void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only = false) = 0;
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) = 0;
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,

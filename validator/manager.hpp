@@ -493,7 +493,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_external_message(td::Ref<ExtMessage> message) override;
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast) override;
+  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override;
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
@@ -593,6 +593,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
 
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
+  void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
+
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
 

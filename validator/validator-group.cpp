@@ -57,8 +57,8 @@ void ValidatorGroup::generate_block_candidate(
                                    cache = cached_collated_block_](td::Result<BlockCandidate> R) {
     td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
   };
-  if (mode_ == ValidatorManagerOptions::validator_lite_all ||
-      (mode_ == ValidatorManagerOptions::validator_lite_shards && !shard_.is_masterchain())) {
+  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_all ||
+      (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_shards && !shard_.is_masterchain())) {
     send_collate_query(round_id, td::Timestamp::in(10.0), std::move(P));
     return;
   }
@@ -204,10 +204,10 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
     }
   });
 
-  run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
-                         std::move(approve_sig_set), send_broadcast,
-                         shard_.is_masterchain() || mode_ == ValidatorManagerOptions::validator_normal, manager_,
-                         std::move(P));
+  run_accept_block_query(
+      block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set), std::move(approve_sig_set),
+      send_broadcast, shard_.is_masterchain() || opts_->validator_mode() == ValidatorManagerOptions::validator_normal,
+      manager_, std::move(P));
 }
 
 void ValidatorGroup::skip_round(td::uint32 round_id) {
@@ -343,6 +343,10 @@ void ValidatorGroup::create_session() {
                   << ".",
         allow_unsafe_self_blocks_resync_);
   }
+  if (opts_->get_catchain_max_block_delay()) {
+    td::actor::send_closure(session_, &validatorsession::ValidatorSession::set_catchain_max_block_delay,
+                            opts_->get_catchain_max_block_delay().value());
+  }
   if (started_) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
@@ -373,6 +377,22 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
     prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   }
   postponed_accept_.clear();
+
+  validatorsession::NewValidatorGroupStats stats;
+  stats.session_id = session_id_;
+  stats.shard = shard_;
+  stats.cc_seqno = validator_set_->get_catchain_seqno();
+  stats.timestamp = td::Clocks::system();
+  td::uint32 idx = 0;
+  for (const auto& node : validator_set_->export_vector()) {
+    PublicKeyHash id = ValidatorFullId{node.key}.compute_short_id();
+    if (id == local_id_) {
+      stats.self_idx = idx;
+    }
+    stats.nodes.push_back(validatorsession::NewValidatorGroupStats::Node{id, node.weight});
+    ++idx;
+  }
+  td::actor::send_closure(manager_, &ValidatorManager::log_new_validator_group_stats, std::move(stats));
 }
 
 void ValidatorGroup::destroy() {
@@ -386,6 +406,9 @@ void ValidatorGroup::destroy() {
                                 return;
                               }
                               auto stats = R.move_as_ok();
+                              if (stats.rounds.empty()) {
+                                return;
+                              }
                               stats.cc_seqno = cc_seqno;
                               td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats, block_id,
                                                       std::move(stats));

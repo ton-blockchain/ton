@@ -808,8 +808,8 @@ void ValidatorSessionImpl::request_new_block(bool now) {
   } else {
     double lambda = 10.0 / description().get_total_nodes();
     double x = -1 / lambda * log(td::Random::fast(1, 999) * 0.001);
-    if (x > 0.5) {
-      x = 0.5;
+    if (x > catchain_max_block_delay_) {  // default = 0.5
+      x = catchain_max_block_delay_;
     }
     td::actor::send_closure(catchain_, &catchain::CatChain::need_new_block, td::Timestamp::in(x));
   }
@@ -872,7 +872,7 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
       callback_->on_block_skipped(cur_round_);
     } else {
       cur_stats_.success = true;
-      cur_stats_.timestamp = (td::uint64)td::Clocks::system();
+      cur_stats_.timestamp = td::Clocks::system();
       cur_stats_.signatures = (td::uint32)export_sigs.size();
       cur_stats_.signatures_weight = signatures_weight;
       cur_stats_.approve_signatures = (td::uint32)export_approve_sigs.size();
@@ -900,6 +900,12 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
     cur_round_++;
     if (have_block) {
       stats_init();
+    } else {
+      size_t round_idx = cur_round_ - cur_stats_.first_round;
+      while (round_idx >= cur_stats_.rounds.size()) {
+        stats_add_round();
+      }
+      cur_stats_.rounds[round_idx].timestamp = td::Clocks::system();
     }
     auto it2 = blocks_.begin();
     while (it2 != blocks_.end()) {
@@ -989,9 +995,7 @@ void ValidatorSessionImpl::destroy() {
 }
 
 void ValidatorSessionImpl::get_current_stats(td::Promise<ValidatorSessionStats> promise) {
-  ValidatorSessionStats stats = cur_stats_;
-  stats.timestamp = (td::uint64)td::Clocks::system();
-  promise.set_result(std::move(stats));
+  promise.set_result(cur_stats_);
 }
 
 void ValidatorSessionImpl::get_validator_group_info_for_litequery(
@@ -1085,26 +1089,31 @@ void ValidatorSessionImpl::stats_init() {
       ++it;
     }
   }
+
+  if (cur_stats_.rounds.empty()) {
+    stats_add_round();
+  }
+  cur_stats_.rounds[0].timestamp = td::Clocks::system();
   stats_inited_ = true;
 }
 
 void ValidatorSessionImpl::stats_add_round() {
+  td::uint32 round = cur_stats_.first_round + cur_stats_.rounds.size();
   cur_stats_.rounds.emplace_back();
-  auto& round = cur_stats_.rounds.back();
-  round.timestamp = (td::uint64)td::Clocks::system();
-  round.producers.resize(description().get_max_priority() + 1);
+  auto& stat = cur_stats_.rounds.back();
+  stat.producers.resize(description().get_max_priority() + 1);
   for (td::uint32 i = 0; i < description().get_total_nodes(); i++) {
-    td::int32 priority = description().get_node_priority(i, cur_round_);
+    td::int32 priority = description().get_node_priority(i, round);
     if (priority >= 0) {
-      CHECK((size_t)priority < round.producers.size());
-      round.producers[priority].id = description().get_source_id(i);
-      round.producers[priority].is_ours = (local_idx() == i);
-      round.producers[priority].approvers.resize(description().get_total_nodes(), false);
-      round.producers[priority].signers.resize(description().get_total_nodes(), false);
+      CHECK((size_t)priority < stat.producers.size());
+      stat.producers[priority].id = description().get_source_id(i);
+      stat.producers[priority].is_ours = (local_idx() == i);
+      stat.producers[priority].approvers.resize(description().get_total_nodes(), false);
+      stat.producers[priority].signers.resize(description().get_total_nodes(), false);
     }
   }
-  while (!round.producers.empty() && round.producers.back().id.is_zero()) {
-    round.producers.pop_back();
+  while (!stat.producers.empty() && stat.producers.back().id.is_zero()) {
+    stat.producers.pop_back();
   }
 }
 

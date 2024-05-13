@@ -22,13 +22,13 @@ namespace ton::validator::fullnode {
 
 class FullNodePrivateOverlayV2 : public td::actor::Actor {
  public:
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
-  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast& query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed& query);
+  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
   template <class T>
-  void process_broadcast(PublicKeyHash, T &) {
+  void process_broadcast(PublicKeyHash, T&) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
@@ -48,7 +48,8 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                            td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                            td::actor::ActorId<overlay::Overlays> overlays,
-                           td::actor::ActorId<ValidatorManagerInterface> validator_manager)
+                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                           td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
       , shard_(shard)
       , nodes_(std::move(nodes))
@@ -59,7 +60,8 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
       , rldp_(rldp)
       , rldp2_(rldp2)
       , overlays_(overlays)
-      , validator_manager_(validator_manager) {
+      , validator_manager_(validator_manager)
+      , full_node_(full_node) {
   }
 
  private:
@@ -75,6 +77,7 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
   td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+  td::actor::ActorId<FullNode> full_node_;
 
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
@@ -94,7 +97,8 @@ class FullNodePrivateBlockOverlays {
                        const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<rldp::Rldp>& rldp,
                        const td::actor::ActorId<rldp2::Rldp>& rldp2,
                        const td::actor::ActorId<overlay::Overlays>& overlays,
-                       const td::actor::ActorId<ValidatorManagerInterface>& validator_manager);
+                       const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
+                       const td::actor::ActorId<FullNode>& full_node);
 
  private:
   struct Overlays {

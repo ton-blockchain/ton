@@ -24,6 +24,7 @@
 
 #include "td/db/KeyValue.h"
 #include "td/utils/Status.h"
+#include "td/utils/optional.h"
 
 namespace rocksdb {
 class OptimisticTransactionDB;
@@ -34,11 +35,17 @@ class Statistics;
 }  // namespace rocksdb
 
 namespace td {
+
+struct RocksDbOptions {
+  std::shared_ptr<rocksdb::Statistics> statistics = nullptr;
+  optional<uint64> block_cache_size;  // Default - one 1G cache for all RocksDb
+};
+
 class RocksDb : public KeyValue {
  public:
   static Status destroy(Slice path);
   RocksDb clone() const;
-  static Result<RocksDb> open(std::string path, std::shared_ptr<rocksdb::Statistics> statistics = nullptr);
+  static Result<RocksDb> open(std::string path, RocksDbOptions options = {});
 
   Result<GetStatus> get(Slice key, std::string &value) override;
   Status set(Slice key, Slice value) override;

@@ -1182,9 +1182,10 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
     td::TerminalIO::out() << "Overlay \"" << overlay->name_ << "\": " << overlay->nodes_.size() << " nodes\n";
     for (const auto &node : overlay->nodes_) {
       td::TerminalIO::out() << "  " << node->adnl_id_
-                            << (node->msg_sender_ ? (PSTRING() << " (sender, p=" << node->msg_sender_priority_ << ")")
-                                                  : "")
-                            << "\n";
+                            << (node->msg_sender_
+                                    ? (PSTRING() << " (msg sender, p=" << node->msg_sender_priority_ << ")")
+                                    : "")
+                            << (node->block_sender_ ? " (block sender)" : "") << "\n";
     }
     td::TerminalIO::out() << "\n";
   }

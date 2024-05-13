@@ -759,17 +759,7 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   //  return;
   //}
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
-  auto P = td::PromiseCreator::lambda([](td::Result<td::Unit> R) {
-    if (R.is_error()) {
-      if (R.error().code() == ErrorCode::notready) {
-        LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
-      } else {
-        LOG(INFO) << "dropped broadcast: " << R.move_as_error();
-      }
-    }
-  });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, B.move_as_ok(),
-                          std::move(P));
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
 void FullNodeShardImpl::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -1340,7 +1330,8 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
                                      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                                      td::actor::ActorId<overlay::Overlays> overlays,
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                     td::actor::ActorId<adnl::AdnlExtClient> client, FullNodeShardMode mode)
+                                     td::actor::ActorId<adnl::AdnlExtClient> client,
+                                     td::actor::ActorId<FullNode> full_node, FullNodeShardMode mode)
     : shard_(shard)
     , local_id_(local_id)
     , adnl_id_(adnl_id)
@@ -1352,7 +1343,8 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , overlays_(overlays)
     , validator_manager_(validator_manager)
     , client_(client)
-    , mode_(shard.is_masterchain() ? FullNodeShardMode::active : mode)
+    , full_node_(full_node)
+    , mode_(mode)
     , config_(config) {
 }
 
@@ -1361,10 +1353,10 @@ td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-    td::actor::ActorId<adnl::AdnlExtClient> client, FullNodeShardMode mode) {
-  return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "fullnode" << shard.to_str(), shard, local_id, adnl_id,
-                                                    zero_state_file_hash, config, keyring, adnl, rldp, rldp2, overlays,
-                                                    validator_manager, client, mode);
+    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, FullNodeShardMode mode) {
+  return td::actor::create_actor<FullNodeShardImpl>("tonnode", shard, local_id, adnl_id, zero_state_file_hash, config,
+                                                    keyring, adnl, rldp, rldp2, overlays, validator_manager, client,
+                                                    full_node, mode);
 }
 
 }  // namespace fullnode
