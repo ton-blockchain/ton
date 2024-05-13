@@ -3971,7 +3971,8 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_nonfinal_ls_queries_enabled); });
   });
   p.add_checked_option(
-      '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 1G)",
+      '\0', "celldb-cache-size",
+      "block cache size for RocksDb in CellDb, in bytes (default: 1G cache shared by archive DB)",
       [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<td::uint64>(s));
         if (v == 0) {

@@ -92,7 +92,7 @@ void CellDbIn::start_up() {
   db_options.statistics = statistics_;
   if (opts_->get_celldb_cache_size()) {
     db_options.block_cache_size = opts_->get_celldb_cache_size().value();
-    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(db_options.block_cache_size);
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(db_options.block_cache_size.value());
   }
   cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(db_options)).move_as_ok());
 

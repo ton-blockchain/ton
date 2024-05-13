@@ -24,6 +24,7 @@
 
 #include "td/db/KeyValue.h"
 #include "td/utils/Status.h"
+#include "td/utils/optional.h"
 
 namespace rocksdb {
 class OptimisticTransactionDB;
@@ -37,7 +38,7 @@ namespace td {
 
 struct RocksDbOptions {
   std::shared_ptr<rocksdb::Statistics> statistics = nullptr;
-  uint64 block_cache_size = 1 << 30;
+  optional<uint64> block_cache_size;  // Default - one 1G cache for all RocksDb
 };
 
 class RocksDb : public KeyValue {
