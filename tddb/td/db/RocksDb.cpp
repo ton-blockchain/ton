@@ -59,38 +59,38 @@ RocksDb RocksDb::clone() const {
   return RocksDb{db_, statistics_};
 }
 
-Result<RocksDb> RocksDb::open(std::string path, std::shared_ptr<rocksdb::Statistics> statistics) {
+Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   rocksdb::OptimisticTransactionDB *db;
   {
-    rocksdb::Options options;
+    rocksdb::Options db_options;
 
-    static auto cache = rocksdb::NewLRUCache(1 << 30);
+    static auto cache = rocksdb::NewLRUCache(options.block_cache_size);
 
     rocksdb::BlockBasedTableOptions table_options;
     table_options.block_cache = cache;
-    options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+    db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
-    options.manual_wal_flush = true;
-    options.create_if_missing = true;
-    options.max_background_compactions = 4;
-    options.max_background_flushes = 2;
-    options.bytes_per_sync = 1 << 20;
-    options.writable_file_max_buffer_size = 2 << 14;
-    options.statistics = statistics;
+    db_options.manual_wal_flush = true;
+    db_options.create_if_missing = true;
+    db_options.max_background_compactions = 4;
+    db_options.max_background_flushes = 2;
+    db_options.bytes_per_sync = 1 << 20;
+    db_options.writable_file_max_buffer_size = 2 << 14;
+    db_options.statistics = options.statistics;
     rocksdb::OptimisticTransactionDBOptions occ_options;
     occ_options.validate_policy = rocksdb::OccValidationPolicy::kValidateSerial;
-    rocksdb::ColumnFamilyOptions cf_options(options);
+    rocksdb::ColumnFamilyOptions cf_options(db_options);
     std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
     column_families.push_back(rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, cf_options));
     std::vector<rocksdb::ColumnFamilyHandle *> handles;
-    TRY_STATUS(from_rocksdb(
-        rocksdb::OptimisticTransactionDB::Open(options, occ_options, std::move(path), column_families, &handles, &db)));
+    TRY_STATUS(from_rocksdb(rocksdb::OptimisticTransactionDB::Open(db_options, occ_options, std::move(path),
+                                                                   column_families, &handles, &db)));
     CHECK(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
     delete handles[0];
   }
-  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(statistics));
+  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(options.statistics));
 }
 
 std::shared_ptr<rocksdb::Statistics> RocksDb::create_statistics() {

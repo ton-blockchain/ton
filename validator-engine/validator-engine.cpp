@@ -1369,6 +1369,9 @@ td::Status ValidatorEngine::load_global_config() {
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
   validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
   validator_options_.write().set_nonfinal_ls_queries_enabled(nonfinal_ls_queries_enabled_);
+  if (celldb_cache_size_) {
+    validator_options_.write().set_celldb_cache_size(celldb_cache_size_.value());
+  }
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -3967,6 +3970,16 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "nonfinal-ls", "enable special LS queries to non-finalized blocks", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_nonfinal_ls_queries_enabled); });
   });
+  p.add_checked_option(
+      '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 1G)",
+      [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<td::uint64>(s));
+        if (v == 0) {
+          return td::Status::Error("celldb-cache-size should be positive");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_cache_size, v); });
+        return td::Status::OK();
+      });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

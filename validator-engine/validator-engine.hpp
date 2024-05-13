@@ -209,6 +209,7 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_ = false;
   bool nonfinal_ls_queries_enabled_ = false;
+  td::optional<td::uint64> celldb_cache_size_;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -280,6 +281,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_nonfinal_ls_queries_enabled() {
     nonfinal_ls_queries_enabled_ = true;
+  }
+  void set_celldb_cache_size(td::uint64 value) {
+    celldb_cache_size_ = value;
   }
   void start_up() override;
   ValidatorEngine() {

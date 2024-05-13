@@ -554,7 +554,9 @@ void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::
 void ArchiveSlice::before_query() {
   if (status_ == st_closed) {
     LOG(DEBUG) << "Opening archive slice " << db_path_;
-    kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_, statistics_.rocksdb_statistics).move_as_ok());
+    td::RocksDbOptions db_options;
+    db_options.statistics = statistics_.rocksdb_statistics;
+    kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_, std::move(db_options)).move_as_ok());
     std::string value;
     auto R2 = kv_->get("status", value);
     R2.ensure();
