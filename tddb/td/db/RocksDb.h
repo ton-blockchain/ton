@@ -27,6 +27,7 @@
 #include "td/utils/optional.h"
 
 namespace rocksdb {
+class Cache;
 class OptimisticTransactionDB;
 class Transaction;
 class WriteBatch;
@@ -38,7 +39,8 @@ namespace td {
 
 struct RocksDbOptions {
   std::shared_ptr<rocksdb::Statistics> statistics = nullptr;
-  optional<uint64> block_cache_size;  // Default - one 1G cache for all RocksDb
+  std::shared_ptr<rocksdb::Cache> block_cache;  // Default - one 1G cache for all RocksDb
+  bool use_direct_reads = false;
 };
 
 class RocksDb : public KeyValue {
@@ -51,6 +53,7 @@ class RocksDb : public KeyValue {
   Status set(Slice key, Slice value) override;
   Status erase(Slice key) override;
   Result<size_t> count(Slice prefix) override;
+  Status for_each(std::function<Status(Slice, Slice)> f) override;
 
   Status begin_write_batch() override;
   Status commit_write_batch() override;
@@ -71,6 +74,8 @@ class RocksDb : public KeyValue {
   static std::string statistics_to_string(const std::shared_ptr<rocksdb::Statistics> statistics);
   static void reset_statistics(const std::shared_ptr<rocksdb::Statistics> statistics);
 
+  static std::shared_ptr<rocksdb::Cache> create_cache(size_t capacity);
+
   RocksDb(RocksDb &&);
   RocksDb &operator=(RocksDb &&);
   ~RocksDb();
@@ -81,7 +86,7 @@ class RocksDb : public KeyValue {
 
  private:
   std::shared_ptr<rocksdb::OptimisticTransactionDB> db_;
-  std::shared_ptr<rocksdb::Statistics> statistics_;
+  RocksDbOptions options_;
 
   std::unique_ptr<rocksdb::Transaction> transaction_;
   std::unique_ptr<rocksdb::WriteBatch> write_batch_;
@@ -94,7 +99,6 @@ class RocksDb : public KeyValue {
   };
   std::unique_ptr<const rocksdb::Snapshot, UnreachableDeleter> snapshot_;
 
-  explicit RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db,
-                   std::shared_ptr<rocksdb::Statistics> statistics);
+  explicit RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, RocksDbOptions options);
 };
 }  // namespace td

@@ -1372,6 +1372,8 @@ td::Status ValidatorEngine::load_global_config() {
   if (celldb_cache_size_) {
     validator_options_.write().set_celldb_cache_size(celldb_cache_size_.value());
   }
+  validator_options_.write().set_celldb_direct_io(celldb_direct_io_);
+  validator_options_.write().set_celldb_preload_all(celldb_preload_all_);
   if (catchain_max_block_delay_) {
     validator_options_.write().set_catchain_max_block_delay(catchain_max_block_delay_.value());
   }
@@ -3984,6 +3986,14 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_cache_size, v); });
         return td::Status::OK();
       });
+  p.add_option('\0', "celldb-direct-io", "enable direct I/O mode for RocksDb in CellDb", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io); });
+  });
+  p.add_option(
+      '\0', "celldb-preload-all",
+      "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and "
+      "celldb-direct-io)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all); }); });
   p.add_checked_option(
       '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.5)",
       [&](td::Slice s) -> td::Status {
