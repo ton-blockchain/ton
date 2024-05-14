@@ -56,7 +56,7 @@ RocksDb::~RocksDb() {
 }
 
 RocksDb RocksDb::clone() const {
-  return RocksDb{db_, statistics_};
+  return RocksDb{db_, options_};
 }
 
 Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
@@ -64,16 +64,16 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   {
     rocksdb::Options db_options;
 
-    static auto cache = rocksdb::NewLRUCache(1 << 30);
+    static auto default_cache = rocksdb::NewLRUCache(1 << 30);
+    if (options.block_cache == nullptr) {
+      options.block_cache = default_cache;
+    }
 
     rocksdb::BlockBasedTableOptions table_options;
-    if (options.block_cache_size) {
-      table_options.block_cache = rocksdb::NewLRUCache(options.block_cache_size.value());
-    } else {
-      table_options.block_cache = cache;
-    }
+    table_options.block_cache = options.block_cache;
     db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
+    db_options.use_direct_reads = options.use_direct_reads;
     db_options.manual_wal_flush = true;
     db_options.create_if_missing = true;
     db_options.max_background_compactions = 4;
@@ -94,7 +94,7 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     // default column family
     delete handles[0];
   }
-  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(options.statistics));
+  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(options));
 }
 
 std::shared_ptr<rocksdb::Statistics> RocksDb::create_statistics() {
@@ -109,6 +109,10 @@ void RocksDb::reset_statistics(const std::shared_ptr<rocksdb::Statistics> statis
   statistics->Reset();
 }
 
+std::shared_ptr<rocksdb::Cache> RocksDb::create_cache(size_t capacity) {
+  return rocksdb::NewLRUCache(capacity);
+}
+
 std::unique_ptr<KeyValueReader> RocksDb::snapshot() {
   auto res = std::make_unique<RocksDb>(clone());
   res->begin_snapshot().ensure();
@@ -120,7 +124,6 @@ std::string RocksDb::stats() const {
   db_->GetProperty("rocksdb.stats", &out);
   //db_->GetProperty("rocksdb.cur-size-all-mem-tables", &out);
   return out;
-  return statistics_->ToString();
 }
 
 Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
@@ -187,6 +190,28 @@ Result<size_t> RocksDb::count(Slice prefix) {
   return res;
 }
 
+Status RocksDb::for_each(std::function<Status(Slice, Slice)> f) {
+  rocksdb::ReadOptions options;
+  options.snapshot = snapshot_.get();
+  std::unique_ptr<rocksdb::Iterator> iterator;
+  if (snapshot_ || !transaction_) {
+    iterator.reset(db_->NewIterator(options));
+  } else {
+    iterator.reset(transaction_->GetIterator(options));
+  }
+
+  iterator->SeekToFirst();
+  for (; iterator->Valid(); iterator->Next()) {
+    auto key = from_rocksdb(iterator->key());
+    auto value = from_rocksdb(iterator->value());
+    TRY_STATUS(f(key, value));
+  }
+  if (!iterator->status().ok()) {
+    return from_rocksdb(iterator->status());
+  }
+  return Status::OK();
+}
+
 Status RocksDb::begin_write_batch() {
   CHECK(!transaction_);
   write_batch_ = std::make_unique<rocksdb::WriteBatch>();
@@ -243,7 +268,7 @@ Status RocksDb::end_snapshot() {
   return td::Status::OK();
 }
 
-RocksDb::RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, std::shared_ptr<rocksdb::Statistics> statistics)
-    : db_(std::move(db)), statistics_(std::move(statistics)) {
+RocksDb::RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, RocksDbOptions options)
+    : db_(std::move(db)), options_(options) {
 }
 }  // namespace td
