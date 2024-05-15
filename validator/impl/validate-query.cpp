@@ -956,8 +956,8 @@ bool ValidateQuery::fetch_config_params() {
     if (compute_phase_cfg_.global_version >= 4) {
       auto prev_blocks_info = config_->get_prev_blocks_info();
       if (prev_blocks_info.is_error()) {
-        return fatal_error(prev_blocks_info.move_as_error_prefix(
-            "cannot fetch prev blocks info from masterchain configuration: "));
+        return fatal_error(
+            prev_blocks_info.move_as_error_prefix("cannot fetch prev blocks info from masterchain configuration: "));
       }
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
@@ -6193,13 +6193,12 @@ bool ValidateQuery::postcheck_value_flow() {
                                   << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
                                   << ", creation fee for this block is " << value_flow_.created.to_str()
                                   << ", the total imported fees from shards are " << value_flow_.fees_imported.to_str()
-                                  << " and the burned fees are " << fees_burned_.to_str()
-                                  << " with a total of " << expected_fees.to_str());
+                                  << " and the burned fees are " << fees_burned_.to_str() << " with a total of "
+                                  << expected_fees.to_str());
   }
   if (total_burned_ != value_flow_.burned) {
     return reject_query(PSTRING() << "invalid burned in value flow: " << id_.to_str() << " declared "
-                                  << value_flow_.burned.to_str() << ", correct value is "
-                                  << total_burned_.to_str());
+                                  << value_flow_.burned.to_str() << ", correct value is " << total_burned_.to_str());
   }
   return true;
 }
@@ -6330,7 +6329,8 @@ bool ValidateQuery::save_candidate() {
     }
   });
 
-  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(), std::move(P));
+  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
+                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
   return true;
 }
 

@@ -86,25 +86,25 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
   promise.set_value(td::Unit());
 }
 
-void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
-                                                  td::uint32 expiry_at, td::uint32 max_size,
-                                                  td::Promise<td::BufferSlice> promise) {
-    auto it = shards_.find(shard_id);
-    if(it == shards_.end()) {
-      promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
-      return;
-    }
-    td::actor::send_closure(it->second, &FullNodeShard::sign_overlay_certificate, signed_key, expiry_at, max_size, std::move(promise));
+void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
+                                                  td::uint32 max_size, td::Promise<td::BufferSlice> promise) {
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
+    return;
+  }
+  td::actor::send_closure(it->second, &FullNodeShard::sign_overlay_certificate, signed_key, expiry_at, max_size,
+                          std::move(promise));
 }
 
 void FullNodeImpl::import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                                     std::shared_ptr<ton::overlay::Certificate> cert,
                                                     td::Promise<td::Unit> promise) {
-    auto it = shards_.find(shard_id);
-    if(it == shards_.end()) {
-      promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
-    }
-    td::actor::send_closure(it->second, &FullNodeShard::import_overlay_certificate, signed_key, cert, std::move(promise));
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
+  }
+  td::actor::send_closure(it->second, &FullNodeShard::import_overlay_certificate, signed_key, cert, std::move(promise));
 }
 
 void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
@@ -126,13 +126,13 @@ void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td:
 
 void FullNodeImpl::set_config(FullNodeConfig config) {
   config_ = config;
-  for (auto& shard : shards_) {
+  for (auto &shard : shards_) {
     td::actor::send_closure(shard.second, &FullNodeShard::set_config, config);
   }
-  for (auto& overlay : private_block_overlays_) {
+  for (auto &overlay : private_block_overlays_) {
     td::actor::send_closure(overlay.second, &FullNodePrivateBlockOverlay::set_config, config);
   }
-  for (auto& overlay : custom_overlays_) {
+  for (auto &overlay : custom_overlays_) {
     for (auto &actor : overlay.second.actors_) {
       td::actor::send_closure(actor.second, &FullNodeCustomOverlay::set_config, config);
     }
@@ -241,6 +241,23 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
                             &FullNodePrivateBlockOverlay::send_shard_block_info, block_id, cc_seqno, data.clone());
   }
   td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
+}
+
+void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                        td::BufferSlice data) {
+  auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
+  if (shard.empty()) {
+    VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
+    return;
+  }
+  if (!private_block_overlays_.empty()) {
+    td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_block_candidate,
+                            block_id, cc_seqno, validator_set_hash, data.clone());
+  }
+  if (broadcast_block_candidates_in_public_overlay_) {
+    td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
+                            std::move(data));
+  }
 }
 
 void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) {
@@ -423,7 +440,7 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
 void FullNodeImpl::start_up() {
   add_shard(ShardIdFull{masterchainId});
   if (local_id_.is_zero()) {
-    if(adnl_id_.is_zero()) {
+    if (adnl_id_.is_zero()) {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
       local_id_ = pk.compute_short_id();
 
@@ -451,6 +468,11 @@ void FullNodeImpl::start_up() {
     }
     void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));
+    }
+    void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                              td::BufferSlice data) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
+                              std::move(data));
     }
     void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), custom_overlays_only);
@@ -568,7 +590,7 @@ void FullNodeImpl::update_custom_overlay(CustomOverlayInfo &overlay) {
   }
 }
 
-void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast) {
+void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast &broadcast) {
   if (!custom_overlays_sent_broadcasts_.insert(broadcast.block_id).second) {
     return;
   }
@@ -635,7 +657,7 @@ bool FullNodeConfig::operator!=(const FullNodeConfig &rhs) const {
   return !(*this == rhs);
 }
 
-CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_customOverlay& f) {
+CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_customOverlay &f) {
   CustomOverlayParams c;
   c.name_ = f.name_;
   for (const auto &node : f.nodes_) {

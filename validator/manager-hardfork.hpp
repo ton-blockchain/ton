@@ -152,6 +152,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
     UNREACHABLE();
   }
+  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override {
+    UNREACHABLE();
+  }
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
     UNREACHABLE();
@@ -172,7 +175,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                       std::function<td::Status(td::FileFd&)> write_data,
+                                       std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
@@ -215,7 +218,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<BlockSignatureSet>> promise) override;
 
-  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) override {
+  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override {
     promise.set_value(td::Unit());
   }
 
@@ -459,15 +463,15 @@ class ValidatorManagerImpl : public ValidatorManager {
     get_shard_state_from_db_short(block_id, std::move(promise));
   }
   void get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
-                                             td::Promise<ConstBlockHandle> promise) override {
+                                     td::Promise<ConstBlockHandle> promise) override {
     get_block_by_lt_from_db(account, lt, std::move(promise));
   }
   void get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
-                                                    td::Promise<ConstBlockHandle> promise) override {
+                                            td::Promise<ConstBlockHandle> promise) override {
     get_block_by_unix_time_from_db(account, ts, std::move(promise));
   }
   void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                td::Promise<ConstBlockHandle> promise) override {
+                                        td::Promise<ConstBlockHandle> promise) override {
     get_block_by_seqno_from_db(account, seqno, std::move(promise));
   }
   void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,

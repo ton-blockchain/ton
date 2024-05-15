@@ -256,7 +256,8 @@ void Collator::start_up() {
   if (!is_hardfork_) {
     LOG(DEBUG) << "sending get_external_messages() query to Manager";
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_,
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::get_external_messages, shard_,
         [self = get_self()](td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) -> void {
           LOG(DEBUG) << "got answer to get_external_messages() query";
           td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages, std::move(res));
@@ -1950,12 +1951,9 @@ bool Collator::init_lt() {
  * @returns True if the configuration parameters were successfully fetched and initialized, false otherwise.
  */
 bool Collator::fetch_config_params() {
-  auto res = block::FetchConfigParams::fetch_config_params(*config_,
-                                      &old_mparams_, &storage_prices_, &storage_phase_cfg_,
-                                      &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_,
-                                      &masterchain_create_fee_, &basechain_create_fee_,
-                                      workchain(), now_
-                                     );
+  auto res = block::FetchConfigParams::fetch_config_params(
+      *config_, &old_mparams_, &storage_prices_, &storage_phase_cfg_, &rand_seed_, &compute_phase_cfg_,
+      &action_phase_cfg_, &masterchain_create_fee_, &basechain_create_fee_, workchain(), now_);
   if (res.is_error()) {
     return fatal_error(res.move_as_error());
   }
@@ -2645,7 +2643,8 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
                                                    << ":" << smc_addr.to_hex() << " is too large"));
   }
   std::unique_ptr<block::transaction::Transaction> trans = std::make_unique<block::transaction::Transaction>(
-      *acc, mask == 2 ? block::transaction::Transaction::tr_tick : block::transaction::Transaction::tr_tock, req_start_lt, now_);
+      *acc, mask == 2 ? block::transaction::Transaction::tr_tick : block::transaction::Transaction::tr_tock,
+      req_start_lt, now_);
   if (!trans->prepare_storage_phase(storage_phase_cfg_, true)) {
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot create storage phase of a new transaction for smart contract "} + smc_addr.to_hex()));
@@ -2779,13 +2778,10 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root, bool
  *          Returns error_code == 669 if the error is fatal and the block can not be produced.
  *          Returns error_code == 701 if the transaction can not be included into block, but it's ok (external or too early internal).
  */
-td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_create_ordinary_transaction(Ref<vm::Cell> msg_root,
-                                                         block::Account* acc,
-                                                         UnixTime utime, LogicalTime lt,
-                                                         block::StoragePhaseConfig* storage_phase_cfg,
-                                                         block::ComputePhaseConfig* compute_phase_cfg,
-                                                         block::ActionPhaseConfig* action_phase_cfg,
-                                                         bool external, LogicalTime after_lt) {
+td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_create_ordinary_transaction(
+    Ref<vm::Cell> msg_root, block::Account* acc, UnixTime utime, LogicalTime lt,
+    block::StoragePhaseConfig* storage_phase_cfg, block::ComputePhaseConfig* compute_phase_cfg,
+    block::ActionPhaseConfig* action_phase_cfg, bool external, LogicalTime after_lt) {
   if (acc->last_trans_end_lt_ >= lt && acc->transactions.empty()) {
     return td::Status::Error(-669, PSTRING() << "last transaction time in the state of account " << acc->workchain
                                              << ":" << acc->addr.to_hex() << " is too large");
@@ -2796,8 +2792,8 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     trans_min_lt = std::max(trans_min_lt, after_lt);
   }
 
-  std::unique_ptr<block::transaction::Transaction> trans =
-      std::make_unique<block::transaction::Transaction>(*acc, block::transaction::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
+  std::unique_ptr<block::transaction::Transaction> trans = std::make_unique<block::transaction::Transaction>(
+      *acc, block::transaction::Transaction::tr_ord, trans_min_lt + 1, utime, msg_root);
   bool ihr_delivered = false;  // FIXME
   if (!trans->unpack_input_msg(ihr_delivered, action_phase_cfg)) {
     if (external) {
@@ -5012,12 +5008,13 @@ bool Collator::create_block_candidate() {
   }
   // 4. save block candidate
   LOG(INFO) << "saving new BlockCandidate";
-  td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
-                                block_candidate->clone(), [self = get_self()](td::Result<td::Unit> saved) -> void {
-                                  LOG(DEBUG) << "got answer to set_block_candidate";
-                                  td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
-                                                                std::move(saved));
-                                });
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::set_block_candidate, block_candidate->id, block_candidate->clone(),
+      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+      [self = get_self()](td::Result<td::Unit> saved) -> void {
+        LOG(DEBUG) << "got answer to set_block_candidate";
+        td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate, std::move(saved));
+      });
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
     LOG(INFO) << "sending complete_external_messages() to Manager";
