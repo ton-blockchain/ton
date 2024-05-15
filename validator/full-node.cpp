@@ -243,6 +243,23 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
   td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
 }
 
+void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                        td::BufferSlice data) {
+  auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
+  if (shard.empty()) {
+    VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
+    return;
+  }
+  if (!private_block_overlays_.empty()) {
+    td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_block_candidate,
+                            block_id, cc_seqno, validator_set_hash, data.clone());
+  }
+  if (broadcast_block_candidates_in_public_overlay_) {
+    td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
+                            std::move(data));
+  }
+}
+
 void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) {
   send_block_broadcast_to_custom_overlays(broadcast);
   if (custom_overlays_only) {
@@ -451,6 +468,11 @@ void FullNodeImpl::start_up() {
     }
     void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));
+    }
+    void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                              td::BufferSlice data) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
+                              std::move(data));
     }
     void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), custom_overlays_only);

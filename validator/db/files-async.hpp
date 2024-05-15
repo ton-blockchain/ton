@@ -57,7 +57,7 @@ class WriteFile : public td::actor::Actor {
       status = file.sync();
     }
     if (status.is_error()) {
-      td::unlink(old_name);
+      td::unlink(old_name).ignore();
       promise_.set_error(std::move(status));
       stop();
       return;
