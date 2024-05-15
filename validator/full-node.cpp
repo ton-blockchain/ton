@@ -270,7 +270,7 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, bool custom_overlays
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
   }
-  if (!private_block_overlays_.empty()) {
+  if (broadcast.block_id.is_masterchain() && !private_block_overlays_.empty()) {
     td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_broadcast,
                             broadcast.clone());
   }
