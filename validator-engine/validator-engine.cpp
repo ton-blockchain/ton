@@ -1372,6 +1372,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (celldb_cache_size_) {
     validator_options_.write().set_celldb_cache_size(celldb_cache_size_.value());
   }
+  if (!celldb_cache_size_ || celldb_cache_size_.value() < (30ULL << 30)) {
+    celldb_direct_io_ = false;
+  }
   validator_options_.write().set_celldb_direct_io(celldb_direct_io_);
   validator_options_.write().set_celldb_preload_all(celldb_preload_all_);
   if (catchain_max_block_delay_) {
@@ -3985,9 +3988,9 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_cache_size, v); });
         return td::Status::OK();
       });
-  p.add_option('\0', "celldb-no-direct-io", "disable direct I/O mode for RocksDb in CellDb", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io, false); });
-  });
+  p.add_option(
+      '\0', "celldb-no-direct-io", "disable direct I/O mode for RocksDb in CellDb (forced when celldb cache is < 30G)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io, false); }); });
   p.add_option(
       '\0', "celldb-no-preload-all",
       "disable preloading all cells from CellDb on startup (enabled by default)",
