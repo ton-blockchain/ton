@@ -230,6 +230,11 @@ class ValidateQuery : public td::actor::Actor {
 
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
 
+  std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> removed_dispatch_queue_messages_;
+  std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> new_dispatch_queue_messages_;
+  bool msg_metadata_enabled_ = true;
+  std::set<StdSmcAddress> account_expected_defer_all_messages_;
+
   td::PerfWarningTimer perf_timer_;
 
   static constexpr td::uint32 priority() {
@@ -330,6 +335,9 @@ class ValidateQuery : public td::actor::Actor {
   bool precheck_one_message_queue_update(td::ConstBitPtr out_msg_id, Ref<vm::CellSlice> old_value,
                                          Ref<vm::CellSlice> new_value);
   bool precheck_message_queue_update();
+  bool check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm::CellSlice> old_queue_csr,
+                                           Ref<vm::CellSlice> new_queue_csr);
+  bool unpack_dispatch_queue_update();
   bool update_max_processed_lt_hash(ton::LogicalTime lt, const ton::Bits256& hash);
   bool update_min_enqueued_lt_hash(ton::LogicalTime lt, const ton::Bits256& hash);
   bool check_imported_message(Ref<vm::Cell> msg_env);
@@ -338,6 +346,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_in_msg_descr();
   bool check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_msg);
   bool check_out_msg_descr();
+  bool check_dispatch_queue_update();
   bool check_processed_upto();
   bool check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
                                        const block::McShardDescr& src_nb, bool& unprocessed);

@@ -66,6 +66,7 @@ struct NewOutMsg {
   ton::LogicalTime lt;
   Ref<vm::Cell> msg;
   Ref<vm::Cell> trans;
+  td::optional<MsgMetadata> metadata;
   NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans)
       : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)) {
   }

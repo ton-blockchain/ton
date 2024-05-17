@@ -203,6 +203,12 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<vm::Cell>> collated_roots_;
   std::unique_ptr<ton::BlockCandidate> block_candidate;
 
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
+  std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
+  unsigned dispatch_queue_ops_{0};
+  std::map<StdSmcAddress, LogicalTime> last_enqueued_deferred_lt_;
+  bool msg_metadata_enabled_ = true;  // TODO: enable by config
+
   td::PerfWarningTimer perf_timer_;
   //
   block::Account* lookup_account(td::ConstBitPtr addr) const;
@@ -249,7 +255,8 @@ class Collator final : public td::actor::Actor {
                                   Ref<vm::Cell>& in_msg);
   bool create_ticktock_transactions(int mask);
   bool create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, ton::LogicalTime req_start_lt, int mask);
-  Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root, bool is_special_tx = false);
+  Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root, td::optional<block::MsgMetadata> msg_metadata,
+                                            bool is_special_tx = false);
   bool check_cur_validator_set();
   bool unpack_last_mc_state();
   bool unpack_last_state();
@@ -278,7 +285,7 @@ class Collator final : public td::actor::Actor {
                                                   int priority);
   // td::Result<bool> register_external_message(td::Slice ext_msg_boc);
   void register_new_msg(block::NewOutMsg msg);
-  void register_new_msgs(block::transaction::Transaction& trans);
+  void register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);
   bool process_new_messages(bool enqueue_only = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
@@ -286,10 +293,14 @@ class Collator final : public td::actor::Actor {
                                const block::McShardDescr& src_nb);
   bool process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
-  bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, ton::LogicalTime enqueued_lt);
+  bool process_dispatch_queue();
+  bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt);
+  bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, ton::LogicalTime enqueued_lt,
+                       StdSmcAddress src_addr, bool defer = false);
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
-                               td::RefInt256 fwd_fee_remaining);
+                               td::RefInt256 fwd_fee_remaining, td::optional<block::MsgMetadata> msg_metadata,
+                               td::optional<LogicalTime> deferred_lt = {});
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);

@@ -417,6 +417,7 @@ struct ShardState {
   std::unique_ptr<vm::Dictionary> ihr_pending_;
   std::unique_ptr<vm::Dictionary> block_create_stats_;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_;
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
 
   bool is_valid() const {
     return id_.is_valid();
@@ -748,5 +749,26 @@ bool parse_hex_hash(td::Slice str, td::Bits256& hash);
 
 bool parse_block_id_ext(const char* str, const char* end, ton::BlockIdExt& blkid);
 bool parse_block_id_ext(td::Slice str, ton::BlockIdExt& blkid);
+
+bool unpack_account_dispatch_queue(Ref<vm::CellSlice> csr, vm::Dictionary& dict, td::uint64& dict_size);
+Ref<vm::CellSlice> pack_account_dispatch_queue(const vm::Dictionary& dict, td::uint64 dict_size);
+Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictionary& dispatch_queue,
+                                                     ton::StdSmcAddress& addr);
+bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const ton::StdSmcAddress& addr,
+                                 ton::LogicalTime lt);
+
+struct MsgMetadata {
+  td::uint32 depth;
+  ton::WorkchainId initiator_wc;
+  ton::StdSmcAddress initiator_addr;
+  ton::LogicalTime initiator_lt;
+
+  bool unpack(vm::CellSlice& cs);
+  bool pack(vm::CellBuilder& cb) const;
+  std::string to_str() const;
+
+  bool operator==(const MsgMetadata& other) const;
+  bool operator!=(const MsgMetadata& other) const;
+};
 
 }  // namespace block
