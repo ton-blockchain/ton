@@ -61,10 +61,9 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  // ignore cc_seqno and validator_hash for now
   VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in private overlay from " << src << ": " << block_id.to_str();
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
-                          std::move(query.data_));
+  td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, query.catchain_seqno_,
+                          query.validator_set_hash_, std::move(query.data_));
 }
 
 void FullNodePrivateBlockOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -230,6 +229,28 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
                           std::move(query.message_->data_), it->second);
 }
 
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
+  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
+    VLOG(FULL_NODE_DEBUG) << "Dropping block candidate broadcast in private overlay \"" << name_
+                          << "\" from unauthorized sender " << src;
+    return;
+  }
+  if (query.data_.size() > FullNode::max_block_size()) {
+    VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
+    return;
+  }
+  BlockIdExt block_id = create_block_id(query.id_);
+  if (td::sha256_bits256(query.data_.as_slice()) != block_id.file_hash) {
+    VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
+    return;
+  }
+  // ignore cc_seqno and validator_hash for now
+  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in custom overlay \"" << name_ << "\" from " << src << ": "
+                        << block_id.to_str();
+  td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, query.catchain_seqno_,
+                          query.validator_set_hash_, std::move(query.data_));
+}
+
 void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
   if (adnl::AdnlNodeIdShort{src} == local_id_) {
     return;
@@ -270,6 +291,19 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
+}
+
+void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                 td::uint32 validator_set_hash, td::BufferSlice data) {
+  if (!inited_) {
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in custom overlay \"" << name_ << "\": " << block_id.to_str();
+  auto B = create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcast>(
+      create_tl_block_id(block_id), cc_seqno, validator_set_hash,
+      create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), std::move(data));
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
 }
 
 void FullNodeCustomOverlay::start_up() {

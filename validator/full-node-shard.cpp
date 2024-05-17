@@ -660,8 +660,8 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ne
   }
   // ignore cc_seqno and validator_hash for now
   VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id.to_str();
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
-                          std::move(query.data_));
+  td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, query.catchain_seqno_,
+                          query.validator_set_hash_, std::move(query.data_));
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {

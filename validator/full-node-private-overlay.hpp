@@ -101,6 +101,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
@@ -109,6 +110,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   void send_external_message(td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
+  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                            td::BufferSlice data);
 
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);

@@ -245,6 +245,7 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 
 void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                         td::BufferSlice data) {
+  send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
@@ -437,6 +438,14 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
                           });
 }
 
+void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                     td::uint32 validator_set_hash, td::BufferSlice data) {
+  send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+  // ignore cc_seqno and validator_hash for now
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
+                          std::move(data));
+}
+
 void FullNodeImpl::start_up() {
   add_shard(ShardIdFull{masterchainId});
   if (local_id_.is_zero()) {
@@ -604,6 +613,29 @@ void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast&
       auto local_id = actor.first;
       if (private_overlay.second.params_.block_senders_.count(local_id)) {
         td::actor::send_closure(actor.second, &FullNodeCustomOverlay::send_broadcast, broadcast.clone());
+      }
+    }
+  }
+}
+
+void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt &block_id, CatchainSeqno cc_seqno,
+                                                                     td::uint32 validator_set_hash,
+                                                                     const td::BufferSlice &data) {
+  // Same cache of sent broadcasts as in send_block_broadcast_to_custom_overlays
+  if (!custom_overlays_sent_broadcasts_.insert(block_id).second) {
+    return;
+  }
+  custom_overlays_sent_broadcasts_lru_.push(block_id);
+  if (custom_overlays_sent_broadcasts_lru_.size() > 256) {
+    custom_overlays_sent_broadcasts_.erase(custom_overlays_sent_broadcasts_lru_.front());
+    custom_overlays_sent_broadcasts_lru_.pop();
+  }
+  for (auto &private_overlay : custom_overlays_) {
+    for (auto &actor : private_overlay.second.actors_) {
+      auto local_id = actor.first;
+      if (private_overlay.second.params_.block_senders_.count(local_id)) {
+        td::actor::send_closure(actor.second, &FullNodeCustomOverlay::send_block_candidate, block_id, cc_seqno,
+                                validator_set_hash, data.clone());
       }
     }
   }

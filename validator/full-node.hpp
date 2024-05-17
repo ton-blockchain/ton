@@ -86,6 +86,8 @@ class FullNodeImpl : public FullNode {
   void new_key_block(BlockHandle handle);
 
   void process_block_broadcast(BlockBroadcast broadcast) override;
+  void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                         td::BufferSlice data) override;
 
   void start_up() override;
 
@@ -141,6 +143,8 @@ class FullNodeImpl : public FullNode {
   void create_private_block_overlay(PublicKeyHash key);
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
+  void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
+                                                         td::uint32 validator_set_hash, const td::BufferSlice& data);
 };
 
 }  // namespace fullnode

@@ -467,9 +467,6 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
 }
 
 void ValidatorManagerImpl::new_block_candidate(BlockIdExt block_id, td::BufferSlice data) {
-  if (!is_validator()) {
-    return;
-  }
   if (!last_masterchain_block_handle_) {
     VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
     return;
@@ -1243,8 +1240,8 @@ void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate can
   }
   if (!id.is_masterchain()) {
     add_cached_block_candidate(ReceivedBlock{id, candidate.data.clone()});
+    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, candidate.data.clone());
   }
-  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, candidate.data.clone());
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
 
