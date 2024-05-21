@@ -3514,7 +3514,7 @@ LtCellRef Transaction::extract_out_msg(unsigned i) {
  * @returns A triple of the logical time, the extracted output message and the transaction root.
  */
 NewOutMsg Transaction::extract_out_msg_ext(unsigned i) {
-  return {start_lt + i + 1, std::move(out_msgs.at(i)), root};
+  return {start_lt + i + 1, std::move(out_msgs.at(i)), root, i};
 }
 
 /**

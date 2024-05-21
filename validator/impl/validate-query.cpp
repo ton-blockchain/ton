@@ -3399,11 +3399,14 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
       account_expected_defer_all_messages_.insert(addr);
     }
   }
+  if (old_dict_size > 0 && max_removed_lt == 0) {
+    have_unprocessed_account_dispatch_queue_ = true;
+  }
   return true;
 }
 
 /**
- * Pre-check the difference between the old and new dispatch queues and puts the difference to
+ * Pre-check the difference between the old and new dispatch queues and put the difference to
  * new_dispatch_queue_messages_, old_dispatch_queue_messages_
  *
  * @returns True if the pre-check and unpack is successful, false otherwise.
@@ -3683,6 +3686,12 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
     }
     default:
       return reject_query(PSTRING() << "InMsg with key " << key.to_hex(256) << " has impossible tag " << tag);
+  }
+  if (have_unprocessed_account_dispatch_queue_ && tag != block::gen::InMsg::msg_import_ext &&
+      tag != block::gen::InMsg::msg_import_deferred_tr && tag != block::gen::InMsg::msg_import_deferred_fin) {
+    // Collator is requeired to take at least one message from each AccountDispatchQueue (unless the block is full)
+    // If some AccountDispatchQueue is unporcessed then it's not allowed to import other messages except for externals
+    return reject_query("required DispatchQueue processing is not done, but some other internal messages are imported");
   }
   // common checks for all (non-external) inbound messages
   CHECK(msg.not_null());
@@ -5244,6 +5253,12 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       if (is_deferred) {
         LOG(INFO) << "message from account " << workchain() << ":" << ss_addr.to_hex() << " with lt " << message_lt
                   << " was deferred";
+        if (i == 0 && !account_expected_defer_all_messages_.count(ss_addr)) {
+          return reject_query(
+              PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
+                        << " must not be deferred (the first message cin transaction annot be deferred unless some "
+                           "prevoius messages are deferred)");
+        }
         account_expected_defer_all_messages_.insert(ss_addr);
       }
     }

@@ -209,8 +209,9 @@ class Collator final : public td::actor::Actor {
   std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
   unsigned dispatch_queue_ops_{0};
   std::map<StdSmcAddress, LogicalTime> last_enqueued_deferred_lt_;
-  bool msg_metadata_enabled_ = true;              // TODO: enable by config
-  bool store_out_msg_queue_size_ = true;  // TODO: enable by config
+  bool msg_metadata_enabled_ = true;  // TODO: enable by config
+  bool store_out_msg_queue_size_ = true;
+  bool have_unprocessed_account_dispatch_queue_ = true;
 
   td::PerfWarningTimer perf_timer_;
   //

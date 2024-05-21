@@ -238,6 +238,8 @@ class ValidateQuery : public td::actor::Actor {
   td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
   bool store_out_msg_queue_size_ = true;
 
+  bool have_unprocessed_account_dispatch_queue_ = false;
+
   td::PerfWarningTimer perf_timer_;
 
   static constexpr td::uint32 priority() {

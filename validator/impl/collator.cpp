@@ -2609,7 +2609,7 @@ bool Collator::create_special_transaction(block::CurrencyCollection amount, Ref<
   }
   CHECK(block::gen::t_Message_Any.validate_ref(msg));
   CHECK(block::tlb::t_Message.validate_ref(msg));
-  if (process_one_new_message(block::NewOutMsg{lt, msg, Ref<vm::Cell>{}}, false, &in_msg) != 1) {
+  if (process_one_new_message(block::NewOutMsg{lt, msg, Ref<vm::Cell>{}, 0}, false, &in_msg) != 1) {
     return fatal_error("cannot generate special transaction for recovering "s + amount.to_str() + " to account " +
                        addr.to_hex());
   }
@@ -3045,9 +3045,13 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   StdSmcAddress src_addr;
   CHECK(block::tlb::t_MsgAddressInt.extract_std_address(std::move(src), src_wc, src_addr));
   CHECK(src_wc == workchain());
-  ++sender_generated_messages_count_[src_addr];
   bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
-  bool defer = !is_special_account && sender_generated_messages_count_[src_addr] >= 10;
+  bool defer = false;
+  if (!is_special && !is_special_account && msg.msg_idx != 0) {
+    if (++sender_generated_messages_count_[src_addr] >= 10) {
+      defer = true;
+    }
+  }
   if (dispatch_queue_->lookup(src_addr).not_null()) {
     defer = true;
   }
@@ -3586,51 +3590,62 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_dispatch_queue() {
-  vm::AugmentedDictionary cur_dispatch_queue{dispatch_queue_->get_root(), 256, block::tlb::aug_DispatchQueue};
-  while (!block_full_ && !cur_dispatch_queue.is_empty()) {
-    block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
-    if (block_full_) {
-      LOG(INFO) << "BLOCK FULL, stop processing dispatch queue";
-      break;
-    }
-    if (soft_timeout_.is_in_past(td::Timestamp::now())) {
-      block_full_ = true;
-      LOG(WARNING) << "soft timeout reached, stop processing dispatch queue";
-      break;
-    }
-    StdSmcAddress src_addr;
-    auto account_dispatch_queue = block::get_dispatch_queue_min_lt_account(cur_dispatch_queue, src_addr);
-    if (account_dispatch_queue.is_null()) {
-      return fatal_error("invalid dispatch queue in shard state");
-    }
-    if (sender_generated_messages_count_[src_addr] >= 10) {
-      cur_dispatch_queue.lookup_delete(src_addr);
-      continue;
-    }
-    vm::Dictionary dict{64};
-    size_t dict_size;
-    if (!block::unpack_account_dispatch_queue(account_dispatch_queue, dict, dict_size)) {
-      return fatal_error(PSTRING() << "invalid account dispatch queue for account " << src_addr.to_hex());
-    }
-    td::BitArray<64> key;
-    Ref<vm::CellSlice> enqueued_msg = dict.extract_minmax_key(key.bits(), 64, false, false);
-    LogicalTime lt = key.to_ulong();
+  have_unprocessed_account_dispatch_queue_ = true;
+  for (int iter = 0; iter < 2; ++iter) {
+    vm::AugmentedDictionary cur_dispatch_queue{dispatch_queue_->get_root(), 256, block::tlb::aug_DispatchQueue};
+    while (!cur_dispatch_queue.is_empty()) {
+      block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
+      if (block_full_) {
+        LOG(INFO) << "BLOCK FULL, stop processing dispatch queue";
+        return true;
+      }
+      if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+        block_full_ = true;
+        LOG(WARNING) << "soft timeout reached, stop processing dispatch queue";
+        return true;
+      }
+      StdSmcAddress src_addr;
+      auto account_dispatch_queue = block::get_dispatch_queue_min_lt_account(cur_dispatch_queue, src_addr);
+      if (account_dispatch_queue.is_null()) {
+        return fatal_error("invalid dispatch queue in shard state");
+      }
+      if (iter == 1 && sender_generated_messages_count_[src_addr] >= 10) {
+        cur_dispatch_queue.lookup_delete(src_addr);
+        continue;
+      }
+      vm::Dictionary dict{64};
+      size_t dict_size;
+      if (!block::unpack_account_dispatch_queue(account_dispatch_queue, dict, dict_size)) {
+        return fatal_error(PSTRING() << "invalid account dispatch queue for account " << src_addr.to_hex());
+      }
+      td::BitArray<64> key;
+      Ref<vm::CellSlice> enqueued_msg = dict.extract_minmax_key(key.bits(), 64, false, false);
+      LogicalTime lt = key.to_ulong();
 
-    // Remove message from DispatchQueue
-    dict.lookup_delete(key);
-    --dict_size;
-    account_dispatch_queue = block::pack_account_dispatch_queue(dict, dict_size);
-    bool ok = account_dispatch_queue.not_null() ? cur_dispatch_queue.set(src_addr, account_dispatch_queue)
-                                                : cur_dispatch_queue.lookup_delete(src_addr).not_null();
-    if (!ok) {
-      return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
-                                   << src_addr.to_hex() << ", lt=" << lt);
-    }
+      // Remove message from DispatchQueue
+      bool ok;
+      if (iter == 0) {
+        ok = cur_dispatch_queue.lookup_delete(src_addr).not_null();
+      } else {
+        dict.lookup_delete(key);
+        --dict_size;
+        account_dispatch_queue = block::pack_account_dispatch_queue(dict, dict_size);
+        ok = account_dispatch_queue.not_null() ? cur_dispatch_queue.set(src_addr, account_dispatch_queue)
+                                               : cur_dispatch_queue.lookup_delete(src_addr).not_null();
+      }
+      if (!ok) {
+        return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
+                                     << src_addr.to_hex() << ", lt=" << lt);
+      }
 
-    LOG(INFO) << "delivering deferred message from account " << src_addr.to_hex() << ", lt=" << lt;
-    if (!process_deferred_message(std::move(enqueued_msg), src_addr, lt)) {
-      return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
-                                   << src_addr.to_hex() << ", lt=" << lt);
+      LOG(INFO) << "delivering deferred message from account " << src_addr.to_hex() << ", lt=" << lt;
+      if (!process_deferred_message(std::move(enqueued_msg), src_addr, lt)) {
+        return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
+                                     << src_addr.to_hex() << ", lt=" << lt);
+      }
+    }
+    if (iter == 0) {
+      have_unprocessed_account_dispatch_queue_ = false;
     }
   }
   return true;
@@ -4934,7 +4949,6 @@ bool Collator::compute_out_msg_queue_info(Ref<vm::Cell>& out_msg_queue_info) {
   vm::CellBuilder cb;
   // out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48) = OutMsgQueueExtra;
   // ... extra:(Maybe OutMsgQueueExtra)
-  bool ok = false;
   if (!dispatch_queue_->is_empty() || store_out_msg_queue_size_) {
     if (!(cb.store_long_bool(1, 1) && cb.store_long_bool(0, 4) && dispatch_queue_->append_dict_to_bool(cb))) {
       return false;
