@@ -111,12 +111,12 @@
     throw(0xffff);
 }
 
-(int, int, slice, cell, cell) get_jetton_data() method_id {
+get (int, int, slice, cell, cell) get_jetton_data() {
     (int total_supply, slice admin_address, cell content, cell jetton_wallet_code) = load_data();
     return (total_supply, -1, admin_address, content, jetton_wallet_code);
 }
 
-slice get_wallet_address(slice owner_address) method_id {
+get slice get_wallet_address(slice owner_address) {
     (int total_supply, slice admin_address, cell content, cell jetton_wallet_code) = load_data();
     return calculate_user_jetton_wallet_address(owner_address, my_address(), jetton_wallet_code);
 }

@@ -168,27 +168,27 @@ _ skipBits(slice s, int len) { return skip_bits(s, len); }
 
 ;; Get methods
 
-int seqno() method_id {
+get int seqno() {
   return get_data().begin_parse().preload_uint(32);
 }
 
-int get_subwallet_id() method_id {
+get int get_subwallet_id() {
   return get_data().begin_parse().skip_bits(32).preload_uint(32);
 }
 
-int get_public_key() method_id {
+get int get_public_key() {
   var cs = get_data().begin_parse().skip_bits(64);
   return cs.preload_uint(256);
 }
 
-int is_plugin_installed(int wc, int addr_hash) method_id {
+get int is_plugin_installed(int wc, int addr_hash) {
   var ds = get_data().begin_parse().skipBits(32 + 32 + 256);
   var plugins = ds~load_dict();
   var (_, success?) = plugins.dict_get?(8 + 256, begin_cell().store_int(wc, 8).store_uint(addr_hash, 256).end_cell().begin_parse());
   return success?;
 }
 
-tuple get_plugin_list() method_id {
+get tuple get_plugin_list() {
   var list = null();
   var ds = get_data().begin_parse().skip_bits(32 + 32 + 256);
   var plugins = ds~load_dict();

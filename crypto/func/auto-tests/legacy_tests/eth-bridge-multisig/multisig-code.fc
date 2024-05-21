@@ -248,7 +248,7 @@ _ unpack_owner_info(slice cs) inline_ref {
 
 ;; Get methods
 ;; returns -1 for processed queries, 0 for unprocessed, 1 for unknown (forgotten)
-(int, int) get_query_state(int query_id) method_id {
+get (int, int) get_query_state(int query_id) {
   (_, int n, _, int last_cleaned, _, cell pending_queries, _) = unpack_state();
   (slice cs, var found) = pending_queries.udict_get?(64, query_id);
   if (found) {
@@ -263,12 +263,12 @@ _ unpack_owner_info(slice cs) inline_ref {
   }
 }
 
-int processed?(int query_id) method_id {
+get int processed?(int query_id) {
   (int x, _) = get_query_state(query_id);
   return x;
 }
 
-cell create_init_state(int wallet_id, int n, int k, cell owners_info, int spend_delay) method_id {
+get cell create_init_state(int wallet_id, int n, int k, cell owners_info, int spend_delay) {
   return pack_state(new_dict(), owners_info, 0, k, n, wallet_id, spend_delay);
 }
 
@@ -291,7 +291,7 @@ cell merge_list(cell a, cell b) {
 
 }
 
-cell get_public_keys() method_id {
+get cell get_public_keys() {
   (_, _, _, _, cell public_keys, _, _) = unpack_state();
   return public_keys;
 }

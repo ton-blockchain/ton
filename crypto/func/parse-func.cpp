@@ -1509,12 +1509,22 @@ void detect_if_function_just_wraps_another(SymValCodeFunc* v_current, const td::
   }
 }
 
+static td::RefInt256 calculate_method_id_by_func_name(const std::string &func_name) {
+  unsigned int crc = td::crc16(func_name);
+  return td::make_refint((crc & 0xffff) | 0x10000);
+}
+
+// todo rewrite function declaration parsing completely, it's weird
 void parse_func_def(Lexer& lex) {
   SrcLocation loc{lex.cur().loc};
   sym::open_scope(lex);
   std::vector<TypeExpr*> type_vars;
+  bool is_get_method = false;
   if (lex.tp() == _Forall) {
     type_vars = parse_type_var_list(lex);
+  } else if (lex.tp() == _Get) {
+    is_get_method = true;
+    lex.next();
   }
   auto ret_type = parse_type(lex);
   if (lex.tp() != _Ident) {
@@ -1544,31 +1554,31 @@ void parse_func_def(Lexer& lex) {
     lex.next();
   }
   td::RefInt256 method_id;
-  std::string method_name;
   if (lex.tp() == _MethodId) {
+    if (is_get_method) {
+      lex.cur().error("both `get` and `method_id` are not allowed");
+    }
     lex.next();
-    if (lex.tp() == '(') {
+    if (lex.tp() == '(') {  // method_id(N)
       lex.expect('(');
-      if (lex.tp() == Lexem::String) {
-        method_name = lex.cur().str;
-      } else if (lex.tp() == Lexem::Number) {
-        method_name = lex.cur().str;
-        method_id = td::string_to_int256(method_name);
-        if (method_id.is_null()) {
-          lex.cur().error_at("invalid integer constant `", "`");
-        }
-      } else {
-        throw src::ParseError{lex.cur().loc, "integer or string method identifier expected"};
+      method_id = td::string_to_int256(lex.cur().str);
+      lex.expect(Lexem::Number);
+      if (method_id.is_null()) {
+        lex.cur().error_at("invalid integer constant `", "`");
       }
-      lex.next();
       lex.expect(')');
     } else {
-      method_name = func_name.str;
+      static bool warning_shown = false;
+      if (!warning_shown) {
+        lex.cur().loc.show_warning("`method_id` specifier is deprecated, use `get` keyword.\nExample: `get int seqno() { ... }`");
+        warning_shown = true;
+      }
+      method_id = calculate_method_id_by_func_name(func_name.str);
     }
-    if (method_id.is_null()) {
-      unsigned crc = td::crc16(method_name);
-      method_id = td::make_refint((crc & 0xffff) | 0x10000);
-    }
+  }
+  if (is_get_method) {
+    func_assert(method_id.is_null());
+    method_id = calculate_method_id_by_func_name(func_name.str);
   }
   TypeExpr* func_type = TypeExpr::new_map(extract_total_arg_type(arg_list), ret_type);
   func_type = compute_type_closure(func_type, type_vars);
@@ -1681,6 +1691,13 @@ void parse_func_def(Lexer& lex) {
     } else if ((val->flags & (SymValFunc::flagInline | SymValFunc::flagInlineRef)) != flags_inline) {
       lex.cur().error("inline mode for `"s + func_name.str + "` changed with respect to a previous declaration");
     }
+  }
+  if (is_get_method) {
+    auto val = dynamic_cast<SymValFunc*>(func_sym->value);
+    if (!val) {
+      lex.cur().error("cannot set unknown function `"s + func_name.str + "` as a get method");
+    }
+    val->flags |= SymValFunc::flagGetMethod;
   }
   if (verbosity >= 1) {
     std::cerr << "new type of function " << func_name.str << " : " << func_type << std::endl;

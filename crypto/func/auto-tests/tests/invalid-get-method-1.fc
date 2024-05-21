@@ -1,0 +1,8 @@
+get (int, int) hello(int x, int y) method_id(123) {
+    return (x, y);
+}
+
+{-
+@compilation_should_fail
+@stderr both `get` and `method_id` are not allowed
+-}

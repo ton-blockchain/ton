@@ -126,6 +126,7 @@ void define_keywords() {
       .add_keyword("builtin", Kw::_Builtin)
       .add_keyword("auto_apply", Kw::_AutoApply)
       .add_keyword("method_id", Kw::_MethodId)
+      .add_keyword("get", Kw::_Get)
       .add_keyword("operator", Kw::_Operator)
       .add_keyword("infix", Kw::_Infix)
       .add_keyword("infixl", Kw::_Infixl)

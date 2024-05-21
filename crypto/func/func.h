@@ -116,6 +116,7 @@ enum Keyword {
   _Builtin,
   _AutoApply,
   _MethodId,
+  _Get,
   _Operator,
   _Infix,
   _Infixl,
@@ -769,6 +770,7 @@ struct SymValFunc : SymVal {
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
     flagBuiltinFunction = 32,   // was created via `define_builtin_func()`, not from source code
+    flagGetMethod = 64,         // was declared via `get T func()`, method_id is auto-assigned
   };
 
   td::RefInt256 method_id;  // todo why int256? it's small
@@ -806,6 +808,9 @@ struct SymValFunc : SymVal {
   }
   bool is_builtin() const {
     return flags & flagBuiltinFunction;
+  }
+  bool is_get_method() const {
+    return flags & flagGetMethod;
   }
 };
 

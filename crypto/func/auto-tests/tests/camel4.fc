@@ -40,7 +40,7 @@ int test1() method_id(101) {
     return s~load_uint(32);
 }
 
-int test2(int ret) method_id {
+get int test2(int ret) {
     return setAndGetDataWrapper(ret);
 }
 

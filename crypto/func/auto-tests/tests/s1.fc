@@ -1,28 +1,28 @@
-slice ascii_slice() method_id {
+get slice ascii_slice() {
   return "string";
 }
 
-slice raw_slice() method_id {
+get slice raw_slice() {
   return "abcdef"s;
 }
 
-slice addr_slice() method_id {
+get slice addr_slice() {
   return "Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF"a;
 }
 
-int string_hex() method_id {
+get int string_hex() {
   return "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"u;
 }
 
-int string_minihash() method_id {
+get int string_minihash() {
   return "transfer(slice, int)"h;
 }
 
-int string_maxihash() method_id {
+get int string_maxihash() {
   return "transfer(slice, int)"H;
 }
 
-int string_crc32() method_id {
+get int string_crc32() {
   return "transfer(slice, int)"c;
 }
 

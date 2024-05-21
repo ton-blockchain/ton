@@ -106,22 +106,22 @@ slice calculate_nft_item_address(int wc, cell state_init) {
 
 ;; Get methods
 
-(int, cell, slice) get_collection_data() method_id {
+get (int, cell, slice) get_collection_data() {
     var (content, nft_item_code) = load_data();
     return (-1, content, zero_address());
 }
 
-slice get_nft_address_by_index(int index) method_id {
+get slice get_nft_address_by_index(int index) {
     var (content, nft_item_code) = load_data();
     cell state_init = calculate_nft_item_state_init(index, nft_item_code);
     return calculate_nft_item_address(workchain(), state_init);
 }
 
-cell get_nft_content(int index, cell individual_nft_content) method_id {
+get cell get_nft_content(int index, cell individual_nft_content) {
     return individual_nft_content;
 }
 
-(int, cell) dnsresolve(slice subdomain, int category) method_id {
+get (int, cell) dnsresolve(slice subdomain, int category) {
     throw_unless(70, mod(slice_bits(subdomain), 8) == 0);
 
     int starts_with_zero_byte = subdomain.preload_int(8) == 0;

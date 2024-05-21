@@ -283,7 +283,7 @@ cell change_dns_record(cell dns, slice in_msg_body) {
 ;;  GET Methods
 ;;
 
-(int, int, slice, slice, cell) get_nft_data() method_id {
+get (int, int, slice, slice, cell) get_nft_data() {
     (cell config, cell state) = unpack_item_data();
     (int item_index, slice collection_address) = unpack_item_config(config);
     if (cell_null?(state)) {
@@ -294,7 +294,7 @@ cell change_dns_record(cell dns, slice in_msg_body) {
     return (-1, item_index, collection_address, owner_address, nft_content);
 }
 
-slice get_full_domain() method_id {
+get slice get_full_domain() {
     (cell config, cell state) = unpack_item_data();
     (slice owner_address, cell content, cell auction, cell royalty_params) = unpack_item_state(state);
     (cell nft_content, cell dns, cell token_info) = unpack_item_content(content);
@@ -302,7 +302,7 @@ slice get_full_domain() method_id {
     return begin_cell().store_slice(domain).store_slice(token_name).store_int(0, 8).end_cell().begin_parse();
 }
 
-slice get_telemint_token_name() method_id {
+get slice get_telemint_token_name() {
     (cell config, cell state) = unpack_item_data();
     (slice owner_address, cell content, cell auction, cell royalty_params) = unpack_item_state(state);
     (cell nft_content, cell dns, cell token_info) = unpack_item_content(content);
@@ -310,7 +310,7 @@ slice get_telemint_token_name() method_id {
     return token_name;
 }
 
-(slice, int, int, int, int) get_telemint_auction_state() method_id {
+get (slice, int, int, int, int) get_telemint_auction_state() {
     (cell config, cell state) = unpack_item_data();
     (slice owner_address, cell content, cell auction, cell royalty_params) = unpack_item_state(state);
     throw_if (err::no_auction, cell_null?(auction));
@@ -323,7 +323,7 @@ slice get_telemint_token_name() method_id {
     return (bidder_address, bid, bid_ts, min_bid, end_time);
 }
 
-(slice, int, int, int, int, int) get_telemint_auction_config() method_id {
+get (slice, int, int, int, int, int) get_telemint_auction_config() {
     (cell config, cell state) = unpack_item_data();
     (slice owner_address, cell content, cell auction, cell royalty_params) = unpack_item_state(state);
     if (cell_null?(auction)) {
@@ -336,14 +336,14 @@ slice get_telemint_token_name() method_id {
     return (beneficiary_address, initial_min_bid, max_bid, min_bid_step, min_extend_time, duration);
 }
 
-(int, int, slice) royalty_params() method_id {
+get (int, int, slice) royalty_params() {
     (cell config, cell state) = unpack_item_data();
     (slice owner_address, cell content, cell auction, cell royalty_params) = unpack_item_state(state);
     (int numerator, int denominator, slice destination) = unpack_nft_royalty_params(royalty_params);
     return (numerator, denominator, destination);
 }
 
-(int, cell) dnsresolve(slice subdomain, int category) method_id {
+get (int, cell) dnsresolve(slice subdomain, int category) {
     (cell config, cell state) = unpack_item_data();
     (slice owner_address, cell content, cell auction, cell royalty_params) = unpack_item_state(state);
     (cell nft_content, cell dns, cell token_info) = unpack_item_content(content);

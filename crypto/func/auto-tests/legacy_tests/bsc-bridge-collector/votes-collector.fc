@@ -103,7 +103,7 @@ cell loadData() {
   }
 }
 
-(tuple) get_external_voting_data(int voting_id) method_id {
+get (tuple) get_external_voting_data(int voting_id) {
     cell external_votings = loadData();
     (slice voting_data, int found?) = external_votings.udict_get?(256, voting_id);
     throw_unless(309, found?);

@@ -674,16 +674,16 @@ cell distribute_share(int reward, cell nominators) inline_ref {
 
 ;; Get methods
 
-_ get_pool_data() method_id {
+get _ get_pool_data() {
     return load_data();
 }
 
-int has_withdraw_requests() method_id {
+get int has_withdraw_requests() {
     (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
     return ~ cell_null?(withdraw_requests);
 }
 
-(int, int, int) get_nominator_data(int nominator_address) method_id {
+get (int, int, int) get_nominator_data(int nominator_address) {
     (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
 
     (slice nominator, int found) = nominators.udict_get?(ADDR_SIZE(), nominator_address);
@@ -694,11 +694,11 @@ int has_withdraw_requests() method_id {
     return (amount, pending_deposit_amount, withdraw_found);
 }
 
-int get_max_punishment(int stake) method_id {
+get int get_max_punishment(int stake) {
     return max_recommended_punishment_for_validator_misbehaviour(stake);
 }
 
-tuple list_nominators() method_id {
+get tuple list_nominators() {
     (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
     var list = null();
     int address = -1;
@@ -713,7 +713,7 @@ tuple list_nominators() method_id {
     return list;
 }
 
-tuple list_votes() method_id {
+get tuple list_votes() {
     (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
     var list = null();
     int proposal_hash = -1;
@@ -727,7 +727,7 @@ tuple list_votes() method_id {
     return list;
 }
 
-tuple list_voters(int proposal_hash) method_id {
+get tuple list_voters(int proposal_hash) {
     (int state, int nominators_count, int stake_amount_sent, int validator_amount, (int validator_address, int validator_reward_share, int max_nominators_count, int min_validator_stake, int min_nominator_stake), cell nominators, cell withdraw_requests, int stake_at, int saved_validator_set_hash, int validator_set_changes_count, int validator_set_change_time, int stake_held_for, cell config_proposal_votings) = load_data();
     var list = null();
     (slice votes_slice, int found) = config_proposal_votings.udict_get?(256, proposal_hash);
