@@ -694,6 +694,7 @@ bool Collator::unpack_last_mc_state() {
   create_stats_enabled_ = config_->create_stats_enabled();
   report_version_ = config_->has_capability(ton::capReportVersion);
   short_dequeue_records_ = config_->has_capability(ton::capShortDequeue);
+  store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -794,15 +795,16 @@ bool Collator::request_neighbor_msg_queues() {
 }
 
 /**
- * Requests the size of the outbound message queue from the previous state(s).
+ * Requests the size of the outbound message queue from the previous state(s) if needed.
  *
 * @returns True if the request was successful, false otherwise.
  */
 bool Collator::request_out_msg_queue_size() {
-  if (after_split_) {
-    // If block is after split, the size is calculated during split (see Collator::split_last_state)
+  if (have_out_msg_queue_size_in_state_) {
+    // if after_split then have_out_msg_queue_size_in_state_ is always true, since the size is calculated during split
     return true;
   }
+  out_msg_queue_size_ = 0;
   for (size_t i = 0; i < prev_blocks.size(); ++i) {
     ++pending;
     send_closure_later(manager, &ValidatorManager::get_out_msg_queue_size, prev_blocks[i],
@@ -1016,7 +1018,7 @@ bool Collator::split_last_state(block::ShardState& ss) {
     return fatal_error(res2.move_as_error());
   }
   sibling_processed_upto_ = res2.move_as_ok();
-  auto res3 = ss.split(shard_, &out_msg_queue_size_);
+  auto res3 = ss.split(shard_);
   if (res3.is_error()) {
     return fatal_error(std::move(res3));
   }
@@ -1054,6 +1056,10 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   ihr_pending = std::move(ss.ihr_pending_);
   dispatch_queue_ = std::move(ss.dispatch_queue_);
   block_create_stats_ = std::move(ss.block_create_stats_);
+  if (ss.out_msg_queue_size_) {
+    have_out_msg_queue_size_in_state_ = true;
+    out_msg_queue_size_ = ss.out_msg_queue_size_.value();
+  }
   return true;
 }
 
@@ -4928,9 +4934,13 @@ bool Collator::compute_out_msg_queue_info(Ref<vm::Cell>& out_msg_queue_info) {
   vm::CellBuilder cb;
   // out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48) = OutMsgQueueExtra;
   // ... extra:(Maybe OutMsgQueueExtra)
-  if (!dispatch_queue_->is_empty()) {
-    if (!(cb.store_long_bool(1, 1) && cb.store_long_bool(0, 4) && dispatch_queue_->append_dict_to_bool(cb) &&
-          cb.store_long_bool(0, 1))) {
+  bool ok = false;
+  if (!dispatch_queue_->is_empty() || store_out_msg_queue_size_) {
+    if (!(cb.store_long_bool(1, 1) && cb.store_long_bool(0, 4) && dispatch_queue_->append_dict_to_bool(cb))) {
+      return false;
+    }
+    if (!(cb.store_bool_bool(store_out_msg_queue_size_) &&
+          (!store_out_msg_queue_size_ || cb.store_long_bool(out_msg_queue_size_, 48)))) {
       return false;
     }
   } else {

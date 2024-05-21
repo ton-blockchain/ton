@@ -895,6 +895,7 @@ bool ValidateQuery::try_unpack_mc_state() {
     if (!is_masterchain() && !check_this_shard_mc_info()) {
       return fatal_error("masterchain configuration does not admit creating block "s + id_.to_str());
     }
+    store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
   } catch (vm::VmError& err) {
     return fatal_error(-666, err.get_msg());
   } catch (vm::VmVirtError& err) {
@@ -2195,6 +2196,50 @@ bool ValidateQuery::check_utime_lt() {
   return true;
 }
 
+/**
+ * Reads the size of the outbound message queue from the previous state(s), or requests it if needed.
+ *
+ * @returns True if the request was successful, false otherwise.
+ */
+bool ValidateQuery::prepare_out_msg_queue_size() {
+  if (ps_.out_msg_queue_size_) {
+    // if after_split then out_msg_queue_size is always present, since it is calculated during split
+    old_out_msg_queue_size_ = ps_.out_msg_queue_size_.value();
+    return true;
+  }
+  old_out_msg_queue_size_ = 0;
+  for (size_t i = 0; i < prev_blocks.size(); ++i) {
+    ++pending;
+    send_closure_later(manager, &ValidatorManager::get_out_msg_queue_size, prev_blocks[i],
+                       [self = get_self(), i](td::Result<td::uint32> res) {
+                         td::actor::send_closure(std::move(self), &ValidateQuery::got_out_queue_size, i,
+                                                 std::move(res));
+                       });
+  }
+  return true;
+}
+
+/**
+ * Handles the result of obtaining the size of the outbound message queue.
+ *
+ * If the block is after merge then the two sizes are added.
+ *
+ * @param i The index of the previous block (0 or 1).
+ * @param res The result object containing the size of the queue.
+ */
+void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint32> res) {
+  --pending;
+  if (res.is_error()) {
+    fatal_error(
+        res.move_as_error_prefix(PSTRING() << "failed to get message queue size from prev block #" << i << ": "));
+    return;
+  }
+  td::uint32 size = res.move_as_ok();
+  LOG(DEBUG) << "got outbound queue size from prev block #" << i << ": " << size;
+  old_out_msg_queue_size_ += size;
+  try_validate();
+}
+
 /*
  *
  *  METHODS CALLED FROM try_validate() stage 1
@@ -3041,6 +3086,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
     return reject_query("new EnqueuedMsg with key "s + out_msg_id.to_hex(352) + " is invalid");
   }
   if (new_value.not_null()) {
+    ++new_out_msg_queue_size_;
     if (!block::gen::t_EnqueuedMsg.validate_csr(new_value)) {
       return reject_query("new EnqueuedMsg with key "s + out_msg_id.to_hex(352) +
                           " failed to pass automated validity checks");
@@ -3057,6 +3103,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
     }
   }
   if (old_value.not_null()) {
+    --new_out_msg_queue_size_;
     if (!block::gen::t_EnqueuedMsg.validate_csr(old_value)) {
       return reject_query("old EnqueuedMsg with key "s + out_msg_id.to_hex(352) +
                           " failed to pass automated validity checks");
@@ -3209,6 +3256,7 @@ bool ValidateQuery::precheck_message_queue_update() {
   try {
     CHECK(ps_.out_msg_queue_ && ns_.out_msg_queue_);
     CHECK(out_msg_dict_);
+    new_out_msg_queue_size_ = old_out_msg_queue_size_;
     if (!ps_.out_msg_queue_->scan_diff(
             *ns_.out_msg_queue_,
             [this](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val_extra,
@@ -3222,6 +3270,22 @@ bool ValidateQuery::precheck_message_queue_update() {
   } catch (vm::VmError& err) {
     return reject_query("invalid OutMsgQueue dictionary difference between the old and the new state: "s +
                         err.get_msg());
+  }
+  LOG(INFO) << "outbound message queue size: " << old_out_msg_queue_size_ << " -> " << new_out_msg_queue_size_;
+  if (store_out_msg_queue_size_) {
+    if (!ns_.out_msg_queue_size_) {
+      return reject_query(PSTRING() << "outbound message queue size in the new state is not correct (expected: "
+                                    << new_out_msg_queue_size_ << ", found: none)");
+    }
+    if (ns_.out_msg_queue_size_.value() != new_out_msg_queue_size_) {
+      return reject_query(PSTRING() << "outbound message queue size in the new state is not correct (expected: "
+                                    << new_out_msg_queue_size_ << ", found: " << ns_.out_msg_queue_size_.value()
+                                    << ")");
+    }
+  } else {
+    if (ns_.out_msg_queue_size_) {
+      return reject_query("outbound message queue size in the new state is present, but shouldn't");
+    }
   }
   return true;
 }
@@ -6620,6 +6684,9 @@ bool ValidateQuery::try_validate() {
       }
       if (!check_utime_lt()) {
         return reject_query("creation utime/lt of the new block is invalid");
+      }
+      if (!prepare_out_msg_queue_size()) {
+        return reject_query("cannot request out msg queue size");
       }
       stage_ = 1;
       if (pending) {

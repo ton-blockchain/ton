@@ -112,7 +112,8 @@ class ValidateQuery : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
+           ton::capStoreOutMsgQueueSize;
   }
 
  public:
@@ -234,6 +235,8 @@ class ValidateQuery : public td::actor::Actor {
   std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> new_dispatch_queue_messages_;
   bool msg_metadata_enabled_ = true;
   std::set<StdSmcAddress> account_expected_defer_all_messages_;
+  td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
+  bool store_out_msg_queue_size_ = true;
 
   td::PerfWarningTimer perf_timer_;
 
@@ -314,6 +317,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_cur_validator_set();
   bool check_mc_validator_info(bool update_mc_cc);
   bool check_utime_lt();
+  bool prepare_out_msg_queue_size();
+  void got_out_queue_size(size_t i, td::Result<td::uint32> res);
 
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur = false);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto, bool allow_cur = false);

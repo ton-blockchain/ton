@@ -871,6 +871,9 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
       return td::Status::Error(-666, "cannot unpack OutMsgQueueExtre in the state of "s + id_.to_str());
     }
     dispatch_queue_ = std::make_unique<vm::AugmentedDictionary>(extra.dispatch_queue, 256, tlb::aug_DispatchQueue);
+    if (extra.out_queue_size.write().fetch_long(1)) {
+      out_msg_queue_size_ = extra.out_queue_size->prefetch_ulong(48);
+    }
   } else {
     dispatch_queue_ = std::make_unique<vm::AugmentedDictionary>(256, tlb::aug_DispatchQueue);
   }
@@ -1009,6 +1012,12 @@ td::Status ShardState::merge_with(ShardState& sib) {
     return td::Status::Error(-666, "cannot merge dispatch queues of the two ancestors");
   }
   sib.dispatch_queue_.reset();
+  // 11. merge out_msg_queue_size
+  if (out_msg_queue_size_ && sib.out_msg_queue_size_) {
+    out_msg_queue_size_.value() += sib.out_msg_queue_size_.value();
+  } else {
+    out_msg_queue_size_ = {};
+  }
   // Anything else? add here
   // ...
 
@@ -1024,8 +1033,8 @@ td::Status ShardState::merge_with(ShardState& sib) {
   return td::Status::OK();
 }
 
-td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(ton::ShardIdFull subshard,
-                                                                                             td::uint32* queue_size) {
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(
+    ton::ShardIdFull subshard) {
   auto shard = id_.shard_full();
   if (!ton::shard_is_parent(shard, subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
@@ -1033,7 +1042,7 @@ td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_o
   }
   CHECK(out_msg_queue_);
   auto subqueue = std::make_unique<vm::AugmentedDictionary>(*out_msg_queue_);
-  int res = block::filter_out_msg_queue(*subqueue, shard, subshard, queue_size);
+  int res = block::filter_out_msg_queue(*subqueue, shard, subshard);
   if (res < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
@@ -1055,7 +1064,7 @@ td::Result<std::shared_ptr<block::MsgProcessedUptoCollection>> ShardState::compu
   return std::move(sub_processed_upto);
 }
 
-td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) {
+td::Status ShardState::split(ton::ShardIdFull subshard) {
   if (!ton::shard_is_parent(id_.shard_full(), subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
                                        " because it is not a parent");
@@ -1073,10 +1082,12 @@ td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) 
   auto shard1 = id_.shard_full();
   CHECK(ton::shard_is_parent(shard1, subshard));
   CHECK(out_msg_queue_);
-  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard, queue_size);
+  td::uint64 queue_size;
+  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard, &queue_size);
   if (res1 < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
+  out_msg_queue_size_ = queue_size;
   LOG(DEBUG) << "split counters: " << res1;
   // 3. processed_upto
   LOG(DEBUG) << "splitting ProcessedUpto";
@@ -1119,7 +1130,7 @@ td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) 
 }
 
 int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard,
-                         td::uint32* queue_size) {
+                         td::uint64* queue_size) {
   if (queue_size) {
     *queue_size = 0;
   }

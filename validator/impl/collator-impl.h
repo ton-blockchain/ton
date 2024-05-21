@@ -44,7 +44,8 @@ class Collator final : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
+           ton::capStoreOutMsgQueueSize;
   }
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
@@ -192,7 +193,8 @@ class Collator final : public td::actor::Actor {
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
-  td::uint32 out_msg_queue_size_ = 0;
+  td::uint64 out_msg_queue_size_ = 0;
+  bool have_out_msg_queue_size_in_state_ = false;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
   std::unique_ptr<vm::Dictionary> block_create_stats_;
@@ -207,7 +209,8 @@ class Collator final : public td::actor::Actor {
   std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
   unsigned dispatch_queue_ops_{0};
   std::map<StdSmcAddress, LogicalTime> last_enqueued_deferred_lt_;
-  bool msg_metadata_enabled_ = true;  // TODO: enable by config
+  bool msg_metadata_enabled_ = true;              // TODO: enable by config
+  bool store_out_msg_queue_size_ = true;  // TODO: enable by config
 
   td::PerfWarningTimer perf_timer_;
   //
