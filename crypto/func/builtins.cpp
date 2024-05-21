@@ -28,7 +28,7 @@ using namespace std::literals::string_literals;
  */
 
 int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
-std::vector<SymDef*> glob_func, glob_vars;
+std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
 std::set<std::string> prohibited_var_names;
 
 SymDef* define_builtin_func_impl(const std::string& name, SymValAsmFunc* func_val) {

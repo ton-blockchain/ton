@@ -874,7 +874,7 @@ struct SymValConst : sym::SymValBase {
 };
 
 extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
-extern std::vector<SymDef*> glob_func, glob_vars;
+extern std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
 extern std::set<std::string> prohibited_var_names;
 
 /*

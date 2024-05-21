@@ -1,0 +1,15 @@
+get int secret() pure {
+    return 0;
+}
+get int balanced() pure {
+    return 1;
+}
+
+int main() {
+    return secret() + balanced();
+}
+
+{-
+@compilation_should_fail
+@stderr GET methods hash collision: `secret` and `balanced` produce the same hash
+-}

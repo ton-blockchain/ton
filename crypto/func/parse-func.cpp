@@ -1579,6 +1579,11 @@ void parse_func_def(Lexer& lex) {
   if (is_get_method) {
     func_assert(method_id.is_null());
     method_id = calculate_method_id_by_func_name(func_name.str);
+    for (const SymDef* other : glob_get_methods) {
+      if (!td::cmp(dynamic_cast<const SymValFunc*>(other->value)->method_id, method_id)) {
+        lex.cur().error(PSTRING() << "GET methods hash collision: `" << other->name() << "` and `" + func_name.str + "` produce the same hash. Consider renaming one of these functions.");
+      }
+    }
   }
   TypeExpr* func_type = TypeExpr::new_map(extract_total_arg_type(arg_list), ret_type);
   func_type = compute_type_closure(func_type, type_vars);
@@ -1698,6 +1703,7 @@ void parse_func_def(Lexer& lex) {
       lex.cur().error("cannot set unknown function `"s + func_name.str + "` as a get method");
     }
     val->flags |= SymValFunc::flagGetMethod;
+    glob_get_methods.push_back(func_sym);
   }
   if (verbosity >= 1) {
     std::cerr << "new type of function " << func_name.str << " : " << func_type << std::endl;
