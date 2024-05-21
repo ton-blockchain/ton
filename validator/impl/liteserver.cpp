@@ -2376,6 +2376,45 @@ void LiteQuery::perform_listBlockTransactions(BlockIdExt blkid, int mode, int co
   request_block_data(blkid);
 }
 
+static td::Result<tl_object_ptr<lite_api::liteServer_transactionMetadata>> get_in_msg_metadata(
+    const Ref<vm::Cell>& in_msg_descr_root, const Ref<vm::Cell>& trans_root) {
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  block::gen::Transaction::Record transaction;
+  if (!block::tlb::unpack_cell(trans_root, transaction)) {
+    return td::Status::Error("invalid Transaction in block");
+  }
+  Ref<vm::Cell> msg = transaction.r1.in_msg->prefetch_ref();
+  if (msg.is_null()) {
+    return nullptr;
+  }
+  td::Bits256 in_msg_hash = msg->get_hash().bits();
+  Ref<vm::CellSlice> in_msg = in_msg_descr.lookup(in_msg_hash);
+  if (in_msg.is_null()) {
+    return td::Status::Error(PSTRING() << "no InMsg in InMsgDescr for message with hash " << in_msg_hash.to_hex());
+  }
+  int tag = block::gen::t_InMsg.get_tag(*in_msg);
+  if (tag != block::gen::InMsg::msg_import_imm && tag != block::gen::InMsg::msg_import_fin &&
+      tag != block::gen::InMsg::msg_import_deferred_fin) {
+    return nullptr;
+  }
+  Ref<vm::Cell> msg_env = in_msg->prefetch_ref();
+  if (msg_env.is_null()) {
+    return td::Status::Error(PSTRING() << "no MsgEnvelope in InMsg for message with hash " << in_msg_hash.to_hex());
+  }
+  block::tlb::MsgEnvelope::Record_std env;
+  if (!block::tlb::unpack_cell(std::move(msg_env), env)) {
+    return td::Status::Error(PSTRING() << "failed to unpack MsgEnvelope for message with hash " << in_msg_hash.to_hex());
+  }
+  if (!env.metadata) {
+    return nullptr;
+  }
+  block::MsgMetadata& metadata = env.metadata.value();
+  return create_tl_object<lite_api::liteServer_transactionMetadata>(
+      0, metadata.depth,
+      create_tl_object<lite_api::liteServer_accountId>(metadata.initiator_wc, metadata.initiator_addr),
+      metadata.initiator_lt);
+}
+
 void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
   LOG(INFO) << "completing a listBlockTransactions(" << base_blk_id_.to_str() << ", " << mode << ", " << req_count
             << ", " << acc_addr_.to_hex() << ", " << trans_lt_ << ") liteserver query";
@@ -2395,6 +2434,8 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
     acc_addr_.set_ones();
     trans_lt_ = ~0ULL;
   }
+  bool with_metadata = mode & 256;
+  mode &= ~256;
   std::vector<tl_object_ptr<lite_api::liteServer_transactionId>> result;
   bool eof = false;
   ton::LogicalTime reverse = (mode & 64) ? ~0ULL : 0;
@@ -2448,8 +2489,18 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
           trans_lt_ = reverse;
           break;
         }
-        result.push_back(create_tl_object<lite_api::liteServer_transactionId>(mode, cur_addr, cur_trans.to_long(),
-                                                                              tvalue->get_hash().bits()));
+        tl_object_ptr<lite_api::liteServer_transactionMetadata> metadata;
+        if (with_metadata) {
+          auto r_metadata = get_in_msg_metadata(extra.in_msg_descr, tvalue);
+          if (r_metadata.is_error()) {
+            fatal_error(r_metadata.move_as_error());
+            return;
+          }
+          metadata = r_metadata.move_as_ok();
+        }
+        result.push_back(create_tl_object<lite_api::liteServer_transactionId>(
+            mode | (metadata ? 256 : 0), cur_addr, cur_trans.to_long(), tvalue->get_hash().bits(),
+            std::move(metadata)));
         ++count;
       }
     }
@@ -2484,6 +2535,36 @@ void LiteQuery::perform_listBlockTransactionsExt(BlockIdExt blkid, int mode, int
   request_block_data(blkid);
 }
 
+static td::Status process_all_in_msg_metadata(const Ref<vm::Cell>& in_msg_descr_root,
+                                              const std::vector<Ref<vm::Cell>>& trans_roots) {
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  for (const Ref<vm::Cell>& trans_root : trans_roots) {
+    block::gen::Transaction::Record transaction;
+    if (!block::tlb::unpack_cell(trans_root, transaction)) {
+      return td::Status::Error("invalid Transaction in block");
+    }
+    Ref<vm::Cell> msg = transaction.r1.in_msg->prefetch_ref();
+    if (msg.is_null()) {
+      continue;
+    }
+    td::Bits256 in_msg_hash = msg->get_hash().bits();
+    Ref<vm::CellSlice> in_msg = in_msg_descr.lookup(in_msg_hash);
+    if (in_msg.is_null()) {
+      return td::Status::Error(PSTRING() << "no InMsg in InMsgDescr for message with hash " << in_msg_hash.to_hex());
+    }
+    int tag = block::gen::t_InMsg.get_tag(*in_msg);
+    if (tag == block::gen::InMsg::msg_import_imm || tag == block::gen::InMsg::msg_import_fin ||
+        tag == block::gen::InMsg::msg_import_deferred_fin) {
+      Ref<vm::Cell> msg_env = in_msg->prefetch_ref();
+      if (msg_env.is_null()) {
+        return td::Status::Error(PSTRING() << "no MsgEnvelope in InMsg for message with hash " << in_msg_hash.to_hex());
+      }
+      vm::load_cell_slice(msg_env);
+    }
+  }
+  return td::Status::OK();
+}
+
 void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
   LOG(INFO) << "completing a listBlockTransactionsExt(" << base_blk_id_.to_str() << ", " << mode << ", " << req_count
             << ", " << acc_addr_.to_hex() << ", " << trans_lt_ << ") liteserver query";
@@ -2495,6 +2576,10 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
   CHECK(rhash == base_blk_id_.root_hash);
   vm::MerkleProofBuilder pb;
   auto virt_root = block_root;
+  if (mode & 256) {
+    // with msg metadata in proof
+    mode |= 32;
+  }
   if (mode & 32) {
     // proof requested
     virt_root = pb.init(std::move(virt_root));
@@ -2558,6 +2643,13 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
         }
         trans_roots.push_back(std::move(tvalue));
         ++count;
+      }
+    }
+    if (mode & 256) {
+      td::Status S = process_all_in_msg_metadata(extra.in_msg_descr, trans_roots);
+      if (S.is_error()) {
+        fatal_error(S.move_as_error());
+        return;
       }
     }
   } catch (vm::VmError err) {
