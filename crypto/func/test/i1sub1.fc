@@ -1,8 +1,0 @@
-;; DO NOT COMPILE DIRECTLY!
-;; Compile i1.fc
-
-#include "i1sub1.fc";
-
-() sub1() {
-  i = 1;
-}

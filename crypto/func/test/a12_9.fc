@@ -1,4 +1,0 @@
-_ f(int a, int b, int c, int d, int e, int f, int g, int h, int i, int j, int k, int l, int m, int n, int o, int p) {
-  return (g, j, n, f, o, i, e, l, d, h, b, k, m, c, p, a);   ;; optimal code is 5 ops, 10 bytes
-  ;; s7 s5 s14 XCHG3  s10 s4 s5 XCHG3  s12 s8 s11 XCHG3  s7 s6 s9 XCHG3  s13 s14 s15 XCHG3
-}
