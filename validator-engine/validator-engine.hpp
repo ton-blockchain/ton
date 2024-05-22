@@ -223,7 +223,9 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_ = false;
   bool nonfinal_ls_queries_enabled_ = false;
-  td::optional<td::uint64> celldb_cache_size_;
+  td::optional<td::uint64> celldb_cache_size_ = 50LL << 30;
+  bool celldb_direct_io_ = true;
+  bool celldb_preload_all_ = true;
   td::optional<double> catchain_max_block_delay_;
   bool read_config_ = false;
   bool started_keyring_ = false;
@@ -302,6 +304,12 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_celldb_cache_size(td::uint64 value) {
     celldb_cache_size_ = value;
+  }
+  void set_celldb_direct_io(bool value) {
+    celldb_direct_io_ = value;
+  }
+  void set_celldb_preload_all(bool value) {
+    celldb_preload_all_ = value;
   }
   void set_catchain_max_block_delay(double value) {
     catchain_max_block_delay_ = value;

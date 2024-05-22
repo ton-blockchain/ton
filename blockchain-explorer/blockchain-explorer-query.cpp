@@ -51,32 +51,6 @@
 #include "vm/vm.h"
 #include "vm/cp0.h"
 
-namespace {
-
-td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, td::Ref<vm::CellSlice> my_addr,
-                                 const block::CurrencyCollection &balance) {
-  td::BitArray<256> rand_seed;
-  td::RefInt256 rand_seed_int{true};
-  td::Random::secure_bytes(rand_seed.as_slice());
-  if (!rand_seed_int.unique_write().import_bits(rand_seed.cbits(), 256, false)) {
-    return {};
-  }
-  auto tuple = vm::make_tuple_ref(td::make_refint(0x076ef1ea),  // [ magic:0x076ef1ea
-                                  td::make_refint(0),           //   actions:Integer
-                                  td::make_refint(0),           //   msgs_sent:Integer
-                                  td::make_refint(now),         //   unixtime:Integer
-                                  td::make_refint(lt),          //   block_lt:Integer
-                                  td::make_refint(lt),          //   trans_lt:Integer
-                                  std::move(rand_seed_int),     //   rand_seed:Integer
-                                  balance.as_vm_tuple(),        //   balance_remaining:[Integer (Maybe Cell)]
-                                  my_addr,                      //  myself:MsgAddressInt
-                                  vm::StackEntry());            //  global_config:(Maybe Cell) ] = SmartContractInfo;
-  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();
-  return vm::make_tuple_ref(std::move(tuple));
-}
-
-}  // namespace
-
 td::Result<ton::BlockIdExt> parse_block_id(std::map<std::string, std::string> &opts, bool allow_empty) {
   if (allow_empty) {
     if (opts.count("workchain") == 0 && opts.count("shard") == 0 && opts.count("seqno") == 0) {
@@ -1335,110 +1309,69 @@ void HttpQueryRunMethod::start_up_query() {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &HttpQueryRunMethod::abort_query, R.move_as_error_prefix("litequery failed: "));
     } else {
-      td::actor::send_closure(SelfId, &HttpQueryRunMethod::got_account, R.move_as_ok());
+      td::actor::send_closure(SelfId, &HttpQueryRunMethod::got_result, R.move_as_ok());
     }
   });
+
   auto a = ton::create_tl_object<ton::lite_api::liteServer_accountId>(addr_.workchain, addr_.addr);
-  auto query = ton::create_tl_object<ton::lite_api::liteServer_getAccountState>(ton::create_tl_lite_block_id(block_id_),
-                                                                                std::move(a));
+  td::int64 method_id = (td::crc16(td::Slice{method_name_}) & 0xffff) | 0x10000;
+
+  // serialize params
+  vm::CellBuilder cb;
+  td::Ref<vm::Cell> cell;
+  if (!(vm::Stack{params_}.serialize(cb) && cb.finalize_to(cell))) {
+    return abort_query(td::Status::Error("cannot serialize stack with get-method parameters"));
+  }
+  auto params_serialized = vm::std_boc_serialize(std::move(cell));
+  if (params_serialized.is_error()) {
+    return abort_query(params_serialized.move_as_error_prefix("cannot serialize stack with get-method parameters : "));
+  }
+
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_runSmcMethod>(
+      0x17, ton::create_tl_lite_block_id(block_id_), std::move(a), method_id, params_serialized.move_as_ok());
   td::actor::send_closure(CoreActorInterface::instance_actor_id(), &CoreActorInterface::send_lite_query,
                           ton::serialize_tl_object(query, true), liteclient::get_query_shard(*query), std::move(P));
 }
 
-void HttpQueryRunMethod::got_account(td::BufferSlice data) {
-  auto F = ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(std::move(data), true);
+void HttpQueryRunMethod::got_result(td::BufferSlice data) {
+  auto F = ton::fetch_tl_object<ton::lite_api::liteServer_runMethodResult>(std::move(data), true);
   if (F.is_error()) {
-    abort_query(F.move_as_error());
-    return;
+    return abort_query(F.move_as_error());
   }
-
   auto f = F.move_as_ok();
-  data_ = std::move(f->state_);
-  proof_ = std::move(f->proof_);
-  shard_proof_ = std::move(f->shard_proof_);
-  block_id_ = ton::create_block_id(f->id_);
-  res_block_id_ = ton::create_block_id(f->shardblk_);
-
-  finish_query();
-}
-
-void HttpQueryRunMethod::finish_query() {
-  if (promise_) {
-    auto page = [&]() -> std::string {
-      HttpAnswer A{"account", prefix_};
-      A.set_account_id(addr_);
-      A.set_block_id(res_block_id_);
-
-      block::AccountState account_state;
-      account_state.blk = block_id_;
-      account_state.shard_blk = res_block_id_;
-      account_state.shard_proof = std::move(shard_proof_);
-      account_state.proof = std::move(proof_);
-      account_state.state = std::move(data_);
-      auto r_info = account_state.validate(block_id_, addr_);
-      if (r_info.is_error()) {
-        A.abort(r_info.move_as_error());
-        return A.finish();
-      }
-      auto info = r_info.move_as_ok();
-      if (info.root.is_null()) {
-        A.abort(PSTRING() << "account state of " << addr_ << " is empty (cannot run method `" << method_name_ << "`)");
-        return A.finish();
-      }
-      block::gen::Account::Record_account acc;
-      block::gen::AccountStorage::Record store;
-      block::CurrencyCollection balance;
-      if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) &&
-            balance.validate_unpack(store.balance))) {
-        A.abort("error unpacking account state");
-        return A.finish();
-      }
-      int tag = block::gen::t_AccountState.get_tag(*store.state);
-      switch (tag) {
-        case block::gen::AccountState::account_uninit:
-          A.abort(PSTRING() << "account " << addr_ << " not initialized yet (cannot run any methods)");
-          return A.finish();
-        case block::gen::AccountState::account_frozen:
-          A.abort(PSTRING() << "account " << addr_ << " frozen (cannot run any methods)");
-          return A.finish();
-      }
-
-      CHECK(store.state.write().fetch_ulong(1) == 1);  // account_init$1 _:StateInit = AccountState;
-      block::gen::StateInit::Record state_init;
-      CHECK(tlb::csr_unpack(store.state, state_init));
-      auto code = state_init.code->prefetch_ref();
-      auto data = state_init.data->prefetch_ref();
-      auto stack = td::make_ref<vm::Stack>(std::move(params_));
-      td::int64 method_id = (td::crc16(td::Slice{method_name_}) & 0xffff) | 0x10000;
-      stack.write().push_smallint(method_id);
-      long long gas_limit = vm::GasLimits::infty;
-      // OstreamLogger ostream_logger(ctx.error_stream);
-      // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
-      vm::GasLimits gas{gas_limit};
-      LOG(DEBUG) << "creating VM";
-      vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
-      vm.set_c7(prepare_vm_c7(info.gen_utime, info.gen_lt, acc.addr, balance));  // tuple with SmartContractInfo
-      // vm.incr_stack_trace(1);    // enable stack dump after each step
-      int exit_code = ~vm.run();
-      if (exit_code != 0) {
-        A.abort(PSTRING() << "VM terminated with error code " << exit_code);
-        return A.finish();
-      }
-      stack = vm.get_stack_ref();
-      {
-        std::ostringstream os;
-        os << "result: ";
-        stack->dump(os, 3);
-
-        A << HttpAnswer::CodeBlock{os.str()};
-      }
-
+  auto page = [&]() -> std::string {
+    HttpAnswer A{"account", prefix_};
+    A.set_account_id(addr_);
+    A.set_block_id(ton::create_block_id(f->id_));
+    if (f->exit_code_ != 0) {
+      A.abort(PSTRING() << "VM terminated with error code " << f->exit_code_);
       return A.finish();
-    }();
-    auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
-    MHD_add_response_header(R, "Content-Type", "text/html");
-    promise_.set_value(std::move(R));
-  }
+    }
+
+    std::ostringstream os;
+    os << "result: ";
+    if (f->result_.empty()) {
+      os << "<none>";
+    } else {
+      auto r_cell = vm::std_boc_deserialize(f->result_);
+      if (r_cell.is_error()) {
+        A.abort(PSTRING() << "cannot deserialize VM result boc: " << r_cell.move_as_error());
+        return A.finish();
+      }
+      auto cs = vm::load_cell_slice(r_cell.move_as_ok());
+      td::Ref<vm::Stack> stack;
+      if (!(vm::Stack::deserialize_to(cs, stack, 0) && cs.empty_ext())) {
+        A.abort("VM result boc cannot be deserialized");
+        return A.finish();
+      }
+      stack->dump(os, 3);
+    }
+    A << HttpAnswer::CodeBlock{os.str()};
+    return A.finish();
+  }();
+  auto R = MHD_create_response_from_buffer(page.length(), const_cast<char *>(page.c_str()), MHD_RESPMEM_MUST_COPY);
+  MHD_add_response_header(R, "Content-Type", "text/html");
+  promise_.set_value(std::move(R));
   stop();
 }
 HttpQueryStatus::HttpQueryStatus(std::string prefix, td::Promise<MHD_Response *> promise)

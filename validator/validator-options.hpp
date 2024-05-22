@@ -130,6 +130,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::optional<td::uint64> get_celldb_cache_size() const override {
     return celldb_cache_size_;
   }
+  bool get_celldb_direct_io() const override {
+    return celldb_direct_io_;
+  }
+  bool get_celldb_preload_all() const override {
+    return celldb_preload_all_;
+  }
   td::optional<double> get_catchain_max_block_delay() const override {
     return catchain_max_block_delay_;
   }
@@ -207,6 +213,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_celldb_cache_size(td::uint64 value) override {
     celldb_cache_size_ = value;
   }
+  void set_celldb_direct_io(bool value) override {
+    celldb_direct_io_ = value;
+  }
+  void set_celldb_preload_all(bool value) override {
+    celldb_preload_all_ = value;
+  }
   void set_catchain_max_block_delay(double value) override {
     catchain_max_block_delay_ = value;
   }
@@ -259,6 +271,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool disable_rocksdb_stats_;
   bool nonfinal_ls_queries_enabled_ = false;
   td::optional<td::uint64> celldb_cache_size_;
+  bool celldb_direct_io_ = false;
+  bool celldb_preload_all_ = false;
   td::optional<double> catchain_max_block_delay_;
   ValidatorMode validator_mode_ = validator_normal;
 };

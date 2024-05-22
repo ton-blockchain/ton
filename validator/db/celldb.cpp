@@ -91,9 +91,10 @@ void CellDbIn::start_up() {
   td::RocksDbOptions db_options;
   db_options.statistics = statistics_;
   if (opts_->get_celldb_cache_size()) {
-    db_options.block_cache_size = opts_->get_celldb_cache_size().value();
-    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(db_options.block_cache_size.value());
+    db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
   }
+  db_options.use_direct_reads = opts_->get_celldb_direct_io();
   cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(db_options)).move_as_ok());
 
 
@@ -110,6 +111,27 @@ void CellDbIn::start_up() {
     cell_db_->begin_write_batch().ensure();
     set_block(empty, std::move(e));
     cell_db_->commit_write_batch().ensure();
+  }
+
+  if (opts_->get_celldb_preload_all()) {
+    // Iterate whole DB in a separate thread
+    delay_action([snapshot = cell_db_->snapshot()]() {
+      LOG(WARNING) << "CellDb: pre-loading all keys";
+      td::uint64 total = 0;
+      td::Timer timer;
+      auto S = snapshot->for_each([&](td::Slice, td::Slice) {
+        ++total;
+        if (total % 1000000 == 0) {
+          LOG(INFO) << "CellDb: iterated " << total << " keys";
+        }
+        return td::Status::OK();
+      });
+      if (S.is_error()) {
+        LOG(ERROR) << "CellDb: pre-load failed: " << S.move_as_error();
+      } else {
+      LOG(WARNING) << "CellDb: iterated " << total << " keys in " << timer.elapsed() << "s";
+      }
+    }, td::Timestamp::now());
   }
 }
 
