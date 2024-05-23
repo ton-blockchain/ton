@@ -1826,6 +1826,20 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   for (int i = n - 1; i >= 0; --i) {
     ap.result_arg = n - 1 - i;
     if (!block::gen::t_OutListNode.validate_ref(ap.action_list[i])) {
+      if (cfg.check_mode_on_invalid_message_enabled) {
+        // try to read mode from action_send_msg even if out_msg scheme is violated
+        // action should at least contain 40 bits: 32bit tag and 8 bit mode
+        // if (mode & 2), that is ignore error mode, skip action even for invelid message
+        bool special = true;
+        auto cs = load_cell_slice_special(ap.action_list[i], special);
+        if(!special) {
+          if((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
+            if((int)cs.fetch_ulong(8) & 2) {
+              continue;
+            }
+          }
+        }
+      }
       ap.result_code = 34;  // action #i invalid or unsupported
       ap.action_list_invalid = true;
       LOG(DEBUG) << "invalid action " << ap.result_arg << " found while preprocessing action list: error code "
@@ -3707,6 +3721,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->size_limits = size_limits;
     action_phase_cfg->action_fine_enabled = config.get_global_version() >= 4;
     action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
+    action_phase_cfg->check_mode_on_invalid_message_enabled = config.get_global_version() >= 8;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {

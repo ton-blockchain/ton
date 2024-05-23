@@ -97,3 +97,12 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 ### Other changes
 * `GLOBALID` gets `ConfigParam 19` from the tuple, not from the config dict. This decreases gas usage.
 * `SENDMSG` gets `ConfigParam 24/25` (message prices) from the tuple, not from the config dict, and also uses `ConfigParam 43` to get max_msg_cells.
+
+
+## Version 7
+
+Explicitly nullify `due_payment` after due reimbursment https://github.com/ton-blockchain/ton/pull/957/files
+
+## Version 8
+
+- Try to check mode on invalid `action_send_msg` and ignore this action if `IGNORE_ERROR` (+2) bit is set.
