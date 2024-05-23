@@ -101,8 +101,9 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 
 ## Version 7
 
-Explicitly nullify `due_payment` after due reimbursment https://github.com/ton-blockchain/ton/pull/957/files
+[Explicitly nullify](https://github.com/ton-blockchain/ton/pull/957/files) `due_payment` after due reimbursment.
 
 ## Version 8
 
 - Try to check mode on invalid `action_send_msg` and ignore this action if `IGNORE_ERROR` (+2) bit is set.
+- Sligthly change random seed generation to fix mix of `addr_rewrite` and `addr`

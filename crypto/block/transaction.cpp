@@ -1285,7 +1285,11 @@ bool Transaction::prepare_rand_seed(td::BitArray<256>& rand_seed, const ComputeP
   // if the smart contract wants to randomize further, it can use RANDOMIZE instruction
   td::BitArray<256 + 256> data;
   data.bits().copy_from(cfg.block_rand_seed.cbits(), 256);
-  (data.bits() + 256).copy_from(account.addr_rewrite.cbits(), 256);
+  if (cfg.global_version >= 8) {
+    (data.bits() + 256).copy_from(account.addr.cbits(), 256);
+  } else {
+    (data.bits() + 256).copy_from(account.addr_rewrite.cbits(), 256);
+  }
   rand_seed.clear();
   data.compute_sha256(rand_seed);
   return true;
