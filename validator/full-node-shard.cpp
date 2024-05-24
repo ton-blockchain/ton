@@ -17,12 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "auto/tl/ton_api.h"
+#include "checksum.h"
 #include "overlays.h"
 #include "td/utils/SharedSlice.h"
 #include "full-node-shard.hpp"
 #include "full-node-shard-queries.hpp"
 #include "full-node-serializer.hpp"
 
+#include "td/utils/buffer.h"
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
@@ -646,6 +648,22 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ne
                           query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
+  if (query.data_.size() > FullNode::max_block_size()) {
+    VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
+    return;
+  }
+  BlockIdExt block_id = create_block_id(query.id_);
+  if (td::sha256_bits256(query.data_.as_slice()) != block_id.file_hash) {
+    VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
+    return;
+  }
+  // ignore cc_seqno and validator_hash for now
+  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id.to_str();
+  td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, query.catchain_seqno_,
+                          query.validator_set_hash_, std::move(query.data_));
+}
+
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
   process_block_broadcast(src, query);
 }
@@ -736,6 +754,20 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
                             overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
   }
+}
+
+void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                             td::BufferSlice data) {
+  if (!client_.empty()) {
+    UNREACHABLE();
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id.to_str();
+  auto B = create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcast>(
+      create_tl_block_id(block_id), cc_seqno, validator_set_hash,
+      create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), std::move(data));
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
+                          overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
 }
 
 void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
