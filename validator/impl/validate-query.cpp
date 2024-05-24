@@ -896,6 +896,8 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error("masterchain configuration does not admit creating block "s + id_.to_str());
     }
     store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
+    msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
+    deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
   } catch (vm::VmError& err) {
     return fatal_error(-666, err.get_msg());
   } catch (vm::VmVirtError& err) {
@@ -5253,11 +5255,14 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       if (is_deferred) {
         LOG(INFO) << "message from account " << workchain() << ":" << ss_addr.to_hex() << " with lt " << message_lt
                   << " was deferred";
+        if (!deferring_messages_enabled_ && !account_expected_defer_all_messages_.count(ss_addr)) {
+          return reject_query(PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":"
+                                        << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
+        }
         if (i == 0 && !account_expected_defer_all_messages_.count(ss_addr)) {
-          return reject_query(
-              PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
-                        << " must not be deferred (the first message cin transaction annot be deferred unless some "
-                           "prevoius messages are deferred)");
+          return reject_query(PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
+                                        << " must not be deferred (the first message cannot be deferred unless some "
+                                           "prevoius messages are deferred)");
         }
         account_expected_defer_all_messages_.insert(ss_addr);
       }

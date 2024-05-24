@@ -50,6 +50,7 @@ static const td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
 static const td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
 static const td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
 static const int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
+static const int DEFER_MESSAGES_AFTER = 10;  // 10'th and later messages from address will be deferred
 
 #define DBG(__n) dbg(__n)&&
 #define DSTART int __dcnt = 0;
@@ -695,6 +696,8 @@ bool Collator::unpack_last_mc_state() {
   report_version_ = config_->has_capability(ton::capReportVersion);
   short_dequeue_records_ = config_->has_capability(ton::capShortDequeue);
   store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
+  msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
+  deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -3047,8 +3050,8 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   CHECK(src_wc == workchain());
   bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
   bool defer = false;
-  if (!is_special && !is_special_account && msg.msg_idx != 0) {
-    if (++sender_generated_messages_count_[src_addr] >= 10) {
+  if (deferring_messages_enabled_ && !is_special && !is_special_account && msg.msg_idx != 0) {
+    if (++sender_generated_messages_count_[src_addr] >= DEFER_MESSAGES_AFTER) {
       defer = true;
     }
   }
@@ -3609,7 +3612,8 @@ bool Collator::process_dispatch_queue() {
       if (account_dispatch_queue.is_null()) {
         return fatal_error("invalid dispatch queue in shard state");
       }
-      if (iter == 1 && sender_generated_messages_count_[src_addr] >= 10) {
+      if (iter == 1 && sender_generated_messages_count_[src_addr] >= DEFER_MESSAGES_AFTER &&
+          deferring_messages_enabled_) {
         cur_dispatch_queue.lookup_delete(src_addr);
         continue;
       }

@@ -45,7 +45,7 @@ class Collator final : public td::actor::Actor {
   }
   static constexpr long long supported_capabilities() {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
-           ton::capStoreOutMsgQueueSize;
+           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages;
   }
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
@@ -209,9 +209,11 @@ class Collator final : public td::actor::Actor {
   std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
   unsigned dispatch_queue_ops_{0};
   std::map<StdSmcAddress, LogicalTime> last_enqueued_deferred_lt_;
-  bool msg_metadata_enabled_ = true;  // TODO: enable by config
-  bool store_out_msg_queue_size_ = true;
   bool have_unprocessed_account_dispatch_queue_ = true;
+
+  bool msg_metadata_enabled_ = false;
+  bool deferring_messages_enabled_ = false;
+  bool store_out_msg_queue_size_ = false;
 
   td::PerfWarningTimer perf_timer_;
   //
