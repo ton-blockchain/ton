@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "manager.hpp"
+#include "checksum.h"
+#include "td/utils/buffer.h"
 #include "validator-group.hpp"
 #include "adnl/utils.hpp"
 #include "downloaders/wait-block-state.hpp"
@@ -464,6 +466,17 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
                                        actor_id(this), td::Timestamp::in(2.0), std::move(P));
 }
 
+void ValidatorManagerImpl::new_block_candidate(BlockIdExt block_id, td::BufferSlice data) {
+  if (!last_masterchain_block_handle_) {
+    VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
+    return;
+  }
+  if (!started_) {
+    return;
+  }
+  add_cached_block_candidate(ReceivedBlock{block_id, std::move(data)});
+}
+
 void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
   if (desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
     auto it = shard_blocks_.find(ShardTopBlockDescriptionId{desc->shard(), desc->catchain_seqno()});
@@ -492,6 +505,36 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
           },
           td::Timestamp::in(1.0));
     }
+  }
+}
+
+void ValidatorManagerImpl::add_cached_block_candidate(ReceivedBlock block) {
+  BlockIdExt id = block.id;
+  if (block.id.is_masterchain()) {
+    return;
+  }
+  if (cached_block_candidates_.emplace(id, std::move(block)).second) {
+    cached_block_candidates_lru_.push_back(id);
+    {
+      auto it = wait_block_data_.find(id);
+      if (it != wait_block_data_.end()) {
+        auto r_block = create_block(cached_block_candidates_[id].clone());
+        if (r_block.is_ok()) {
+          td::actor::send_closure(it->second.actor_, &WaitBlockData::got_block_data_from_net, r_block.move_as_ok());
+        }
+      }
+    }
+    {
+      auto it = wait_state_.find(id);
+      if (it != wait_state_.end()) {
+        // Proof link is not ready at this point, but this will force WaitBlockState to redo send_get_proof_link_request
+        td::actor::send_closure(it->second.actor_, &WaitBlockState::after_get_proof_link);
+      }
+    }
+  }
+  if (cached_block_candidates_lru_.size() > max_cached_candidates()) {
+    CHECK(cached_block_candidates_.erase(cached_block_candidates_lru_.front()));
+    cached_block_candidates_lru_.pop_front();
   }
 }
 
@@ -1189,10 +1232,15 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
   if (!candidates_buffer_.empty()) {
     td::actor::send_closure(candidates_buffer_, &CandidatesBuffer::add_new_candidate, id,
                             PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}}, candidate.collated_file_hash);
+  }
+  if (!id.is_masterchain()) {
+    add_cached_block_candidate(ReceivedBlock{id, candidate.data.clone()});
+    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, candidate.data.clone());
   }
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
@@ -1450,6 +1498,13 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
 
 void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
                                                   td::Promise<ReceivedBlock> promise) {
+  {
+    auto it = cached_block_candidates_.find(id);
+    if (it != cached_block_candidates_.end()) {
+      LOG(DEBUG) << "send_get_block_request: got result from candidates cache for " << id.to_str();
+      return promise.set_value(it->second.clone());
+    }
+  }
   callback_->download_block(id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -1472,6 +1527,20 @@ void ValidatorManagerImpl::send_get_block_proof_request(BlockIdExt block_id, td:
 
 void ValidatorManagerImpl::send_get_block_proof_link_request(BlockIdExt block_id, td::uint32 priority,
                                                              td::Promise<td::BufferSlice> promise) {
+  if (!block_id.is_masterchain()) {
+    auto it = cached_block_candidates_.find(block_id);
+    if (it != cached_block_candidates_.end()) {
+      // Proof link can be created from the cached block candidate
+      LOG(DEBUG) << "send_get_block_proof_link_request: creating proof link from cached caniddate for "
+                 << block_id.to_str();
+      TRY_RESULT_PROMISE_PREFIX(promise, block_root, vm::std_boc_deserialize(it->second.data),
+                                "failed to create proof link: ");
+      TRY_RESULT_PROMISE_PREFIX(promise, proof_link, WaitBlockData::generate_proof_link(it->second.id, block_root),
+                                "failed to create proof link: ");
+      promise.set_result(std::move(proof_link));
+      return;
+    }
+  }
   callback_->download_block_proof_link(block_id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
 
